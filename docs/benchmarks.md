@@ -4,9 +4,9 @@
 LongMemEval-S / MemoryAgentBench-style memory benchmark and emits a signed
 JSON scorecard. It has two modes:
 
-- **`--self-test`** — grades an in-memory stub against a built-in synthetic
+- **`--self-test`**: grades an in-memory stub against a built-in synthetic
   fixture. No network, no responder. Exercises the scoring code in CI.
-- **`--live --url <responder>`** — loads a dataset corpus into a *running*
+- **`--live --url <responder>`**: loads a dataset corpus into a *running*
   responder over its real write API, answers every query over the real read
   API, and computes the four axes + topline **from the responder's own
   output**. No score is hardcoded.
@@ -25,18 +25,18 @@ Each dataset item is `{id, content, query, expected_answer}` (with optional
    **`memory_search`** (semantic). If not (the default offline build ships
    no embedder weights), retrieval falls back to **`recall_fallback`**: list
    the loaded files via `memory_view` and rank them with a lexical
-   token-overlap scorer. The chosen path is recorded as `retrieval_path` —
+   token-overlap scorer. The chosen path is recorded as `retrieval_path`;
    a fallback run is never presented as a semantic-search run.
 3. **Score four axes** from real retrieval output, with the standard
    answer-recall criterion (the retrieved content **contains** the
    ground-truth answer, case/whitespace-normalised, numerically canonical):
-   - **retrieval_accuracy** — query every item, grade the retrieved content.
-   - **test_time_learning** — for items with an `update`, rewrite the same
+   - **retrieval_accuracy**: query every item, grade the retrieved content.
+   - **test_time_learning**: for items with an `update`, rewrite the same
      path (last-write-wins), re-query, require the *post-update* answer.
-   - **long_range_understanding** — re-query the earliest-loaded third of
+   - **long_range_understanding**: re-query the earliest-loaded third of
      the corpus (front of the transcript), where a recency-biased store
      would have dropped the needle.
-   - **conflict_resolution** — store a disagreeing companion under a second
+   - **conflict_resolution**: store a disagreeing companion under a second
      path and require the responder to surface the disagreement. The
      responder's `/v1/memory_contradictions` scan is tried first
      (`conflict_method: "contradiction_scan"`); since that index scans
@@ -45,7 +45,7 @@ Each dataset item is `{id, content, query, expected_answer}` (with optional
      stored **non-destructively** and read back distinct
      (`conflict_method: "stored_distinct_fallback"`).
 4. **Topline.** `longmemeval_topline` is the item-weighted fraction of all
-   graded questions answered correctly across the four axes — the
+   graded questions answered correctly across the four axes, the
    LongMemEval-S convention.
 
 The scorecard is written to `var/benchmarks/membench-live.json` and printed
@@ -56,7 +56,7 @@ to stdout, with the responder's signed receipt embedded.
 A small **SAMPLE** dataset (`crates/emem-membench/data/sample-longmemeval.jsonl`,
 ~15 items) is committed so `--live` runs end-to-end with no download. Its
 score is labelled `dataset_provenance: "sample"` and is **illustrative
-only — not the published benchmark number**. A user-supplied dataset is
+only, not the published benchmark number**. A user-supplied dataset is
 labelled `"full"`. Never quote a sample score as the published result.
 
 ## Run `--live` against a local responder
@@ -95,16 +95,16 @@ Accepted aliases: `id` ← `question_id`/`qid`; `content` ←
 `context`/`text`/`memory`; `query` ← `question`; `expected_answer` ←
 `answer`/`expected`.
 
-- **LongMemEval** — <https://github.com/xiaowu0162/LongMemEval>. The
+- **LongMemEval** (<https://github.com/xiaowu0162/LongMemEval>). The
   `LongMemEval-S` split ships as JSON of objects with
   `question_id` / `question` / `answer` over `haystack_sessions`. Flatten
   each item's relevant session text into `content` and emit one JSONL line
   per question. Dataset: <https://huggingface.co/datasets/xiaowu0162/longmemeval>.
-- **MemoryAgentBench** — <https://github.com/HillZhang1999/MemoryAgentBench>.
+- **MemoryAgentBench** (<https://github.com/HillZhang1999/MemoryAgentBench>).
   Items carry `context` / `query` / `answer`; map directly onto the schema
   above (the loader already accepts `context` and `answer` as aliases).
 
-A line that fails to parse is a hard error with its line number — rows are
+A line that fails to parse is a hard error with its line number; rows are
 never silently dropped (a dropped row would inflate the score).
 
 ## Scorecard from the committed SAMPLE run
@@ -112,7 +112,7 @@ never silently dropped (a dropped row would inflate the score).
 Produced by the run in this repo against a fresh `:memory:` responder
 (`emem-server` on `127.0.0.1:5087`), dataset = the committed sample,
 read path = `recall_fallback` (the offline build ships no BGE embedder, so
-retrieval is lexical, not semantic). **This is a SAMPLE score — illustrative
+retrieval is lexical, not semantic). **This is a SAMPLE score: illustrative
 only, not the published LongMemEval/MemoryAgentBench result.**
 
 ```json

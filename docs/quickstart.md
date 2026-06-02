@@ -2,7 +2,7 @@
 
 Sixty seconds from cold to a signed answer. No signup, no API key.
 
-## Hello, Earth — in five copy-pasteable forms
+## Hello, Earth, in five copy-pasteable forms
 
 The same call, five ways. Pick the one that matches your stack.
 
@@ -12,7 +12,7 @@ The same call, five ways. Pick the one that matches your stack.
 curl -sX POST https://emem.dev/v1/locate \
     -H 'content-type: application/json' \
     -d '{"q":"South Mumbai"}' | jq .cell64
-# "defi.zb4d7.ze56c.zf24c"   # (geocoder result — may drift)
+# "defi.zb4d7.ze56c.zf24c"   # (geocoder result, may drift)
 
 curl -sX POST https://emem.dev/v1/recall \
     -H 'content-type: application/json' \
@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
 
 ## What you just did
 
-1. `POST /v1/locate` resolved a place name to a **cell64** — a 64-bit
+1. `POST /v1/locate` resolved a place name to a **cell64**, a 64-bit
    address for a ~9.55 m × 9.55 m square on WGS-84. Hilbert-ordered, so
    neighbours share string prefixes.
 2. `POST /v1/recall` returned a **signed fact** at that cell: value,
@@ -141,11 +141,11 @@ curl -sX POST https://emem.dev/v1/verify_receipt \
     --data-binary "{\"receipt\": $(jq .receipt out.json)}" | jq
 ```
 
-Or paste the receipt JSON into [https://emem.dev/verify](/verify) — the
+Or paste the receipt JSON into [https://emem.dev/verify](/verify). The
 page recomputes `blake3(preimage) → ed25519.verify(sig, digest, pubkey)`
 in your browser with `@noble/curves` + `@noble/hashes`. No server call.
 
-## Memory tokens — share one signed fact in one string
+## Memory tokens: share one signed fact in one string
 
 ```python
 from emem import Client
@@ -157,14 +157,14 @@ fcid  = facts["facts"][0]["fact_cid"]
 token = em.memory_token(cell, fcid)["token"]
 # 'memt:defi.zb592.nemu.zEvE:vd5wzmaxh...j7bca'
 
-# Paste this anywhere — LLM prompt, log line, Slack — any reader does:
+# Paste this anywhere (LLM prompt, log line, Slack); any reader does:
 em.memory_token_resolve(token)["fact"]
 ```
 
 The token *is* the citation; two agents resolving the same token get
 byte-identical bytes back.
 
-## Memory bundles — sign N facts in one envelope
+## Memory bundles: sign N facts in one envelope
 
 ```bash
 # Compose a bundle citing the elevation at Mount Fuji and the latest NDVI.
@@ -184,7 +184,7 @@ curl -sX GET https://emem.dev/v1/memory_bundle/memb:vlkbh5bfzjeem6t3o54yje5rrq |
 # "emem.memory_bundle.v1"
 ```
 
-## Agent memory — write, search, audit on the same trust layer
+## Agent memory: write, search, audit on the same trust layer
 
 The substrate gives the agent its own writable scratchpad. Every write is
 ed25519-signed and content-addressed. Every search is BGE-embedded semantic
@@ -205,7 +205,7 @@ curl -sX POST https://emem.dev/mcp \
     }' | jq '.result.content[0].text | fromjson | .file_cid'
 # "lvaqcp3op7ijcletzckpnzaksy"
 
-# Search the agent's own files semantically — paraphrases match.
+# Search the agent's own files semantically; paraphrases match.
 curl -sX POST https://emem.dev/v1/memory/search \
     -H 'content-type: application/json' \
     -d '{"q":"elevation observations at Japanese mountains","k":3}' \
@@ -234,18 +234,18 @@ The receipt carries the bound so any auditor replays the same query later.
 
 ## Next moves
 
-- [Whitepaper](./whitepaper.html) — the math, the bit layouts, the trust proof
-- [Protocol](./protocol.html) — wire format and signing rules
-- [Agents](./agents.html) — how AI agents discover and call the protocol (MCP + REST)
-- [Errors](./errors.html) — common error shapes and how to handle each
-- [Registries](./registries.html) — bands, algorithms, sources, topics
-- [Developers / Architecture](./developers/architecture.html) — what runs inside the box
+- [Whitepaper](./whitepaper.html): the math, the bit layouts, the trust proof
+- [Protocol](./protocol.html): wire format and signing rules
+- [Agents](./agents.html): how AI agents discover and call the protocol (MCP + REST)
+- [Errors](./errors.html): common error shapes and how to handle each
+- [Registries](./registries.html): bands, algorithms, sources, topics
+- [Developers / Architecture](./developers/architecture.html): what runs inside the box
 
 ## Where things live
 
 - **Live API**: `https://emem.dev` (REST + MCP on the same port)
 - **MCP endpoint**: `https://emem.dev/mcp` (Streamable HTTP, JSON-RPC 2.0)
 - **OpenAPI**: `https://emem.dev/openapi.json`
-- **GitHub**: `https://github.com/Vortx-AI/emem` — code, issues, roadmap
+- **GitHub**: `https://github.com/Vortx-AI/emem` (code, issues, roadmap)
 - **Self-host**: `docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest` (see [self-host.md](./self-host.html))
-- **Status**: `GET /health` — single-line JSON; check it from your monitor
+- **Status**: `GET /health`, single-line JSON; check it from your monitor

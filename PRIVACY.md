@@ -21,8 +21,8 @@ and are out of scope.
 
 | Surface | Data | Purpose | Retention |
 |---|---|---|---|
-| `GET /…`, `POST /v1/*`, `POST /mcp` | Request method, path, GET query string, response status, duration, **blake3-hashed truncated IP** (8-byte base32, non-reversible — see `agent_ip_hash` in the access log layer at `crates/emem-api-rest/src/lib.rs`), user-agent header, accept header, traceparent header | Server health, abuse mitigation, capacity planning | 30 days, enforced by `MaxRetentionSec=30day` on systemd journald |
-| `POST /v1/attest`, `POST /v1/attest_cbor` | The signed attestation payload itself: ed25519 attester pubkey, fact CIDs, Merkle root, attestation timestamp | Persisted to the public, content-addressed corpus by design — that is the whole protocol | Indefinite (the corpus is a public ledger) |
+| `GET /…`, `POST /v1/*`, `POST /mcp` | Request method, path, GET query string, response status, duration, **blake3-hashed truncated IP** (8-byte base32, non-reversible; see `agent_ip_hash` in the access log layer at `crates/emem-api-rest/src/lib.rs`), user-agent header, accept header, traceparent header | Server health, abuse mitigation, capacity planning | 30 days, enforced by `MaxRetentionSec=30day` on systemd journald |
+| `POST /v1/attest`, `POST /v1/attest_cbor` | The signed attestation payload itself: ed25519 attester pubkey, fact CIDs, Merkle root, attestation timestamp | Persisted to the public, content-addressed corpus by design (that is the whole protocol) | Indefinite (the corpus is a public ledger) |
 | `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate`, `POST /v1/ask`, `POST /v1/backfill` | Request body (cell, place name, free-text question, bands, time window). Bodies are used in-memory only to compute the response and are **not** logged; only the path appears in the access log. | Not persisted beyond the request | None |
 | `GET /v1/locate?place=…`, `GET /v1/elevation?lat=…&lng=…`, etc. | The full query string is captured by the access log middleware. If you submit a sensitive place name as a GET query, it is in the operational log for the 30-day retention window, paired with the hashed IP. | Operational | 30 days |
 | Auto-materialized facts (incl. `emem_backfill`) | Upstream provider response (Copernicus DEM, JRC GSW, Hansen GFC, ESA WorldCover, OSM/Overture, Open-Meteo, MODIS via NASA LP DAAC, Sentinel-1/2 via Element84 STAC, Tessera, Prithvi-EO-2.0, Galileo, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
@@ -77,7 +77,7 @@ This is the **GDPR-compliant default**. The aggregate visit counts let us see wh
 
 The Esc key dismisses with **Reject** (default-deny on accidental dismiss). The banner is not a cookie wall: the entire site remains fully usable without any decision (every endpoint and link works regardless of consent state).
 
-**Why a cookie and not localStorage?** Earlier versions of this site stored the consent decision in `localStorage`. We switched to a first-party cookie on 2026-05-06 because EU-strict browser configurations (Firefox Strict tracking-protection mode, Brave Shields, the "delete site data on close" Safari / Edge defaults common in the EEA) were clearing `localStorage` between sessions. That made the banner re-prompt on every refresh — a bad UX and arguably a dark pattern. First-party cookies survive those configs reliably while remaining strictly necessary under ePrivacy Art. 5(3).
+**Why a cookie and not localStorage?** Earlier versions of this site stored the consent decision in `localStorage`. We switched to a first-party cookie on 2026-05-06 because EU-strict browser configurations (Firefox Strict tracking-protection mode, Brave Shields, the "delete site data on close" Safari / Edge defaults common in the EEA) were clearing `localStorage` between sessions. That made the banner re-prompt on every refresh, a bad UX and arguably a dark pattern. First-party cookies survive those configs reliably while remaining strictly necessary under ePrivacy Art. 5(3).
 
 **Revoking or changing consent.** Click **Manage cookies** in the footer at any time. This deletes the `emem_consent` cookie (`Max-Age=0`), re-renders the banner, and lets you make a new decision. To clear all GA cookies in the same step, also clear cookies for `emem.dev` in your browser.
 
@@ -106,12 +106,12 @@ cached locally on the responder against the upstream Nominatim response.
 Cache key is the normalized query string; cache TTL is 30 days; cache
 contents are local to this responder and never shared upstream. If you
 prefer your place queries not be cached, use the `lat` + `lng` form of
-`/v1/locate` instead — coordinate lookups are not cached.
+`/v1/locate` instead; coordinate lookups are not cached.
 
 ## Third parties
 
 When a request triggers auto-materialization, the responder fetches data
-from public open-data providers — these requests are made *by the emem
+from public open-data providers. These requests are made *by the emem
 responder*, not by you, and your IP is not forwarded:
 
 - Copernicus Data Space Ecosystem (Sentinel-1, Sentinel-2, Cop-DEM)
@@ -144,19 +144,19 @@ the extent applicable privacy laws (including the EU/UK GDPR, the
 California CCPA/CPRA, and India's Digital Personal Data Protection Act 2023)
 grant you rights, we honour them:
 
-- **Access / portability** — request a copy of any operational log line
+- **Access / portability**: request a copy of any operational log line
   that can be tied to an IP you control.
-- **Erasure** — request deletion of any such log line ahead of the 30-day
+- **Erasure**: request deletion of any such log line ahead of the 30-day
   rotation. Note: signed attestations submitted to `/v1/attest` cannot be
   retracted (see TERMS.md §4); content addressing is by design.
-- **Rectification** — request correction of any inaccurate record we hold
+- **Rectification**: request correction of any inaccurate record we hold
   about you.
-- **Object / restrict** — ask us to stop processing operational metadata
+- **Object / restrict**: ask us to stop processing operational metadata
   associated with your IP for anything beyond fulfilling the request.
-- **Withdraw consent / opt out of "sale" or "sharing"** — emem does not
+- **Withdraw consent / opt out of "sale" or "sharing"**: emem does not
   sell or share personal data with third parties for advertising or
   cross-context behavioural purposes; there is nothing to opt out of.
-- **Non-discrimination** — exercising any of the above will not change the
+- **Non-discrimination**: exercising any of the above will not change the
   service you receive.
 
 To exercise a right, email **avijeet@vortx.ai** with enough context (e.g.

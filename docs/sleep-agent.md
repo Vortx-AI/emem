@@ -1,6 +1,6 @@
 # Sleep-time agent (`emem-sleep-agent`)
 
-_Plan reference: `docs/plans/v0.0.8-and-v0.0.9.md`, "Change 6 — Sleep-time
+_Plan reference: `docs/plans/v0.0.8-and-v0.0.9.md`, "Change 6: Sleep-time
 agent loop". v0.0.9 connect-and-evolve lane._
 
 The sleep-time agent is the **opt-in LLM rewrite/merge loop** that layers
@@ -8,7 +8,7 @@ on top of the deterministic refinement that already ships in emem. The
 deterministic loop (`EMEM_REFINEMENT_ENABLED`) reacts to a contradiction by
 drawing a `disagrees_with` edge; the sleep-time agent goes one step further
 and, during idle periods, asks an LLM to actually *reconcile* the
-conflicting / duplicated memory into a single cleaner note — then writes
+conflicting / duplicated memory into a single cleaner note, then writes
 that note back non-destructively.
 
 It ships as the standalone crate `crates/emem-sleep-agent` with one binary,
@@ -35,11 +35,11 @@ responder over the same public REST + MCP surface any external agent uses.
 Each pass:
 
 1. **Candidate selection** (`candidates.rs`, pure + unit-tested):
-   - **Contradictions** — `POST /v1/memory_contradictions` returns
+   - **Contradictions**: `POST /v1/memory_contradictions` returns
      `(cell, band, tslot)` triples where ≥2 attesters disagree, each with a
      severity in `[0,1]`. Anything above `EMEM_SLEEP_AGENT_MIN_SEVERITY`
      (default 0.3) is a candidate; severity scores its urgency.
-   - **Churn** — memory files of the configured kinds are enumerated
+   - **Churn**: memory files of the configured kinds are enumerated
      (`memory_list_by_kind`) and clustered by a normalized path stem
      (`notes/site-1`, `notes/site-2`, `notes/site.md` → `notes/site`).
      A cluster with ≥2 members, or a single path rewritten past the churn
@@ -108,9 +108,9 @@ next pass with a logged note.
 
 `memory_create` to an existing `path`:
 
-- updates `memory_files[path] → new_cid` — so `memory_view` and any
+- updates `memory_files[path] → new_cid`, so `memory_view` and any
   `as_of:now` read return the merged text, and
-- appends `new_cid` to the append-only `memory_file_history[path]` — so the
+- appends `new_cid` to the append-only `memory_file_history[path]`, so the
   prior versions are still resolvable by CID and replayable.
 
 Nothing is deleted. The merged entry's provenance trailer records every
@@ -118,11 +118,11 @@ source folded in, so an auditor can walk back to the originals. This is the
 exact bi-temporal shadow the plan calls for: the newer entry wins under
 `as_of` now, the originals stay replayable.
 
-## Honesty — no fabrication
+## Honesty: no fabrication
 
 The agent never invents a rewrite when it has no real LLM to call:
 
-- `emem-sleep-agentd --dry-run` — connect, select candidates, print exactly
+- `emem-sleep-agentd --dry-run`: connect, select candidates, print exactly
   what would be merged, and exit 0. **No** LLM call, **no** write. Works
   fully offline against a local responder. An empty corpus is reported
   honestly ("empty candidate set") rather than silently passing.
@@ -139,7 +139,7 @@ cargo build -p emem-cli --bin emem-server
 EMEM_DATA=:memory: EMEM_BIND=127.0.0.1:5088 EMEM_OVERTURE_SKIP_WARMUP=1 \
   ./target/debug/emem-server &
 
-# One dry pass — connects, selects, plans, writes nothing:
+# One dry pass: connects, selects, plans, writes nothing.
 EMEM_URL=http://127.0.0.1:5088 \
   cargo run -p emem-sleep-agent --bin emem-sleep-agentd -- --dry-run
 ```
@@ -150,12 +150,12 @@ EMEM_URL=http://127.0.0.1:5088 \
 cargo test -p emem-sleep-agent
 ```
 
-- `merge::tests::mock_llm_merge_writes_superseding_memory` — injects a mock
+- `merge::tests::mock_llm_merge_writes_superseding_memory`: injects a mock
   `LlmTransport` returning fixed merged text, runs a full pass against a
   mock responder, and asserts the agent writes the merged text + provenance
   to the canonical path with the inherited kind. No real API.
-- `merge::tests::dry_run_selects_but_never_writes` — dry-run selects a
+- `merge::tests::dry_run_selects_but_never_writes`: dry-run selects a
   candidate but performs no LLM call and no write even when a transport is
   available.
-- `candidates::tests::*` — candidate selection over a JSON fixture
+- `candidates::tests::*`: candidate selection over a JSON fixture
   (churn clustering, severity floor, ranking, empty corpus).

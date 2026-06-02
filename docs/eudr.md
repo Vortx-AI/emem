@@ -1,4 +1,4 @@
-# EUDR — Due Diligence Statements + Visual Evidence
+# EUDR: Due Diligence Statements + Visual Evidence
 
 `POST /v1/eudr_dds` produces a signed Annex II–shaped Due Diligence Statement under
 [Regulation (EU) 2023/1115](https://eur-lex.europa.eu/eli/reg/2023/1115/oj) for one or more
@@ -60,7 +60,7 @@ The block (schema id `emem.visual_evidence.v1`) is built from:
   (40 → 60 → 80 % cloud, ±30 → 60 → 90 day window) finds the cleanest scene per cell;
   per-pixel SCL gating drops residual cloud pixels.
 - **Sentinel-1 RTC VV-backscatter** at the same anchors via `materialize_sentinel1_vv`,
-  providing a cloud-independent confirmation signal — critical in monsoon regions
+  providing a cloud-independent confirmation signal, critical in monsoon regions
   where S2 has cloud gaps.
 - **Per-year `scene.png` URLs** for up to 6 representative cells of the plot, framed
   as full-year `?datetime=YYYY-01-01.../YYYY-12-31...` windows so the existing
@@ -81,7 +81,7 @@ loosen for noisy regions:
 If either signal breaches its threshold the visual verdict is
 `visual_deforestation_suspected`; if both stay within bounds the verdict is
 `no_visual_deforestation`. A plot with no 2020 baseline data at all returns
-`indeterminate_no_baseline` rather than silently passing — honest absence over
+`indeterminate_no_baseline` rather than silently passing: honest absence over
 false confidence.
 
 ### Receipts
@@ -102,7 +102,7 @@ synchronous round-trip. Operators can override via `EMEM_EUDR_TIMEOUT_SECS`.
 
 ## Compliance posture
 
-EUDR Article 2(4) defines forest by canopy / height / area — **not by data source**.
+EUDR Article 2(4) defines forest by canopy / height / area, **not by data source**.
 The `eudr_compliance@1` baseline (JRC GFC2020 + Hansen + JRC TMF) is the
 Commission's expected (non-binding) baseline per Bourgoin et al. 2026 and gives the
 strongest audit defensibility today. The `visual_evidence` block is supplementary
@@ -110,8 +110,8 @@ narrative evidence; it does not change the strict pass/fail verdict on its own.
 
 ## Related endpoints
 
-- `GET /v1/algorithms/eudr_compliance@1` — input bands, formula, accuracy notes
-- `GET /v1/algorithms/eudr_dds@1` — polygon-aggregator algorithm card
-- `GET /v1/schemas/eudr_dds.json` — full JSON Schema (draft 2020-12)
-- `GET /v1/cells/{cell64}/scene.png` — true-colour Sentinel-2 RGB chip
-- `GET /v1/cells/{cell64}/scene.rgb` — raw 256×256×3 byte stream for client-side rendering
+- `GET /v1/algorithms/eudr_compliance@1`: input bands, formula, accuracy notes
+- `GET /v1/algorithms/eudr_dds@1`: polygon-aggregator algorithm card
+- `GET /v1/schemas/eudr_dds.json`: full JSON Schema (draft 2020-12)
+- `GET /v1/cells/{cell64}/scene.png`: true-colour Sentinel-2 RGB chip
+- `GET /v1/cells/{cell64}/scene.rgb`: raw 256×256×3 byte stream for client-side rendering

@@ -11,7 +11,7 @@ bug. Every encoding rule cites the file and line that defines it.
 
 ---
 
-## 1. Cell64 — the spatial primitive
+## 1. Cell64: the spatial primitive
 
 A Cell64 is a 64-bit integer that addresses a quantised lat/lng bucket on
 the WGS-84 ellipsoid. The wire form is four base-65,536 digits joined by
@@ -19,7 +19,7 @@ dots, e.g. `dedi.zaf00.bafi.baba`. The integer form is what gets hashed
 and compared; the dotted text form is what shows up inside facts and
 receipts.
 
-![address algebra — cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID](/docs/diagrams/09-address-algebra.svg)
+![address algebra: cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID](/docs/diagrams/09-address-algebra.svg)
 *The full address pipeline at a glance. Section 4 walks each box; the SVG also names every constant the encoder uses.*
 
 ### 1.1 Bit layout
@@ -140,7 +140,7 @@ and convert with `lat_deg = (lat_q/GEO_LAT_MAX)·180 - 90` and
 The tests in `geo.rs:139-241` pin the contract.
 
 - **Sub-quantum collision** (geo.rs:198-202): two queries 9 µ° apart
-  (~1 m) MUST produce the same cell — the cell's grain, not a bug.
+  (~1 m) MUST produce the same cell: the cell's grain, not a bug.
 - **12 m apart distinguishes** (geo.rs:187-193): two queries
   `1.08e-4°` apart (~12 m) MUST produce different cells.
 - **Antimeridian** (geo.rs:178-180): `lng = 179.99` round-trips;
@@ -154,7 +154,7 @@ The tests in `geo.rs:139-241` pin the contract.
 Pre-0.0.3 emem used a `GEO_RES = 12` (16-bit-per-axis, ~305 m) grid.
 That encoding is **not** decodable by the current codec. The test at
 `geo.rs:231-241` constructs a legacy-shaped raw word and confirms
-`latlng_from_cell64` returns `Err(CodecError::NotGeoCell)` — the
+`latlng_from_cell64` returns `Err(CodecError::NotGeoCell)`: the
 resolution field changed (12 → 21), `GEO_PREFIX_MASK` keys on it, so
 legacy strings fail closed instead of silently misplacing a fact by
 hundreds of metres. Implementations MUST NOT serve, accept, or quietly
@@ -162,7 +162,7 @@ upgrade legacy cell64 strings.
 
 ---
 
-## 2. Tslot — temporal addressing
+## 2. Tslot: temporal addressing
 
 A `Tslot` is a `u64` bucket index of the Unix timeline at a band's
 declared tempo cadence. Defined in `crates/emem-core/src/tslot.rs:19-22`.
@@ -177,7 +177,7 @@ collapsed to `Tslot(0)`. The current code (tslot.rs:56-68) computes
 Tslot(unix_seconds.max(0) / tempo.slot_seconds())
 ```
 
-The constant `EMEM_EPOCH_UNIX` is retained as protocol metadata only —
+The constant `EMEM_EPOCH_UNIX` is retained as protocol metadata only;
 nothing in the encode path subtracts it. Pre-1970 (negative Unix)
 inputs clamp to `Tslot(0)`.
 
@@ -193,7 +193,7 @@ Defined in `tslot.rs:24-37, 43-54`. Five variants:
 | `Fast` | 86_400 | 1 d | raw S2 NDVI |
 | `UltraFast` | 3_600 | 1 h | weather, traffic |
 
-`Static` returns `Tslot(0)` regardless of input — the slot is
+`Static` returns `Tslot(0)` regardless of input; the slot is
 meaningless for a band that never refreshes. `to_unix_start` is the
 inverse: the Unix second at which the slot opened.
 
@@ -293,7 +293,7 @@ topics, schema, lcv-1, alphabet) the recipe is identical:
 manifest_cid = base32_nopad_lowercase( blake3( canonical_cbor(manifest) )[..32] )
 ```
 
-Full 32 bytes (52 chars) — the bigger size is acceptable here because a
+Full 32 bytes (52 chars). The bigger size is acceptable here because a
 manifest CID appears once per response in `registry_cid` / `schema_cid`,
 not once per fact.
 
@@ -315,7 +315,7 @@ The encoder is `ciborium::ser::into_writer`. `ciborium` emits RFC 8949
 deterministic encoding **when** the input traversal is deterministic.
 For serde-derived structs that holds: fields serialise in declaration
 order. For freeform maps (`ciborium::Value::Map`) callers MUST present
-the map with already-sorted keys — emem does not re-sort silently.
+the map with already-sorted keys; emem does not re-sort silently.
 
 ### 4.1 emem CBOR tags
 
@@ -454,13 +454,13 @@ struct NegativeFact {
 
 A negative fact is **not** the same as a missing record. Missing means
 "no responder has attested this (cell, band, tslot)". Negative means
-"I looked and there was nothing — here is what I looked at
+"I looked and there was nothing; here is what I looked at
 (`reason_cid`)". Per the no-silent-fallbacks rule, the API must
 distinguish these states; see §10.
 
 #### Signed Absence as a first-class protocol move
 
-Every band that has no data at a cell returns a `NegativeFact` —
+Every band that has no data at a cell returns a `NegativeFact`,
 referred to throughout the codebase as a **signed Absence**. The
 Absence itself is content-addressed (it has a `FactCid`), signed by
 the responder, and citable on the same footing as a Primary or
@@ -534,7 +534,7 @@ pk.verify_strict(msg.as_bytes(), &sig)?;
 `blake3(canonical_cbor(fact))` hashes, sorted bytewise. The empty input
 returns `[0u8; 32]`.
 
-Every leaf is **promoted by self-hash** before pairing — the leaf
+Every leaf is **promoted by self-hash** before pairing: the leaf
 becomes `blake3(leaf || leaf)`. The self-hash separates the "leaf" and
 "internal node" domains; without it, an attacker who knows a
 `CBOR(fact)` could splice it in at an internal position. The test
@@ -566,11 +566,11 @@ attestation re-checks the merkle root and the ed25519 signature
 
 1. CBOR-encode each fact, take `blake3(bytes)` → leaf.
 2. Sort leaves bytewise.
-3. `emem_attest::merkle_root(&leaves)` must equal `att.batch_root` —
+3. `emem_attest::merkle_root(&leaves)` must equal `att.batch_root`,
    else `StorageError::AttestationInvalid("merkle root mismatch …")`.
 4. Recover `VerifyingKey::from_bytes(&att.attester.0)`.
 5. `vk.verify_strict(blake3(batch_root || registry_cid || schema_cid),
-   sig)` must succeed — else `AttestationInvalid("bad signature …")`.
+   sig)` must succeed, else `AttestationInvalid("bad signature …")`.
 
 Failure → write rejected. The HTTP layer surfaces this as the
 `BadSignature` error code from `crates/emem-core/src/error.rs`.
@@ -579,7 +579,7 @@ Failure → write rejected. The HTTP layer surfaces this as the
 
 ## 7. Receipt
 
-![the trust plane — preimage, signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
+![the trust plane: preimage, signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
 *The five-step trust pipeline. Section 7.2 specifies the preimage byte-by-byte; sections 8 and 9 cover the Merkle path and the append-only log.*
 
 `crates/emem-fact/src/receipt.rs:11-58`.
@@ -631,7 +631,7 @@ Details that matter:
 
 - Header-field separator is `|` (0x7C); list-element separator is
   `,` (0x2C).
-- **Every** list element — including the last — is followed by a
+- **Every** list element (including the last) is followed by a
   trailing `,`. The loop writes `c.as_bytes()` then `b","`
   unconditionally; there is no terminator-omit branch
   (server.rs:139-147).
@@ -661,7 +661,7 @@ emitted as a 64-byte `Signature`.
      question is the agent's interpretive responsibility.
 
    Echo the original query alongside the receipt if the downstream
-   needs *"the user asked X and the responder agreed"* — the receipt
+   needs *"the user asked X and the responder agreed"*: the receipt
    alone does not testify to the resolution-of-intent step.
 
    **The `as_of` block sits outside the preimage.** When a read carried
@@ -670,7 +670,7 @@ emitted as a 64-byte `Signature`.
    block. The block is metadata describing the temporal window the
    caller passed; it is *not* hashed into the preimage. Re-signing a
    different bound would change which fact_cids are returned, and the
-   preimage already binds those — so the temporal claim is anchored
+   preimage already binds those, so the temporal claim is anchored
    transitively. A verifier reading a receipt with `as_of` checks the
    signature against the §7.1 preimage rule as if `as_of` were absent;
    the block is for inspection and replay, not for the cryptographic
@@ -681,11 +681,11 @@ emitted as a 64-byte `Signature`.
    materialisation time), which is part of the canonical CBOR hashed
    into `fact_cid`. Two responders materialising the same
    `(cell, band, tslot)` from byte-identical upstream pixels therefore
-   produce **different `fact_cid`s** — this is intentional (each
+   produce **different `fact_cid`s**; this is intentional (each
    responder signs independently under its own identity). The
    cross-replica join key for "does any responder have this
    observation" is the tuple `(cell, band, tslot)`, not `fact_cid`.
-   Aggregate fan-out endpoints — notably `POST /v1/recall_polygon` —
+   Aggregate fan-out endpoints (notably `POST /v1/recall_polygon`)
    emit one independently signed receipt per cell under
    `by_cell.<cell>.receipt`; the top-level `merged_facts[]` is
    convenience-only and is **not** covered by an aggregate signature.
@@ -759,7 +759,7 @@ VerifyKey(pk_bytes).verify(digest, bytes(receipt["signature"]))
 ```
 
 A verifier that can reproduce the preimage and run `verify_strict` is
-the entire trust-rebinding path — no other call to the responder is
+the entire trust-rebinding path; no other call to the responder is
 required.
 
 ### 7.5 Capability binding for memory writes
@@ -781,7 +781,7 @@ where:
 
 - `verb ∈ {create, str_replace, insert, delete, rename}`
 - `path` is the canonical memory path beginning with `/memories/`
-- `body_hash = blake3(canonical request body bytes)` — the JSON body
+- `body_hash = blake3(canonical request body bytes)`, the JSON body
   the caller will POST, byte-for-byte
 
 The reference implementation is `crates/emem-primitives/src/memory_acl.rs`:
@@ -798,14 +798,14 @@ are write-restricted, where `pubkey_short` is the first 8 chars of
 but the wrong namespace returns 403 `memory_namespace_violation`. A
 write with an invalid signature returns 401
 `memory_attestation_invalid`. Bare `/memories/...` paths (no
-`by_attester` segment) accept anyone — back-compat with the
+`by_attester` segment) accept anyone, back-compat with the
 unsigned Anthropic memory-tool form.
 
 For attested writes, the responder's own receipt (§7.1) carries
 `cells = ["pubkey:<b32>", path]`, so the path → attester binding
 is reproducible from the receipt body. Two signatures cover the
 write: the caller's over `attester_preimage`, and the responder's
-over §7.1 — the first proves authority over the namespace, the
+over §7.1. The first proves authority over the namespace, the
 second proves the responder persisted the bytes.
 
 ---
@@ -838,7 +838,7 @@ right child (`acc := blake3(sibling || acc)`); then `idx /= 2`. Final
 
 Two preconditions a verifier must respect:
 
-1. The `leaf` argument is the **promoted** leaf — `blake3(C || C)`,
+1. The `leaf` argument is the **promoted** leaf `blake3(C || C)`,
    not the raw `C = blake3(CBOR(fact))`. The same self-hash that
    `merkle_root` applies internally must be done by the caller before
    `verify_merkle_path`. The test at `lib.rs:160-171` and `lib.rs:196-218`
@@ -925,11 +925,11 @@ it rotates.
 `AttestationLog::append` (`merkle_log.rs:58-91`): CBOR-encode the
 attestation, hash it, build the `[len][cbor][hash]` record, rotate the
 segment if the open one would exceed 1 GiB, append, then `sync_all()`.
-Data is fsynced before `append` returns — receipts depend on the
+Data is fsynced before `append` returns; receipts depend on the
 durability claim.
 
 `AppendOutcome` (`merkle_log.rs:142-150`) returns `segment_index`,
-`offset_in_segment`, and `record_hash` — enough to rebuild a
+`offset_in_segment`, and `record_hash`, enough to rebuild a
 record-level inclusion proof later.
 
 ### 9.3 Rotation
@@ -989,7 +989,7 @@ pub fn permits_resolution(self, requested_res: u8, conformance_l2: bool) -> bool
 A request at finer resolution than `min_res` does not silently fall
 through. The responder either snaps to `min_res` (and stamps
 `privacy_snapped: true` in the response payload) or rejects the
-request — the choice is the responder's, but it MUST announce which
+request. The choice is the responder's, but it MUST announce which
 happened. Silent fallthrough would violate the no-silent-fallbacks
 contract: an agent seeing an empty result cannot tell whether the
 band was prohibited or simply absent.
@@ -1033,7 +1033,7 @@ A type mismatch between `Claim.value` and the fact's value type is
 *decidable* depending on context: in `find_similar.filter` it returns
 `false` (candidate filtered out); in `verify` it returns
 `ClaimError::TypeMismatch` so the agent can distinguish a typo from a
-mismatch. New ops ship under semver — an unknown op MUST surface as a
+mismatch. New ops ship under semver; an unknown op MUST surface as a
 structured error, not `false`.
 
 ---
@@ -1045,8 +1045,8 @@ responder MUST be able to compute from the same JSON inputs:
 
 | CID | Source manifest | Pinned shape |
 |-----|-----------------|--------------|
-| `bands_cid` | `bands-v0.json` | 35 cube slots summing to exactly 1792 dims; 118 materializer-wired band names (42 user-callable today) route into those slots |
-| `algorithms_cid` | `algorithms-v0.json` | 159 algorithms in three kinds (Solo, Combined, Embedding); each entry carries typed `parameters`, citation-bearing `learned_from`, and `prerequisites`, so every algorithm is re-executable against the receipt that cites it. See `docs/agents.md` for the catalog, including the six triple-encoder-consensus entries (`deforestation_triple@1`, `wetland_change_triple@1`, `urban_expansion_triple@1`, `disaster_anomaly_triple@1`, `climate_archetype_triple@1`, `coastal_erosion_triple@1`) |
+| `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims; 124 materializer-wired band names (42 user-callable today) route into those slots |
+| `algorithms_cid` | `algorithms-v0.json` | 160 algorithms in three kinds (Solo, Combined, Embedding); each entry carries typed `parameters`, citation-bearing `learned_from`, and `prerequisites`, so every algorithm is re-executable against the receipt that cites it. See `docs/agents.md` for the catalog, including the six triple-encoder-consensus entries (`deforestation_triple@1`, `wetland_change_triple@1`, `urban_expansion_triple@1`, `disaster_anomaly_triple@1`, `climate_archetype_triple@1`, `coastal_erosion_triple@1`) |
 | `sources_cid` | `sources-v0.json` | 46 source schemes; the majority route through the universal STAC + COG sampler (`cog.rs`), the remainder through HTTPS-JSON, Parquet S3, NCSS CSV, TAR/ZIP, Overpass QL, and PMTiles paths |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
@@ -1059,7 +1059,7 @@ manifest_cid = base32_nopad_lowercase( blake3( canonical_cbor(manifest_json) )[.
 The conformance test before any test vectors land: an external
 implementation reads the same JSON files, runs its own canonical CBOR
 encoder + BLAKE3, and produces byte-identical CIDs. If it does not,
-no other compatibility claim holds — every fact, every receipt, every
+no other compatibility claim holds: every fact, every receipt, every
 attestation cites these CIDs.
 
 ---
@@ -1096,7 +1096,7 @@ verifiers.
 
 1. **Manifests are content-addressed.** An operator who publishes a
    new `bands-v0.json` ships a new `bands_cid`. Existing facts under
-   the old `bands_cid` stay valid forever — they never need to be
+   the old `bands_cid` stay valid forever; they never need to be
    re-signed. A verifier with the receipt's `registry_cid` /
    `schema_cid` knows exactly which manifest set was in force.
 2. **Schema migrations live at the manifest level.** A CDDL change

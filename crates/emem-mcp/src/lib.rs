@@ -491,7 +491,7 @@ const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properti
 "forest_baseline_override":{"type":"string","description":"Optional baseline override. Default 'jrc_gfc2020_v3' is the EU Commission's expected (non-binding) baseline. Acceptable: 'jrc_gfc2020_v3', 'hansen_only', 'both'."},
 "legality_module":{"type":"string","description":"Operator-chosen legality provider. Default null surfaces the explicit Article 9(1)(b) out-of-EO-scope disclaimer."},
 "operator":{"type":"object","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
-"max_cells_per_plot":{"type":"integer","minimum":1,"maximum":256,"default":16,"description":"Sample budget per POLYGON plot. POINT plots evaluate at 1 cell."}
+"max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot. Omit to auto-derive from polygon area (~110 cells/ha, clamped to 51,200) so the whole plot is evaluated; EUDR plots are typically large, so do not set a small value unless you have a tight latency budget. POINT plots evaluate at 1 cell."}
 }}"#;
 
 // ── Runtime algorithm endpoints (mirror the REST /v1/* + OpenAPI) ────────

@@ -17,8 +17,8 @@ public GitHub issue. We'll acknowledge within **72 hours**, work with you
 on an embargoed fix, and credit you (with permission) in the release
 notes.
 
-For non-sensitive reports — design weaknesses, hardening opportunities,
-spec ambiguities — opening a public issue is welcome.
+For non-sensitive reports (design weaknesses, hardening opportunities,
+spec ambiguities), opening a public issue is welcome.
 
 ## Safe harbor
 
@@ -50,13 +50,13 @@ Out of scope:
 
 - Third-party MCP / IDE clients (Claude Desktop, Cursor, Cline, etc.)
 - Operator-registered upstream connectors that aren't in the default build
-- Bugs in cargo dependencies — please report those upstream and link the
+- Bugs in cargo dependencies; please report those upstream and link the
   CVE/issue here
 - The correctness, availability, or security of upstream open-data
   providers we fetch from (Open-Meteo, MET Norway, GMRT, Copernicus DEM,
   JRC GSW, Hansen GFC, ESA WorldCover, OSM/Overture, NASA/USGS, etc.).
   emem re-signs their payloads under the responder identity so the
-  fetch is auditable, but we do not own their security posture — report
+  fetch is auditable, but we do not own their security posture; report
   upstream issues to those projects directly.
 
 ## Hardening already in place

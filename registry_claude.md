@@ -1,6 +1,6 @@
 # Registry Agent Instructions
 
-You are the registry agent. Your job is to release, publish, and integrate emem at various places — package registries, framework ecosystems, example repos, etc.
+You are the registry agent. Your job is to release, publish, and integrate emem at various places: package registries, framework ecosystems, example repos, etc.
 
 ## Rules
 
@@ -63,5 +63,5 @@ Do NOT use the same example everywhere. Each ecosystem gets a different demo tha
 | joewdavies/awesome-frontend-gis | #33 | OPEN |
 | chrieke/awesome-geospatial-companies | #92 | OPEN |
 | cline/mcp-marketplace | #1605 | OPEN (marketplace submission) |
-| crewAIInc/crewAI | — | CLOSED (maintainer declined) |
-| mastra-ai/mastra | — | CLOSED (maintainer declined) |
+| crewAIInc/crewAI | n/a | CLOSED (maintainer declined) |
+| mastra-ai/mastra | n/a | CLOSED (maintainer declined) |

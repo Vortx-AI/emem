@@ -18,8 +18,8 @@
     "algorithms":                160,
     "rest_paths_openapi":        96,
     "rest_paths_v1_openapi":     93,
-    "band_cube_slots":           42,
-    "materializer_wired_names":  122,
+    "band_cube_slots":           43,
+    "materializer_wired_names":  124,
     "source_schemes":            46,
     "topics_declared":           27
   },

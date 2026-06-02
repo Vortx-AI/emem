@@ -197,7 +197,7 @@ curl -sX GET https://emem.dev/v1/memory_bundle/memb:vlkbh5bfzjeem6t3o54yje5rrq |
 the same order produce the same `bundle_cid` everywhere. Any peer
 that holds the underlying facts can resolve the bundle.
 
-## Memory files — the agent's writable scratchpad
+## Memory files: the agent's writable scratchpad
 
 The substrate exposes six file-op verbs that conform to Anthropic's
 memory-tool spec (header `context-management-2025-06-27`). The
@@ -253,7 +253,7 @@ namespace, send an `attester` block on every write:
 The responder verifies the signature before persisting; an invalid
 sig returns 401 `memory_attestation_invalid`, a wrong-namespace
 write returns 403 `memory_namespace_violation`. Reference
-implementation in `crates/emem-primitives/src/memory_acl.rs` —
+implementation in `crates/emem-primitives/src/memory_acl.rs`:
 `attester_preimage()`, `verify_attester()`. The same shape works
 across LangChain, AutoGen, CrewAI multi-agent flows: each agent
 gets a stable identity, every action is signed by that identity,

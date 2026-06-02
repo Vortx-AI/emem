@@ -14,7 +14,7 @@
   </p>
 
   <p>
-    <a href="https://eudr.dev"><img src="https://img.shields.io/badge/built%20with%20emem-eudr.dev%20%C2%B7%20EUDR%20compliance%20agent-2ea043.svg" alt="eudr.dev — EU Deforestation Regulation compliance agent built on emem"></a>
+    <a href="https://eudr.dev"><img src="https://img.shields.io/badge/built%20with%20emem-eudr.dev%20%C2%B7%20EUDR%20compliance%20agent-2ea043.svg" alt="eudr.dev: EU Deforestation Regulation compliance agent built on emem"></a>
   </p>
 
   <p>
@@ -50,15 +50,15 @@
 
 An LLM asked what is at a place will usually guess. It has no stable handle for the patch of ground at 19.07° N, 72.87° E and no audit trail for the number it returns. emem is the missing handle.
 
-emem is a shared memory for AI agents that connects facts and gets better over time — and every answer is signed, so anyone can check it without trusting the server.
+emem is a shared memory for AI agents that connects facts and gets better over time. Every answer is signed, so anyone can check it without trusting the server.
 
-Here is how it works, in plain terms first. A **cell64** addresses a place the way a token addresses text in an LLM: every patch of ground on Earth gets a 64-bit identifier (about 9.55 m on a side at the equator). A **fact** is one measurement at one cell — keyed by cell, band, and time. Each fact is **signed**: emem takes a one-way fingerprint of the answer (a blake3 hash — change one byte and the fingerprint changes completely) and packs the bytes in a fixed, canonical order (canonical CBOR) so the fingerprint is the same on every machine. That fingerprint is the fact's **content id**: a 26-character string that names the bytes themselves. emem then signs the content id with an ed25519 key — the same kind of digital signature that secures SSH and HTTPS. The signer is the **responder**. Paste the content id into a chat and a colleague can pull the same bytes from any responder and check the signature in their browser at [/verify](https://emem.dev/verify) — no need to trust the server it came from. The hosted node is `https://emem.dev`; there are no keys, no accounts, and the same handlers answer both MCP and plain REST.
+Here is how it works. A **cell64** addresses a place the way a token addresses text in an LLM: every patch of ground on Earth gets a 64-bit identifier (about 9.55 m on a side at the equator). A **fact** is one measurement at one cell, keyed by cell, band, and time. Each fact is **signed**: emem takes a one-way fingerprint of the answer (a blake3 hash, where changing one byte changes the fingerprint completely) and packs the bytes in a fixed, canonical order (canonical CBOR) so the fingerprint is the same on every machine. That fingerprint is the fact's **content id**: a 26-character string that names the bytes themselves. emem then signs the content id with an ed25519 key, the same kind of digital signature that secures SSH and HTTPS. The signer is the **responder**. Paste the content id into a chat and a colleague can pull the same bytes from any responder and check the signature in their browser at [/verify](https://emem.dev/verify), with no need to trust the server it came from. The hosted node is `https://emem.dev`; there are no keys, no accounts, and the same handlers answer both MCP and plain REST.
 
-When an agent asks for a band at a cell that has no signed fact yet, the responder fetches the underlying tile through one of its 46 upstream sources, signs the result as its own primary attestation, persists it, and returns it in the same response. The cold path takes about 180 ms; warm reads are sub-ten milliseconds. Every cell on Earth answers cite-ably from day one, without a pre-seeded corpus. Five of those 46 schemes are declared but not yet wired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`), so they return a typed Absence rather than data — the catalog never promises more than it can sign.
+When an agent asks for a band at a cell that has no signed fact yet, the responder fetches the underlying tile through one of its 46 upstream sources, signs the result as its own primary attestation, persists it, and returns it in the same response. The cold path takes about 180 ms; warm reads are sub-ten milliseconds. Every cell on Earth answers cite-ably from day one, without a pre-seeded corpus. Five of those 46 schemes are declared but not yet wired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`), so they return a typed Absence rather than data; the catalog never promises more than it can sign.
 
-Above the spatial fact store sits a writable memory substrate the agent owns. `memory_create` writes content-addressed, signed files into `/memories/`. `memory_search` runs BGE-768 embeddings against a LanceDB IVF_PQ partition over those files so the agent paraphrases its own past notes. `memory_contradictions` scores disagreement between attesters at the same `(cell, band, tslot)` per band kind — scalar by normalised spread, vector by mean cosine, categorical by mode-share. `memory_bundle` composes N facts into one signed envelope (`memb:<bundle_cid>`) that resolves byte-identically on any peer. Each memory file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`); writes can be capability-bound to a specific ed25519 attester so paths under `/memories/by_attester/<pubkey>/...` reject any signer that isn't their owner. The same signing surface that proves a Sentinel-2 reading is real proves an agent's own memory is unmodified.
+Above the spatial fact store sits a writable memory substrate the agent owns. `memory_create` writes content-addressed, signed files into `/memories/`. `memory_search` runs BGE-768 embeddings against a LanceDB IVF_PQ partition over those files so the agent paraphrases its own past notes. `memory_contradictions` scores disagreement between attesters at the same `(cell, band, tslot)` per band kind: scalar by normalised spread, vector by mean cosine, categorical by mode-share. `memory_bundle` composes N facts into one signed envelope (`memb:<bundle_cid>`) that resolves byte-identically on any peer. Each memory file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`); writes can be capability-bound to a specific ed25519 attester so paths under `/memories/by_attester/<pubkey>/...` reject any signer that isn't their owner. The same signing surface that proves a Sentinel-2 reading is real proves an agent's own memory is unmodified.
 
-Every read primitive in the substrate carries a bi-temporal axis. `as_of_tslot` returns the latest fact whose observation time is on or before the bound — what the world looked like then. `as_of_signed_at` returns the latest fact whose signing time is on or before the bound — what the system knew then. Set both and both predicates hold simultaneously. The receipt carries an `as_of` block when the bound is non-empty, so an auditor in 2027 takes a 2026 receipt to any peer and replays the exact same query without trusting our server. `/v1/memory/sse?path_prefix=&kind=&attester=` opens a Server-Sent Events stream filtered server-side; a compliance subscriber receives every write the moment its sled commit lands.
+Every read primitive in the substrate carries a bi-temporal axis. `as_of_tslot` returns the latest fact whose observation time is on or before the bound: what the world looked like then. `as_of_signed_at` returns the latest fact whose signing time is on or before the bound: what the system knew then. Set both and both predicates hold simultaneously. The receipt carries an `as_of` block when the bound is non-empty, so an auditor in 2027 takes a 2026 receipt to any peer and replays the exact same query without trusting our server. `/v1/memory/sse?path_prefix=&kind=&attester=` opens a Server-Sent Events stream filtered server-side; a compliance subscriber receives every write the moment its sled commit lands.
 
 Four foundation encoders sit GPU-pinned alongside the responder: Clay v1.5 reads Sentinel-2 at a 2.56 km receptive field, Prithvi-EO-2.0-300M-TL reads HLS at 6.7 km, Tessera reads Sentinel-1 plus Sentinel-2 per-pixel, and Galileo reads multimodal stacks (S1 + S2 + DEM + climate). Each carries its own aliasing pattern, so disagreements are informative. The `clay_prithvi_tessera_triple_consensus@1` recipe votes them; six domain variants follow for deforestation, wetland change, urban expansion, disaster anomaly, climate archetype, and coastal erosion. Receipts pin the algorithm CID, so a third party can replay the score against the same input facts and reproduce the same number.
 
@@ -71,7 +71,7 @@ When a band genuinely has no data at a cell (the encoder is offline, the place i
 curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
   -d '{"q":"Bengaluru"}' | jq .cell64
-# "defi.zb493.xuqA.zcb5f"   # (geocoder result — may drift)
+# "defi.zb493.xuqA.zcb5f"   # (geocoder result, may drift)
 
 # Recall a band at that cell (auto-fetched if cold).
 curl -s -X POST https://emem.dev/v1/recall \
@@ -99,7 +99,7 @@ The receipt's `fact_cid` is a durable handle. Re-fetching it from any responder,
 
 ## Verify an answer (four curls)
 
-The pitch lives or dies on this flow. Every recall response carries a receipt with `fact_cids[]`, a `merkle_proof`, and an Ed25519 `signature` over the canonical preimage `blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖ fact_cids)` — UTF-8, sections joined by `|`, list elements followed by `,`. The signer's public key is stable; the receipt verifies offline against any copy of the responder pubkey.
+The pitch lives or dies on this flow. Every recall response carries a receipt with `fact_cids[]`, a `merkle_proof`, and an Ed25519 `signature` over the canonical preimage `blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖ fact_cids)`: UTF-8, sections joined by `|`, list elements followed by `,`. The signer's public key is stable; the receipt verifies offline against any copy of the responder pubkey.
 
 ```bash
 # 1. Resolve a place to a cell64.
@@ -122,12 +122,12 @@ curl -s -X POST https://emem.dev/v1/verify_receipt \
 # {"valid":true,"preimage_blake3_hex":"…","fact_cids_count":1,"signer_pubkey_b32":"…",…}
 
 # 4. Reproduce: pull the same fact_cid from any responder, on any day.
-# The cell, band, tslot, and derivation.fn_key are content-addressed —
+# The cell, band, tslot, and derivation.fn_key are content-addressed, so
 # the bytes you receive will hash to the same fact_cid.
 jq '.facts[0].derivation' /tmp/recall.json
 ```
 
-For a browser-only verify, open [`/verify/<fact_cid>`](https://emem.dev/verify) — the page does the same Ed25519 check in WebCrypto + `@noble/ed25519` so you never have to trust the responder you got the receipt from. A guided walk lives at [`/demos/signed-answer`](https://emem.dev/demos/signed-answer).
+For a browser-only verify, open [`/verify/<fact_cid>`](https://emem.dev/verify); the page does the same Ed25519 check in WebCrypto + `@noble/ed25519` so you never have to trust the responder you got the receipt from. A guided walk lives at [`/demos/signed-answer`](https://emem.dev/demos/signed-answer).
 
 ## Connect your AI assistant
 
@@ -151,30 +151,30 @@ The MCP endpoint is `https://emem.dev/mcp`. Drop a config snippet into your clie
 | CrewAI MCP agent      | [examples/crewai/](examples/crewai/)                                |
 | Mastra MCP agent      | [examples/mastra/](examples/mastra/)                                |
 
-Python and TypeScript SDKs live under `sdks/` (publication to PyPI / NPM pending; install from the repo today).
+Python (`ememdev`) and TypeScript (`@emem/client`) SDKs live under `sdks/` (PyPI / npm publication pending; install from the repo today).
 
 ## Primitives
 
-80 MCP tools (10 core, 70 extended), 92 documented REST paths under `/v1/*`, surfaced through `/openapi.json`. Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). A no-param `tools/list` returns all 80 tools (so every MCP client discovers the full surface); pass `{"tier":"core"}` for just the 10 essentials. Tools are callable via `tools/call` regardless of tier.
+81 MCP tools (10 core, 71 extended), 93 documented REST paths under `/v1/*`, surfaced through `/openapi.json`. Every tool carries a `when_to_use` string written for LLM tool-selection, and four MCP behavioural annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). A no-param `tools/list` returns all 81 tools (so every MCP client discovers the full surface); pass `{"tier":"core"}` for just the 10 essentials. Tools are callable via `tools/call` regardless of tier.
 
 - **Locate:** name or lat/lng → `cell64`. Five-layer cascade: wide-bbox table → embedded gazetteer → GeoNames cities-5000 (68 581 places, in-process) → sled cache → Photon → Nominatim. Polygon geometry from Overture `divisions/division_area`. District-level queries reroute through Overture when Nominatim returns a POI courthouse.
 - **Memory substrate** (state + tokens + bundles + memory files + search + contradictions + SSE): `POST /v1/state` returns a signed dense per-place embedding (`view=encoder` default 128-D, `view=cube` full 1792-D). `POST /v1/state_multi` fans across `geotessera` + `clay_v1` + `prithvi_eo2` + `galileo`. `POST /v1/state_diff` returns residual + L2 + cosine between two vintages. `POST /v1/memory_token` composes `memt:<cell64>:<fact_cid>`. `POST /v1/memory_bundle` composes a signed envelope `memb:<bundle_cid>` over N (cell, band, tslot) triples. Six MCP file-op verbs (`memory_view`, `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`) conform to Anthropic's memory-tool spec; every write is ed25519-signed and content-addressed. Paths under `/memories/by_attester/<pubkey>/...` enforce capability binding (ed25519 signature over `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`). Each file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`). `POST /v1/memory/search` does BGE-768 semantic search over file contents via a LanceDB IVF_PQ partition. `POST /v1/memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind (scalar / vector / categorical). `GET /v1/memory/sse?path_prefix=&kind=&attester=` streams write events with server-side filter. Every read primitive accepts `as_of_tslot` + `as_of_signed_at` for bi-temporal queries (valid-time + transaction-time); the receipt carries an `as_of` block when set. See [`docs/memory.md`](docs/memory.md) for the full reference.
-- **Recall / recall_many / recall_polygon:** 122 materializer-wired band names across 42 cube slots. Recall answers any wired band, auto-fetching on a cold miss and signing the result. Signed Absence on out-of-coverage.
+- **Recall / recall_many / recall_polygon:** 124 materializer-wired band names across 43 cube slots. Recall answers any wired band, auto-fetching on a cold miss and signing the result. Signed Absence on out-of-coverage.
 - **Find similar:** k-NN over any vector band. Hamming fast path (sign-bit pop-count) auto-derives from the cosine band when the binary sibling is absent. Mode `hamming_then_rerank` triages with Hamming then re-orders by cosine; the over-sampling factor is EWMA-adaptive.
 - **Compare / compare_bands / diff / trajectory:** pairwise and time-series.
-- **Connect & evolve:** typed temporal edges (`emem_edges_recall` reads a fact's signed connections — `disagrees_with`, `supersedes`, `relates_to` — with a valid-time bound), multi-attester contradiction scoring (`memory_contradictions`, per band kind), and a deterministic refinement loop that re-derives a fact when a newer attestation or a `disagrees_with` edge lands. All three ship in 0.0.9.
+- **Connect & evolve:** typed temporal edges (`emem_edges_recall` reads a fact's signed connections of type `disagrees_with`, `supersedes`, or `relates_to`, bounded by valid-time), multi-attester contradiction scoring (`memory_contradictions`, per band kind), and a deterministic refinement loop that re-derives a fact when a newer attestation or a `disagrees_with` edge lands. All three ship in 0.0.9.
 - **Verify:** structured claim against attested facts; returns signed verdict + evidence CIDs.
 - **Physics:** `/v1/heat_solve` (2-D explicit FTCS heat, MODIS LST stencil), `/v1/wave_solve` (1-D shallow-water along seaward bathymetry gradient), `/v1/jepa_predict` (closed-form NDVI AR(2) seasonal), `/v1/jepa_predict_v2` (Tessera embedding dynamics; short-circuits to last-vintage identity baseline while the trained head is pending, receipt carries `untrained_baseline`).
 - **Ask:** free-text question with topic routing. The classifier covers three intent families: place-anchored topical questions (the topic router fan-out), foundation-embedding intents on `find places like` / `what changed` / `deforestation` / `anomaly` (cross-encoder consensus over Clay + Prithvi + Tessera), corpus-meta intents on `where do you have data` / `how fresh is your corpus` (redirect to coverage surfaces), and hunter-mode discovery on `find <event> in <region>` (routes to `/v1/hunt`).
-- **Hunter:** `POST /v1/hunt` and MCP `emem_hunt` for open-world event discovery. Twelve event keywords — `algal_bloom`, `deforestation`, `flood_extent`, `wildfire`, `urban_heat_island`, `methane_plume`, `landslide`, `drought`, `soil_salinity`, `crop_stress`, `water_turbidity`, `oil_slick` — each maps to a registered detection algorithm. The responder samples up to 32 cells from the named region (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar plus any configured gate band (e.g. NDWI > 0 for water-mask events), and returns the top 8 hotspots with cell64, lat/lng, recalled value, gate value, fact CID, and a Sentinel-2 scene URL. A Tessera embedding rerank fires when at least three candidate cells have a geotessera vector available, re-ordering by cosine similarity to the cluster centroid. `oil_slick` returns `status: not_yet_implemented` with pointers at `flood_extent_sar_threshold@1` and `water_turbidity_red_band@1` instead of fabricating detections.
-- **EUDR Due Diligence Statement:** `POST /v1/eudr_dds` and MCP `emem_eudr_dds` produce a signed Annex II-shaped DDS under Regulation (EU) 2023/1115. The per-cell algorithm `eudr_compliance@1` implements Article 2(4) as written: >0.5 ha, >5 m height, >10 % canopy cover, excluding land predominantly under agricultural or urban use. Forest baseline is JRC GFC2020 V3 (the Commission's expected non-binding baseline; live single-COG materializer at JEODPP) confirmed against Hansen GFC v1.12 treecover2000. JRC TMF (annual change, deforestation year, degradation year, transition subtype) reads through a pull-and-cache connector — JEODPP's TMF endpoint serves 84 MB tiles without HTTP Range, so the responder fetches once into `$EMEM_DATA/jrc_tmf_cache/` with atomic rename, then samples. The Article 2(28) dispatch picks POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any cattle plot under HS 0102/0201/0202). Sims et al. 2025 driver attribution and RADD Sentinel-1 alerts layer on as refinement: both currently materialize Absence with a structured NotImplemented reason because Zenodo and GFW S3 do not honour HTTP Range, and the responder will not fabricate a value for a connector it cannot read. Every response carries the explicit Article 9(1)(b) legality disclaimer — land tenure, FPIC, country-of-origin laws are structurally out of EO scope and need a partner module before TRACES NT submission. The JSON Schema at `/v1/schemas/eudr_dds.json` cites the exact EUR-Lex paragraph each field maps to.
+- **Hunter:** `POST /v1/hunt` and MCP `emem_hunt` for open-world event discovery. Twelve event keywords (`algal_bloom`, `deforestation`, `flood_extent`, `wildfire`, `urban_heat_island`, `methane_plume`, `landslide`, `drought`, `soil_salinity`, `crop_stress`, `water_turbidity`, `oil_slick`) each map to a registered detection algorithm. The responder samples up to 32 cells from the named region (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar plus any configured gate band (e.g. NDWI > 0 for water-mask events), and returns the top 8 hotspots with cell64, lat/lng, recalled value, gate value, fact CID, and a Sentinel-2 scene URL. A Tessera embedding rerank fires when at least three candidate cells have a geotessera vector available, re-ordering by cosine similarity to the cluster centroid. `oil_slick` returns `status: not_yet_implemented` with pointers at `flood_extent_sar_threshold@1` and `water_turbidity_red_band@1` instead of fabricating detections.
+- **EUDR Due Diligence Statement:** `POST /v1/eudr_dds` and MCP `emem_eudr_dds` produce a signed Annex II-shaped DDS under Regulation (EU) 2023/1115. The per-cell algorithm `eudr_compliance@1` implements Article 2(4) as written: >0.5 ha, >5 m height, >10 % canopy cover, excluding land predominantly under agricultural or urban use. Forest baseline is JRC GFC2020 V3 (the Commission's expected non-binding baseline; live single-COG materializer at JEODPP) confirmed against Hansen GFC v1.12 treecover2000. JRC TMF (annual change, deforestation year, degradation year, transition subtype) reads through a pull-and-cache connector, because JEODPP's TMF endpoint serves 84 MB tiles without HTTP Range; the responder fetches once into `$EMEM_DATA/jrc_tmf_cache/` with atomic rename, then samples. The Article 2(28) dispatch picks POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any cattle plot under HS 0102/0201/0202). Sims et al. 2025 driver attribution and RADD Sentinel-1 alerts layer on as refinement: both currently materialize Absence with a structured NotImplemented reason because Zenodo and GFW S3 do not honour HTTP Range, and the responder will not fabricate a value for a connector it cannot read. Every response carries the explicit Article 9(1)(b) legality disclaimer: land tenure, FPIC, and country-of-origin laws are structurally out of EO scope and need a partner module before TRACES NT submission. The JSON Schema at `/v1/schemas/eudr_dds.json` cites the exact EUR-Lex paragraph each field maps to.
 - **Domain shortcuts:** `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather`. Collapse locate → recall → polygon-aggregate into one call by place name.
 - **Field boundaries:** Fields of The World (~3.17 B field polygons, 241 countries, 10 m, CC-BY-4.0) via PMTiles range reads on `source.coop`.
 - **Visual surfaces:** `/v1/coverage_map.svg` (1440×720 plate-carrée of attested cells, log-scale density) and `/v1/places/scene_overlay.svg?place=…&band=…` (per-place value-painted bbox grid; band-aware ColorBrewer ramps, horizontal legend, km scale bar, signed source line). The MCP equivalents return the same SVG as an `EmbeddedResource` block. The full set, plus the 32-diagram protocol/industry suite, lives at [/docs/gallery](https://emem.dev/docs/gallery) and [/docs/diagrams](https://emem.dev/docs/diagrams).
 
 ## Algorithms
 
-159 named composition recipes (`flood_risk@2`, `walkability_score@1`, `heat_index@2`, `carbon_sink_score@1`, `eudr_compliance@1`, `forest_carbon_loss_co2_flux@1`, `enteric_ch4_dairy_tier1_ipcc2019@1`, `n2o_synthetic_fertilizer_ef1_ipcc2019@1`, ...) live in a content-addressed registry. Each carries:
+160 named composition recipes (`flood_risk@2`, `walkability_score@1`, `heat_index@2`, `carbon_sink_score@1`, `eudr_compliance@1`, `forest_carbon_loss_co2_flux@1`, `enteric_ch4_dairy_tier1_ipcc2019@1`, `n2o_synthetic_fertilizer_ef1_ipcc2019@1`, ...) live in a content-addressed registry. Each carries:
 
 - `formula`: plain math the agent can read and apply.
 - `inputs`: band keys with role + explanation.
@@ -193,30 +193,30 @@ Browse at [`GET /v1/algorithms`](https://emem.dev/v1/algorithms) or per-key at [
 Designed for agents to read, not for humans to remember:
 
 ```
-GET /openapi.json                  — OpenAPI 3.1 of every REST route
-GET /v1/agent_card                 — live capability snapshot + manifest CIDs
-GET /v1/tools                      — 80 MCP tools (10 core, 70 extended) with when_to_use + annotations
-GET /v1/algorithms?summary=true    — 159 algorithm keys + categories
-GET /v1/topics                     — 27 topic-grouped bands + algorithms (router brain)
-GET /v1/manifests                  — bands_cid, algorithms_cid, sources_cid, schema_cid
-GET /v1/schemas/eudr_dds.json      — Annex II JSON Schema with EUR-Lex paragraph citations
+GET /openapi.json                  OpenAPI 3.1 of every REST route
+GET /v1/agent_card                 live capability snapshot + manifest CIDs
+GET /v1/tools                      81 MCP tools (10 core, 71 extended) with when_to_use + annotations
+GET /v1/algorithms?summary=true    160 algorithm keys + categories
+GET /v1/topics                     27 topic-grouped bands + algorithms (router brain)
+GET /v1/manifests                  bands_cid, algorithms_cid, sources_cid, schema_cid
+GET /v1/schemas/eudr_dds.json      Annex II JSON Schema with EUR-Lex paragraph citations
 GET /.well-known/{emem,agent,mcp,ai-plugin}.json
-POST /v1/state                     — signed dense state vector at any cell (view=encoder | view=cube)
-POST /v1/state_multi               — fan-out across geotessera + clay_v1 + prithvi_eo2 with typed missing[]
-POST /v1/state_diff                — vintage delta at one cell: residual vector + L2 + cosine
-POST /v1/memory_token              — compose memt:<cell64>:<fact_cid> citation handle
-POST /v1/memory_token/resolve      — single round-trip dereference back to signed fact body
-GET /v1/stream                     — Server-Sent Events corpus heartbeat, signed every 5-300 s
-GET /v1/corpus_state_stats         — signed snapshot of corpus liveness (one-shot equivalent of /v1/stream)
-GET /v1/benchmark                  — hand-verified eval items; pair with POST /v1/benchmark/grade
-POST /v1/hunt                      — structured event-discovery sweep (12 events × region)
-POST /v1/eudr_dds                  — EUDR Due Diligence Statement (Regulation EU 2023/1115)
-POST /mcp                          — JSON-RPC 2.0 (Streamable HTTP)
-GET /llms.txt    /llms-full.txt    — plaintext catalog for LLM ingestion
-GET /humans      /humans.json      — interactive try-it surface + machine twin
-GET /verify      /verify/<fact_cid>— in-browser ed25519 receipt verifier
-GET /docs/gallery                  — live coverage map + hunter case studies + 32 diagrams
-GET /docs/diagrams/                — 32 SVGs of protocol + industry deployments
+POST /v1/state                     signed dense state vector at any cell (view=encoder | view=cube)
+POST /v1/state_multi               fan-out across geotessera + clay_v1 + prithvi_eo2 with typed missing[]
+POST /v1/state_diff                vintage delta at one cell: residual vector + L2 + cosine
+POST /v1/memory_token              compose memt:<cell64>:<fact_cid> citation handle
+POST /v1/memory_token/resolve      single round-trip dereference back to signed fact body
+GET /v1/stream                     Server-Sent Events corpus heartbeat, signed every 5-300 s
+GET /v1/corpus_state_stats         signed snapshot of corpus liveness (one-shot equivalent of /v1/stream)
+GET /v1/benchmark                  hand-verified eval items; pair with POST /v1/benchmark/grade
+POST /v1/hunt                      structured event-discovery sweep (12 events × region)
+POST /v1/eudr_dds                  EUDR Due Diligence Statement (Regulation EU 2023/1115)
+POST /mcp                          JSON-RPC 2.0 (Streamable HTTP)
+GET /llms.txt    /llms-full.txt    plaintext catalog for LLM ingestion
+GET /humans      /humans.json      interactive try-it surface + machine twin
+GET /verify      /verify/<fact_cid>   in-browser ed25519 receipt verifier
+GET /docs/gallery                  live coverage map + hunter case studies + 32 diagrams
+GET /docs/diagrams/                32 SVGs of protocol + industry deployments
 ```
 
 The `operator_attestation` block in `/.well-known/emem.json` binds the running binary's BLAKE3 hash to its `git_commit` + `build_timestamp` and signs the triple under the responder's ed25519 key, so a verifier can confirm the live binary corresponds to the published source tree without trusting the operator.
@@ -274,7 +274,7 @@ emem/
 └── web/                          # SSR HTML, humans, verify, llms.txt, agent.json
 ```
 
-The 16 data connectors back **46 declared source schemes** and **122 live materializer registrations**. Five of the 46 schemes are declared-but-unwired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`); they return a typed Absence, not data. Most wired schemes route through `cog.rs`, the universal STAC + COG sampler, plus bespoke modules for `chirps` (rainfall), `dmsp_ols` (nightlights), `esa_cci_biomass` (above-ground biomass, CEDA), `firms` (active fire), `ftw` (Fields of The World), `geonames` (gazetteer), `gmrt` (topobathymetry, PointServer + GridServer), `hansen_gfc` (forest change), `jrc_gfc2020` (EUDR forest baseline, JEODPP single-COG), `jrc_tmf` (tropical moist forest, pull-and-cache), `koppen` (climate classification), `overture` (places / buildings / divisions), `radd_alerts` (Sentinel-1 disturbance), `terraclimate` (climate), `wdpa` (protected areas), `worldpop` (population), `wri_gdm_drivers` (Sims et al. 2025 driver attribution).
+The 16 data connectors back **46 declared source schemes** and **124 live materializer registrations**. Five of the 46 schemes are declared-but-unwired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`); they return a typed Absence, not data. Most wired schemes route through `cog.rs`, the universal STAC + COG sampler, plus bespoke modules for `chirps` (rainfall), `dmsp_ols` (nightlights), `esa_cci_biomass` (above-ground biomass, CEDA), `firms` (active fire), `ftw` (Fields of The World), `geonames` (gazetteer), `gmrt` (topobathymetry, PointServer + GridServer), `hansen_gfc` (forest change), `jrc_gfc2020` (EUDR forest baseline, JEODPP single-COG), `jrc_tmf` (tropical moist forest, pull-and-cache), `koppen` (climate classification), `overture` (places / buildings / divisions), `radd_alerts` (Sentinel-1 disturbance), `terraclimate` (climate), `wdpa` (protected areas), `worldpop` (population), `wri_gdm_drivers` (Sims et al. 2025 driver attribution).
 
 ## Inference
 
@@ -297,8 +297,8 @@ emem is built to be a protocol, not a single service. Because every fact is cont
 - **No edge / onboard inference.** Sidecar runs on a single host.
 - **Single-host deployment.** No federation, no global routing, no SOC 2.
 - **JEPA v2 is untrained today.** The endpoint exists and signs honestly; predictions equal the last attested vintage until the dynamics head is trained.
-- **16 data connectors, 122 live materializer registrations.** Catalog-by-count is not the pitch; every wired band is auto-fetchable, signed, and content-addressed. Bands without a wired materializer are listed under `declared_but_no_materializer_at_this_responder`.
-- **Foundation-encoder materializers are uneven.** `geotessera` (Tessera 128-D) has a wired materializer and auto-fetches on miss. `clay_v1` and `prithvi_eo2` are seed-only at this responder — the GPU sidecar runs both models, but the auto-materialise path that fans out to upstream tile archives is not wired today. Recall against either returns whatever has already been signed; the hunter-mode envelope discloses this per request under `materializer_status[]`.
+- **16 data connectors, 124 live materializer registrations.** Catalog-by-count is not the pitch; every wired band is auto-fetchable, signed, and content-addressed. Bands without a wired materializer are listed under `declared_but_no_materializer_at_this_responder`.
+- **Foundation-encoder materializers are uneven.** `geotessera` (Tessera 128-D) has a wired materializer and auto-fetches on miss. `clay_v1` and `prithvi_eo2` are seed-only at this responder: the GPU sidecar runs both models, but the auto-materialise path that fans out to upstream tile archives is not wired today. Recall against either returns whatever has already been signed; the hunter-mode envelope discloses this per request under `materializer_status[]`.
 - **Tessera is upstream-rate-limited.** `dl2.geotessera.org` reliably serves 2024 vintages today; historical backfill across all eight vintages (2017–2024) is partial. The Tessera-coherence rerank in hunter mode gracefully degrades to primary-scalar order when the upstream is unreachable, surfacing the reason under `embedding_rerank.reason`.
 - **MODIS LST is rate-limited.** `modis.lst_day_8day` materialises through the NASA/ORNL REST API at roughly 30 s per cell. Hunter mode caps the per-region fan-out for the LST family to 8 cells (env override `EMEM_HUNTER_SLOW_BAND_CAP`) so urban-heat queries return inside the gateway timeout.
 - **No interactive notebook UI.** For exploration there is `/humans` (try-it drawer, manifest grid, ontology SVG); for analytics, drive from a notebook against the REST or MCP endpoint.

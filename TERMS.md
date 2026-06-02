@@ -41,7 +41,7 @@ You agree not to:
 
 The hosted responder enforces a per-IP rate limit (60 req/min, 120 burst).
 The service is offered **as-is, without uptime SLA**. For production
-workloads, run your own instance — the canonical image is at
+workloads, run your own instance; the canonical image is at
 `ghcr.io/vortx-ai/emem`.
 
 ## 4. Attestations
@@ -52,7 +52,7 @@ When you submit an attestation:
   bind that identity to the submitted facts.
 - The submitted facts become part of the public, content-addressed corpus
   and **cannot be retracted** (other attesters can submit a `Challenge`,
-  which marks the fact as disputed but does not delete it — content
+  which marks the fact as disputed but does not delete it; content
   addressing is by design).
 - The responder may re-sign your attestation under its own identity for
   redistribution; this does not transfer authorship.

@@ -23,9 +23,9 @@ exercises every primitive end-to-end and dumps signed receipts under
 "lands in vX" comments, hardcoded fake values, or empty handlers wired into
 the router. If a code path needs an upstream that isn't reachable, return a
 typed `ErrorCode` (`SourceFetchFailed`, `Unauthorized`, `BandNotMaterialised`)
-with a clear message — that's real semantics. If a feature is out of scope,
+with a clear message. That's real semantics. If a feature is out of scope,
 delete it rather than leaving a placeholder. Empty results must distinguish
-"wrong query" from "place is empty" — `recall` returns `bands_available` so
+"wrong query" from "place is empty": `recall` returns `bands_available` so
 the caller can tell.
 
 **Receipts must round-trip.** Any change to a primitive's response, signing
@@ -78,7 +78,7 @@ opt-in.
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-EMEM_NO_NETWORK=1 cargo test --workspace   # CI default — skips network
+EMEM_NO_NETWORK=1 cargo test --workspace   # CI default: skips network
 ```
 
 Live network tests run when `EMEM_NO_NETWORK` is unset; they hit real
@@ -107,7 +107,7 @@ GitHub issues. Include:
 - Minimal reproduction (curl command + body, or MCP `tools/call` payload).
 - Expected vs actual (paste the receipt or error envelope verbatim).
 - For receipt issues: include the full receipt JSON. We replay the
-  preimage and verify offline — short receipts speed this up.
+  preimage and verify offline; short receipts speed this up.
 
 ## Security
 

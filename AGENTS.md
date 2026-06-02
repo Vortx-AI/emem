@@ -5,7 +5,7 @@ Per the [agents.md convention](https://agents.md) (OpenAI Codex, 2025;
 Linux Foundation AAIF, Dec 2025): build commands, test rules, code style,
 and what's off-limits during autonomous runs. End users of the protocol
 should read [docs/agents.md](docs/agents.md) and [skills.md](web/skills.md)
-instead — those describe how to *use* emem from an agent.
+instead; those describe how to *use* emem from an agent.
 
 ## First 5 minutes (using emem as an agent)
 
@@ -15,7 +15,7 @@ signed answer in three calls:
 1. **Ask.** `POST /v1/ask {"question":"what is the NDVI near Mount Fuji?"}`
    (MCP tool `emem_ask`, or `emem_intent` / `POST /v1/intent` for a
    structured single-shot). The classifier picks the primitive and
-   returns a signed receipt — this is the fastest path.
+   returns a signed receipt. This is the fastest path.
 2. **Or take control.** `POST /v1/locate {"place":"Mount Fuji"}` → a
    `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` (auto-materialises
    on a miss).
@@ -26,7 +26,7 @@ signed answer in three calls:
 Newer "connect & evolve" surfaces (typed temporal edges, the
 contradiction-fed refinement loop) are walked end-to-end in
 [examples/connect-and-evolve.md](examples/connect-and-evolve.md). Full
-usage guide: [docs/agents.md](docs/agents.md). The rest of *this* file is
+usage guide: [docs/agents.md](docs/agents.md). The rest of this file is
 for agents editing the source.
 
 ## Repo shape
@@ -37,7 +37,7 @@ plus every inline materializer plus the foundation-embedding fan-out for
 `/v1/ask`) and `crates/emem-fetch/src/*.rs` (18 data connectors + 5
 utility modules). FastAPI sidecar in `python/jepa_v2_sidecar/` serves
 Clay v1.5, Prithvi-EO-2.0, Galileo, and JEPA-v2 over a Unix socket.
-Web surface in `web/` is plain HTML — no build step, included via
+Web surface in `web/` is plain HTML, no build step, included via
 `include_str!`.
 
 ## Build
@@ -63,8 +63,8 @@ systemctl --user restart emem-server.service
 cargo test --workspace --lib --bins --tests
 
 # Network-gated tests live in crates/emem-fetch/tests/live_cog_fetch.rs
-# and skip automatically when offline. There is NO `live` cargo feature —
-# don't write `--features live`, that flag doesn't exist.
+# and skip automatically when offline. There is NO `live` cargo feature.
+# Don't write `--features live`, that flag doesn't exist.
 cargo test --workspace --test live_cog_fetch
 ```
 
@@ -81,21 +81,21 @@ cargo clippy --workspace --all-targets -- -D warnings            # CI gate
 ```
 
 Both gates run in `.github/workflows/ci.yml` against Linux + macOS, plus
-an MSRV 1.91 build job. Don't ship a commit that fails either — the CI
+an MSRV 1.91 build job. Don't ship a commit that fails either: the CI
 will reject it and the next agent will have to figure out why.
 
 ## Code style
 
-- **No `unsafe`** — every crate carries `#![forbid(unsafe_code)]` at the top.
+- **No `unsafe`.** Every crate carries `#![forbid(unsafe_code)]` at the top.
 - **No `unwrap()` on user-facing paths.** Use `?` with structured errors;
   the `MaterializeMiss` / `CidNotFound` types are designed to surface
   honest gaps without panicking. `unwrap()` is fine inside tests.
-- **Don't widen `pub`** — keep crate boundaries tight. New public API
+- **Don't widen `pub`.** Keep crate boundaries tight. New public API
   needs a justification in the commit message.
 - **Comments**: only when the *why* is non-obvious (a hidden constraint, a
   workaround for a specific bug, a subtle invariant). Don't explain *what*
-  the code does — well-named identifiers do that. Don't reference the
-  current task or PR — those belong in the PR description.
+  the code does; well-named identifiers do that. Don't reference the
+  current task or PR; those belong in the PR description.
 - **Receipts and CIDs are load-bearing**. Any change to
   `crates/emem-storage/src/server.rs::sign_receipt` or the canonical-CBOR
   layout in `crates/emem-fact/src/` requires a corresponding update to
@@ -107,7 +107,7 @@ will reject it and the next agent will have to figure out why.
 
 Commit messages are sentence-case, ≤72 chars on the subject line. Body
 explains the *why* and any non-obvious wire/protocol implications. Tag
-with the version prefix when relevant — `0.0.8: …`.
+with the version prefix when relevant (`0.0.8: …`).
 
 **Never** add a `Co-Authored-By: Claude` trailer or any AI attribution
 trailer. The user has stated this preference in
@@ -119,14 +119,14 @@ hook fails, fix the underlying issue.
 
 ## Off-limits during autonomous runs
 
-- `var/emem/identity.secret.b32` — the responder's Ed25519 secret. Never
+- `var/emem/identity.secret.b32`: the responder's Ed25519 secret. Never
   read, copy, or commit this file. It is mode `0600` for a reason.
-- `var/emem/sled/` — the live attestation log. Never delete or rewrite;
+- `var/emem/sled/`: the live attestation log. Never delete or rewrite;
   agent-replayable bugs are debugged from this log.
-- `crates/emem-codec/src/alphabet.rs` — the cell64 alphabet builder.
+- `crates/emem-codec/src/alphabet.rs`: the cell64 alphabet builder.
   Changing this rotates every cell64 in the corpus. Don't touch without
   a registry CID rotation plan.
-- `web/index.html` GA injection — the consent banner is GDPR-compliant
+- `web/index.html` GA injection: the consent banner is GDPR-compliant
   by design; don't simplify it without re-reading
   `docs/operators/operating.md` § Privacy/GA.
 
@@ -153,11 +153,11 @@ hook fails, fix the underlying issue.
 
 ## Where to read more
 
-- [docs/developers/architecture.md](docs/developers/architecture.md) — what shape the protocol takes
-- [docs/protocol.md](docs/protocol.md) — wire format, preimages, encodings
-- [docs/whitepaper.md](docs/whitepaper.md) — math + design rationale
-- [docs/operators/operating.md](docs/operators/operating.md) — deployment, env vars, TLS, CSP
-- [docs/developers/developing.md](docs/developers/developing.md) — dev workflow + test invariants
-- [docs/agents.md](docs/agents.md) — *consumer*-agent guide (how to USE emem)
-- [web/skills.md](web/skills.md) — composed recipes for agent integrations
-- [.claude/skills/](claude-skills/) — installable Anthropic Skills bundle
+- [docs/developers/architecture.md](docs/developers/architecture.md): what shape the protocol takes
+- [docs/protocol.md](docs/protocol.md): wire format, preimages, encodings
+- [docs/whitepaper.md](docs/whitepaper.md): math + design rationale
+- [docs/operators/operating.md](docs/operators/operating.md): deployment, env vars, TLS, CSP
+- [docs/developers/developing.md](docs/developers/developing.md): dev workflow + test invariants
+- [docs/agents.md](docs/agents.md): *consumer*-agent guide (how to USE emem)
+- [web/skills.md](web/skills.md): composed recipes for agent integrations
+- [.claude/skills/](claude-skills/): installable Anthropic Skills bundle

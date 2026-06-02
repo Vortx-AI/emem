@@ -1,14 +1,22 @@
-# emem — Python client for emem.dev
+# ememdev: Python client for emem.dev
+
+<!-- mcp-name: io.github.Vortx-AI/emem -->
 
 Thin, typed Python client for the [emem.dev](https://emem.dev) Earth memory
-protocol. Wraps the public REST surface (139 routes, 74 under `/v1/*`)
-in a single `Client` class that returns parsed JSON verbatim — every
+protocol. Wraps the public REST surface (96 documented paths, 93 under
+`/v1/*`) in a single `Client` class that returns parsed JSON verbatim. Every
 ed25519-signed receipt and content-addressed CID is preserved for
 citation and offline verification.
 
 ## Install
 
-Not on PyPI yet. Install from the repo:
+```bash
+pip install ememdev
+```
+
+The distribution is named `ememdev`; the import package is `emem` (so
+`pip install ememdev`, then `from emem import Client`). To work from a
+checkout instead:
 
 ```bash
 pip install -e sdks/emem-py

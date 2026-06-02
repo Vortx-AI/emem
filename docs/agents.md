@@ -36,8 +36,8 @@ emem sits beneath whatever memory your agent runtime ships internally.
 Session memory, tenant scratchpads, and vector document stores all
 answer different questions. emem answers four: *what is at this place*,
 *what did I learn / observe / decide and is it still mine*, *what did
-we know about this on date X*, *who disagreed with whom about it* —
-each signed, content-addressed, byte-identical for every caller that
+we know about this on date X*, *who disagreed with whom about it*. Each
+is signed, content-addressed, byte-identical for every caller that
 asks again.
 
 A `cell64` addresses a place the way a token addresses text in an LLM.
@@ -62,12 +62,12 @@ From zero to a signed, cite-able answer in three calls:
    NDVI near Mount Fuji?"}` (MCP tool `emem_ask`). The classifier routes
    it to the right primitive and returns the answer with a signed
    receipt. `POST /v1/intent` (`emem_intent`) is the structured
-   equivalent. This single call is the fastest path — use it first.
+   equivalent. This single call is the fastest path; use it first.
 2. **Want control instead?** `POST /v1/locate {"place":"Mount Fuji"}`
    → `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` for the signed
    facts (it auto-materialises on a miss, so any cell on Earth answers).
 3. **Cite it.** Every response carries a `receipt`. Verify it offline at
-   `/verify` or with `POST /v1/verify_receipt` — `{valid: true,
+   `/verify` or with `POST /v1/verify_receipt`: `{valid: true,
    signer_pubkey_b32}` makes the answer portable across sessions and
    audits. To hand a fact to another agent, compose a token with
    `emem_memory_token` (`memt:<cell64>:<fact_cid>`) or
@@ -113,18 +113,18 @@ stack, the mapping below is the rosetta-stone:
 | subscribe to memory writes      | `memory_sse`         | `GET /v1/memory/sse`              |
 | bi-temporal recall              | `as_of_tslot`, `as_of_signed_at` | flags on every read primitive |
 
-**The connectivity layer (v0.0.9) — connect & evolve.** A pile of facts
-is not yet a memory; a memory *connects* things and *gets better* as it
-learns. Two abilities sit on top of the fact store:
+**The connectivity layer (v0.0.9): connect & evolve.** Two abilities
+sit on top of the fact store, so it connects facts and revises them as
+new attestations land:
 
-- **Connect** — typed, time-bounded edges. `EdgeFact(subj, pred, obj,
+- **Connect**: typed, time-bounded edges. `EdgeFact(subj, pred, obj,
   valid_from, valid_to)` links two fact CIDs with a relation
   (`disagrees_with`, `supersedes`, `observed_at`). Read them with
   `emem_edges_recall` (bi-temporal: `as_of_tslot` keeps the newest edge
   per object, older ones shadowed not deleted). Or add
   `include:["edges"]` to a `/v1/recall` and a fact's edges ride back in
   the same call, their CIDs threaded into the receipt signature.
-- **Evolve** — the opt-in refinement loop (`EMEM_REFINEMENT_ENABLED`).
+- **Evolve**: the opt-in refinement loop (`EMEM_REFINEMENT_ENABLED`).
   When `memory_contradictions` finds two attesters signing disagreeing
   values at the same `(cell, band, tslot)`, a scheduled pass records a
   signed `disagrees_with` edge between the disputed CIDs and a
@@ -134,10 +134,10 @@ learns. Two abilities sit on top of the fact store:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 87 paths under
-`/v1/*`, 80 MCP tools (10 core, 70 extended), 7 static MCP
-resources + 8 URI templates, 159 algorithms in the content-addressed
-registry, 42 bands in the manifest, 46 source schemes, and 16 data
+port 5051. The live surface ships 93 paths under
+`/v1/*`, 81 MCP tools (10 core, 71 extended), 18 static MCP
+resources + 8 URI templates, 160 algorithms in the content-addressed
+registry, 43 bands in the manifest, 46 source schemes, and 16 data
 connectors + 13 utility modules.
 Version 0.0.9, MSRV Rust 1.91. No API keys; the MCP surface is read-only
 because writes need an Ed25519 secret no LLM host can manage safely.
@@ -156,19 +156,19 @@ where every visible cell carries `data-emem-*` attributes and every
 `/v1/*` call prints in a copy-as-curl / copy-as-python / copy-as-MCP
 log. See "Watching humans use the API" below.
 
-![the agent loop — discover, locate, recall, reason, verify](/docs/diagrams/04-agent-loop.svg)
+![the agent loop: discover, locate, recall, reason, verify](/docs/diagrams/04-agent-loop.svg)
 *The five-step loop. After first contact, agents skip whatever they have already cached and call directly into `recall` / `find_similar` with a known cell.*
 
    ## Quick reference
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 90 documented, 87 under `/v1/*` |
-| MCP tools | 80 (10 core / 70 extended) |
-| Algorithms (composition recipes) | 159 |
-| Band-cube slots | 42 |
+| REST paths (OpenAPI) | 96 documented, 93 under `/v1/*` |
+| MCP tools | 81 (10 core / 71 extended) |
+| Algorithms (composition recipes) | 160 |
+| Band-cube slots | 43 |
 | MCP resources | 18 static + 8 URI templates |
-| Materializer-wired band names | 122 |
+| Materializer-wired band names | 124 |
 | Source schemes | 46 |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
@@ -373,8 +373,8 @@ mode never silently downgrades.
 flood-prone", "how hot are nights in Karachi"). It geocodes the
 `place` field to a `cell64` and routes the question to one of the
 27 band-topics in `/v1/topics`. If you instead want to know about
-the **corpus** — where the responder already has signed facts, how
-dense coverage is, which bands are wired — skip `/v1/ask` and call
+the **corpus** (where the responder already has signed facts, how
+dense coverage is, which bands are wired), skip `/v1/ask` and call
 the introspection endpoints directly:
 
 | Question shape | Call this instead | Returns |
@@ -385,7 +385,7 @@ the introspection endpoints directly:
 | "which bands are wired here" | `GET /v1/materializers` | per-band auto-fetch registry |
 | "what does this responder know about" | `GET /v1/discover` | typed bootstrap that names every catalog |
 
-These are corpus meta-questions, not band recalls — `/v1/ask` has no
+These are corpus meta-questions, not band recalls. `/v1/ask` has no
 dedicated topic for them by design (a "where do you have data" query
 isn't a question about any cell, and routing it through the topic
 embedder will produce noise like `vegetation_condition` + `scene_classification`
@@ -416,7 +416,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms |
-| `/v1/algorithms` | 159 composition recipes (paginated) |
+| `/v1/algorithms` | 160 composition recipes (paginated) |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |
@@ -476,9 +476,9 @@ before relying on the output.
 
    #### Runtime algorithm endpoints
 
-Five algorithms the registry carries as `documentation_only` — their
+Five algorithms the registry carries as `documentation_only` (their
 formula needs a multi-year series or a two-scene pair the scalar
-evaluation-AST can't express — have runnable surfaces here. Each signs
+evaluation-AST can't express) have runnable surfaces here. Each signs
 its result and returns `verdict: "inconclusive"` (with no fabricated
 number) when its inputs aren't materializable. The registry entry keeps
 its `documentation_only` formula plus a `runtime_path` pointer to the
@@ -486,7 +486,7 @@ endpoint.
 
 | Method | Path | Body shape | Algorithm + citation |
 |---|---|---|---|
-| POST | `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy` — `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`; each half degrades independently |
+| POST | `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy`: `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`; each half degrades independently |
 | POST | `/v1/triple_consensus` | `{cell, consensus_threshold?}` | `clay_prithvi_tessera` change-ensemble; degrades to inconclusive without the GPU sidecar or two distinct vintages |
 | POST | `/v1/spi` | `{cell, window_days?, precip_history_mm?, current_accumulation_mm?}` | Standardized Precipitation Index (McKee et al. 1993; WMO-1090) |
 | POST | `/v1/burn_severity` | `{cell, nbr_pre?, nbr_post?}` | dNBR burn severity (Key & Benson 2006) |
@@ -595,7 +595,7 @@ in `docs/ATTESTING.md`; the schema is in `/openapi.json`.
 
 ## Algorithms: triple-encoder consensus
 
-The 159-entry algorithm registry includes the standard agronomic and
+The 160-entry algorithm registry includes the standard agronomic and
 hydrological indices (NDVI, NBR, NDWI, walkability, heat index, RUSLE).
 The differentiator is the **triple-encoder consensus pattern**: when
 three independent foundation encoders flag the same cell, the answer
@@ -945,7 +945,7 @@ original request enters the signature.** Specifically:
   geocode (e.g. `q="Mount Kilimanjaro"` resolving to "Mount Kilimanjaro
   Street, Philippines") produces a perfectly valid Ed25519 signature
   for the wrong cell64. `POST /v1/verify_receipt` will say `valid:
-  true` — because the responder did sign those CIDs at those cells.
+  true`, because the responder did sign those CIDs at those cells.
   It cannot detect that the cells didn't match the user's intent.
 - **`lat` / `lng` are not signed** beyond what `cell_from_latlng`
   quantises to. Two callers within the same ~10 m cell get the same
@@ -966,7 +966,7 @@ Each Primary / Negative / Derivative fact body includes a `signed_at`
 ISO-8601 wall clock at materialisation time, and that field is hashed
 into `fact_cid`. Two responders materialising the same `(cell, band,
 tslot)` from byte-identical upstream pixels therefore produce **two
-different `fact_cid`s** — this is by design (each responder signs
+different `fact_cid`s**. This is by design (each responder signs
 independently under its own identity), but agents that try to dedupe a
 fact across responders by CID will see false negatives. **The
 cross-replica join key is the tuple `(cell, band, tslot)`**, not
@@ -981,7 +981,7 @@ actually signed a particular CID; use `(cell, band, tslot)` to ask
 receipt over `merged_facts`.** Each cell carries its own independently
 signed receipt under `by_cell.<cell>.receipt`. An agent that quotes
 `merged_facts[i]` and skips the per-cell receipt has lost the
-trust-chain anchor — always cite from the per-cell branch.
+trust-chain anchor; always cite from the per-cell branch.
 
 ---
 
@@ -1112,7 +1112,7 @@ are first-class clients of this surface, the same as server-side ones.
 
 Security questionnaires sometimes flag `Access-Control-Allow-Origin: *`
 as a finding by default; for emem the answer is "we are an open data
-API by design — the attack class that wide CORS normally enables
+API by design: the attack class that wide CORS normally enables
 (reading authenticated responses across origins) does not apply here
 because authentication is not part of the read path."
 

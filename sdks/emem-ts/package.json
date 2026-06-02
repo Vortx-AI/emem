@@ -1,7 +1,7 @@
 {
   "name": "@emem/client",
   "version": "0.0.9",
-  "description": "TypeScript client for emem.dev — agent-native Earth memory protocol",
+  "description": "TypeScript client for emem.dev, the agent-native Earth memory protocol",
   "license": "Apache-2.0",
   "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
   "homepage": "https://emem.dev",
@@ -41,7 +41,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

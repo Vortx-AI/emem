@@ -15,7 +15,7 @@ responses follow the `emem.error.v1` envelope:
 ```
 
 An agent should `switch (error.code)` rather than match on `message`
-or status — messages may evolve; codes are stable.
+or status. Messages may evolve; codes are stable.
 
 ## Catalog (28 codes)
 
@@ -30,7 +30,7 @@ or status — messages may evolve; codes are stable.
 | `cid_not_found` | 404 | /v1/recall, /v1/recall_polygon, /v1/memory_bundle/{token} | No fact or bundle stored under the given content id at this responder. |
 | `no_geocoder_match` | 404 | /v1/locate, /v1/ask | Geocoder cascade exhausted without a confident match for the place query. |
 | `place_not_found` | 404 | /v1/locate | Place name not found in any embedded layer or network fallback. |
-| `geocoder_transport_down` | — | — | (see /v1/errors live payload for description) |
+| `geocoder_transport_down` | n/a | n/a | (see /v1/errors live payload for description) |
 | `invalid_argument` | 422 | * | Request payload failed validation; see message for the specific field. |
 | `registry_cid_unknown` | 404 | /v1/manifests | Registry CID does not resolve at this responder. |
 | `schema_cid_unknown` | 404 | /v1/manifests | Schema CID does not resolve at this responder. |
@@ -47,14 +47,14 @@ or status — messages may evolve; codes are stable.
 | `compute_timeout` | 504 | /v1/recall, /v1/state | Inference sidecar or upstream exceeded the per-request deadline. |
 | `compute_quota_exceeded` | 429 | /v1/recall, /v1/state | Caller is past the per-window compute budget. |
 | `rate_limited` | 429 | * | Caller is over the request-rate budget for the window. |
-| `cache_error` | 500 | * | sled or LanceDB cache returned an unexpected error; transient — retry once. |
+| `cache_error` | 500 | * | sled or LanceDB cache returned an unexpected error; transient, retry once. |
 | `internal` | 500 | * | Unclassified server-side error; receipts already signed are still valid. |
 
 ## Recovery hints
 
-- GET /v1/manifests  — current registry/schema/bands/sources CIDs
-- GET /v1/bands      — band catalogue with tempo + privacy_class
-- POST /v1/verify_receipt — debug a bad_signature with `preimage_blake3_hex`
+- GET /v1/manifests  : current registry/schema/bands/sources CIDs
+- GET /v1/bands      : band catalogue with tempo + privacy_class
+- POST /v1/verify_receipt : debug a bad_signature with `preimage_blake3_hex`
 
 ## How agents should handle errors
 

@@ -38,6 +38,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 DATA = REPO / "crates" / "emem-core" / "data"
 MCP_SRC = REPO / "crates" / "emem-mcp" / "src" / "lib.rs"
+REST_SRC = REPO / "crates" / "emem-api-rest" / "src" / "lib.rs"
 CARGO = REPO / "Cargo.toml"
 
 # ---------------------------------------------------------------------------
@@ -58,8 +59,8 @@ CANON = {
     "source_schemes": 46,
     "topics": 27,
     "foundation_encoders": 4,
-    "mcp_resources": 7,        # resources/list entries
-    "mcp_uri_templates": 3,    # resource template entries
+    "mcp_resources": 18,       # resources/list entries (emem-mcp 7 + emem-api-rest 11)
+    "mcp_uri_templates": 8,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 16,
     "version": "0.0.9",
 }
@@ -85,6 +86,16 @@ def compute_offline() -> dict:
     tmpl_block = re.search(r"RESOURCE_TEMPLATES[^=]*=\s*&\[(.*?)\n\];", mcp, re.S)
     resources = len(re.findall(r"\buri:\s*", res_block.group(1))) if res_block else 0
     templates = len(re.findall(r"\buri_template:\s*", tmpl_block.group(1))) if tmpl_block else 0
+    # The REST layer augments the catalog that `resources/list` actually serves:
+    # mcp_full_resources() = the emem-mcp RESOURCES above plus the docs entries in
+    # mcp_static_resources(), and mcp_full_resource_templates() = the emem-mcp
+    # RESOURCE_TEMPLATES plus the templated URIs in mcp_resource_templates(). Count
+    # both so the total matches the live responder, not just the emem-mcp crate.
+    rest = REST_SRC.read_text()
+    rest_res = re.search(r"fn mcp_static_resources\(\)[^{]*\{(.*?)\n\}", rest, re.S)
+    rest_tmpl = re.search(r"fn mcp_resource_templates\(\)[^{]*\{(.*?)\n\}", rest, re.S)
+    resources += len(re.findall(r"(?m)^\s+\(\s*$", rest_res.group(1))) if rest_res else 0
+    templates += len(re.findall(r'"uriTemplate"\s*:', rest_tmpl.group(1))) if rest_tmpl else 0
 
     cargo = CARGO.read_text()
     members_block = re.search(r"members\s*=\s*\[(.*?)\]", cargo, re.S)
@@ -200,16 +211,23 @@ def write_agent(check_only: bool) -> list[str]:
     new = text
     for k, v in repl.items():
         new = _set_num(new, k, v)
-    # Free-text count tokens in the tagline + description strings.
-    new = new.replace("Three foundation encoders", "Four foundation encoders")
-    new = new.replace("75 MCP tools (10 core, 65 extended)",
-                      "80 MCP tools (10 core, 70 extended)")
-    new = new.replace("18 static MCP resources + 8 URI templates",
-                      "7 static MCP resources + 3 URI templates")
-    new = new.replace("42 bands, 46 source schemes",
-                      "122 materializer-wired band names across 42 cube slots, 46 source schemes")
-    new = new.replace("35 cube slots; 118 (slot",
-                      "42 cube slots; 122 (slot")
+    # Free-text count tokens in the tagline + description strings. These are
+    # value-agnostic regexes (match whatever number is there now, set it to
+    # canonical) so the description can't silently rot the way the old one-shot
+    # string migrations did.
+    def _sub(pattern: str, repl: str, s: str) -> str:
+        return re.sub(pattern, repl, s)
+
+    new = _sub(r"\d+ MCP tools \(10 core, \d+ extended\)",
+               f'{CANON["mcp_tools"]} MCP tools (10 core, {CANON["mcp_extended"]} extended)', new)
+    new = _sub(r"\d+ static MCP resources \+ \d+ URI templates",
+               f'{CANON["mcp_resources"]} static MCP resources + {CANON["mcp_uri_templates"]} URI templates', new)
+    new = _sub(r"\d+ algorithms in a content-addressed registry",
+               f'{CANON["algorithms"]} algorithms in a content-addressed registry', new)
+    new = _sub(r"\d+ materializer-wired band names across \d+ cube slots",
+               f'{CANON["materializer_wired"]} materializer-wired band names across {CANON["cube_slots"]} cube slots', new)
+    new = _sub(r"\d+ cube slots; \d+ \(slot",
+               f'{CANON["cube_slots"]} cube slots; {CANON["materializer_wired"]} (slot', new)
     return _apply(f, text, new, check_only)
 
 

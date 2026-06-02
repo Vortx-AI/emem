@@ -45,7 +45,7 @@ reference responder is a single Rust binary at
 `github.com/Vortx-AI/emem`, running at `https://emem.dev`.
 
 Four foundation encoders sit GPU-pinned inside the same tenant as
-the responder — Clay v1.5 (1024-D, Sentinel-2, receptive field
+the responder: Clay v1.5 (1024-D, Sentinel-2, receptive field
 ~2.56 km), Prithvi-EO-2.0-300M-TL (1024-D, HLS V2, ~6.7 km),
 Tessera (128-D annual stack via `geotessera.multi_year`, per-pixel),
 and Galileo (multimodal stack: S1, S2, DEM, climate). Their
@@ -59,8 +59,8 @@ This document specifies the math and architecture that 0.0.9 ships.
 Items not in 0.0.9 are listed under "Honest limits" and not discussed
 elsewhere.
 
-![emem architecture — one Rust binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
-*Figure 1 — the entire stack. REST and MCP share handlers; sled holds the hot cache, the append-only Merkle log holds the trust state. Open the SVG for the labelled variant.*
+![emem architecture: one Rust binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
+*Figure 1: the entire stack. REST and MCP share handlers; sled holds the hot cache, the append-only Merkle log holds the trust state. Open the SVG for the labelled variant.*
 
 ---
 
@@ -127,7 +127,7 @@ A cell64 is a 64-bit packed identifier for a square lat/lng bucket on
 WGS-84. The encoding lives in `crates/emem-codec/src/geo.rs`.
 
 ![cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID](/docs/diagrams/09-address-algebra.svg)
-*Figure 2 — address algebra. Three integers become one 26-character handle the rest of the protocol cites.*
+*Figure 2: address algebra. Three integers become one 26-character handle the rest of the protocol cites.*
 
 ### 2.1 Bit layout
 
@@ -169,7 +169,7 @@ The eventual migration target is an H3-style hex DGGS at resolution
 Sentinel-2 and Sentinel-1 RTC native pitch is 10 m. Cop-DEM 30 m
 mean-pools cleanly to 10 m. A 10 m grid lets a fact be materialised
 per pixel without aggregation loss. A coarser grid forces every
-optical ingest to pre-aggregate or pre-resample — an opinion the
+optical ingest to pre-aggregate or pre-resample, an opinion the
 protocol does not need to take.
 
 ### 2.4 Text form
@@ -221,7 +221,7 @@ served at a tempo finer than its declared cadence.
 
 ### 3.3 Why tempo
 
-Bands have natural cadences — Tessera annual, MODIS 8-day, Open-Meteo
+Bands have natural cadences: Tessera annual, MODIS 8-day, Open-Meteo
 hourly. Snapping to tempo aligns the index across heterogeneous
 sources. "Compare NDVI now versus a year ago" maps to two specific
 tslot values without the responder reasoning about source-specific
@@ -229,7 +229,7 @@ cadences at query time.
 
 ### 3.4 Text form and recovery
 
-Text form: `t.<base32-nopad-leb128>` — `t.aaaaagy` is the tslot
+Text form: `t.<base32-nopad-leb128>`. `t.aaaaagy` is the tslot
 literal for the unsigned integer `1234`. Round-trippable through
 `tslot_text.rs` in `emem-codec`. A receipt that cites
 `(cell, band, tslot)` lets a verifier recover the wall-clock window:
@@ -289,7 +289,7 @@ padding-free, and has no slash collisions inside path segments.
 ## 5. Trust: receipts, attestations, in-browser verification
 
 ![receipt preimage → ed25519 signature → merkle path → offline verify](/docs/diagrams/10-trust-plane.svg)
-*Figure 3 — the trust plane. Five steps to accept a fact without ever calling the issuer back. The `/verify` page recomputes these in the browser using `@noble/curves`.*
+*Figure 3: the trust plane. Five steps to accept a fact without ever calling the issuer back. The `/verify` page recomputes these in the browser using `@noble/curves`.*
 
 ### 5.1 Receipt anatomy
 
@@ -346,7 +346,7 @@ implementation lives in `crates/emem-storage/src/server.rs`.
 Both empty `cells` and empty `fact_cids` lists emit their trailing
 field separator, so a verifier reproduces the exact byte string from
 the receipt fields without ambiguity. The `as_of` block sits outside
-the preimage — it is metadata describing the temporal bound the
+the preimage: it is metadata describing the temporal bound the
 caller passed, and re-signing the receipt with a different bound
 would produce a different value at the cell, which already changes
 `fact_cids`. So `as_of` rides the receipt body but does not change
@@ -515,13 +515,13 @@ upstream call.
 
 ---
 
-## 7. Bands — the 1792-D voxel
+## 7. Bands: the 1792-D voxel
 
-The band ontology loads from `bands-v0.json`. **Forty-two band
+The band ontology loads from `bands-v0.json`. **Forty-three band
 cube slots** sum to exactly **1792 dims**. Offsets are contiguous;
 reserved slots leave room for new bands without breaking existing
-offsets. **122 materializer-wired band names** answer recall today;
-the gap between 42 cube slots and 122 names is the parametric
+offsets. **124 materializer-wired band names** answer recall today;
+the gap between 43 cube slots and 124 names is the parametric
 expansion (every Sentinel-2 reflectance band, every spectral index,
 every Tessera vintage, every Open-Meteo variant) under a fixed
 underlying slot.
@@ -535,7 +535,7 @@ underlying slot.
      199   505  _reserved_512      reserved     static  public
      704    10  sentinel2_raw      optical      fast    public
      ...   ...  ...                ...          ...     ...
-                                                        (42 slots)
+                                                        (43 slots)
                                                         total = 1792
 ```
 
@@ -562,7 +562,7 @@ exposed at `/v1/manifests` and on the `/v1/bands` response root.
 
 ## 8. Algorithms
 
-The algorithm registry (`algorithms-v0.json`) holds **159 entries** in
+The algorithm registry (`algorithms-v0.json`) holds **160 entries** in
 three kinds:
 
 ```text
@@ -582,14 +582,14 @@ Each entry carries `inputs[]`, `formula` (plain math), `output`,
 `when_to_use`, `citation`, an optional `evaluation: Expr` AST, and the
 provenance trio added in 0.0.4:
 
-- `parameters` — typed tunable thresholds (`consensus_threshold`,
+- `parameters`: typed tunable thresholds (`consensus_threshold`,
   `k_neighbors`, `ask_timeout_ms`, `intent_cosine_threshold`, ...).
   Values are `serde_json::Value`; numerics resolve through
   `Algorithm::param_f64(key)`. `param_str` and a raw `param` accessor
   cover the other shapes.
-- `learned_from` — citation provenance for every tuned number. Every
+- `learned_from`: citation provenance for every tuned number. Every
   gate threshold traces to its referee.
-- `prerequisites` — registries, centroid tables, or seed datasets the
+- `prerequisites`: registries, centroid tables, or seed datasets the
   algorithm depends on. Lets the dispatcher emit
   `archetype_seed_unavailable` Absence rather than a runtime crash.
 
@@ -616,7 +616,7 @@ array on `/v1/ask`.
 
 ### 8.2 Triple-encoder consensus
 
-The differentiator of 0.0.9 is `clay_prithvi_tessera_triple_consensus@1`
+The central change algorithm in 0.0.9 is `clay_prithvi_tessera_triple_consensus@1`
 plus six domain variants. Three foundation encoders with independent
 receptive fields vote on a per-cell change index over a 365-day
 window.
@@ -665,10 +665,10 @@ only one encoder fires is almost certainly receptive-field artifact.
   urban_expansion_triple@1         0.20   Overture buildings.count delta + s2.B11
                                           SWIR corroboration tag 'swir_corroborated'
                                           on 1-vote cells.
-  disaster_anomaly_triple@1        —      Spatial (no temporal recipe).
+  disaster_anomaly_triple@1        n/a    Spatial (no temporal recipe).
                                           2-σ neighbour z-score; single-pass
                                           discovery.
-  climate_archetype_triple@1       —      12-class Köppen-Geiger classifier seeded
+  climate_archetype_triple@1       n/a    12-class Köppen-Geiger classifier seeded
                                           from Beck et al. 2018 type-locality
                                           centroids (`climate_archetype_centroids_v1.json`).
   coastal_erosion_triple@1         0.12   Bathymetry-clamped to cells where
@@ -718,7 +718,7 @@ Index lookup over `(cell, band, tslot)`. Implementation in
 `emem-primitives/src/recall.rs`.
 
 When `bands` is supplied and matches no facts, the response includes
-`bands_already_attested_at_cell: [...]` — the actual band keys present
+`bands_already_attested_at_cell: [...]`, the actual band keys present
 on the cell. An agent asking for `band="alphaearth"` at a cell that
 holds geotessera + soilgrids learns immediately that its band name is
 wrong, not that the cell is empty.
@@ -737,7 +737,7 @@ is registered, the recall path triggers materialisation:
     → Fact::Primary → sign as responder → put_attestation → return
 ```
 
-Gates: `EMEM_AUTO_MATERIALIZE` (default **on** — set `0`/`false` to
+Gates: `EMEM_AUTO_MATERIALIZE` (default **on**, set `0`/`false` to
 disable), 30 s materialiser timeout, 180 s gateway timeout, 16 MiB
 body cap. A miss with no registered connector returns
 `MaterializeMiss` as a typed Absence, never a silent empty.
@@ -762,7 +762,7 @@ Brute-force k-NN over the canonical-key index for the configured band
 Per-cell deduplication keeps the highest-scoring vintage; without it
 multi-vintage bands return k near-duplicates of the same place.
 
-The optional `filter: Claim` is evaluated per cell with memoisation —
+The optional `filter: Claim` is evaluated per cell with memoisation:
 a verdict for `(cell, claim.band, claim.op, claim.value)` computes
 once and reuses across repeated tslots. Cells with no fact for the
 filter band are dropped (undecidable, not "false").
@@ -834,8 +834,8 @@ rather than collapsing to `verdict=false`. Open-ended windows (no
 tslot, no single-point window) cannot pick a target tslot, so they
 fall back to Fast over whatever is already in the index.
 
-`Mode::Zk` was removed in 0.0.4 — Rust enum, MCP schema, OpenAPI
-VerifyReq schema. It returned 500 on every call. ZK is not in 0.0.9.
+`Mode::Zk` was removed in 0.0.4 (Rust enum, MCP schema, OpenAPI
+VerifyReq schema). It returned 500 on every call. ZK is not in 0.0.9.
 
 ### 9.5 compare / compare_bands
 
@@ -845,22 +845,22 @@ tslots to the latest tslot for that band at the cell. A caller who
 omits both tslots gets `tslot_resolution.reason = "auto_picked_latest"`;
 a caller who supplies tslots gets `"caller_supplied"`. A band with no
 history at the cell surfaces as `bands_with_no_history[]` and the
-response carries an empty-cite receipt — labelled empty, not zeroed.
+response carries an empty-cite receipt: labelled empty, not zeroed.
 
 ### 9.6 diff / trajectory / query_region / recall_polygon
 
-- `diff(cell, band, t0, t1)` — change between two tslots for a
+- `diff(cell, band, t0, t1)`: change between two tslots for a
   single band. Non-numeric bands return a structured error.
-- `trajectory(cell, band, [tslots])` — ordered series; missing
+- `trajectory(cell, band, [tslots])`: ordered series; missing
   tslots surface as gaps with explicit reasons.
-- `query_region(geometry, bands?, agg?)` — geometry is `<cell64>`,
+- `query_region(geometry, bands?, agg?)`: geometry is `<cell64>`,
   `cells:c1,c2,...`, or `bbox:lon_min,lat_min,lon_max,lat_max`.
   Bbox synthesis caps at `MAX_BBOX_CELLS = 4096` and
   `MAX_REGION_FACTS = 65 536`. Default `max_cells` is
   bbox-area-derived (target 1 cell per (10 km)², clamped `[64, 1024]`).
   Beyond the caps the responder aggregates over what it has;
   `receipt.fact_cids` reflects exactly what contributed.
-- `recall_polygon(polygon_bbox, n_cells)` — fans out across up to
+- `recall_polygon(polygon_bbox, n_cells)`: fans out across up to
   1024 sample cells; returns mean / median / min / max / std per
   band plus per-cell `scene_thumbs[]`, `scene_overlay_url`,
   `geojson`. An `include: ["ftw_fields"]` flag attaches the
@@ -986,8 +986,8 @@ sled commit lands:
 Two scheduled tokio workers, both opt-in via env:
 
 ```text
-  EMEM_MEMORY_TTL_ENABLED=1                 — hourly TTL sweep
-  EMEM_MEMORY_CONSOLIDATION_ENABLED=1       — daily consolidation
+  EMEM_MEMORY_TTL_ENABLED=1                   hourly TTL sweep
+  EMEM_MEMORY_CONSOLIDATION_ENABLED=1         daily consolidation
 ```
 
 Per-kind TTL defaults: `resource` 90 d, `episodic` 30 d,
@@ -1007,8 +1007,8 @@ remain accessible via history; idempotent.
 Every read primitive accepts two optional bounds:
 
 ```text
-  as_of_tslot       : u64                     — observation time
-  as_of_signed_at   : RFC 3339 timestamp      — transaction time
+  as_of_tslot       : u64                       observation time
+  as_of_signed_at   : RFC 3339 timestamp        transaction time
 ```
 
 Semantics: "return the latest fact per `(cell, band)` whose tslot ≤
@@ -1031,7 +1031,7 @@ trait Storage {
 
 The sled implementation pushes the valid-time predicate into the
 canonical key index (`SledHotCache::scan_cell_with_tslot_bound`
-decodes the tslot off the key bytes inline — zero CBOR loads for
+decodes the tslot off the key bytes inline, zero CBOR loads for
 the valid-time half); the transaction-time half loads the fact body
 and checks `signed_at`. `find_similar` with either bound set
 bypasses the LanceDB ANN fast-path because the index has no
@@ -1122,7 +1122,7 @@ from `<EMEM_DATA>/hf_cache/`.
   Galileo (var. base)      [1, 1, 8, 8, 10]     D*      ~4 s    ~14 ms  S2-only modality; S1/ERA5/
                            (10 S2 bands @ 30 m)                         TC/VIIRS/SRTM/DW/WC/LandScan
                                                                         modalities zero-masked
-  JEPA v2 (untrained)      3 × 128-D Tessera    128-D   —       ~50 µs  Dynamics predictor.
+  JEPA v2 (untrained)      3 × 128-D Tessera    128-D   n/a     ~50 µs  Dynamics predictor.
                            lags                                         Untrained baseline today;
                                                                         short-circuits to last
                                                                         attested vintage; receipt
@@ -1140,8 +1140,8 @@ All three trained encoders serve frozen embeddings; receipts carry
 `frozen_pretrained_encoder`. Clay v1.5 loads from
 `made-with-clay/Clay/v1.5/clay-v1.5.ckpt`. Galileo's non-S2 modalities
 are zero-masked; the encoder accepts the multimodal shape but only S2
-chips are wired today. The FastAPI shape — `POST /predict/<name>`
-with `{cell, scene_url?, band_indices?}` request — is a public
+chips are wired today. The FastAPI shape (`POST /predict/<name>`
+with `{cell, scene_url?, band_indices?}` request) is a public
 contract; a customer drops in their own encoder under the same call.
 
 JEPA v2 architecture: 3 × 128-D lags → flatten `[B, 384]` → 128-D
@@ -1199,7 +1199,7 @@ subset answers recall today.
   * declared, materialiser not wired in 0.0.9
 ```
 
-Utility modules: `cog` (universal pure-Rust COG range sampler —
+Utility modules: `cog` (universal pure-Rust COG range sampler:
 Deflate, LZW, Predictor 1/2/3, 8/16/32-bit LE), `cache_window`
 (in-flight fetch coalescing), `connectors` (dispatcher), `proj`
 (WGS84↔UTM), `stac` (Element84 + MPC search), `template` (URL
@@ -1211,7 +1211,7 @@ templating).
 
 `topics-v0.json` declares **27 topics** routing free-text questions to
 the right `(bands, algorithms)` pair. **11 topics are fully wired
-live** — every declared band has a registered materialiser.
+live**: every declared band has a registered materialiser.
 Routing is by cosine over a 768-D BAAI/bge-base-en-v1.5 embedding
 served by `ort` 2.x + `tokenizers` directly (no third-party wrapper).
 The model loads from `<EMEM_DATA>/models/bge-base-en-v1.5/` (CPU);
@@ -1237,8 +1237,8 @@ the provenance:
 ## 15. Agent-discoverable surface
 
 `emem-server` serves both HTTP/REST and MCP JSON-RPC on one port
-(default `0.0.0.0:5051`). **92 documented REST paths under
-`/v1/*`** (95 total in OpenAPI), **80 MCP tools (10 core, 70 extended)**. Discovery chain on first contact:
+(default `0.0.0.0:5051`). **93 documented REST paths under
+`/v1/*`** (96 total in OpenAPI), **81 MCP tools (10 core, 71 extended)**. Discovery chain on first contact:
 
 ```text
   1. GET  /.well-known/emem.json         responder pubkey + capabilities
@@ -1267,9 +1267,9 @@ produce byte-identical CIDs over the manifest set at
 
 ```text
   bands_cid        BLAKE3 over canonical_cbor(BandsManifest)
-                   (1792 dims, 42 cube slots)
+                   (1792 dims, 43 cube slots)
   algorithms_cid   BLAKE3 over canonical_cbor(AlgorithmsManifest)
-                   (159 entries)
+                   (160 entries)
   sources_cid      BLAKE3 over canonical_cbor(SourcesManifest)
                    (46 schemes)
   topics_cid       BLAKE3 over canonical_cbor(TopicsManifest)
@@ -1407,7 +1407,7 @@ the raw scenes in the first place. An agent that uses both gets
 compact internal memory of the chat plus shared external memory of
 the world; the receipt CID is the bridge between them.
 
-A practical way to think about it: agent runtimes are converging on
+Agent runtimes are converging on
 a tiered memory architecture. Tier 1 is short-term attention, the
 context window the backbone reasons over directly. Tier 2 is
 in-process long-term memory, an associative state or scratchpad
@@ -1741,11 +1741,11 @@ arbitrary structured feedback alongside the receipt.
   classification maps at 1-km resolution." *Scientific Data* 5,
   180214 (2018). (`climate_archetype_triple` seed centroids.)
 - Clay Foundation. "Clay v1.5." `made-with-clay/Clay` (Apache-2.0).
-- Corley, I. "TerraBit — sign-bit rotation for binary k-NN."
+- Corley, I. "TerraBit: sign-bit rotation for binary k-NN."
   geospatialml.com/posts/terrabit. (TurboQuant rotation, §9.3.1.)
 - Fields of The World (FTW). "Global agricultural field polygons,
   241 countries, 10 m, CC-BY-4.0." source.coop pmtiles archive.
-- GeoNames. "cities-5000 — 68 581 populated places ≥ 5 000
+- GeoNames. "cities-5000: 68 581 populated places ≥ 5 000
   population, CC-BY-4.0." Vendored at
   `crates/emem-fetch/data/cities5000.txt.gz`.
 - Hansen, M.C., et al. "High-resolution global maps of 21st-century
@@ -1774,9 +1774,9 @@ arbitrary structured feedback alongside the receipt.
   water and its long-term changes." *Nature* 540, 418-422 (2016).
 - Schumann, G.J.-P., et al. "The need for a high-accuracy, open-
   access global DEM." *Frontiers in Earth Science* 6:225 (2018).
-- Snyder, J.P. "Map projections — a working manual." USGS PP 1395
+- Snyder, J.P. "Map projections: a working manual." USGS PP 1395
   (1987). (UTM in `emem-fetch::proj`.)
-- Tseng, G., et al. "Galileo — a multimodal geospatial foundation
+- Tseng, G., et al. "Galileo: a multimodal geospatial foundation
   model." `nasaharvest/galileo`.
 - RFC 8949 (CBOR §4.2 deterministic encoding), RFC 8032 (Ed25519),
   RFC 4648 (base32-nopad), RFC 9090 (multibase 'b'),

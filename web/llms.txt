@@ -2,11 +2,11 @@
 
 > emem is a signed, content-addressed spatial memory for AI agents — every place-time on Earth resolves to a verifiable fact, read over MCP or REST, no keys, every answer an ed25519 receipt verifiable offline.
 
-Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 80 MCP tools, 92 documented /v1 paths, 159 algorithms, 46 source schemes.
+Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 81 MCP tools, 93 documented /v1 paths, 160 algorithms, 46 source schemes.
 
 ## Connect
 
-- [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; 80 tools (10 core, 70 extended). Point a client here, no key.
+- [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; 81 tools (10 core, 71 extended). Point a client here, no key.
 - [OpenAPI 3.1](https://emem.dev/openapi.json): full machine contract for the /v1 REST surface.
 - [Agent card](https://emem.dev/v1/agent_card): self-describing card with primitives, band taxonomy, and tool descriptors.
 - [Agent card (alias)](https://emem.dev/agent.json): same card at the conventional discovery path.
@@ -33,7 +33,7 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [skills.md](https://emem.dev/skills.md): composed recipes (locate+recall, find_similar+verify, recall_polygon+solve) as a flat cookbook.
 - [reference](https://emem.dev/reference): the read surface — client setup, endpoint tables, primitives summary, the 12-event hunter table.
 - [topics](https://emem.dev/v1/topics): the 27 topic routes that ask uses to map a question to bands.
-- [algorithms](https://emem.dev/v1/algorithms): 159 composition recipes (flood_risk, walkability, eudr_compliance, …).
+- [algorithms](https://emem.dev/v1/algorithms): 160 composition recipes (flood_risk, walkability, eudr_compliance, …).
 - [errors](https://emem.dev/docs/errors.html): the structured error codes and their resolution hints.
 
 ## Optional

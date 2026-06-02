@@ -33,15 +33,15 @@ Implemented at `crates/emem-core/src/manifest.rs` (`fn manifest_cid`).
 deserialised struct, so two implementations parsing the same JSON converge
 on the same CID as long as their structs share the same in-memory shape.
 The per-manifest `Manifest::validate` impl runs before the CID is taken, so
-a structurally invalid manifest never gets a CID — the loader panics at
+a structurally invalid manifest never gets a CID. The loader panics at
 startup.
 
 ## The eight manifests
 
 | Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
 |-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
-| `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 42 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
-| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 159         | composition recipes (solo / combined / embedding)           |
+| `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 43 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
+| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 160         | composition recipes (solo / combined / embedding)           |
 | `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 23          | derivation functions (primary / derivative / negative)      |
 | `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 46 schemes  | ordered providers per scheme                                |
 | `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 27 topics   | `/v1/ask` routing (description + aliases + bands)           |
@@ -54,7 +54,7 @@ The first six are JSON+struct pairs validated against `crate::manifest::Manifest
 
 ## emem-bands (bands-v0.json)
 
-The 1792-D voxel layout. 42 bands sum to exactly 1792 dims, validated at
+The 1792-D voxel layout. 43 bands sum to exactly 1792 dims, validated at
 load. Each band declares an `offset` and `dims`; the validator at
 `bands.rs` rejects any manifest where
 `bands[i].offset != sum(bands[0..i].dims)` or the total deviates from
@@ -107,16 +107,16 @@ The 5 `Tempo` variants and their slot duration:
 
 The 4 `PrivacyClass` variants:
 
-- `public` — unrestricted
-- `aggregate_only { min_res }` — must snap to >= `min_res` before serving
-- `l2_only_with_model_cid` — admissible only at conformance L2 with a model CID
-- `prohibited` — refuse to serve
+- `public`: unrestricted
+- `aggregate_only { min_res }`: must snap to >= `min_res` before serving
+- `l2_only_with_model_cid`: admissible only at conformance L2 with a model CID
+- `prohibited`: refuse to serve
 
 ### Cube vs materializer surface
 
-The 42 cube slots are the byte-stable layout pinned by `total_dims = 1792`.
-Materializer-wired band names — what shows up under `/v1/coverage_matrix`
-and `/v1/materializers` — are denser: 122 distinct keys today, because
+The 43 cube slots are the byte-stable layout pinned by `total_dims = 1792`.
+Materializer-wired band names (what shows up under `/v1/coverage_matrix`
+and `/v1/materializers`) are denser: 124 distinct keys today, because
 multi-dim cube slots fan out to several materializable subkeys (the
 `indices` slot expands to `indices.ndvi`, `indices.ndwi`, `indices.evi`,
 and so on; `geotessera` expands to per-year vintages plus `bin128` and
@@ -128,7 +128,7 @@ removed when its no-key path closed.
 
 ## emem-algorithms (algorithms-v0.json)
 
-159 composition recipes split across three kinds:
+160 composition recipes split across three kinds:
 
 | Kind        | Count | What it composes                                                       |
 |-------------|-------|------------------------------------------------------------------------|
@@ -231,18 +231,18 @@ ensemble score plus a discrete agreement label (`one_or_none`,
 
 ### Expr AST
 
-Some algorithms carry an in-process `evaluation` block — an `Expr` AST that
+Some algorithms carry an in-process `evaluation` block, an `Expr` AST that
 the responder can reduce to a scalar once it has the input facts. 15 `Expr`
 variants cover every composition pattern in the registry that uses the AST:
 
 | Variant         | Shape                                                          |
 |-----------------|----------------------------------------------------------------|
-| `Band`          | `{op:"band", band:"<key>"}` — leaf lookup                      |
-| `Const`         | `{op:"const", value:<f64>}` — leaf literal                     |
-| `Add`           | `{op:"add", terms:[...]}` — pointwise sum                      |
+| `Band`          | `{op:"band", band:"<key>"}` leaf lookup                        |
+| `Const`         | `{op:"const", value:<f64>}` leaf literal                       |
+| `Add`           | `{op:"add", terms:[...]}` pointwise sum                        |
 | `Sub`           | `{op:"sub", a:..., b:...}`                                     |
 | `Mul`           | `{op:"mul", terms:[...]}`                                      |
-| `Div`           | `{op:"div", a:..., b:...}` — `b==0` collapses to `None`        |
+| `Div`           | `{op:"div", a:..., b:...}` (`b==0` collapses to `None`)        |
 | `Linear`        | `{op:"linear", weights:{...}, bias:0.0}`                       |
 | `Clamp`         | `{op:"clamp", inner:..., lo:0.0, hi:1.0}`                      |
 | `Where`         | `{op:"where", cond:..., gt:5.0, then_:..., else_:...}`         |
@@ -259,7 +259,7 @@ to `Option<f64>`. A missing band collapses the whole expression to `None`
 `algorithm_outcomes[].skip_reason: "missing_input:<band>"`. The triple-
 consensus algorithms use the wider formula DSL (cosine over embedding
 vectors, `slice_latest`/`slice_prev`, `recall(...)` calls) rather than the
-scalar `Expr` AST — re-executability there comes from the formula string and
+scalar `Expr` AST; re-executability there comes from the formula string and
 the pinned `parameters` block, not from an inline AST.
 
 ### Sensor tier and the 10 m delivery rule
@@ -317,7 +317,7 @@ Per-function fields:
 | `parents_min`      | derivative          | minimum parent count for ops like `trend`                   |
 | `op`               | derivative          | one of `delta`, `mean`, `trend`, `rate`, `anomaly`          |
 | `formula`          | always              | human-readable formula string                               |
-| `deterministic`    | always              | MUST be `true` — non-deterministic functions are rejected   |
+| `deterministic`    | always              | MUST be `true`; non-deterministic functions are rejected    |
 | `reason_template`  | negative            | template for the `ReasonCid`'s source pointer               |
 
 The validator refuses non-deterministic entries outright. The canonical
@@ -408,11 +408,11 @@ deferred for connector work.
 
 Each topic carries:
 
-- `description` — paragraph used to build a sentence-transformer embedding
-- `aliases[]` — short example phrases (also feed the embedding pool and
+- `description`: paragraph used to build a sentence-transformer embedding
+- `aliases[]`: short example phrases (also feed the embedding pool and
   serve as substring fallback when the transformer is offline)
-- `bands[]` — the canonical bands `/v1/ask` recalls when this topic matches
-- `algorithms[]` — composition recipes from `algorithms-v0.json` to apply
+- `bands[]`: the canonical bands `/v1/ask` recalls when this topic matches
+- `algorithms[]`: composition recipes from `algorithms-v0.json` to apply
 
 Routing policy (`topics-v0.json._routing`):
 
@@ -439,7 +439,7 @@ Inverse queries the registry exposes:
 - `topics_for_band(band_key) -> Vec<&Topic>`
 - `topics_for_algorithm(algo_key) -> Vec<&Topic>`
 
-Both are O(N) over the 27-topic list — small enough that no index is needed.
+Both are O(N) over the 27-topic list, small enough that no index is needed.
 
 ## emem-schema (schema-v0.json)
 
@@ -506,8 +506,8 @@ consonant/vowel string constants in the same file.
 
 | Manifest                 | Count today  | Invariant the validator enforces                                  |
 |--------------------------|--------------|-------------------------------------------------------------------|
-| `emem-bands`             | 42 slots     | sum of `dims` == 1792; offsets contiguous; no dup keys            |
-| `emem-algorithms`        | 159          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
+| `emem-bands`             | 43 slots     | sum of `dims` == 1792; offsets contiguous; no dup keys            |
+| `emem-algorithms`        | 160          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
 | `emem-functions`         | 23           | no dup keys; `deterministic == true` always; sources non-empty for primary/negative |
 | `emem-sources`           | 46 schemes   | no dup schemes; `providers[]` non-empty                           |
 | `emem-topics`            | 27 topics    | no dup keys                                                       |
@@ -515,13 +515,13 @@ consonant/vowel string constants in the same file.
 | `emem-lcv1`              | 64 leaves    | 8 families x 8 leaves; u8 encoding                                |
 | `emem-cell64-alphabet`   | 65 536       | in-code CVCV builder, deterministic                               |
 
-For materializer surface (122 distinct band names), see
+For materializer surface (124 distinct band names), see
 `/v1/coverage_matrix` and `/v1/materializers` on a running responder.
 
 ## Publishing a new manifest
 
 1. Edit the JSON in `crates/emem-core/data/`.
-2. `cargo test -p emem-core` — every `Manifest::validate` impl runs in the
+2. `cargo test -p emem-core` runs every `Manifest::validate` impl in the
    crate tests. A malformed shape (offset gap, duplicate key,
    non-deterministic function, empty providers) is rejected before the
    build emits.

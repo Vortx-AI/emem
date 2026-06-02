@@ -39,11 +39,11 @@ docker run --rm \
 
 What's inside `EMEM_DATA`:
 
-- `identity.secret.b32` — the responder's ed25519 secret key. **Back this up.**
+- `identity.secret.b32`: the responder's ed25519 secret key. **Back this up.**
   If you lose it, agents that pinned your `responder_pubkey_b32` will reject
   every receipt you sign with the new identity.
-- `cache/` — sled hot cache (signed facts, lazy-materialized payloads)
-- `attest/` — append-only Merkle log of attestations (write surface)
+- `cache/`: sled hot cache (signed facts, lazy-materialized payloads)
+- `attest/`: append-only Merkle log of attestations (write surface)
 
 ## Build from source
 
@@ -78,14 +78,14 @@ warm. First build ~5 min; incremental ~30 s.
 |-----|---------|-------|
 | `EMEM_DISABLE_LANCE`                       | `0`    | `1` forces find_similar and memory_search to the brute-force scan |
 | `EMEM_SSE_MAX_SUBS`                        | `256`  | concurrent SSE subscribers on `/v1/memory/sse`; 503 on overflow |
-| `EMEM_MEMORY_SEARCH_POLL_SECS`             | `60`   | indexer cadence — how often the BGE indexer scans memory_file_meta for new writes |
+| `EMEM_MEMORY_SEARCH_POLL_SECS`             | `60`   | indexer cadence (how often the BGE indexer scans memory_file_meta for new writes) |
 | `EMEM_MEMORY_SEARCH_MODEL_DIR`             | `$EMEM_DATA/models/bge-base-en-v1.5` | overrides the BGE model location (legacy alias `EMEM_TOPIC_MODEL_DIR` also accepted) |
 | `EMEM_MEMORY_TTL_ENABLED`                  | `0`    | `1` arms the hourly TTL pass over `memory_file_meta` |
 | `EMEM_MEMORY_TTL_INTERVAL_SECS`            | `3600` | TTL sweep cadence; lower values are useful in tests |
 | `EMEM_MEMORY_TTL_RESOURCE_DAYS`            | `90`   | TTL for `kind=resource` (0 = infinite) |
 | `EMEM_MEMORY_TTL_EPISODIC_DAYS`            | `30`   | TTL for `kind=episodic` (0 = infinite) |
-| `EMEM_MEMORY_TTL_SEMANTIC_DAYS`            | `0`    | infinite by default — semantic facts are durable |
-| `EMEM_MEMORY_TTL_PROCEDURAL_DAYS`          | `0`    | infinite — playbooks are durable |
+| `EMEM_MEMORY_TTL_SEMANTIC_DAYS`            | `0`    | infinite by default; semantic facts are durable |
+| `EMEM_MEMORY_TTL_PROCEDURAL_DAYS`          | `0`    | infinite; playbooks are durable |
 | `EMEM_MEMORY_CONSOLIDATION_ENABLED`        | `0`    | `1` arms the daily consolidation pass |
 | `EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`  | `86400`| consolidation cadence |
 | `EMEM_MEMORY_CONSOLIDATION_MIN_FILES`      | `50`   | min episodic files per attester-subdir before consolidating |
@@ -129,8 +129,8 @@ sudo setcap 'cap_net_bind_service=+ep' /path/to/emem-server
 
 ## TLS
 
-emem-server speaks TLS via embedded `axum-server` + `rustls-acme` —
-no nginx in front needed.
+emem-server speaks TLS via embedded `axum-server` + `rustls-acme`. No
+nginx in front needed.
 
 ```bash
 EMEM_BIND=0.0.0.0:5051 \
@@ -142,7 +142,7 @@ EMEM_TLS_CONTACT=mailto:ops@example.com \
 
 First boot: ~15–30 s while ACME validates. Subsequent boots: ~2 s
 because the certificate is cached in `EMEM_DATA/tls-acme/`. Use
-`EMEM_TLS_STAGING=1` while testing — Let's Encrypt prod rate-limits.
+`EMEM_TLS_STAGING=1` while testing; Let's Encrypt prod rate-limits.
 
 ## systemd (user unit)
 
@@ -152,7 +152,7 @@ version:
 ```ini
 # ~/.config/systemd/user/emem-server.service
 [Unit]
-Description=emem.dev — Earth memory protocol server
+Description=emem.dev Earth memory protocol server
 After=network-online.target
 
 [Service]
@@ -183,18 +183,18 @@ There's a Gradio-wrapped responder you can run as a Hugging Face Space.
 https://github.com/Vortx-AI/emem/tree/main/huggingface-space
 ```
 
-Click "Duplicate this space" — it boots a personal replica in your own
+Click "Duplicate this space" and it boots a personal replica in your own
 HF account. Useful for small evaluations without operating a VM.
 
 ## What you get when you self-host
 
-- **Unlimited throughput** — no public rate limit
-- **Your own responder pubkey** — agents in your stack pin yours
-- **Air-gap-friendly** — turn off `EMEM_AUTO_MATERIALIZE` and only serve
+- **Unlimited throughput:** no public rate limit
+- **Your own responder pubkey:** agents in your stack pin yours
+- **Air-gap-friendly:** turn off `EMEM_AUTO_MATERIALIZE` and only serve
   what you've explicitly attested
-- **Private bands alongside open ones** — attest your own facts under
+- **Private bands alongside open ones:** attest your own facts under
   schemes that route through your storage
-- **Determinism guarantees** — same canonical CBOR, same CID, same
+- **Determinism guarantees:** same canonical CBOR, same CID, same
   signature, every time
 
 ## Operational reference

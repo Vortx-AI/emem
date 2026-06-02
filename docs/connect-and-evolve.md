@@ -9,7 +9,7 @@
 A pile of facts is not yet a memory. A memory connects things and gets
 better as it learns. This layer adds two abilities: facts **link** to
 each other through typed, time-bounded edges, and the corpus **evolves**
-by turning disagreement into recorded links and re-checks — without ever
+by turning disagreement into recorded links and re-checks, without ever
 deleting what it had before.
 
 ## Typed temporal edges
@@ -21,11 +21,11 @@ this relate to that". An edge is itself a signed fact:
 EdgeFact(subj, pred, obj, valid_from, valid_to)
 ```
 
-- `subj`, `obj` — the two things being related, each named by its
+- `subj`, `obj`: the two things being related, each named by its
   content id.
-- `pred` — the relationship, a plain string (e.g. `observed_at`,
+- `pred`: the relationship, a plain string (e.g. `observed_at`,
   `disagrees_with`, `supersedes`).
-- `valid_from`, `valid_to` — the window the relationship held. An open
+- `valid_from`, `valid_to`: the window the relationship held. An open
   `valid_to` means "still true".
 
 Read edges with a query that takes the same bi-temporal `as_of` rule as
@@ -39,10 +39,10 @@ curl -s -X POST https://emem.dev/v1/edges/recall \
 ```
 
 The MCP tool is `emem_edges_recall`. Edges are signed under the same
-receipt envelope as band facts — no new key material, and they verify
+receipt envelope as band facts: no new key material, and they verify
 offline the same way.
 
-### Bi-temporal supersession — newer shadows older, nothing is deleted
+### Bi-temporal supersession: newer shadows older, nothing is deleted
 
 When a newer edge with a later `valid_from` arrives for the same
 `(subj, pred, obj)`, it **shadows** the older one rather than replacing
@@ -62,7 +62,7 @@ curl -s -X POST https://emem.dev/v1/recall \
   | jq '{value: .facts[0].value, edges: .facts[0].edges}'
 ```
 
-## The refinement loop — how the memory evolves
+## The refinement loop: how the memory evolves
 
 **The benefit.** When attesters disagree, emem records the disagreement
 as a link and marks the contested fact for another look. The corpus
@@ -75,7 +75,7 @@ The loop is opt-in (`EMEM_REFINEMENT_ENABLED`) and non-destructive:
    at the same `(cell, band, tslot)`.
 2. The loop writes a `disagrees_with` **edge** between the conflicting
    facts, with a `valid_from` of now. The original facts are untouched.
-3. It flags the contested fact for **re-attestation** — a signal that
+3. It flags the contested fact for **re-attestation**, a signal that
    this value is worth observing again.
 
 Because every step is an edge or a flag (never a deletion), the whole
@@ -102,6 +102,6 @@ responders: nodes that resolve the same content ids byte-for-byte could
 cross-cite each other's attestations and record where they disagree
 across hosts, so the disagreement graph spans the network rather than one
 store. The multi-host routing that would make that automatic does not
-ship in 0.0.9. What ships today is the substrate it builds on — signed
+ship in 0.0.9. What ships today is the substrate it builds on: signed
 typed edges, multi-attester contradiction scoring, and the deterministic
 refinement loop, all on a single responder.

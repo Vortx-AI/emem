@@ -11,7 +11,7 @@
 
 ## Description
 
-emem is a verifiable memory substrate for AI agents. Earth memory and agent memory on one signed trust surface: every read returns an ed25519 receipt, every write is content-addressed, every byte is reproducible on any peer. 80 MCP tools (10 core, 70 extended), plus 7 MCP resources + 3 URI templates (`memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`).
+emem is a verifiable memory substrate for AI agents. Earth memory and agent memory on one signed trust surface: every read returns an ed25519 receipt, every write is content-addressed, every byte is reproducible on any peer. 81 MCP tools (10 core, 71 extended), plus 18 MCP resources + 8 URI templates (e.g. `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`).
 
 ## Key capabilities
 
@@ -19,7 +19,7 @@ emem is a verifiable memory substrate for AI agents. Earth memory and agent memo
 
 **Agent memory (write + read).** Six file-op verbs that conform to the Anthropic memory-tool spec (`memory_view`, `memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`). Each file carries a `kind` from the CoALA taxonomy: `episodic`, `semantic`, `procedural`, `resource`. Writes can be capability-bound to an ed25519 attester so paths under `/memories/by_attester/<pubkey>/...` reject any signer that isn't their owner. `memory_list_by_kind` returns the typed slice. `memory_bundle` composes N facts into one signed envelope (`memb:<bundle_cid>`).
 
-**Search + audit.** `memory_search` runs BGE-base-en-v1.5 embeddings against a LanceDB IVF_PQ partition over memory-file contents — paraphrases match. `memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind (scalar, vector, categorical). `memory/sse` opens a Server-Sent Events stream filtered by `path_prefix`, `kind`, `attester`.
+**Search + audit.** `memory_search` runs BGE-base-en-v1.5 embeddings against a LanceDB IVF_PQ partition over memory-file contents, so paraphrases match. `memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind (scalar, vector, categorical). `memory/sse` opens a Server-Sent Events stream filtered by `path_prefix`, `kind`, `attester`.
 
 **Bi-temporal recall.** Every read primitive accepts `as_of_tslot` (observation time) and `as_of_signed_at` (transaction time). The receipt carries an `as_of` block when set, so an auditor replays a past query byte-for-byte without trusting the issuer.
 
@@ -37,7 +37,7 @@ Remote HTTP MCP endpoint (Streamable HTTP, JSON-RPC 2.0):
 }
 ```
 
-`tools/list` returns all 80 tools by default, so any MCP client discovers the full surface. Pass `{"tier":"core"}` to narrow to the 10 essentials. Tool dispatch via `tools/call` ignores tier; every tool is callable.
+`tools/list` returns all 81 tools by default, so any MCP client discovers the full surface. Pass `{"tier":"core"}` to narrow to the 10 essentials. Tool dispatch via `tools/call` ignores tier; every tool is callable.
 
 ## Example questions
 
@@ -60,12 +60,12 @@ remote endpoint `https://emem.dev/mcp`.
 
 Two publish paths:
 
-* `.github/workflows/mcp-publish.yml` — fires on every `v*` tag push,
+* `.github/workflows/mcp-publish.yml` fires on every `v*` tag push,
   authenticates via GitHub OIDC, installs the `mcp-publisher` CLI,
   and runs `mcp-publisher publish` against the official registry at
   `https://registry.modelcontextprotocol.io`. The canonical path for
   every future release.
-* `scripts/mcp-publish.sh` — manual one-off (GitHub device-flow
+* `scripts/mcp-publish.sh` is a manual one-off (GitHub device-flow
   auth) for the first publish and for ad-hoc metadata updates
   between release tags.
 

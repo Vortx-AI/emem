@@ -28642,9 +28642,9 @@ async fn materialize_soilgrids_band(
 //                                     (`unit: binary`).
 //
 // Legacy `hansen.*` keys are accepted as aliases for back-compat with
-// the GFC-2023-v1.11 wiring; the canonical keys agents should use are
-// the `forest_change.*` ones surfaced under `forest_change.scalar_keys`
-// in `bands-v0.json`.
+// the original Hansen wiring (now migrated to GFC-2024-v1.12); the
+// canonical keys agents should use are the `forest_change.*` ones
+// surfaced under `forest_change.scalar_keys` in `bands-v0.json`.
 /// Build a Hansen GFC v1.12 Fact for one (cell, band) — Primary on
 /// hit, Absence on the TileNotFound coverage gap (Antarctica /
 /// oceanic / polar tiles), hard error on other transport / decode
@@ -39744,6 +39744,7 @@ async fn post_eudr_dds_inner(
         "registry_cid":    s.manifests.registry_cid.as_str(),
         "schema_cid":      s.manifests.schema_cid.as_str(),
         "bands_cid":       &s.manifests.bands_cid,
+        "sources_cid":     &s.manifests.sources_cid,
         "algorithm_evaluation_ast_present": ast_present,
         "annex_i_warnings": annex_i_warnings,
         "due_diligence_statement": {

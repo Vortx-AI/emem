@@ -2,7 +2,7 @@
 
 ## Our Pledge
 
-We — maintainers and contributors — pledge to make participation in the
+We (maintainers and contributors) pledge to make participation in the
 emem project a harassment-free experience for everyone, regardless of
 background, identity, experience level, ethnicity, gender, ability,
 appearance, or any other dimension of being human.
@@ -16,7 +16,7 @@ Examples of behaviour that contributes to a positive environment:
 - Gracefully accepting constructive criticism.
 - Focusing on what is best for the project and the broader agent
   community emem serves.
-- Showing empathy towards other contributors — humans and agents alike.
+- Showing empathy towards other contributors, humans and agents alike.
 
 Examples of unacceptable behaviour:
 

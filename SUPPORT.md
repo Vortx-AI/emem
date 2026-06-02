@@ -14,7 +14,7 @@ Please include:
 
 - The endpoint or MCP tool you called.
 - The exact request body.
-- The full response (including `traceparent` if present — that lets us
+- The full response (including `traceparent` if present, which lets us
   correlate to server-side logs).
 - The protocol version (`/v1/manifests` returns the active CIDs).
 

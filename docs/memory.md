@@ -98,9 +98,9 @@ Every read primitive in the substrate (`recall`, `recall_polygon`,
 `recall_many`, `trajectory`, `query_region`, `find_similar`,
 `state`, `state_multi`, `memory_bundle` per-triple) accepts:
 
-- `as_of_tslot: u64` — return the latest fact per `(cell, band)` whose
+- `as_of_tslot: u64`: return the latest fact per `(cell, band)` whose
   `tslot ≤ as_of_tslot`.
-- `as_of_signed_at: string (RFC 3339)` — return the latest fact whose
+- `as_of_signed_at: string (RFC 3339)`: return the latest fact whose
   `signed_at ≤ as_of_signed_at`.
 
 When both are set, both predicates hold simultaneously. When neither
@@ -155,15 +155,15 @@ chunks. The query side carries BGE's
 `"Represent this sentence for searching relevant passages:"` prefix
 (retrieval setup). The corpus side stays unprefixed.
 
-The indexer runs in polling mode by default — every
+The indexer runs in polling mode by default. Every
 `EMEM_MEMORY_SEARCH_POLL_SECS` seconds (default 60) it scans
 `memory_file_meta` for new `signed_at`, re-embeds, upserts. Hydration
 on boot is idempotent via content-hash check.
 
 The response always carries `via`:
 
-- `lance_ann` — IVF_PQ cosine via the partition
-- `brute_force_fallback` — inline embed + linear scan (when
+- `lance_ann`: IVF_PQ cosine via the partition
+- `brute_force_fallback`: inline embed + linear scan (when
   `EMEM_DISABLE_LANCE=1`, the model isn't loaded, or the partition is
   empty / unreachable)
 
@@ -171,7 +171,7 @@ Hits include a 200-char snippet around the best-matching chunk with
 `[...]` ellipsis if truncated.
 
 If the BGE model isn't installed at `$EMEM_DATA/models/bge-base-en-v1.5/`,
-the endpoint returns a typed 503 — never random vectors.
+the endpoint returns a typed 503, never random vectors.
 
 ## Contradiction detection
 
@@ -196,11 +196,11 @@ must have `len >= 2`).
 
 The response includes:
 
-- `contradictions[]` — per `(cell, band, tslot)` group with all
+- `contradictions[]`: per `(cell, band, tslot)` group with all
   disagreeing attestations
-- `corpus_scanned` — number of `(cell, band, tslot)` keys walked
+- `corpus_scanned`: number of `(cell, band, tslot)` keys walked
 - `time_taken_ms`
-- `agent_hint` — one-paragraph guidance on what to do with the result
+- `agent_hint`: one-paragraph guidance on what to do with the result
 - signed receipt with primitive `emem.memory_contradictions`
 
 ## Memory event stream
@@ -222,7 +222,7 @@ Event shape:
 }
 ```
 
-Events are not individually signed — the underlying file's receipt is
+Events are not individually signed; the underlying file's receipt is
 the verification surface. The stream is best-effort notification.
 
 Cap: 256 concurrent subscribers (`EMEM_SSE_MAX_SUBS`). 503 on overflow.
@@ -269,13 +269,13 @@ first-class; the entire surface is verifiable offline through ed25519.
 
 ## See also
 
-- [agents.md](agents.md) — the read-side rosetta for callers arriving
+- [agents.md](agents.md): the read-side rosetta for callers arriving
   from Mem0, Letta, LangGraph, etc.
-- [whitepaper.md](whitepaper.md) — the protocol, the trust layer, and
+- [whitepaper.md](whitepaper.md): the protocol, the trust layer, and
   the receipt rules.
-- [protocol.md](protocol.md) — the cell64, cid64, tslot bit layouts.
-- [errors.md](errors.md) — every typed error code, including
+- [protocol.md](protocol.md): the cell64, cid64, tslot bit layouts.
+- [errors.md](errors.md): every typed error code, including
   `memory_attestation_invalid`, `memory_namespace_violation`,
   `invalid_temporal_bound`, `invalid_signed_at_format`.
-- `/v1/verify_receipt` — POST any receipt back, get
+- `/v1/verify_receipt`: POST any receipt back, get
   `{valid, primitive, preimage_blake3_hex, signer_pubkey_b32}`.
