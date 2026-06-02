@@ -1,0 +1,49 @@
+name: publish-pypi
+
+# Publish the `ememdev` Python SDK (sdks/emem-py) to PyPI via Trusted
+# Publishing (OpenID Connect). No API token is stored anywhere: the job
+# mints a short-lived OIDC credential that PyPI verifies against the
+# pending/registered publisher (owner=Vortx-AI, repo=emem,
+# workflow=publish-pypi.yml, environment=pypi).
+#
+# Triggers:
+#   * workflow_dispatch  — manual "Run workflow" button (use for the
+#                          first publish of a version)
+#   * release published  — cut a GitHub Release and the SDK version in
+#                          sdks/emem-py/pyproject.toml is published
+#
+# Versions are immutable on PyPI; bump sdks/emem-py/pyproject.toml
+# (and src/emem/__init__.py) before publishing a new release.
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    name: build + publish ememdev to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ememdev
+    permissions:
+      id-token: write   # REQUIRED for OIDC Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: build sdist + wheel
+        working-directory: sdks/emem-py
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/emem-py/dist/
+          skip-existing: true
