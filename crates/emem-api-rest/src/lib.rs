@@ -1144,14 +1144,21 @@ pub fn router(state: AppState) -> Router {
 fn eudr_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/eudr_dds", post(post_eudr_dds))
-        // Same global concurrency backpressure as the main router so an EUDR
-        // burst is still shed (the 2026-05-31 outage was EUDR-shaped).
+        // DEDICATED, small concurrency cap for /v1/eudr_dds — far below the
+        // main router's 128. EUDR is the heaviest endpoint (per-cell verdict
+        // fan-out + optional Sentinel visual-evidence compile holding a
+        // connection for minutes). On 2026-06-02 a burst of `ve=true`
+        // multi-plot compiles starved the shared runtime and wedged the whole
+        // process (including `/health` and the static site). A small cap means
+        // the (N+1)th concurrent compile gets a fast 503 and frees its socket
+        // instead of piling up — the heavy endpoint can no longer take the
+        // site down. Cap via EMEM_EUDR_MAX_INFLIGHT (default 3, clamped 1..=64).
         .layer(
             tower::ServiceBuilder::new()
                 .layer(axum::error_handling::HandleErrorLayer::new(handle_overload))
                 .layer(tower::load_shed::LoadShedLayer::new())
                 .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
-                    max_inflight(),
+                    eudr_max_inflight(),
                 )),
         )
         .layer(axum::middleware::from_fn(security_headers_layer))
@@ -1239,6 +1246,20 @@ fn max_inflight() -> usize {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(128)
         .clamp(8, 4096)
+}
+
+/// Dedicated in-flight cap for the heavy `/v1/eudr_dds` route, independent of
+/// (and far below) [`max_inflight`]. EUDR is the only route that can hold a
+/// connection for minutes (visual-evidence compiles), so a small cap keeps a
+/// burst from starving the shared runtime and taking the whole site down (the
+/// 2026-06-02 wedge). The (N+1)th concurrent compile is shed with a fast 503.
+/// Default 3; tunable via `EMEM_EUDR_MAX_INFLIGHT` (clamped 1..=64).
+fn eudr_max_inflight() -> usize {
+    std::env::var("EMEM_EUDR_MAX_INFLIGHT")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(3)
+        .clamp(1, 64)
 }
 
 /// Error handler for the load-shed / concurrency-limit layer. The only
@@ -15866,7 +15887,7 @@ async fn openapi() -> Json<JsonValue> {
                         "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
                         "quantity_kg":{"type":"number","description":"Net mass in kilograms (Annex II §3)."},
                         "supplier":{"type":"string","description":"Optional supplier identifier."},
-                        "request_visual_evidence":{"type":"boolean","default":false,"description":"Opt-in: build a per-year visual deforestation-evidence block for this plot. Adds a `visual_evidence` field to the per-plot result containing a Sentinel-2 NDVI annual timeline from 2020..current_year + Sentinel-1 RTC VV-backscatter cloud-independent confirmation + per-cell scene.png URLs the agent can render as a 6-up year-by-year grid. Adds ~90s of upstream fan-out per plot; the EUDR budget auto-bumps to 60s + 90s × n_visual_plots (capped at 600s) when this flag is set on any plot. The block carries its own `verdict` (`no_visual_deforestation` / `visual_deforestation_suspected` / `indeterminate_no_baseline`) computed from NDVI drop ≥ EMEM_VISUAL_NDVI_DROP_THRESHOLD (default 0.15 vs 2020 — Pelletier 2024) and S1 VV drop ≥ EMEM_VISUAL_S1_DROP_DB_THRESHOLD (default 3 dB — Reiche 2018). All underlying facts are signed Primary records under the responder's identity; auditors cite ndvi_fact_cids + s1_fact_cids."}
+                        "request_visual_evidence":{"type":"boolean","default":false,"description":"Opt-in: build a per-year visual deforestation-evidence block for this plot. Adds a `visual_evidence` field to the per-plot result containing a Sentinel-2 NDVI annual timeline from 2020..current_year + Sentinel-1 RTC VV-backscatter cloud-independent confirmation + per-cell scene.png URLs the agent can render as a 6-up year-by-year grid. Adds upstream Sentinel fan-out per plot; the EUDR budget auto-bumps to 60s + 110s × n_visual_plots (capped at 480s, deliberately under the ~300s client/edge cut for 1–2 plots) when this flag is set on any plot. Visual-evidence concurrency is bounded (EMEM_EUDR_VISUAL_CONCURRENCY) and the route is capped (EMEM_EUDR_MAX_INFLIGHT) so a visual-evidence burst can't starve the server. The block carries its own `verdict` (`no_visual_deforestation` / `visual_deforestation_suspected` / `indeterminate_no_baseline`) computed from NDVI drop ≥ EMEM_VISUAL_NDVI_DROP_THRESHOLD (default 0.15 vs 2020 — Pelletier 2024) and S1 VV drop ≥ EMEM_VISUAL_S1_DROP_DB_THRESHOLD (default 3 dB — Reiche 2018). All underlying facts are signed Primary records under the responder's identity; auditors cite ndvi_fact_cids + s1_fact_cids."}
                     }}},
                     "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date (ISO 8601). The regulation's value is 2020-12-31."},
                     "forest_baseline_override":{"type":"string","description":"Optional baseline override: 'jrc_gfc2020_v3' (default), 'hansen_only', or 'both' (consensus)."},
@@ -32289,6 +32310,40 @@ async fn materialize_global_permit() -> tokio::sync::OwnedSemaphorePermit {
         .expect("materialize semaphore is never closed")
 }
 
+/// Dedicated concurrency gate for the EUDR visual-evidence fan-out.
+///
+/// `build_plot_visual_evidence` materialises Sentinel-2 NDVI + Sentinel-1 VV
+/// per representative cell × per year (2020..now) × 2 bands. Those
+/// materialisers do NOT take [`materialize_global_permit`], and the fan-out
+/// is `join_all` (unbounded). A 2-plot `request_visual_evidence` compile
+/// therefore fired ~900 tasks/plot, each doing a synchronous COG decode +
+/// blocking sled write directly on the async runtime — which starved the
+/// worker pool and the sled write lock and wedged the WHOLE process
+/// (including `/health` and the static site) on 2026-06-02.
+///
+/// This semaphore hard-caps how many visual-evidence materialisations run
+/// at once across every plot/year/cell/band, so the pointwise path can
+/// never again storm the runtime. It is the interim guard until the
+/// visual-evidence path is moved to a polygon-windowed read (one
+/// `sample_window` per year/band) like the verdict path. Cap via
+/// `EMEM_EUDR_VISUAL_CONCURRENCY` (default 6, clamped 1..=64).
+static VISUAL_SEM: std::sync::OnceLock<Arc<tokio::sync::Semaphore>> = std::sync::OnceLock::new();
+async fn visual_materialize_permit() -> tokio::sync::OwnedSemaphorePermit {
+    VISUAL_SEM
+        .get_or_init(|| {
+            let n = std::env::var("EMEM_EUDR_VISUAL_CONCURRENCY")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(6)
+                .clamp(1, 64);
+            Arc::new(tokio::sync::Semaphore::new(n))
+        })
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("visual-evidence semaphore is never closed")
+}
+
 /// Try to materialize each requested band on the given cell. Returns
 /// per-band outcomes so the recall handler can surface why a band was
 /// skipped (ocean cell, upstream down, no materializer registered).
@@ -37478,18 +37533,24 @@ async fn build_plot_visual_evidence(
         let s_c = s.clone();
         async move {
             let ndvi_label = format!("ndvi timeout {year}");
-            let ndvi_cids =
-                warm_then_parallel(&cells, timeout, &ndvi_label, |c| {
-                    let s_c = s_c.clone();
-                    async move {
-                        materialize_sentinel2_band(&c, &s_c, "indices.ndvi", Some(anchor)).await
-                    }
-                })
-                .await;
+            let ndvi_cids = warm_then_parallel(&cells, timeout, &ndvi_label, |c| {
+                let s_c = s_c.clone();
+                async move {
+                    // Bound the unbounded pointwise fan-out: at most
+                    // EMEM_EUDR_VISUAL_CONCURRENCY S2/S1 materialisations
+                    // run at once across all plots/years/cells/bands.
+                    let _vp = visual_materialize_permit().await;
+                    materialize_sentinel2_band(&c, &s_c, "indices.ndvi", Some(anchor)).await
+                }
+            })
+            .await;
             let s1_label = format!("s1_vv timeout {year}");
             let s1_cids = warm_then_parallel(&cells, timeout, &s1_label, |c| {
                 let s_c = s_c.clone();
-                async move { materialize_sentinel1_vv(&c, &s_c, Some(anchor)).await }
+                async move {
+                    let _vp = visual_materialize_permit().await;
+                    materialize_sentinel1_vv(&c, &s_c, Some(anchor)).await
+                }
             })
             .await;
             (year, anchor, ndvi_cids, s1_cids)
@@ -39019,12 +39080,12 @@ async fn post_eudr_dds(
     // ceiling. Tunable via EMEM_EUDR_TIMEOUT_SECS (clamped 15..=600).
     //
     // Auto-bump when any plot requested visual_evidence: the per-plot
-    // visual block adds ~90 s of S2/S1 fan-out (7 years × N cells × 2
-    // bands), so a plot with visual_evidence enabled needs ~150 s of
-    // headroom on top of the base verdict's ~5–20 s. Operators can
-    // still cap via EMEM_EUDR_TIMEOUT_SECS — if they explicitly set
-    // a value lower than the auto-bumped minimum we honour their
-    // ceiling and let the request 504 with the truthful error.
+    // visual block adds S2/S1 fan-out (7 years × N cells × 2 bands),
+    // bounded by VISUAL_SEM. We give ~110 s of headroom per visual plot
+    // on top of the base verdict's ~5–20 s, kept under the ~300 s edge
+    // cut (see auto_budget below). Operators can still cap via
+    // EMEM_EUDR_TIMEOUT_SECS — if they explicitly set a value lower than
+    // the auto-bumped minimum we honour their ceiling and 504 truthfully.
     let n_visual_plots = req
         .plots
         .iter()
@@ -39034,14 +39095,16 @@ async fn post_eudr_dds(
         .ok()
         .and_then(|s| s.parse::<u64>().ok());
     let auto_budget = if n_visual_plots > 0 {
-        // 90 s base + 150 s per visual-evidence plot, capped at the
-        // clamp ceiling so a thousand visual plots can't unbound this.
-        // Empirically: a cold 8-cell × 7-year × 2-band visual plot in
-        // a fresh region takes ~140 s end-to-end (measured 2026-05-25
-        // on CIV cocoa). 150 s/plot gives headroom for TLS jitter +
-        // upstream slow tails; 90 s base covers the standard verdict
-        // for the non-visual plots in the same request.
-        (90u64 + (n_visual_plots as u64) * 150u64).min(600)
+        // 60 s base + 110 s per visual-evidence plot, capped at 480 s.
+        // Kept deliberately UNDER the ~300 s client/edge connection cut for
+        // the common 1–2 visual-plot case (1 plot = 170 s, 2 plots = 280 s):
+        // a request that can't finish in budget now returns a clean 504
+        // BEFORE the edge closes the socket, instead of running on to a
+        // 390 s ceiling while the client gives up at 300 s and leaves the
+        // server-side task holding a CLOSE-WAIT socket (the 2026-06-02 wedge
+        // ingredient). Visual-evidence concurrency is separately bounded by
+        // VISUAL_SEM, and the route by EMEM_EUDR_MAX_INFLIGHT.
+        (60u64 + (n_visual_plots as u64) * 110u64).min(480)
     } else {
         120u64
     };
