@@ -37320,40 +37320,29 @@ async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> Jso
         .unwrap_or(16)
         .min(sample_cells.len());
     let cells: Vec<String> = sample_cells.iter().take(cap).cloned().collect();
-    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
-
-    // Per-cell: materialize both bands, read value back. Each is timeout-
-    // wrapped; the whole fan-out is join_all under the global materialize
-    // semaphore + the EUDR route budget, so it can't run away.
-    let per_cell = futures_util::future::join_all(cells.iter().map(|c| {
-        let s = s.clone();
-        let c = c.clone();
-        async move {
-            let lc = match tokio::time::timeout(
-                timeout,
-                try_materialize_one_band(&c, "esa_worldcover.lc_2021", &s),
-            )
-            .await
-            {
-                Ok(Ok(cid)) => fact_cid_to_value_and_date(&s, &cid)
-                    .await
-                    .map(|(v, _)| (v, cid.as_str().to_string())),
-                _ => None,
-            };
-            let gain = match tokio::time::timeout(
-                timeout,
-                try_materialize_one_band(&c, "forest_change.gain", &s),
-            )
-            .await
-            {
-                Ok(Ok(cid)) => fact_cid_to_value_and_date(&s, &cid)
-                    .await
-                    .map(|(v, _)| (v, cid.as_str().to_string())),
-                _ => None,
-            };
-            (lc, gain)
-        }
-    }))
+    // POLYGON-WINDOWED reads (not pointwise). Both bands are EPSG:4326
+    // static COGs, so `batch_materialize_eudr_band` does ONE `sample_window`
+    // over the polygon bbox + ONE batched sled write per band — O(1) HTTP +
+    // O(N) in-memory pixel lookups, the same geospatial path as the verdict.
+    // This replaced an UNBOUNDED per-cell `join_all` (2 materialise + 2 sled
+    // writes per cell) that — alongside the visual-evidence fan-out — starved
+    // the runtime and wedged the whole server on 2026-06-02.
+    let signed_at = chrono_iso8601_utc();
+    let lc_results = batch_materialize_eudr_band(
+        s.clone(),
+        cells.clone(),
+        "esa_worldcover.lc_2021",
+        &signed_at,
+        8,
+    )
+    .await;
+    let gain_results = batch_materialize_eudr_band(
+        s.clone(),
+        cells.clone(),
+        "forest_change.gain",
+        &signed_at,
+        8,
+    )
     .await;
 
     let mut lc_counts: std::collections::BTreeMap<i64, usize> = std::collections::BTreeMap::new();
@@ -37361,17 +37350,19 @@ async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> Jso
     let mut gain_yes = 0usize;
     let mut gain_total = 0usize;
     let mut gain_cids: Vec<String> = Vec::new();
-    for (lc, gain) in per_cell {
-        if let Some((v, cid)) = lc {
-            *lc_counts.entry(v.round() as i64).or_insert(0) += 1;
-            lc_cids.push(cid);
+    for b in lc_results.iter().flatten() {
+        if let Some(v) = b.int_value {
+            *lc_counts.entry(v).or_insert(0) += 1;
+            lc_cids.push(b.cid.as_str().to_string());
         }
-        if let Some((v, cid)) = gain {
+    }
+    for b in gain_results.iter().flatten() {
+        if let Some(v) = b.int_value {
             gain_total += 1;
-            if v >= 1.0 {
+            if v >= 1 {
                 gain_yes += 1;
             }
-            gain_cids.push(cid);
+            gain_cids.push(b.cid.as_str().to_string());
         }
     }
 
@@ -38137,6 +38128,27 @@ async fn batch_build_facts_via_window(
             "hansen_gfc_v1_12_pixel@1",
             emem_fetch::hansen_gfc::LAYER_LOSSYEAR,
         ),
+        // Forest-context bands (built when request_visual_evidence=true).
+        // Both are EPSG:4326 static COGs, so they read polygon-windowed via
+        // the same ONE-sample_window path as the verdict bands — no pointwise
+        // per-cell fan-out. Provenance matches the per-cell materializers
+        // (build_fact_hansen gain / materialize_esa_worldcover_band).
+        "forest_change.gain" => (
+            emem_fetch::hansen_gfc::tile_url_for(
+                centre_lat,
+                centre_lng,
+                emem_fetch::hansen_gfc::LAYER_GAIN,
+            ),
+            "hansen.gfc.v1_12.2024",
+            "hansen_gfc_v1_12_pixel@1",
+            emem_fetch::hansen_gfc::LAYER_GAIN,
+        ),
+        "esa_worldcover.lc_2021" => (
+            emem_fetch::esa_worldcover::tile_url_for(centre_lat, centre_lng),
+            "esa.worldcover.v200.2021",
+            "esa_worldcover_2021_pixel@1",
+            "lc_2021",
+        ),
         // NOTE: jrc_tmf.deforestation_year is intentionally NOT handled
         // here — it was removed from the EUDR hot path (see the band-list
         // comment in `evaluate_eudr_plot_batched`). Its 119 MB full-tile
@@ -38246,14 +38258,17 @@ async fn batch_build_facts_via_window(
                     "jrc_gfc2020.forest_2020" => "boolean_eudr_forest_2020",
                     "forest_change.treecover2000" => "percent_canopy_cover",
                     "forest_change.lossyear" => "year_of_loss",
+                    "forest_change.gain" => "boolean_forest_gain_2000_2012",
+                    "esa_worldcover.lc_2021" => "worldcover_lccs_class",
                     _ => "raw",
                 }
                 .into(),
             ),
-            confidence: if band == "jrc_gfc2020.forest_2020" {
-                0.88
-            } else {
-                0.93
+            confidence: match band {
+                "jrc_gfc2020.forest_2020" => 0.88,
+                // ESA WorldCover is a single deterministic class read.
+                "esa_worldcover.lc_2021" => 1.0,
+                _ => 0.93,
             },
             uncertainty: None,
             sources: vec![emem_fact::Source {
@@ -38309,7 +38324,12 @@ async fn batch_materialize_eudr_band(
     // per band writes them to sled in a single transaction.
     let geospatial_window = matches!(
         band,
-        "jrc_gfc2020.forest_2020" | "forest_change.treecover2000" | "forest_change.lossyear"
+        "jrc_gfc2020.forest_2020"
+            | "forest_change.treecover2000"
+            | "forest_change.lossyear"
+            // Forest-context bands: also EPSG:4326 static COGs, windowed.
+            | "forest_change.gain"
+            | "esa_worldcover.lc_2021"
     );
 
     let facts_res: Vec<(usize, Result<Fact, String>)> = if geospatial_window {
