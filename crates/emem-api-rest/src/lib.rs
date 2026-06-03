@@ -674,7 +674,10 @@ pub fn router(state: AppState) -> Router {
         .route("/robots.txt", get(serve_robots))
         .route("/sitemap.xml", get(serve_sitemap))
         .route("/favicon.svg", get(serve_favicon))
-        .route("/favicon.ico", get(serve_favicon))
+        // .ico serves the vortxgola PNG (not the SVG) — chat-link unfurlers
+        // and older clients expect a raster at /favicon.ico, and this is the
+        // small icon they show next to a pasted emem.dev URL.
+        .route("/favicon.ico", get(serve_favicon_png))
         .route("/vortxgola.gif", get(serve_vortxgola_gif))
         .route("/favicon.png", get(serve_favicon_png))
         .route("/apple-touch-icon.png", get(serve_apple_touch_icon))
