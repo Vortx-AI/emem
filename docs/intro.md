@@ -30,7 +30,7 @@ This site renders the canonical docs straight from the repo at `docs/`. Every pa
 
 ## Conventions
 
-- *Receipts* are ed25519-signed over `blake3(request_id | served_at | primitive | cells, | fact_cids,)` and verifiable in-browser at `/verify`.
+- *Receipts* are ed25519-signed over a domain-separated, length-prefixed preimage — `blake3("emem.preimage.v1" ‖ "receipt" ‖ tagged(request_id, served_at, [scope], [as_of], [edges], [manifest], primitive, cells[], fact_cids[]))` — so no two distinct responses can share signed bytes. The receipt's `preimage_version` selects the rule; both it and `/v1/verify_receipt` are verifiable in-browser at `/verify`.
 - *Bi-temporal* receipts carry an additional `as_of: { valid_time, transaction_time }` block when at least one bound was set; the block is absent for current-state reads so old receipts deserialise byte-identically.
 - *Content-addressed everywhere*. A `fact_cid` is 26 base32 chars; the same bytes hash to the same CID on every responder. `memt:<cell64>:<fact_cid>` is the cite handle for one fact at one place; `memb:<bundle_cid>` for N facts at N places.
 - *No silent fallbacks*. An empty result distinguishes wrong-query from empty-place. `find_similar` with a bi-temporal bound bypasses the LanceDB ANN fast-path (the index has no `signed_at` column) and reports `via: brute_force_fallback`.
