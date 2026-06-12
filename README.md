@@ -48,21 +48,27 @@
 
 ---
 
-An LLM asked what is at a place will usually guess. It has no stable handle for the patch of ground at 19.07° N, 72.87° E and no audit trail for the number it returns. emem is the missing handle.
+**Ask an AI agent what is on the ground at 19.07° N, 72.87° E and it will guess.** It has no stable handle for that patch of Earth and no way to prove the number it returns. emem is that missing handle: a shared memory of the planet that an agent can read, write, and *cite* — where every answer is signed, so anyone can check it without trusting the server it came from.
 
-emem is a shared memory for AI agents that connects facts and gets better over time. Every answer is signed, so anyone can check it without trusting the server.
+Picture Earth with a memory you can verify. The planet is cut into fixed cells about 9.55 m across, the way a page is cut into words. Each measurement at a cell — elevation, rainfall, this year's forest loss, a satellite fingerprint — is one **fact**, and every fact is signed. Ask about a place nobody has measured yet and the responder pulls it from a real satellite source, signs it, and returns it in the same response. Nothing is pre-seeded; every cell on Earth answers from day one.
 
-Here is how it works. A **cell64** addresses a place the way a token addresses text in an LLM: every patch of ground on Earth gets a 64-bit identifier (about 9.55 m on a side at the equator). A **fact** is one measurement at one cell, keyed by cell, band, and time. Each fact is **signed**: emem takes a one-way fingerprint of the answer (a blake3 hash, where changing one byte changes the fingerprint completely) and packs the bytes in a fixed, canonical order (canonical CBOR) so the fingerprint is the same on every machine. That fingerprint is the fact's **content id**: a 26-character string that names the bytes themselves. emem then signs the content id with an ed25519 key, the same kind of digital signature that secures SSH and HTTPS. The signer is the **responder**. Paste the content id into a chat and a colleague can pull the same bytes from any responder and check the signature in their browser at [/verify](https://emem.dev/verify), with no need to trust the server it came from. The hosted node is `https://emem.dev`; there are no keys, no accounts, and the same handlers answer both MCP and plain REST.
+It is a **protocol, not a single service**. Every fact is named by the hash of its own bytes — content-addressed — and signed with an ed25519 key, the same kind that secures SSH and HTTPS. So *any* responder can serve a fact and *any* client can verify it offline, with no account and no key. Paste a fact's id into a chat and a colleague pulls the identical bytes from any node and checks the signature in their browser at [/verify](https://emem.dev/verify). The hosted node is `https://emem.dev`; the same binary self-hosts in one `docker run`, and the same handlers answer both MCP and plain REST. The design target is a federation of independent responders that resolve the same ids byte-for-byte and record where they disagree — the memory gets more trustworthy the more agents read and write against it.
 
-When an agent asks for a band at a cell that has no signed fact yet, the responder fetches the underlying tile through one of its 46 upstream sources, signs the result as its own primary attestation, persists it, and returns it in the same response. The cold path takes about 180 ms; warm reads are sub-ten milliseconds. Every cell on Earth answers cite-ably from day one, without a pre-seeded corpus. Five of those 46 schemes are declared but not yet wired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`), so they return a typed Absence rather than data; the catalog never promises more than it can sign.
+### How a fact is made and proven
 
-Above the spatial fact store sits a writable memory substrate the agent owns. `memory_create` writes content-addressed, signed files into `/memories/`. `memory_search` runs BGE-768 embeddings against a LanceDB IVF_PQ partition over those files so the agent paraphrases its own past notes. `memory_contradictions` scores disagreement between attesters at the same `(cell, band, tslot)` per band kind: scalar by normalised spread, vector by mean cosine, categorical by mode-share. `memory_bundle` composes N facts into one signed envelope (`memb:<bundle_cid>`) that resolves byte-identically on any peer. Each memory file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`); writes can be capability-bound to a specific ed25519 attester so paths under `/memories/by_attester/<pubkey>/...` reject any signer that isn't their owner. The same signing surface that proves a Sentinel-2 reading is real proves an agent's own memory is unmodified.
+A **cell64** addresses a place the way a token addresses text in an LLM: a 64-bit id for every ~9.55 m patch of ground, where string-adjacent ids sit physically near each other. A **fact** is one measurement at that cell, keyed by `(cell, band, time)` and packed in a fixed, canonical byte order (canonical CBOR) so the same reading hashes identically on every machine. That blake3 hash is the fact's **content id** — change one byte and the id changes, so the id *is* the proof of the bytes. The responder signs it; the signed envelope it returns is the **receipt**, verifiable offline against the responder's public key with no trust in the server.
 
-Every read primitive in the substrate carries a bi-temporal axis. `as_of_tslot` returns the latest fact whose observation time is on or before the bound: what the world looked like then. `as_of_signed_at` returns the latest fact whose signing time is on or before the bound: what the system knew then. Set both and both predicates hold simultaneously. The receipt carries an `as_of` block when the bound is non-empty, so an auditor in 2027 takes a 2026 receipt to any peer and replays the exact same query without trusting our server. `/v1/memory/sse?path_prefix=&kind=&attester=` opens a Server-Sent Events stream filtered server-side; a compliance subscriber receives every write the moment its sled commit lands.
+When an agent asks for a band at a cell that has no signed fact yet, the responder fetches the underlying tile through one of its 46 upstream sources, signs the result as its own attestation, persists it, and returns it in the same response. The cold path takes about 180 ms; warm reads are sub-ten milliseconds. Five of those 46 schemes are declared but not yet wired (`openet.30m.daily`, `dynamic_world.v1`, `tropomi.s5p.ch4`, `tropomi.s5p.no2`, `viirs.dnb.monthly`), so they return a typed Absence rather than data. When a band genuinely has no value at a cell — outside coverage, encoder offline, upstream unreachable — the answer is a signed *absence* with a typed reason, not a 404 and not an empty array. The catalog never promises more than it can sign.
 
-Four foundation encoders sit GPU-pinned alongside the responder: Clay v1.5 reads Sentinel-2 at a 2.56 km receptive field, Prithvi-EO-2.0-300M-TL reads HLS at 6.7 km, Tessera reads Sentinel-1 plus Sentinel-2 per-pixel, and Galileo reads multimodal stacks (S1 + S2 + DEM + climate). Each carries its own aliasing pattern, so disagreements are informative. The `clay_prithvi_tessera_triple_consensus@1` recipe votes them; six domain variants follow for deforestation, wetland change, urban expansion, disaster anomaly, climate archetype, and coastal erosion. Receipts pin the algorithm CID, so a third party can replay the score against the same input facts and reproduce the same number.
+### A memory the agent owns
 
-When a band genuinely has no data at a cell (the encoder is offline, the place is outside coverage, the archetype seed never materialised), the responder returns a signed *absence* with a typed reason. An empty answer is itself a citable receipt, not a 404 and not an empty array. Whitepaper at [/whitepaper.md](https://emem.dev/whitepaper.md) walks the math.
+Above the spatial fact store sits a writable memory substrate. `memory_create` writes content-addressed, signed files into `/memories/`; `memory_search` runs BGE-768 embeddings against a LanceDB IVF_PQ partition so the agent can paraphrase its own past notes. `memory_bundle` composes N facts into one signed envelope (`memb:<bundle_cid>`) that resolves byte-identically on any peer, and `memory_contradictions` scores disagreement between attesters at the same `(cell, band, tslot)` — scalar by normalised spread, vector by mean cosine, categorical by mode-share. Each file carries a `kind` from the CoALA taxonomy (`episodic` / `semantic` / `procedural` / `resource`), and writes under `/memories/by_attester/<pubkey>/...` are capability-bound: any signer that isn't the owner is rejected. The same signing surface that proves a Sentinel-2 reading proves an agent's own memory is unmodified.
+
+Every read carries a bi-temporal axis. `as_of_tslot` asks *what the world looked like then* (observation time); `as_of_signed_at` asks *what the system knew then* (signing time); set both and both hold at once. The receipt records the bound, so an auditor in 2027 takes a 2026 receipt to any peer and replays the exact query without trusting the original server. `GET /v1/memory/sse` streams every write the moment its commit lands.
+
+### Foundation encoders, on consensus
+
+Four foundation encoders sit GPU-pinned alongside the responder: Clay v1.5 reads Sentinel-2 at a 2.56 km receptive field, Prithvi-EO-2.0-300M-TL reads HLS at 6.7 km, Tessera reads Sentinel-1 + Sentinel-2 per-pixel, and Galileo reads multimodal stacks (S1 + S2 + DEM + climate). Each carries its own aliasing pattern, so disagreement is informative rather than noise. The `clay_prithvi_tessera_triple_consensus@1` recipe votes them, and receipts pin the algorithm id, so a third party replays the score against the same input facts and reproduces the same number. The [whitepaper](https://emem.dev/whitepaper.md) walks the math.
 
 ## Try it (no install, no key)
 
@@ -99,7 +105,26 @@ The receipt's `fact_cid` is a durable handle. Re-fetching it from any responder,
 
 ## Verify an answer (four curls)
 
-The pitch lives or dies on this flow. Every recall response carries a receipt with `fact_cids[]`, a `merkle_proof`, and an Ed25519 `signature` over the canonical preimage `blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖ fact_cids)`: UTF-8, sections joined by `|`, list elements followed by `,`. The signer's public key is stable; the receipt verifies offline against any copy of the responder pubkey.
+The pitch lives or dies on this flow. Every recall response carries a receipt with `fact_cids[]`, a `merkle_proof`, and an Ed25519 `signature` over a domain-separated, length-prefixed preimage — `blake3("emem.preimage.v1" ‖ "receipt" ‖ tagged(request_id, served_at, [scope], [as_of], [edges], [manifest], primitive, cells[], fact_cids[]))`. Tagging every field and prefixing its length means no two distinct responses can ever share signed bytes; the receipt's `preimage_version` selects the rule, and pre-v1 receipts still verify under the original one. The signer's public key is stable; the receipt verifies offline against any copy of the responder pubkey. The merkle tree uses RFC 6962 leaf/node domain separation and rejects duplicate leaves.
+
+Here is a real one. Ask `https://emem.dev` for the elevation under Denver and it returns the city's nickname as a signed number — mile-high, 1609 m — that anyone can re-check without trusting the server:
+
+```jsonc
+// POST /v1/recall {"cell":"defi.zb5c4.guxe.nuxe","bands":["copdem30m.elevation_mean"]}
+{
+  "facts": [{ "cell": "defi.zb5c4.guxe.nuxe", "band": "copdem30m.elevation_mean",
+              "value": 1609.0, "unit": "m", "source": "copernicus.dem.glo30" }],
+  "receipt": {
+    "primitive": "emem.recall",
+    "fact_cids": ["72wdchiyurfrjxz7zat6kor7gjnvsn564fbrzjkmlhagoy4rrh4a"],
+    "responder_pubkey_b32": "777er3yihgifqmv5hmc2wwmy…",
+    "preimage_version": 1,
+    "signature": "…ed25519 over the canonical preimage…"
+  }
+}
+```
+
+Paste that `fact_cid` into [/verify](https://emem.dev/verify) and the page re-derives the hash and checks the signature in your browser. The four curls below do the same from a shell:
 
 ```bash
 # 1. Resolve a place to a cell64.
@@ -128,6 +153,22 @@ jq '.facts[0].derivation' /tmp/recall.json
 ```
 
 For a browser-only verify, open [`/verify/<fact_cid>`](https://emem.dev/verify); the page does the same Ed25519 check in WebCrypto + `@noble/ed25519` so you never have to trust the responder you got the receipt from. A guided walk lives at [`/demos/signed-answer`](https://emem.dev/demos/signed-answer).
+
+## Architecture
+
+<p align="center">
+  <a href="https://emem.dev/docs/diagrams/01-architecture.svg">
+    <img src="docs/diagrams/01-architecture.svg" alt="emem architecture: clients reach one binary over MCP and REST, the same handlers serve both, a storage trait fronts the sled hot cache and append-only merkle log, and content-addressed manifests pin bands, algorithms, sources, and schema" width="880"/>
+  </a><br/>
+  <em>One binary. The same handlers answer MCP and plain REST, reads need no auth, and every write lands in an append-only signed log. Four content-addressed manifests (<code>bands_cid</code>, <code>algorithms_cid</code>, <code>sources_cid</code>, <code>schema_cid</code>) pin exactly what produced each answer.</em>
+</p>
+
+<p align="center">
+  <a href="https://emem.dev/docs/diagrams/03-anatomy-of-a-request.svg">
+    <img src="docs/diagrams/03-anatomy-of-a-request.svg" alt="Anatomy of a recall request: a place name resolves to a cell64, the cache misses, the responder fetches the upstream satellite tile, signs the result, and returns it with a verifiable receipt" width="880"/>
+  </a><br/>
+  <em>A cold recall, end to end: resolve the place to a cell64, miss the cache, fetch the upstream tile, sign the result, return it with a receipt — about 180 ms, and cite-able forever after. The full set, plus the decentralisation and trust-plane diagrams and a 30-deployment industry suite, lives at <a href="https://emem.dev/docs/diagrams">/docs/diagrams</a>.</em>
+</p>
 
 ## Connect your AI assistant
 
@@ -167,7 +208,7 @@ Python (`ememdev`) and TypeScript (`@emem/client`) SDKs live under `sdks/` (PyPI
 - **Physics:** `/v1/heat_solve` (2-D explicit FTCS heat, MODIS LST stencil), `/v1/wave_solve` (1-D shallow-water along seaward bathymetry gradient), `/v1/jepa_predict` (closed-form NDVI AR(2) seasonal), `/v1/jepa_predict_v2` (Tessera embedding dynamics; short-circuits to last-vintage identity baseline while the trained head is pending, receipt carries `untrained_baseline`).
 - **Ask:** free-text question with topic routing. The classifier covers three intent families: place-anchored topical questions (the topic router fan-out), foundation-embedding intents on `find places like` / `what changed` / `deforestation` / `anomaly` (cross-encoder consensus over Clay + Prithvi + Tessera), corpus-meta intents on `where do you have data` / `how fresh is your corpus` (redirect to coverage surfaces), and hunter-mode discovery on `find <event> in <region>` (routes to `/v1/hunt`).
 - **Hunter:** `POST /v1/hunt` and MCP `emem_hunt` for open-world event discovery. Twelve event keywords (`algal_bloom`, `deforestation`, `flood_extent`, `wildfire`, `urban_heat_island`, `methane_plume`, `landslide`, `drought`, `soil_salinity`, `crop_stress`, `water_turbidity`, `oil_slick`) each map to a registered detection algorithm. The responder samples up to 32 cells from the named region (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar plus any configured gate band (e.g. NDWI > 0 for water-mask events), and returns the top 8 hotspots with cell64, lat/lng, recalled value, gate value, fact CID, and a Sentinel-2 scene URL. A Tessera embedding rerank fires when at least three candidate cells have a geotessera vector available, re-ordering by cosine similarity to the cluster centroid. `oil_slick` returns `status: not_yet_implemented` with pointers at `flood_extent_sar_threshold@1` and `water_turbidity_red_band@1` instead of fabricating detections.
-- **EUDR Due Diligence Statement:** `POST /v1/eudr_dds` and MCP `emem_eudr_dds` produce a signed Annex II-shaped DDS under Regulation (EU) 2023/1115. The per-cell algorithm `eudr_compliance@1` implements Article 2(4) as written: >0.5 ha, >5 m height, >10 % canopy cover, excluding land predominantly under agricultural or urban use. Forest baseline is JRC GFC2020 V3 (the Commission's expected non-binding baseline; live single-COG materializer at JEODPP) confirmed against Hansen GFC v1.12 treecover2000. JRC TMF (annual change, deforestation year, degradation year, transition subtype) reads through a pull-and-cache connector, because JEODPP's TMF endpoint serves 84 MB tiles without HTTP Range; the responder fetches once into `$EMEM_DATA/jrc_tmf_cache/` with atomic rename, then samples. The Article 2(28) dispatch picks POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any cattle plot under HS 0102/0201/0202). Sims et al. 2025 driver attribution and RADD Sentinel-1 alerts layer on as refinement: both currently materialize Absence with a structured NotImplemented reason because Zenodo and GFW S3 do not honour HTTP Range, and the responder will not fabricate a value for a connector it cannot read. Every response carries the explicit Article 9(1)(b) legality disclaimer: land tenure, FPIC, and country-of-origin laws are structurally out of EO scope and need a partner module before TRACES NT submission. The JSON Schema at `/v1/schemas/eudr_dds.json` cites the exact EUR-Lex paragraph each field maps to.
+- **EUDR Due Diligence Statement:** `POST /v1/eudr_dds` and MCP `emem_eudr_dds` produce a signed Annex II-shaped DDS under Regulation (EU) 2023/1115. The per-cell algorithm `eudr_compliance@1` implements Article 2(4) as written: >0.5 ha, >5 m height, >10 % canopy cover, excluding land predominantly under agricultural or urban use. The verdict is the consensus of two static baselines read with one windowed COG sample per band over the plot: JRC GFC2020 V3 (the Commission's expected non-binding baseline) for forest-at-cut-off, and Hansen GFC v1.12 loss-year for clearing strictly after the 31 December 2020 cut-off — a cell cleared on or before the cut-off is `not_in_scope`, never a pass. Plot aggregation applies the Article 2(4) 0.5 ha minimum-mapping-unit floor, and the Article 2(28) dispatch picks POINT (≤4 ha non-cattle) vs POLYGON (>4 ha or any cattle plot under HS 0102/0201/0202). Each plot also carries a `loss_year_histogram` — the per-year distribution of Hansen loss-year over its sampled cells, signed as its own `forest_change.lossyear_histogram` derivative whose id is folded into the receipt, so the loss-year breakdown is a verifiable figure rather than an unsigned summary. JRC TMF, Sims et al. 2025 driver attribution, and RADD Sentinel-1 alerts sit off the verdict hot path (their upstreams do not honour HTTP Range); each stays available as an explicit band request, and the responder will not fabricate a value for a connector it cannot read. Two disclaimers keep the scope honest: `legality_disclaimer` for Article 9(1)(b) (land tenure, FPIC, country-of-origin law, structurally out of EO scope), and `degradation_disclaimer` for Article 2(7) forest degradation (the verdict measures deforestation, not degradation). The JSON Schema at `/v1/schemas/eudr_dds.json` cites the exact EUR-Lex paragraph each field maps to; `regulation_status_note` tracks the application deferral (Regulations 2024/3234 and 2025/2650 → 30 December 2026 for large operators, 30 June 2027 for micro and small).
 - **Domain shortcuts:** `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather`. Collapse locate → recall → polygon-aggregate into one call by place name.
 - **Field boundaries:** Fields of The World (~3.17 B field polygons, 241 countries, 10 m, CC-BY-4.0) via PMTiles range reads on `source.coop`.
 - **Visual surfaces:** `/v1/coverage_map.svg` (1440×720 plate-carrée of attested cells, log-scale density) and `/v1/places/scene_overlay.svg?place=…&band=…` (per-place value-painted bbox grid; band-aware ColorBrewer ramps, horizontal legend, km scale bar, signed source line). The MCP equivalents return the same SVG as an `EmbeddedResource` block. The full set, plus the 32-diagram protocol/industry suite, lives at [/docs/gallery](https://emem.dev/docs/gallery) and [/docs/diagrams](https://emem.dev/docs/diagrams).
@@ -260,7 +301,7 @@ emem/
 │   ├── emem-primitives/          # recall, find_similar, trajectory, compare, diff, verify, query_region
 │   ├── emem-attest/              # merkle root over fact CIDs
 │   ├── emem-intent/              # rule-based intent → plan planner
-│   ├── emem-mcp/                 # 50-tool MCP descriptor registry
+│   ├── emem-mcp/                 # MCP tool descriptor registry (81 tools, core + extended)
 │   ├── emem-api-rest/            # axum router, physics solvers, foundation fan-out
 │   ├── emem-cli/                 # binaries: emem-server, emem-livedemo, emem-realdemo, emem-demo, emem-ask-eval
 │   ├── emem-membench/            # memory-substrate benchmark harness
@@ -290,6 +331,13 @@ Sidecar crash does not cascade. The REST router degrades to scalar bands and sig
 ## Where this is going
 
 emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
+
+<p align="center">
+  <a href="https://emem.dev/docs/diagrams/08-decentralised.svg">
+    <img src="docs/diagrams/08-decentralised.svg" alt="Decentralised emem: independent responders each sign facts under their own key, resolve the same content ids byte-for-byte, cross-cite each other, and record disagreement, while any client verifies offline" width="820"/>
+  </a><br/>
+  <em>The end state: many responders, one address space. A content id means the same bytes everywhere, every responder signs under its own key, and a client trusts the signature, not the server.</em>
+</p>
 
 ## Honest limits
 
