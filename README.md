@@ -215,6 +215,12 @@ Python (`ememdev`) and TypeScript (`@emem/client`) SDKs live under `sdks/` (PyPI
 - **Field boundaries:** Fields of The World (~3.17 B field polygons, 241 countries, 10 m, CC-BY-4.0) via PMTiles range reads on `source.coop`.
 - **Visual surfaces:** `/v1/coverage_map.svg` (1440×720 plate-carrée of attested cells, log-scale density) and `/v1/places/scene_overlay.svg?place=…&band=…` (per-place value-painted bbox grid; band-aware ColorBrewer ramps, horizontal legend, km scale bar, signed source line). The MCP equivalents return the same SVG as an `EmbeddedResource` block. The full set, plus the 32-diagram protocol/industry suite, lives at [/docs/gallery](https://emem.dev/docs/gallery) and [/docs/diagrams](https://emem.dev/docs/diagrams).
 
+<p align="center">
+  <img src="docs/diagrams/eudr.png" alt="EUDR supply chain: geolocated plots checked against the forest baseline and Hansen loss-year over the 2020 cut-off, signed into one Due Diligence Statement whose 26-character handle clears customs at TRACES NT" width="900"/>
+  <br/>
+  <em>One use case, end to end. A geolocated plot is checked against the forest baseline and the Hansen loss-year over the 2020 cut-off, the verdict and its per-year loss histogram are signed into one Due Diligence Statement, and that 26-character handle is what clears customs. This is what <a href="https://eudr.dev">eudr.dev</a> runs on.</em>
+</p>
+
 ## Algorithms
 
 160 named composition recipes (`flood_risk@2`, `walkability_score@1`, `heat_index@2`, `carbon_sink_score@1`, `eudr_compliance@1`, `forest_carbon_loss_co2_flux@1`, `enteric_ch4_dairy_tier1_ipcc2019@1`, `n2o_synthetic_fertilizer_ef1_ipcc2019@1`, ...) live in a content-addressed registry. Each carries:
