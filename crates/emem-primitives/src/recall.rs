@@ -706,6 +706,7 @@ mod include_edges_tests {
             signature: Signature(sb),
             attested_at: "2026-05-29T00:00:00Z".into(),
             scope: None,
+            preimage_version: 0,
         }
     }
 

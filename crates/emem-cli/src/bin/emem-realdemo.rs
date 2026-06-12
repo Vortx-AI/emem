@@ -263,6 +263,7 @@ async fn main() -> anyhow::Result<()> {
         signature: Signature(sig_bytes),
         attested_at: utc_iso(),
         scope: None,
+        preimage_version: 0,
     };
     let mut att_cbor = Vec::new();
     ciborium::ser::into_writer(&att, &mut att_cbor)?;

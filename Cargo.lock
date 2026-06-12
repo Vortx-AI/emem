@@ -2433,7 +2433,6 @@ dependencies = [
  "ciborium",
  "ed25519-dalek",
  "emem-core",
- "emem-fact",
  "serde",
  "thiserror 1.0.69",
 ]
@@ -2545,6 +2544,7 @@ dependencies = [
  "ciborium",
  "data-encoding",
  "ed25519-dalek",
+ "emem-attest",
  "emem-codec",
  "emem-core",
  "rand 0.8.6",

@@ -67,6 +67,19 @@ pub struct Receipt {
     /// no edge segment; those round-trip + verify byte-for-byte.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edge_cids: Vec<EdgeCid>,
+    /// Which signature-preimage rule this receipt was signed under.
+    /// `0` (omitted from JSON) = the legacy v0 rule — `|`/`,`-joined
+    /// concatenation with untagged optional segments. `1` =
+    /// [`emem_attest::receipt_preimage_v1`]: domain-separated, every
+    /// segment tagged + length-prefixed, list items length-prefixed.
+    /// Additive — pre-v1 receipts deserialise to `0` and verify under
+    /// their original rule.
+    #[serde(default, skip_serializing_if = "receipt_u8_is_zero")]
+    pub preimage_version: u8,
+}
+
+fn receipt_u8_is_zero(v: &u8) -> bool {
+    *v == 0
 }
 
 /// Replay-able bi-temporal filter recorded in a [`Receipt`] when the
@@ -168,6 +181,11 @@ pub struct MerkleProof {
     pub path: Vec<[u8; 32]>,
     /// The expected batch root.
     pub root: [u8; 32],
+    /// Merkle hashing rule: `0` (omitted) = legacy unprefixed hashing
+    /// (`verify_merkle_path`), `1` = RFC 6962-style prefixed hashing
+    /// (`verify_merkle_path_v1`, leaf promoted via `promote_leaf_v1`).
+    #[serde(default, skip_serializing_if = "receipt_u8_is_zero")]
+    pub version: u8,
 }
 
 /// Normalise an RFC 3339 timestamp into the canonical form

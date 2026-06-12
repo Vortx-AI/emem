@@ -1120,10 +1120,9 @@ mod tests {
         .await
         .expect("ok");
         let r = &resp.receipt;
-        // Recompute the receipt preimage the same way Server::sign_receipt
-        // does, including the v0.0.9 manifest_versions_blake3_hex segment
-        // when source_versions is non-empty (added 2026-05-29 audit F3).
-        use blake3::Hasher;
+        // Rebuild the v1 preimage exactly as an offline verifier does
+        // (domain-separated, tagged, length-prefixed segments).
+        assert_eq!(r.preimage_version, emem_attest::PREIMAGE_V1);
         let manifest_hex_opt = if r.source_versions.is_empty() {
             None
         } else {
@@ -1131,30 +1130,20 @@ mod tests {
             let _ = ciborium::into_writer(&r.source_versions, &mut buf);
             Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
         };
-        let mut h = Hasher::new();
-        h.update(r.request_id.as_bytes());
-        h.update(b"|");
-        h.update(r.served_at.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex_opt {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(r.primitive.as_bytes());
-        h.update(b"|");
-        for c in &r.cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &r.fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
+        let msg = emem_attest::receipt_preimage_v1(
+            &r.request_id,
+            &r.served_at,
+            None,
+            None,
+            None,
+            manifest_hex_opt.as_deref(),
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+        );
         let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).expect("pubkey");
         let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
-        pk.verify_strict(msg.as_bytes(), &sig)
+        pk.verify_strict(&msg, &sig)
             .expect("receipt signature must verify against responder pubkey");
     }
 

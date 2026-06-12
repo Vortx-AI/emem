@@ -263,6 +263,7 @@ mod tests {
             signature: Signature([0u8; 64]),
             attested_at: "2026-01-01T00:00:00Z".into(),
             scope: None,
+            preimage_version: 0,
         }
     }
 

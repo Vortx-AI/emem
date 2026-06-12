@@ -417,6 +417,7 @@ fn sign_attestation(
         signature: Signature(sig_bytes),
         attested_at: "2026-05-29T00:00:00Z".into(),
         scope: None,
+        preimage_version: 0,
     }
 }
 

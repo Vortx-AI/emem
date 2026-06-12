@@ -71,7 +71,7 @@ use serde_json::{json, Value as JsonValue};
 
 use ed25519_dalek::Signer;
 use emem_core::{manifest::manifest_cid, ErrorCode};
-use emem_core::{KeyEpoch, Signature as EmCoreSignature};
+use emem_core::KeyEpoch;
 use emem_fact::{
     Attestation, Derivation, Fact, NegativeFact, PrimaryFact, ReasonCid, RegistryCid, SchemaCid,
     Source, Uncertainty,
@@ -12146,20 +12146,28 @@ async fn post_verify_receipt(
         r.responder.0
     };
 
-    // v0.0.8 — receipts that carry a non-empty `scope` block use an
-    // extended preimage rule with the scope_blake3_hex segment inserted
-    // between `served_at` and `primitive`. v0.0.9 (audit F2) adds an
-    // `as_of_blake3_hex` segment after `[scope_blake3_hex|]` when the
-    // receipt carries a non-unbounded `as_of`. v0.0.9 audit follow-up
-    // F3 binds a `manifest_versions_blake3_hex` segment when the
-    // receipt's `source_versions` field is non-empty — closes the
-    // "body claims X manifests, signature binds nothing" gap. Receipts
-    // without ANY optional field (every pre-v0.0.8 receipt + every
-    // receipt where the caller passed no scope, no as_of, and the
-    // responder published no source_versions) use the legacy rule
-    // byte-for-byte so old signers continue to verify.
-    let scope_present = r.scope.as_ref().is_some_and(|s| !s.is_empty());
-    let as_of_present = r.as_of.as_ref().is_some_and(|a| !a.is_unbounded());
+    // Preimage reconstruction is selected by `receipt.preimage_version`:
+    //
+    //  * v1 — [`emem_attest::receipt_preimage_v1`]: domain-separated,
+    //    every segment tagged + length-prefixed, list items individually
+    //    length-prefixed. Optional digests (scope / as_of / edges /
+    //    manifest) enter as tagged segments only when present, so the old
+    //    positional ambiguity (a scope digest and an as_of digest sharing
+    //    one untagged slot) is gone.
+    //  * v0 (legacy, preimage_version absent/0) — the historical
+    //    `|`/`,`-joined concatenation with optional untagged hex segments.
+    //    Kept byte-for-byte so every pre-v1 receipt still verifies.
+    let scope_hex = r
+        .scope
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.blake3_hex());
+    let as_of_hex = r
+        .as_of
+        .as_ref()
+        .filter(|a| !a.is_unbounded())
+        .map(|a| a.blake3_hex());
+    let edges_hex = emem_storage::Server::edges_blake3_hex(&r.edge_cids);
     let manifest_hex_opt = if r.source_versions.is_empty() {
         None
     } else {
@@ -12168,37 +12176,56 @@ async fn post_verify_receipt(
         Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
     };
 
-    let mut h = blake3::Hasher::new();
-    h.update(r.request_id.as_bytes());
-    h.update(b"|");
-    h.update(r.served_at.as_bytes());
-    h.update(b"|");
-    if scope_present {
-        let scope_hex = r.scope.as_ref().expect("scope_present").blake3_hex();
-        h.update(scope_hex.as_bytes());
+    let msg: [u8; 32] = if r.preimage_version >= emem_attest::PREIMAGE_V1 {
+        emem_attest::receipt_preimage_v1(
+            &r.request_id,
+            &r.served_at,
+            scope_hex.as_deref(),
+            as_of_hex.as_deref(),
+            edges_hex.as_deref(),
+            manifest_hex_opt.as_deref(),
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+        )
+    } else {
+        // Legacy v0 rule. The edges segment sits AFTER as_of, BEFORE
+        // manifest (v0.0.9 layout); scope/as_of/manifest are untagged
+        // hex emitted only when present.
+        let mut h = blake3::Hasher::new();
+        h.update(r.request_id.as_bytes());
         h.update(b"|");
-    }
-    if as_of_present {
-        let as_of_hex = r.as_of.as_ref().expect("as_of_present").blake3_hex();
-        h.update(as_of_hex.as_bytes());
+        h.update(r.served_at.as_bytes());
         h.update(b"|");
-    }
-    if let Some(ref mh) = manifest_hex_opt {
-        h.update(mh.as_bytes());
+        if let Some(ref sh) = scope_hex {
+            h.update(sh.as_bytes());
+            h.update(b"|");
+        }
+        if let Some(ref ah) = as_of_hex {
+            h.update(ah.as_bytes());
+            h.update(b"|");
+        }
+        if let Some(ref eh) = edges_hex {
+            h.update(eh.as_bytes());
+            h.update(b"|");
+        }
+        if let Some(ref mh) = manifest_hex_opt {
+            h.update(mh.as_bytes());
+            h.update(b"|");
+        }
+        h.update(r.primitive.as_bytes());
         h.update(b"|");
-    }
-    h.update(r.primitive.as_bytes());
-    h.update(b"|");
-    for c in &r.cells {
-        h.update(c.as_bytes());
-        h.update(b",");
-    }
-    h.update(b"|");
-    for c in &r.fact_cids {
-        h.update(c.as_str().as_bytes());
-        h.update(b",");
-    }
-    let msg = h.finalize();
+        for c in &r.cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &r.fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        *h.finalize().as_bytes()
+    };
 
     let pk = ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes).map_err(|e| {
         ApiError(
@@ -12211,7 +12238,7 @@ async fn post_verify_receipt(
         )
     })?;
     let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
-    let signature_valid = pk.verify_strict(msg.as_bytes(), &sig).is_ok();
+    let signature_valid = pk.verify_strict(&msg, &sig).is_ok();
 
     // ── Optional facts cross-check (2026-05-31, advisory). When the caller
     // passes the `facts` they intend to rely on, recompute each one's content
@@ -12301,24 +12328,35 @@ async fn post_verify_receipt(
                             } else {
                                 let mut leaf = [0u8; 32];
                                 leaf.copy_from_slice(blake3::hash(&buf).as_bytes());
-                                // Promote leaf through the self-hashed
-                                // layer the storage tree used before the
-                                // path walk — `emem-attest::self_hashed_layer`
-                                // applies `blake3(leaf || leaf)`.
-                                let promoted = {
-                                    let mut hh = blake3::Hasher::new();
-                                    hh.update(&leaf);
-                                    hh.update(&leaf);
-                                    let mut out = [0u8; 32];
-                                    out.copy_from_slice(hh.finalize().as_bytes());
-                                    out
+                                // Promote the leaf and walk the path under
+                                // the SAME merkle rule the proof was built
+                                // with (proof.version): v1 prefixes leaves
+                                // with 0x00 and nodes with 0x01
+                                // (RFC 6962-style), v0 uses the unprefixed
+                                // self-hash `blake3(leaf || leaf)`.
+                                let ok = if proof.version >= emem_attest::PREIMAGE_V1 {
+                                    emem_attest::verify_merkle_path_v1(
+                                        &emem_attest::promote_leaf_v1(&leaf),
+                                        proof.leaf_index as usize,
+                                        &proof.path,
+                                        &proof.root,
+                                    )
+                                } else {
+                                    let promoted = {
+                                        let mut hh = blake3::Hasher::new();
+                                        hh.update(&leaf);
+                                        hh.update(&leaf);
+                                        let mut out = [0u8; 32];
+                                        out.copy_from_slice(hh.finalize().as_bytes());
+                                        out
+                                    };
+                                    emem_attest::verify_merkle_path(
+                                        &promoted,
+                                        proof.leaf_index as usize,
+                                        &proof.path,
+                                        &proof.root,
+                                    )
                                 };
-                                let ok = emem_attest::verify_merkle_path(
-                                    &promoted,
-                                    proof.leaf_index as usize,
-                                    &proof.path,
-                                    &proof.root,
-                                );
                                 (Some(ok), None)
                             }
                         }
@@ -12359,12 +12397,14 @@ async fn post_verify_receipt(
             JsonValue::Null
         },
         "signer_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&pk_bytes).to_lowercase(),
-        "preimage_blake3_hex": msg.to_hex().to_string(),
+        "preimage_blake3_hex": data_encoding::HEXLOWER.encode(&msg),
+        "preimage_version": r.preimage_version,
         "primitive": r.primitive,
         "served_at": r.served_at,
         "fact_cids_count": r.fact_cids.len(),
-        "scope_bound": scope_present,
-        "as_of_bound": as_of_present,
+        "scope_bound": scope_hex.is_some(),
+        "as_of_bound": as_of_hex.is_some(),
+        "edges_bound": edges_hex.is_some(),
         "manifest_bound": manifest_hex_opt.is_some(),
         "merkle_proof_valid": merkle_proof_valid,
         "merkle_proof_error": merkle_proof_error,
@@ -21066,33 +21106,25 @@ pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), 
     }
 
     // Sign ONE attestation over the new edges (no facts) under the
-    // responder identity, folding the edge leaves into the merkle root
-    // exactly as `verify_attestation` reconstructs it (facts first, then
-    // edges, then SORTED). With zero facts the leaf set is just the edge
-    // digests.
-    let mut leaves: Vec<[u8; 32]> = new_edges.iter().map(|e| e.blake3_digest()).collect();
-    leaves.sort();
-    let batch_root = emem_attest::merkle_root(&leaves);
-    let mut h = blake3::Hasher::new();
-    h.update(&batch_root);
-    h.update(s.manifests.registry_cid.as_str().as_bytes());
-    h.update(s.manifests.schema_cid.as_str().as_bytes());
-    let signed_digest = h.finalize();
-    let sig = s.identity.signing.sign(signed_digest.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&sig.to_bytes());
-    let att = Attestation {
-        facts: vec![],
-        edges: new_edges,
-        batch_root,
-        attester: s.identity.pubkey,
-        attester_key_epoch: KeyEpoch(s.identity.epoch.0),
-        registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signature: EmCoreSignature(sig_bytes),
-        attested_at: signed_at.clone(),
-        scope: None,
-    };
+    // responder identity. `build_and_sign_v1` folds the edge digests
+    // into the v1 merkle root (0x00/0x01-prefixed) and signs the
+    // domain-separated, length-prefixed attestation preimage — the same
+    // bytes `verify_attestation` reconstructs for a v1 envelope.
+    let att = Attestation::build_and_sign_v1(
+        vec![],
+        new_edges,
+        RegistryCid::new(s.manifests.registry_cid.as_str()),
+        SchemaCid::new(s.manifests.schema_cid.as_str()),
+        &s.identity.signing,
+        KeyEpoch(s.identity.epoch.0),
+        signed_at.clone(),
+        None,
+    )
+    .map_err(|e| {
+        ApiError::from(emem_storage::StorageError::AttestationInvalid(format!(
+            "edge attestation build: {e}"
+        )))
+    })?;
     // put_attestation verifies the root + signature, then folds the
     // edges into the merkle log and calls add_edges. Idempotent at the
     // storage layer (an edge whose CID already lives in TREE_EDGES is a
@@ -22938,34 +22970,17 @@ async fn materialize_modis_ndvi_window(
         served_via: None,
     });
 
-    let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
-    let leaf_hash = blake3::hash(&buf);
-    let mut leaf = [0u8; 32];
-    leaf.copy_from_slice(leaf_hash.as_bytes());
-    let batch_root = emem_attest::merkle_root(&[leaf]);
-
-    let mut h = blake3::Hasher::new();
-    h.update(&batch_root);
-    h.update(s.manifests.registry_cid.as_str().as_bytes());
-    h.update(s.manifests.schema_cid.as_str().as_bytes());
-    let signed_digest = h.finalize();
-    let sig = s.identity.signing.sign(signed_digest.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&sig.to_bytes());
-
-    let att = Attestation {
-        facts: vec![fact],
-        edges: vec![],
-        batch_root,
-        attester: s.identity.pubkey,
-        attester_key_epoch: KeyEpoch(s.identity.epoch.0),
-        registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signature: EmCoreSignature(sig_bytes),
-        attested_at: signed_at,
-        scope: None,
-    };
+    let att = Attestation::build_and_sign_v1(
+        vec![fact],
+        vec![],
+        RegistryCid::new(s.manifests.registry_cid.as_str()),
+        SchemaCid::new(s.manifests.schema_cid.as_str()),
+        &s.identity.signing,
+        KeyEpoch(s.identity.epoch.0),
+        signed_at,
+        None,
+    )
+    .map_err(|e| format!("attestation build: {e}"))?;
 
     let cids = s
         .storage
@@ -30606,36 +30621,23 @@ async fn sign_and_persist_many(
     // sorted), which is why sign_and_persist worked but
     // sign_and_persist_many broke for N>1 — the bug that caused the
     // batched EUDR path's `verdict=indeterminate` on 2026-05-25.
-    let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(facts.len());
-    for fact in &facts {
-        let mut buf = Vec::new();
-        ciborium::ser::into_writer(fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
-        let mut leaf = [0u8; 32];
-        leaf.copy_from_slice(blake3::hash(&buf).as_bytes());
-        leaves.push(leaf);
-    }
-    leaves.sort();
-    let batch_root = emem_attest::merkle_root(&leaves);
-    let mut h = blake3::Hasher::new();
-    h.update(&batch_root);
-    h.update(s.manifests.registry_cid.as_str().as_bytes());
-    h.update(s.manifests.schema_cid.as_str().as_bytes());
-    let signed_digest = h.finalize();
-    let sig = s.identity.signing.sign(signed_digest.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&sig.to_bytes());
-    let att = Attestation {
+    // build_and_sign_v1 hashes each fact's canonical CBOR, sorts the
+    // leaves, and computes the v1 (0x00/0x01-prefixed) merkle root — the
+    // sort that the 2026-05-25 fix made explicit is now internal. It
+    // rejects a batch with two byte-identical facts (DuplicateLeaf),
+    // which under v1 would let the root equivocate; distinct
+    // (cell,band,tslot) facts never collide.
+    let att = Attestation::build_and_sign_v1(
         facts,
-        edges: vec![],
-        batch_root,
-        attester: s.identity.pubkey,
-        attester_key_epoch: KeyEpoch(s.identity.epoch.0),
-        registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signature: EmCoreSignature(sig_bytes),
-        attested_at: signed_at.to_string(),
-        scope: None,
-    };
+        vec![],
+        RegistryCid::new(s.manifests.registry_cid.as_str()),
+        SchemaCid::new(s.manifests.schema_cid.as_str()),
+        &s.identity.signing,
+        KeyEpoch(s.identity.epoch.0),
+        signed_at.to_string(),
+        None,
+    )
+    .map_err(|e| format!("attestation build (batch): {e}"))?;
     let cids = s
         .storage
         .put_attestation(&att)
@@ -30897,34 +30899,17 @@ async fn sign_band_absence(
         reason_text,
     );
 
-    let mut buf = Vec::new();
-    ciborium::ser::into_writer(&fact, &mut buf).map_err(|e| format!("cbor encode: {e}"))?;
-    let leaf_hash = blake3::hash(&buf);
-    let mut leaf = [0u8; 32];
-    leaf.copy_from_slice(leaf_hash.as_bytes());
-    let batch_root = emem_attest::merkle_root(&[leaf]);
-
-    let mut h = blake3::Hasher::new();
-    h.update(&batch_root);
-    h.update(s.manifests.registry_cid.as_str().as_bytes());
-    h.update(s.manifests.schema_cid.as_str().as_bytes());
-    let signed_digest = h.finalize();
-    let sig = s.identity.signing.sign(signed_digest.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&sig.to_bytes());
-
-    let att = Attestation {
-        facts: vec![fact],
-        edges: vec![],
-        batch_root,
-        attester: s.identity.pubkey,
-        attester_key_epoch: KeyEpoch(s.identity.epoch.0),
-        registry_cid: RegistryCid::new(s.manifests.registry_cid.as_str()),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signature: EmCoreSignature(sig_bytes),
-        attested_at: signed_at.to_string(),
-        scope: None,
-    };
+    let att = Attestation::build_and_sign_v1(
+        vec![fact],
+        vec![],
+        RegistryCid::new(s.manifests.registry_cid.as_str()),
+        SchemaCid::new(s.manifests.schema_cid.as_str()),
+        &s.identity.signing,
+        KeyEpoch(s.identity.epoch.0),
+        signed_at.to_string(),
+        None,
+    )
+    .map_err(|e| format!("attestation build (absence): {e}"))?;
 
     let cids = s
         .storage
@@ -47864,6 +47849,126 @@ mod tests {
         })
     }
 
+    /// End-to-end through the REAL `/v1/verify_receipt` handler: a v1
+    /// receipt signed by `Server::sign_receipt` must verify `valid:true`
+    /// and report `preimage_version:1`; flipping a cell must drop it to
+    /// `valid:false`. Guards the signer↔verifier contract across the
+    /// preimage-v1 cutover.
+    #[tokio::test]
+    async fn verify_receipt_v1_roundtrip_and_tamper() {
+        use std::time::Instant;
+        let s = test_app_state();
+        let receipt = s.sign_receipt(
+            "emem.recall",
+            vec!["damO.zb000.xUti.zde78".into()],
+            vec![emem_fact::FactCid::new("fc-1")],
+            true,
+            Instant::now(),
+            None,
+        );
+        assert_eq!(receipt.preimage_version, emem_attest::PREIMAGE_V1);
+
+        // Genuine receipt → valid:true.
+        let req = VerifyReceiptReq {
+            receipt: receipt.clone(),
+            pubkey_b32: None,
+            current_responder_epoch: None,
+            facts: None,
+        };
+        let Json(body) = post_verify_receipt(State(s.clone()), Ok(Json(req)))
+            .await
+            .expect("verify ok");
+        assert_eq!(body["valid"], serde_json::json!(true), "genuine v1 receipt must verify: {body}");
+        assert_eq!(body["preimage_version"], serde_json::json!(1));
+
+        // Tampered receipt (cell swapped after signing) → valid:false.
+        let mut tampered = receipt;
+        tampered.cells = vec!["damO.zzzzz.xUti.zde78".into()];
+        let req2 = VerifyReceiptReq {
+            receipt: tampered,
+            pubkey_b32: None,
+            current_responder_epoch: None,
+            facts: None,
+        };
+        let Json(body2) = post_verify_receipt(State(s), Ok(Json(req2)))
+            .await
+            .expect("verify call ok");
+        assert_eq!(body2["valid"], serde_json::json!(false), "tampered receipt must NOT verify");
+    }
+
+    /// A LEGACY v0 receipt (no preimage_version) must still verify
+    /// `valid:true` through the same handler — back-compat guard.
+    #[tokio::test]
+    async fn verify_receipt_v0_legacy_still_verifies() {
+        let s = test_app_state();
+        // Hand-build a v0 receipt and sign it under the legacy preimage
+        // (request_id|served_at|manifest?|primitive|cells,|cids,).
+        let request_id = "01J0V0RIDLEGACY00000000000".to_string();
+        let served_at = "2026-06-01T00:00:00Z".to_string();
+        let primitive = "emem.recall";
+        let cells = vec!["damO.zb000.xUti.zde78".to_string()];
+        let fact_cids = vec![emem_fact::FactCid::new("fc-legacy")];
+        // No source_versions → no manifest segment (matches pre-F3 receipts).
+        let mut h = blake3::Hasher::new();
+        h.update(request_id.as_bytes());
+        h.update(b"|");
+        h.update(served_at.as_bytes());
+        h.update(b"|");
+        h.update(primitive.as_bytes());
+        h.update(b"|");
+        for c in &cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        let msg = h.finalize();
+        let sig = s.identity.signing.sign(msg.as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&sig.to_bytes());
+
+        let receipt = emem_fact::Receipt {
+            request_id,
+            served_at,
+            primitive: primitive.into(),
+            intent: None,
+            cells,
+            fact_cids,
+            schema_cid: emem_fact::SchemaCid::new("sch"),
+            merkle_proof: None,
+            responder: s.identity.pubkey,
+            responder_key_epoch: s.identity.epoch,
+            signature: emem_core::Signature(sig_bytes),
+            source_versions: std::collections::BTreeMap::new(),
+            registry_cid: emem_fact::RegistryCid::new("reg"),
+            cost: emem_fact::Cost {
+                credits: 0,
+                latency_p50_ms: 0,
+                latency_p99_ms: 0,
+                source_freshness_s: 0,
+                was_cached: true,
+            },
+            as_of: None,
+            scope: None,
+            edge_cids: Vec::new(),
+            preimage_version: 0,
+        };
+        let req = VerifyReceiptReq {
+            receipt,
+            pubkey_b32: None,
+            current_responder_epoch: None,
+            facts: None,
+        };
+        let Json(body) = post_verify_receipt(State(s), Ok(Json(req)))
+            .await
+            .expect("verify ok");
+        assert_eq!(body["valid"], serde_json::json!(true), "legacy v0 receipt must still verify: {body}");
+        assert_eq!(body["preimage_version"], serde_json::json!(0));
+    }
+
     /// The full router must BUILD without panicking. axum's `.merge()` panics
     /// at construction time on a duplicate route or a second fallback, so this
     /// guards the EUDR sub-router merge (the dedicated long-timeout router for
@@ -49570,7 +49675,10 @@ mod tests {
             signed_at: signed_at.into(),
             served_via: None,
         });
-        // Single-fact attestation: one leaf, trivially sorted.
+        // Single-fact attestation, deliberately signed under the LEGACY
+        // v0 rule (no preimage_version) so this seed exercises the
+        // back-compat verify path in put_attestation end-to-end — a
+        // pre-v1 attestation must still round-trip.
         let mut buf = Vec::new();
         ciborium::ser::into_writer(&fact, &mut buf).unwrap();
         let mut leaf = [0u8; 32];
@@ -49591,9 +49699,10 @@ mod tests {
             attester_key_epoch: KeyEpoch(0),
             registry_cid: RegistryCid::new("reg"),
             schema_cid: SchemaCid::new("sch"),
-            signature: EmCoreSignature(sig_bytes),
+            signature: emem_core::Signature(sig_bytes),
             attested_at: signed_at.into(),
             scope: None,
+            preimage_version: 0,
         };
         let cids = s.storage.put_attestation(&att).await.expect("seed put");
         cids[0].as_str().to_string()

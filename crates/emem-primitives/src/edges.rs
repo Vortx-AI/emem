@@ -503,15 +503,9 @@ mod tests {
         let r = &resp.receipt;
         assert!(!r.edge_cids.is_empty(), "edge_cids must be present");
 
-        use blake3::Hasher;
-        let edges_hex = {
-            let mut strs: Vec<String> =
-                r.edge_cids.iter().map(|c| c.as_str().to_string()).collect();
-            strs.sort();
-            let mut buf = Vec::new();
-            let _ = ciborium::into_writer(&strs, &mut buf);
-            data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes())
-        };
+        // Rebuild the v1 preimage exactly as an offline verifier does.
+        assert_eq!(r.preimage_version, emem_attest::PREIMAGE_V1);
+        let edges_hex = emem_storage::Server::edges_blake3_hex(&r.edge_cids);
         let manifest_hex_opt = if r.source_versions.is_empty() {
             None
         } else {
@@ -519,33 +513,20 @@ mod tests {
             let _ = ciborium::into_writer(&r.source_versions, &mut buf);
             Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
         };
-        let mut h = Hasher::new();
-        h.update(r.request_id.as_bytes());
-        h.update(b"|");
-        h.update(r.served_at.as_bytes());
-        h.update(b"|");
-        // no scope, no as_of in this call → straight to edges segment.
-        h.update(edges_hex.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex_opt {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(r.primitive.as_bytes());
-        h.update(b"|");
-        for c in &r.cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &r.fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
+        let msg = emem_attest::receipt_preimage_v1(
+            &r.request_id,
+            &r.served_at,
+            None,
+            None,
+            edges_hex.as_deref(),
+            manifest_hex_opt.as_deref(),
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+        );
         let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).expect("pubkey");
         let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
-        pk.verify_strict(msg.as_bytes(), &sig)
+        pk.verify_strict(&msg, &sig)
             .expect("edges_recall receipt must verify against responder pubkey");
     }
 

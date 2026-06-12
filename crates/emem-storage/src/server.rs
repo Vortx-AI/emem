@@ -9,7 +9,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use blake3::Hasher;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -166,10 +165,14 @@ impl Server {
         Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
     }
 
-    /// Build a signed [`Receipt`] for a primitive response. Signature
-    /// covers the canonical `request_id || served_at || primitive ||
-    /// cells || fact_cids` byte sequence so any client can offline-verify
-    /// with the responder's epoch-pubkey.
+    /// Build a signed [`Receipt`] for a primitive response. Since the
+    /// preimage-v1 cutover every new receipt is signed over
+    /// [`emem_attest::receipt_preimage_v1`] — domain-separated, every
+    /// segment tagged and length-prefixed — and carries
+    /// `preimage_version: 1` so verifiers pick the right rule. Receipts
+    /// signed under the legacy v0 concatenation rule (no
+    /// `preimage_version` field) continue to verify via the v0 branch in
+    /// `/v1/verify_receipt` and the `/verify` page.
     pub fn sign_receipt(
         &self,
         primitive: &'static str,
@@ -179,36 +182,57 @@ impl Server {
         started: Instant,
         intent: Option<String>,
     ) -> Receipt {
+        self.sign_receipt_v1_inner(
+            primitive, cells, fact_cids, was_cached, started, intent, None, None, &[],
+        )
+    }
+
+    /// The ONE signing path for every receipt variant. Optional axes
+    /// (scope, bi-temporal bound, edges) enter the v1 preimage as tagged
+    /// segments only when present, so absence/presence is unambiguous in
+    /// the signed bytes — under the v0 rule a scope digest and an as_of
+    /// digest were indistinguishable untagged hex at the same position.
+    #[allow(clippy::too_many_arguments)]
+    fn sign_receipt_v1_inner(
+        &self,
+        primitive: &'static str,
+        cells: Vec<String>,
+        fact_cids: Vec<FactCid>,
+        was_cached: bool,
+        started: Instant,
+        intent: Option<String>,
+        scope: Option<emem_fact::Scope>,
+        bound: Option<&AsOfBound>,
+        edges: &[EdgeCid],
+    ) -> Receipt {
         let request_id = ulid::Ulid::new().to_string();
         let served_at = iso8601_now();
         let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
 
+        let scope = scope.filter(|s| !s.is_empty());
+        let scope_hex = scope.as_ref().map(|s| s.blake3_hex());
+        let as_of = bound.filter(|b| !b.is_unbounded()).map(|b| AsOfReceipt {
+            valid_time: b.valid_time,
+            transaction_time: b.transaction_time.clone(),
+        });
+        let as_of_hex = as_of.as_ref().map(|a| a.blake3_hex());
+        let edges_hex = Self::edges_blake3_hex(edges);
         let source_versions = self.manifest_versions_snapshot();
         let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
 
-        let mut h = Hasher::new();
-        h.update(request_id.as_bytes());
-        h.update(b"|");
-        h.update(served_at.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(primitive.as_bytes());
-        h.update(b"|");
-        for c in &cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
+        let msg = emem_attest::receipt_preimage_v1(
+            &request_id,
+            &served_at,
+            scope_hex.as_deref(),
+            as_of_hex.as_deref(),
+            edges_hex.as_deref(),
+            manifest_hex.as_deref(),
+            primitive,
+            cells.iter().map(|s| s.as_str()),
+            fact_cids.iter().map(|c| c.as_str()),
+        );
 
-        let dalek_sig = self.identity.signing.sign(msg.as_bytes());
+        let dalek_sig = self.identity.signing.sign(&msg);
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
 
@@ -246,27 +270,18 @@ impl Server {
                 source_freshness_s: 0,
                 was_cached,
             },
-            as_of: None,
-            scope: None,
-            edge_cids: Vec::new(),
+            as_of,
+            scope,
+            edge_cids: edges.to_vec(),
+            preimage_version: emem_attest::PREIMAGE_V1,
         }
     }
 
-    /// Scope-aware sibling of [`Server::sign_receipt`]. When `scope` is
-    /// `None` or every field is `None`, the signed bytes are byte-identical
-    /// to `sign_receipt` and the receipt body omits the scope — keeps
-    /// every pre-v0.0.8 receipt verifiable under unchanged rules.
-    ///
-    /// When at least one scope field is `Some`, the preimage becomes
-    ///
-    /// ```text
-    /// <request_id>|<served_at>|<scope_blake3_hex>|<primitive>|<cells>,|<fact_cids>,
-    /// ```
-    ///
-    /// (the `<scope_blake3_hex>|` segment is inserted between
-    /// `served_at` and `primitive`) and the receipt body carries the
-    /// `Scope` struct so an offline verifier rebuilds the same digest
-    /// and re-checks the signature.
+    /// Scope-aware sibling of [`Server::sign_receipt`]. The scope (when
+    /// non-empty) enters the v1 preimage as a tagged
+    /// `blake3(canonical_cbor(Scope))` hex segment and the receipt body
+    /// carries the `Scope` struct so an offline verifier rebuilds the
+    /// same digest.
     #[allow(clippy::too_many_arguments)]
     pub fn sign_receipt_with_scope(
         &self,
@@ -278,79 +293,9 @@ impl Server {
         intent: Option<String>,
         scope: Option<emem_fact::Scope>,
     ) -> Receipt {
-        // Empty / absent scope must produce the legacy preimage so
-        // existing offline verifiers continue to round-trip byte-for-byte.
-        let scope_present = scope.as_ref().is_some_and(|s| !s.is_empty());
-        if !scope_present {
-            return self.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent);
-        }
-        let scope_inner = scope.expect("checked just above");
-
-        let request_id = ulid::Ulid::new().to_string();
-        let served_at = iso8601_now();
-        let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-
-        let scope_hex = scope_inner.blake3_hex();
-        let source_versions = self.manifest_versions_snapshot();
-        let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
-
-        let mut h = Hasher::new();
-        h.update(request_id.as_bytes());
-        h.update(b"|");
-        h.update(served_at.as_bytes());
-        h.update(b"|");
-        h.update(scope_hex.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(primitive.as_bytes());
-        h.update(b"|");
-        for c in &cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
-
-        let dalek_sig = self.identity.signing.sign(msg.as_bytes());
-        let mut sig_bytes = [0u8; 64];
-        sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
-
-        let merkle_proof = fact_cids
-            .first()
-            .and_then(|c| self.storage.proof_for_cid(c));
-
-        Receipt {
-            request_id,
-            served_at,
-            primitive: primitive.into(),
-            intent,
-            cells,
-            fact_cids,
-            schema_cid: self.manifests.schema_cid.clone(),
-            merkle_proof,
-            responder: self.identity.pubkey,
-            responder_key_epoch: self.identity.epoch,
-            signature: Signature(sig_bytes),
-            source_versions,
-            registry_cid: self.manifests.registry_cid.clone(),
-            cost: Cost {
-                credits: 0,
-                latency_p50_ms: elapsed_ms,
-                latency_p99_ms: elapsed_ms,
-                source_freshness_s: 0,
-                was_cached,
-            },
-            as_of: None,
-            scope: Some(scope_inner),
-            edge_cids: Vec::new(),
-        }
+        self.sign_receipt_v1_inner(
+            primitive, cells, fact_cids, was_cached, started, intent, scope, None, &[],
+        )
     }
 
     /// Bi-temporal sibling of [`Server::sign_receipt`]. When `bound`
@@ -375,30 +320,10 @@ impl Server {
         )
     }
 
-    /// Composed signer that honours both `scope` (v0.0.8) and `bound`
-    /// (bi-temporal valid/transaction time). The preimage rule extends
-    /// the v0.0.8 scope rule with an `as_of_blake3_hex|` segment when
-    /// the bound is non-unbounded:
-    ///
-    /// ```text
-    /// <request_id>|<served_at>|[scope_blake3_hex|][as_of_blake3_hex|]<primitive>|<cells>,|<fact_cids>,
-    /// ```
-    ///
-    /// Both optional segments are independent: the scope segment is
-    /// emitted when `scope` is non-empty; the `as_of` segment is
-    /// emitted when `bound` is non-unbounded. When both are absent the
-    /// preimage is byte-identical to the legacy `sign_receipt` rule and
-    /// every pre-v0.0.8 receipt continues to verify.
-    ///
-    /// Until this commit (audit finding F2), the `as_of` field was
-    /// attached to the receipt body AFTER signing, so a malicious
-    /// responder could claim it honoured a bound it ignored and the
-    /// verifier would pass. The bound now enters the signed bytes.
-    ///
-    /// Existing call sites that only care about one axis call
-    /// [`Server::sign_receipt_with_as_of`] (no scope) or
-    /// [`Server::sign_receipt_with_scope`] (no bound); this method is
-    /// the convergence point for any primitive that takes both.
+    /// Composed signer that honours both `scope` and the bi-temporal
+    /// `bound`. Each axis enters the v1 preimage as its own tagged
+    /// segment only when present; the receipt body records the same
+    /// structs so an offline verifier rebuilds identical digests.
     #[allow(clippy::too_many_arguments)]
     pub fn sign_receipt_full(
         &self,
@@ -411,100 +336,17 @@ impl Server {
         scope: Option<emem_fact::Scope>,
         bound: &AsOfBound,
     ) -> Receipt {
-        // Honour the legacy preimage when neither axis applies — keeps
-        // every pre-v0.0.8 receipt verifiable byte-for-byte.
-        let scope_present = scope.as_ref().is_some_and(|s| !s.is_empty());
-        let bound_present = !bound.is_unbounded();
-        if !scope_present && !bound_present {
-            return self.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent);
-        }
-        // Scope-only path stays byte-identical to v0.0.8 sign_receipt_with_scope.
-        if scope_present && !bound_present {
-            return self.sign_receipt_with_scope(
-                primitive, cells, fact_cids, was_cached, started, intent, scope,
-            );
-        }
-
-        let request_id = ulid::Ulid::new().to_string();
-        let served_at = iso8601_now();
-        let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-
-        // Build the AsOfReceipt block first so its canonical-CBOR
-        // digest enters the preimage exactly as a verifier reconstructs
-        // it from the same struct in the receipt body.
-        let as_of = AsOfReceipt {
-            valid_time: bound.valid_time,
-            transaction_time: bound.transaction_time.clone(),
-        };
-        let as_of_hex = as_of.blake3_hex();
-        let scope_hex_opt = scope
-            .as_ref()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.blake3_hex());
-        let source_versions = self.manifest_versions_snapshot();
-        let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
-
-        let mut h = Hasher::new();
-        h.update(request_id.as_bytes());
-        h.update(b"|");
-        h.update(served_at.as_bytes());
-        h.update(b"|");
-        if let Some(ref sh) = scope_hex_opt {
-            h.update(sh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(as_of_hex.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(primitive.as_bytes());
-        h.update(b"|");
-        for c in &cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
-
-        let dalek_sig = self.identity.signing.sign(msg.as_bytes());
-        let mut sig_bytes = [0u8; 64];
-        sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
-
-        let merkle_proof = fact_cids
-            .first()
-            .and_then(|c| self.storage.proof_for_cid(c));
-
-        Receipt {
-            request_id,
-            served_at,
-            primitive: primitive.into(),
-            intent,
+        self.sign_receipt_v1_inner(
+            primitive,
             cells,
             fact_cids,
-            schema_cid: self.manifests.schema_cid.clone(),
-            merkle_proof,
-            responder: self.identity.pubkey,
-            responder_key_epoch: self.identity.epoch,
-            signature: Signature(sig_bytes),
-            source_versions,
-            registry_cid: self.manifests.registry_cid.clone(),
-            cost: Cost {
-                credits: 0,
-                latency_p50_ms: elapsed_ms,
-                latency_p99_ms: elapsed_ms,
-                source_freshness_s: 0,
-                was_cached,
-            },
-            as_of: Some(as_of),
-            scope: scope.filter(|s| !s.is_empty()),
-            edge_cids: Vec::new(),
-        }
+            was_cached,
+            started,
+            intent,
+            scope,
+            Some(bound),
+            &[],
+        )
     }
 
     /// Lowercase-hex blake3 of the canonical-CBOR encoding of the SORTED
@@ -524,18 +366,10 @@ impl Server {
         Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
     }
 
-    /// Edge-aware signer. The preimage extends the v0.0.8 scope + as_of
-    /// rule with an `edges_blake3_hex|` segment placed AFTER `as_of` and
-    /// BEFORE `manifest`:
-    ///
-    /// ```text
-    /// <request_id>|<served_at>|[scope|][as_of|][edges|][manifest|]<primitive>|<cells>,|<fact_cids>,
-    /// ```
-    ///
-    /// CRITICAL back-compat: when `edges.is_empty()` this early-returns to
-    /// [`Server::sign_receipt_full`], so the signed bytes are byte-
-    /// identical to today for every existing call site and every pre-
-    /// v0.0.9 receipt continues to verify.
+    /// Edge-aware signer: cited edge CIDs enter the v1 preimage as a
+    /// tagged `blake3(canonical_cbor(sorted_cid_strings))` hex segment
+    /// when non-empty, and the receipt body lists `edge_cids` so a
+    /// verifier rebuilds the digest order-independently.
     #[allow(clippy::too_many_arguments)]
     pub fn sign_receipt_with_edges(
         &self,
@@ -549,104 +383,17 @@ impl Server {
         bound: &AsOfBound,
         edges: &[EdgeCid],
     ) -> Receipt {
-        // No edges → byte-identical to the established sign_receipt_full
-        // path (which itself collapses to sign_receipt / *_with_scope when
-        // those axes are also absent).
-        if edges.is_empty() {
-            return self.sign_receipt_full(
-                primitive, cells, fact_cids, was_cached, started, intent, scope, bound,
-            );
-        }
-
-        let request_id = ulid::Ulid::new().to_string();
-        let served_at = iso8601_now();
-        let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-
-        let bound_present = !bound.is_unbounded();
-
-        let scope_hex_opt = scope
-            .as_ref()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.blake3_hex());
-        let as_of = if bound_present {
-            Some(AsOfReceipt {
-                valid_time: bound.valid_time,
-                transaction_time: bound.transaction_time.clone(),
-            })
-        } else {
-            None
-        };
-        let as_of_hex_opt = as_of.as_ref().map(|a| a.blake3_hex());
-        let edges_hex = Self::edges_blake3_hex(edges).expect("edges non-empty checked above");
-        let source_versions = self.manifest_versions_snapshot();
-        let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
-
-        let mut h = Hasher::new();
-        h.update(request_id.as_bytes());
-        h.update(b"|");
-        h.update(served_at.as_bytes());
-        h.update(b"|");
-        if let Some(ref sh) = scope_hex_opt {
-            h.update(sh.as_bytes());
-            h.update(b"|");
-        }
-        if let Some(ref ah) = as_of_hex_opt {
-            h.update(ah.as_bytes());
-            h.update(b"|");
-        }
-        // edges segment: AFTER as_of, BEFORE manifest.
-        h.update(edges_hex.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(primitive.as_bytes());
-        h.update(b"|");
-        for c in &cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
-
-        let dalek_sig = self.identity.signing.sign(msg.as_bytes());
-        let mut sig_bytes = [0u8; 64];
-        sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
-
-        let merkle_proof = fact_cids
-            .first()
-            .and_then(|c| self.storage.proof_for_cid(c));
-
-        Receipt {
-            request_id,
-            served_at,
-            primitive: primitive.into(),
-            intent,
+        self.sign_receipt_v1_inner(
+            primitive,
             cells,
             fact_cids,
-            schema_cid: self.manifests.schema_cid.clone(),
-            merkle_proof,
-            responder: self.identity.pubkey,
-            responder_key_epoch: self.identity.epoch,
-            signature: Signature(sig_bytes),
-            source_versions,
-            registry_cid: self.manifests.registry_cid.clone(),
-            cost: Cost {
-                credits: 0,
-                latency_p50_ms: elapsed_ms,
-                latency_p99_ms: elapsed_ms,
-                source_freshness_s: 0,
-                was_cached,
-            },
-            as_of,
-            scope: scope.filter(|s| !s.is_empty()),
-            edge_cids: edges.to_vec(),
-        }
+            was_cached,
+            started,
+            intent,
+            scope,
+            Some(bound),
+            edges,
+        )
     }
 }
 
@@ -743,120 +490,118 @@ mod tests {
         assert!(a.is_some());
     }
 
-    /// CRITICAL back-compat: sign_receipt_with_edges(edges=[]) is byte-
-    /// identical to the legacy sign_receipt_full path. We assert the
-    /// preimage segment layout has no edges segment and the signature
-    /// verifies under the legacy (no-edges) preimage.
-    #[test]
-    fn legacy_receipt_still_verifies() {
-        let srv = test_server();
-        let started = Instant::now();
-        let bound = AsOfBound::default();
-        let r = srv.sign_receipt_with_edges(
-            "emem.recall",
-            vec!["damO.zb000.xUti.zde78".into()],
-            vec![FactCid::new("fc-1")],
-            true,
-            started,
-            None,
-            None,
-            &bound,
-            &[],
-        );
-        assert!(r.edge_cids.is_empty(), "no edges → empty edge_cids");
-
-        // Reconstruct the LEGACY preimage (no scope, no as_of, no edges) —
-        // request_id | served_at | [manifest|] primitive | cells, | fact_cids,
-        let manifest_hex_opt = if r.source_versions.is_empty() {
+    /// Rebuild the v1 preimage from a receipt's body exactly as an
+    /// offline verifier does, returning the bytes ed25519 should accept.
+    fn rebuild_v1_preimage(r: &Receipt) -> [u8; 32] {
+        let manifest_hex = if r.source_versions.is_empty() {
             None
         } else {
             let mut buf = Vec::new();
             let _ = ciborium::into_writer(&r.source_versions, &mut buf);
             Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
         };
-        let mut h = Hasher::new();
-        h.update(r.request_id.as_bytes());
-        h.update(b"|");
-        h.update(r.served_at.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex_opt {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(r.primitive.as_bytes());
-        h.update(b"|");
-        for c in &r.cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &r.fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
-        let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
-        let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
-        pk.verify_strict(msg.as_bytes(), &sig)
-            .expect("no-edges receipt must verify under the legacy preimage");
+        let scope_hex = r.scope.as_ref().filter(|s| !s.is_empty()).map(|s| s.blake3_hex());
+        let as_of_hex = r.as_of.as_ref().filter(|a| !a.is_unbounded()).map(|a| a.blake3_hex());
+        let edges_hex = Server::edges_blake3_hex(&r.edge_cids);
+        emem_attest::receipt_preimage_v1(
+            &r.request_id,
+            &r.served_at,
+            scope_hex.as_deref(),
+            as_of_hex.as_deref(),
+            edges_hex.as_deref(),
+            manifest_hex.as_deref(),
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+        )
     }
 
-    /// With edges present, the receipt verifies ONLY when the preimage
-    /// includes the new edges segment AFTER as_of, BEFORE manifest.
+    fn verify_receipt_v1(r: &Receipt) {
+        assert_eq!(r.preimage_version, emem_attest::PREIMAGE_V1);
+        let msg = rebuild_v1_preimage(r);
+        let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
+        pk.verify_strict(&msg, &sig)
+            .expect("receipt must verify under the rebuilt v1 preimage");
+    }
+
+    /// A plain recall receipt (no scope/as_of/edges) is signed under v1
+    /// and verifies when the verifier rebuilds the tagged preimage from
+    /// the receipt body.
     #[test]
-    fn edges_receipt_verifies_with_edges_segment() {
+    fn plain_receipt_verifies_v1() {
         let srv = test_server();
-        let started = Instant::now();
-        let bound = AsOfBound::default();
+        let r = srv.sign_receipt_with_edges(
+            "emem.recall",
+            vec!["damO.zb000.xUti.zde78".into()],
+            vec![FactCid::new("fc-1")],
+            true,
+            Instant::now(),
+            None,
+            None,
+            &AsOfBound::default(),
+            &[],
+        );
+        assert!(r.edge_cids.is_empty(), "no edges → empty edge_cids");
+        verify_receipt_v1(&r);
+    }
+
+    /// Edges present → the edges segment enters the tagged v1 preimage
+    /// and the verifier rebuilds it from `receipt.edge_cids`.
+    #[test]
+    fn edges_receipt_verifies_v1() {
+        let srv = test_server();
         let edges = vec![EdgeCid::new("ecid-1"), EdgeCid::new("ecid-2")];
         let r = srv.sign_receipt_with_edges(
             "emem.recall",
             vec!["cellX".into()],
             vec![FactCid::new("fc-1")],
             true,
-            started,
+            Instant::now(),
             None,
             None,
-            &bound,
+            &AsOfBound::default(),
             &edges,
         );
         assert_eq!(r.edge_cids.len(), 2);
+        verify_receipt_v1(&r);
+    }
 
-        let edges_hex = Server::edges_blake3_hex(&r.edge_cids).unwrap();
-        let manifest_hex_opt = if r.source_versions.is_empty() {
-            None
-        } else {
-            let mut buf = Vec::new();
-            let _ = ciborium::into_writer(&r.source_versions, &mut buf);
-            Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
-        };
-        let mut h = Hasher::new();
-        h.update(r.request_id.as_bytes());
-        h.update(b"|");
-        h.update(r.served_at.as_bytes());
-        h.update(b"|");
-        // no scope, no as_of → edges segment next.
-        h.update(edges_hex.as_bytes());
-        h.update(b"|");
-        if let Some(ref mh) = manifest_hex_opt {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(r.primitive.as_bytes());
-        h.update(b"|");
-        for c in &r.cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &r.fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        let msg = h.finalize();
+    /// A v1 receipt must NOT verify if a verifier mistakenly tries the
+    /// optional segment in the wrong slot — proves the tagging defeats
+    /// the v0 scope/as_of positional ambiguity. Here we forge a preimage
+    /// that puts the manifest hash where a scope segment would sit and
+    /// confirm it's rejected.
+    #[test]
+    fn v1_rejects_segment_confusion() {
+        let srv = test_server();
+        let r = srv.sign_receipt(
+            "emem.recall",
+            vec!["cellX".into()],
+            vec![FactCid::new("fc-1")],
+            true,
+            Instant::now(),
+            None,
+        );
+        // Genuine preimage verifies.
+        verify_receipt_v1(&r);
+        // A preimage that injects a bogus scope segment must not.
+        let bogus = emem_attest::receipt_preimage_v1(
+            &r.request_id,
+            &r.served_at,
+            Some("deadbeef"),
+            None,
+            None,
+            None,
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+        );
         let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
         let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
-        pk.verify_strict(msg.as_bytes(), &sig)
-            .expect("edges receipt must verify with the edges segment");
+        assert!(
+            pk.verify_strict(&bogus, &sig).is_err(),
+            "forged scope segment must not verify against a no-scope receipt"
+        );
     }
 }

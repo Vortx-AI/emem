@@ -128,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
         signature: Signature(sig_bytes),
         attested_at: "2026-04-26T14:00:00Z".into(),
         scope: None,
+        preimage_version: 0,
     };
 
     println!("== POST /v1/attest_cbor ==");

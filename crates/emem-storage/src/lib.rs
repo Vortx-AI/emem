@@ -644,7 +644,7 @@ impl Storage for MaterializingStorage {
         // any of these CIDs can ship a verifier-ready proof. Best-effort:
         // a tree-write error never fails the attestation itself.
         if let Some(hot) = &self.hot {
-            if let Err(e) = persist_fact_proofs(hot.db(), &att.facts, &cids) {
+            if let Err(e) = persist_fact_proofs(hot.db(), &att.facts, &cids, att.preimage_version) {
                 tracing::warn!(error=%e, "fact proof persistence error (ignored)");
             }
             // Append every keyable fact's CID to the multi-attester
@@ -1416,6 +1416,7 @@ fn persist_fact_proofs(
     db: &sled::Db,
     facts: &[Fact],
     cids: &[FactCid],
+    preimage_version: u8,
 ) -> Result<(), StorageError> {
     if facts.is_empty() || cids.len() != facts.len() {
         return Ok(());
@@ -1432,7 +1433,19 @@ fn persist_fact_proofs(
     }
     leaves_with_orig.sort_by_key(|a| a.0);
     let leaves: Vec<[u8; 32]> = leaves_with_orig.iter().map(|(l, _)| *l).collect();
-    let (root, paths) = emem_attest::merkle_root_and_paths(&leaves);
+    // Build proofs under the same merkle rule the attestation's root was
+    // computed with, so a verifier re-deriving the root from the proof
+    // path lands on `att.batch_root`.
+    let (root, paths) = if preimage_version >= emem_attest::PREIMAGE_V1 {
+        emem_attest::merkle_root_and_paths_v1(&leaves)
+    } else {
+        emem_attest::merkle_root_and_paths(&leaves)
+    };
+    let proof_version = if preimage_version >= emem_attest::PREIMAGE_V1 {
+        emem_attest::PREIMAGE_V1
+    } else {
+        0
+    };
     let tree = db
         .open_tree(TREE_FACT_PROOFS)
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
@@ -1442,6 +1455,7 @@ fn persist_fact_proofs(
             leaf_index: sorted_idx as u32,
             path: paths[sorted_idx].clone(),
             root,
+            version: proof_version,
         };
         let mut buf = Vec::new();
         ciborium::ser::into_writer(&proof, &mut buf)
@@ -1454,11 +1468,21 @@ fn persist_fact_proofs(
     Ok(())
 }
 
-/// Verify an attestation envelope:
+/// Verify an attestation envelope. The hashing rule is selected by
+/// `att.preimage_version`:
 ///
-/// 1. Recompute each fact's CBOR + blake3 hash; sort the leaves canonically;
-///    confirm the merkle root matches `att.batch_root`.
-/// 2. Verify the ed25519 signature over `blake3(batch_root || registry_cid_bytes || schema_cid_bytes)`.
+/// * `0` (legacy): leaves and nodes hashed without prefixes; signature
+///   over `blake3(batch_root || registry_cid || schema_cid)`.
+/// * `1`: RFC 6962-style 0x00/0x01 leaf/node prefixes
+///   ([`emem_attest::merkle_root_v1`]); duplicate leaves rejected
+///   (root-equivocation guard); signature over
+///   [`emem_attest::attestation_preimage_v1`].
+///
+/// Both paths recompute the leaf set the same way (canonical-CBOR blake3
+/// per fact, plus each edge digest, bytewise-sorted) and confirm the
+/// recomputed root matches `att.batch_root` before checking the
+/// signature — so a forged root or a tampered fact is caught regardless
+/// of version.
 fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
     let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(att.facts.len() + att.edges.len());
     for f in &att.facts {
@@ -1479,7 +1503,20 @@ fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
         leaves.push(e.blake3_digest());
     }
     leaves.sort();
-    let root = emem_attest::merkle_root(&leaves);
+
+    let root = if att.preimage_version >= emem_attest::PREIMAGE_V1 {
+        // v1 rejects duplicate leaves: with the duplicate-last fold,
+        // root([A,B,C]) == root([A,B,C,C]), so a duplicate would let an
+        // attester equivocate over which fact set a root commits to.
+        if emem_attest::has_adjacent_duplicate(&leaves) {
+            return Err(StorageError::AttestationInvalid(
+                "duplicate fact/edge leaf in attestation batch".into(),
+            ));
+        }
+        emem_attest::merkle_root_v1(&leaves)
+    } else {
+        emem_attest::merkle_root(&leaves)
+    };
     if root != att.batch_root {
         return Err(StorageError::AttestationInvalid(format!(
             "merkle root mismatch: computed={} declared={}",
@@ -1488,16 +1525,24 @@ fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
         )));
     }
 
-    let mut h = Hasher::new();
-    h.update(&att.batch_root);
-    h.update(att.registry_cid.as_str().as_bytes());
-    h.update(att.schema_cid.as_str().as_bytes());
-    let msg = h.finalize();
+    let msg: [u8; 32] = if att.preimage_version >= emem_attest::PREIMAGE_V1 {
+        emem_attest::attestation_preimage_v1(
+            &att.batch_root,
+            att.registry_cid.as_str(),
+            att.schema_cid.as_str(),
+        )
+    } else {
+        let mut h = Hasher::new();
+        h.update(&att.batch_root);
+        h.update(att.registry_cid.as_str().as_bytes());
+        h.update(att.schema_cid.as_str().as_bytes());
+        *h.finalize().as_bytes()
+    };
 
     let pk = ed25519_dalek::VerifyingKey::from_bytes(&att.attester.0)
         .map_err(|e| StorageError::AttestationInvalid(format!("bad attester key: {e}")))?;
     let sig = ed25519_dalek::Signature::from_bytes(&att.signature.0);
-    pk.verify_strict(msg.as_bytes(), &sig)
+    pk.verify_strict(&msg, &sig)
         .map_err(|e| StorageError::AttestationInvalid(format!("bad signature: {e}")))?;
     Ok(())
 }
@@ -1565,6 +1610,7 @@ mod multi_attester_tests {
             signature: Signature(sig_bytes),
             attested_at: "2026-05-28T00:00:00Z".into(),
             scope: None,
+            preimage_version: 0,
         };
         (att, pk)
     }
@@ -1794,6 +1840,7 @@ mod edge_tests {
             signature: Signature(sig_bytes),
             attested_at: "2026-05-29T00:00:00Z".into(),
             scope: None,
+            preimage_version: 0,
         }
     }
 

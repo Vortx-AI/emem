@@ -8,6 +8,7 @@ description = "emem fact types: Primary / Derivative / Negative + canonical CBOR
 [dependencies]
 emem-core  = { workspace = true }
 emem-codec = { workspace = true }
+emem-attest = { workspace = true }
 blake3     = { workspace = true }
 ed25519-dalek = { workspace = true }
 ciborium   = { workspace = true }
