@@ -15817,7 +15817,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115 — Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt — so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers — NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature":{"type":"string","description":"base32-nopad-lc ed25519 signature over blake3(batch_root||registry_cid||schema_cid)"},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
             "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
@@ -36996,6 +36996,12 @@ struct EudrCellVerdict {
     /// flagged for operator attention; does not change the verdict.
     borderline_canopy: bool,
     fact_cids: Vec<String>,
+    /// CID of just this cell's `forest_change.lossyear` fact, isolated
+    /// from `fact_cids` so the per-plot loss-year histogram can cite the
+    /// exact lossyear facts it aggregates as its `parents`. Skipped from
+    /// the response — `fact_cids` already carries it for the per-cell view.
+    #[serde(skip)]
+    lossyear_fact_cid: Option<String>,
 }
 
 fn verdict_label(code: u8) -> &'static str {
@@ -37031,6 +37037,15 @@ const EUDR_CELL_AREA_M2: f64 = emem_codec::CELL_PITCH_M_EQUATOR * emem_codec::CE
 /// Override per request via `max_cells_per_plot` (operators on tight
 /// payload budgets) — clamped to `1..=51_200`.
 const EUDR_MAX_CELLS_PER_PLOT: usize = 51_200;
+
+/// Cap on the number of `forest_change.lossyear` fact CIDs a per-plot
+/// `lossyear_histogram` derivative lists as `parents`. Bounds the fact
+/// size on huge plots (51,200 cells × 52-char CID ≈ 2.6 MB uncapped);
+/// the histogram's `total_sampled_cells` stays authoritative and the
+/// per-cell facts are all bound by the response receipt regardless, so
+/// the cap is a size guard, not a coverage limit (`parents_capped`
+/// discloses when it fired).
+const EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP: usize = 1024;
 
 /// Receipt-level fact-CID cap for `/v1/eudr_dds`. A 51,200-cell × 4-band
 /// run produces 204,800 fact_cids; signed and JSON-encoded, that is a
@@ -38252,7 +38267,28 @@ async fn batch_build_facts_via_window(
             continue;
         }
         let raw_value = pixels[idx];
-        let value_int = raw_value as i64;
+        // CRITICAL: Hansen lossyear is stored on disk as a year-2000 offset
+        // byte (1..=24). Decode it to the CALENDAR year here so the value is
+        // identical to the per-cell `build_fact_hansen` path AND so the
+        // verdict's `hansen_ly > cutoff_year` (cutoff_year is a calendar
+        // year, e.g. 2020) compares like-for-like. Storing the raw byte made
+        // `byte > 2020` always false, so the default batched path silently
+        // false-PASSED every post-cut-off clearing (2021..2024 read as
+        // 21..24). `0` stays `0` (no loss). Other bands keep their raw value.
+        let value_int = if band == "forest_change.lossyear" {
+            // raw_value is the f64 pixel; Hansen lossyear bytes are 0..=24.
+            let byte = if (0.0..=255.0).contains(&raw_value) {
+                raw_value.round() as u8
+            } else {
+                0
+            };
+            match emem_fetch::hansen_gfc::lossyear_byte_to_calendar_year(byte) {
+                Some(y) => y as i64,
+                None => 0,
+            }
+        } else {
+            raw_value as i64
+        };
 
         let fact = Fact::Primary(emem_fact::PrimaryFact {
             cell: cell.clone(),
@@ -38651,13 +38687,17 @@ async fn evaluate_eudr_plot_batched(
         let mut wri_class: Option<i64> = None;
         let mut radd_date: Option<i64> = None;
 
+        let mut lossyear_fact_cid: Option<String> = None;
         for (band_idx, band) in batchable.iter().enumerate() {
             if let Ok(r) = &batched[band_idx][cell_idx] {
                 fact_cids.push(r.cid.as_str().to_string());
                 match *band {
                     "jrc_gfc2020.forest_2020" => jrc = r.int_value,
                     "forest_change.treecover2000" => hansen_tc = r.int_value,
-                    "forest_change.lossyear" => hansen_ly = r.int_value,
+                    "forest_change.lossyear" => {
+                        hansen_ly = r.int_value;
+                        lossyear_fact_cid = Some(r.cid.as_str().to_string());
+                    }
                     // jrc_tmf.deforestation_year removed from the hot path;
                     // tmf_def_year stays None (like wri_class / radd_date).
                     _ => {}
@@ -38704,6 +38744,7 @@ async fn evaluate_eudr_plot_batched(
             refinement_applied: refinement,
             borderline_canopy,
             fact_cids: fact_cids.clone(),
+            lossyear_fact_cid,
         });
     }
     verdicts
@@ -38773,6 +38814,7 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> Eud
     let mut wri_class: Option<i64> = None;
     let mut radd_date: Option<i64> = None;
     let mut fact_cids: Vec<String> = Vec::new();
+    let mut lossyear_fact_cid: Option<String> = None;
 
     // Resolve each successful CID to the Primary fact's integer value.
     // Done sequentially because get_facts_many already batches under
@@ -38783,6 +38825,9 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> Eud
             Err(_) => continue,
         };
         fact_cids.push(cid.as_str().to_string());
+        if bands[i] == "forest_change.lossyear" {
+            lossyear_fact_cid = Some(cid.as_str().to_string());
+        }
         if let Ok(Some(emem_fact::Fact::Primary(p))) = s
             .storage
             .get_facts_many(std::slice::from_ref(&cid))
@@ -38835,6 +38880,7 @@ async fn evaluate_eudr_cell(s: &AppState, cell64: &str, cutoff_year: i64) -> Eud
         refinement_applied: refinement,
         borderline_canopy,
         fact_cids: fact_cids.clone(),
+        lossyear_fact_cid,
     }
 }
 
@@ -38914,6 +38960,79 @@ async fn try_materialize_one_band(
 /// against single-pixel edge effects is delivered by the 0.5 ha MMU
 /// floor (Article 2(4)) applied downstream of this call, not by a
 /// fail-fraction threshold here.
+/// Per-year loss tally over a plot's sampled cells. Counts come from the
+/// signed per-cell `forest_change.lossyear` facts (Hansen GFC v1.12,
+/// value = calendar year of canopy loss, `0` = no loss, absent = no
+/// reading). This is the input to the SIGNED plot-level
+/// `forest_change.lossyear_histogram` derivative — so the report's
+/// loss-year numbers stop being an unsigned sample and become a
+/// verifiable, reproducible figure bound to the response receipt.
+///
+/// HONEST framing: the counts are over the cells actually SAMPLED, not
+/// the whole polygon — a caller weights them with
+/// `sampled_polygon_fraction`. `cap` bounds `parents` (the lossyear fact
+/// CIDs cited) so a 51,200-cell plot doesn't produce a multi-MB fact;
+/// `total_sampled_cells` stays authoritative regardless of the cap.
+struct LossYearTally {
+    /// `(calendar_year, cell_count)`, ascending, only years with a loss.
+    by_year: Vec<(i64, u64)>,
+    /// Cells whose loss year is strictly after the EUDR cut-off year —
+    /// the regulator-relevant subset.
+    after_cutoff_cells: u64,
+    /// Cells with a reading of `0` (canopy persisted; no loss 2001..now).
+    no_loss_cells: u64,
+    /// Cells with no `forest_change.lossyear` reading at all.
+    unknown_cells: u64,
+    /// Cells sampled in this plot (the denominator).
+    total_sampled_cells: u64,
+    /// Deduped, sorted, capped lossyear fact CIDs this tally aggregates.
+    parents: Vec<String>,
+    /// True when more distinct lossyear facts existed than `parents` lists.
+    parents_capped: bool,
+}
+
+fn compute_lossyear_tally(
+    per_cell: &[EudrCellVerdict],
+    cutoff_year: i64,
+    cap: usize,
+) -> LossYearTally {
+    use std::collections::BTreeMap;
+    let mut by_year: BTreeMap<i64, u64> = BTreeMap::new();
+    let mut after_cutoff_cells = 0u64;
+    let mut no_loss_cells = 0u64;
+    let mut unknown_cells = 0u64;
+    let mut parent_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for cv in per_cell {
+        match cv.hansen_lossyear {
+            None => unknown_cells += 1,
+            Some(0) => no_loss_cells += 1,
+            Some(y) if y > 0 => {
+                *by_year.entry(y).or_insert(0) += 1;
+                if y > cutoff_year {
+                    after_cutoff_cells += 1;
+                }
+            }
+            // Negative is not a valid lossyear; treat as no-reading.
+            Some(_) => unknown_cells += 1,
+        }
+        if let Some(c) = &cv.lossyear_fact_cid {
+            parent_set.insert(c.clone());
+        }
+    }
+    let total_distinct = parent_set.len();
+    let parents_capped = total_distinct > cap;
+    let parents: Vec<String> = parent_set.into_iter().take(cap).collect();
+    LossYearTally {
+        by_year: by_year.into_iter().collect(),
+        after_cutoff_cells,
+        no_loss_cells,
+        unknown_cells,
+        total_sampled_cells: per_cell.len() as u64,
+        parents,
+        parents_capped,
+    }
+}
+
 fn aggregate_plot_verdict(per_cell: &[EudrCellVerdict]) -> (u8, f64, usize, usize) {
     if per_cell.is_empty() {
         return (4, 0.0, 0, 0);
@@ -39339,6 +39458,11 @@ async fn post_eudr_dds_inner(
         producer_geojson: Option<JsonValue>,
         precision_warning: Option<String>,
         centroid_cell: Option<String>,
+        /// CID of this plot's signed `forest_change.lossyear_histogram`
+        /// derivative, folded into the response receipt's `fact_cids` so
+        /// the per-year loss tally is bound by the same signature as the
+        /// per-cell facts. `None` when the plot sampled no cells.
+        histogram_fact_cid: Option<String>,
     }
     let mut plot_ctx: Vec<Option<PlotCtx>> = (0..req.plots.len()).map(|_| None).collect();
     let mut per_plot_results: Vec<Option<JsonValue>> = (0..req.plots.len()).map(|_| None).collect();
@@ -39368,6 +39492,7 @@ async fn post_eudr_dds_inner(
                 producer_geojson: None,
                 precision_warning: None,
                 centroid_cell: None,
+                histogram_fact_cid: None,
             });
             continue;
         }
@@ -39492,6 +39617,134 @@ async fn post_eudr_dds_inner(
                 0.0
             };
             let (lat_c, lng_c) = ((bbox.0 + bbox.1) * 0.5, (bbox.2 + bbox.3) * 0.5);
+            let centroid_cell = emem_codec::cell64_from_latlng(lat_c, lng_c);
+
+            // Signed per-year loss-year histogram. The per-cell
+            // `forest_change.lossyear` facts are already signed; this folds
+            // their distribution into ONE plot-level `DerivativeFact` so the
+            // report's loss-year numbers become a verifiable, reproducible
+            // figure (bound by the response receipt) instead of an unsigned
+            // sample. Counts are over the SAMPLED cells — honest framing is
+            // carried alongside (`total_sampled_cells`, the plot's
+            // `sampled_polygon_fraction`). Skipped when no cells were
+            // sampled (indeterminate plots) and best-effort: a signing
+            // error never fails the verdict, it just omits the fact_cid.
+            let loss_year_histogram_json: Option<JsonValue>;
+            let mut histogram_fact_cid: Option<String> = None;
+            if n_total > 0 {
+                let tally = compute_lossyear_tally(&per_cell, cutoff_year, EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP);
+                let by_year_json: Vec<JsonValue> = tally
+                    .by_year
+                    .iter()
+                    .map(|(y, c)| json!({ "year": y, "cells": c }))
+                    .collect();
+                // Deterministic CBOR value for the fact (sorted year pairs +
+                // totals) so a second node aggregating the same cells signs
+                // the same bytes.
+                let by_year_cbor = ciborium::Value::Array(
+                    tally
+                        .by_year
+                        .iter()
+                        .map(|(y, c)| {
+                            ciborium::Value::Array(vec![
+                                ciborium::Value::Integer((*y).into()),
+                                ciborium::Value::Integer((*c as i64).into()),
+                            ])
+                        })
+                        .collect(),
+                );
+                let hist_value = ciborium::Value::Map(vec![
+                    (ciborium::Value::Text("by_year".into()), by_year_cbor),
+                    (
+                        ciborium::Value::Text("after_cutoff_cells".into()),
+                        ciborium::Value::Integer((tally.after_cutoff_cells as i64).into()),
+                    ),
+                    (
+                        ciborium::Value::Text("no_loss_cells".into()),
+                        ciborium::Value::Integer((tally.no_loss_cells as i64).into()),
+                    ),
+                    (
+                        ciborium::Value::Text("unknown_cells".into()),
+                        ciborium::Value::Integer((tally.unknown_cells as i64).into()),
+                    ),
+                    (
+                        ciborium::Value::Text("total_sampled_cells".into()),
+                        ciborium::Value::Integer((tally.total_sampled_cells as i64).into()),
+                    ),
+                    (
+                        ciborium::Value::Text("cutoff_year".into()),
+                        ciborium::Value::Integer(cutoff_year.into()),
+                    ),
+                ]);
+                let signed_at = emem_storage::server::iso8601_now();
+                let hist_fact = emem_fact::Fact::Derivative(emem_fact::DerivativeFact {
+                    cell: centroid_cell.clone(),
+                    band: "forest_change.lossyear_histogram".into(),
+                    tslot_window: [
+                        tslot_for_year(2001, "forest_change.lossyear"),
+                        tslot_for_year(2024, "forest_change.lossyear"),
+                    ],
+                    op: "histogram".into(),
+                    parents: tally
+                        .parents
+                        .iter()
+                        .map(|c| emem_fact::FactCid::new(c.as_str()))
+                        .collect(),
+                    value: hist_value,
+                    confidence: 1.0,
+                    derivation: emem_fact::Derivation {
+                        fn_key: "lossyear_histogram@1".into(),
+                        args: Some(ciborium::Value::Map(vec![
+                            (
+                                ciborium::Value::Text("plot_id".into()),
+                                ciborium::Value::Text(plot.plot_id.clone()),
+                            ),
+                            (
+                                ciborium::Value::Text("cutoff_year".into()),
+                                ciborium::Value::Integer(cutoff_year.into()),
+                            ),
+                            (
+                                ciborium::Value::Text("n_sampled_cells".into()),
+                                ciborium::Value::Integer((n_total as i64).into()),
+                            ),
+                        ])),
+                    },
+                    schema_cid: s.manifests.schema_cid.clone(),
+                    signer: s.identity.pubkey,
+                    signed_at: signed_at.clone(),
+                });
+                match sign_and_persist(&s, hist_fact, &signed_at).await {
+                    Ok(cid) => histogram_fact_cid = Some(cid.as_str().to_string()),
+                    Err(e) => {
+                        tracing::warn!(error=%e, plot_id=%plot.plot_id, "lossyear histogram sign failed (verdict unaffected)");
+                    }
+                }
+                let cell_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
+                loss_year_histogram_json = Some(json!({
+                    "by_year": by_year_json,
+                    "after_cutoff_cells": tally.after_cutoff_cells,
+                    "after_cutoff_year": cutoff_year,
+                    "no_loss_cells": tally.no_loss_cells,
+                    "unknown_cells": tally.unknown_cells,
+                    "total_sampled_cells": tally.total_sampled_cells,
+                    // Honest projection: sampled-cell area, NOT polygon area.
+                    // The plot's `sampled_polygon_fraction` (above) is the
+                    // weight a caller applies to extrapolate to the polygon.
+                    "after_cutoff_area_ha_sampled": ((tally.after_cutoff_cells as f64 * cell_area_ha) * 10_000.0).round() / 10_000.0,
+                    "cell_area_ha": (cell_area_ha * 1_000_000.0).round() / 1_000_000.0,
+                    "basis": "sampled_cells",
+                    "note": "Per-year counts are over the cells actually sampled in this plot \
+                             (total_sampled_cells), derived from the signed per-cell \
+                             forest_change.lossyear facts (Hansen GFC v1.12). Weight by the plot's \
+                             sampled_polygon_fraction to extrapolate to the full polygon. The tally \
+                             is itself signed as a forest_change.lossyear_histogram derivative whose \
+                             CID is in this response's receipt.fact_cids.",
+                    "signed_fact_cid": histogram_fact_cid,
+                    "parents_capped": tally.parents_capped,
+                }));
+            } else {
+                loss_year_histogram_json = None;
+            }
 
             // Article 2(28) precision: pull GeoJSON polygon coords (if any)
             // for the TRACES envelope, and check operator-supplied decimal
@@ -39605,6 +39858,9 @@ async fn post_eudr_dds_inner(
                 "per_cell_verdicts_total": n_total,
                 "per_cell_verdicts_truncated": per_cell_truncated,
             });
+            if let (Some(obj), Some(lh)) = (plot_obj.as_object_mut(), loss_year_histogram_json) {
+                obj.insert("loss_year_histogram".into(), lh);
+            }
             if let (Some(obj), Some(ve)) = (plot_obj.as_object_mut(), visual_evidence_json) {
                 obj.insert("visual_evidence".into(), ve);
             }
@@ -39634,12 +39890,12 @@ async fn post_eudr_dds_inner(
                     );
                 }
             }
-            let centroid_cell = emem_codec::cell64_from_latlng(lat_c, lng_c);
             let ctx = PlotCtx {
                 verdict_code: plot_verdict,
                 producer_geojson: Some(producer_geojson),
                 precision_warning,
                 centroid_cell: Some(centroid_cell),
+                histogram_fact_cid,
             };
             (idx, (plot_obj, ctx, per_cell))
         })
@@ -39888,6 +40144,14 @@ async fn post_eudr_dds_inner(
         all_cells.push(cv.cell.clone());
         for fc in &cv.fact_cids {
             all_fact_cids_raw.push(fc.clone());
+        }
+    }
+    // Bind each plot's signed lossyear-histogram derivative into the same
+    // receipt so the per-year loss tally is covered by the response
+    // signature, not just persisted out-of-band.
+    for ctx in plot_ctx.iter().flatten() {
+        if let Some(cid) = &ctx.histogram_fact_cid {
+            all_fact_cids_raw.push(cid.clone());
         }
     }
 
@@ -47695,6 +47959,7 @@ mod tests {
                 refinement_applied: Some("jrc_unavailable_hansen_only"),
                 borderline_canopy: false,
                 fact_cids: vec![],
+                lossyear_fact_cid: None,
             },
             EudrCellVerdict {
                 cell: "c1".into(),
@@ -47709,6 +47974,7 @@ mod tests {
                 refinement_applied: Some("jrc_unavailable_hansen_only"),
                 borderline_canopy: false,
                 fact_cids: vec![],
+                lossyear_fact_cid: None,
             },
         ];
         assert_eq!(
@@ -47735,11 +48001,89 @@ mod tests {
             refinement_applied: Some("no_baseline_input"),
             borderline_canopy: false,
             fact_cids: vec![],
+            lossyear_fact_cid: None,
         }];
         assert_eq!(
             aggregate_baseline_provenance(&none_cells),
             "neither_available"
         );
+    }
+
+    #[test]
+    fn eudr_verdict_expects_calendar_lossyear_not_raw_byte() {
+        // The verdict compares `hansen_ly > cutoff_year` with cutoff_year a
+        // CALENDAR year (2020). Both materializer paths must therefore emit
+        // the Hansen lossyear as a calendar year (2000 + byte), not the raw
+        // 1..24 byte. This test pins the invariant and documents the
+        // false-pass the raw byte caused in the default batched path.
+        let cutoff = 2020i64;
+        // forest in 2020 (jrc=1), cleared in 2022 → MUST fail (code 2).
+        let (verdict_calendar, _) =
+            eudr_verdict_for(Some(1), Some(80), Some(2022), None, None, None, cutoff);
+        assert_eq!(verdict_calendar, 2, "2022 clearing of 2020-forest must FAIL");
+
+        // The OLD bug: the same clearing stored as the raw byte 22. `22 > 2020`
+        // is false, so the loss is missed and the cell PASSES — the exact
+        // false-pass the decode fix removes. We assert it does NOT fail, to
+        // prove the bug was real and that storing bytes is unsafe.
+        let (verdict_byte_bug, _) =
+            eudr_verdict_for(Some(1), Some(80), Some(22), None, None, None, cutoff);
+        assert_ne!(
+            verdict_byte_bug, 2,
+            "raw-byte lossyear (22) silently false-PASSES a 2022 clearing — \
+             the bug the batched-path decode fix closes"
+        );
+
+        // Pre-cut-off clearing (2008, calendar) → not_in_scope (code 3),
+        // never pass: the cell was not forest at the 2020 cut-off.
+        let (verdict_old_loss, _) =
+            eudr_verdict_for(None, Some(80), Some(2008), None, None, None, cutoff);
+        assert_eq!(verdict_old_loss, 3, "2008 clearing → not_in_scope at a 2020 cut-off");
+    }
+
+    #[test]
+    fn lossyear_tally_counts_years_cutoff_and_parents() {
+        // Build a sampled plot: two cells lost in 2022, one in 2018, one
+        // with no loss (0), one with no reading (None). Cutoff year 2020.
+        let mk = |cell: &str, ly: Option<i64>, cid: Option<&str>| EudrCellVerdict {
+            cell: cell.into(),
+            verdict: 1,
+            label: "pass",
+            jrc_forest_2020: Some(1),
+            hansen_treecover_2000: Some(80),
+            hansen_lossyear: ly,
+            jrc_tmf_deforestation_year: None,
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: None,
+            borderline_canopy: false,
+            fact_cids: vec![],
+            lossyear_fact_cid: cid.map(String::from),
+        };
+        let per_cell = vec![
+            mk("c0", Some(2022), Some("ly-a")),
+            mk("c1", Some(2022), Some("ly-b")),
+            mk("c2", Some(2018), Some("ly-c")),
+            mk("c3", Some(0), Some("ly-d")),
+            mk("c4", None, None),
+        ];
+        let t = compute_lossyear_tally(&per_cell, 2020, 1024);
+        // by_year ascending, only loss years.
+        assert_eq!(t.by_year, vec![(2018, 1), (2022, 2)]);
+        // 2022 > 2020 cutoff (×2); 2018 <= 2020 → not after-cutoff.
+        assert_eq!(t.after_cutoff_cells, 2);
+        assert_eq!(t.no_loss_cells, 1);
+        assert_eq!(t.unknown_cells, 1);
+        assert_eq!(t.total_sampled_cells, 5);
+        // Parents = the 4 distinct lossyear CIDs (c4 had none), sorted.
+        assert_eq!(t.parents, vec!["ly-a", "ly-b", "ly-c", "ly-d"]);
+        assert!(!t.parents_capped);
+
+        // Cap fires and is disclosed; total stays authoritative.
+        let capped = compute_lossyear_tally(&per_cell, 2020, 2);
+        assert_eq!(capped.parents.len(), 2);
+        assert!(capped.parents_capped);
+        assert_eq!(capped.total_sampled_cells, 5);
     }
 
     /// The three GPU-sidecar foundation embeddings (`prithvi_eo2`,
