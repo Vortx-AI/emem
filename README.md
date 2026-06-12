@@ -31,23 +31,6 @@
 
 ---
 
-<p align="center">
-  <a href="https://emem.dev/v1/coverage_map.svg">
-    <img src="docs/gallery/coverage-map.svg" alt="emem global coverage. Every dot is a cell with at least one signed fact" width="900"/>
-  </a><br/>
-  <em>Where emem has attested facts right now. 1440×720 plate-carrée. The same SVG renders live at <code>/v1/coverage_map.svg</code>.</em>
-</p>
-
-<p align="center">
-  <a href="https://emem.dev/v1/places/scene_overlay.svg?place=Mumbai&band=copdem30m.elevation_mean&n_cells=64"><img src="docs/gallery/mumbai-elevation.svg" alt="Mumbai elevation" width="230"/></a>
-  <a href="https://emem.dev/v1/places/scene_overlay.svg?place=Manhattan&band=copdem30m.elevation_mean&n_cells=64"><img src="docs/gallery/manhattan-elevation.svg" alt="Manhattan elevation" width="230"/></a>
-  <a href="https://emem.dev/v1/places/scene_overlay.svg?place=Tokyo&band=copdem30m.elevation_mean&n_cells=64"><img src="docs/gallery/tokyo-elevation.svg" alt="Tokyo elevation" width="230"/></a>
-  <br/>
-  <em>Mumbai · Manhattan · Tokyo, painted by Copernicus DEM elevation. Each image is a live endpoint URL; click to see the latest signed render. <a href="https://emem.dev/docs/gallery">/docs/gallery</a> has the full set.</em>
-</p>
-
----
-
 **Ask an AI agent what is on the ground at 19.07° N, 72.87° E and it will guess.** It has no fixed handle for that patch of Earth, and no way to prove whatever number it returns. emem is the handle. It is a shared memory of the planet that an agent can read, write, and cite, where every answer is signed so anyone can check it later without trusting the server that produced it.
 
 The planet is cut into fixed cells about 9.55 m across, the way a page is cut into words. One measurement at one cell is a **fact**: an elevation, a rainfall total, this year's forest loss, a satellite embedding. Every fact is signed. When an agent asks about a place nobody has measured yet, the responder pulls the value from a real satellite source, signs it, and hands it back in the same response. Nothing is pre-seeded. Every cell on Earth answers from the first request.
@@ -147,10 +130,9 @@ For a browser-only verify, open [`/verify/<fact_cid>`](https://emem.dev/verify);
 ## Architecture
 
 <p align="center">
-  <a href="https://emem.dev/docs/diagrams/01-architecture.svg">
-    <img src="docs/diagrams/01-architecture.svg" alt="emem architecture: clients reach one binary over MCP and REST, the same handlers serve both, a storage trait fronts the sled hot cache and append-only merkle log, and content-addressed manifests pin bands, algorithms, sources, and schema" width="880"/>
-  </a><br/>
-  <em>One binary. The same handlers answer MCP and plain REST, reads need no auth, and every write lands in an append-only signed log. Four content-addressed manifests (<code>bands_cid</code>, <code>algorithms_cid</code>, <code>sources_cid</code>, <code>schema_cid</code>) pin exactly what produced each answer. The full diagram set, plus a 30-deployment industry suite, lives at <a href="https://emem.dev/docs/diagrams">/docs/diagrams</a>.</em>
+  <img src="docs/diagrams/architecture.png" alt="emem architecture: one binary at the centre, clients reaching it over MCP and REST through the same handlers, primitives ringing the core, 46 upstream sources feeding in from the left, the GPU sidecar from the right, every write dropping into an append-only signed log below, and four content-addressed manifests pinning what produced each answer" width="900"/>
+  <br/>
+  <em>One binary. The same handlers answer MCP and plain REST, reads need no auth, and every write lands in an append-only signed log. Four content-addressed manifests (<code>bands_cid</code>, <code>algorithms_cid</code>, <code>sources_cid</code>, <code>schema_cid</code>) pin exactly what produced each answer. The full deployment suite lives at <a href="https://emem.dev/docs/diagrams">/docs/diagrams</a>.</em>
 </p>
 
 ## The memory layer
@@ -353,10 +335,9 @@ Sidecar crash does not cascade. The REST router degrades to scalar bands and sig
 emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
 
 <p align="center">
-  <a href="https://emem.dev/docs/diagrams/08-decentralised.svg">
-    <img src="docs/diagrams/08-decentralised.svg" alt="Decentralised emem: independent responders each sign facts under their own key, resolve the same content ids byte-for-byte, cross-cite each other, and record disagreement, while any client verifies offline" width="820"/>
-  </a><br/>
-  <em>The end state: many responders, one address space. A content id means the same bytes everywhere, every responder signs under its own key, and a client trusts the signature, not the server.</em>
+  <img src="docs/diagrams/federation.png" alt="Federation: independent responders ringed around one shared content id, each signing under its own key, all resolving the same id byte-for-byte, cross-citing each other with one pair disagreeing, while clients verify offline" width="900"/>
+  <br/>
+  <em>The end state: many responders, one address space. A content id means the same bytes everywhere, every responder signs under its own key, and a client trusts the signature instead of the server. Where two responders disagree, the network records it.</em>
 </p>
 
 ## Honest limits
