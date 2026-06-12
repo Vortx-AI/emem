@@ -254,33 +254,61 @@ for idx, (i, j) in enumerate(edges):
     elif kind == 1:    # supersedes — lac, doubled
         polyline(di, pts, LAC, 1.6, a=210)
         polyline(di, [(p[0] + 1.6, p[1] + 1.6) for p in pts], LAC, 0.9, a=120)
-    else:              # relates_to — ink hairline with mid bead
-        polyline(di, pts, INK_SOFT, 1.0, a=150)
-        dot(di, ctrl[0], ctrl[1], 1.3, INK_SOFT, a=160)
+    else:              # relates_to — faint ink hairline, a resting synapse
+        polyline(di, pts, INK_SOFT, 0.9, a=92)
+        dot(di, ctrl[0], ctrl[1], 1.1, INK_SOFT, a=105)
 
-# recall pathways to the lotus (glow under), from every 3rd node
-for i, a in enumerate(nodes):
-    if i % 3 != 0:
-        continue
+
+def blend(c1, c2, t):
+    t = max(0.0, min(1.0, t))
+    return tuple(int(c1[k] + (c2[k] - c1[k]) * t) for k in range(3))
+
+
+# recall pathways — the hero motion. half the cells send a luminous stream of
+# signed facts inward; each warms from leaf-green at the cell to gold at the
+# lotus and thickens as it flows in, while the resting web stays faint ink.
+recall_nodes = [n for i, n in enumerate(nodes) if i % 2 == 0]
+for ridx, a in enumerate(recall_nodes):
     mx, my = (a[0] + CX) / 2, (a[1] + CY) / 2
-    ctrl = (mx + (CY - a[1]) * 0.12, my - (CX - a[0]) * 0.12)
-    pts = bez((a[0], a[1]), ctrl, (CX, CY), 60)
-    polyline(dg, pts, LEAF, 7.0, a=60)
-    polyline(di, pts, LEAF, 1.5, a=200)
-    for k in range(0, len(pts), 8):
-        dot(di, pts[k][0], pts[k][1], 1.6, LEAF, a=190)
+    ctrl = (mx + (CY - a[1]) * 0.14, my - (CX - a[0]) * 0.14)
+    pts = bez((a[0], a[1]), ctrl, (CX, CY), 80)
+    bright = 0.55 + 0.45 * (math.sin(ridx * 1.7) * 0.5 + 0.5)   # some streams pulse stronger
+    polyline(dg, pts, LEAF, 12.0, a=int(30 * bright))
+    polyline(dg, pts, LEAF, 6.5, a=int(58 * bright))
+    for k in range(len(pts) - 1):
+        t = k / (len(pts) - 1)
+        col = blend(LEAF, GOLD_PALE, t ** 1.5)
+        w = 1.1 + 1.7 * t
+        polyline(di, [pts[k], pts[k + 1]], col, w, a=int((140 + 100 * t) * (0.6 + 0.4 * bright)))
+    nb = 11
+    for b in range(nb):
+        t = (b + 1) / (nb + 1)
+        ix = int((t ** 1.4) * (len(pts) - 1))
+        col = blend(LEAF, GOLD_PALE, t)
+        dot(di, pts[ix][0], pts[ix][1], 1.1 + 1.5 * t, col, a=int((140 + 100 * t) * bright))
 
-# faint background motifs for mithila density (under everything visually, drawn
-# on ink layer at low alpha in the gaps)
-for _ in range(120):
-    x, y = random.uniform(60, W - 60), random.uniform(96, H - 110)
+# mithila density: fill the gaps with faint dots, three-dot clusters, and tiny
+# rings so no paper sits dead, the way a mithila ground is never left empty.
+for _ in range(300):
+    x, y = random.uniform(58, W - 58), random.uniform(100, H - 108)
     if dist((x, y, 0, 0), (CX, CY, 0, 0)) < 150:
         continue
-    if any(dist((x, y), (n[0], n[1])) < n[2] * 2.0 for n in nodes):
+    if any(dist((x, y), (n[0], n[1])) < n[2] * 1.9 for n in nodes):
         continue
-    di.ellipse([S(x - 1.1), S(y - 1.1), S(x + 1.1), S(y + 1.1)], fill=rgba(INK, 26))
+    rnd = random.random()
+    if rnd < 0.68:
+        di.ellipse([S(x - 1.0), S(y - 1.0), S(x + 1.0), S(y + 1.0)], fill=rgba(INK, 24))
+    elif rnd < 0.88:
+        for dx, dy in ((-3, 0), (3, 0), (0, -3)):
+            di.ellipse([S(x + dx - 0.9), S(y + dy - 0.9), S(x + dx + 0.9), S(y + dy + 0.9)], fill=rgba(INK, 22))
+    else:
+        circle(di, x, y, 3.0, outline=INK, w=0.8, a=22)
 
-lotus(CX, CY, 78)
+# consolidation pulse — the heart glows as memory settles into it
+for pr, pa in ((150, 28), (118, 30), (92, 40)):
+    circle(dg, CX, CY, pr, outline=GOLD_PALE, w=8, a=pa)
+
+lotus(CX, CY, 96)
 
 for i, (x, y, r, fam) in enumerate(nodes):
     node(x, y, r, FAMILIES[fam],
