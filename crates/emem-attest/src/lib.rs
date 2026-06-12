@@ -650,10 +650,9 @@ mod v1_wire_anchor {
         }
         raw.push(9);
         raw.extend_from_slice(&1u32.to_le_bytes());
-        for c in ["fc1"] {
-            raw.extend_from_slice(&(c.len() as u32).to_le_bytes());
-            raw.extend_from_slice(c.as_bytes());
-        }
+        let fc = "fc1";
+        raw.extend_from_slice(&(fc.len() as u32).to_le_bytes());
+        raw.extend_from_slice(fc.as_bytes());
         // The JS port (web/verify.html) builds this exact hex.
         let hx: String = raw.iter().map(|b| format!("{:02x}", b)).collect();
         assert_eq!(
