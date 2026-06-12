@@ -70,8 +70,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 
 use ed25519_dalek::Signer;
-use emem_core::{manifest::manifest_cid, ErrorCode};
 use emem_core::KeyEpoch;
+use emem_core::{manifest::manifest_cid, ErrorCode};
 use emem_fact::{
     Attestation, Derivation, Fact, NegativeFact, PrimaryFact, ReasonCid, RegistryCid, SchemaCid,
     Source, Uncertainty,
@@ -39632,7 +39632,11 @@ async fn post_eudr_dds_inner(
             let loss_year_histogram_json: Option<JsonValue>;
             let mut histogram_fact_cid: Option<String> = None;
             if n_total > 0 {
-                let tally = compute_lossyear_tally(&per_cell, cutoff_year, EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP);
+                let tally = compute_lossyear_tally(
+                    &per_cell,
+                    cutoff_year,
+                    EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP,
+                );
                 let by_year_json: Vec<JsonValue> = tally
                     .by_year
                     .iter()
@@ -48021,7 +48025,10 @@ mod tests {
         // forest in 2020 (jrc=1), cleared in 2022 → MUST fail (code 2).
         let (verdict_calendar, _) =
             eudr_verdict_for(Some(1), Some(80), Some(2022), None, None, None, cutoff);
-        assert_eq!(verdict_calendar, 2, "2022 clearing of 2020-forest must FAIL");
+        assert_eq!(
+            verdict_calendar, 2,
+            "2022 clearing of 2020-forest must FAIL"
+        );
 
         // The OLD bug: the same clearing stored as the raw byte 22. `22 > 2020`
         // is false, so the loss is missed and the cell PASSES — the exact
@@ -48039,7 +48046,10 @@ mod tests {
         // never pass: the cell was not forest at the 2020 cut-off.
         let (verdict_old_loss, _) =
             eudr_verdict_for(None, Some(80), Some(2008), None, None, None, cutoff);
-        assert_eq!(verdict_old_loss, 3, "2008 clearing → not_in_scope at a 2020 cut-off");
+        assert_eq!(
+            verdict_old_loss, 3,
+            "2008 clearing → not_in_scope at a 2020 cut-off"
+        );
     }
 
     #[test]
@@ -48223,7 +48233,11 @@ mod tests {
         let Json(body) = post_verify_receipt(State(s.clone()), Ok(Json(req)))
             .await
             .expect("verify ok");
-        assert_eq!(body["valid"], serde_json::json!(true), "genuine v1 receipt must verify: {body}");
+        assert_eq!(
+            body["valid"],
+            serde_json::json!(true),
+            "genuine v1 receipt must verify: {body}"
+        );
         assert_eq!(body["preimage_version"], serde_json::json!(1));
 
         // Tampered receipt (cell swapped after signing) → valid:false.
@@ -48238,7 +48252,11 @@ mod tests {
         let Json(body2) = post_verify_receipt(State(s), Ok(Json(req2)))
             .await
             .expect("verify call ok");
-        assert_eq!(body2["valid"], serde_json::json!(false), "tampered receipt must NOT verify");
+        assert_eq!(
+            body2["valid"],
+            serde_json::json!(false),
+            "tampered receipt must NOT verify"
+        );
     }
 
     /// A LEGACY v0 receipt (no preimage_version) must still verify
@@ -48310,7 +48328,11 @@ mod tests {
         let Json(body) = post_verify_receipt(State(s), Ok(Json(req)))
             .await
             .expect("verify ok");
-        assert_eq!(body["valid"], serde_json::json!(true), "legacy v0 receipt must still verify: {body}");
+        assert_eq!(
+            body["valid"],
+            serde_json::json!(true),
+            "legacy v0 receipt must still verify: {body}"
+        );
         assert_eq!(body["preimage_version"], serde_json::json!(0));
     }
 

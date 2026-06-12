@@ -321,7 +321,10 @@ pub fn merkle_root_and_paths_v1(leaves: &[[u8; 32]]) -> ([u8; 32], Vec<Vec<[u8; 
     while layer.len() > 1 {
         let mut next: Vec<[u8; 32]> = Vec::with_capacity(layer.len().div_ceil(2));
         for pair in layer.chunks(2) {
-            next.push(node_v1(&pair[0], if pair.len() == 2 { &pair[1] } else { &pair[0] }));
+            next.push(node_v1(
+                &pair[0],
+                if pair.len() == 2 { &pair[1] } else { &pair[0] },
+            ));
         }
         for (leaf_pos, idx) in indices.iter_mut().enumerate() {
             let sibling_idx = if (*idx).is_multiple_of(2) {
@@ -342,7 +345,10 @@ fn fold_to_root_v1(mut layer: Vec<[u8; 32]>) -> [u8; 32] {
     while layer.len() > 1 {
         let mut next: Vec<[u8; 32]> = Vec::with_capacity(layer.len().div_ceil(2));
         for pair in layer.chunks(2) {
-            next.push(node_v1(&pair[0], if pair.len() == 2 { &pair[1] } else { &pair[0] }));
+            next.push(node_v1(
+                &pair[0],
+                if pair.len() == 2 { &pair[1] } else { &pair[0] },
+            ));
         }
         layer = next;
     }
@@ -509,12 +515,26 @@ mod tests {
         // slot must produce different signed bytes.
         let hex64 = "ab".repeat(32);
         let with_scope = receipt_preimage_v1(
-            "rid", "t", Some(&hex64), None, None, None, "recall",
-            ["c1"], ["f1"],
+            "rid",
+            "t",
+            Some(&hex64),
+            None,
+            None,
+            None,
+            "recall",
+            ["c1"],
+            ["f1"],
         );
         let with_as_of = receipt_preimage_v1(
-            "rid", "t", None, Some(&hex64), None, None, "recall",
-            ["c1"], ["f1"],
+            "rid",
+            "t",
+            None,
+            Some(&hex64),
+            None,
+            None,
+            "recall",
+            ["c1"],
+            ["f1"],
         );
         assert_ne!(with_scope, with_as_of);
     }
@@ -524,23 +544,31 @@ mod tests {
         // cells=["a,b"] fact_cids=["c"] vs cells=["a"] fact_cids=["b,c"]
         // could be massaged into colliding byte streams under v0's
         // comma-join. v1 length-prefixes every list item.
-        let a = receipt_preimage_v1(
-            "rid", "t", None, None, None, None, "recall",
-            ["a,b"], ["c"],
-        );
-        let b = receipt_preimage_v1(
-            "rid", "t", None, None, None, None, "recall",
-            ["a"], ["b,c"],
-        );
+        let a = receipt_preimage_v1("rid", "t", None, None, None, None, "recall", ["a,b"], ["c"]);
+        let b = receipt_preimage_v1("rid", "t", None, None, None, None, "recall", ["a"], ["b,c"]);
         assert_ne!(a, b);
         // Item-boundary shift within one list must also split.
         let c = receipt_preimage_v1(
-            "rid", "t", None, None, None, None, "recall",
-            ["ab", "c"], ["f"],
+            "rid",
+            "t",
+            None,
+            None,
+            None,
+            None,
+            "recall",
+            ["ab", "c"],
+            ["f"],
         );
         let d = receipt_preimage_v1(
-            "rid", "t", None, None, None, None, "recall",
-            ["a", "bc"], ["f"],
+            "rid",
+            "t",
+            None,
+            None,
+            None,
+            None,
+            "recall",
+            ["a", "bc"],
+            ["f"],
         );
         assert_ne!(c, d);
     }
@@ -645,6 +673,9 @@ mod v1_wire_anchor {
             ["cellA", "cellB"],
             ["fc1"],
         );
-        assert_eq!(digest, expect, "raw stream must hash to receipt_preimage_v1");
+        assert_eq!(
+            digest, expect,
+            "raw stream must hash to receipt_preimage_v1"
+        );
     }
 }

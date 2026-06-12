@@ -183,7 +183,15 @@ impl Server {
         intent: Option<String>,
     ) -> Receipt {
         self.sign_receipt_v1_inner(
-            primitive, cells, fact_cids, was_cached, started, intent, None, None, &[],
+            primitive,
+            cells,
+            fact_cids,
+            was_cached,
+            started,
+            intent,
+            None,
+            None,
+            &[],
         )
     }
 
@@ -294,7 +302,15 @@ impl Server {
         scope: Option<emem_fact::Scope>,
     ) -> Receipt {
         self.sign_receipt_v1_inner(
-            primitive, cells, fact_cids, was_cached, started, intent, scope, None, &[],
+            primitive,
+            cells,
+            fact_cids,
+            was_cached,
+            started,
+            intent,
+            scope,
+            None,
+            &[],
         )
     }
 
@@ -500,8 +516,16 @@ mod tests {
             let _ = ciborium::into_writer(&r.source_versions, &mut buf);
             Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
         };
-        let scope_hex = r.scope.as_ref().filter(|s| !s.is_empty()).map(|s| s.blake3_hex());
-        let as_of_hex = r.as_of.as_ref().filter(|a| !a.is_unbounded()).map(|a| a.blake3_hex());
+        let scope_hex = r
+            .scope
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.blake3_hex());
+        let as_of_hex = r
+            .as_of
+            .as_ref()
+            .filter(|a| !a.is_unbounded())
+            .map(|a| a.blake3_hex());
         let edges_hex = Server::edges_blake3_hex(&r.edge_cids);
         emem_attest::receipt_preimage_v1(
             &r.request_id,
