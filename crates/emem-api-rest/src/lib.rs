@@ -166,6 +166,13 @@ const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 /// crawlers (Slack, X, LinkedIn, Discord, most LLM fetchers) do NOT render
 /// an SVG og:image — the pages reference this PNG so previews actually show.
 const OG_IMAGE_PNG: &[u8] = include_bytes!("../../../web/og-image.png");
+/// MapLibre GL JS (self-hosted, BSD-3, v4.7.1) + its stylesheet, served from
+/// `'self'` so the interactive map hero needs no external `script-src` and
+/// stays on-brand for a no-external-trust protocol. The only CSP addition the
+/// map requires is the Carto open basemap host in `connect-src` (see
+/// `csp_header_value`); img-src already allows `https:` and worker-src `blob:`.
+const MAPLIBRE_JS: &str = include_str!("../../../web/maplibre-gl.js");
+const MAPLIBRE_CSS: &str = include_str!("../../../web/maplibre-gl.css");
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
 /// `/docs/api/` and `/docs/api` — the ReDoc interactive REST reference,
@@ -690,6 +697,8 @@ pub fn router(state: AppState) -> Router {
         .route("/logo-1200w.png", get(serve_logo_1200))
         .route("/og-image.svg", get(serve_og_image))
         .route("/og-image.png", get(serve_og_image_png))
+        .route("/maplibre-gl.js", get(serve_maplibre_js))
+        .route("/maplibre-gl.css", get(serve_maplibre_css))
         .route(
             "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
             get(serve_indexnow_key),
@@ -3143,6 +3152,12 @@ async fn serve_logo_1200() -> Response {
 }
 async fn serve_og_image_png() -> Response {
     png_response(OG_IMAGE_PNG)
+}
+async fn serve_maplibre_js() -> Response {
+    text_response("application/javascript; charset=utf-8", MAPLIBRE_JS)
+}
+async fn serve_maplibre_css() -> Response {
+    text_response("text/css; charset=utf-8", MAPLIBRE_CSS)
 }
 async fn serve_og_image() -> Response {
     text_response("image/svg+xml; charset=utf-8", OG_IMAGE_SVG)
