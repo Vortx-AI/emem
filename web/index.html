@@ -230,6 +230,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .stats .stat .n{font-size:var(--t-3xl);font-weight:300;letter-spacing:-.03em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
 .stats .stat .n .small{font-size:var(--t-md);color:var(--mute);font-weight:400;margin-left:.3rem}
 .stats .stat .lbl{margin-top:.5rem;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+.stats.network .stat .n{font-size:var(--t-lg);font-weight:500;letter-spacing:0;font-family:var(--serif)}
+.stats.network .stat .lbl{text-transform:none;font-size:var(--t-xs);letter-spacing:.01em;line-height:1.35}
 @media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.stats .stat{border-bottom:1px solid var(--rule)}}
 
 /* endpoints table */
@@ -581,13 +583,45 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .mc-section{padding-top:2.5rem;padding-bottom:2.5rem}
 .mc-section>h2{margin:0 0 .4rem;font-size:var(--t-xl);font-weight:600;letter-spacing:-.02em;color:var(--ink)}
 .mc-section>.mc-lede{font-size:var(--t-md);color:var(--ink-2);max-width:62ch;margin:0 0 1.4rem;line-height:1.5}
+
+/* atlas: pick a patch of Earth — Natural Earth map + four-model consensus */
+.atlas-wrap{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:1.1rem;margin:1.4rem 0 0}
+@media (max-width:880px){.atlas-wrap{grid-template-columns:1fr}}
+.atlas-mapframe{position:relative;border:2px solid var(--ink);background:var(--paper);min-width:0}
+.atlas-mapframe::after{content:"";position:absolute;inset:5px;border:1px solid var(--rule-strong);pointer-events:none;z-index:2}
+.atlas-map{position:relative;height:460px;width:100%;z-index:1}
+@media (max-width:880px){.atlas-map{height:340px}}
+.atlas-map canvas{cursor:crosshair;outline:none}
+.atlas-hint{position:absolute;left:11px;bottom:11px;z-index:3;font:500 var(--t-xs)/1.3 var(--mono);color:var(--ink-2);background:color-mix(in oklch,var(--paper) 90%,transparent);padding:.32rem .55rem;border:1px solid var(--rule)}
+.atlas-panel{border:1px solid var(--rule);background:var(--paper-2);display:flex;flex-direction:column;min-width:0}
+.atlas-body{padding:1rem 1.1rem;display:flex;flex-direction:column;gap:.6rem;min-width:0}
+.atlas-place{font-family:var(--serif);font-size:var(--t-lg);color:var(--ink);font-weight:600;line-height:1.2}
+.atlas-place .cell{display:block;font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);font-weight:400;margin-top:.25rem;word-break:break-all}
+.atlas-status{font-size:var(--t-xs);color:var(--mute);min-height:1em;line-height:1.4}
+.atlas-encs{display:flex;flex-direction:column;border:1px solid var(--rule);background:var(--paper)}
+.atlas-enc{display:grid;grid-template-columns:1fr auto;gap:.15rem .8rem;padding:.5rem .7rem;border-bottom:1px solid var(--rule)}
+.atlas-enc:last-child{border-bottom:0}
+.atlas-enc.absent{opacity:.62}
+.atlas-enc .name{font-weight:700;color:var(--ink);font-size:var(--t-sm);display:flex;align-items:center;gap:.4rem}
+.atlas-enc .name .seal{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:0 0 auto}
+.atlas-enc.absent .name .seal{background:var(--mute-2)}
+.atlas-enc .meta{font-family:var(--mono);font-size:var(--t-xs);color:var(--mute);text-align:right;white-space:nowrap}
+.atlas-enc .cid{grid-column:1/-1;font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);word-break:break-all}
+.atlas-enc.absent .cid{color:var(--mute)}
+.atlas-mapframe .maplibregl-ctrl-group{border:1px solid var(--ink);border-radius:0;background:var(--paper);box-shadow:none}
+.atlas-mapframe .maplibregl-ctrl-group button+button{border-top:1px solid var(--rule)}
+.atlas-mapframe .maplibregl-ctrl-attrib{background:color-mix(in oklch,var(--paper) 86%,transparent);font-size:9px}
+.atlas-mapframe .maplibregl-ctrl-attrib a{color:var(--mute)}
+#atlas-verdict[hidden],#atlas-deeper[hidden]{display:none}
 </style>
+<link rel="stylesheet" href="/maplibre-gl.css">
 </head>
 <body>
 
 <header class="statusbar">
   <div class="statusbar-inner">
     <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+    <a href="#atlas" class="nav-sec">pick a patch</a>
     <a href="#idea" class="nav-sec">what it is</a>
     <a href="#proof" class="nav-sec">how a fact is proven</a>
     <a href="#memory" class="nav-sec">memory layer</a>
@@ -740,11 +774,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <a class="btn ghost" href="/spec.md">Read the spec &rarr;</a>
     </div>
 
-    <div class="stats">
-      <div class="stat"><div class="n">81<span class="small">tools</span></div><div class="lbl">MCP, 10 core</div></div>
-      <div class="stat"><div class="n">160</div><div class="lbl">named algorithms</div></div>
-      <div class="stat"><div class="n">46</div><div class="lbl">data sources</div></div>
-      <div class="stat"><div class="n">~180<span class="small">ms</span></div><div class="lbl">cold read, signed</div></div>
+    <div class="stats network">
+      <div class="stat"><div class="n">satellites</div><div class="lbl">feed the readings</div></div>
+      <div class="stat"><div class="n">responders</div><div class="lbl">run by governments, companies, people</div></div>
+      <div class="stat"><div class="n">agents</div><div class="lbl">read, write, and cite</div></div>
+      <div class="stat"><div class="n">anyone</div><div class="lbl">verifies offline, trusts no server</div></div>
     </div>
 
     <p class="hero-trust">A research-grade protocol, open and self-hostable. Signed by <code>777er3yihg&#8230;womvka</code> &middot; one <code>docker run</code> self-hosts the same binary.</p>
@@ -822,9 +856,45 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
+<!-- ===== pick a patch: every model's verdict, signed ===== -->
+<section class="section page" id="atlas">
+  <aside class="section-meta"><div class="idx"><span class="idx-num">01</span><span class="idx-label">pick a patch</span></div>
+    <dl>
+      <dt>map</dt><dd>Natural Earth, drawn in your browser</dd>
+      <dt>click</dt><dd>land &rarr; one cell64</dd>
+      <dt>models</dt><dd>four encoders, each signs</dd>
+      <dt>consensus</dt><dd>do they corroborate?</dd>
+    </dl>
+  </aside>
+  <div class="section-body">
+    <h2>Pick a patch of Earth. Watch four models read it, and check whether they agree.</h2>
+    <p class="mc-lede">The address space under the console, drawn as a map. Click a marked patch and the hosted responder asks four independent foundation models, Tessera, Clay, Prithvi, and Galileo, to embed that one cell. Each hands back its own signed reading. A consensus pass then scores whether they corroborate. No tiles are fetched from anyone: the coastline is the public-domain Natural Earth outline, rendered in your browser.</p>
+
+    <div class="atlas-wrap">
+      <div class="atlas-mapframe">
+        <div class="atlas-map" id="atlas-map"></div>
+        <div class="atlas-hint" id="atlas-hint">click a marked patch, or anywhere on land</div>
+      </div>
+      <div class="atlas-panel" id="atlas-panel">
+        <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><span>no key &middot; same-origin</span></div>
+        <div class="atlas-body">
+          <div class="atlas-place"><span id="atlas-place-name">Pick a patch to begin.</span><span class="cell" id="atlas-cell"></span></div>
+          <div class="atlas-status" id="atlas-status" role="status" aria-live="polite"></div>
+          <div class="atlas-encs" id="atlas-encs"></div>
+          <div class="mc-verdict" id="atlas-verdict" hidden></div>
+          <div class="mc-deeper" id="atlas-deeper" hidden>
+            <a id="atlas-verify" href="/verify">verify any reading yourself &rarr;</a>
+            <a href="/reference">the endpoints behind this &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ===== the problem ===== -->
 <section class="section page" id="problem">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">01</span><span class="idx-label">the gap</span></div></aside>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">02</span><span class="idx-label">the gap</span></div></aside>
   <div class="section-body">
     <h2>Ask an agent about a place, and it guesses.</h2>
     <p class="lede">A forest in Borneo, a floodplain outside Chennai, a field in Iowa. Ask an AI agent what is true on the ground there, and it improvises.</p>
@@ -834,7 +904,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <!-- ===== what it is ===== -->
 <section class="section page" id="idea">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">02</span><span class="idx-label">what it is</span></div>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">03</span><span class="idx-label">what it is</span></div>
     <dl>
       <dt>address</dt><dd>cell64, 64-bit, ~9.55 m</dd>
       <dt>fact key</dt><dd>(cell, band, time)</dd>
@@ -867,7 +937,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <!-- ===== how a fact is proven ===== -->
 <section class="section page" id="proof">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">03</span><span class="idx-label">how a fact is proven</span></div>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">04</span><span class="idx-label">how a fact is proven</span></div>
     <dl>
       <dt>signature</dt><dd>ed25519, the kind that secures SSH and HTTPS</dd>
       <dt>content id</dt><dd>blake3 over canonical CBOR</dd>
@@ -900,7 +970,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <!-- ===== the memory layer ===== -->
 <section class="section page" id="memory">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">04</span><span class="idx-label">the memory layer</span></div>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">05</span><span class="idx-label">the memory layer</span></div>
     <dl>
       <dt>writes</dt><dd>signed, content-addressed files</dd>
       <dt>kinds</dt><dd>episodic / semantic / procedural / resource</dd>
@@ -940,7 +1010,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <!-- ===== what becomes possible ===== -->
 <section class="section page" id="impact">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">05</span><span class="idx-label">who it&rsquo;s for</span></div></aside>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">06</span><span class="idx-label">who it&rsquo;s for</span></div></aside>
   <div class="section-body">
     <h2>What an agent can finally do, with the receipt attached.</h2>
     <p class="lede">Give an agent a memory of Earth it can cite, and the actions it can stand behind change. The same handlers answer agents over MCP and developers over plain REST.</p>
@@ -956,7 +1026,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <!-- ===== come build on it ===== -->
 <section class="section page" id="connect">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">06</span><span class="idx-label">connect</span></div>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">07</span><span class="idx-label">connect</span></div>
     <dl>
       <dt>mcp</dt><dd>https://emem.dev/mcp</dd>
       <dt>rest</dt><dd>plain JSON under /v1/*</dd>
@@ -1019,7 +1089,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <!-- ===== where this is going ===== -->
 <section class="section page" id="direction">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">07</span><span class="idx-label">where this goes</span></div></aside>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">08</span><span class="idx-label">where this goes</span></div></aside>
   <div class="section-body">
     <h2>Where this is going.</h2>
     <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline. Today that is one hosted responder and self-hosted nodes, and the hard part already ships beneath them: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a self-correcting refinement loop.</p>
@@ -1662,6 +1732,166 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     es.addEventListener('state', ev => { try { paint(JSON.parse(ev.data)); } catch(_){} });
     es.onerror = () => { /* keep last paint; EventSource auto-retries */ };
   } catch(_){}
+})();
+</script>
+<script src="/maplibre-gl.js"></script>
+<script>
+/* atlas: the homepage map + four-model consensus. Vanilla, no inline handlers
+   (CSP), no imports — MapLibre is a global, fetch is same-origin /v1/*. Patches
+   render as GL circle layers (not DOM markers) so no style attributes are set. */
+(function(){
+  if (!window.maplibregl) return;
+  if (!document.getElementById('atlas-map')) return;
+
+  // Mithila palette, mirrored from the page tokens but written in hex because
+  // MapLibre's color parser does not read oklch. Ink coastline on warm
+  // parchment land, the page's own cream as the sea, so the map dissolves
+  // into the page instead of sitting in a hard rectangle.
+  var PAPER='#f3eee2', LAND='#e6dcc2', INK='#2b2620',
+      VERM='#bb3b2c', INDIGO='#344a8c';
+
+  // Pre-warmed showcase patches: vegetated / cropland cells where all four
+  // encoders carry data. Warmed server-side after deploy so their verdict is
+  // instant; an arbitrary land click is honestly slower (cold fetch + sign).
+  var PATCHES = [
+    {name:'Amazon, Para',        lng:-54.10, lat:-3.20},
+    {name:'Borneo, Kalimantan',  lng:113.90, lat:0.50},
+    {name:'Congo Basin',         lng:21.00,  lat:0.60},
+    {name:'Iowa cropland',       lng:-93.60, lat:42.00},
+    {name:'Pantanal wetland',    lng:-56.60, lat:-17.70},
+    {name:'Sumatra peat',        lng:101.50, lat:-0.50}
+  ];
+  var ENC_NAME = {geotessera:'Tessera', clay_v1:'Clay v1.5', prithvi_eo2:'Prithvi-EO-2', galileo:'Galileo'};
+  function encLabel(k){ return ENC_NAME[k] || k; }
+  function fc(features){ return {type:'FeatureCollection', features:features}; }
+
+  var patchFeatures = PATCHES.map(function(p,i){
+    return {type:'Feature', properties:{idx:i, name:p.name}, geometry:{type:'Point', coordinates:[p.lng,p.lat]}};
+  });
+
+  var map = new maplibregl.Map({
+    container:'atlas-map',
+    attributionControl:{compact:true, customAttribution:'coastline: Natural Earth (public domain)'},
+    style:{
+      version:8,
+      sources:{
+        land:{type:'geojson', data:'/land-110m.geojson'},
+        patches:{type:'geojson', data:fc(patchFeatures)},
+        sel:{type:'geojson', data:fc([])}
+      },
+      layers:[
+        {id:'sea',   type:'background', paint:{'background-color':PAPER}},
+        {id:'land',  type:'fill', source:'land', paint:{'fill-color':LAND}},
+        {id:'coast', type:'line', source:'land', paint:{'line-color':INK,'line-width':1.0,'line-opacity':0.85}},
+        {id:'sel-halo', type:'circle', source:'sel', paint:{'circle-radius':15,'circle-color':INDIGO,'circle-opacity':0.13}},
+        {id:'sel-ring', type:'circle', source:'sel', paint:{'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':INDIGO,'circle-stroke-width':2.2}},
+        {id:'patch-dot', type:'circle', source:'patches', paint:{'circle-radius':6,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':2}}
+      ]
+    },
+    center:[8,16], zoom:1.1, minZoom:0.5, maxZoom:7,
+    renderWorldCopies:true, dragRotate:false, pitchWithRotate:false,
+    scrollZoom:false, keyboard:false
+  });
+  map.touchZoomRotate.disableRotation();
+  map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'top-right');
+
+  var elName=document.getElementById('atlas-place-name'),
+      elCell=document.getElementById('atlas-cell'),
+      elStatus=document.getElementById('atlas-status'),
+      elEncs=document.getElementById('atlas-encs'),
+      elVerdict=document.getElementById('atlas-verdict'),
+      elDeeper=document.getElementById('atlas-deeper');
+  var reqSeq = 0;
+
+  function setStatus(t){ elStatus.textContent = t || ''; }
+  function clearKids(n){ while(n.firstChild) n.removeChild(n.firstChild); }
+  function el(tag, cls, text){ var e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
+  function shortCid(c){ return (c && c.length>18) ? c.slice(0,12)+'…'+c.slice(-4) : (c||''); }
+
+  function fetchJson(path, body){
+    return fetch(path, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body)})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }, function(){ return {ok:false, j:null}; }); });
+  }
+
+  function encRow(name, metaText, cidText, absent){
+    var row = el('div', absent ? 'atlas-enc absent' : 'atlas-enc');
+    var nm = el('div','name'); nm.appendChild(el('span','seal')); nm.appendChild(el('span', null, name));
+    row.appendChild(nm);
+    row.appendChild(el('div','meta', metaText));
+    row.appendChild(el('div','cid', cidText));
+    return row;
+  }
+
+  function renderEncoders(state){
+    clearKids(elEncs);
+    ((state && state.encoders) || []).forEach(function(e){
+      var l2 = (typeof e.l2_norm==='number') ? e.l2_norm.toFixed(2) : '?';
+      elEncs.appendChild(encRow(encLabel(e.encoder), e.dim+'-D · |v| '+l2, 'signed · '+shortCid(e.fact_cid), false));
+    });
+    ((state && state.missing) || []).forEach(function(m){
+      elEncs.appendChild(encRow(encLabel(m.encoder), 'absent', m.reason || 'no reading at this cell', true));
+    });
+  }
+
+  function renderConsensus(cons){
+    elVerdict.hidden = false; clearKids(elVerdict);
+    var badge = el('span','badge'), note;
+    if (cons && cons.available && cons.verdict==='computed'){
+      badge.textContent = 'consensus: ' + String(cons.agreement||'').replace(/_/g,' ');
+      var ens = (typeof cons.ensemble==='number') ? cons.ensemble.toFixed(3) : '?';
+      note = el('span','note', 'year-over-year change '+ens+' over '+cons.n_encoders_used+' of 3 encoders');
+    } else {
+      badge.className = 'badge fail';
+      badge.textContent = 'consensus inconclusive';
+      note = el('span','note', (cons && cons.honest_note) ? cons.honest_note : 'needs two distinct vintages on the minimum encoders');
+    }
+    elVerdict.appendChild(badge); elVerdict.appendChild(note);
+  }
+
+  function selectAt(lng, lat, label, ease){
+    var seq = ++reqSeq;
+    map.getSource('sel').setData(fc([{type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[lng,lat]}}]));
+    if (ease) map.easeTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 2.6), duration:700});
+    elName.textContent = label || 'selected patch';
+    elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; clearKids(elEncs);
+    setStatus('resolving cell…');
+
+    fetchJson('/v1/locate', {lat:lat, lng:lng}).then(function(loc){
+      if (seq!==reqSeq) return;
+      if (!loc.ok || !loc.j || !loc.j.cell64){ setStatus('could not resolve a cell at this point.'); return; }
+      var cell = loc.j.cell64;
+      var resolved = loc.j.place_label || (loc.j.place_resolution && loc.j.place_resolution.resolved_label);
+      if (resolved && !label) elName.textContent = resolved;
+      elCell.textContent = cell;
+      setStatus('four models reading this patch… a cold patch takes a few seconds while the responder fetches and signs.');
+      var sm = fetchJson('/v1/state_multi', {cell:cell});
+      var tc = fetchJson('/v1/triple_consensus', {cell:cell});
+      sm.then(function(r){ if (seq===reqSeq && r.ok && r.j) renderEncoders(r.j); });
+      Promise.all([sm, tc]).then(function(rs){
+        if (seq!==reqSeq) return;
+        var smr=rs[0], tcr=rs[1];
+        var n = (smr.ok && smr.j && smr.j.encoders) ? smr.j.encoders.length : 0;
+        if (tcr.ok && tcr.j) renderConsensus(tcr.j);
+        elDeeper.hidden = false;
+        setStatus(n+' of 4 models signed a reading at this cell. Each row is one ed25519 receipt.');
+      }, function(){ if (seq===reqSeq) setStatus('the responder did not answer for this patch. Try a marked patch.'); });
+    }, function(){ if (seq===reqSeq) setStatus('could not reach the responder.'); });
+  }
+
+  map.on('load', function(){
+    map.resize();
+    selectAt(PATCHES[0].lng, PATCHES[0].lat, PATCHES[0].name, false);
+  });
+  map.on('mouseenter','patch-dot', function(){ map.getCanvas().style.cursor='pointer'; });
+  map.on('mouseleave','patch-dot', function(){ map.getCanvas().style.cursor='crosshair'; });
+  map.on('click', function(e){
+    var hits = map.queryRenderedFeatures(e.point, {layers:['patch-dot']});
+    if (hits && hits.length){ var i=hits[0].properties.idx; selectAt(PATCHES[i].lng, PATCHES[i].lat, PATCHES[i].name, true); return; }
+    var land = map.queryRenderedFeatures(e.point, {layers:['land']});
+    if (!land || !land.length){ setStatus('that is open water. Pick a spot on land.'); return; }
+    selectAt(e.lngLat.lng, e.lngLat.lat, null, true);
+  });
+  window.addEventListener('resize', function(){ map.resize(); });
 })();
 </script>
 </body></html>

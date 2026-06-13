@@ -168,11 +168,20 @@ const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 const OG_IMAGE_PNG: &[u8] = include_bytes!("../../../web/og-image.png");
 /// MapLibre GL JS (self-hosted, BSD-3, v4.7.1) + its stylesheet, served from
 /// `'self'` so the interactive map hero needs no external `script-src` and
-/// stays on-brand for a no-external-trust protocol. The only CSP addition the
-/// map requires is the Carto open basemap host in `connect-src` (see
-/// `csp_header_value`); img-src already allows `https:` and worker-src `blob:`.
+/// stays on-brand for a no-external-trust protocol. The map draws only the
+/// vendored Natural Earth land polygons (`LAND_GEOJSON`, same-origin), so no
+/// external basemap host is contacted. Beyond `'self'`, MapLibre needs two CSP
+/// allowances (both in `csp_header_value`): `worker-src blob:` for its render
+/// worker, and `style-src-attr 'unsafe-inline'` because it positions the canvas
+/// and controls with JS-applied `style` attributes — which the hash-based
+/// `style-src` cannot cover (hashes never apply to style attributes). `<style>`
+/// elements stay hash-pinned and `script-src` stays strict.
 const MAPLIBRE_JS: &str = include_str!("../../../web/maplibre-gl.js");
 const MAPLIBRE_CSS: &str = include_str!("../../../web/maplibre-gl.css");
+// Natural Earth 110m land polygons (public domain), the only basemap geometry
+// the homepage map draws — no external tile server is contacted. Properties are
+// stripped; the responder styles it ink-on-cream in the Mithila hand.
+const LAND_GEOJSON: &str = include_str!("../../../web/land-110m.geojson");
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
 /// `/docs/api/` and `/docs/api` — the ReDoc interactive REST reference,
@@ -699,6 +708,7 @@ pub fn router(state: AppState) -> Router {
         .route("/og-image.png", get(serve_og_image_png))
         .route("/maplibre-gl.js", get(serve_maplibre_js))
         .route("/maplibre-gl.css", get(serve_maplibre_css))
+        .route("/land-110m.geojson", get(serve_land_geojson))
         .route(
             "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
             get(serve_indexnow_key),
@@ -2543,6 +2553,7 @@ fn csp_header_value() -> &'static HeaderValue {
              connect-src 'self' https://www.google-analytics.com https://esm.sh; \
              img-src 'self' data: https:; \
              style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
+             style-src-attr 'unsafe-inline'; \
              font-src 'self' data: https://fonts.gstatic.com; \
              worker-src 'self' blob:; \
              frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
@@ -3158,6 +3169,9 @@ async fn serve_maplibre_js() -> Response {
 }
 async fn serve_maplibre_css() -> Response {
     text_response("text/css; charset=utf-8", MAPLIBRE_CSS)
+}
+async fn serve_land_geojson() -> Response {
+    text_response("application/geo+json; charset=utf-8", LAND_GEOJSON)
 }
 async fn serve_og_image() -> Response {
     text_response("image/svg+xml; charset=utf-8", OG_IMAGE_SVG)
