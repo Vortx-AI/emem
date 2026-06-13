@@ -41813,21 +41813,6 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         .map(|a| a.len())
         .unwrap_or(0);
     let cold_cell = !missing_bands.is_empty() && (ask_fact_count == 0 || skipped_outcomes > 0);
-    if cold_cell {
-        if let Some(map) = body.as_object_mut() {
-            map.insert(
-                "next_steps".into(),
-                json!([{
-                    "action": "recall",
-                    "why":    "These bands are not yet materialized at this cell, so the routed algorithms could not evaluate. Recall them once to fetch and sign them, then re-issue the question.",
-                    "method": "POST",
-                    "path":   "/v1/recall",
-                    "url":    format!("{origin_for_links}/v1/recall"),
-                    "body":   { "cell": cell.clone(), "bands": missing_bands.clone() },
-                }]),
-            );
-        }
-    }
 
     // Deterministic answer synthesis. /v1/ask had been emitting the
     // structured summaries (facts_summary / band_observations_summary /
@@ -41875,6 +41860,20 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                          the exact call.",
                         missing_bands.join(", ")
                     )),
+                );
+                // Only attach the machine-readable recall on a genuine dead-end
+                // (no synthesised answer above). A partial/warm answer already
+                // gives the agent something to quote — no next_steps noise there.
+                map.insert(
+                    "next_steps".into(),
+                    json!([{
+                        "action": "recall",
+                        "why":    "These bands are not yet materialized at this cell, so the routed algorithms could not evaluate. Recall them once to fetch and sign them, then re-issue the question.",
+                        "method": "POST",
+                        "path":   "/v1/recall",
+                        "url":    format!("{origin_for_links}/v1/recall"),
+                        "body":   { "cell": cell.clone(), "bands": missing_bands.clone() },
+                    }]),
                 );
             } else if map
                 .get("topic_routing")
