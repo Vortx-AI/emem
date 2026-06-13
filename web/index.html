@@ -608,6 +608,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-enc .meta{font-family:var(--mono);font-size:var(--t-xs);color:var(--mute);text-align:right;white-space:nowrap}
 .atlas-enc .cid{grid-column:1/-1;font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);word-break:break-all}
 .atlas-enc.absent .cid{color:var(--mute)}
+.atlas-enc .cid a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 35%,transparent)}
+.atlas-enc .cid a:hover{background:var(--accent-bg)}
+/* embedding heatmap: the signed vector drawn as a diverging barcode (indigo -, vermilion +) */
+.atlas-enc .heat{grid-column:1/-1;margin:.2rem 0 .05rem}
+.atlas-enc .heat svg{display:block;width:100%;height:20px;border:1px solid var(--rule)}
+.atlas-enc.absent .heat{display:none}
+/* the actual Sentinel-2 scene for the selected cell */
+.atlas-scene{margin:0;border:1px solid var(--rule);background:var(--paper);position:relative;overflow:hidden}
+.atlas-scene img{display:block;width:100%;height:150px;object-fit:cover}
+.atlas-scene .cap{font-size:var(--t-xs);color:var(--mute);padding:.3rem .5rem;border-top:1px solid var(--rule)}
+.atlas-scene .scene-note{font-size:var(--t-xs);color:var(--mute);padding:.85rem .6rem;text-align:center;line-height:1.4}
+.atlas-scene.empty{background:repeating-linear-gradient(45deg,var(--paper) 0 6px,var(--paper-2) 6px 12px)}
+#atlas-scene[hidden]{display:none}
 .atlas-mapframe .maplibregl-ctrl-group{border:1px solid var(--ink);border-radius:0;background:var(--paper);box-shadow:none}
 .atlas-mapframe .maplibregl-ctrl-group button+button{border-top:1px solid var(--rule)}
 .atlas-mapframe .maplibregl-ctrl-attrib{background:color-mix(in oklch,var(--paper) 86%,transparent);font-size:9px}
@@ -950,6 +963,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <div class="atlas-body">
       <div class="atlas-place"><span id="atlas-place-name">Pick a patch to begin.</span><span class="cell" id="atlas-cell"></span></div>
       <div class="atlas-status" id="atlas-status" role="status" aria-live="polite"></div>
+      <figure class="atlas-scene" id="atlas-scene" hidden></figure>
       <div class="atlas-encs" id="atlas-encs"></div>
       <div class="mc-verdict" id="atlas-verdict" hidden></div>
       <div class="mc-deeper" id="atlas-deeper" hidden>
@@ -3272,12 +3286,17 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // Pre-warmed showcase patches: vegetated / cropland cells where all four
   // encoders carry data. Warmed server-side after deploy so their verdict is
   // instant; an arbitrary land click is honestly slower (cold fetch + sign).
+  // Pantanal/Iowa/Congo lead because they reliably carry a cloud-free
+  // Sentinel-2 scene as well as all four encoders — so the panel opens on a
+  // real satellite image + four signed embedding barcodes. The cloudy
+  // tropical patches (Amazon/Borneo/Sumatra) follow; they still show the
+  // embeddings, with an honest "no cloud-free scene" note for the image.
   var PATCHES = [
+    {name:'Pantanal wetland',    lng:-56.60, lat:-17.70},
+    {name:'Iowa cropland',       lng:-93.60, lat:42.00},
+    {name:'Congo Basin',         lng:21.00,  lat:0.60},
     {name:'Amazon, Para',        lng:-54.10, lat:-3.20},
     {name:'Borneo, Kalimantan',  lng:113.90, lat:0.50},
-    {name:'Congo Basin',         lng:21.00,  lat:0.60},
-    {name:'Iowa cropland',       lng:-93.60, lat:42.00},
-    {name:'Pantanal wetland',    lng:-56.60, lat:-17.70},
     {name:'Sumatra peat',        lng:101.50, lat:-0.50}
   ];
   var ENC_NAME = {geotessera:'Tessera', clay_v1:'Clay v1.5', prithvi_eo2:'Prithvi-EO-2', galileo:'Galileo'};
@@ -3317,39 +3336,118 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   var elName=document.getElementById('atlas-place-name'),
       elCell=document.getElementById('atlas-cell'),
       elStatus=document.getElementById('atlas-status'),
+      elScene=document.getElementById('atlas-scene'),
       elEncs=document.getElementById('atlas-encs'),
       elVerdict=document.getElementById('atlas-verdict'),
       elDeeper=document.getElementById('atlas-deeper');
   var reqSeq = 0;
+  var SVGNS = 'http://www.w3.org/2000/svg';
 
   function setStatus(t){ elStatus.textContent = t || ''; }
   function clearKids(n){ while(n.firstChild) n.removeChild(n.firstChild); }
   function el(tag, cls, text){ var e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
-  function shortCid(c){ return (c && c.length>18) ? c.slice(0,12)+'…'+c.slice(-4) : (c||''); }
+
+  // Diverging colour for one normalised embedding component t in [-1,1]:
+  // warm paper at zero, vermilion for positive, indigo for negative — the
+  // page's own ink-pigment palette, so a vector reads as a Mithila barcode.
+  function heatColor(t){
+    var paper=[230,220,194], pos=[187,59,44], neg=[52,74,140];
+    var b = t>=0 ? pos : neg, k=Math.min(1, Math.abs(t));
+    var r=Math.round(paper[0]+(b[0]-paper[0])*k),
+        g=Math.round(paper[1]+(b[1]-paper[1])*k),
+        bl=Math.round(paper[2]+(b[2]-paper[2])*k);
+    return 'rgb('+r+','+g+','+bl+')';
+  }
+  // The signed embedding vector → an SVG barcode. High-dim vectors
+  // (Clay/Prithvi 1024-D, Galileo 768-D) are bucket-averaged to <=96 bars so
+  // every encoder reads at the same width. Colours are presentation
+  // attributes (not inline styles), so the hash-based CSP never blocks them.
+  function heatSvg(vec){
+    var N=vec.length, W=Math.min(96, N);
+    var maxAbs=1e-6, i;
+    for(i=0;i<N;i++){ var a=Math.abs(vec[i]); if(a>maxAbs) maxAbs=a; }
+    var svg=document.createElementNS(SVGNS,'svg');
+    svg.setAttribute('viewBox','0 0 '+W+' 10');
+    svg.setAttribute('preserveAspectRatio','none');
+    svg.setAttribute('role','img');
+    for(var j=0;j<W;j++){
+      var s=Math.floor(j*N/W), e=Math.floor((j+1)*N/W); if(e<=s) e=s+1;
+      var sum=0; for(var k=s;k<e;k++) sum+=vec[k];
+      var t=(sum/(e-s))/maxAbs;
+      var r=document.createElementNS(SVGNS,'rect');
+      r.setAttribute('x', j); r.setAttribute('y', 0);
+      r.setAttribute('width', 1.04); r.setAttribute('height', 10);
+      r.setAttribute('fill', heatColor(t));
+      svg.appendChild(r);
+    }
+    return svg;
+  }
+
+  // The real Sentinel-2 true-colour scene for the selected cell. Loaded
+  // lazily after the embeddings render; on a cloudy patch the endpoint 404s
+  // and we say so plainly rather than show a broken image.
+  function loadScene(cell, seq){
+    elScene.hidden=false; elScene.classList.remove('empty'); clearKids(elScene);
+    elScene.appendChild(el('div','scene-note','loading the latest cloud-free scene…'));
+    // NB: no loading="lazy" — the img is detached until onload, and a lazy
+    // detached img never starts loading, so the events never fire.
+    var img=el('img'); img.alt='Sentinel-2 true-colour scene at '+cell;
+    img.addEventListener('load', function(){
+      if(seq!==reqSeq) return;
+      clearKids(elScene); elScene.classList.remove('empty');
+      elScene.appendChild(img);
+      elScene.appendChild(el('figcaption','cap','Sentinel-2 true colour · most recent scene under 20% cloud'));
+    });
+    img.addEventListener('error', function(){
+      if(seq!==reqSeq) return;
+      clearKids(elScene); elScene.classList.add('empty');
+      elScene.appendChild(el('div','scene-note','no cloud-free Sentinel-2 scene at this patch in the last 90 days — the four embeddings below still read it through cloud.'));
+    });
+    img.src='/v1/cells/'+encodeURIComponent(cell)+'/scene.png';
+  }
 
   function fetchJson(path, body){
     return fetch(path, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body)})
       .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }, function(){ return {ok:false, j:null}; }); });
   }
 
-  function encRow(name, metaText, cidText, absent){
-    var row = el('div', absent ? 'atlas-enc absent' : 'atlas-enc');
-    var nm = el('div','name'); nm.appendChild(el('span','seal')); nm.appendChild(el('span', null, name));
+  // A signed encoder reading: name + dim/|v|, the embedding barcode, and the
+  // FULL fact_cid as a link to /verify/<cid> so the reading is reproducible
+  // (no truncated "…" that can't be copied or checked).
+  function encRow(e){
+    var row = el('div','atlas-enc');
+    var nm = el('div','name'); nm.appendChild(el('span','seal')); nm.appendChild(el('span', null, encLabel(e.encoder)));
     row.appendChild(nm);
-    row.appendChild(el('div','meta', metaText));
-    row.appendChild(el('div','cid', cidText));
+    var l2 = (typeof e.l2_norm==='number') ? e.l2_norm.toFixed(2) : '?';
+    row.appendChild(el('div','meta', e.dim+'-D · |v| '+l2));
+    if (Array.isArray(e.vector) && e.vector.length){
+      var heat = el('div','heat'); heat.appendChild(heatSvg(e.vector)); row.appendChild(heat);
+    }
+    var cid = el('div','cid');
+    cid.appendChild(document.createTextNode('signed · '));
+    if (e.fact_cid){
+      var a = el('a', null, e.fact_cid);
+      a.href = '/verify/' + encodeURIComponent(e.fact_cid);
+      a.title = 'verify this signed embedding in your browser';
+      cid.appendChild(a);
+    }
+    row.appendChild(cid);
+    return row;
+  }
+
+  function absentRow(m){
+    var row = el('div','atlas-enc absent');
+    var nm = el('div','name'); nm.appendChild(el('span','seal')); nm.appendChild(el('span', null, encLabel(m.encoder)));
+    row.appendChild(nm);
+    row.appendChild(el('div','meta','absent'));
+    row.appendChild(el('div','cid', m.reason || 'no reading at this cell'));
     return row;
   }
 
   function renderEncoders(state){
     clearKids(elEncs);
-    ((state && state.encoders) || []).forEach(function(e){
-      var l2 = (typeof e.l2_norm==='number') ? e.l2_norm.toFixed(2) : '?';
-      elEncs.appendChild(encRow(encLabel(e.encoder), e.dim+'-D · |v| '+l2, 'signed · '+shortCid(e.fact_cid), false));
-    });
-    ((state && state.missing) || []).forEach(function(m){
-      elEncs.appendChild(encRow(encLabel(m.encoder), 'absent', m.reason || 'no reading at this cell', true));
-    });
+    ((state && state.encoders) || []).forEach(function(e){ elEncs.appendChild(encRow(e)); });
+    ((state && state.missing) || []).forEach(function(m){ elEncs.appendChild(absentRow(m)); });
   }
 
   function renderConsensus(cons){
@@ -3372,7 +3470,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     map.getSource('sel').setData(fc([{type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[lng,lat]}}]));
     if (ease) map.easeTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 2.6), duration:700});
     elName.textContent = label || 'selected patch';
-    elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; clearKids(elEncs);
+    elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; clearKids(elEncs);
     setStatus('resolving cell…');
 
     fetchJson('/v1/locate', {lat:lat, lng:lng}).then(function(loc){
@@ -3383,7 +3481,8 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       if (resolved && !label) elName.textContent = resolved;
       elCell.textContent = cell;
       setStatus('four models reading this patch… a cold patch takes a few seconds while the responder fetches and signs.');
-      var sm = fetchJson('/v1/state_multi', {cell:cell});
+      loadScene(cell, seq);
+      var sm = fetchJson('/v1/state_multi', {cell:cell, vectors:true});
       var tc = fetchJson('/v1/triple_consensus', {cell:cell});
       sm.then(function(r){ if (seq===reqSeq && r.ok && r.j) renderEncoders(r.j); });
       Promise.all([sm, tc]).then(function(rs){
