@@ -19,91 +19,129 @@ OUT = "docs/diagrams"
 def scene(spec):
     s = Svg(1600, 1040, seed=spec.get("seed", 7))
     W, H = s.W, s.H
-    s.paper(); s.border()
-    s.text(80, 56, "emem for " + spec["industry"], 30, INK, font=SERIF)
-    s.text(82, 88, spec["tagline"], 13, INK_SOFT, font=MONO)
+    s.paper()
 
-    # decorative top frieze: a vine of dots with small lotus buds
-    fy = 110
-    s.line(82, fy, W - 82, fy, INK_SOFT, 0.7, op=0.45)
-    x = 82
-    while x <= W - 82:
-        s.dot(x, fy, 1.4, INK, op=0.55); x += 22
-    bx = 150
-    while bx < W - 120:
-        for k in (-1, 0, 1):
-            s.qpath((bx, fy), (bx + k * 7, fy - 13), (bx + k * 11, fy - 2), INK, 1.0)
-        s.dot(bx, fy - 7, 1.9, TURMERIC, op=0.85)
-        bx += 150
-
-    CX, CY = 812, 442
-    for R in (148, 236):           # faint field rings under the receipt
-        s.dot_ring(CX, CY, R, int(R / 5.6), 1.1, INK, op=0.05)
-
-    # ---- left: live fact bundle ledger
+    # ---- geometry of the three acts: ledger (left), receipt (centre), parties
     bands = spec["bands"]
-    px, py, pw = 96, 206, 398
-    ph = 56 + len(bands) * 38
-    s.rect(px, py, pw, ph, fill=PAPER, op=0.62, stroke=INK, sw=1.6, rx=10)
-    nrv = int(pw / 14)
+    px, py, pw = 88, 232, 458
+    ph = 62 + len(bands) * 44
+    CX, CY = 858, 470          # central signed receipt
+    LR = 118                   # lotus radius (bigger, lusher)
+    cons = spec["consumers"]
+    rcx = 1276                 # right column roundel anchor (labels run right)
+    cell_cx, cell_cy = px + pw / 2, py + ph + 198
+
+    # keep-clear discs so the dense ground never lands under busy zones / text
+    avoid = [
+        (CX, CY, LR * 1.7),                       # central lotus + label
+        (px + pw / 2, py + ph / 2, pw * 0.62),    # ledger card
+        (cell_cx, cell_cy, 132),                  # the cell glyph + caption
+        (rcx + 110, CY, 220),                     # the parties column + labels
+        (W / 2, 150, 560),                        # the title band
+        (W / 2, H - 96, 560),                     # the footer band
+    ]
+    cys = [CY - (len(cons) - 1) * 116 / 2 + i * 116 for i in range(len(cons))]
+    for cy in cys:
+        avoid.append((rcx + 110, cy, 150))
+
+    s.fill_ground(avoid=avoid, top=176)
+    s.border()
+
+    # ---- header (serif title, mono tagline, bud-vine frieze) -------------
+    s.text(78, 108, "emem for " + spec["industry"], 30, INK, font=SERIF)
+    s.text(80, 142, spec["tagline"], 13, INK_SOFT, font=MONO)
+    s.frieze(168, 78, W - 78)
+
+    # storytelling motifs in the open zones, so the empty paper reads as a
+    # painting. They sit in the gaps between the three acts and the parties.
+    s.sun(CX, 250, 30)                               # sun centred over the receipt
+    s.bird(CX - 250, 262, 40, col=TEAL, angle=0.1)   # peacock left of the sun
+    s.bird(CX + 250, 262, 40, col=LAC, angle=-0.1)   # mirrored peacock right
+    s.vine(96, 196, 96, py - 6, col=LEAF, n=3, amp=12)
+    # fish shoal + vine swimming across the lower band, below the receipt
+    s.fish(150, H - 150, 28, col=INDIGO, angle=-0.15)
+    s.fish(205, H - 118, 22, col=TEAL, angle=0.12)
+    s.fish(112, H - 108, 18, col=LAC, angle=0.25)
+    s.vine(255, H - 200, 560, H - 210, col=LEAF, n=5, amp=20)
+    s.fish(660, H - 196, 24, col=VERMIL, angle=0.1)
+    s.fish(720, H - 220, 18, col=TURMERIC, angle=-0.1)
+    s.fish(900, H - 200, 22, col=INDIGO, angle=0.08)
+    s.bud(1010, H - 208, 22, col=VERMIL)
+    s.vine(W - 110, 196, W - 110, py - 6, col=LEAF, n=3, amp=12)
+
+    # faint field rings under the receipt (kept subtle)
+    for R in (LR + 70, LR + 150):
+        s.dot_ring(CX, CY, R, int(R / 6.2), 1.1, INK, op=0.06)
+
+    # ---- left: live fact bundle ledger (bigger type, bolder card) --------
+    s.rect(px, py, pw, ph, fill=PAPER, op=0.78, stroke=INK, sw=2.2, rx=12)
+    s.rect(px + 5, py + 5, pw - 10, ph - 10, stroke=INK, sw=0.8, rx=9, op=0.5)
+    nrv = int(pw / 16)
     for k in range(nrv):
         xx = px + (k + 0.5) * pw / nrv
-        s.dot(xx, py, 1.0, INK, op=0.45); s.dot(xx, py + ph, 1.0, INK, op=0.45)
-    s.seal(px + 26, py + 25, 7, fill=LEAF)
-    s.text(px + 44, py + 30, "live fact bundle", 13, INK, font=MONO, weight="bold")
-    s.line(px + 18, py + 44, px + pw - 18, py + 44, INK_SOFT, 0.8, op=0.6)
+        s.dot(xx, py, 1.1, INK, op=0.5); s.dot(xx, py + ph, 1.1, INK, op=0.5)
+    s.seal(px + 28, py + 30, 8, fill=LEAF)
+    s.text(px + 48, py + 36, "live fact bundle", 14, INK, font=MONO, weight="bold")
+    s.line(px + 18, py + 52, px + pw - 18, py + 52, INK_SOFT, 1.0, op=0.6)
     for i, (name, val) in enumerate(bands):
-        ry = py + 70 + i * 38
-        s.dot(px + 28, ry - 4, 4, DYES[i % len(DYES)])
-        s.text(px + 42, ry, name, 12.5, INK, font=MONO)
-        s.text(px + pw - 20, ry, val, 12.5, DYES[i % len(DYES)], font=MONO, anchor="end", weight="bold")
-    s.text(px + pw / 2, py + ph + 24, "each value a signed fact at one cell", 11, INK_SOFT, font=MONO, anchor="middle")
+        ry = py + 86 + i * 44
+        s.dot(px + 30, ry - 5, 4.5, DYES[i % len(DYES)])
+        s.text(px + 46, ry, name, 13, INK, font=MONO)
+        s.text(px + pw - 22, ry, val, 13, DYES[i % len(DYES)], font=MONO, anchor="end", weight="bold")
+    s.text(px + pw / 2, py + ph + 30, "each value a signed fact at one cell", 11.5,
+           INK_SOFT, font=MONO, anchor="middle")
 
-    # ---- the place those facts come from: a geolocation cell, under the ledger
-    pcx, pcy = px + pw / 2, py + ph + 166
-    s.flow((pcx, pcy - 58), (pcx, py + ph + 38), INK_SOFT, 0.9, op=0.5, beads=False)
-    sz = 56
-    s.rect(pcx - sz, pcy - sz, 2 * sz, 2 * sz, fill=PAPER, op=0.55, stroke=INK, sw=1.6, rx=8)
+    # ---- the place those facts come from: a geolocation cell -------------
+    s.flow((cell_cx, cell_cy - 64), (cell_cx, py + ph + 44), INK_SOFT, 1.0, op=0.55, beads=False)
+    sz = 62
+    s.rect(cell_cx - sz, cell_cy - sz, 2 * sz, 2 * sz, fill=PAPER, op=0.7, stroke=INK, sw=2.0, rx=10)
     for k in (1, 2):
-        s.line(pcx - sz + k * 2 * sz / 3, pcy - sz + 5, pcx - sz + k * 2 * sz / 3, pcy + sz - 5, INK_SOFT, 0.7, op=0.4)
-        s.line(pcx - sz + 5, pcy - sz + k * 2 * sz / 3, pcx + sz - 5, pcy - sz + k * 2 * sz / 3, INK_SOFT, 0.7, op=0.4)
-    s.rect(pcx - sz / 3, pcy - sz / 3, 2 * sz / 3, 2 * sz / 3, fill=LEAF, op=0.20, stroke=INK, sw=1.2)
-    s.circle(pcx, pcy, 6, stroke=INK, sw=1.0); s.dot(pcx, pcy, 3.2, VERMIL)
-    s.text(pcx, pcy + sz + 22, spec.get("cell", "cell defi.zb5cf.nura.zd83c"), 11, INK, font=MONO, anchor="middle")
-    s.text(pcx, pcy + sz + 37, "one cell · about 9.55 m", 10, INK_SOFT, font=MONO, anchor="middle")
+        s.line(cell_cx - sz + k * 2 * sz / 3, cell_cy - sz + 6, cell_cx - sz + k * 2 * sz / 3,
+               cell_cy + sz - 6, INK_SOFT, 0.8, op=0.45)
+        s.line(cell_cx - sz + 6, cell_cy - sz + k * 2 * sz / 3, cell_cx + sz - 6,
+               cell_cy - sz + k * 2 * sz / 3, INK_SOFT, 0.8, op=0.45)
+    s.rect(cell_cx - sz / 3, cell_cy - sz / 3, 2 * sz / 3, 2 * sz / 3, fill=LEAF, op=0.22, stroke=INK, sw=1.4)
+    s.circle(cell_cx, cell_cy, 7, stroke=INK, sw=1.2); s.dot(cell_cx, cell_cy, 3.6, VERMIL)
+    s.text(cell_cx, cell_cy + sz + 28, spec.get("cell", "cell defi.zb5cf.nura.zd83c"), 11.5,
+           INK, font=MONO, anchor="middle")
+    s.text(cell_cx, cell_cy + sz + 46, "one cell · about 9.55 m", 11, INK_SOFT, font=MONO, anchor="middle")
 
-    # bundle -> receipt
+    # bundle -> receipt (one bowed flow per band)
     for i in range(len(bands)):
-        ry = py + 70 + i * 38 - 4
-        s.flow((px + pw + 4, ry), (CX - 100, CY), INK_SOFT, 0.9, op=0.45, bow=16 * math.sin(i * 1.4), beads=False)
+        ry = py + 86 + i * 44 - 5
+        s.flow((px + pw + 6, ry), (CX - LR - 8, CY), INK_SOFT, 1.0, op=0.5,
+               bow=20 * math.sin(i * 1.4), beads=False)
 
-    # ---- centre: the signed receipt, with a ribbon label
-    s.lotus(CX, CY, 90)
-    s.seal(CX + 76, CY - 76, 12, fill=LEAF)
-    rw = max(196, 9.2 * len(spec["receipt"]) + 56)
-    ry0 = CY + 132
-    s.rect(CX - rw / 2, ry0 - 17, rw, 34, fill=GOLD_PALE, op=0.5, stroke=INK, sw=1.4, rx=5)
-    s.dot(CX - rw / 2, ry0, 3, INK); s.dot(CX + rw / 2, ry0, 3, INK)
-    s.text(CX, ry0 + 5, spec["receipt"], 13.5, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(CX, ry0 + 32, "signed · one 26-char handle", 11, INK_SOFT, font=MONO, anchor="middle")
-
-    # ---- right: the parties who act on it
-    cons = spec["consumers"]
-    rx = 1348
-    ys = [CY - (len(cons) - 1) * 80 / 2 + i * 80 for i in range(len(cons))]
+    # ---- right: the parties who act on it (bigger roundels + flows) ------
+    inners = ["fish", "leaf", "hatch", "ring"]
     for i, (name, sub) in enumerate(cons):
-        y = ys[i]
-        s.flow((CX + 100, CY), (rx - 30, y), LEAF, 1.4, op=0.85, bow=20 * (i - (len(cons) - 1) / 2), glow=True)
-        s.roundel(rx, y, 22, DYES[(i + 2) % len(DYES)], petal=(i % 2 == 0))
-        s.text(rx + 36, y - 2, name, 13, INK, font=MONO)
+        y = cys[i]
+        s.flow((CX + LR + 8, CY), (rcx - 46, y), LEAF, 1.6, op=0.85,
+               bow=26 * (i - (len(cons) - 1) / 2), glow=True)
+        s.roundel(rcx, y, 30, DYES[(i + 2) % len(DYES)], petal=(i % 2 == 0),
+                  inner=inners[i % len(inners)])
+        s.text(rcx + 48, y - 4, name, 14, INK, font=MONO, weight="bold")
         if sub:
-            s.text(rx + 36, y + 14, sub, 10, INK_SOFT, font=MONO)
-    s.text(rx + 6, ys[0] - 46, "acts on the receipt", 11, INK, font=MONO, anchor="middle")
+            s.text(rcx + 48, y + 18, sub, 11, INK_SOFT, font=MONO)
+    s.text(rcx, cys[0] - 76, "acts on the receipt", 12, INK, font=MONO, anchor="middle")
 
-    # ---- insight + verify footer
-    s.line(200, H - 116, W - 200, H - 116, INK_SOFT, 0.7, op=0.4)
-    s.text(800, H - 84, spec["insight"], 15.5, INK, font=SERIF, anchor="middle", italic=True)
-    s.text(800, H - 54, "anyone re-checks it at /verify · no trust in the server", 11, INK_SOFT, font=MONO, anchor="middle")
+    # ---- centre: the signed receipt (big lush lotus + ribbon) ------------
+    s.lotus(CX, CY, LR)
+    s.seal(CX + LR * 0.84, CY - LR * 0.84, 13, fill=LEAF)
+    rw = max(230, 11 * len(spec["receipt"]) + 64)
+    ry0 = CY + LR + 78
+    s.rect(CX - rw / 2, ry0 - 22, rw, 44, fill=GOLD_PALE, op=0.55, stroke=INK, sw=1.8, rx=7)
+    s.rect(CX - rw / 2 + 4, ry0 - 18, rw - 8, 36, stroke=INK, sw=0.7, rx=5, op=0.5)
+    s.dot(CX - rw / 2, ry0, 3.4, INK); s.dot(CX + rw / 2, ry0, 3.4, INK)
+    s.text(CX, ry0 + 6, spec["receipt"], 15, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(CX, ry0 + 36, "signed · one 26-char handle", 11.5, INK_SOFT, font=MONO, anchor="middle")
+
+    # ---- insight + verify footer (serif italic, mono note) ---------------
+    s.line(220, H - 128, W - 220, H - 128, INK_SOFT, 0.8, op=0.45)
+    s.dot(220, H - 128, 2.4, VERMIL); s.dot(W - 220, H - 128, 2.4, VERMIL)
+    s.text(W / 2, H - 90, spec["insight"], 16, INK, font=SERIF, anchor="middle", italic=True)
+    s.text(W / 2, H - 58, "anyone re-checks it at /verify · no trust in the server", 11.5,
+           INK_SOFT, font=MONO, anchor="middle")
 
     path = f"{OUT}/{spec['key']}.svg"
     s.save(path)

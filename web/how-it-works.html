@@ -48,9 +48,9 @@
   }
 }
 *{box-sizing:border-box}
-/* Type & spacing scale at 80% of the natural 16px baseline. Everything
-   downstream is expressed in rem, so this single knob retunes the page. */
-html{font-size:90%}
+/* Type & spacing scale anchored to the 16px baseline. Everything downstream
+   is expressed in rem, so this single knob retunes the whole page. */
+html{font-size:100%}
 html,body{margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::selection{background:var(--accent);color:var(--paper)}
@@ -287,7 +287,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .code pre{font-size:var(--t-xs)}
 }
 @media (max-width:480px){
-  html{font-size:86%}
+  html{font-size:92%}
   .page{padding:0 1rem}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -395,12 +395,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
   <div class="section-body">
     <h2><span class="num">02</span>Signing, CID, and the receipt preimage</h2>
-    <p class="lede">The responder pubkey is the only trust anchor. The preimage is a deterministic concatenation; any agent can recompute it offline and check the signature. A receipt issued today verifies in any year, on any node, as long as the pubkey is preserved.</p>
+    <p class="lede">The responder pubkey is the only trust anchor. The preimage is a deterministic byte string any agent can recompute offline to check the signature. A receipt issued today verifies in any year, on any node, as long as the pubkey is preserved.</p>
 
     <p>Each fact body is encoded as canonical CBOR and hashed with BLAKE3; the content id (<span class="band">fact_cid</span>) is that digest, base32-nopad, truncated to 16 bytes. The CID is the citation: re-encode the body and the CID drifts, so a quoted CID pins exact bytes. The receipt signs over a preimage that names the request, the time served, the primitive, and every cell and CID in the answer.</p>
 
+    <p>The receipt&rsquo;s <span class="band">preimage_version</span> field selects the rule. Version 1 domain-separates and length-prefixes every field, computing <span class="band">blake3("emem.preimage.v1" &Vert; "receipt" &Vert; tagged(request_id, served_at, scope?, as_of?, primitive, cells[], fact_cids[]))</span>, so no two distinct responses can ever share signed bytes, and the merkle tree uses RFC&nbsp;6962 leaf/node separation. The original concatenation rule shown below still verifies pre-v1 receipts unchanged.</p>
+
     <div class="code">
-      <div class="code-head"><span class="lang">PSEUDO</span><span class="tab">preimage</span><span class="spacer"></span><button class="copy" data-copy-target="#code-preimage">copy</button></div>
+      <div class="code-head"><span class="lang">PSEUDO</span><span class="tab">preimage (pre-v1 rule)</span><span class="spacer"></span><button class="copy" data-copy-target="#code-preimage">copy</button></div>
 <pre id="code-preimage"><code><span class="tok-k">blake3</span><span class="tok-p">(</span>
     request_id <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> served_at  <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> primitive <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span>
     cell1 <span class="tok-s">","</span> cell2 <span class="tok-s">","</span> ... <span class="tok-p">||</span> <span class="tok-s">"|"</span> <span class="tok-p">||</span> cid1 <span class="tok-s">","</span> cid2 <span class="tok-s">","</span> ...

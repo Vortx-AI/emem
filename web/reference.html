@@ -43,9 +43,9 @@
   }
 }
 *{box-sizing:border-box}
-/* Type & spacing scale at 80% of the natural 16px baseline. Everything
-   downstream is expressed in rem, so this single knob retunes the page. */
-html{font-size:90%}
+/* Type & spacing scale anchored to the 16px baseline. Everything downstream
+   is expressed in rem, so this single knob retunes the whole page. */
+html{font-size:100%}
 html,body{margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::selection{background:var(--accent);color:var(--paper)}
@@ -276,7 +276,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .code pre{font-size:var(--t-xs)}
 }
 @media (max-width:480px){
-  html{font-size:86%}
+  html{font-size:92%}
   .page{padding:0 1rem}
   .stats{grid-template-columns:1fr}
   .connect{grid-template-columns:repeat(2,1fr)}
@@ -319,12 +319,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="hero hero-lean page">
   <div>
     <h1>The <span class="accent">read surface</span>.</h1>
-    <p class="sub">Every read is the same handler whether you reach it over MCP or REST. This page is the human-readable index of that surface: client setup, the high-traffic endpoints, the one-shot domain tools, the twelve hunter events, and the physics solvers. The full machine contract is <a href="/openapi.json">/openapi.json</a>.</p>
+    <p class="sub">One set of handlers answers every read, whether an agent reaches it over MCP or plain REST, and every answer comes back as an ed25519 receipt it can verify offline. This page is the human-readable index of that surface: client setup, the high-traffic endpoints, the one-shot domain tools, the twelve hunter events, and the physics solvers. The full machine contract is <a href="/openapi.json">/openapi.json</a>.</p>
     <div class="hero-cta">
       <a class="btn" href="#client-setup">Client setup</a>
       <a class="btn ghost" href="/openapi.json">openapi.json</a>
     </div>
-    <p class="hero-trust">No API keys for reads · 80 MCP tools · 92 documented <code>/v1</code> paths · every answer an ed25519 receipt, verifiable offline.</p>
+    <p class="hero-trust">No API keys for reads · 81 MCP tools · 93 documented <code>/v1</code> paths · every answer an ed25519 receipt, verifiable offline.</p>
   </div>
 </header>
 
@@ -380,9 +380,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">02</span><span class="idx-label">Endpoints</span></div>
     <dl>
-      <dt>OpenAPI</dt><dd>95 paths</dd>
-      <dt>documented</dt><dd>92 under /v1/*</dd>
-      <dt>MCP tools</dt><dd>80 (10 core / 70 extended)</dd>
+      <dt>REST paths</dt><dd>93 documented under /v1/*</dd>
+      <dt>MCP tools</dt><dd>81 (10 core / 71 extended)</dd>
+      <dt>contract</dt><dd>OpenAPI 3.1</dd>
       <dt>mirror</dt><dd>MCP descriptors at /v1/tools</dd>
     </dl>
   </aside>
@@ -561,10 +561,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">06</span><span class="idx-label">Machine contract</span></div>
     <dl>
-      <dt>OpenAPI</dt><dd>3.1, 95 paths</dd>
-      <dt>documented</dt><dd>92 under /v1/*</dd>
-      <dt>algorithms</dt><dd>159 recipes</dd>
-      <dt>bands</dt><dd>122 wired across 42 slots</dd>
+      <dt>OpenAPI</dt><dd>3.1</dd>
+      <dt>documented</dt><dd>93 paths under /v1/*</dd>
+      <dt>algorithms</dt><dd>160 recipes</dd>
+      <dt>bands</dt><dd>124 wired across 43 slots</dd>
       <dt>sources</dt><dd>46 schemes</dd>
       <dt>topics</dt><dd>27</dd>
     </dl>
@@ -572,8 +572,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
   <div class="section-body">
     <h2><span class="num">06</span>The full machine contract</h2>
-    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a> &mdash; 95 paths, 92 of them under <span class="band">/v1/*</span>.</p>
-    <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The 159 algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the 122 materializer-wired band names across 42 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
+    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a> &mdash; 93 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
+    <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The 160 algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the 124 materializer-wired band names across 43 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
     <div class="hero-cta" style="margin-top:1.6rem">
       <a class="btn" href="/openapi.json">openapi.json</a>
       <a class="btn ghost" href="/docs/api/">API reference</a>

@@ -63,7 +63,10 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
   --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --pad-x:1.5rem;--col-meta:13.75rem;
-  --t-xs:.6875rem;--t-sm:.75rem;--t-base:.84375rem;--t-md:.9375rem;--t-lg:1.125rem;--t-xl:1.375rem;--t-2xl:1.875rem;--t-3xl:2.75rem;--t-4xl:4rem;
+  /* One type scale for the whole page. Body copy sits at --t-base (1rem ≈
+     16px); everything steps off it on a ~1.2 ratio. Edit html{font-size}
+     to retune globally without touching any individual rule. */
+  --t-xs:.75rem;--t-sm:.8125rem;--t-base:1rem;--t-md:1.0625rem;--t-lg:1.25rem;--t-xl:1.5rem;--t-2xl:2rem;--t-3xl:2.75rem;--t-4xl:4.25rem;
 }
 @media (prefers-color-scheme: dark){
   :root{
@@ -77,9 +80,9 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
   }
 }
 *{box-sizing:border-box}
-/* Type & spacing scale at 80% of the natural 16px baseline. Everything
-   downstream is expressed in rem, so this single knob retunes the page. */
-html{font-size:90%}
+/* Body copy reads at a full 16px baseline. The type scale above is in
+   rem, so this single knob retunes the whole page. */
+html{font-size:100%}
 html,body{margin:0;padding:0}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::selection{background:var(--accent);color:var(--paper)}
@@ -104,10 +107,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .section-meta dl{margin:1rem 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:.4rem}
 .section-meta dt{color:var(--mute-2);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
 .section-meta dd{margin:0 0 .5rem 0;color:var(--ink-2);font-size:var(--t-xs)}
-.section-body>h2{margin:0 0 1rem;font-size:var(--t-2xl);font-weight:500;letter-spacing:-.02em;line-height:1.1;color:var(--ink)}
+.section-body>h2{margin:0 0 1.1rem;font-size:var(--t-2xl);font-weight:600;letter-spacing:-.02em;line-height:1.12;color:var(--ink)}
 .section-body>h2 .num{color:var(--mute-2);margin-right:.6rem;font-weight:300}
-.section-body>.lede{font-size:var(--t-md);color:var(--ink-2);max-width:60ch;margin:0 0 2rem;font-weight:400}
-.section-body p{max-width:64ch;margin:0 0 1.1rem;color:var(--ink-2)}
+.section-body>.lede{font-size:var(--t-lg);color:var(--ink-2);max-width:62ch;margin:0 0 2rem;font-weight:400;line-height:1.45}
+.section-body p{max-width:66ch;margin:0 0 1.15rem;color:var(--ink-2);font-size:var(--t-base)}
+.section-body h3{font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:2.2rem 0 .8rem}
 .section-body ul{max-width:64ch;margin:0 0 1.1rem;padding-left:1.1rem;list-style:none}
 .section-body li{color:var(--ink-2);line-height:1.55;margin:0 0 .7rem;position:relative;padding-left:1rem}
 .section-body li::before{content:"";position:absolute;left:0;top:.55em;width:.4rem;height:.4rem;background:var(--accent);border-radius:50%}
@@ -122,9 +126,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero-meta .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
 .hero-meta .kv .v{color:var(--ink-2);font-size:var(--t-xs);word-break:break-all}
 .hero-meta .kv .v.accent{color:var(--accent)}
-.hero h1{font-size:var(--t-4xl);font-weight:300;letter-spacing:-.04em;line-height:.98;margin:0 0 1.4rem;color:var(--ink)}
-.hero h1 .accent{color:var(--accent);font-weight:600}
-.hero .sub{font-size:var(--t-lg);color:var(--ink-2);max-width:56ch;line-height:1.4;margin:0 0 1.4rem;font-weight:400}
+.hero h1{font-size:var(--t-3xl);font-weight:500;letter-spacing:-.03em;line-height:1.04;margin:0 0 1.4rem;color:var(--ink);max-width:20ch}
+.hero h1 .accent{color:var(--accent);font-weight:700}
+.hero .sub{font-size:var(--t-lg);color:var(--ink-2);max-width:60ch;line-height:1.5;margin:0 0 1.6rem;font-weight:400}
 .hero-formula{font-size:var(--t-md);color:var(--ink);margin:1rem 0 .5rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-weight:500}
 .hero-formula .box{border:1px solid var(--rule-strong);padding:.3rem .6rem;background:var(--paper-2)}
 .hero-formula .arrow{color:var(--mute)}
@@ -465,7 +469,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .loop .step:last-child{border-bottom:0}
 }
 @media (max-width:480px){
-  html{font-size:86%}
+  html{font-size:93.75%}
   .page{padding:0 1rem}
   .stats{grid-template-columns:1fr}
   .connect{grid-template-columns:repeat(2,1fr)}
@@ -519,11 +523,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
-    <a href="#idea" class="nav-sec">the idea</a>
-    <a href="#how" class="nav-sec">why it holds</a>
-    <a href="#impact" class="nav-sec">what it&rsquo;s for</a>
-    <a href="#proof" class="nav-sec">proof</a>
-    <a href="#act" class="nav-sec">get started</a>
+    <a href="#idea" class="nav-sec">what it is</a>
+    <a href="#proof" class="nav-sec">how a fact is proven</a>
+    <a href="#memory" class="nav-sec">memory layer</a>
+    <a href="#impact" class="nav-sec">who it&rsquo;s for</a>
+    <a href="#connect" class="nav-sec">connect</a>
     <span class="spacer"></span>
     <a href="/how-it-works" class="nav-sec">how it works</a>
     <a href="/solutions" class="nav-sec">solutions</a>
@@ -642,122 +646,244 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </div>
 
 
-<section class="hero page hero-lean">
-  <div>
-    <h1>Earth now has a <span class="accent">memory</span>.</h1>
+<section class="hero page" id="top">
+  <aside class="hero-meta">
+    <div class="kv"><span class="k">protocol</span><span class="v">Cell &times; Band &times; Tslot &rarr; Fact</span></div>
+    <div class="kv"><span class="k">address</span><span class="v">cell64 &middot; ~9.55 m on a side</span></div>
+    <div class="kv"><span class="k">every read</span><span class="v">ed25519 receipt &middot; blake3 content id</span></div>
+    <div class="kv"><span class="k">interfaces</span><span class="v">MCP + REST, one handler each</span></div>
+    <div class="kv"><span class="k">hosted node</span><span class="v accent">https://emem.dev</span></div>
+    <div class="kv"><span class="k">license</span><span class="v">Apache-2.0 &middot; no keys</span></div>
+  </aside>
 
-    <p class="sub">A living memory of the planet. Satellites read Earth from orbit and turn what they see into answers, so any app, team, or AI agent can ask what is happening anywhere on Earth and trust what comes back.</p>
+  <div>
+    <h1>A verifiable memory of <span class="accent">Earth</span> that AI agents can read, write, and cite.</h1>
+
+    <p class="sub">Ask an agent what is on the ground at a place it has never measured and it guesses, with no way to prove the answer. emem is the missing handle. Every patch of Earth gets a stable address, every measurement is one signed fact, and any agent or person can verify it offline without trusting the server that produced it.</p>
+
+    <div class="hero-formula">
+      <span class="box">cell64</span><span class="arrow">&times;</span>
+      <span class="box">band</span><span class="arrow">&times;</span>
+      <span class="box">tslot</span><span class="arrow">&rarr;</span>
+      <span class="out">signed fact</span>
+    </div>
+    <p class="formula-gloss">A place, a measurement, a moment, hashed into one content-addressed receipt anyone can re-check.</p>
 
     <div class="hero-cta">
-      <a class="btn" href="#act">Connect an agent &rarr;</a>
+      <a class="btn" href="#connect">Connect an agent &rarr;</a>
       <a class="btn ghost" href="#proof">See a signed answer &rarr;</a>
+      <a class="btn ghost" href="/spec.md">Read the spec &rarr;</a>
     </div>
 
-    <p class="hero-trust">open &middot; no keys &middot; MCP + REST &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
+    <div class="stats">
+      <div class="stat"><div class="n">81<span class="small">tools</span></div><div class="lbl">MCP, 10 core</div></div>
+      <div class="stat"><div class="n">160</div><div class="lbl">named algorithms</div></div>
+      <div class="stat"><div class="n">46</div><div class="lbl">data sources</div></div>
+      <div class="stat"><div class="n">~180<span class="small">ms</span></div><div class="lbl">cold read, signed</div></div>
+    </div>
+
+    <p class="hero-trust">A research-grade protocol, open and self-hostable. Signed by <code>777er3yihg&#8230;womvka</code> &middot; one <code>docker run</code> self-hosts the same binary.</p>
   </div>
 </section>
 
 <!-- ===== the problem ===== -->
 <section class="section page" id="problem">
-  <aside class="section-meta"><div class="idx"><span class="idx-label">the problem</span></div></aside>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">01</span><span class="idx-label">the gap</span></div></aside>
   <div class="section-body">
     <h2>Ask an agent about a place, and it guesses.</h2>
-    <p class="lede">A forest in Borneo, a floodplain outside Chennai, a field in Iowa. Ask an AI agent what is true on the ground there, and it will usually improvise.</p>
-    <p>It has no shared handle for the patch of land you mean, and no way to prove the number it hands back. That was harmless when agents only answered questions. It is not harmless now that they <em>act</em>: filing compliance, pricing risk, triaging a disaster, releasing a payment. Roughly a quarter of organizations are already scaling agents that take real-world actions <a href="https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai">(McKinsey, 2025)</a>. Acting on a guess has quietly become a liability.</p>
+    <p class="lede">A forest in Borneo, a floodplain outside Chennai, a field in Iowa. Ask an AI agent what is true on the ground there, and it improvises.</p>
+    <p>It has no shared handle for the patch of land you mean, and no way to prove the number it hands back. That was harmless when agents only answered questions. It stops being harmless once they <em>act</em>: filing compliance, pricing risk, triaging a disaster, releasing a payment. Roughly a quarter of organizations are already scaling agents that take real-world actions <a href="https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai">(McKinsey, 2025)</a>. Acting on an unverifiable guess has become a liability.</p>
   </div>
 </section>
 
-<!-- ===== the idea ===== -->
+<!-- ===== what it is ===== -->
 <section class="section page" id="idea">
-  <aside class="section-meta"><div class="idx"><span class="idx-label">the idea</span></div></aside>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">02</span><span class="idx-label">what it is</span></div>
+    <dl>
+      <dt>address</dt><dd>cell64, 64-bit, ~9.55 m</dd>
+      <dt>fact key</dt><dd>(cell, band, time)</dd>
+      <dt>encoding</dt><dd>canonical CBOR</dd>
+      <dt>content id</dt><dd>blake3, 26 chars</dd>
+    </dl>
+  </aside>
   <div class="section-body">
-    <h2>And it is one you do not have to take on faith.</h2>
-    <p class="lede">emem turns every place on Earth into an address with a memory. Ask for a fact and you do not get a guess. You get a receipt.</p>
-    <p>Elevation, rainfall, how much forest stood here last year, how a coastline has moved: each answer comes back signed with its value, place, and time. Anyone can verify it without trusting us, and any other agent can cite it tomorrow and reproduce it byte-for-byte. The address is the same on every node, so two agents asking about the same ground reach the same memory.</p>
+    <h2>Every place on Earth becomes an address with a memory.</h2>
+    <p class="lede">A cell64 addresses ground the way a token addresses text in an LLM. The planet is cut into fixed cells about 9.55 m across, and each one carries facts you can recall, verify, and cite.</p>
+    <p>A fact is one measurement at one cell, keyed by <code>(cell, band, time)</code> and packed in a fixed byte order so the same reading hashes the same way on every machine. That hash is the fact&rsquo;s content id. Change one byte and the id changes, so the id proves the bytes. Ids that look alike sit physically near each other, so an agent that emits <code>defi.zb493&#8230;</code> already lands in roughly the right place.</p>
+
+    <div class="memt-block">
+      <div class="memt-head"><span class="label">the address algebra</span><span class="gloss">readable, reproducible, content-addressed</span><span class="spacer"></span><a href="/spec.md">spec &rarr;</a></div>
+      <div class="memt-body">
+        <div class="memt-grammar"><b>cell64</b> &times; <b>band</b> &times; <b>tslot</b> &rarr; <b>fact</b>, named by its own blake3 hash</div>
+        <div class="memt-example">defi.zb493.xuqA.zcb5f &times; copdem30m.elevation_mean &times; t.aaaaagy</div>
+        <div class="memt-parts">
+          <span class="k">cell64</span><span>four base-1024 bigrams, dot-separated; Hilbert-ordered so neighbours share a prefix</span>
+          <span class="k">band</span><span>one of 124 live materializer bands across 43 cube slots</span>
+          <span class="k">tslot</span><span>a moment in time, base32 leb128</span>
+          <span class="k">fact_cid</span><span>32-byte blake3, base32, 26 chars; the durable handle you cite</span>
+        </div>
+      </div>
+    </div>
+
+    <p>The address is identical on every node, so two agents asking about the same ground reach the same memory. Nothing is pre-seeded. Ask about a place nobody has measured and the responder fetches the value from one of 46 real satellite sources, signs it, and returns it in the same response, then keeps it.</p>
   </div>
 </section>
 
-<!-- ===== why shared + signed + consensus ===== -->
-<section class="section page" id="how">
-  <aside class="section-meta"><div class="idx"><span class="idx-label">why it holds</span></div></aside>
+<!-- ===== how a fact is proven ===== -->
+<section class="section page" id="proof">
+  <aside class="section-meta"><div class="idx"><span class="idx-num">03</span><span class="idx-label">how a fact is proven</span></div>
+    <dl>
+      <dt>signature</dt><dd>ed25519, the kind that secures SSH and HTTPS</dd>
+      <dt>content id</dt><dd>blake3 over canonical CBOR</dd>
+      <dt>log</dt><dd>append-only, RFC 6962 merkle</dd>
+      <dt>verify</dt><dd>offline, no callback to us</dd>
+    </dl>
+  </aside>
   <div class="section-body">
-    <h2>Shared, so it compounds. Signed, so it can&rsquo;t be faked.</h2>
-    <p>Because the memory is <strong>shared</strong>, agents stop re-deriving the world from scratch and build on each other&rsquo;s verified work. Because every fact is <strong>signed and content-addressed</strong>, no one can quietly slip a wrong one in, the way a poisoned note can be planted in an ordinary agent&rsquo;s private memory <a href="https://arxiv.org/abs/2503.03704">(MINJA, NeurIPS 2025)</a>. And because four independent foundation models read the same ground, <strong>Clay, Prithvi, Tessera, Galileo</strong>, their agreement becomes a signal you can act on, while their disagreement is recorded and scored, never averaged away.</p>
+    <h2>Don&rsquo;t take our word. Take the receipt.</h2>
+    <p class="lede">Every read returns a receipt: the responder&rsquo;s public key, the signed payload, and the content id for each fact. Recompute the blake3 hash, check the ed25519 signature, and the answer reproduces in your own browser with no callback to us.</p>
+    <p>Ask <code>emem.dev</code> for the elevation under Denver and it returns the city&rsquo;s nickname as a signed number, mile-high at 1609 m. Here is a real fact, exactly as the responder returned it:</p>
+    <div class="fact">
+      <div class="fact-head"><span class="signed">signed fact</span> &middot; verifiable offline <span class="spacer"></span></div>
+      <div class="fact-grid">
+        <span class="k">cell</span><span class="v"><span class="cell">defi.zb4d7.ze56c.zf24c</span></span>
+        <span class="k">band</span><span class="v"><span class="band">copdem30m.elevation_mean</span></span>
+        <span class="k">value</span><span class="v big">10.0<span class="unit">m</span></span>
+        <span class="k">source</span><span class="v">copernicus.dem.glo30</span>
+        <span class="k">fact_cid</span><span class="v cid">4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</span>
+      </div>
+      <div class="fact-verify"><span class="check">re-derived in browser</span><a href="/verify/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma">verify this receipt yourself &rarr;</a></div>
+    </div>
+    <p>The fact_cid is a durable handle. Paste it into a chat and a colleague pulls the same bytes from any node and checks the signature, on any day, in any year. Run enough nodes and you get a federation: independent responders that resolve the same ids byte for byte and write down where they disagree.</p>
 
-    <p><a href="/how-it-works">See how it works, in depth &rarr;</a> &middot; <a href="/whitepaper.md">Read the whitepaper &rarr;</a></p>
+    <h3>Four models read the same ground, and their disagreement is recorded.</h3>
+    <p>Four independent foundation encoders, <strong>Clay, Prithvi, Tessera, Galileo</strong>, read the same cell. Where they agree, that agreement is a signal an agent can act on. Where two attesters sign different values at the same <code>(cell, band, time)</code>, <code>memory_contradictions</code> scores the gap by band kind and records it, rather than averaging it away. A poisoned note can&rsquo;t be slipped into a private agent memory the way <a href="https://arxiv.org/abs/2503.03704">MINJA (NeurIPS 2025)</a> shows, because every fact here is signed and content-addressed.</p>
+    <p><a href="/how-it-works">See how it works, in depth &rarr;</a> &middot; <a href="/whitepaper.md">Read the whitepaper &rarr;</a> &middot; <a href="https://eudr.dev">eudr.dev</a> already runs on this, issuing signed EU deforestation statements.</p>
+  </div>
+</section>
+
+<!-- ===== the memory layer ===== -->
+<section class="section page" id="memory">
+  <aside class="section-meta"><div class="idx"><span class="idx-num">04</span><span class="idx-label">the memory layer</span></div>
+    <dl>
+      <dt>writes</dt><dd>signed, content-addressed files</dd>
+      <dt>kinds</dt><dd>episodic / semantic / procedural / resource</dd>
+      <dt>search</dt><dd>BGE-768 over LanceDB IVF_PQ</dd>
+      <dt>time</dt><dd>bi-temporal: valid-time + knowledge-time</dd>
+    </dl>
+  </aside>
+  <div class="section-body">
+    <h2>A cache hands back a tile. A memory remembers.</h2>
+    <p class="lede">On top of the fact store, an agent gets a memory it owns: it remembers what it saw, links it to what it saw before, and says so when two sources disagree.</p>
+    <p>Writes land as content-addressed, signed files. An agent makes a note, edits it, and finds it again next week by meaning rather than by filename, through a BGE-768 embedding search over a LanceDB index. The signature that proves a Sentinel-2 reading is the same one that proves the agent&rsquo;s own notes are untouched. A path owned by one key turns away every other signer.</p>
+
+    <div class="substrate-grid">
+      <div class="lane">
+        <span class="verb">connect</span>
+        <span class="title">Typed temporal edges</span>
+        <span class="endpoint">emem_edges_recall</span>
+        <span class="desc">A fact carries signed connections, <code>supersedes</code>, <code>relates_to</code>, <code>disagrees_with</code>, bounded by valid-time. The graph is part of the record, not a side index.</span>
+      </div>
+      <div class="lane">
+        <span class="verb">reconcile</span>
+        <span class="title">Multi-attester contradictions</span>
+        <span class="endpoint">memory_contradictions</span>
+        <span class="desc">Where two signers disagree at the same cell, band, and time, the gap is scored per band kind, normalised spread for scalars, cosine for vectors, mode-share for categories.</span>
+      </div>
+      <div class="lane">
+        <span class="verb">cite</span>
+        <span class="title">Bundled citations</span>
+        <span class="endpoint">memory_bundle</span>
+        <span class="desc">Fold N facts into one signed envelope, <code>memb:&lt;bundle_cid&gt;</code>, that resolves to identical bytes on any peer. Hand over one handle for a whole finding.</span>
+      </div>
+    </div>
+
+    <p>Every read takes a bi-temporal bound. <code>as_of_tslot</code> asks what the world looked like at a past moment; <code>as_of_signed_at</code> asks what the system knew at one. The receipt records the bound, so an auditor in 2027 takes a 2026 receipt to any peer and replays the exact same query. A deterministic refinement loop re-derives a fact when a newer attestation or a <code>disagrees_with</code> edge lands, so the memory self-corrects instead of silently overwriting.</p>
   </div>
 </section>
 
 <!-- ===== what becomes possible ===== -->
 <section class="section page" id="impact">
-  <aside class="section-meta"><div class="idx"><span class="idx-label">what it&rsquo;s for</span></div></aside>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">05</span><span class="idx-label">who it&rsquo;s for</span></div></aside>
   <div class="section-body">
-    <h2>What an agent can finally do, responsibly.</h2>
-    <p class="lede">Give an agent a memory of Earth it can cite, and the actions it can stand behind change.</p>
+    <h2>What an agent can finally do, with the receipt attached.</h2>
+    <p class="lede">Give an agent a memory of Earth it can cite, and the actions it can stand behind change. The same handlers answer agents over MCP and developers over plain REST.</p>
     <ul>
-      <li><strong>Prove a shipment&rsquo;s land was never cleared,</strong> the audit the EU now requires under its Deforestation Regulation, in a year the tropics lost a record 6.7 million hectares of primary rainforest <a href="https://www.wri.org/news/release-global-forest-loss-shatters-records-2024-fueled-massive-fires">(WRI / Global Forest Watch)</a>.</li>
-      <li><strong>Raise a flood or wildfire flag a day sooner.</strong> A single day of warning can cut disaster damage by up to a third <a href="https://www.un.org/en/climatechange/early-warnings-for-all">(UN Early Warnings for All)</a>.</li>
-      <li><strong>Keep a carbon credit honest</strong> with continuous, signed evidence instead of a once-a-year spot check.</li>
-      <li><strong>Remember any place well enough to defend a decision</strong> (a price, a claim, a route) with the receipt attached.</li>
+      <li><strong>Prove a shipment&rsquo;s land was never cleared.</strong> The audit the EU requires under its Deforestation Regulation, in a year the tropics lost a record 6.7 million hectares of primary rainforest <a href="https://www.wri.org/news/release-global-forest-loss-shatters-records-2024-fueled-massive-fires">(WRI / Global Forest Watch)</a>. The endpoint signs an Annex II Due Diligence Statement against the Article 2(4) test.</li>
+      <li><strong>Raise a flood or wildfire flag a day sooner.</strong> A single day of warning can cut disaster damage by up to a third <a href="https://www.un.org/en/climatechange/early-warnings-for-all">(UN Early Warnings for All)</a>. Hunter mode sweeps a named region for twelve event types and returns signed hotspots.</li>
+      <li><strong>Keep a carbon credit honest</strong> with continuous, signed evidence instead of a once-a-year spot check, every figure traceable to its source fact.</li>
+      <li><strong>Defend a decision</strong>, a price, a claim, a route, with the place, the time, and the signature on record.</li>
     </ul>
-    <p><a href="/solutions">See what people are building &rarr;</a></p>
-  </div>
-</section>
-
-<!-- ===== proof ===== -->
-<section class="section page" id="proof">
-  <aside class="section-meta"><div class="idx"><span class="idx-label">the proof</span></div>
-    <dl>
-      <dt>sources</dt><dd>46 open data sets</dd>
-      <dt>every read</dt><dd>ed25519 receipt</dd>
-      <dt>reproducible</dt><dd>on any node</dd>
-    </dl>
-  </aside>
-  <div class="section-body">
-    <h2>Don&rsquo;t take our word. Take the receipt.</h2>
-    <p class="lede">Every answer carries a signature you can check in your own browser, with no callback to us. <a href="https://eudr.dev">eudr.dev</a> already runs on emem, issuing signed EU deforestation statements. Here is a real fact, exactly as the responder returned it:</p>
-    <div class="fact">
-      <div class="fact-head"><span class="dot"></span>signed fact &middot; verifiable offline</div>
-      <div class="fact-grid">
-        <span>cell</span><span class="cell">defi.zb4d7.ze56c.zf24c</span>
-        <span>band</span><span class="band">copdem30m.elevation_mean</span>
-        <span>value</span><b>10.0&nbsp;m</b>
-        <span>fact_cid</span><span class="cid">4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</span>
-      </div>
-      <div class="fact-verify"><a href="/verify/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma">verify this receipt yourself &rarr;</a></div>
-    </div>
+    <p><a href="/solutions">See what people are building &rarr;</a> &middot; <a href="/docs/gallery">live coverage map and case studies &rarr;</a></p>
   </div>
 </section>
 
 <!-- ===== come build on it ===== -->
-<section class="section page" id="act">
-  <aside class="section-meta"><div class="idx"><span class="idx-label">your move</span></div></aside>
+<section class="section page" id="connect">
+  <aside class="section-meta"><div class="idx"><span class="idx-num">06</span><span class="idx-label">connect</span></div>
+    <dl>
+      <dt>mcp</dt><dd>https://emem.dev/mcp</dd>
+      <dt>rest</dt><dd>93 paths under /v1/*</dd>
+      <dt>auth</dt><dd>none on reads</dd>
+      <dt>self-host</dt><dd>one docker run</dd>
+    </dl>
+  </aside>
   <div class="section-body">
     <h2>It&rsquo;s open. Come build on it.</h2>
-    <p class="lede">No keys, no signup. Pick the way in that fits you.</p>
-    <div class="substrate-grid">
-      <div class="lane">
-        <span class="verb">agents</span>
-        <span class="title">Connect over MCP and ask.</span>
-        <span class="desc">Point any MCP client at emem and ask in plain language. One call finds the place, recalls the facts, and hands back a signed answer. <a href="/reference">Connect &rarr;</a></span>
-      </div>
-      <div class="lane">
-        <span class="verb">developers</span>
-        <span class="title">One call, and every receipt verifies.</span>
-        <span class="desc">Plain HTTP and OpenAPI, signed answers you can check offline. Wire it into your stack in minutes. <a href="/reference">Read the API &rarr;</a></span>
-      </div>
-      <div class="lane">
-        <span class="verb">organizations</span>
-        <span class="title">Evidence you can stand behind.</span>
-        <span class="desc">Prove what was true, and what you knew when, for compliance, carbon, and underwriting. <a href="/solutions">See what people are building &rarr;</a></span>
-      </div>
+    <p class="lede">No keys, no signup. Point any MCP client at the endpoint, or call plain REST. Claude, Cursor, Cline, Gemini, ChatGPT, LangChain, and LlamaIndex all connect the same way.</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">json</span><span class="tab">mcp client config</span><span class="spacer"></span><button class="copy" data-copy-target="#mcp-snippet">copy</button></div>
+      <pre id="mcp-snippet"><code><span class="tok-p">{</span>
+  <span class="tok-s">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
+    <span class="tok-s">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span> <span class="tok-s">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span> <span class="tok-p">}</span>
+  <span class="tok-p">}</span>
+<span class="tok-p">}</span></code></pre>
+    </div>
+
+    <p>Or call it from a shell. Resolve a place to a cell, recall a band, and the answer comes back signed, auto-fetched if the cell is cold:</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">bash</span><span class="tab">rest, no key</span><span class="spacer"></span><button class="copy" data-copy-target="#curl-snippet">copy</button></div>
+      <pre id="curl-snippet"><code><span class="tok-cmd">curl</span> -s -X POST https://emem.dev/v1/recall \
+  -H <span class="tok-s">'content-type: application/json'</span> \
+  -d <span class="tok-s">'{"cell":"defi.zb493.xuqA.zcb5f","bands":["weather.temperature_2m"]}'</span> \
+  | jq <span class="tok-s">'.facts[0]'</span></code></pre>
+    </div>
+
+    <p>Discovery is built for agents to read, not humans to memorise:</p>
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead><tr><th class="method">verb</th><th>path</th><th class="desc">what it returns</th></tr></thead>
+      <tbody>
+        <tr><td class="method">GET</td><td class="path">/openapi.json</td><td class="desc">OpenAPI 3.1 of every REST route</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/tools</td><td class="desc">81 MCP tools with when_to_use and behaviour annotations</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/agent_card</td><td class="desc">live capability snapshot + manifest CIDs</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td class="desc">signed fact at a cell, auto-fetched on a cold miss</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/eudr_dds</td><td class="desc">signed EU deforestation Due Diligence Statement</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/verify_receipt</td><td class="desc">check a receipt&rsquo;s signature server-side</td></tr>
+        <tr><td class="method">GET</td><td class="path">/v1/stream</td><td class="desc">signed corpus heartbeat over Server-Sent Events</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p>Self-host the same binary with one command. No required env vars; reads need no auth.</p>
+    <div class="code">
+      <div class="code-head"><span class="lang">bash</span><span class="tab">self-host</span><span class="spacer"></span><button class="copy" data-copy-target="#docker-snippet">copy</button></div>
+      <pre id="docker-snippet"><code><span class="tok-cmd">docker</span> run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code></pre>
+    </div>
+
+    <div class="hero-cta">
+      <a class="btn" href="/reference">Read the API &rarr;</a>
+      <a class="btn ghost" href="/humans">Try it in the browser &rarr;</a>
+      <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub &rarr;</a>
     </div>
   </div>
 </section>
 
 <!-- ===== where this is going ===== -->
 <section class="section page" id="direction">
-  <aside class="section-meta"><div class="idx"><span class="idx-label">where this goes</span></div></aside>
+  <aside class="section-meta"><div class="idx"><span class="idx-num">07</span><span class="idx-label">where this goes</span></div></aside>
   <div class="section-body">
     <h2>Where this is going.</h2>
     <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline. Today that is one hosted responder and self-hosted nodes, and the hard part already ships beneath them: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a self-correcting refinement loop.</p>
