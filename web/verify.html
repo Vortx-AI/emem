@@ -26,27 +26,24 @@
 <meta name=twitter:image content="https://emem.dev/humans-og.svg">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <style>
-/* ─────────────────────────────────────────────────────────────────────────
-   /verify — single-purpose, scientific dark palette. Same tokens as
-   /humans for visual continuity; this surface is the trust-layer
-   sibling of the constellation.
-   ───────────────────────────────────────────────────────────────────────── */
-/* Unified emem design tokens — light + dark via prefers-color-scheme,
-   same palette as /, /demos, /humans, /gallery. Variable names kept on
-   the legacy --bg/--fg axis so the class rules below don't need
-   rewriting; values map to OKLch tokens. */
+/* /verify — the trust-layer surface. Same warm paper/ink palette as the
+   rest of emem.dev (/, /how-it-works, /humans, /gallery): light by default,
+   dark via prefers-color-scheme. Variable names stay on the --bg/--fg axis
+   so the crypto/render code below needs no rewriting; the values map to the
+   canonical OKLch paper/ink tokens (hue 85, green accent at hue 145). */
 :root{
   --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
   --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
   --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
-  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.55 0.005 85);
-  --line:oklch(0.88 0.005 85);   --line-2:oklch(0.78 0.005 85);
-  --accent:oklch(0.45 0.09 145); --accent-dim:oklch(0.55 0.10 145);
-  --warn:oklch(0.55 0.16 25);    --pending:oklch(0.60 0.13 80);
-  --info:oklch(0.55 0.12 230);
-  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.68 0.005 85);
+  --line:oklch(0.86 0.008 85);   --line-2:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145); --accent-bg:oklch(0.93 0.04 145);
+  --accent-dim:oklch(0.55 0.10 145);
+  --warn:oklch(0.50 0.11 35);    --pending:oklch(0.55 0.12 75);
+  --info:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --sans:var(--mono);
 }
 @media (prefers-color-scheme: dark){
@@ -54,11 +51,12 @@
     --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
     --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
     --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
-    --fg-3:oklch(0.62 0.005 85);  --fg-mute:oklch(0.55 0.005 85);
-    --line:oklch(0.30 0.005 85);  --line-2:oklch(0.40 0.005 85);
-    --accent:oklch(0.78 0.10 145);--accent-dim:oklch(0.66 0.10 145);
-    --warn:oklch(0.74 0.15 25);   --pending:oklch(0.80 0.12 80);
-    --info:oklch(0.78 0.10 230);
+    --fg-3:oklch(0.60 0.005 85);  --fg-mute:oklch(0.45 0.005 85);
+    --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --accent-dim:oklch(0.66 0.10 145);
+    --warn:oklch(0.72 0.13 35);   --pending:oklch(0.78 0.13 75);
+    --info:oklch(0.78 0.14 270);
   }
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -76,8 +74,8 @@ button{font:inherit;font-family:var(--mono);color:var(--fg);background:transpare
   border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;
   letter-spacing:.02em;font-size:12px;}
 button:hover{border-color:var(--accent);color:var(--accent)}
-button.primary{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
-button.primary:hover{background:rgba(124,255,178,.14)}
+button.primary{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+button.primary:hover{background:var(--accent-bg);filter:brightness(.98)}
 button.ghost{border:none;padding:.3em .6em;color:var(--fg-2)}
 input,textarea{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
   border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px;
@@ -85,7 +83,7 @@ input,textarea{font:inherit;font-family:var(--mono);color:var(--fg);background:v
 input:focus,textarea:focus{border-color:var(--accent)}
 textarea{min-height:120px;resize:vertical;line-height:1.5}
 hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
-::selection{background:rgba(124,255,178,.25);color:#fff}
+::selection{background:var(--accent);color:var(--bg)}
 
 /* layout */
 .app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
@@ -143,14 +141,14 @@ header.top .navlinks a:hover{color:var(--accent)}
   width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%}
 .status .text{flex:1}
 .status .sub{font-size:11.5px;color:var(--fg-3);margin-top:.18em;line-height:1.5}
-.status.ok{border-color:var(--accent);background:rgba(124,255,178,.05)}
-.status.ok .glyph{background:rgba(124,255,178,.14);color:var(--accent)}
+.status.ok{border-color:var(--accent);background:var(--accent-bg)}
+.status.ok .glyph{background:var(--accent-bg);color:var(--accent)}
 .status.ok .text{color:var(--accent)}
-.status.fail{border-color:var(--warn);background:rgba(255,124,124,.05)}
-.status.fail .glyph{background:rgba(255,124,124,.14);color:var(--warn)}
+.status.fail{border-color:var(--warn);background:var(--bg-1)}
+.status.fail .glyph{background:var(--bg-2);color:var(--warn)}
 .status.fail .text{color:var(--warn)}
-.status.pending{border-color:var(--pending);background:rgba(255,210,124,.04)}
-.status.pending .glyph{background:rgba(255,210,124,.14);color:var(--pending);
+.status.pending{border-color:var(--pending);background:var(--bg-1)}
+.status.pending .glyph{background:var(--bg-2);color:var(--pending);
   animation:pulse 1.4s ease-in-out infinite}
 .status.idle{border-style:dashed;color:var(--fg-3)}
 .status.idle .glyph{background:var(--bg-2);color:var(--fg-mute)}
@@ -179,10 +177,10 @@ header.top .navlinks a:hover{color:var(--accent)}
 .chip:hover{color:var(--accent);border-color:var(--accent)}
 .chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--fg-mute)}
 .chip[data-kind=cell] .dot{background:var(--accent)}
-.chip[data-kind=cid] .dot{background:#B27CFF}
-.chip[data-kind=pub] .dot{background:var(--info)}
+.chip[data-kind=cid] .dot{background:var(--info)}
+.chip[data-kind=pub] .dot{background:var(--accent-dim)}
 .chip[data-kind=ok] .dot{background:var(--accent)}
-.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent);background:rgba(124,255,178,.06)}
+.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
 .chip[data-kind=fail] .dot{background:var(--warn)}
 .chip[data-kind=fail]{color:var(--warn);border-color:var(--warn)}
 .value-preview{background:var(--bg-2);border:1px solid var(--line);padding:.55em .7em;
@@ -226,22 +224,34 @@ header.top .navlinks a:hover{color:var(--accent)}
 .gloss .gchip:hover{color:var(--accent);border-color:var(--accent)}
 .gpop{position:absolute;background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
   border-radius:4px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
-  max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.6);line-height:1.6;z-index:10;display:none}
+  max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.18);line-height:1.6;z-index:10;display:none}
 .gpop.on{display:block}
 .gpop b{color:var(--accent);font-weight:600}
 
-/* footer */
-footer.foot{margin-top:2.4em;padding-top:1.1em;border-top:1px solid var(--line);
-  display:flex;gap:1em;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--fg-mute)}
-footer.foot a{color:var(--fg-3);border-bottom:none}
-footer.foot a:hover{color:var(--accent)}
+/* footer — canonical emem.dev page foot, mapped onto this surface's
+   --bg/--fg tokens and constrained to the 920px verify column. */
+.page{max-width:920px;margin:0 auto;padding:0 1.4em}
+.foot{padding:3rem 0 2rem;border-top:1px solid var(--line);display:grid;grid-template-columns:11rem 1fr;gap:2.4rem;color:var(--fg-mute);font-size:11px}
+.foot a{border-bottom:none}
+.foot-meta .name{color:var(--fg);font-weight:700;font-size:13px;margin-bottom:.5rem}
+.foot-meta .desc{color:var(--fg-mute);line-height:1.5}
+.foot-meta .desc a{color:var(--fg-2);text-decoration:underline;text-decoration-color:var(--line)}
+.foot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--fg-2);text-decoration:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3)}
+.foot-bottom a{color:inherit}
+@media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.5rem}.foot-grid{grid-template-columns:repeat(2,1fr)}}
 
 /* toast */
 .toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
   background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
   border-radius:3px;font-family:var(--mono);font-size:11.5px;z-index:200;opacity:0;
   pointer-events:none;transition:opacity .18s ease,transform .18s ease;
-  box-shadow:0 8px 32px rgba(0,0,0,.5)}
+  box-shadow:0 8px 32px rgba(0,0,0,.18)}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 .muted{color:var(--fg-3)}
 .skip{position:absolute;left:-999px;top:0}
@@ -396,20 +406,62 @@ footer.foot a:hover{color:var(--accent)}
   </div>
   <div class=gpop id=gpop role=tooltip aria-hidden=true></div>
 
-  <footer class=foot>
-    <a href="/">home</a>
-    <a href="/demos">demos</a>
-    <a href="/whitepaper.md">whitepaper</a>
-    <a href="/spec.md">spec</a>
-    <a href="/agents.md">agents.md</a>
-    <a href="/integrations.md">integrations</a>
-    <a href="/openapi.json">openapi</a>
-    <a href="/mcp">mcp</a>
-    <a href="/humans">humans</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
-    <span style="margin-left:auto">verifier runs offline · no telemetry</span>
-  </footer>
 </main>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">Earth memory protocol. Cell × Band × Tslot → Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper.md">whitepaper</a></li>
+          <li><a href="/how-it-works">how it works</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/verify_receipt">verify_receipt</a></li>
+          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/demos">demos index</a></li>
+          <li><a href="/humans">/humans</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Verifier runs offline, no telemetry.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="/privacy">privacy · terms</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
 <div class=toast id=toast></div>
 
 <script type="module">
@@ -901,7 +953,7 @@ function renderReceipt(receipt, result){
                                                  : bytesToHex(buildPreimageBytes(receipt));
   const preimageLen = result && result.preimage ? result.preimage.length
                                                  : buildPreimageBytes(receipt).length;
-  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:10.5px;margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:11px;display:block;word-break:break-all;background:rgba(0,0,0,.18);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:10.5px;margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:10.5px;display:block;word-break:break-all;background:rgba(0,0,0,.18);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
+  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:10.5px;margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:11px;display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:10.5px;margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:10.5px;display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
   if (result && result.digest) {
     rows.push(['blake3(preimage)', `<code style="font-size:11px">${escapeHtml(bytesToHex(result.digest))}</code> <span class=muted>· 32-byte digest, ed25519 verifies this</span>`]);
   }

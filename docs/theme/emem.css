@@ -1,8 +1,24 @@
 /* emem.dev — mdbook brand overlay
- * Aligns the docs book with the rest of web/ (oklch palette, JetBrains Mono,
- * green accent). Only overrides — keeps mdbook's default skeleton intact.
+ *
+ * Re-themes the docs book to match the rest of web/: a light, warm-cream
+ * "paper/ink" surface, JetBrains Mono throughout, a single green accent for
+ * links / active items / signed mentions, thin ink rules instead of boxes.
+ * The book now ships the mdbook "light" theme (book.toml default-theme=light);
+ * everything below repaints mdbook's CSS variables to the oklch token block
+ * lifted verbatim from web/index.html :root, plus a few structural touches.
+ *
+ * Strategy: mdbook drives nearly all of its chrome off CSS custom properties
+ * (--bg, --fg, --sidebar-bg, --links, --inline-code-color, --searchbar-*,
+ * --table-*, --quote-*, ...). We redefine the palette tokens once, then bind
+ * them onto mdbook's variable names for every theme class plus the
+ * `html:not(.js)` no-JS fallback, so the values win in every state (theme
+ * class set, JS loaded or not, prefers-color-scheme light or dark). CSS only —
+ * no structural changes, search / fold / mathjax untouched.
  */
 
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap');
+
+/* ── palette: the web/index.html :root token block (oklch, hue 85) ───────── */
 :root {
   --paper:        oklch(0.975 0.005 85);
   --paper-2:      oklch(0.955 0.005 85);
@@ -10,154 +26,227 @@
   --ink:          oklch(0.20  0.005 85);
   --ink-2:        oklch(0.32  0.005 85);
   --mute:         oklch(0.50  0.005 85);
+  --mute-2:       oklch(0.68  0.005 85);
   --rule:         oklch(0.86  0.008 85);
+  --rule-strong:  oklch(0.72  0.010 85);
   --accent:       oklch(0.45  0.09  145);
   --accent-bg:    oklch(0.93  0.04  145);
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-.navy, .ayu, .coal {
-  --paper:        oklch(0.16 0.005 85);
-  --paper-2:      oklch(0.19 0.005 85);
-  --paper-3:      oklch(0.23 0.006 85);
-  --ink:          oklch(0.93 0.005 85);
-  --ink-2:        oklch(0.80 0.005 85);
-  --mute:         oklch(0.60 0.005 85);
-  --rule:         oklch(0.28 0.008 85);
-  --accent:       oklch(0.78 0.13  145);
-  --accent-bg:    oklch(0.26 0.05  145);
+/* ── mdbook variable mapping ──────────────────────────────────────────────
+ *
+ * Long selector list, on purpose. mdbook's variables.css declares its
+ * light-theme defaults under `.light, html:not(.js) { ... }`; the
+ * `html:not(.js)` half has specificity (0,0,1,1) and keeps firing in our
+ * build (the bootstrap script does not persist a `.js` class into the static
+ * DOM). A plain `.light` mapping at (0,0,1,0) would lose to it. We match
+ * mdbook's specificity with the explicit theme-class list plus the same
+ * `html:not(.js)` fallback, so — at equal specificity and later source order —
+ * our paper palette wins regardless of which theme class is on <html>.
+ */
+html.light, html.rust, html.navy, html.ayu, html.coal, html:not(.js) {
+  --bg:                        var(--paper);
+  --fg:                        var(--ink);
+
+  --sidebar-bg:                var(--paper-2);
+  --sidebar-fg:                var(--ink-2);
+  --sidebar-non-existant:      var(--mute-2);
+  --sidebar-active:            var(--accent);
+  --sidebar-spacer:            var(--rule);
+  --sidebar-header-border-color: var(--rule-strong);
+
+  --scrollbar:                 var(--rule-strong);
+
+  --icons:                     var(--mute);
+  --icons-hover:               var(--ink);
+
+  --links:                     var(--accent);
+
+  --inline-code-color:         var(--accent);
+
+  --theme-popup-bg:            var(--paper-2);
+  --theme-popup-border:        var(--rule);
+  --theme-hover:               var(--paper-3);
+
+  --quote-bg:                  var(--paper-2);
+  --quote-border:              var(--accent);
+
+  --warning-border:            var(--accent);
+
+  --table-border-color:        var(--rule);
+  --table-header-bg:           var(--paper-3);
+  --table-alternate-bg:        var(--paper-2);
+
+  --searchbar-border-color:    var(--rule-strong);
+  --searchbar-bg:              var(--paper);
+  --searchbar-fg:              var(--ink);
+  --searchbar-shadow-color:    var(--rule-strong);
+  --searchresults-header-fg:   var(--mute);
+  --searchresults-border-color: var(--rule);
+  --searchresults-li-bg:       var(--paper-2);
+  --search-mark-bg:            var(--accent-bg);
+
+  --color-scheme:              light;
+
+  /* copy / theme button icons: the light-theme filters tint the octicon SVGs
+     toward our mute / accent inks rather than the dark-theme greens. */
+  --copy-button-filter:        invert(45%);
+  --copy-button-filter-hover:  invert(38%) sepia(28%) saturate(720%) hue-rotate(86deg) brightness(92%) contrast(92%);
+
+  --footnote-highlight:        var(--accent-bg);
+  --overlay-bg:                rgba(40, 38, 32, 0.28);
+
+  --blockquote-note-color:      var(--accent);
+  --blockquote-tip-color:       var(--accent);
+  --blockquote-important-color: var(--ink);
+  --blockquote-warning-color:   oklch(0.55 0.12 75);
+  --blockquote-caution-color:   oklch(0.50 0.11 35);
 }
 
-/* mdbook variable mapping.
- *
- * Why the long selector list: mdbook's variables.css declares its light-
- * theme defaults under `.light, html:not(.js) { ... }`. The `html:not(.js)`
- * half has specificity (0,0,1,1) and intentionally fires when the
- * bootstrap script hasn't added the `.js` class yet — a "no-JS fallback"
- * meant to be invisible after page-load. Our build of mdbook never adds
- * `.js` in the static HTML (the toggle runs from book.js but doesn't
- * persist into the rendered DOM), so the `html:not(.js)` selector keeps
- * matching even after page-load and *outranks* the theme classes
- * (`.navy`, `.ayu`, `.coal` are only specificity (0,0,1,0)). Net effect:
- * the page sets `<html class="navy">` but mdbook serves the LIGHT theme's
- * `--fg` (`hsl(0,0%,0%)`) and `--inline-code-color` (`#301900`) inside
- * navy-coloured chrome — and because our `:not(pre) > code { background:
- * var(--paper-2) }` correctly pulls the navy --paper-2 (dark), inline
- * code renders as near-black text on near-black background, invisible.
- *
- * Fix by bumping our mapping rule's specificity to match mdbook's
- * (0,0,1,1) via the explicit theme-class list plus the same `html:not
- * (.js)` fallback that mdbook's rule uses. Equal specificity + later
- * source order = our values win in every state (theme class set, JS
- * loaded, JS not loaded, prefers-color-scheme dark/light). */
-html.navy, html.ayu, html.coal, html.light, html.rust, html:not(.js) {
-  --bg:                    var(--paper);
-  --fg:                    var(--ink);
-  --sidebar-bg:            var(--paper-2);
-  --sidebar-fg:            var(--ink-2);
-  --sidebar-non-existant:  var(--mute);
-  --sidebar-active:        var(--accent);
-  --sidebar-spacer:        var(--rule);
-  --scrollbar:             var(--rule);
-  --icons:                 var(--mute);
-  --icons-hover:           var(--ink);
-  --links:                 var(--accent);
-  --inline-code-color:     var(--accent);
-  --theme-popup-bg:        var(--paper-2);
-  --theme-popup-border:    var(--rule);
-  --theme-hover:           var(--paper-3);
-  --quote-bg:              var(--paper-2);
-  --quote-border:          var(--accent);
-  --warning-border:        var(--accent);
-  --table-border-color:    var(--rule);
-  --table-header-bg:       var(--paper-2);
-  --table-alternate-bg:    var(--paper-2);
-  --searchbar-border-color:var(--rule);
-  --searchbar-bg:          var(--paper-2);
-  --searchbar-fg:          var(--ink);
-  --searchbar-shadow-color:transparent;
-  --searchresults-header-fg:var(--mute);
-  --searchresults-border-color:var(--rule);
-  --searchresults-li-bg:   var(--paper-2);
-  --search-mark-bg:        var(--accent-bg);
-  --color-scheme:          light dark;
-}
-
-body, .content {
+/* ── typography: JetBrains Mono everywhere, editorial spacing ─────────────── */
+html, body, .content {
   font-family: var(--mono);
   font-feature-settings: "ss01","ss02","cv01","cv02";
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+/* mdbook routes code through --mono-font; point it at JetBrains Mono too so
+   inline code, pre blocks, and the copy buttons share one face. */
+:root { --mono-font: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+body { line-height: 1.55; }
 
-/* mdbook's chrome.css styles <mark> with `background-color:
- * var(--search-mark-bg)` (the search-hit highlight on /docs/?search=)
- * but DOESN'T override `color`, so it inherits the user-agent default
- * `mark { color: black }`. Under our dark theme that pairs black text
- * on a dark-green highlight — unreadable. Force the mark's text color
- * to follow the surrounding theme so the contrast tracks the palette
- * in either light or dark mode. Spec-wise this is a fix to a mdbook
- * default that predates dark-mode support; keeping the override in
- * our theme so future mdbook upgrades don't reintroduce the
- * regression. */
-mark, .content mark {
-  color: var(--ink);
-}
-::selection {
-  background: var(--accent-bg);
-  color: var(--ink);
-}
+::selection { background: var(--accent-bg); color: var(--ink); }
 
-.content h1, .content h2, .content h3, .content h4 {
+/* mdbook leaves <mark> text colour at the UA default (black); pin it to ink so
+   search hits stay legible on the accent-bg highlight. */
+mark, .content mark { color: var(--ink); }
+
+/* ── headings: thin ink rule under h2, tight letterspacing ───────────────── */
+.content h1, .content h2, .content h3, .content h4, .content h5 {
   font-family: var(--mono);
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
+  color: var(--ink);
 }
-.content h1 { font-size: 1.875rem; }
-.content h2 { font-size: 1.375rem; border-bottom: 1px solid var(--rule); padding-bottom: .3rem; }
-.content h3 { font-size: 1.125rem; }
+.content h1 { font-size: 1.75rem; line-height: 1.12; margin: 1.6rem 0 1rem; }
+.content h2 {
+  font-size: 1.3125rem;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.3rem;
+  margin: 2rem 0 0.9rem;
+}
+.content h3 { font-size: 1.0625rem; margin: 1.6rem 0 0.6rem; }
+.content h4 { font-size: 0.9375rem; color: var(--ink-2); }
+.content .header:link, .content .header:visited { color: var(--ink); }
 
-.content a, .content a:visited { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; }
-.content a:hover { border-bottom-color: var(--accent); }
+/* ── body copy: ink-2, tight, mono ───────────────────────────────────────── */
+.content { color: var(--ink); }
+.content p, .content li { color: var(--ink-2); }
+.content p, .content ul, .content ol { margin: 0.6rem 0; }
+.content li { margin: 0.2rem 0; }
+.content strong { color: var(--ink); font-weight: 700; }
+.content hr { border: none; border-top: 1px solid var(--rule); margin: 2rem 0; }
 
-.menu-title { font-weight: 700; letter-spacing: 0.02em; }
+/* ── links: green accent, underline grows on hover ───────────────────────── */
+.content a, .content a:link, .content a:visited {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.content a:hover { border-bottom-color: var(--accent); background: var(--accent-bg); }
 
-#sidebar .chapter li.chapter-item a {
+/* ── menu bar (top): paper-2 with a thin ink rule, mono title ────────────── */
+.menu-bar, #mdbook-menu-bar {
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+}
+.menu-title {
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.menu-bar .icon-button, .menu-bar a .fa-svg { color: var(--mute); }
+.menu-bar .fa-svg:hover, .menu-bar .icon-button:hover { color: var(--ink); }
+
+/* ── sidebar (left): paper-2, chapter list in ink-2, active in accent ────── */
+.sidebar, #mdbook-sidebar, .sidebar-scrollbox {
+  background: var(--paper-2);
+}
+.sidebar { border-right: 1px solid var(--rule); }
+.sidebar .sidebar-title, .sidebar-resize-handle { color: var(--mute); }
+
+.chapter li.chapter-item, .chapter li a {
+  color: var(--ink-2);
+  font-size: 0.84375rem;
+  line-height: 1.5;
+}
+.chapter li a:hover { color: var(--accent); background: var(--paper-3); }
+.chapter li a.active { color: var(--accent); font-weight: 700; }
+.chapter li.part-title { color: var(--mute); letter-spacing: 0.06em; text-transform: uppercase; }
+.chapter .spacer { border-top: 1px solid var(--rule); }
+/* fold toggle arrows in the muted ink, accent on the open chapter */
+.chapter li > a.toggle div { color: var(--mute); }
+
+/* ── code: pre on paper-3 with a thin rule; inline code on paper-2 ───────── */
+pre, code { font-family: var(--mono); }
+pre {
+  background: var(--paper-3);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+/* the highlight stylesheet paints pre>code.hljs with a cool grey background;
+   tint it to the warm paper so blocks read as ink-on-cream, not ink-on-grey. */
+pre > code.hljs, pre > .hljs { background: transparent; color: var(--ink); }
+pre > code { color: var(--ink); }
+:not(pre) > code, :not(pre):not(a) > .hljs {
+  background: var(--paper-2);
+  color: var(--accent);
+  padding: 0.05em 0.35em;
+  border-radius: 3px;
+  border: 1px solid var(--rule);
+}
+/* keep the light syntax palette but warm the few cool greys to the ink scale */
+.hljs-comment, .hljs-quote { color: var(--mute); }
+.hljs-string, .hljs-symbol, .hljs-bullet { color: var(--accent); }
+
+/* ── blockquotes: thin accent rule, paper-2 fill ─────────────────────────── */
+blockquote {
+  background: var(--paper-2);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
   color: var(--ink-2);
 }
-#sidebar .chapter li.chapter-item a:hover,
-#sidebar .chapter li.chapter-item a.active {
-  color: var(--accent);
-}
 
-#searchbar {
-  border-radius: 6px;
-}
+/* ── tables: thin ruled, paper header, zebra on paper-2 ──────────────────── */
+table { border: 1px solid var(--rule); border-radius: 4px; border-collapse: collapse; }
+table thead { background: var(--paper-3); }
+table th { color: var(--ink); font-weight: 700; }
+table td, table th { border: 1px solid var(--rule); }
+table tbody tr:nth-child(2n) { background: var(--paper-2); }
 
-pre, code {
-  font-family: var(--mono);
-}
-pre {
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-}
-:not(pre) > code {
-  background: var(--paper-2);
-  padding: 0.05em 0.35em;
+/* ── search box + results: paper palette, thin rule ──────────────────────── */
+#searchbar, #mdbook-searchbar {
+  border: 1px solid var(--rule-strong);
   border-radius: 4px;
-  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
 }
-
-blockquote {
-  background: var(--quote-bg);
-  border-left: 3px solid var(--accent);
-  border-radius: 0 6px 6px 0;
+#searchbar:focus, #mdbook-searchbar:focus, #mdbook-searchbar.active {
+  box-shadow: 0 0 0 2px var(--accent-bg);
+  border-color: var(--accent);
 }
+.searchresults-header { color: var(--mute); border-block-end: 1px solid var(--rule); }
+.searchresults-outer { border-block-end: 1px dashed var(--rule); }
+ul#mdbook-searchresults li, ul#searchresults li { background: var(--paper-2); }
+#mdbook-searchresults a, #searchresults a { color: var(--accent); }
 
-table {
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-}
+/* ── theme popup (the paint-roller menu): paper palette ──────────────────── */
+.theme-popup { background: var(--paper-2); border: 1px solid var(--rule); }
+.theme-popup .theme:hover { background: var(--paper-3); }
 
-/* Compact, agent-readable feel — tighter spacing throughout. */
-.content p, .content ul, .content ol { margin: .55rem 0; }
-.content li { margin: .15rem 0; }
+/* ── chapter nav (prev/next) ─────────────────────────────────────────────── */
+.nav-chapters, .mobile-nav-chapters { color: var(--mute); }
+.nav-chapters:hover { color: var(--accent); }
+.mobile-nav-chapters { background: var(--paper-2); border: 1px solid var(--rule); }

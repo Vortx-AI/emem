@@ -14,7 +14,7 @@
 <link rel=alternate type=application/json href="/openapi.json">
 <link rel="service mcp" href="/mcp">
 <meta name=robots content="index,follow">
-<meta name=color-scheme content="dark">
+<meta name=color-scheme content="light">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/humans">
 <meta property=og:title content="emem.dev/humans · knowledge constellation">
@@ -29,57 +29,60 @@
 <meta name=twitter:image content="https://emem.dev/humans-og.svg">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel=stylesheet>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
    tokens — LCH-aware dark palette, scientific not gamelike
    ───────────────────────────────────────────────────────────────────────── */
-/* humans.html is the one emem surface that stays dark by design — the
-   <canvas id=stage> starfield is hardcoded to true-black (#06070a) and
-   reading it on a light paper would break the visual identity. Tokens
-   below are the unified OKLch dark palette (same values as the dark
-   half of every other page's prefers-color-scheme block), so the
-   variable spellings agree even though prefers-color-scheme is not
-   honoured here. */
+/* humans.html now shares the warm-cream paper/ink identity of the rest of
+   emem.dev. The token NAMES below are the page's own (--bg/--fg/--line/…),
+   kept intact so every existing var() reference flips automatically; only
+   their VALUES are remapped onto the light OKLch palette from index.html
+   :root (warm hue 85, green accent at 145). The <canvas id=stage>
+   constellation paints onto paper now, with ink-tinted grid + darkened
+   band-family hues so stars stay legible on cream. */
 :root{
-  --bg:oklch(0.16 0.005 85);
-  --bg-1:oklch(0.19 0.005 85);
-  --bg-2:oklch(0.23 0.006 85);
-  --bg-3:oklch(0.27 0.006 85);
-  --fg:oklch(0.93 0.005 85);
-  --fg-2:oklch(0.80 0.005 85);
-  --fg-3:oklch(0.62 0.005 85);
-  --fg-mute:oklch(0.55 0.005 85);
-  --line:oklch(0.30 0.005 85);
-  --line-2:oklch(0.40 0.005 85);
-  --accent:oklch(0.78 0.10 145);
-  --accent-dim:oklch(0.66 0.10 145);
-  --warn:oklch(0.74 0.15 25);
-  --pending:oklch(0.80 0.12 80);
-  /* Band-family hues (LCH-balanced) */
-  --fam-foundation:#B27CFF;
-  --fam-optical:#7CFFB2;
-  --fam-radar:#C8A8FF;
-  --fam-climate:#7CC8FF;
-  --fam-weather:#7CC8FF;
-  --fam-terrain:#FFB37C;
-  --fam-landcover:#A8E07C;
-  --fam-vegetation:#7CFFB2;
-  --fam-water:#7CFFE6;
-  --fam-soil:#D6A87C;
-  --fam-human:#FF7CB2;
-  --fam-vision:#FF9AD0;
-  --fam-encoding:#BCC0C8;
-  --fam-topology:#A0D0FF;
-  --fam-urban:#FF7CB2;
-  --fam-reserved:#5A5C66;
-  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --sans:'Inter Tight','Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --bg:oklch(0.975 0.005 85);
+  --bg-1:oklch(0.955 0.005 85);
+  --bg-2:oklch(0.93 0.006 85);
+  --bg-3:oklch(0.90 0.006 85);
+  --fg:oklch(0.20 0.005 85);
+  --fg-2:oklch(0.32 0.005 85);
+  --fg-3:oklch(0.50 0.005 85);
+  --fg-mute:oklch(0.62 0.005 85);
+  --line:oklch(0.86 0.008 85);
+  --line-2:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);
+  --accent-dim:oklch(0.55 0.09 145);
+  --accent-bg:oklch(0.93 0.04 145);
+  --warn:oklch(0.50 0.14 30);
+  --pending:oklch(0.55 0.12 75);
+  /* Band-family hues — darkened from the old neon set so each reads as a
+     distinct ink-saturated dot on cream paper while keeping its hue. */
+  --fam-foundation:#6E3FB0;
+  --fam-optical:#1E8A55;
+  --fam-radar:#7A52C0;
+  --fam-climate:#2E6FB0;
+  --fam-weather:#2E6FB0;
+  --fam-terrain:#B0631E;
+  --fam-landcover:#4F8A1E;
+  --fam-vegetation:#1E8A55;
+  --fam-water:#1E8A86;
+  --fam-soil:#946B3A;
+  --fam-human:#B03A6E;
+  --fam-vision:#B03A86;
+  --fam-encoding:#5A5E66;
+  --fam-topology:#3A6FB0;
+  --fam-urban:#B03A6E;
+  --fam-reserved:#8A8C94;
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --sans:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--fg);
-  font-family:var(--sans);font-size:13px;line-height:1.5;
+  font-family:var(--mono);font-size:13px;line-height:1.5;
+  font-feature-settings:"ss01","ss02","cv01","cv02";
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
   font-variant-numeric:tabular-nums;
   overflow:hidden;
@@ -96,12 +99,12 @@ button:active{transform:translateY(1px)}
 button.primary{border-color:var(--accent);color:var(--accent)}
 button.ghost{border:none;padding:.3em .6em;color:var(--fg-2)}
 button.ghost:hover{background:var(--bg-2);color:var(--accent)}
-button[aria-pressed=true]{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+button[aria-pressed=true]{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
 input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
   border:1px solid var(--line-2);padding:.45em .7em;border-radius:3px;outline:none;width:100%;font-size:12px}
 input:focus,select:focus{border-color:var(--accent)}
 hr{border:none;border-top:1px solid var(--line);margin:.8em 0}
-::selection{background:rgba(124,255,178,.25);color:#fff}
+::selection{background:var(--accent);color:var(--bg)}
 
 /* ─────────────────────────────────────────────────────────────────────────
    layout — mobile-first, container-query friendly
@@ -151,13 +154,17 @@ hr{border:none;border-top:1px solid var(--line);margin:.8em 0}
 #app.mode-graph .gpop, #app.mode-registry .gpop, #app.mode-log .gpop
   { opacity:0; pointer-events:none; visibility:hidden; }
 
-/* header */
+/* header — restyled to read like the shared site statusbar: warm paper-2
+   bar, brand mark + ink wordmark, faded mono nav. Still grid-area:header
+   inside #app so the canvas layout is untouched, and every JS-referenced
+   id inside it (pubkey, chips) is preserved. */
 header{grid-area:header;display:flex;align-items:center;gap:.6em;padding:0 .8em;
   border-bottom:1px solid var(--line);background:var(--bg-1);min-width:0}
-header .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:13px;
+header .brand{font-family:var(--mono);font-weight:700;letter-spacing:.02em;font-size:13px;
   white-space:nowrap;color:var(--fg)}
+header .brand .brand-mark{width:18px;height:18px;object-fit:contain;display:block}
 header .brand .slash{color:var(--fg-mute)}
-header .brand .humans{color:var(--accent)}
+header .brand .humans{color:var(--accent);font-weight:700}
 header .pubkey{display:none;font-family:var(--mono);font-size:11px;color:var(--fg-3);
   border:1px solid var(--line);padding:.2em .55em;border-radius:3px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:18em}
@@ -174,13 +181,13 @@ header .chip:hover{border-color:var(--accent);color:var(--accent)}
 header .chip kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .25em;border-radius:2px;
   font-size:10px;color:var(--fg-3);margin-left:.3em}
 @media(max-width:760px){header .brand{font-size:12px}header .chip{padding:.2em .4em;font-size:10.5px}}
-/* unified site nav — same links as every other emem surface, styled for
-   the dark app header: faded mono links + accent active-underline. Lives
-   inside the existing header grid row so the canvas layout is untouched. */
+/* unified site nav — same links as every other emem surface, on the warm
+   paper header: ink mono links + accent active-underline. Lives inside the
+   existing header grid row so the canvas layout is untouched. */
 header .sitenav{display:flex;align-items:center;gap:0;font-family:var(--mono);font-size:11px}
 header .sitenav a{position:relative;color:var(--fg-2);border-bottom:none;text-decoration:none;
-  padding:.35em .55em;opacity:.6;transition:opacity .18s ease,color .18s ease;white-space:nowrap}
-header .sitenav a:hover{opacity:1;color:var(--fg)}
+  padding:.35em .55em;opacity:.85;transition:opacity .18s ease,color .18s ease;white-space:nowrap}
+header .sitenav a:hover{opacity:1;color:var(--accent)}
 header .sitenav a.on{opacity:1;color:var(--accent)}
 header .sitenav a.on::after{content:"";position:absolute;left:.55em;right:.55em;bottom:.05em;height:2px;
   background:var(--accent);opacity:.85;border-radius:1px}
@@ -221,7 +228,7 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
 .dock{position:absolute;bottom:.7em;left:50%;transform:translateX(-50%);
   z-index:6;display:flex;align-items:stretch;background:var(--bg-1);
   border:1px solid var(--line);border-radius:4px;font-family:var(--mono);
-  font-size:11px;overflow:hidden;box-shadow:0 6px 32px rgba(0,0,0,.6);
+  font-size:11px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.12);
   max-width:calc(100% - 1.4em)}
 .dock>.sec{display:flex;align-items:center}
 .dock>.sec+.sec{border-left:1px solid var(--line)}
@@ -232,7 +239,7 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
 .dock button:hover{color:var(--fg);background:var(--bg-2)}
 .dock button:disabled{opacity:.45;cursor:not-allowed}
 .dock button[aria-pressed=true]{color:var(--accent);
-  box-shadow:inset 0 -2px 0 var(--accent);background:rgba(124,255,178,.06)}
+  box-shadow:inset 0 -2px 0 var(--accent);background:var(--accent-bg)}
 .dock kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .3em;
   border-radius:2px;font-size:9.5px;color:var(--fg-3);font-weight:400;
   letter-spacing:0;text-transform:none}
@@ -282,10 +289,10 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
 canvas#stage{display:block;width:100%;height:100%;cursor:crosshair;touch-action:none}
 canvas#stage.lasso{cursor:crosshair}
 canvas#stage.panning{cursor:grabbing}
-.tooltip{position:fixed;pointer-events:none;background:rgba(10,11,14,.95);color:var(--fg);
+.tooltip{position:fixed;pointer-events:none;background:var(--bg-1);color:var(--fg);
   border:1px solid var(--accent);padding:.5em .7em;font-size:11px;border-radius:3px;
   z-index:50;display:none;max-width:300px;font-family:var(--mono);
-  box-shadow:0 4px 24px rgba(0,0,0,.6)}
+  box-shadow:0 4px 24px rgba(0,0,0,.12)}
 .tooltip .tip-cell{color:var(--accent);font-size:11px;font-weight:500;word-break:break-all}
 .tooltip .tip-meta{color:var(--fg-3);font-size:10.5px;margin-top:.25em}
 .tooltip .tip-bands{color:var(--fg-2);font-size:10px;margin-top:.3em}
@@ -349,17 +356,17 @@ aside.right h3{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color
 .pill{display:inline-flex;align-items:center;gap:.3em;padding:.15em .55em;
   font-family:var(--mono);font-size:10px;letter-spacing:.04em;
   border:1px solid var(--line-2);border-radius:99px;color:var(--fg-3)}
-.pill.ok{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
+.pill.ok{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
 .pill.fail{border-color:var(--warn);color:var(--warn);background:rgba(255,124,124,.06)}
 .pill.pending{border-color:var(--pending);color:var(--pending)}
 .pill .glyph{display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor}
 .verify-row{display:flex;align-items:center;gap:.5em;padding:.55em .65em;margin:.5em 0;
   border:1px dashed var(--line-2);border-radius:3px;font-size:11px;font-family:var(--mono);flex-wrap:wrap}
-.verify-row.ok{border-color:var(--accent);background:rgba(124,255,178,.04)}
+.verify-row.ok{border-color:var(--accent);background:var(--accent-bg)}
 .verify-row.fail{border-color:var(--warn);background:rgba(255,124,124,.04)}
 
 /* console */
-section.console{grid-area:console;border-top:1px solid var(--line);background:#06070a;
+section.console{grid-area:console;border-top:1px solid var(--line);background:var(--bg-1);
   overflow-y:auto;padding:.5em .8em .6em;font-size:11px;color:var(--fg-3);
   font-family:var(--mono);height:160px;min-height:0;line-height:1.55;
   scroll-behavior:smooth}
@@ -368,7 +375,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .log{padding:.18em 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   display:flex;align-items:center;gap:.45em;position:relative;
   border-radius:2px;padding-right:.45em}
-.log:hover{background:rgba(232,232,234,.025)}
+.log:hover{background:var(--bg-2)}
 .log time{color:var(--fg-mute);font-size:10.5px;flex-shrink:0}
 .log .method{color:var(--accent);font-weight:500;font-size:10.5px;flex-shrink:0;
   min-width:38px;text-align:right}
@@ -384,7 +391,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .log .err-body{color:var(--warn);font-size:10.5px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
 .log.banner{color:var(--fg-3);border-left:2px solid var(--accent);padding:.3em .5em;margin:.3em 0;
-  background:rgba(124,255,178,.04);white-space:normal;display:block}
+  background:var(--accent-bg);white-space:normal;display:block}
 .log.banner kbd{background:var(--bg-2);border:1px solid var(--line);padding:0 .35em;border-radius:2px;
   font-size:10px;color:var(--fg-2)}
 .log .row-pivots{margin-left:auto;display:none;gap:.18em;flex-shrink:0}
@@ -393,14 +400,14 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   border-radius:2px;color:var(--fg-3);background:var(--bg-1);cursor:pointer;
   text-transform:lowercase;letter-spacing:.02em;line-height:1.4}
 .log .pivot:hover{color:var(--accent);border-color:var(--accent);background:transparent}
-.log .pivot.flash{background:rgba(124,255,178,.15);color:var(--accent);border-color:var(--accent)}
+.log .pivot.flash{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
 /* Expanded detail pane — full request + response JSON pretty-printed, so an
  * agent watching the console actually sees what flowed in *both* directions.
  * Audit caught the asymmetry: previously the row showed the request URL but
  * the response summary alone ("3 facts") was opaque. */
 .log.expanded{flex-wrap:wrap;white-space:normal}
 .log.expanded .detail{flex-basis:100%;margin:.35em 0 .55em;border-left:2px solid var(--line-2);
-  padding:.4em .65em;background:rgba(0,0,0,.18);font-size:10.5px;color:var(--fg-2);
+  padding:.4em .65em;background:var(--bg-2);font-size:10.5px;color:var(--fg-2);
   max-height:240px;overflow:auto;border-radius:2px;font-family:var(--mono);
   white-space:pre;tab-size:2}
 .log.expanded .detail .label{color:var(--fg-mute);font-size:9.5px;text-transform:uppercase;
@@ -412,9 +419,9 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);
   padding:.45em .9em;border-radius:3px;font-family:var(--mono);font-size:11px;
   z-index:200;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;
-  letter-spacing:.02em;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+  letter-spacing:.02em;box-shadow:0 8px 24px rgba(0,0,0,.12)}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
-.console-toolbar{position:sticky;top:0;background:#06070a;display:flex;gap:.5em;align-items:center;
+.console-toolbar{position:sticky;top:0;background:var(--bg-1);display:flex;gap:.5em;align-items:center;
   padding:.2em 0 .4em;border-bottom:1px solid var(--line);margin-bottom:.4em;font-size:10.5px;color:var(--fg-mute);z-index:1}
 .console-toolbar button{padding:.15em .5em;font-size:10px;border-radius:2px}
 .console-toolbar a{color:var(--fg-3);font-size:10.5px;border-bottom:none}
@@ -425,7 +432,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   align-items:flex-start;justify-content:center;padding:8vh 1em 1em;backdrop-filter:blur(4px)}
 .cmdk-back.on{display:flex}
 .cmdk-box{background:var(--bg-1);border:1px solid var(--line-2);border-radius:6px;
-  width:100%;max-width:580px;box-shadow:0 24px 64px rgba(0,0,0,.6);
+  width:100%;max-width:580px;box-shadow:0 24px 48px rgba(0,0,0,.16);
   display:flex;flex-direction:column;max-height:80vh;overflow:hidden}
 .cmdk-box input{border:none;border-radius:0;border-bottom:1px solid var(--line);
   padding:.85em 1em;font-size:14px;background:transparent}
@@ -446,7 +453,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
    eval. Click → fills box → submits as /v1/ask. Hidden once the user
    starts typing (and during result rendering). */
 .cmdk-chips{padding:.6em .9em .55em;border-bottom:1px solid var(--line);
-  display:flex;flex-wrap:wrap;gap:.35em;background:rgba(124,255,178,.012)}
+  display:flex;flex-wrap:wrap;gap:.35em;background:var(--accent-bg)}
 .cmdk-chips .lbl{width:100%;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
   color:var(--fg-mute);text-transform:uppercase;margin-bottom:.25em}
 .cmdk-chips button{background:var(--bg-2);border:1px solid var(--line);
@@ -455,7 +462,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   transition:color .12s,border-color .12s,background .12s;line-height:1.3;
   text-align:left;letter-spacing:-.005em}
 .cmdk-chips button:hover{color:var(--accent);border-color:var(--accent);
-  background:rgba(124,255,178,.06)}
+  background:var(--accent-bg)}
 .cmdk-chips.hidden{display:none}
 
 /* /v1/ask result card — the place + topic-routed answer surface that
@@ -463,14 +470,14 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
    visual language as the .cell-card; just topic-headed rather than
    cell-headed. */
 .ask-card{border:1px solid var(--line-2);padding:.7em .85em;border-radius:4px;
-  background:linear-gradient(180deg,rgba(124,255,178,.04),transparent 60%)}
+  background:linear-gradient(180deg,var(--accent-bg),transparent 60%)}
 .ask-card .place{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:500;margin-bottom:.2em}
 .ask-card .place-meta{color:var(--fg-3);font-size:11px;font-family:var(--mono);margin-bottom:.55em}
 .ask-card .topics{display:flex;flex-wrap:wrap;gap:.3em;margin:.4em 0}
 .ask-card .topic{font-family:var(--mono);font-size:10.5px;color:var(--fg-2);
   border:1px solid var(--line);padding:.12em .55em;border-radius:99px;
   background:var(--bg-2);letter-spacing:.01em}
-.ask-card .topic.primary{color:var(--accent);border-color:var(--accent);background:rgba(124,255,178,.08)}
+.ask-card .topic.primary{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
 .ask-card .caveat{font-family:var(--mono);font-size:10.5px;color:var(--pending);
   border-left:2px solid var(--pending);padding:.2em .55em;margin:.3em 0;
   background:rgba(255,193,124,.04);line-height:1.45}
@@ -497,7 +504,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 /* mobile bottom-sheet for right pane (toggled when a cell is selected) */
 .sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg-1);
   border-top:1px solid var(--line-2);z-index:60;max-height:65vh;overflow-y:auto;padding:1em;
-  border-radius:14px 14px 0 0;box-shadow:0 -8px 32px rgba(0,0,0,.5);display:none}
+  border-radius:14px 14px 0 0;box-shadow:0 -8px 24px rgba(0,0,0,.12);display:none}
 .sheet.on{display:block}
 .sheet .grab{width:36px;height:4px;background:var(--line-2);border-radius:99px;margin:0 auto .8em}
 .sheet .close{float:right}
@@ -597,17 +604,17 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .glossary.fade{opacity:.35;transition:opacity .2s ease}
 .glossary.fade:hover{opacity:1}
 .gchip{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);
-  background:rgba(10,11,14,.62);border:1px solid var(--line);padding:.18em .55em;
+  background:oklch(0.97 0.005 85 / 0.78);border:1px solid var(--line);padding:.18em .55em;
   border-radius:99px;cursor:help;letter-spacing:.02em;line-height:1.4;
   transition:color .12s,border-color .12s,background .12s;backdrop-filter:blur(6px)}
 .gchip:hover,.gchip[aria-expanded=true]{color:var(--accent);border-color:var(--accent);
-  background:rgba(124,255,178,.06)}
+  background:var(--accent-bg)}
 .gchip code{font-size:9.5px;color:var(--fg-mute);margin-left:.35em}
 .gchip:hover code,.gchip[aria-expanded=true] code{color:var(--accent)}
 .gpop{position:absolute;top:calc(100% + .4em);left:50%;transform:translateX(-50%);
   background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
   border-radius:4px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
-  max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.6);
+  max-width:min(420px,94vw);box-shadow:0 12px 28px rgba(0,0,0,.14);
   line-height:1.55;text-align:left;display:none;z-index:9}
 .gpop.on{display:block}
 .gpop b{color:var(--accent);font-weight:600}
@@ -625,7 +632,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .tryback.on{display:block}
 .trydrawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100vw);
   background:var(--bg-1);border-left:1px solid var(--accent);z-index:81;
-  display:none;flex-direction:column;box-shadow:-12px 0 48px rgba(0,0,0,.6);
+  display:none;flex-direction:column;box-shadow:-12px 0 36px rgba(0,0,0,.14);
   font-family:var(--mono);font-size:12px}
 .trydrawer.on{display:flex}
 .trydrawer .thead{display:flex;align-items:center;gap:.6em;padding:.7em .9em;
@@ -742,7 +749,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 #ontology .o-node-box{stroke:var(--line-2);fill:var(--bg-1);cursor:pointer;
   transition:stroke .15s,fill .15s}
 #ontology .o-node-box:hover{stroke:var(--accent);fill:var(--bg-2)}
-#ontology .o-node-box.active{stroke:var(--accent);fill:rgba(124,255,178,.05)}
+#ontology .o-node-box.active{stroke:var(--accent);fill:var(--accent-bg)}
 #ontology .o-edge{stroke:var(--line-2);stroke-width:1.2;fill:none}
 #ontology .o-edge-label{fill:var(--fg-mute);font-size:10px;font-family:var(--mono)}
 #ontology .o-node-title{fill:var(--fg);font-size:12px;font-weight:600;
@@ -766,7 +773,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   letter-spacing:.16em;text-transform:uppercase;color:var(--fg-mute)}
 .right-toggle button{font-size:10px;padding:.15em .55em;border-radius:2px}
 .right-toggle button[aria-pressed=true]{color:var(--accent);border-color:var(--accent);
-  background:rgba(124,255,178,.06)}
+  background:var(--accent-bg)}
 .right-raw{background:var(--bg-2);border:1px solid var(--line);padding:.55em .65em;
   border-radius:3px;font-family:var(--mono);font-size:10.5px;color:var(--fg);
   white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto;line-height:1.5}
@@ -778,7 +785,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 
 <div id=app role=application aria-label="emem knowledge constellation">
   <header role=banner>
-    <div class=brand aria-label="emem.dev humans page"><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=humans>humans</span></div>
+    <div class=brand aria-label="emem.dev humans page"><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none;display:inline-flex;align-items:center;gap:.45em"><img src="/vortxgola.gif" alt="" class=brand-mark>emem.dev</a><span class=slash>/</span><span class=humans>humans</span></div>
     <nav class=sitenav aria-label="emem surfaces">
       <a href="/">Home</a>
       <a href="/how-it-works" class="nav-sec">How it works</a>
@@ -1338,15 +1345,18 @@ function humanTempo(s) {
   return Math.round(s/(86400*365)) + ' y';
 }
 function famColor(family) {
+  // Darkened band-family hues — same hue identity as the --fam-* CSS tokens,
+  // but ink-saturated so each star core reads as a distinct dot on cream
+  // paper (the old neon set was tuned for a true-black canvas).
   const m = {
-    foundation:'#B27CFF', optical:'#7CFFB2', radar:'#C8A8FF',
-    climate:'#7CC8FF',    weather:'#7CC8FF',
-    terrain:'#FFB37C',    landcover:'#A8E07C', vegetation:'#7CFFB2',
-    water:'#7CFFE6',      soil:'#D6A87C',      human:'#FF7CB2',
-    vision:'#FF9AD0',     encoding:'#BCC0C8',  topology:'#A0D0FF',
-    urban:'#FF7CB2',      reserved:'#5A5C66',
+    foundation:'#6E3FB0', optical:'#1E8A55', radar:'#7A52C0',
+    climate:'#2E6FB0',    weather:'#2E6FB0',
+    terrain:'#B0631E',    landcover:'#4F8A1E', vegetation:'#1E8A55',
+    water:'#1E8A86',      soil:'#946B3A',      human:'#B03A6E',
+    vision:'#B03A86',     encoding:'#5A5E66',  topology:'#3A6FB0',
+    urban:'#B03A6E',      reserved:'#8A8C94',
   };
-  return m[family] || '#BCC0C8';
+  return m[family] || '#5A5E66';
 }
 
 // base32-nopad-lowercase decoder (RFC 4648)
@@ -2000,7 +2010,8 @@ function drawDecorativeStarfield(W, H) {
   ctx.save();
   for (const p of _starfieldCache.points) {
     const tw = 0.55 + 0.45 * Math.sin(t * p.speed + p.phase);
-    ctx.fillStyle = 'rgba(232,232,234,' + (p.a * tw).toFixed(3) + ')';
+    // ink-tinted decorative dots on cream paper (was light dots on black)
+    ctx.fillStyle = 'rgba(60,58,52,' + (p.a * tw * 0.7).toFixed(3) + ')';
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.r * dpr, 0, Math.PI*2);
     ctx.fill();
@@ -2010,7 +2021,8 @@ function drawDecorativeStarfield(W, H) {
 
 function drawField() {
   const W = canvas.width, H = canvas.height;
-  ctx.fillStyle = '#06070a';
+  // warm cream paper, matching --bg oklch(0.975 0.005 85)
+  ctx.fillStyle = '#f7f4ee';
   ctx.fillRect(0, 0, W, H);
 
   // Decorative seeded starfield — these are NOT cells, they're background
@@ -2020,7 +2032,7 @@ function drawField() {
   drawDecorativeStarfield(W, H);
 
   // faint coordinate grid (lat/lng mod 30°)
-  ctx.strokeStyle = 'rgba(232,232,234,0.04)';
+  ctx.strokeStyle = 'rgba(60,58,52,0.10)';
   ctx.lineWidth = 1 * dpr;
   for (let i = 0; i <= 6; i++) {
     const f = i/6;
@@ -2033,16 +2045,18 @@ function drawField() {
   const cells = visibleCells();
   const t = (performance.now() - _twinkleStart) / 1000;
 
-  // halo pass
-  ctx.globalCompositeOperation = 'lighter';
+  // halo pass — on cream paper we darken (multiply) instead of the dark-mode
+  // additive 'lighter', so each star's coloured aura reads as a soft tint
+  // rather than washing the paper toward white.
+  ctx.globalCompositeOperation = 'multiply';
   for (const c of cells) {
     const [x,y] = project(c);
     if (x < -50 || x > W+50 || y < -50 || y > H+50) continue;
     const tw = 0.55 + 0.45 * Math.sin(t * c.twinkleSpeed + c.twinkle);
     const r = (1.4 + 1.6 * c.brightness) * dpr * Math.max(.7, Math.sqrt(STATE.view.scale)) * tw;
     const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 4);
-    grad.addColorStop(0,   c.color + 'cc');
-    grad.addColorStop(0.4, c.color + '33');
+    grad.addColorStop(0,   c.color + '66');
+    grad.addColorStop(0.4, c.color + '22');
     grad.addColorStop(1,   c.color + '00');
     ctx.fillStyle = grad;
     ctx.beginPath(); ctx.arc(x, y, r*4, 0, Math.PI*2); ctx.fill();
@@ -2059,21 +2073,21 @@ function drawField() {
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
   }
 
-  // selection halo
+  // selection halo — ink ring + green accent ring, legible on cream
   if (STATE.selectedCell) {
     const c = STATE.selectedCell;
     const [x,y] = project(c);
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = 'rgba(40,38,32,0.85)';
     ctx.lineWidth = 1.5 * dpr;
     ctx.beginPath(); ctx.arc(x, y, 9 * dpr, 0, Math.PI*2); ctx.stroke();
-    ctx.strokeStyle = 'rgba(124,255,178,0.6)';
+    ctx.strokeStyle = 'rgba(38,120,80,0.85)';
     ctx.beginPath(); ctx.arc(x, y, 14 * dpr, 0, Math.PI*2); ctx.stroke();
   }
 
   // active lasso polygon
   if (STATE.lassoPoints && STATE.lassoPoints.length) {
-    ctx.strokeStyle = 'rgba(124,255,178,0.85)';
-    ctx.fillStyle = 'rgba(124,255,178,0.05)';
+    ctx.strokeStyle = 'rgba(38,120,80,0.9)';
+    ctx.fillStyle = 'rgba(38,120,80,0.10)';
     ctx.lineWidth = 1.5 * dpr;
     ctx.beginPath();
     STATE.lassoPoints.forEach((p, i) => {
@@ -2188,7 +2202,7 @@ function stepGraph(g) {
 function drawGraph() { /* superseded by #ontology — see buildOntologyView */ return; }
 function _legacy_drawGraph_unused() {
   const W = canvas.width, H = canvas.height;
-  ctx.fillStyle = '#06070a';
+  ctx.fillStyle = '#f7f4ee';
   ctx.fillRect(0, 0, W, H);
   if (!STATE.graph) STATE.graph = buildGraph();
   const g = STATE.graph;
@@ -2201,7 +2215,7 @@ function _legacy_drawGraph_unused() {
   const py = n => oy + n.y * grid;
 
   // edges
-  ctx.strokeStyle = 'rgba(232,232,234,0.08)';
+  ctx.strokeStyle = 'rgba(60,58,52,0.14)';
   ctx.lineWidth = 0.8 * dpr;
   for (const [a, b] of g.edges) {
     const A = g.nodes[a], B = g.nodes[b];
@@ -2230,7 +2244,7 @@ function _legacy_drawGraph_unused() {
   if (STATE.selectedCell) {
     const sn = g.nodes.find(n => n.cell.cell64 === STATE.selectedCell.cell64);
     if (sn) {
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = 'rgba(40,38,32,0.85)';
       ctx.lineWidth = 1.5*dpr;
       ctx.beginPath(); ctx.arc(px(sn), py(sn), 10*dpr, 0, Math.PI*2); ctx.stroke();
     }

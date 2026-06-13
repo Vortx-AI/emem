@@ -6,8 +6,8 @@ src         = "."
 language    = "en"
 
 [output.html]
-default-theme           = "navy"
-preferred-dark-theme    = "navy"
+default-theme           = "light"
+preferred-dark-theme    = "light"
 git-repository-url      = "https://github.com/Vortx-AI/emem"
 edit-url-template       = "https://github.com/Vortx-AI/emem/edit/main/docs/{path}"
 site-url                = "/docs/"

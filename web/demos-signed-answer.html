@@ -32,23 +32,25 @@
   --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
   --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
   --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
-  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.55 0.005 85);
-  --line:oklch(0.88 0.005 85);   --line-2:oklch(0.78 0.005 85);
+  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.68 0.005 85);
+  --line:oklch(0.86 0.008 85);   --line-2:oklch(0.72 0.010 85);
   --accent:oklch(0.45 0.09 145); --accent-dim:oklch(0.55 0.10 145);
+  --accent-bg:oklch(0.93 0.04 145);
   --warn:oklch(0.55 0.16 25);    --pending:oklch(0.60 0.13 80);
   --info:oklch(0.55 0.12 230);   --purple:oklch(0.50 0.14 300);
-  --mono:'JetBrains Mono','Berkeley Mono','IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --sans:var(--mono);
-  font-size:90%;
+  --pad-x:1.5rem;--col-meta:13.75rem;
 }
 @media (prefers-color-scheme: dark){
   :root{
     --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
     --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
     --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
-    --fg-3:oklch(0.62 0.005 85);  --fg-mute:oklch(0.55 0.005 85);
-    --line:oklch(0.30 0.005 85);  --line-2:oklch(0.40 0.005 85);
-    --accent:oklch(0.78 0.10 145);--accent-dim:oklch(0.66 0.10 145);
+    --fg-3:oklch(0.60 0.005 85);  --fg-mute:oklch(0.45 0.005 85);
+    --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-dim:oklch(0.66 0.10 145);
+    --accent-bg:oklch(0.26 0.05 145);
     --warn:oklch(0.74 0.15 25);   --pending:oklch(0.80 0.12 80);
     --info:oklch(0.78 0.10 230);  --purple:oklch(0.78 0.14 300);
   }
@@ -67,14 +69,14 @@ button{font:inherit;font-family:var(--mono);color:var(--fg);background:transpare
   border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;
   letter-spacing:.02em;font-size:12px;}
 button:hover{border-color:var(--accent);color:var(--accent)}
-button.primary{border-color:var(--accent);color:var(--accent);background:rgba(124,255,178,.06)}
-button.primary:hover{background:rgba(124,255,178,.14)}
+button.primary{border-color:var(--accent);color:var(--accent);background:color-mix(in oklch, var(--accent) 8%, transparent)}
+button.primary:hover{background:color-mix(in oklch, var(--accent) 16%, transparent)}
 button:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--fg-3)}
 button:disabled:hover{border-color:var(--line);color:var(--fg-3);background:transparent}
 input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
   border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px;}
 input:focus,select:focus{border-color:var(--accent)}
-::selection{background:rgba(124,255,178,.25);color:#fff}
+::selection{background:var(--accent);color:var(--bg)}
 
 .app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
 @media(max-width:760px){.app{padding:1em .8em 4em}}
@@ -112,7 +114,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 .step{background:var(--bg-1);border:1px solid var(--line);border-radius:4px;padding:1.1em 1.2em;
   position:relative;transition:border-color .2s,opacity .2s}
 .step.idle{opacity:.55}
-.step.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(124,255,178,.08) inset}
+.step.active{border-color:var(--accent);box-shadow:0 0 0 1px color-mix(in oklch, var(--accent) 12%, transparent) inset}
 .step.done{border-left:3px solid var(--accent-dim)}
 .step .head{display:flex;align-items:baseline;gap:.6em;margin-bottom:.65em;flex-wrap:wrap}
 .step .num{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--fg-mute);
@@ -142,7 +144,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 .chip[data-kind=cell] .dot{background:var(--accent)}
 .chip[data-kind=cid] .dot{background:var(--purple)}
 .chip[data-kind=pub] .dot{background:var(--info)}
-.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent);background:rgba(124,255,178,.06)}
+.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
 .chip[data-kind=ok] .dot{background:var(--accent)}
 .chip[data-kind=fail]{color:var(--warn);border-color:var(--warn)}
 .chip[data-kind=fail] .dot{background:var(--warn)}
@@ -158,11 +160,6 @@ header.top .navlinks a:hover{color:var(--accent)}
   border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:.4em}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-footer.foot{margin-top:2.4em;padding-top:1.1em;border-top:1px solid var(--line);
-  display:flex;gap:1em;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--fg-mute)}
-footer.foot a{color:var(--fg-3);border-bottom:none}
-footer.foot a:hover{color:var(--accent)}
-
 .toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
   background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
   border-radius:3px;font-family:var(--mono);font-size:11.5px;z-index:200;opacity:0;
@@ -172,19 +169,36 @@ footer.foot a:hover{color:var(--accent)}
 .skip{position:absolute;left:-999px;top:0}
 .skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
 
-/* unified site statusbar (matches /reference) */
-.statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:60;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 1.4rem;display:flex;align-items:center;gap:1rem;height:40px;font-size:11px}
-.statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
+/* statusbar — shared with index.html */
+.statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:.75rem}
+.statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
 .statusbar a:first-of-type{border-left:1px solid var(--line);margin-left:.5rem}
-.statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2);border-bottom:none}
+.statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2)}
 .statusbar a.on{opacity:1;color:var(--accent)}
 .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
-.statusbar .brand{font-weight:700;font-size:12px;letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand{font-weight:700;font-size:.8125rem;letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.45rem}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
-@media (max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
-.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
+@media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+.statusbar .brand{opacity:1;cursor:pointer}
+
+/* footer — shared with index.html */
+.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.foot{position:relative;background:var(--bg);padding:3rem 0;border-top:1px solid var(--line);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--fg-3);font-size:.75rem}
+.foot-meta .name{color:var(--fg);font-weight:700;font-size:.8125rem;margin-bottom:.5rem}
+.foot-meta .desc{color:var(--fg-3);line-height:1.5}
+.foot-meta .desc a{color:var(--fg-2);text-decoration:underline;text-decoration-color:var(--line);border-bottom:none}
+.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--fg-2);text-decoration:none;border-bottom:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute)}
+.foot-bottom a{color:inherit;border-bottom:none}
+.foot-bottom a:hover{color:var(--accent)}
+@media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
@@ -193,20 +207,20 @@ footer.foot a:hover{color:var(--accent)}
 <header class="statusbar">
   <div class="statusbar-inner">
     <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
-    <a href="/">Home</a>
-    <a href="/how-it-works" class="nav-sec">How it works</a>
-    <a href="/solutions" class="nav-sec">Solutions</a>
-    <a href="/reference" class="nav-sec">Reference</a>
-    <a href="/docs" class="nav-sec">Docs</a>
-    <a href="/verify" class="nav-sec">Verify</a>
+    <a href="/how-it-works" class="nav-sec">how it works</a>
+    <a href="/solutions" class="nav-sec">solutions</a>
+    <a href="/reference" class="nav-sec">reference</a>
+    <a href="/demos" class="nav-sec">demos</a>
+    <a href="/verify" class="nav-sec">verify</a>
     <span class="spacer"></span>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+    <a href="/docs">docs</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
   </div>
 </header>
 
 <main class=app id=main tabindex="-1">
   <header class=top role=banner>
-    <a href="/" class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</a><span class=leaf>demos/signed-answer</span></span>
+    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/signed-answer</span></span>
     <span class=tag>the trust path in four steps</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
@@ -333,23 +347,76 @@ footer.foot a:hover{color:var(--accent)}
 
   </section>
 
-  <footer class=foot>
-    <a href="/">home</a>
-    <a href="/demos">demos</a>
-    <a href="/whitepaper.md">whitepaper</a>
-    <a href="/spec.md">spec</a>
-    <a href="/agents.md">agents.md</a>
-    <a href="/integrations.md">integrations</a>
-    <a href="/openapi.json">openapi</a>
-    <a href="/mcp">mcp</a>
-    <a href="/llms.txt">llms.txt</a>
-    <a href="/verify">verify</a>
-    <a href="/humans">humans</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
-    <span class=muted>· emem v0.0.9 · signed by the responder</span>
-  </footer>
-
 </main>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">Earth memory protocol. Cell × Band × Tslot → Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper.md">whitepaper</a></li>
+          <li><a href="/docs/gallery">live coverage map</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
+          <li><a href="/v1/stream">live stream (SSE)</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/demos">demos index</a></li>
+          <li><a href="/demos/ask-the-earth">ask the Earth</a></li>
+          <li><a href="/demos/state-cube">state cube walk</a></li>
+          <li><a href="/demos/signed-answer">signed answer</a></li>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/humans">/humans</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart</a></li>
+          <li><a href="/docs/api/">API reference</a></li>
+          <li><a href="/docs/errors.html">errors</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
+          <li><a href="/health">health</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="/privacy">privacy · terms</a>
+      </span>
+    </div>
+  </div>
+</footer>
 
 <div class=toast id=toast></div>
 

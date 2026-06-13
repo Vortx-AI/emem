@@ -75,6 +75,7 @@ code,.mono{font-family:var(--mono)}
 .statusbar a:hover{opacity:1}
 .statusbar a.on{opacity:1;color:var(--accent)}
 .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+@media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar .meta{display:none}.statusbar-inner{height:36px}}
 
 /* hero */
 main{max-width:880px;margin:0 auto;padding:3rem var(--pad-x) 5rem}
@@ -194,14 +195,14 @@ footer a{color:var(--ink-2)}
   <div class="statusbar-inner">
     <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
     <a href="/">Home</a>
-    <a href="/how-it-works">How it works</a>
-    <a href="/solutions">Solutions</a>
-    <a href="/reference">Reference</a>
-    <a href="/docs">Docs</a>
-    <a href="/verify">Verify</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+    <a href="/how-it-works" class="nav-sec">How it works</a>
+    <a href="/solutions" class="nav-sec">Solutions</a>
+    <a href="/reference" class="nav-sec">Reference</a>
+    <a href="/docs" class="nav-sec">Docs</a>
+    <a href="/verify" class="nav-sec">Verify</a>
     <span class="spacer"></span>
     <span class="meta">404 · path not attested</span>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
   </div>
 </header>
 
@@ -219,7 +220,7 @@ footer a{color:var(--ink-2)}
     <div class="row"><span class="k">request_path</span><span class="v path" id="req-path">…</span></div>
     <div class="row"><span class="k">responder</span><span class="v">emem.dev</span></div>
     <div class="row"><span class="k">looked_up</span><span class="v reason">route registry, static surface, demo index, doc tree, fact cid index</span></div>
-    <div class="row"><span class="k">verdict</span><span class="v reason">no entry: this is a real 404, not a "we hide it" 404</span></div>
+    <div class="row"><span class="k">verdict</span><span class="v reason">no entry found · returned as an honest 404</span></div>
     <div class="row"><span class="k">served_at</span><span class="v" id="served-at">…</span></div>
   </div>
 
@@ -228,7 +229,7 @@ footer a{color:var(--ink-2)}
     <ul class="path-list">
       <li><a href="/"><span class="method">GET</span><span class="url">/</span><span class="desc">landing · what emem is</span></a></li>
       <li><a href="/docs/"><span class="method">GET</span><span class="url">/docs/</span><span class="desc">protocol + recipes</span></a></li>
-      <li><a href="/openapi.json"><span class="method">GET</span><span class="url">/openapi.json</span><span class="desc">every wired endpoint</span></a></li>
+      <li><a href="/openapi.json"><span class="method">GET</span><span class="url">/openapi.json</span><span class="desc">OpenAPI spec</span></a></li>
       <li><a href="/mcp"><span class="method">POST</span><span class="url">/mcp</span><span class="desc">Streamable HTTP MCP surface</span></a></li>
       <li><a href="/v1/locate?place=mumbai"><span class="method">GET</span><span class="url">/v1/locate</span><span class="desc">place name → cell64</span></a></li>
       <li><a href="/humans"><span class="method">GET</span><span class="url">/humans</span><span class="desc">corpus, for humans</span></a></li>
