@@ -62,7 +62,11 @@
         "is the wetland inundated",
         "standing water",
         "is it flooded right now",
-        "flooded today"
+        "flooded today",
+        "lake flooded",
+        "flooded right now",
+        "overflowing",
+        "full capacity"
       ],
       "bands": ["indices.ndwi", "indices.mndwi", "sentinel1_raw"],
       "algorithms": ["water_consensus@1", "water_likelihood_from_vv@1", "flood_extent_sar_threshold@1", "wetland_binary_s1_s2_dem@1", "prithvi_cafe_flood_segmentation@1"]
@@ -85,7 +89,12 @@
         "monsoon waterlogging",
         "waterlogging issues",
         "flood likelihood",
-        "is this place going to flood"
+        "is this place going to flood",
+        "flood-prone",
+        "flood prone",
+        "buy a house",
+        "safe to live",
+        "purchase a flat"
       ],
       "bands": ["surface_water.recurrence", "copdem30m.elevation_mean", "sentinel1_raw"],
       "algorithms": ["flood_risk@2", "route_flood_exposure@1"]
@@ -183,7 +192,11 @@
         "how dense is this neighborhood",
         "infrastructure",
         "roads in this area",
-        "settlement"
+        "settlement",
+        "built up",
+        "densely built",
+        "building count",
+        "road length"
       ],
       "bands": ["indices.ndbi", "overture.buildings.count", "overture.places.count", "overture.transportation.road_length_m"],
       "algorithms": ["built_up_from_ndbi@1", "urban_density_score@1", "noise_exposure_proxy@1", "solar_pv_likelihood@1"]
@@ -266,7 +279,8 @@
         "render the topography",
         "slope map",
         "draw the slope",
-        "terrain shape"
+        "terrain shape",
+        "rugged"
       ],
       "bands": ["copdem30m.elevation_mean"],
       "algorithms": ["slope_from_dem_neighborhood@1", "ruggedness_index@1", "topo_position_index@1", "coastal_proximity@1"]
@@ -322,7 +336,8 @@
         "growing season",
         "pasture quality",
         "vineyard",
-        "orchard health"
+        "orchard health",
+        "crop yield"
       ],
       "bands": ["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "indices.ndre", "indices.ndti", "modis.ndvi_mean", "modis.lai_8day", "modis.gpp_8day", "power.t2m", "power.t2m_min", "power.t2m_max", "power.precip", "sentinel1_raw"],
       "algorithms": ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1", "crop_water_stress_index_proxy@1", "crop_archetype_embedding_match@1", "prithvi_canola_yield_frozen_encoder@1"]
@@ -413,7 +428,9 @@
         "flood risk for this address",
         "house hazard score",
         "is this neighborhood safe to live in",
-        "insurance premium for this property"
+        "insurance premium for this property",
+        "property risk",
+        "insurance premium"
       ],
       "bands": ["surface_water.recurrence", "copdem30m.elevation_mean", "indices.ndvi", "modis.lst_day_8day", "indices.urban_canopy_index", "overture.transportation.road_length_m"],
       "algorithms": ["property_climate_risk_score@1", "insurance_premium_proxy@1", "coastal_erosion_proxy@1", "multi_peril_score@1"]
@@ -430,7 +447,9 @@
         "uhi intensity",
         "livability of this area",
         "is it pleasant to live here",
-        "outdoor comfort"
+        "outdoor comfort",
+        "walkable",
+        "green space"
       ],
       "bands": ["indices.urban_canopy_index", "indices.ndvi", "modis.lst_day_8day", "overture.places.count", "overture.transportation.road_length_m"],
       "algorithms": ["walkability_score@1", "bikeability_score@1", "green_space_access@1", "outdoor_comfort_score@1", "livability_index@1"]
@@ -467,7 +486,9 @@
         "is this place unusual",
         "place archetype",
         "embedding similarity",
-        "what does this place look like geographically"
+        "what does this place look like geographically",
+        "lookalikes",
+        "similar to this place"
       ],
       "bands": ["geotessera", "geotessera.multi_year", "geotessera.bin128", "prithvi_eo2", "clay_v1"],
       "algorithms": ["embedding_cosine@1", "embedding_l2_distance@1", "embedding_change_score@1", "region_similarity@1", "place_archetype_match@1", "embedding_temporal_change_year@1", "multimodal_change_score@1", "prithvi_archetype_match@1", "prithvi_temporal_change@1", "prithvi_tessera_ensemble_change@1", "clay_archetype_match@1", "clay_temporal_change@1", "clay_prithvi_tessera_triple_consensus@1", "cross_modal_s1_s2_consistency@1"]
