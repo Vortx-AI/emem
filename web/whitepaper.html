@@ -1,0 +1,1318 @@
+<!doctype html><html lang=en>
+<head>
+<meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>emem whitepaper: a content-addressed protocol for verifiable agent memory</title>
+<meta name=description content="The emem whitepaper. A content-addressed protocol for verifiable agent memory: cell64 + tslot addressing, canonical CBOR + BLAKE3 + base32 CIDs, ed25519 receipts over a domain-separated preimage, RFC 6962 Merkle proofs, the 1792-D voxel, triple-encoder consensus, and the full primitive surface. Version 0.0.9.">
+<link rel=canonical href="https://emem.dev/whitepaper.html">
+<link rel=alternate type=text/markdown href=/whitepaper.md>
+<link rel=icon type="image/gif" href="/vortxgola.gif">
+<link rel="apple-touch-icon" href="/vortxgola.gif">
+<meta property=og:type content=article>
+<meta property=og:url content="https://emem.dev/whitepaper.html">
+<meta property=og:title content="emem whitepaper: a content-addressed protocol for verifiable agent memory">
+<meta property=og:description content="The flagship technical document for emem. cell64 + tslot, canonical CBOR + BLAKE3 + base32 CIDs, ed25519 receipts, RFC 6962 Merkle, triple-encoder consensus. Version 0.0.9.">
+<meta property=og:site_name content=emem>
+<meta name=twitter:card content=summary>
+<meta name=twitter:title content="emem whitepaper">
+<meta name=twitter:description content="A content-addressed protocol for verifiable agent memory. Version 0.0.9.">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --pad-x:1.5rem;
+  --t-xs:.75rem;--t-sm:.8125rem;--t-base:1rem;--t-md:1.0625rem;--t-lg:1.25rem;--t-xl:1.5rem;--t-2xl:2rem;--t-3xl:2.75rem;--t-4xl:4.25rem;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  }
+}
+*{box-sizing:border-box}
+html{font-size:100%;scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--accent);color:var(--paper)}
+:target{scroll-margin-top:64px}
+
+/* statusbar (verbatim from index.html) */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{color:var(--ink);background:var(--paper-3);opacity:1}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem;opacity:1;text-decoration:none;cursor:pointer}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+
+/* page shell */
+.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer;position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
+.btn:hover{background:var(--ink-2);transform:translateY(-1px)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
+
+/* a multi-band Mithila rule divider for major parts */
+.band-rule{height:6px;margin:0;border:0;background:
+  linear-gradient(var(--rule),var(--rule)) left top/100% 1px no-repeat,
+  linear-gradient(var(--rule),var(--rule)) left bottom/100% 1px no-repeat,
+  repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px) center/auto 100%;
+  -webkit-mask:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+
+/* small rotated-diamond seal mark */
+.seal-row{display:flex;align-items:center;justify-content:center;gap:.7rem;margin:0;color:var(--mute-2);font-size:var(--t-xs)}
+.seal{width:6px;height:6px;background:var(--paper);border:1px solid var(--accent);opacity:.7;transform:rotate(45deg);flex:0 0 auto}
+.seal-row .line{flex:1;height:1px;background:var(--rule);max-width:7rem}
+
+/* ── hero ─────────────────────────────────────────────────────────────── */
+.hero{position:relative;padding:4rem 0 3rem;border-bottom:1px solid var(--rule)}
+.hero .kicker{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.14em;color:var(--mute);margin:0 0 1.2rem;display:flex;align-items:center;gap:.6rem}
+.hero .kicker .seal{opacity:.8}
+.hero h1{font-size:var(--t-3xl);font-weight:500;letter-spacing:-.03em;line-height:1.08;margin:0 0 1.4rem;color:var(--ink);max-width:24ch}
+.hero h1 .accent{color:var(--accent);font-weight:700}
+.hero .teaser{font-size:var(--t-lg);color:var(--ink-2);max-width:64ch;line-height:1.5;margin:0 0 1.6rem;font-weight:400}
+.hero .meta-line{font-size:var(--t-sm);color:var(--mute);margin:0 0 1.8rem;letter-spacing:.02em;display:flex;flex-wrap:wrap;gap:.4rem .9rem;align-items:center}
+.hero .meta-line b{color:var(--ink);font-weight:700}
+.hero .meta-line .dot{color:var(--rule-strong)}
+.hero-cta{display:flex;gap:.75rem;flex-wrap:wrap}
+
+/* ── two-column scholarly layout ──────────────────────────────────────── */
+.wrap{display:grid;grid-template-columns:16rem 1fr;gap:3rem;padding:0 0 2rem;align-items:start}
+
+/* sticky TOC */
+.toc{position:sticky;top:56px;align-self:start;max-height:calc(100vh - 72px);overflow:auto;font-size:var(--t-xs);border-right:1px solid var(--rule);padding:2rem 1.4rem 2rem 0;margin:0}
+.toc .toc-h{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--mute-2);font-weight:700;margin:0 0 .8rem;display:flex;align-items:center;gap:.5rem}
+.toc .toc-h .seal{opacity:.7}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:none}
+.toc li{margin:0}
+.toc a{display:block;color:var(--mute);text-decoration:none;padding:.28rem .5rem .28rem .6rem;border-left:2px solid transparent;line-height:1.4;transition:color .14s ease,border-color .14s ease,background .14s ease}
+.toc a:hover{color:var(--ink);background:var(--paper-2)}
+.toc a.on{color:var(--accent);border-left-color:var(--accent);background:var(--paper-2)}
+.toc a .n{color:var(--mute-2);font-weight:700;margin-right:.5rem;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.toc a.sub{padding-left:1.6rem;font-size:var(--t-xs);color:var(--mute-2)}
+.toc a.sub:hover,.toc a.sub.on{color:var(--accent)}
+
+/* main reading column */
+.doc{min-width:0;padding:2rem 0 0;max-width:78ch}
+.doc section{padding:0 0 2.4rem;position:relative}
+.doc section+section{padding-top:.4rem}
+.doc h2{font-size:var(--t-2xl);font-weight:600;letter-spacing:-.02em;line-height:1.14;color:var(--ink);margin:2.6rem 0 1.1rem;scroll-margin-top:64px;padding-top:1.6rem;border-top:1px solid var(--rule);position:relative}
+.doc h2:first-child{border-top:0;padding-top:0;margin-top:0}
+.doc h2 .num{color:var(--mute-2);font-weight:300;margin-right:.7rem;font-variant-numeric:tabular-nums}
+.doc h2::before{content:"";position:absolute;top:-3px;left:0;width:5px;height:5px;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
+.doc h2:first-child::before{display:none}
+.doc h3{font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:2rem 0 .7rem;scroll-margin-top:64px}
+.doc h4{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:1.6rem 0 .6rem;scroll-margin-top:64px}
+.doc p{max-width:72ch;margin:0 0 1.15rem;color:var(--ink-2);font-size:var(--t-base)}
+.doc p.lede{font-size:var(--t-lg);color:var(--ink-2);max-width:64ch;margin:0 0 1.6rem;line-height:1.45}
+.doc strong{color:var(--ink);font-weight:700}
+.doc em{font-style:italic;color:var(--ink-2)}
+.doc a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.doc a:hover{background:var(--accent-bg)}
+.doc ul,.doc ol{max-width:72ch;margin:0 0 1.2rem;padding-left:1.2rem}
+.doc ul{list-style:none;padding-left:1.1rem}
+.doc ul>li{color:var(--ink-2);line-height:1.55;margin:0 0 .65rem;position:relative;padding-left:1rem}
+.doc ul>li::before{content:"";position:absolute;left:0;top:.6em;width:.4rem;height:.4rem;background:var(--accent);border-radius:50%}
+.doc ol{list-style:decimal;padding-left:1.6rem}
+.doc ol>li{color:var(--ink-2);line-height:1.55;margin:0 0 .6rem;padding-left:.3rem}
+.doc ul ul{margin:.5rem 0 .3rem}
+
+/* inline tokens / math spans */
+.doc code{font-family:var(--mono);font-size:.92em;background:var(--paper-3);color:var(--ink);padding:.05em .35em;border-radius:2px;word-break:break-word}
+.doc a code{background:transparent;padding:0}
+.m{font-family:var(--mono);font-style:normal;background:var(--paper-3);color:var(--ink-2);padding:.05em .4em;border:1px solid var(--rule);border-radius:2px;white-space:nowrap}
+
+/* block code / formula */
+.code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.4rem 0;font-size:var(--t-sm);line-height:1.6;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
+.code-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
+.code-head .tab{padding:.4rem .8rem;color:var(--mute)}
+.code-head .lang{padding:.4rem .8rem;border-left:1px solid var(--rule);font-weight:700;color:var(--ink-2);margin-left:auto}
+.code pre{margin:0;padding:1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:var(--t-sm);white-space:pre;color:var(--ink);line-height:1.55}
+.code pre code{font-family:inherit;background:transparent;padding:0;color:inherit;font-size:inherit}
+
+/* display formula block (math) */
+.formula{border:1px solid var(--rule-strong);background:var(--paper-3);margin:1.4rem 0;padding:1rem 1.2rem;overflow-x:auto;font-size:var(--t-sm);line-height:1.7;color:var(--ink)}
+.formula .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.5rem}
+.formula pre{margin:0;white-space:pre;font-family:var(--mono);overflow-x:auto}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:1.4rem 0}
+table.t{width:100%;border-collapse:collapse;font-size:var(--t-sm);border:1px solid var(--rule);min-width:480px}
+table.t th,table.t td{padding:.55rem .8rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+table.t thead th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700;border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+table.t tbody tr:hover td{background:var(--paper-2)}
+table.t td code,table.t th code{background:var(--paper-3);font-size:.9em}
+table.t td:first-child{color:var(--ink);font-weight:600}
+
+/* figures */
+figure.fig{margin:1.8rem 0;text-align:center}
+figure.fig img{display:block;width:100%;max-width:680px;height:auto;margin:0 auto;border:1px solid var(--rule);background:var(--paper);padding:.6rem;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+figure.fig figcaption{margin:.9rem auto 0;font-size:var(--t-xs);color:var(--mute);max-width:60ch;line-height:1.5}
+figure.fig figcaption b{color:var(--ink-2);font-weight:700}
+
+/* references */
+.refs{list-style:none;margin:1.2rem 0;padding:0}
+.refs li{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;margin:0 0 .7rem;padding-left:1.4rem;position:relative;max-width:74ch}
+.refs li::before{content:"›";position:absolute;left:0;top:0;color:var(--mute-2);font-weight:700}
+.refs li em{font-style:italic}
+.refs li code{font-size:.88em}
+
+/* footer (verbatim from index.html) */
+.foot{position:relative;background:var(--paper);padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:13.75rem 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
+.foot-meta .desc{color:var(--mute);line-height:1.5}
+.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
+.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--ink-2);text-decoration:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom a{color:inherit}
+
+/* responsive */
+@media (max-width:980px){
+  .wrap{grid-template-columns:13rem 1fr;gap:2rem}
+}
+@media (max-width:860px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  .toc{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--rule);padding:1.4rem 0;margin-bottom:1rem;overflow:visible;-webkit-column-count:2;column-count:2;column-gap:1.5rem}
+  .toc .toc-h{-webkit-column-span:all;column-span:all}
+  .doc{padding-top:1rem;max-width:none}
+  .foot{grid-template-columns:1fr;gap:1.6rem}
+  .foot-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:560px){
+  .hero{padding:3rem 0 2.2rem}
+  .hero h1{font-size:var(--t-2xl);line-height:1.08}
+  .hero-cta{flex-direction:column;align-items:stretch}
+  .hero-cta .btn{justify-content:center}
+  .toc{-webkit-column-count:1;column-count:1}
+  .doc h2{font-size:var(--t-xl)}
+  .code pre,.formula pre{font-size:var(--t-xs)}
+  .statusbar a.nav-sec{display:none}
+}
+@media (max-width:480px){
+  html{font-size:93.75%}
+  .page{padding:0 1rem}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+    <a href="/how-it-works" class="nav-sec">how it works</a>
+    <a href="/solutions" class="nav-sec">solutions</a>
+    <a href="/reference" class="nav-sec">reference</a>
+    <a href="/whitepaper.html" class="nav-sec on">whitepaper</a>
+    <span class="spacer"></span>
+    <a href="/docs">docs</a>
+    <a href="/verify">verify</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  </div>
+</header>
+
+<!-- ── hero ──────────────────────────────────────────────────────────── -->
+<div class="page">
+  <header class="hero">
+    <p class="kicker"><span class="seal"></span> Whitepaper &middot; Vortx AI</p>
+    <h1>emem: a content-addressed protocol for <span class="accent">verifiable agent memory</span></h1>
+    <p class="teaser">A memory substrate for AI agents that need a stable, citation-carrying place to ground spatial answers and a writable scratchpad for their own observations. Two layers ride a single trust surface. The lower layer is Earth memory, an open-data corpus addressed by <code>(cell, band, tslot)</code> whose unit is a signed fact. The upper layer is agent memory, a content-addressed file store under <code>/memories/*</code>. Both layers return signed receipts; the same <code>/verify</code> page checks them both without trusting the issuer.</p>
+    <p class="meta-line"><b>Vortx AI</b> <span class="dot">&middot;</span> <b>v0.0.9</b> &middot; 2026-05-30 <span class="dot">&middot;</span> Apache-2.0 <span class="dot">&middot;</span> reference responder <code>emem.dev</code></p>
+    <div class="hero-cta">
+      <a class="btn" href="/spec.md">spec.md</a>
+      <a class="btn ghost" href="/docs">docs</a>
+      <a class="btn ghost" href="/verify">/verify</a>
+      <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub repo</a>
+    </div>
+  </header>
+</div>
+
+<div class="page">
+<div class="wrap">
+
+  <!-- ── sticky TOC ──────────────────────────────────────────────────── -->
+  <nav class="toc" aria-label="Table of contents">
+    <p class="toc-h"><span class="seal"></span> Contents</p>
+    <ol>
+      <li><a href="#abstract"><span class="n">0</span>Abstract</a></li>
+      <li><a href="#s1"><span class="n">1</span>Motivation</a></li>
+      <li><a href="#s2"><span class="n">2</span>Spatial primitive: cell64</a></li>
+      <li><a href="#s3"><span class="n">3</span>Temporal primitive: tslot</a></li>
+      <li><a href="#s4"><span class="n">4</span>Content addressing</a></li>
+      <li><a href="#s5"><span class="n">5</span>Trust: receipts, attestations, in-browser verification</a></li>
+      <li><a href="#s6"><span class="n">6</span>Signed Absence</a></li>
+      <li><a href="#s7"><span class="n">7</span>Bands: the 1792-D voxel</a></li>
+      <li><a href="#s8"><span class="n">8</span>Algorithms</a></li>
+      <li><a href="#s9"><span class="n">9</span>Primitives</a></li>
+      <li><a href="#s10"><span class="n">10</span>/v1/ask: foundation-embedding fan-out</a></li>
+      <li><a href="#s11"><span class="n">11</span>Locate cascade</a></li>
+      <li><a href="#s12"><span class="n">12</span>Inference</a></li>
+      <li><a href="#s13"><span class="n">13</span>Sources and connectors</a></li>
+      <li><a href="#s14"><span class="n">14</span>Topics</a></li>
+      <li><a href="#s15"><span class="n">15</span>Agent-discoverable surface</a></li>
+      <li><a href="#s16"><span class="n">16</span>Conformance</a></li>
+      <li><a href="#s17"><span class="n">17</span>Privacy</a></li>
+      <li><a href="#s18"><span class="n">18</span>Honest limits</a></li>
+      <li><a href="#s19"><span class="n">19</span>Comparison with adjacent work</a></li>
+      <li><a href="#s20"><span class="n">20</span>Open questions</a></li>
+      <li><a href="#refs"><span class="n">&sect;</span>References</a></li>
+    </ol>
+  </nav>
+
+  <!-- ── reading column ──────────────────────────────────────────────── -->
+  <main class="doc">
+
+    <!-- ABSTRACT -->
+    <section id="abstract">
+      <h2>Abstract</h2>
+      <p>emem is a memory substrate for AI agents that need a stable, citation-carrying place to ground spatial answers and a writable scratchpad for their own observations. Two layers ride a single trust surface. The lower layer is <em>Earth memory</em>: an open-data corpus addressed by <code>(cell, band, tslot)</code> whose unit is a signed fact. The upper layer is <em>agent memory</em>: a content-addressed file store under <code>/memories/*</code>, six file-op verbs that conform to the Anthropic memory-tool specification, four memory kinds drawn from the CoALA agent-memory ontology (<code>episodic</code>, <code>semantic</code>, <code>procedural</code>, <code>resource</code>), and an ed25519 capability binding on paths under <code>/memories/by_attester/&lt;pubkey&gt;/...</code>. Both layers return signed receipts; the same <code>/verify</code> page checks them both without trusting the issuer.</p>
+      <p>Every read primitive accepts two optional bounds, <code>as_of_tslot</code> (observation time) and <code>as_of_signed_at</code> (transaction time). Set either, both, or neither. The receipt carries an <code>as_of</code> block when the bound is non-empty so a verifier in year <em>t+k</em> replays the exact query a system answered at year <em>t</em>. Three derived primitives complete the substrate: <code>memory_bundle</code> composes N facts into one signed envelope (<code>memb:&lt;bundle_cid&gt;</code>); <code>memory_search</code> embeds queries through BGE-base-en-v1.5 and runs cosine against a LanceDB IVF_PQ partition over memory-file contents; <code>memory_contradictions</code> walks a parallel multi-attester index and scores cross-signer disagreement per band kind (scalar, vector, categorical, mixed). A Server-Sent Events stream surfaces every memory write with server-side filter on <code>path_prefix</code>, <code>kind</code>, and <code>attester</code>.</p>
+      <p>The protocol defines the loader, the validator, the CID rule, the receipt-signing rule, the capability-binding rule, and the primitive semantics. It is never the data itself. Any conforming implementation must produce byte-identical CIDs from byte-identical inputs; the conformance set is a content-addressed manifest pinning bands, algorithms, sources, schema, and the function registry. The reference responder is a single Rust binary at <code>github.com/Vortx-AI/emem</code>, running at <a href="https://emem.dev">emem.dev</a>.</p>
+      <p>Four foundation encoders sit GPU-pinned inside the same tenant as the responder: Clay v1.5 (1024-D, Sentinel-2, receptive field ~2.56 km), Prithvi-EO-2.0-300M-TL (1024-D, HLS V2, ~6.7 km), Tessera (128-D annual stack via <code>geotessera.multi_year</code>, per-pixel), and Galileo (multimodal stack: S1, S2, DEM, climate). Their receptive fields and modality coverage are independent, and the protocol surfaces a triple-consensus change algorithm that votes across all three. Consensus across the three is strong signal; one-or-none flags receptive-field aliasing rather than land-surface change.</p>
+      <p>This document specifies the math and architecture that 0.0.9 ships. Items not in 0.0.9 are listed under "Honest limits" and not discussed elsewhere.</p>
+      <figure class="fig">
+        <img src="/docs/diagrams/01-architecture.svg" alt="emem architecture: one Rust binary, two wire surfaces, one optional sidecar" loading="lazy">
+        <figcaption><b>Figure 1: the entire stack.</b> REST and MCP share handlers; sled holds the hot cache, the append-only Merkle log holds the trust state. Open the SVG for the labelled variant.</figcaption>
+      </figure>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 1 MOTIVATION -->
+    <section id="s1">
+      <h2><span class="num">1</span>Motivation</h2>
+      <p>LLM agents asked "what is at this place" sample fragmented, undated, unattributed scrapes. Two failure modes recur: conflicting answers across runs (no canonical address for "the patch of land at lat=12.97&deg;, lng=77.59&deg; on 2024-09-01"), and no way to cite (the underlying tile, timestamp, and algorithm get smeared together).</p>
+      <p>The same agents asked "what did <em>we</em> learn here last week" fail in the same shape. Long-term assistants and agent systems need to accumulate, update, and reuse historical information across sessions; current practice splits along three lines. Textual stores inject prior history through the context window. Parametric stores fold knowledge into adapter or prefix weights. Outside-channel stores keep state in a separate module reached by retrieval. Each of these operates over a <em>single agent's</em> history, scoped to a conversation or a tenant, and produces unsigned strings the system administrator can rewrite at will (MINJA, NeurIPS 2025, demonstrates 95 % poisoning success against this class through query-only interaction).</p>
+      <p>emem covers both failure modes on one trust surface. The lower layer is a shared, cross-session, cross-tenant working memory of <em>Earth itself</em>: addresses are places rather than token positions, state is persistent rather than per-conversation, bytes are reproducible across replicas rather than fuzzily retrieved. The upper layer is the agent's own writable scratchpad: file-op verbs over <code>/memories/*</code> backed by content-addressed sled trees, ed25519-signed at every write, capability-bound to the attester pubkey when the path namespace requires it. Section 19.2 places this layer alongside the in-agent memory patterns and addresses the standard objections to outside-channel state.</p>
+      <p>emem's response to the citation failure is a small set of address rules plus one signing rule. Every spatial fact is keyed by <code>(cell64, band, tslot)</code>. Every agent memory file is keyed by a path under <code>/memories/</code> and identified by a <code>file_cid</code>. Every CID is <code>base32_nopad_lower(blake3(canonical_cbor)[..16])</code>. Every response carries an Ed25519 receipt over a deterministic preimage naming the cited CIDs and (when set) the bi-temporal bound. An offline verifier with the responder's pubkey reproduces the preimage and checks the signature.</p>
+      <p>The surface stays small on purpose. Spatial reads: <code>locate</code>, <code>recall</code>, <code>find_similar</code>, <code>recall_polygon</code>, <code>query_region</code>, <code>trajectory</code>, <code>diff</code>, <code>compare</code>, <code>compare_bands</code>, <code>field_boundaries</code>, <code>verify</code>. Memory reads + writes: <code>memory_view</code>, <code>memory_create</code>, <code>memory_str_replace</code>, <code>memory_insert</code>, <code>memory_delete</code>, <code>memory_rename</code>, <code>memory_list_by_kind</code>, <code>memory_search</code>, <code>memory_bundle</code>, <code>memory_bundle/&lt;token&gt;</code>, <code>memory_contradictions</code>, <code>memory/sse</code>. Bi-temporal flags (<code>as_of_tslot</code>, <code>as_of_signed_at</code>) ride every read; cite handles (<code>memt:&lt;cell&gt;:&lt;fact_cid&gt;</code>, <code>memb:&lt;bundle_cid&gt;</code>) ride between agents. New bands, algorithms, sources, and memory kinds extend the registries without changing the primitive surface.</p>
+      <figure class="fig">
+        <img src="/docs/diagrams/08-decentralised.svg" alt="A decentralised network of responders mirroring the same content-addressed corpus" loading="lazy">
+        <figcaption><b>Decentralised by content address.</b> A receipt minted by one responder verifies offline against the same pubkey on a self-hosted replica that never spoke to the issuer; the CID is the shared bytes.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 2 cell64 -->
+    <section id="s2">
+      <h2><span class="num">2</span>Spatial primitive: cell64</h2>
+      <p>A cell64 is a 64-bit packed identifier for a square lat/lng bucket on WGS-84. The encoding lives in <code>crates/emem-codec/src/geo.rs</code>.</p>
+      <figure class="fig">
+        <img src="/docs/diagrams/09-address-algebra.svg" alt="cell + band + tslot becomes canonical CBOR, then blake3, then a 26-character base32 CID" loading="lazy">
+        <figcaption><b>Figure 2: address algebra.</b> Three integers become one 26-character handle the rest of the protocol cites.</figcaption>
+      </figure>
+
+      <h3 id="s2-1">2.1 Bit layout</h3>
+      <div class="code"><div class="code-head"><span class="tab">cell64 bit layout</span><span class="lang">text</span></div><pre><code>  bit:  63    60 59      52 51      44 43            22 21            0
+        +-------+-----------+-----------+----------------+----------------+
+        | mode  | resolution|   base    |     lat_q      |     lng_q      |
+        | 0001  |    21     |   0xab    |    21 bits     |    22 bits     |
+        +-------+-----------+-----------+----------------+----------------+
+            4         8           8            21              22</code></pre></div>
+      <ul>
+        <li><code>mode = 0b0001</code> marks this as a geo cell.</li>
+        <li><code>resolution = 21</code> distinguishes the active 10 m grid from the pre-0.0.3 305 m grid (<code>resolution = 12</code>). A legacy cell64 fails decoding with <code>NotGeoCell</code> rather than silently misplacing facts.</li>
+        <li><code>base = 0xab</code> is the geo aperture marker.</li>
+        <li><code>lat_q &isin; [0, 2&sup2;&sup1;)</code> is the lat axis bucket.</li>
+        <li><code>lng_q &isin; [0, 2&sup2;&sup2;)</code> is the lng axis bucket.</li>
+      </ul>
+
+      <h3 id="s2-2">2.2 Encoder</h3>
+      <div class="formula"><span class="lbl">cell64 encoder</span><pre>  lat = clamp(lat_deg, -90, +90)
+  lng = ((lng_deg + 180) mod 360) - 180
+  lat_q = round((lat + 90) / 180 &middot; (2&sup2;&sup1; &minus; 1))
+  lng_q = round((lng + 180) / 360 &middot; (2&sup2;&sup2; &minus; 1))
+  cell64.raw = (1 &lt;&lt; 60) | (21 &lt;&lt; 52) | (0xab &lt;&lt; 44) | (lat_q &lt;&lt; 22) | lng_q</pre></div>
+      <p>The asymmetric bit count (21 lat &times; 22 lng) keeps cells square at the equator: <code>&Delta;lat &asymp; &Delta;lng &asymp; 8.583e-5&deg;</code>, equator extent ~9.55 m. Poleward the lng pixel narrows by cos(lat); cells become taller than wide. The eventual migration target is an H3-style hex DGGS at resolution 13 (~3.4 m equal-area cells); cell64 is the active grid in 0.0.9.</p>
+
+      <h3 id="s2-3">2.3 Why a square 10 m grid</h3>
+      <p>Sentinel-2 and Sentinel-1 RTC native pitch is 10 m. Cop-DEM 30 m mean-pools cleanly to 10 m. A 10 m grid lets a fact be materialised per pixel without aggregation loss. A coarser grid forces every optical ingest to pre-aggregate or pre-resample, an opinion the protocol does not need to take.</p>
+
+      <h3 id="s2-4">2.4 Text form</h3>
+      <p>A cell64 renders as four CVCV bigrams from a 65 536-entry alphabet (21 consonants &times; 10 vowels &times; 21 &times; 10 = 44 100 natural pairs, padded with <code>z&lt;hex4&gt;</code> synthetic suffixes), separated by dots:</p>
+      <div class="code"><div class="code-head"><span class="tab">cell64 text form</span><span class="lang">text</span></div><pre><code>  damO.zb000.xUti.zde78</code></pre></div>
+      <p>The alphabet is Hilbert-ordered (<code>tools/measure_alphabet.py</code>), so adjacent codepoints tend to map to nearby cells. For exact spatial neighbourhoods, agents call <code>/v1/locate.neighborhood_cells</code> rather than relying on string prefixes.</p>
+    </section>
+
+    <!-- 3 tslot -->
+    <section id="s3">
+      <h2><span class="num">3</span>Temporal primitive: tslot</h2>
+      <p>A tslot is a <code>u64</code> bucket of the Unix timeline at a band's tempo cadence. The encoding lives in <code>crates/emem-core/src/tslot.rs</code>.</p>
+
+      <h3 id="s3-1">3.1 Anchor</h3>
+      <div class="formula"><span class="lbl">tslot anchor</span><pre>  tslot = floor(unix_seconds / tempo.slot_seconds())</pre></div>
+      <p>The anchor is the Unix epoch (1970-01-01T00:00:00Z). Pre-1970 timestamps clamp to <code>tslot(0)</code>.</p>
+
+      <h3 id="s3-2">3.2 Tempo classes</h3>
+      <div class="code"><div class="code-head"><span class="tab">tempo classes</span><span class="lang">text</span></div><pre><code>  Tempo       slot_seconds   typical bands
+  ----------  -------------  --------------------------------------
+  Static      0              copdem30m, gmrt, koppen
+  Slow        31_536_000     geotessera.{2017..2024}, multi_year,
+                             bin128, soilgrids
+  Medium      2_592_000      ndvi_monthly, modis composites
+  Fast        86_400         s2_raw, s1_raw, modis lst_day_8day
+  UltraFast   3_600          weather, air_quality, traffic</code></pre></div>
+      <p>Tempo is declared once per band in <code>bands-v0.json</code>. A band cannot be served at a tempo finer than its declared cadence.</p>
+
+      <h3 id="s3-3">3.3 Why tempo</h3>
+      <p>Bands have natural cadences: Tessera annual, MODIS 8-day, Open-Meteo hourly. Snapping to tempo aligns the index across heterogeneous sources. "Compare NDVI now versus a year ago" maps to two specific tslot values without the responder reasoning about source-specific cadences at query time.</p>
+
+      <h3 id="s3-4">3.4 Text form and recovery</h3>
+      <p>Text form: <code>t.&lt;base32-nopad-leb128&gt;</code>. <code>t.aaaaagy</code> is the tslot literal for the unsigned integer <code>1234</code>. Round-trippable through <code>tslot_text.rs</code> in <code>emem-codec</code>. A receipt that cites <code>(cell, band, tslot)</code> lets a verifier recover the wall-clock window: multiply tslot by <code>tempo.slot_seconds()</code> (read from <code>bands-v0.json</code>) to recover the Unix start.</p>
+    </section>
+
+    <!-- 4 Content addressing -->
+    <section id="s4">
+      <h2><span class="num">4</span>Content addressing</h2>
+
+      <h3 id="s4-1">4.1 Canonical CBOR</h3>
+      <p>emem-CBOR is RFC 8949 deterministic encoding plus four mandatory tags. It uses <code>ciborium</code> with serde-derived structs; field declaration order in the struct decides serialisation order. Two implementations that share the struct definition produce byte-identical CBOR for the same fact.</p>
+      <div class="code"><div class="code-head"><span class="tab">mandatory tags</span><span class="lang">text</span></div><pre><code>  Tag 65000  emem cell        (u64 packed per &sect;2.1)
+  Tag 65001  emem tslot       (u64)
+  Tag 65002  emem vec64-CID   (32 bytes)
+  Tag 42     IPLD CID         (multibase 'b' base32, RFC 9090)</code></pre></div>
+      <p>Free-form maps must arrive with pre-sorted keys.</p>
+
+      <h3 id="s4-2">4.2 BLAKE3 + base32-nopad-lowercase</h3>
+      <div class="formula"><span class="lbl">CID rule</span><pre>  FactCid = base32_nopad_lower( blake3( canonical_cbor(fact) )[..16] )
+          &rarr; 26 lowercase characters
+
+  cid64   = base32_nopad_lower( blake3( ... )[..8] )
+          &rarr; 13 lowercase characters</pre></div>
+      <p><code>FactCid</code> is the durable form referenced in attestations and receipts. <code>cid64</code> is the visible short form for logs and inline text; it is a prefix, not a separate hash, and its collision domain is 2&sup6;&#8308;.</p>
+      <p>Manifest CIDs use 32-byte BLAKE3 prefixes (<code>base32_nopad_lower(...)[..32]</code>), giving longer strings appropriate for content-addressing the band ontology, algorithm registry, source catalog, and CDDL schema bundle.</p>
+
+      <h3 id="s4-3">4.3 Choice rationale</h3>
+      <p>BLAKE3 ships a <code>derive_key</code> API used by the binary embedding rotation (&sect;9.3.1). base32-nopad-lowercase is URL-safe, case-insensitive, padding-free, and has no slash collisions inside path segments. 128-bit truncation at the FactCid level: a birthday collision needs ~2&sup6;&#8308; facts; the canonical responder is at ~10&#8309; today.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 5 Trust -->
+    <section id="s5">
+      <h2><span class="num">5</span>Trust: receipts, attestations, in-browser verification</h2>
+      <figure class="fig">
+        <img src="/docs/diagrams/10-trust-plane.svg" alt="receipt preimage to ed25519 signature to merkle path to offline verify" loading="lazy">
+        <figcaption><b>Figure 3: the trust plane.</b> Five steps to accept a fact without ever calling the issuer back. The <code>/verify</code> page recomputes these in the browser using <code>@noble/curves</code>.</figcaption>
+      </figure>
+
+      <h3 id="s5-1">5.1 Receipt anatomy</h3>
+      <div class="code"><div class="code-head"><span class="tab">Receipt fields</span><span class="lang">text</span></div><pre><code>  field                   meaning
+  ----------------------  ----------------------------------------------
+  request_id              ULID; sortable + unique per call
+  served_at               ISO 8601 UTC
+  primitive               "emem.recall" | "emem.find_similar"
+                          | "emem.memory_file" | "emem.memory_bundle"
+                          | "emem.memory_contradictions" | ...
+  intent                  optional natural-language hint
+  cells                   list of cell64 strings the call touched
+                          (for memory_file primitives the first entry
+                          is the path; when attester is set, "pubkey:
+                          &lt;b32&gt;" prepends the path)
+  fact_cids               list of FactCid the response cited (for
+                          memory_file: [file_cid]; for memory_bundle:
+                          the cited spatial fact_cids in order)
+  schema_cid              CID of the CDDL bundle used
+  merkle_proof            optional inclusion proof for fact_cids[0]
+  as_of                   optional { valid_time?: u64,
+                                     transaction_time?: ISO8601 }
+                          present only when at least one bi-temporal
+                          bound was set on the read; absent otherwise,
+                          so pre-bi-temporal receipts deserialise
+                          byte-identically
+  responder               32-byte ed25519 pubkey
+  responder_key_epoch     u32; bumps when the operator rotates keys
+  signature               64 bytes
+  source_versions         per-source freshness map
+  registry_cid            CID of the function registry version
+  cost                    {credits, latency_p50_ms, latency_p99_ms,
+                           source_freshness_s, was_cached}</code></pre></div>
+
+      <h3 id="s5-2">5.2 Signature preimage</h3>
+      <p>The preimage is deterministic in field order; fields join with the literal <code>|</code> byte, list elements with the literal <code>,</code> byte. The implementation lives in <code>crates/emem-storage/src/server.rs</code>.</p>
+      <div class="formula"><span class="lbl">receipt preimage (preimage_version v1: domain-separated, length-prefixed)</span><pre>  preimage_hash = blake3(
+      request_id  ||  "|" ||
+      served_at   ||  "|" ||
+      primitive   ||  "|" ||
+      cells[0] || "," || cells[1] || "," || ... || "|" ||
+      fact_cids[0] || "," || fact_cids[1] || "," || ...
+  )
+  signature = ed25519_sign(signing_key, preimage_hash)</pre></div>
+      <p>Both empty <code>cells</code> and empty <code>fact_cids</code> lists emit their trailing field separator, so a verifier reproduces the exact byte string from the receipt fields without ambiguity. The <code>as_of</code> block sits outside the preimage: it is metadata describing the temporal bound the caller passed, and re-signing the receipt with a different bound would produce a different value at the cell, which already changes <code>fact_cids</code>. So <code>as_of</code> rides the receipt body but does not change the signature math.</p>
+
+      <h4 id="s5-2-1">5.2.1 Capability-binding preimage (memory writes)</h4>
+      <p>Memory file writes carry an optional <code>attester: {pubkey_b32, sig_b32}</code> block. The signature on it is computed by the <em>caller</em> (not the responder) over a separate preimage shaped to the verb:</p>
+      <div class="formula"><span class="lbl">attester preimage</span><pre>  attester_preimage = blake3(
+      "emem.memory_write|" || verb || "|" || path || "|" || body_hash
+  )
+  attester_sig = ed25519_sign(caller_signing_key, attester_preimage)</pre></div>
+      <p>where <code>verb &isin; {create, str_replace, insert, delete, rename}</code>, <code>path</code> is the canonical memory path beginning with <code>/memories/</code>, and <code>body_hash = blake3(canonical request body bytes)</code>. The responder verifies <code>attester_sig</code> against <code>pubkey_b32</code> before persisting; an invalid signature returns 401 <code>memory_attestation_invalid</code>. A path under <code>/memories/by_attester/&lt;pubkey_short&gt;/...</code> whose short form disagrees with the attester pubkey returns 403 <code>memory_namespace_violation</code>. Bare <code>/memories/...</code> paths accept writes with no attester block and stay anyone-writable for the Anthropic memory-tool back-compat case.</p>
+      <p>The responder's own receipt for the write still follows the &sect;5.2 rule. When attester is set, <code>cells[0] = "pubkey:&lt;b32&gt;"</code> and <code>cells[1] = path</code>; the receipt's signer remains the responder. Two signatures cover the write: the caller's authority over the namespace, and the responder's attestation of the write itself.</p>
+      <p>Verification uses <code>verify_strict</code> on <code>ed25519_dalek::VerifyingKey</code>. The strict variant rejects malleable signatures.</p>
+
+      <h3 id="s5-3">5.3 In-browser receipt verification</h3>
+      <p><code>/verify</code> and <code>/verify/&lt;fact_cid&gt;</code> serve a single HTML page (<code>web/verify.html</code>) that recomputes the canonical preimage and runs ed25519 signature verification entirely in the browser.</p>
+      <div class="code"><div class="code-head"><span class="tab">in-browser verifier</span><span class="lang">text</span></div><pre><code>  noble-curves@1.x   ed25519 verify_strict-equivalent
+  noble-hashes@1.x   blake3, sha-256
+  module loader      esm.sh (sub-resource CSP'd)
+  fallback           POST /v1/verify_receipt (server-side) when noble
+                     bundles are blocked; the page labels itself as
+                     "server-assisted" in that case.</code></pre></div>
+      <p>Idle <code>/verify</code> is a landing page; <code>/verify/&lt;fact_cid&gt;</code> auto-fetches the cited fact and its enclosing receipt and runs the math. The page reads <code>location.pathname</code> to decide which mode it is in. <code>/verify?receipt=&lt;base64&gt;</code> is supported for direct paste of a receipt the agent already holds.</p>
+      <p>The pubkey the page checks against is read from <code>/.well-known/emem.json</code>. A verifier that holds an older pubkey detects rotation through <code>responder_key_epoch</code>.</p>
+
+      <h3 id="s5-4">5.4 Attestation envelope</h3>
+      <p>A primary fact reaches the index through an Attestation, which the storage layer re-checks before persisting.</p>
+      <div class="code"><div class="code-head"><span class="tab">Attestation</span><span class="lang">rust</span></div><pre><code>  Attestation {
+      facts: Vec&lt;Fact&gt;,
+      batch_root: [u8; 32],          // merkle_root over sorted leaves
+      attester: AttesterKey,         // 32-byte ed25519 pubkey
+      attester_key_epoch: u32,
+      registry_cid: RegistryCid,
+      schema_cid: SchemaCid,
+      signature: Signature,
+      attested_at: i64,              // Unix seconds
+  }
+
+  preimage = blake3(
+      batch_root  ||
+      registry_cid_bytes  ||
+      schema_cid_bytes
+  )</code></pre></div>
+      <p><code>verify_attestation</code> re-CBOR-encodes every fact, hashes each to a 32-byte leaf, sorts bytewise, folds via <code>merkle_root</code>, compares to <code>batch_root</code>, re-hashes <code>(batch_root || registry_cid || schema_cid)</code>, and <code>verify_strict</code>s the signature. Failure raises <code>StorageError::AttestationInvalid</code>. No bypass paths.</p>
+
+      <h3 id="s5-5">5.5 Merkle math and inclusion proofs</h3>
+      <p>Every leaf is self-hashed once before folding (<code>blake3(leaf || leaf)</code>), giving domain separation between leaves and inner nodes. Folding pairs left-then-right; odd-cardinality layers pair the last element with itself.</p>
+      <div class="formula"><span class="lbl">Merkle fold (RFC 6962-style: 0x00 leaf domain, 0x01 node domain)</span><pre>  layer 0:    L0=h(l0||l0)  L1=h(l1||l1)  L2=h(l2||l2)  L3=h(l3||l3)
+  layer 1:    P0=h(L0||L1)  P1=h(L2||L3)
+  layer 2:    root=h(P0||P1)</pre></div>
+      <p>The inclusion path for leaf 1 is <code>[L0, P1]</code>. <code>verify_merkle_path</code> walks the path bottom-up: when <code>leaf_index</code> is even, hash <code>acc || sibling</code>; when odd, hash <code>sibling || acc</code>; halve per step; compare <code>acc == root</code>.</p>
+      <p><code>merkle_root_and_paths(leaves)</code> returns <code>(root, Vec&lt;path&gt;)</code> in one pass. <code>MaterializingStorage::put_attestation</code> persists per-fact <code>MerkleProof</code> records to a sled tree <code>emem.fact_proofs</code>, keyed by FactCid. <code>Server::sign_receipt</code> populates <code>Receipt.merkle_proof</code> from the first cited fact's stored proof; a verifier re-derives every other CID from the signed preimage. Receipts that pre-date the proof tree carry <code>merkle_proof = None</code>; the signature still binds the CIDs.</p>
+
+      <h3 id="s5-6">5.6 Append-only Merkle log</h3>
+      <p>Every accepted Attestation appends to a per-segment file under <code>var/emem/log/merkle.log.{0,1,...}</code>.</p>
+      <div class="code"><div class="code-head"><span class="tab">log record format</span><span class="lang">text</span></div><pre><code>  per-record:    [u32 LE record_len] [CBOR(attestation)]
+                 [32 byte blake3(CBOR)]
+  per-segment:   [32 byte segment_hash = blake3(all_records)]</code></pre></div>
+      <p><code>append()</code> calls <code>fsync_all()</code> before returning. Segments rotate at 1 GiB. <code>verify()</code> re-hashes every sealed segment and reports mismatches; the current segment is verified up to the last fully-written record.</p>
+
+      <h3 id="s5-7">5.7 Identity</h3>
+      <p>A 32-byte Ed25519 secret stored at <code>var/emem/identity.secret.b32</code> in base32-nopad-lowercase, mode 0600. Load order: <code>EMEM_SECRET_B32</code> (env) &gt; file &gt; fresh keypair. <code>EMEM_DATA=:memory:</code> produces an ephemeral key. The <code>u32</code> key epoch bumps on rotation.</p>
+    </section>
+
+    <!-- 6 Signed Absence -->
+    <section id="s6">
+      <h2><span class="num">6</span>Signed Absence</h2>
+      <p>"We don't have this here" is a citable receipt, not a 404. A NegativeFact carries the same <code>(cell, band, tslot)</code> key as a PrimaryFact would, plus a <code>ReasonCid</code> pointing at the upstream evidence that confirmed the absence. Typed reasons in 0.0.9:</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr><th>reason</th><th>meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>unavailable_capability</code></td><td>responder does not implement the requested function</td></tr>
+          <tr><td><code>outside_coverage</code></td><td>upstream product's documented coverage excludes the cell</td></tr>
+          <tr><td><code>gpu_unavailable</code></td><td>sidecar <code>cuda.available=false</code> for a GPU-tier algorithm</td></tr>
+          <tr><td><code>archetype_seed_unavailable</code></td><td>type-locality centroid table missing for a classifier</td></tr>
+          <tr><td><code>materialize_timeout</code></td><td>connector exceeded the per-fact budget</td></tr>
+          <tr><td><code>materialize_miss</code></td><td>no connector registered for this band</td></tr>
+          <tr><td><code>over_water</code> / <code>over_land</code></td><td>DEM vs bathymetry boundary refusal</td></tr>
+        </tbody>
+      </table></div>
+      <p>Every NegativeFact is signed and content-addressed. An agent asking the same question twice gets the same absence CID and skips the upstream call.</p>
+    </section>
+
+    <!-- 7 Bands -->
+    <section id="s7">
+      <h2><span class="num">7</span>Bands: the 1792-D voxel</h2>
+      <p>The band ontology loads from <code>bands-v0.json</code>. <strong>Forty-three band cube slots</strong> sum to exactly <strong>1792 dims</strong>. Offsets are contiguous; reserved slots leave room for new bands without breaking existing offsets. <strong>124 materializer-wired band names</strong> answer recall today; the gap between 43 cube slots and 124 names is the parametric expansion (every Sentinel-2 reflectance band, every spectral index, every Tessera vintage, every Open-Meteo variant) under a fixed underlying slot.</p>
+      <div class="code"><div class="code-head"><span class="tab">cube slot layout</span><span class="lang">text</span></div><pre><code>  offset  dims  key                family       tempo   privacy
+  ------  ----  -----------------  -----------  ------  --------
+       0   128  geotessera         vision       slow    public
+     128    64  overture           human        slow    public
+     192     7  air_quality        climate      ultra   public
+     199   505  _reserved_512      reserved     static  public
+     704    10  sentinel2_raw      optical      fast    public
+     ...   ...  ...                ...          ...     ...
+                                                        (43 slots)
+                                                        total = 1792</code></pre></div>
+      <p>The 14-family enum (Foundation, Optical, Radar, Terrain, Climate, Soil, Vegetation, Landcover, Water, Human, Vision, Topology, Encoding, Reserved) routes display behaviour and documentation but is not load-bearing for the CID rule.</p>
+      <p>Privacy classes (see &sect;17 for usage):</p>
+      <div class="code"><div class="code-head"><span class="tab">privacy classes</span><span class="lang">text</span></div><pre><code>  Public                          unrestricted at any resolution
+  AggregateOnly { min_res }       snap to coarser res; receipt
+                                  carries privacy_snapped: true
+  L2OnlyWithModelCid              admissible only at conformance L2
+  Prohibited                      conforming responders MUST refuse</code></pre></div>
+      <p>Manifest CID: <code>bands_cid = base32_nopad_lower(blake3(canonical_cbor(BandsManifest))[..32])</code>, exposed at <code>/v1/manifests</code> and on the <code>/v1/bands</code> response root.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 8 Algorithms -->
+    <section id="s8">
+      <h2><span class="num">8</span>Algorithms</h2>
+      <p>The algorithm registry (<code>algorithms-v0.json</code>) holds <strong>160 entries</strong> in three kinds:</p>
+      <div class="code"><div class="code-head"><span class="tab">algorithm kinds</span><span class="lang">text</span></div><pre><code>  solo        single input band &rarr; derived value
+              (e.g. NDVI &rarr; vegetation_class)
+
+  combined    multi-band composite score / classification
+              (e.g. flood_risk@2 = 0.55&middot;(swr/100)
+                                 + 0.25&middot;dem_agreement&middot;(relu(50-cop)/50)
+                                 + 0.20&middot;sigmoid((-15-s1)/2))
+
+  embedding   operates on a foundation embedding vector
+              (cosine similarity, novelty, neighborhood consistency)</code></pre></div>
+      <p>Each entry carries <code>inputs[]</code>, <code>formula</code> (plain math), <code>output</code>, <code>when_to_use</code>, <code>citation</code>, an optional <code>evaluation: Expr</code> AST, and the provenance trio added in 0.0.4:</p>
+      <ul>
+        <li><code>parameters</code>: typed tunable thresholds (<code>consensus_threshold</code>, <code>k_neighbors</code>, <code>ask_timeout_ms</code>, <code>intent_cosine_threshold</code>, ...). Values are <code>serde_json::Value</code>; numerics resolve through <code>Algorithm::param_f64(key)</code>. <code>param_str</code> and a raw <code>param</code> accessor cover the other shapes.</li>
+        <li><code>learned_from</code>: citation provenance for every tuned number. Every gate threshold traces to its referee.</li>
+        <li><code>prerequisites</code>: registries, centroid tables, or seed datasets the algorithm depends on. Lets the dispatcher emit <code>archetype_seed_unavailable</code> Absence rather than a runtime crash.</li>
+      </ul>
+
+      <h3 id="s8-1">8.1 The Expr AST</h3>
+      <p><code>Expr</code> is 15 variants for in-process deterministic evaluation:</p>
+      <div class="code"><div class="code-head"><span class="tab">Expr variants</span><span class="lang">text</span></div><pre><code>  Band(key)               Const(f64)
+  Add(l, r)               Sub(l, r)
+  Mul(l, r)               Div(l, r)
+  Linear { weights[], bias }      &Sigma; w&#7522;&middot;sample&#7522; + bias
+  Clamp { lo, hi, x }
+  Where { cond, lhs, op, rhs, then, else }
+  WeightedBlend { entries[(weight, expr)] }
+  Abs(x)        Sigmoid(x)        Relu(x)        Max(l, r)    Min(l, r)</code></pre></div>
+      <p><code>Expr::evaluate(samples) -&gt; Option&lt;f64&gt;</code> runs the AST against a recall snapshot; <code>Expr::referenced_bands()</code> enumerates required inputs. The dispatcher walks the registry, runs every algorithm whose evaluation block has all inputs present, and emits an <code>algorithm_outcomes[]</code> array on <code>/v1/ask</code>.</p>
+
+      <h3 id="s8-2">8.2 Triple-encoder consensus</h3>
+      <figure class="fig">
+        <img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="Three foundation encoders with independent receptive fields voting on a per-cell change index" loading="lazy">
+        <figcaption><b>Encoders in orbit, decoders on the ground.</b> Clay, Prithvi, and Tessera alias differently; agreement across all three is land-surface change, one-or-none is receptive-field artifact.</figcaption>
+      </figure>
+      <p>The central change algorithm in 0.0.9 is <code>clay_prithvi_tessera_triple_consensus@1</code> plus six domain variants. Three foundation encoders with independent receptive fields vote on a per-cell change index over a 365-day window.</p>
+      <div class="code"><div class="code-head"><span class="tab">encoders in the vote</span><span class="lang">text</span></div><pre><code>  encoder      receptive field    output    role in the vote
+  -----------  -----------------  --------  ----------------------------
+  Clay v1.5    ~2.56 km           1024-D    chip-scale optical context
+  Prithvi-EO   ~6.7 km            1024-D    multi-temporal HLS V2
+  Tessera      per-pixel          128-D     pixel-scale annual stack</code></pre></div>
+      <p>The base algorithm formula:</p>
+      <div class="formula"><span class="lbl">triple-consensus change index</span><pre>  dc = clamp(1 - cos(clay_now, clay_year_ago), 0, 1)
+  dp = clamp(1 - cos(prithvi_now, prithvi_year_ago), 0, 1)
+  dt = clamp(1 - cos(tessera_latest, tessera_prev), 0, 1)
+  ensemble = sqrt((dc&sup2; + dp&sup2; + dt&sup2;) / 3)
+  agreement =
+    if  dc &gt; gate &and; dp &gt; gate &and; dt &gt; gate  then 'all_three'
+    elif (dc &gt; gate) + (dp &gt; gate) + (dt &gt; gate) &ge; 2  then 'two_of_three'
+    else 'one_or_none'</pre></div>
+      <p><code>gate</code> is <code>parameters.consensus_threshold</code> (default 0.15, learned from Healey et al. 2018, RSE 204:717-728, LandTrendr ensemble convention).</p>
+      <p><strong>Why independent receptive fields matter.</strong> A single encoder generates spurious change scores when chip boundaries intersect a real edge. Clay's 2.56 km RF aliases differently from Prithvi's 6.7 km RF, and Tessera operates pixel-by-pixel. A cell where all three encoders agree shifted is land-surface change; a cell where only one encoder fires is almost certainly receptive-field artifact.</p>
+
+      <h3 id="s8-3">8.3 Six domain variants</h3>
+      <div class="code"><div class="code-head"><span class="tab">domain variants</span><span class="lang">text</span></div><pre><code>  algorithm key                    gate   uplift / extra leg
+  -------------------------------  -----  ----------------------------------------
+  deforestation_triple@1           0.20   Hansen GFC lossyear mask elevates 2+
+                                          votes to 'hansen_confirmed'.
+                                          EUDR pre-screen.
+  wetland_change_triple@1          0.10   JRC GSW recurrence delta replaces the
+                                          Tessera leg; abs gate 15 occurrence pts.
+  urban_expansion_triple@1         0.20   Overture buildings.count delta + s2.B11
+                                          SWIR corroboration tag 'swir_corroborated'
+                                          on 1-vote cells.
+  disaster_anomaly_triple@1        n/a    Spatial (no temporal recipe).
+                                          2-&sigma; neighbour z-score; single-pass
+                                          discovery.
+  climate_archetype_triple@1       n/a    12-class K&ouml;ppen-Geiger classifier seeded
+                                          from Beck et al. 2018 type-locality
+                                          centroids (`climate_archetype_centroids_v1.json`).
+  coastal_erosion_triple@1         0.12   Bathymetry-clamped to cells where
+                                          gmrt.topobathy_mean &isin; [-5, +5] m.</code></pre></div>
+      <p>Every gate threshold has a <code>_threshold_learned_from</code> block citing the paper it was estimated against. Re-tune happens at registry-CID time through the parameters block, not by recompiling.</p>
+
+      <h3 id="s8-4">8.4 Sensor tier rule</h3>
+      <p>An algorithm that claims delivery resolution &le; 10 m must have at least one S1, S2, or Landsat input in <code>variance_sources</code>. Coarser inputs (POWER, ERA5, SoilGrids, Hansen, WorldCover, JRC GSW, Cop-DEM, GMRT) are baseline / context, never the sole variance source for a fine-resolution claim. Order: <code>S1 &gt; S2 &gt; Landsat &gt; IoT &gt; OtherSat &gt; Static</code>; an algorithm whose declared anchor is below a higher-tier input fails to load.</p>
+
+      <h3 id="s8-5">8.5 Worked example: flood_risk@2</h3>
+      <div class="code"><div class="code-head"><span class="tab">flood_risk@2</span><span class="lang">text</span></div><pre><code>  inputs:   surface_water.recurrence, copdem30m.elevation_mean,
+            gmrt.topobathy_mean, sentinel1_raw.vv
+  formula:  0.55&middot;(swr/100)
+          + 0.25&middot;dem_agreement&middot;(relu(50-cop)/50)
+          + 0.20&middot;sigmoid((-15-s1)/2)
+  output:   [0.0, 1.0] flood-risk score
+  citation: Pekel 2016 (JRC GSW), Schumann 2018 (SAR flood)</code></pre></div>
+      <p>The Expr round-trips through canonical-CBOR JSON and produces <code>0.4836</code> byte-stably (test <code>flood_risk_v2_evaluates_to_a_real_number_from_dispatcher</code>).</p>
+    </section>
+
+    <!-- 9 Primitives -->
+    <section id="s9">
+      <h2><span class="num">9</span>Primitives</h2>
+      <p class="lede">Every primitive returns a signed receipt. Empty results are labelled, not zeroed.</p>
+      <figure class="fig">
+        <img src="/docs/diagrams/02-data-flow.svg" alt="The data flow from a place query through recall, materialize, sign, and return" loading="lazy">
+        <figcaption><b>Data flow.</b> A place query resolves to a cell, recall looks up the index, a miss materialises from upstream, and the responder signs the fact as itself before returning.</figcaption>
+      </figure>
+
+      <h3 id="s9-1">9.1 recall(cell, bands?, tslot?)</h3>
+      <p>Index lookup over <code>(cell, band, tslot)</code>. Implementation in <code>emem-primitives/src/recall.rs</code>.</p>
+      <p>When <code>bands</code> is supplied and matches no facts, the response includes <code>bands_already_attested_at_cell: [...]</code>, the actual band keys present on the cell. An agent asking for <code>band="alphaearth"</code> at a cell that holds geotessera + soilgrids learns immediately that its band name is wrong, not that the cell is empty.</p>
+
+      <h3 id="s9-2">9.2 Auto-materialize on miss</h3>
+      <p>When the entire cell is empty for the requested band and a connector is registered, the recall path triggers materialisation:</p>
+      <div class="code"><div class="code-head"><span class="tab">materialize path</span><span class="lang">text</span></div><pre><code>  recall(cell, band, tslot) &rarr; miss
+    &rarr; function-registry lookup (fn_key)
+    &rarr; connector dispatch
+    &rarr; upstream Range read (vsicurl COG, STAC, JSON API)
+    &rarr; compute fact value
+    &rarr; Fact::Primary &rarr; sign as responder &rarr; put_attestation &rarr; return</code></pre></div>
+      <p>Gates: <code>EMEM_AUTO_MATERIALIZE</code> (default <strong>on</strong>, set <code>0</code>/<code>false</code> to disable), 30 s materialiser timeout, 180 s gateway timeout, 16 MiB body cap. A miss with no registered connector returns <code>MaterializeMiss</code> as a typed Absence, never a silent empty.</p>
+      <p>Any cell on Earth answers without pre-seeding. The responder signs the materialised fact as itself; trust delegation is "the same key that signs receipts also signs the value, with <code>derivation.fn_key</code> declaring exactly how it was produced." <strong>20 live materializer registrations</strong> cover the wired band set.</p>
+
+      <h3 id="s9-3">9.3 find_similar(key, k?, band?, filter?, mode)</h3>
+      <p>Brute-force k-NN over the canonical-key index for the configured band (default <code>geotessera</code>).</p>
+      <div class="code"><div class="code-head"><span class="tab">find_similar modes</span><span class="lang">text</span></div><pre><code>  Mode::Cosine             fp32 cosine over the full vector
+  Mode::Hamming            popcount over the binary sibling band
+  Mode::HammingThenRerank  adaptive triage + cosine rerank</code></pre></div>
+      <p>Per-cell deduplication keeps the highest-scoring vintage; without it multi-vintage bands return k near-duplicates of the same place.</p>
+      <p>The optional <code>filter: Claim</code> is evaluated per cell with memoisation: a verdict for <code>(cell, claim.band, claim.op, claim.value)</code> computes once and reuses across repeated tslots. Cells with no fact for the filter band are dropped (undecidable, not "false").</p>
+      <p><code>requested_k</code> vs <code>returned_k</code> are both surfaced. When <code>returned_k &lt; requested_k</code> after dedup, the corpus has fewer distinct cells than the caller asked for; the responder returns what it has rather than padding.</p>
+
+      <h4 id="s9-3-1">9.3.1 TurboQuant binary rotation</h4>
+      <p><code>Mode::Hamming</code> operates over the binary sibling band (<code>geotessera.bin128</code>); encoder in <code>binary_embedding.rs</code>.</p>
+      <div class="code"><div class="code-head"><span class="tab">TurboQuant rotation</span><span class="lang">text</span></div><pre><code>  ROT_SEED_TEXT = "emem.binary_embedding.turboquant.v1"
+  BIN_DIMS = 128, BIN_BYTES = 16
+
+  ROTATION (built once, cached):
+    seed CSPRNG with blake3(ROT_SEED_TEXT) &rarr;
+    128&sup2; Gaussian samples (Box-Muller) &rarr;
+    classical Gram-Schmidt &rarr; orthonormal 128&times;128 matrix
+
+  pack_bin128(vec):
+    rotated[i] = &Sigma;&#11388; ROTATION[i][j] &middot; vec[j]
+    bit i      = (rotated[i] &gt;= 0)            # MSB-first per byte</code></pre></div>
+      <p>Hamming distance is XOR + popcount, roughly 10&#8313; scored pairs/sec per x86 core. The rotation redistributes upstream variance across all 128 dims so a single bit per dim carries information. Hamming-to-cosine bridge: <code>score = 1 &minus; 2&middot;dist/128 &isin; [&minus;1, +1]</code>. The matrix's content address is <code>rotation_cid()</code>; a verifier rebuilds the matrix from the seed text and re-packs the source vector to byte-compare.</p>
+
+      <h4 id="s9-3-2">9.3.2 Inline auto-derive</h4>
+      <p>When the binary sibling band is absent at a cell but the cosine band is present, the find_similar path now inline-derives <code>bin128</code> from cosine via the TurboQuant rotation rather than returning <code>CidNotFound</code>. The derivation seed is the same <code>ROT_SEED_TEXT</code>, so the result is byte-identical to a cached <code>bin128</code> at the same cell.</p>
+
+      <h4 id="s9-3-3">9.3.3 HammingThenRerank adaptive oversampling</h4>
+      <p>The triage path observes <code>|hamming_top_k &cap; cosine_top_k| / k</code> over an EWMA (decay &alpha; = 0.05) backed by lock-free <code>AtomicU64</code> storage. After ~50 calls warm the gate, the oversampling factor adapts to corpus binary&harr;cosine agreement instead of staying nailed to 4&times;. Cold-start keeps the historical 4&times; multiplier so the first 50 calls match the pre-EWMA behaviour byte-for-byte.</p>
+
+      <h3 id="s9-4">9.4 verify(claim, cell, mode)</h3>
+      <p>A <code>Claim</code> is <code>{ band, op, value, tslot? | window? }</code> where <code>op</code> is one of <code>eq</code>, <code>ne</code>, <code>lt</code>, <code>le</code>, <code>gt</code>, <code>ge</code>. <code>verify</code> evaluates the claim against the index.</p>
+      <div class="code"><div class="code-head"><span class="tab">verify modes</span><span class="lang">text</span></div><pre><code>  Mode::Fast      look up canonical fact_cid; agree/disagree+evidence;
+                  no inference
+  Mode::Resolve   when the band has no fact at the targeted tslot,
+                  call storage.materialize_many(...) and re-scan</code></pre></div>
+      <p>A <code>MaterializeMiss</code> (no upstream connector) surfaces to the caller rather than collapsing to <code>verdict=false</code>. Open-ended windows (no tslot, no single-point window) cannot pick a target tslot, so they fall back to Fast over whatever is already in the index.</p>
+      <p><code>Mode::Zk</code> was removed in 0.0.4 (Rust enum, MCP schema, OpenAPI VerifyReq schema). It returned 500 on every call. ZK is not in 0.0.9.</p>
+
+      <h3 id="s9-5">9.5 compare / compare_bands</h3>
+      <p>Two Primary facts side by side, with a structured difference object. <code>compare_bands(cell, a, b, tslot_a?, tslot_b?)</code> resolves omitted tslots to the latest tslot for that band at the cell. A caller who omits both tslots gets <code>tslot_resolution.reason = "auto_picked_latest"</code>; a caller who supplies tslots gets <code>"caller_supplied"</code>. A band with no history at the cell surfaces as <code>bands_with_no_history[]</code> and the response carries an empty-cite receipt: labelled empty, not zeroed.</p>
+
+      <h3 id="s9-6">9.6 diff / trajectory / query_region / recall_polygon</h3>
+      <ul>
+        <li><code>diff(cell, band, t0, t1)</code>: change between two tslots for a single band. Non-numeric bands return a structured error.</li>
+        <li><code>trajectory(cell, band, [tslots])</code>: ordered series; missing tslots surface as gaps with explicit reasons.</li>
+        <li><code>query_region(geometry, bands?, agg?)</code>: geometry is <code>&lt;cell64&gt;</code>, <code>cells:c1,c2,...</code>, or <code>bbox:lon_min,lat_min,lon_max,lat_max</code>. Bbox synthesis caps at <code>MAX_BBOX_CELLS = 4096</code> and <code>MAX_REGION_FACTS = 65 536</code>. Default <code>max_cells</code> is bbox-area-derived (target 1 cell per (10 km)&sup2;, clamped <code>[64, 1024]</code>). Beyond the caps the responder aggregates over what it has; <code>receipt.fact_cids</code> reflects exactly what contributed.</li>
+        <li><code>recall_polygon(polygon_bbox, n_cells)</code>: fans out across up to 1024 sample cells; returns mean / median / min / max / std per band plus per-cell <code>scene_thumbs[]</code>, <code>scene_overlay_url</code>, <code>geojson</code>. An <code>include: ["ftw_fields"]</code> flag attaches the field-boundary block from &sect;9.7 inline.</li>
+      </ul>
+
+      <h3 id="s9-7">9.7 field_boundaries</h3>
+      <p>Per-field agricultural polygons from Fields of The World (FTW), a global product of ~3.17 billion field polygons across 241 countries at 10 m, CC-BY-4.0. The connector reads the upstream PMTiles archive (2.14 TB, hosted on source.coop) over anonymous HTTP range requests; MVT tiles decode and reproject from Web-Mercator to WGS-84 in-process. Auto-zoom shrinks the request when a bounding box exceeds the 16-tile cap.</p>
+      <div class="code"><div class="code-head"><span class="tab">field_boundaries</span><span class="lang">text</span></div><pre><code>  POST /v1/field_boundaries
+  body  { place: "Patiala, India", zoom?: u8 }
+        | { polygon_bbox: [w,s,e,n], zoom?: u8 }
+
+  response {
+      count: u32,
+      total_area_m2: f64,
+      zoom_used: u8,
+      geojson: FeatureCollection,
+      source_cid: FactCid,
+      provider_url, license, attribution
+  }</code></pre></div>
+      <p>The place-name path reuses the locate cascade (&sect;11): GeoNames cities-5000 &rarr; Overture divisions &rarr; Photon &rarr; Nominatim, with polygon enrichment from Overture's <code>divisions/division_area</code>.</p>
+
+      <h3 id="s9-8">9.8 Memory substrate primitives</h3>
+      <p>Above the spatial fact store sits the agent's writable layer. Six file-op verbs implement the Anthropic memory-tool spec (<code>context-management-2025-06-27</code>):</p>
+      <div class="code"><div class="code-head"><span class="tab">memory file verbs</span><span class="lang">text</span></div><pre><code>  memory_view(path, view_range?)
+      &rarr; file contents, or directory listing if path ends in "/"
+  memory_create(path, file_text, kind?, attester?)
+      &rarr; file_cid + receipt; persists path &rarr; file_cid in
+        emem.memory_files, content-addressed bytes in
+        emem.memory_file_blobs, append-only audit in
+        emem.memory_file_history, signed metadata in
+        emem.memory_file_meta
+  memory_str_replace(path, old_str, new_str)
+      &rarr; reject if old_str matches != 1 occurrence; otherwise persist
+        new file_cid + update history
+  memory_insert(path, insert_line, new_str)
+      &rarr; 1-indexed line; 0 = top
+  memory_delete(path)
+      &rarr; drop path index; blob remains content-addressed under
+        emem.memory_file_blobs; history retained
+  memory_rename(old_path, new_path)
+      &rarr; move path index; reject if new_path exists</code></pre></div>
+      <p>Files carry a <code>kind &isin; {episodic, semantic, procedural, resource}</code> (CoALA taxonomy; default <code>resource</code> for back-compat). A new sled tree <code>emem.memory_files_by_kind</code> indexes <code>(kind | path) &rarr; file_cid</code> so <code>memory_list_by_kind { kind, prefix?, limit? }</code> returns the typed slice sorted by <code>signed_at</code> descending.</p>
+      <p>Three derived primitives close the substrate:</p>
+      <div class="code"><div class="code-head"><span class="tab">derived memory primitives</span><span class="lang">text</span></div><pre><code>  memory_bundle { triples: [{cell, band, tslot?}], purpose? }
+      &rarr; composes a signed envelope over N facts; bundle_cid =
+        base32_nopad_lower( blake3(
+            "emem.memory_bundle.v1|" || purpose? || "\n" ||
+            for each citation: cell || "|" || band || "|" || tslot
+                                    || "|" || fact_cid_or_empty
+                                    || "\n"
+        )[..16] )
+        Token grammar: memb:&lt;bundle_cid&gt;. Persisted to
+        emem.memory_bundles keyed by bundle_cid. Resolves via
+        GET /v1/memory_bundle/&lt;token&gt; on the originating responder
+        or any peer that holds the bytes (CID-deterministic).
+  memory_search { q, k?, kind?, path_prefix?, attester_pubkey_b32? }
+      &rarr; BGE-base-en-v1.5 embedding (768-D, L2-normalised) against a
+        LanceDB IVF_PQ partition at
+        $EMEM_DATA/lance/memory_text_index_d768.lance; cosine metric;
+        mean-pooled across &le;504-token chunks per file. Brute-force
+        fallback when EMEM_DISABLE_LANCE=1 or the partition is empty;
+        the response's `via` field reports which path served the
+        query. Hits include a 200-char snippet around the best-
+        matching chunk.
+  memory_contradictions { cell_prefix?, band?, window_unix_s?,
+                          min_severity?, limit? }
+      &rarr; walks emem.multi_attester_index (CBOR Vec&lt;FactCid&gt; per
+        (cell, band, tslot) canonical key). Severity scored by
+        band kind:
+          scalar:      (max - min) / band_typical_range,
+                       clamped to [0,1]
+          vector:      1 - mean(cosine off-diagonal)
+          categorical: 1 - max_class_share
+          mixed:       1.0 (flag for human review)
+        Same-attester re-attestation is filtered out
+        (attester_set.len() &lt; 2 &rarr; skip). Receipt signed under
+        primitive "emem.memory_contradictions".</code></pre></div>
+      <p>A Server-Sent Events stream surfaces every write the moment its sled commit lands:</p>
+      <div class="code"><div class="code-head"><span class="tab">memory SSE</span><span class="lang">text</span></div><pre><code>  GET /v1/memory/sse?path_prefix=&amp;kind=&amp;attester=
+      &rarr; text/event-stream; events:
+        data: { "type": "created" | "modified" | "deleted"
+                       | "renamed" | "expired" | "consolidated",
+                "path", "file_cid", "prev_file_cid"?,
+                "kind", "attester_pubkey_b32"?, "signed_at",
+                "size_bytes"? }
+        Filter applied server-side; events are not individually
+        signed (the underlying file's receipt is the verification
+        surface); cap EMEM_SSE_MAX_SUBS=256 concurrent subscribers.</code></pre></div>
+      <p>Two scheduled tokio workers, both opt-in via env:</p>
+      <div class="code"><div class="code-head"><span class="tab">scheduled workers</span><span class="lang">text</span></div><pre><code>  EMEM_MEMORY_TTL_ENABLED=1                   hourly TTL sweep
+  EMEM_MEMORY_CONSOLIDATION_ENABLED=1         daily consolidation</code></pre></div>
+      <p>Per-kind TTL defaults: <code>resource</code> 90 d, <code>episodic</code> 30 d, <code>semantic</code> / <code>procedural</code> infinite (each overridable via <code>EMEM_MEMORY_TTL_{KIND}_DAYS</code>). Expired paths move from <code>emem.memory_files</code> to <code>emem.memory_files_expired</code>; blobs remain content-addressed (never deleted). Consolidation: for every <code>/memories/by_attester/&lt;pubkey&gt;/&lt;sub&gt;/</code> with &gt; 50 episodic files older than 7 days, the worker concatenates bodies chronologically, writes a <code>semantic</code> consolidated file at <code>.consolidated/&lt;unix_ts&gt;.md</code>, and stamps <code>superseded_by: &lt;consolidated_file_cid&gt;</code> on each original's metadata. Originals remain accessible via history; idempotent.</p>
+
+      <h3 id="s9-9">9.9 Bi-temporal reads</h3>
+      <p>Every read primitive accepts two optional bounds:</p>
+      <div class="code"><div class="code-head"><span class="tab">bi-temporal bounds</span><span class="lang">text</span></div><pre><code>  as_of_tslot       : u64                       observation time
+  as_of_signed_at   : RFC 3339 timestamp        transaction time</code></pre></div>
+      <p>Semantics: "return the latest fact per <code>(cell, band)</code> whose tslot &le; <code>as_of_tslot</code> (if set) and whose <code>signed_at</code> &le; <code>as_of_signed_at</code> (if set)." Both bounds intersect when both set; absent bounds give current-state reads (back-compat).</p>
+      <p>The Storage trait carries the bound through:</p>
+      <div class="code"><div class="code-head"><span class="tab">Storage trait</span><span class="lang">rust</span></div><pre><code>trait Storage {
+    async fn scan_cell_as_of(
+        &amp;self,
+        cell: &amp;str,
+        tslot: Option&lt;u64&gt;,
+        bound: &amp;AsOfBound,   // { valid_time, transaction_time }
+    ) -&gt; Result&lt;Vec&lt;(CanonicalKey, FactCid)&gt;, StorageError&gt;;
+}</code></pre></div>
+      <p>The sled implementation pushes the valid-time predicate into the canonical key index (<code>SledHotCache::scan_cell_with_tslot_bound</code> decodes the tslot off the key bytes inline, zero CBOR loads for the valid-time half); the transaction-time half loads the fact body and checks <code>signed_at</code>. <code>find_similar</code> with either bound set bypasses the LanceDB ANN fast-path because the index has no <code>signed_at</code> column, and the response's <code>via</code> field reports <code>brute_force_fallback</code>.</p>
+      <p>Honesty guards:</p>
+      <div class="code"><div class="code-head"><span class="tab">honesty guards</span><span class="lang">text</span></div><pre><code>  as_of_tslot &lt; tslot (conflicting)        &rarr; 400 invalid_temporal_bound
+  as_of_signed_at not RFC 3339             &rarr; 400 invalid_signed_at_format
+  empty result with bound set              &rarr; 200 with temporal_advice
+                                             (NOT 404; zero is a valid
+                                             answer for "what did we
+                                             know last quarter")</code></pre></div>
+      <p>The receipt carries an <code>as_of</code> block when either bound is set (&sect;5.1); absent otherwise. A verifier in year <em>t+k</em> recomputes the preimage from the original <code>cells</code> + <code>fact_cids</code> and accepts the signature without trusting whatever responder reproduced the read.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 10 /v1/ask -->
+    <section id="s10">
+      <h2><span class="num">10</span>/v1/ask: foundation-embedding fan-out</h2>
+      <p><code>/v1/ask</code> carries a <code>foundation_embeddings</code> envelope when the question matches Similarity or Change intent. A keyword classifier (<code>ask_foundation::classify_intent</code>) pre-screens; matched questions fan out across <code>clay_v1</code> + <code>prithvi_eo2</code> + <code>geotessera</code> concurrently via <code>tokio::join!</code>.</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr><th>intent</th><th>trigger phrases</th><th>fan-out</th></tr></thead>
+        <tbody>
+          <tr><td>Similarity</td><td>"find places like", "similar to", "looks like", "analog of"</td><td>find_similar k-NN against each encoder; report per-encoder hit counts and whether the triple corroborated</td></tr>
+          <tr><td>Change</td><td>"what changed", "year over year", "deforestation", "urban expansion", "anomaly"</td><td>recall of <code>clay_v1</code> + <code>prithvi_eo2</code> + <code>geotessera.multi_year</code> so the agent or in-process AST evaluator computes the triple-consensus index</td></tr>
+        </tbody>
+      </table></div>
+      <p>Budget is <code>ask_timeout_ms</code> (default 4000), read from the <code>clay_prithvi_tessera_triple_consensus@1</code> algorithm's parameters block. On timeout the envelope carries <code>degraded_reason: "foundation_embedding_timeout"</code>; the topic-router-driven <code>ask_inner</code> path still ships a useful answer. The receipt remains the one signed by the standard recall path; encoder fact CIDs merge into the same <code>fact_cids</code> list.</p>
+    </section>
+
+    <!-- 11 Locate -->
+    <section id="s11">
+      <h2><span class="num">11</span>Locate cascade</h2>
+      <p><code>/v1/locate</code> walks a six-layer cascade so common queries never reach a rate-limited upstream. The <code>via</code> field in the response names which layer answered:</p>
+      <div class="code"><div class="code-head"><span class="tab">locate cascade</span><span class="lang">text</span></div><pre><code>  1. wide_bbox_lookup     embedded country / region polygons      ~5 ms
+  2. embedded_gazetteer   in-binary place atlas                   ~5 ms
+  3. geonames             cities-5000 (68 581 entries, CC-BY-4.0,
+                          5.5 MB gzipped, include_bytes!)         ~10 ms
+  4. sled cache           memoised result from prior resolve      ~2 ms
+  5. photon               Komoot-hosted long tail                 ~80 ms
+  6. nominatim            hard rate-limited fallback</code></pre></div>
+      <p>Polygon enrichment in branches 2-4 reads Overture's <code>divisions/division_area</code> theme (ODbL, anonymous S3 parquet with row-group bbox pruning, exact-name match plus subtype rank country &gt; region &gt; county &gt; locality &gt; borough &gt; ... &gt; microhood). Mumbai, S&atilde;o Paulo, Tokyo, Patiala, Manhattan all resolve with <code>polygon_bbox.source = overture_division_area</code>; the canonical responder does not hit OSM for ~99% of city queries.</p>
+    </section>
+
+    <!-- 12 Inference -->
+    <section id="s12">
+      <h2><span class="num">12</span>Inference</h2>
+      <p>Four GPU-pinned encoders co-resident on a 20 GB VRAM budget. Latency warm numbers measured on RTX 4090; cold numbers include weight load from <code>&lt;EMEM_DATA&gt;/hf_cache/</code>.</p>
+      <div class="code"><div class="code-head"><span class="tab">encoder roster</span><span class="lang">text</span></div><pre><code>  model                    input shape          output  cold    warm    role
+  -----------------------  -------------------  ------  ------  ------  ----------------------------
+  Clay v1.5                [B, C, 256, 256]     1024-D  ~6 s    ~18 ms  pixel-scale wavelength-
+                           (S1/S2/Landsat/                              conditioned ViT-L/8 MAE
+                            NAIP/multi-sensor)                          + DINOv2 teacher
+  Prithvi-EO-2.0-300M-TL   [B, 1, 224, 224, 6]  1024-D  ~10 s   ~20 ms  multi-temporal HLS V2 MAE,
+                           (HLS V2 6-band)                              chip-scale receptive field
+  Galileo (var. base)      [1, 1, 8, 8, 10]     D*      ~4 s    ~14 ms  S2-only modality; S1/ERA5/
+                           (10 S2 bands @ 30 m)                         TC/VIIRS/SRTM/DW/WC/LandScan
+                                                                        modalities zero-masked
+  JEPA v2 (untrained)      3 &times; 128-D Tessera   128-D   n/a     ~50 &micro;s  Dynamics predictor.
+                           lags                                         Untrained baseline today;
+                                                                        short-circuits to last
+                                                                        attested vintage; receipt
+                                                                        carries untrained_baseline
+                                                                        warning.</code></pre></div>
+      <p><code>D*</code> for the Galileo row is variant-dependent: <code>EMEM_GALILEO_VARIANT</code> defaults to <code>base</code> in the deployed responder; <code>tiny</code> and <code>nano</code> are also selectable. The advertised capability becomes <code>galileo-&lt;variant&gt;</code> in <code>/v1/capabilities.extensions[]</code> so an agent can read which dim ships at request time.</p>
+      <p>All three trained encoders serve frozen embeddings; receipts carry <code>frozen_pretrained_encoder</code>. Clay v1.5 loads from <code>made-with-clay/Clay/v1.5/clay-v1.5.ckpt</code>. Galileo's non-S2 modalities are zero-masked; the encoder accepts the multimodal shape but only S2 chips are wired today. The FastAPI shape (<code>POST /predict/&lt;name&gt;</code> with <code>{cell, scene_url?, band_indices?}</code> request) is a public contract; a customer drops in their own encoder under the same call.</p>
+      <p>JEPA v2 architecture: 3 &times; 128-D lags &rarr; flatten <code>[B, 384]</code> &rarr; 128-D projection &rarr; 4 pre-LN residual blocks &rarr; zero-init head &rarr; <code>last_vintage + delta</code>. With delta starting at zero the baseline is identity. The v2 handler short-circuits ONNX/sidecar inference when <code>is_trained() == false</code> (which it is in 0.0.9) and returns <code>last_input_vintage</code> directly, attaching <code>untrained_baseline</code> and <code>upstream_geotessera_single_vintage</code> honesty warnings on the receipt.</p>
+      <p><code>docs/developers/inference.md</code> carries the per-encoder chip-fetcher details, sidecar protocol, VRAM partitioning, and the trained-checkpoint loader contract.</p>
+
+      <h3 id="s12-1">12.1 Physics solvers</h3>
+      <p>Three explicit-method solvers run in-process (no sidecar): <code>/v1/heat_solve</code> (FTCS 2D, 3&times;3 MODIS <code>lst_day_8day</code> stencil, CFL safety 0.20, horizon &le; 168 h, Dirichlet boundary, default &alpha; = 1e-6 m&sup2;/s per Oke 2017), <code>/v1/wave_solve</code> (CTCS 1D shallow water along a seaward profile from a coastal cell; land-locked rejection returns 422 with profile + suggestion), <code>/v1/jepa_predict</code> (closed-form NDVI AR(2) seasonal with fixed &alpha; = 0.6, &beta; = 0.3, &gamma; = 0.1). <code>/v1/jepa_predict_v2</code> is the sidecar Tessera-dynamics route described above; its receipt carries <code>untrained_baseline</code> until &sect;12 changes.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 13 Sources -->
+    <section id="s13">
+      <h2><span class="num">13</span>Sources and connectors</h2>
+      <p><code>emem-fetch</code> ships <strong>16 data connectors + 13 utility modules</strong>. <strong>46 source schemes</strong> are declared in <code>sources-v0.json</code>; the wired subset answers recall today.</p>
+      <div class="code"><div class="code-head"><span class="tab">connectors</span><span class="lang">text</span></div><pre><code>  category       connectors
+  -------------  ---------------------------------------------------------
+  imagery        Sentinel-2 L2A, Sentinel-1 RTC, Landsat 8/9, MODIS
+                 (MOD13/MOD11/MOD15A2H/MOD17A2H/MCD64A1)
+  terrain        Cop-DEM 30 m, GMRT topobathy
+  landcover      ESA WorldCover, Hansen GFC, Dynamic World*, FTW
+  hydrology      JRC GSW occurrence + recurrence
+  weather        NASA POWER, Open-Meteo (ERA5 + CAMS + Marine + Now)
+  climatology    K&ouml;ppen-Geiger, TerraClimate, CHIRPS
+  soil           SoilGrids v2 (SOC, pH, clay, sand, BDOD, N &middot; 0-30 cm)
+  fire / nrt     FIRMS MODIS+VIIRS, VIIRS DNB*
+  population     WorldPop, GHSL population + built-up, DMSP-OLS
+  divisions      Overture (places, buildings, transportation,
+                           division_area)
+  gazetteer      GeoNames cities-5000 (68 581 places &ge; 5 000 pop)
+  vector         FTW field polygons (~3.17 B fields), OSM Overpass
+                 (WDPA fallback)
+  embeddings     Tessera annual vintages (2017-2024 + multi_year + bin128)
+  * declared, materialiser not wired in 0.0.9</code></pre></div>
+      <p>Utility modules: <code>cog</code> (universal pure-Rust COG range sampler: Deflate, LZW, Predictor 1/2/3, 8/16/32-bit LE), <code>cache_window</code> (in-flight fetch coalescing), <code>connectors</code> (dispatcher), <code>proj</code> (WGS84&harr;UTM), <code>stac</code> (Element84 + MPC search), <code>template</code> (URL templating).</p>
+    </section>
+
+    <!-- 14 Topics -->
+    <section id="s14">
+      <h2><span class="num">14</span>Topics</h2>
+      <p><code>topics-v0.json</code> declares <strong>27 topics</strong> routing free-text questions to the right <code>(bands, algorithms)</code> pair. <strong>11 topics are fully wired live</strong>: every declared band has a registered materialiser. Routing is by cosine over a 768-D BAAI/bge-base-en-v1.5 embedding served by <code>ort</code> 2.x + <code>tokenizers</code> directly (no third-party wrapper). The model loads from <code>&lt;EMEM_DATA&gt;/models/bge-base-en-v1.5/</code> (CPU); <code>EMEM_TOPIC_USE_GPU=1</code> switches to <code>CUDAExecutionProvider</code> when <code>libonnxruntime.so</code> is GPU-enabled. Substring fallback over <code>aliases[]</code> + <code>key</code> runs as a precision pre-pass so exact-match nouns surface even below the cosine threshold.</p>
+      <p>Threshold is <strong>0.35</strong>. <code>topics-v0.json._threshold_learned_from</code> documents the provenance:</p>
+      <div class="code"><div class="code-head"><span class="tab">threshold provenance</span><span class="lang">text</span></div><pre><code>  Set to balance recall on the 105-question
+  tests/comprehensive/questions_v2.json corpus against false-positive
+  topic suggestions on out-of-scope queries. Re-derive against your own
+  eval corpus by running a PR-curve sweep over questions_v2.json with
+  EMEM_TOPIC_BACKEND=keyword EMEM_TOPIC_THRESHOLD=&lt;x&gt;; pick the x
+  that maximises precision at recall &ge; 0.80.</code></pre></div>
+      <p><code>EMEM_TOPIC_THRESHOLD</code> env overrides the JSON value.</p>
+    </section>
+
+    <!-- 15 Agent-discoverable surface -->
+    <section id="s15">
+      <h2><span class="num">15</span>Agent-discoverable surface</h2>
+      <p><code>emem-server</code> serves both HTTP/REST and MCP JSON-RPC on one port (default <code>0.0.0.0:5051</code>). <strong>93 documented REST paths under <code>/v1/*</code></strong> (96 total in OpenAPI), <strong>81 MCP tools (10 core, 71 extended)</strong>. Discovery chain on first contact:</p>
+      <div class="code"><div class="code-head"><span class="tab">discovery chain</span><span class="lang">text</span></div><pre><code>  1. GET  /.well-known/emem.json         responder pubkey + capabilities
+  2. GET  /.well-known/mcp.json          MCP transport advertisement
+  3. GET  /.well-known/agent-card.json   metadata, recommended tool order
+  4. GET  /v1/manifests                  bands_cid, algorithms_cid,
+                                         sources_cid, schema_cid,
+                                         registry_cid, topics_cid
+  5. GET  /v1/grid_info                  cell pitch ~10 m square
+  6. GET  /v1/data_availability          which bands have history
+  7. POST /v1/locate {q:"&lt;place&gt;"}       &rarr; cell64
+  8. POST /v1/recall, /v1/find_similar,
+          /v1/verify, /v1/diff           primitives</code></pre></div>
+      <p>MCP tools are a strict read-only subset of REST; writes (<code>attest</code>, <code>backfill</code>, reviews POST) go through REST only.</p>
+    </section>
+
+    <!-- 16 Conformance -->
+    <section id="s16">
+      <h2><span class="num">16</span>Conformance</h2>
+      <p>Two implementations conform when, given byte-identical inputs, they produce byte-identical CIDs over the manifest set at <code>/v1/manifests</code>:</p>
+      <div class="code"><div class="code-head"><span class="tab">conformance manifest set</span><span class="lang">text</span></div><pre><code>  bands_cid        BLAKE3 over canonical_cbor(BandsManifest)
+                   (1792 dims, 43 cube slots)
+  algorithms_cid   BLAKE3 over canonical_cbor(AlgorithmsManifest)
+                   (160 entries)
+  sources_cid      BLAKE3 over canonical_cbor(SourcesManifest)
+                   (46 schemes)
+  topics_cid       BLAKE3 over canonical_cbor(TopicsManifest)
+                   (27 topics)
+  schema_cid       BLAKE3 over canonical_cbor(SchemaBundle)
+  registry_cid     BLAKE3 over canonical_cbor(FunctionRegistry)
+                   (20 primary / 2 derivative / 1 negative)</code></pre></div>
+      <p>A receipt binds <code>schema_cid</code> and <code>registry_cid</code> as struct fields. The other four are exposed at <code>/v1/manifests</code> and <code>/.well-known/emem.json</code>; conformance is verified by re-pulling the manifests at receipt time and checking the CIDs match.</p>
+      <p><code>cargo test --workspace</code> is the de-facto conformance check today; the crate-internal tests at <code>crates/emem-codec/src/geo.rs</code>, <code>tslot_text.rs</code>, and <code>emem-attest/src/lib.rs</code> are the de-facto fixtures. Per-vector fixtures under <code>spec/test_vectors/</code> are not yet extracted.</p>
+    </section>
+
+    <!-- 17 Privacy -->
+    <section id="s17">
+      <h2><span class="num">17</span>Privacy</h2>
+      <p>The four <code>PrivacyClass</code> variants from <code>emem-core/src/privacy.rs</code>: <strong>Public</strong> (open-data bands), <strong>AggregateOnly { min_res }</strong> (population-density bands snap to coarser resolution; receipt carries <code>privacy_snapped: true</code>), <strong>L2OnlyWithModelCid</strong> (fine-resolution embeddings tied to a specific model checkpoint; L1 responders must refuse), <strong>Prohibited</strong> (reserved; no band declares it today).</p>
+      <p>Legal surface (cited in SPEC.md &sect;13): GDPR (Reg 2016/679), UK-GDPR, DPDP-2023, CCPA-CPRA, RFC 9116. The canonical responder logs <code>agent_ip_hash = base32_nopad_lower(blake3(client_ip)[..8])</code>, not the raw IP; POST bodies are not captured; GET query strings are captured for the 30-day journald retention window.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 18 Honest limits -->
+    <section id="s18">
+      <h2><span class="num">18</span>Honest limits</h2>
+      <ul>
+        <li><strong>Sub-meter imagery.</strong> No commercial high-resolution imagery pipeline. Sentinel-2 10 m is the finest pitch the responder serves.</li>
+        <li><strong>Edge / onboard inference.</strong> All inference is in-tenant; no spacecraft-bus encoder firmware ships with the protocol. The receipt schema accepts whatever <code>model_id</code> and <code>sensor_id</code> a customer attests under their own ed25519 key.</li>
+        <li><strong>Federation.</strong> Single primary; replicas are read-only. No multi-host clustering, no SOC 2 attestation.</li>
+        <li><strong>JEPA v2 untrained.</strong> The on-disk artifact is a residual-zero identity baseline. Training is gated on upstream Tessera publishing &ge; 3 vintages per cell; training pipeline is ready, the candidate-pool backfill is the bottleneck.</li>
+        <li><strong>Tessera multi-vintage upstream-rate-limited.</strong> The <code>dl2.geotessera.org</code> bucket ships 2017-2024 annual vintages; most cells in <code>/v1/coverage</code> have only the latest year attested locally.</li>
+        <li><strong>16 wired data connectors.</strong> The catalog count (46 declared schemes) is not the pitch. Five schemes remain declared-but-unwired: <code>openet.30m.daily</code>, <code>dynamic_world.v1</code>, <code>tropomi.s5p.ch4</code>, <code>tropomi.s5p.no2</code>, <code>viirs.dnb.monthly</code>.</li>
+        <li><strong>Zero-knowledge verifier.</strong> <code>verify Mode::Zk</code> was advertised in 0.0.3 and returned 500; removed in 0.0.4.</li>
+        <li><strong>Stake / economics.</strong> <code>Attestation.stake</code> was reserved; removed from the struct and its call sites.</li>
+        <li><strong>Filecoin / IPFS bridge.</strong> <code>IpldConnector</code> is a stub.</li>
+        <li><strong>Python / TypeScript SDKs.</strong> Placeholder directories; agents use REST or MCP directly.</li>
+      </ul>
+      <p>A request that names a missing surface returns a typed Absence (&sect;6) or a structured <code>ErrorCode</code>. No surface returns <code>verdict=false</code> for an absent capability.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 19 Comparison -->
+    <section id="s19">
+      <h2><span class="num">19</span>Comparison with adjacent work</h2>
+      <figure class="fig">
+        <img src="/docs/diagrams/06-memory-vs-stac.svg" alt="emem per-pixel signed facts compared with STAC scene catalogs" loading="lazy">
+        <figcaption><b>Memory vs STAC.</b> STAC describes scenes; emem describes per-pixel facts with provenance. A STAC catalog is an upstream connector kind, not the protocol.</figcaption>
+      </figure>
+
+      <h3 id="s19-1">19.1 Geospatial adjacents</h3>
+      <ul>
+        <li><strong>STAC</strong> describes scenes; emem describes per-pixel facts with provenance. STAC catalogs are an upstream connector kind, not the protocol.</li>
+        <li><strong>GeoParquet</strong> is a data format; emem is an addressing rule plus a receipt schema. A GeoParquet column can hold an emem fact's value, but the file carries neither the responder signature nor the Merkle path.</li>
+        <li><strong>IPLD</strong> is a CID layer; emem composes a CID rule on top of IPLD's CBOR tag 42 base32 encoding plus a domain-specific fact ontology.</li>
+      </ul>
+
+      <h3 id="s19-2">19.2 emem in the memory-mechanism landscape</h3>
+      <p>Memory mechanisms for LLM agents fall along three established lines, each of which scopes to a single agent's history:</p>
+      <ul>
+        <li><strong>Textual stores</strong> inject prior turns through the input context. Strength: flexible, no architecture change. Weakness: context-window limits, retrieval noise, compaction loss.</li>
+        <li><strong>Parametric stores</strong> fold prior interactions into adapter or prefix weights. Strength: zero retrieval cost at inference time. Weakness: static; cannot adapt to evolving information without retraining.</li>
+        <li><strong>Outside-channel stores</strong> keep state in a separate module reached by retrieval or encoding on a side channel. Strength: modular. Weaknesses: integration overhead, drift between the retrieval index and the backbone, and the silent-empty problem (a missing entry returns nothing rather than an attestable absence).</li>
+      </ul>
+      <p>Recent work on compact, in-attention memory states (online associative-memory matrices updated by gated delta-rule learning) sharpens the per-session story further. None of these layers operate at the scope emem operates at, because none of them address the same question: <em>what is at this place on Earth, right now, that any agent can cite later?</em></p>
+      <p>emem is a persistent, planet-keyed, content-addressed memory layer. It inherits the outside-channel virtues (modular, additive, LLM- and runtime-agnostic; callable from any agent, in any host, with no SDK install) and addresses the classical outside-channel failure modes directly:</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr><th>Classical weakness</th><th>emem's design response</th></tr></thead>
+        <tbody>
+          <tr><td><em>Integration complexity</em></td><td>Single Streamable-HTTP MCP endpoint plus mirrored REST. No SDK install, no auth, no per-tenant provisioning. Idempotent reads.</td></tr>
+          <tr><td><em>Backbone misalignment</em></td><td>emem does not return embeddings the backbone has to fuse. It returns typed scalar facts in named units with a content-addressed CID. The agent paraphrases at its own attention; emem's contract ends at the bytes.</td></tr>
+          <tr><td><em>Retrieval drift / noise</em></td><td>The address is the place, not a similarity query. Two agents asking for <code>copdem30m.elevation_mean @ defi.zb4d7.ze56c.zf24c</code> get byte-identical CBOR back. No fuzzy ranking, no recall@k surprise.</td></tr>
+          <tr><td><em>Per-session / per-tenant</em></td><td>emem's state is the planet, persisted on disk and content-addressed. A receipt minted by responder A in 2026-05 verifies offline against the same pubkey in 2030, on a self-hosted replica B that never spoke to A.</td></tr>
+          <tr><td><em>Silent empty</em></td><td>A missing band at a cell returns a signed <code>Absence</code> fact with a typed reason, not an empty array. The absence itself is content-addressed and citable as evidence.</td></tr>
+        </tbody>
+      </table></div>
+      <p>The relationship to in-agent memory is complementary, not competitive. In-agent memory compresses a conversation's recent history so the backbone stops spending quadratic attention on it; emem compresses the planet's history so the backbone never loads the raw scenes in the first place. An agent that uses both gets compact internal memory of the chat plus shared external memory of the world; the receipt CID is the bridge between them.</p>
+      <p>Agent runtimes are converging on a tiered memory architecture. Tier 1 is short-term attention, the context window the backbone reasons over directly. Tier 2 is in-process long-term memory, an associative state or scratchpad maintained per session or per tenant. emem is a third tier with a distinct scope: shared, external, planet-keyed, signed. It does not replace tiers 1 or 2; it relieves them of the load of carrying geospatial truth. The same receipt CID that an emem call hands the agent flows through tier 2 (cached by the runtime's long-term store) and shows up in tier 1 (quoted in the next prompt) without the underlying CBOR ever needing to be paraphrased or compressed. The three tiers compose; each is byte-stable at its own scope.</p>
+      <p>The properties emem holds that the in-agent layers structurally cannot:</p>
+      <ul>
+        <li><strong>Reproducibility.</strong> <code>fact_cid</code> dereferences to the same bytes on any conforming responder. Retrieval-style stores are reproducible only when the index is frozen, and only up to similarity, not byte equality.</li>
+        <li><strong>Verifiability.</strong> Ed25519 over a deterministic BLAKE3 preimage. Any party with the issuer's pubkey can verify a receipt without calling back. Browser-side verification ships at <code>/verify</code>.</li>
+        <li><strong>Citation.</strong> A 26-character CID an agent can quote verbatim to a user, a regulator, a competing agent, or its future self. The CID is the bibliographic primitive of this memory layer.</li>
+        <li><strong>Cross-agent sharing.</strong> Two agents on different runtimes, in different processes, in different timezones, with no shared state, paste the same CID and pull the same bytes. The protocol's job is to make this property hold across time and replicas.</li>
+      </ul>
+      <p>The closing technical point worth importing from the in-attention memory literature is <em>compact state</em>. There, an 8&times;8 matrix is shown to be enough to retain useful historical signal once it is addressed associatively rather than positionally. emem's analogue is the 64-bit cell address: the entire knowledge graph for a place collapses to one handle a downstream tool can quote, share, and verify. The encoding scheme differs; the principle (address memory by what it is <em>about</em>, not by where it sat in a stream) is the same. In this sense a <code>cell64</code> is to an emem-grounded reasoning chain what a token is to a language model: a stable, hierarchical, machine-readable handle the rest of the pipeline can quote, share, and verify.</p>
+
+      <h3 id="s19-3">19.3 Memory exposure: how agents reach emem</h3>
+      <p>Modern in-attention memory mechanisms expose memory to a language model through three motions per token: <em>read</em> the prior state, <em>steer</em> the model's attention with the read signal, and <em>write</em> the current information back into the state. emem exposes a planetary memory layer through the same three motions, scaled to the cell &times; band &times; tslot address space and to the agent's request granularity rather than the model's token granularity.</p>
+      <ul>
+        <li><strong>Read.</strong> Three endpoints, three shapes of the same motion. <code>POST /v1/recall</code> answers by address (cell &times; band &times; tslot &rarr; fact) and returns typed scalar facts in named units. <code>POST /v1/state</code> is the canonical state-vector endpoint, with two views selected by the <code>view</code> field. <code>view="encoder"</code> (the default) returns one named encoder band at its native dimension (128-D Tessera annual, 1024-D Clay v1.5 CLS, 1024-D Prithvi-EO-2.0 CLS) as a typed <code>vector: Vec&lt;f32&gt;</code>, with an L2 norm, the fact CID, and a pre-composed memory-token handle in the same envelope. <code>view="cube"</code> returns the responder's full 1792-D cube assembled across every wired band in canonical offset order; the response carries a per-band <code>coverage[]</code> manifest so an agent can tell attested-zero (signed Absence) from not-yet-materialised, and an <code>extras[]</code> array surfacing the full native vector whenever a fact's dim exceeds its cube slot (the cube stays a fixed-width fingerprint, the extras carry the full payload, no information loss). Both views self-certify: <code>view="encoder"</code> cites a <code>fact_cid</code>; <code>view="cube"</code> cites <code>state_cid = base32(blake3(canonical_LE_f32_bytes))</code> plus a child fact CID per cited band. <code>POST /v1/state_multi</code> fans out across the wired foundation encoders. <code>POST /v1/state_diff</code> returns the residual vector and cosine between two tslots at the same cell. <code>POST /v1/find_similar</code> answers by content (seed cell &rarr; k cells ranked by foundation-embedding cosine, with a fast Hamming mode for cheap k-NN). <code>GET /v1/corpus_state_stats</code> is the observability primitive: bounded index scan, per-band fact / cell counts, manifest CIDs in force, signed envelope. All reads come back signed.</li>
+        <li><strong>Steer.</strong> The agent has no in-attention hook, so steering happens through the agent's own context: the <code>fact_cid</code> is the cite-handle. Once a CID is in the conversation, every downstream prompt that includes it pins the agent to the same bytes on the same responder forever. This is the equivalent of an in-attention correction at the granularity an external service can guarantee: a byte-stable handle that survives session boundaries.</li>
+        <li><strong>Write.</strong> <code>POST /v1/attest</code> is the write-side. Each Attestation carries an Ed25519 signature over the canonical CBOR body and becomes a new fact at <code>(cell, band, tslot)</code>. Writes are gated by the operator's identity policy; reads are open. The write is idempotent: the same body produces the same CID, so multiple attesters of identical facts converge rather than duplicate.</li>
+      </ul>
+      <p>The cycle is shaped like an in-attention memory mechanism's inner loop but lives on a different time-scale. In a per-session memory state, read/steer/write fires once per token; in emem it fires once per agent request, with the state shared across every agent on every host. The compactness principle, that a small state addressed associatively is enough to steer downstream reasoning, is the same. emem's small state is the 26-character fact_cid; everything an agent says about the place after quoting the CID is steered by it without re-paraphrasing the bytes.</p>
+      <p>Four properties this layer offers that the in-attention layers cannot:</p>
+      <ul>
+        <li><strong>Connected.</strong> One URL (<code>https://emem.dev</code> or any self-hosted responder), one wire (Streamable-HTTP MCP, mirrored REST), zero per-tenant provisioning. Any agent in any host reaches the same bytes.</li>
+        <li><strong>Signed.</strong> Ed25519 over a deterministic BLAKE3 preimage. Any party with the issuer's pubkey verifies a receipt without calling back. Browser-side verification ships at <code>/verify</code>.</li>
+        <li><strong>Global.</strong> The address space is the planet at ~9.55 m square cells at the equator. There is no out-of-corpus region except the deep ocean (where the responder signs Absence with a typed reason). New cells materialise lazily; first caller pays the upstream cost, every subsequent caller anywhere gets the same bytes.</li>
+        <li><strong>Unadulterated.</strong> The address is the place, not a similarity query. Two agents asking the same question get byte-identical CBOR back. No fuzzy ranking, no implicit normalisation, no silently-injected provider defaults. Empty is a signed Absence fact, not an empty array.</li>
+      </ul>
+
+      <h3 id="s19-4">19.4 Memory tokens</h3>
+      <p>The memory token is a compact, self-describing handle that binds a cell to a signed fact in a single string an agent can drop into an LLM prompt, an HTTP header, a log line, or a message between two agents. The handle is the unit of cross-process memory exchange: paste one token and any reader on any responder can resolve the same bytes.</p>
+
+      <h4 id="s19-4-1">19.4.1 Grammar</h4>
+      <p>The token is colon-separated and consists of three segments:</p>
+      <div class="code"><div class="code-head"><span class="tab">memory_token grammar</span><span class="lang">text</span></div><pre><code>    memory_token  ::=  "memt" ":" cell64 ":" fact_cid
+    cell64        ::=  bigram "." bigram "." bigram "." bigram
+    fact_cid      ::=  26 chars of base32-nopad-lowercase</code></pre></div>
+      <p>The first segment is the fixed prefix <code>memt</code>, identifying the string as an emem memory token. The second segment is the cell64 in its four-bigram dotted form. The third segment is the 26-character fact_cid (the base32-nopad-lowercase truncation of <code>blake3(canonical_cbor(fact))</code> to 16 bytes). Neither component may contain a <code>:</code> character; the outer separator is reserved.</p>
+      <p>A canonical token therefore looks like:</p>
+      <div class="code"><div class="code-head"><span class="tab">example token</span><span class="lang">text</span></div><pre><code>    memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</code></pre></div>
+      <p>That is roughly 57 characters, well within typical LLM-token budgets for a single context reference (it costs eight to twelve LLM tokens depending on the tokenizer).</p>
+
+      <h4 id="s19-4-2">19.4.2 Semantics</h4>
+      <p>A memory token does not carry the value itself; it carries the <em>address</em> of the value. To dereference, an agent splits on <code>:</code>, takes the third segment, and calls <code>GET /v1/facts/:cid</code> (or quotes the CID to any other responder mirroring the same content-addressed corpus). The cell segment is redundant on the dereference path, since the fact body embeds the cell; including it inline lets a human reader place the token without a round-trip.</p>
+      <p>The token is <strong>deterministic</strong>: the same <code>(cell, fact_cid)</code> pair always produces the same string. It is <strong>idempotent</strong>: composing the same inputs twice is a no-op. It carries <strong>no signature of its own</strong>; the fact it references is already signed at the responder, and the CID is self-certifying (recomputing <code>blake3(canonical_cbor)</code> over the fetched fact must produce exactly the embedded base32 string).</p>
+      <p>A memory token may appear:</p>
+      <ul>
+        <li>in an LLM prompt, as a stable bibliographic reference an agent quotes the way one might quote a DOI;</li>
+        <li>in a tool-call argument, as a single string the receiving tool parses and resolves;</li>
+        <li>in a chat between two agents, as the handshake artefact that prevents the two from arguing about an underlying number;</li>
+        <li>in a log line, as a forensic anchor a future debugger can replay.</li>
+      </ul>
+
+      <h4 id="s19-4-3">19.4.3 Compose endpoint</h4>
+      <p><code>POST /v1/memory_token</code> composes a token from explicit components:</p>
+      <div class="code"><div class="code-head"><span class="tab">request</span><span class="lang">json</span></div><pre><code>{
+  "cell":     "defi.zb4d7.ze56c.zf24c",
+  "fact_cid": "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma"
+}</code></pre></div>
+      <p>returns</p>
+      <div class="code"><div class="code-head"><span class="tab">response</span><span class="lang">json</span></div><pre><code>{
+  "memory_token": "memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
+  "cell":         "defi.zb4d7.ze56c.zf24c",
+  "fact_cid":     "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
+  "grammar":      "memt:&lt;cell64&gt;:&lt;fact_cid&gt;",
+  "docs":         "/whitepaper.md#194-memory-tokens"
+}</code></pre></div>
+      <p>Composition is offline and runs with no upstream call. Agents are free to compose tokens locally without contacting <code>/v1/memory_token</code>; the endpoint is a convenience plus a single source of truth for grammar validation.</p>
+
+      <h4 id="s19-4-4">19.4.4 Parse and verify</h4>
+      <p>To resolve a token an agent does:</p>
+      <div class="code"><div class="code-head"><span class="tab">parse + verify</span><span class="lang">text</span></div><pre><code>    parts = token.split(":")
+    assert parts[0] == "memt"
+    cell, fact_cid = parts[1], parts[2]
+    body = GET /v1/facts/&lt;fact_cid&gt;
+    assert blake3(canonical_cbor(body))[:16] == base32_decode(fact_cid)</code></pre></div>
+      <p>The last line is the bit of work that turns the token from a pointer into a <em>certified</em> pointer: the CID does not just name the bytes, it verifies them. A man-in-the-middle that swaps a different fact for the same CID is detected by the digest check; a bit-flip on the wire is detected the same way.</p>
+
+      <h4 id="s19-4-5">19.4.5 Failure modes named explicitly</h4>
+      <ul>
+        <li><em>Malformed grammar.</em> Anything that does not split into exactly three <code>:</code>-separated segments with first segment <code>memt</code> is rejected by the parser. Callers should treat as <code>bad_input</code>, not retry.</li>
+        <li><em>Unknown CID.</em> The compose step does not check the corpus, so a composed token can reference a fact_cid that no responder holds yet. Dereferencing returns <code>cid_not_found</code>. This is the lazy materialisation path: the token can be minted before the fact is written, and the write closes the loop.</li>
+        <li><em>CID drift after re-encode.</em> Re-encoding a fact body (changing key order, changing precision, normalising whitespace) produces a different CID. The memory token then dangles. The protocol's rule is to never re-encode: always fetch by CID, never reconstruct.</li>
+      </ul>
+
+      <h3 id="s19-5">19.5 Operations vocabulary</h3>
+      <p>The endpoints map cleanly onto the canonical agent-memory operations vocabulary used by mem0, Letta, LangGraph, and the broader memory-layer ecosystem:</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr><th>Operation</th><th>emem primitive</th><th>Endpoint</th></tr></thead>
+        <tbody>
+          <tr><td>retrieve by address</td><td><code>recall</code></td><td><code>POST /v1/recall</code></td></tr>
+          <tr><td>retrieve by similarity</td><td><code>find_similar</code></td><td><code>POST /v1/find_similar</code></td></tr>
+          <tr><td>retrieve over a region</td><td><code>recall_polygon</code></td><td><code>POST /v1/recall_polygon</code></td></tr>
+          <tr><td>retrieve over time</td><td><code>trajectory</code></td><td><code>POST /v1/trajectory</code></td></tr>
+          <tr><td>address-by-name (place &rarr; key)</td><td><code>locate</code></td><td><code>POST /v1/locate</code></td></tr>
+          <tr><td>search-by-pattern</td><td><code>hunt</code></td><td><code>POST /v1/hunt</code></td></tr>
+          <tr><td>write (signed attestation)</td><td><code>attest</code></td><td><code>POST /v1/attest</code></td></tr>
+          <tr><td>compare states</td><td><code>diff</code>, <code>compare</code></td><td><code>POST /v1/diff</code>, <code>POST /v1/compare</code></td></tr>
+          <tr><td>summarize / place-anchored Q&amp;A</td><td><code>ask</code></td><td><code>POST /v1/ask</code></td></tr>
+          <tr><td>verify a receipt</td><td><code>verify_receipt</code></td><td><code>POST /v1/verify_receipt</code></td></tr>
+          <tr><td>reflect / record task outcome</td><td><code>reviews</code></td><td><code>POST /v1/reviews</code></td></tr>
+        </tbody>
+      </table></div>
+      <p>The <code>reviews</code> endpoint persists task-outcome reviews keyed by the subject the review concerns (cell, band, algorithm). It is the reflection / experience-log layer an agent uses to record what worked at a place; the protocol does not enforce a schema beyond the subject key and an opaque body, so consumers can carry arbitrary structured feedback alongside the receipt.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <!-- 20 Open questions -->
+    <section id="s20">
+      <h2><span class="num">20</span>Open questions</h2>
+      <ul>
+        <li><strong>More encoder bands on <code>/v1/state</code>.</strong> <code>geotessera</code> (128-D Tessera annual) ships today; Clay v1.5 (1024-D CLS) and Prithvi-EO-2.0 (1024-D CLS) ship per cell when their materialiser workers are wired at this responder. The wire surface accepts any vector-typed band today, so the spec is forward-compatible. The next encoder to land is the Galileo multimodal embedding (currently S2-only at this responder).</li>
+        <li><strong>More benchmark items.</strong> <code>/v1/benchmark</code> ships five hand-verified items (three recall, two find_similar) and <code>/v1/benchmark/grade</code> scores submitted answers against expected. The next motion is growing the catalogue (hunt events, trajectory windows, state-diff tasks now that <code>/v1/state_diff</code> is wired); curation is the rate-limit.</li>
+        <li><strong>Per-cell subscribe filter on <code>/v1/stream</code>.</strong> The Server-Sent Events stream at <code>/v1/stream</code> ships a signed corpus tick every N seconds (default 15, range [5, 300]). The next motion is per-cell / per-band / per-region subscribe filters so an agent only receives events relevant to its workload. That requires a broadcast channel the write path emits to, plus subscriber bookkeeping; deferred to a focused effort.</li>
+        <li><strong>Full TEE attestation report.</strong> <code>/.well-known/emem.json</code> ships an operator attestation binding the running binary's BLAKE3 hash, git commit, and build timestamp under the responder's Ed25519 key. The <code>tee_quote</code> field on the same object ships as <code>null</code> from this responder until the binary is deployed under Intel SGX or AMD SEV-SNP; the quoting service of either platform populates the field with a hardware-attested measurement of the process. Operators running emem under a TEE are expected to populate <code>tee_quote</code> directly from the platform.</li>
+        <li><strong>H3 hex migration.</strong> Spec target is H3-equivalent DGGS at resolution 13. cell64 is square at the equator, progressively non-square poleward. Migration requires a new manifest CID for the band ontology and an in-flight-fact story.</li>
+        <li><strong>Trained JEPA v2.</strong> Gated on upstream Tessera publishing multi-vintage history per cell.</li>
+        <li><strong>WorldPop latency.</strong> 2-4 s/cell at request time. Pre-baking the global 1 km&sup2; raster locally amortises the fetch.</li>
+        <li><strong>Multi-modal Galileo.</strong> S1 / ERA5 / TC / VIIRS / SRTM / DW / WC / LandScan / location modalities are zero-masked. Each needs a connector + chip fetcher.</li>
+        <li><strong>Cross-modal alignment at scale.</strong> Ridge-regression bridges between encoder spaces (Clay &harr; Prithvi, Prithvi &harr; Tessera) need labelled overlap sets per customer.</li>
+      </ul>
+    </section>
+
+    <hr class="band-rule">
+    <div class="seal-row"><span class="line"></span><span class="seal"></span><span class="line"></span></div>
+
+    <!-- References -->
+    <section id="refs">
+      <h2><span class="num">&sect;</span>References</h2>
+      <ul class="refs">
+        <li>Beck, H.E., et al. "Present and future K&ouml;ppen-Geiger climate classification maps at 1-km resolution." <em>Scientific Data</em> 5, 180214 (2018). (<code>climate_archetype_triple</code> seed centroids.)</li>
+        <li>Clay Foundation. "Clay v1.5." <code>made-with-clay/Clay</code> (Apache-2.0).</li>
+        <li>Corley, I. "TerraBit: sign-bit rotation for binary k-NN." geospatialml.com/posts/terrabit. (TurboQuant rotation, &sect;9.3.1.)</li>
+        <li>Fields of The World (FTW). "Global agricultural field polygons, 241 countries, 10 m, CC-BY-4.0." source.coop pmtiles archive.</li>
+        <li>GeoNames. "cities-5000: 68 581 populated places &ge; 5 000 population, CC-BY-4.0." Vendored at <code>crates/emem-fetch/data/cities5000.txt.gz</code>.</li>
+        <li>Hansen, M.C., et al. "High-resolution global maps of 21st-century forest cover change." <em>Science</em> 342, 850-853 (2013).</li>
+        <li>Lei, J., Zhang, D., Li, J., et al. "&delta;-mem: Efficient Online Memory for Large Language Models." arXiv:2605.12357 (2026). (Compact in-attention associative memory; informs &sect;19.3.)</li>
+        <li>Lewis, P., et al. "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks." NeurIPS (2020). (Textual outside-channel memory; &sect;19.2.)</li>
+        <li>Packer, C., et al. "MemGPT: Towards LLMs as Operating Systems." arXiv:2310.08560 (2023). (Per-tenant managed scratchpad; &sect;19.2.) (<code>deforestation_triple</code> uplift.)</li>
+        <li>Healey, S.P., et al. "Mapping forest change using stacked generalization." <em>RSE</em> 204:717-728 (2018). (Consensus threshold provenance.)</li>
+        <li>IBM / NASA / Jakubik et al. "Prithvi: a geospatial foundation model." <code>ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL</code>.</li>
+        <li>O'Connor, J., Aumasson, J.-P., Neves, S., Wilcox-O'Hearn, Z. "BLAKE3: one function, fast everywhere."</li>
+        <li>Oke, T.R. <em>Boundary Layer Climates</em>, 2nd ed. Methuen (1987); &sect;2.3 table 2.4 (urban &alpha; &asymp; 1e-6 m&sup2;/s for <code>/v1/heat_solve</code>).</li>
+        <li>Overture Maps Foundation. "Places, buildings, transportation, divisions themes, ODbL."</li>
+        <li>Pekel, J.-F., et al. "High-resolution mapping of global surface water and its long-term changes." <em>Nature</em> 540, 418-422 (2016).</li>
+        <li>Schumann, G.J.-P., et al. "The need for a high-accuracy, open-access global DEM." <em>Frontiers in Earth Science</em> 6:225 (2018).</li>
+        <li>Snyder, J.P. "Map projections: a working manual." USGS PP 1395 (1987). (UTM in <code>emem-fetch::proj</code>.)</li>
+        <li>Tseng, G., et al. "Galileo: a multimodal geospatial foundation model." <code>nasaharvest/galileo</code>.</li>
+        <li>RFC 8949 (CBOR &sect;4.2 deterministic encoding), RFC 8032 (Ed25519), RFC 4648 (base32-nopad), RFC 9090 (multibase 'b'), RFC 9116 (security.txt).</li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+</div>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">Earth memory protocol. Cell &times; Band &times; Tslot &rarr; Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper">whitepaper</a></li>
+          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/gallery">live coverage map</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
+          <li><a href="/v1/corpus_state_stats">corpus stats</a></li>
+          <li><a href="/v1/stream">live stream (SSE)</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/demos">demos index</a></li>
+          <li><a href="/demos/ask-the-earth">ask the Earth (10 live calls)</a></li>
+          <li><a href="/demos/state-cube">state cube walk</a></li>
+          <li><a href="/demos/signed-answer">signed answer in 4 steps</a></li>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/v1/benchmark">agent benchmark</a></li>
+          <li><a href="/humans">/humans</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
+          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
+          <li><a href="/docs/errors.html">errors</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="/health">health</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> &middot;
+        <a href="/privacy">privacy &middot; terms</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Tiny vanilla scroll-spy: highlight the TOC link for the section currently
+// in view. No external libs, no inline handlers. Degrades to plain anchor
+// links if IntersectionObserver is unavailable.
+(function(){
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  if (!links.length || !('IntersectionObserver' in window)) return;
+  var byId = {};
+  links.forEach(function(a){
+    var id = a.getAttribute('href').slice(1);
+    if (id) byId[id] = a;
+  });
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.doc section[id]'));
+  var current = null;
+  function setOn(a){
+    if (current === a) return;
+    if (current) current.classList.remove('on');
+    current = a;
+    if (a) a.classList.add('on');
+  }
+  var visible = {};
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) visible[e.target.id] = e.intersectionRatio;
+      else delete visible[e.target.id];
+    });
+    // Pick the topmost visible section in document order.
+    var pick = null;
+    for (var i = 0; i < sections.length; i++){
+      if (visible[sections[i].id] !== undefined){ pick = sections[i].id; break; }
+    }
+    if (pick && byId[pick]) setOn(byId[pick]);
+  }, { rootMargin: '-64px 0px -55% 0px', threshold: [0, 0.25, 0.5, 1] });
+  sections.forEach(function(s){ io.observe(s); });
+})();
+</script>
+
+</body>
+</html>

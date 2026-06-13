@@ -197,6 +197,11 @@ const API_REDOC_HTML: &str = include_str!("../../../web/api-redoc.html");
 const HOW_IT_WORKS_HTML: &str = include_str!("../../../web/how-it-works.html");
 const SOLUTIONS_HTML: &str = include_str!("../../../web/solutions.html");
 const REFERENCE_HTML: &str = include_str!("../../../web/reference.html");
+/// The whitepaper as a first-class web page (sticky TOC, embedded Mithila
+/// diagrams, styled math) in the same paper/ink design as the rest of the
+/// site. Browsers get this; agents that `Accept: text/markdown` still get
+/// the raw `docs/whitepaper.md` via the same route.
+const WHITEPAPER_HTML: &str = include_str!("../../../web/whitepaper.html");
 
 /// Static lookup table for the 33 protocol + industry diagrams that ship
 /// in `docs/diagrams/`. The slug is the literal filename; the body is the
@@ -649,7 +654,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
-        .route("/whitepaper", get(serve_whitepaper_md))
+        .route("/whitepaper", get(serve_whitepaper_page))
+        .route("/whitepaper.html", get(serve_whitepaper_page))
         .route("/whitepaper.md", get(serve_whitepaper_md))
         .route("/integrations", get(serve_integrations_md))
         .route("/integrations.md", get(serve_integrations_md))
@@ -1539,6 +1545,8 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/quickstart"
         | "/v1/agent_quickref"
         | "/agents.md"
+        | "/whitepaper"
+        | "/whitepaper.html"
         | "/whitepaper.md"
         | "/integrations"
         | "/integrations.md"
@@ -2444,6 +2452,7 @@ fn served_html_pages() -> Vec<&'static str> {
         HOW_IT_WORKS_HTML,
         SOLUTIONS_HTML,
         REFERENCE_HTML,
+        WHITEPAPER_HTML,
     ]
 }
 
@@ -2632,6 +2641,9 @@ async fn serve_gallery_html() -> Response {
 
 async fn serve_how_it_works(headers: HeaderMap) -> Response {
     html_or_md(&headers, HOW_IT_WORKS_HTML, LLMS_TXT)
+}
+async fn serve_whitepaper_page(headers: HeaderMap) -> Response {
+    html_or_md(&headers, WHITEPAPER_HTML, WHITEPAPER_MD)
 }
 async fn serve_solutions(headers: HeaderMap) -> Response {
     html_or_md(&headers, SOLUTIONS_HTML, LLMS_TXT)
