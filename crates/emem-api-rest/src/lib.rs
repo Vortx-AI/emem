@@ -16023,7 +16023,7 @@ async fn openapi() -> Json<JsonValue> {
                 "CompareBandsResp":{"type":"object","description":"Response of /v1/compare_bands. Numeric delta + percent change for scalar pairs; cosine + L2 for vector pairs. `predicate_verdict` is present when a consistency predicate was passed.","required":["delta","receipt"],"properties":{"delta":{"type":"number"},"percent_change":{"type":"number"},"cosine":{"type":"number"},"l2":{"type":"number"},"predicate_verdict":{"type":"object","properties":{"kind":{"type":"string"},"threshold":{"type":"number"},"holds":{"type":"boolean"}}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "VerifyResp":      {"type":"object","description":"Response of /v1/verify. `holds` is the boolean verdict; `evidence_cids` are the fact CIDs the verifier walked to reach the verdict.","required":["holds","receipt"],"properties":{"holds":{"type":"boolean"},"evidence_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"explanation":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "VerifyReceiptResp":{"type":"object","description":"Response of /v1/verify_receipt. `valid` is the ed25519 signature check; `signer` is the responder pubkey the signature was checked against; `preimage_b64` is the canonical preimage that was hashed and signed, for reproduction in any other ed25519 implementation.","required":["valid","signer"],"properties":{"valid":{"type":"boolean"},"signer":{"$ref":"#/components/schemas/PubKey"},"preimage_b64":{"type":"string"},"errors":{"type":"array","items":{"type":"string"}}}},
-                "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"foundation_embeddings":{"type":"object","description":"Per-encoder neighbour lists and consensus voting. Populated when the intent matches `find places like` / `what changed`."},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"foundation_embeddings":{"type":"object","description":"Per-encoder neighbour lists and consensus voting. Populated when the intent matches `find places like` / `what changed`."},"answer":{"type":"string","description":"Short natural-language summary of what the responder found, synthesised deterministically from the structured fields (every cited value traces to a fact_cid in the receipt). On a cold cell whose bands are not yet materialized it states that plainly and points at `next_steps`; never an LLM call."},"answer_md":{"type":"string","description":"Markdown variant of `answer`."},"next_steps":{"type":"array","description":"Present when the routed algorithms could not evaluate because their input bands are not materialized at this cell. Each item is a literal follow-up call (e.g. POST /v1/recall with the exact missing bands) the agent can issue, then re-ask.","items":{"type":"object","properties":{"action":{"type":"string"},"why":{"type":"string"},"method":{"type":"string"},"path":{"type":"string"},"url":{"type":"string"},"body":{"type":"object"}}}},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "FieldBoundariesResp":{"type":"object","description":"Response of /v1/field_boundaries. `fields` is an array of per-field GeoJSON-Polygon features from Fields of The World (CC-BY-4.0). `attribution` and `license` must be surfaced with any rendered map.","required":["fields","license","attribution"],"properties":{"fields":{"type":"array","items":{"type":"object","properties":{"geometry":{"type":"object","description":"GeoJSON Polygon."},"area_ha":{"type":"number"},"country":{"type":"string"},"confidence":{"type":"number"}}}},"license":{"type":"string","example":"CC-BY-4.0"},"attribution":{"type":"string","example":"Fields of The World / Taylor Geospatial Institute"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "Error":           {"type":"object","required":["code","message"],"properties":{"code":{"type":"string","example":"invalid_argument"},"message":{"type":"string"},"details":{"type":"object"}}},
                 "ErrorEnvelope":   {"type":"object","description":"The `emem.error.v1` failure envelope returned by every endpoint on a 4xx/5xx. Branch on the stable `code` (not the human `message`). See GET /v1/errors for the full code catalog.","required":["code","message","schema"],"properties":{"code":{"type":"string","example":"invalid_argument","description":"Stable machine-readable error code. One of the codes in GET /v1/errors."},"message":{"type":"string","description":"Human-readable detail. For invalid_argument this names the offending field (e.g. \"missing field `q`\")."},"path":{"type":"string","description":"Request path that produced the error.","example":"/v1/ask"},"schema":{"type":"string","const":"emem.error.v1"},"details":{"type":"object","description":"Optional structured recovery hints; present on errors that ship machine-readable next-steps."}}}
@@ -41771,6 +41771,64 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             }));
         }
     }
+    // Cold-cell guidance. When the routed algorithms could not evaluate
+    // because their input bands are not yet materialized at this cell, the
+    // honest move is to hand the agent the exact next call rather than a
+    // signed receipt over nothing. The `missing` set is the routed topics'
+    // bands minus what the cell already carries — precisely what POST
+    // /v1/recall would fetch and sign. We do NOT silently fan-out a slow
+    // materialize here (that is the cold-latency regression the ask
+    // fast-path was built to avoid); we point at the bounded call instead.
+    // Per the no-silent-fallback rule, an empty answer below then means
+    // "cold cell, go fetch", which the `next_steps` make actionable —
+    // distinct from "out of scope".
+    let bands_present_set: std::collections::BTreeSet<String> = facts_json
+        .get("facts")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|f| f.get("band").and_then(|b| b.as_str()).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut missing_bands: Vec<String> = Vec::new();
+    {
+        let mut seen: std::collections::BTreeSet<String> = Default::default();
+        for m in &topic_matches {
+            for b in router.bands_for_topic(&m.key) {
+                if !bands_present_set.contains(&b) && seen.insert(b.clone()) {
+                    missing_bands.push(b);
+                }
+            }
+        }
+        missing_bands.truncate(8);
+    }
+    let skipped_outcomes = algorithm_outcomes
+        .iter()
+        .filter(|o| o.get("skip_reason").map(|v| !v.is_null()).unwrap_or(false))
+        .count();
+    let ask_fact_count = facts_json
+        .get("facts")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let cold_cell = !missing_bands.is_empty() && (ask_fact_count == 0 || skipped_outcomes > 0);
+    if cold_cell {
+        if let Some(map) = body.as_object_mut() {
+            map.insert(
+                "next_steps".into(),
+                json!([{
+                    "action": "recall",
+                    "why":    "These bands are not yet materialized at this cell, so the routed algorithms could not evaluate. Recall them once to fetch and sign them, then re-issue the question.",
+                    "method": "POST",
+                    "path":   "/v1/recall",
+                    "url":    format!("{origin_for_links}/v1/recall"),
+                    "body":   { "cell": cell.clone(), "bands": missing_bands.clone() },
+                }]),
+            );
+        }
+    }
+
     // Deterministic answer synthesis. /v1/ask had been emitting the
     // structured summaries (facts_summary / band_observations_summary /
     // algorithm_outcomes_summary) without ever populating the `answer` or
@@ -41793,6 +41851,31 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 {
                     map.insert("answer_md".into(), JsonValue::String(synth));
                 }
+            } else if cold_cell {
+                // Topics matched but every routed algorithm hit a band the
+                // cell has not materialized yet. Say so plainly and name the
+                // exact recall that fixes it (also structured in
+                // `next_steps`), so the agent knows this is "cold, go fetch"
+                // rather than "wrong question" or "the call failed".
+                let place_label = map
+                    .get("place_resolved")
+                    .and_then(|p| p.get("label").or_else(|| p.get("resolved_label")))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                let where_str = match place_label {
+                    Some(l) if l != cell => format!("{l} ({cell})"),
+                    _ => format!("this cell ({cell})"),
+                };
+                map.insert(
+                    "answer".into(),
+                    JsonValue::String(format!(
+                        "emem has not measured this question's bands at {where_str} yet, so the \
+                         matched algorithms could not score it. Call POST /v1/recall with these \
+                         bands to fetch and sign them, then ask again: {}. See `next_steps` for \
+                         the exact call.",
+                        missing_bands.join(", ")
+                    )),
+                );
             } else if map
                 .get("topic_routing")
                 .and_then(|t| t.get("out_of_scope"))
