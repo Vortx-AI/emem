@@ -1506,12 +1506,14 @@ async fn cors_layer(
 // values reflect how often the response actually changes.
 
 fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
-    // The thirty-two diagrams are bytes-equivalent across deploys (the
-    // file names embed the version implicitly via the build pin); a long
-    // cache is correct and an embed-anywhere page only pays the network
-    // cost once.
+    // The diagrams live at stable URLs but their CONTENT is redesigned
+    // across deploys (the Mithila redesign rewrote every file in place), so
+    // they are NOT immutable — marking them so left browsers showing the old
+    // art for a full day. Cache for an hour and revalidate in the background
+    // so a redesign propagates without a hard refresh, while an embed-anywhere
+    // page still pays the network cost only rarely.
     if path.starts_with("/docs/diagrams/") && path.ends_with(".svg") {
-        return Some("public, max-age=86400, immutable");
+        return Some("public, max-age=3600, stale-while-revalidate=86400");
     }
     match path {
         // Homepage + agent.json are build-pinned static surfaces; cache
