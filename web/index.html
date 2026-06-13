@@ -58,7 +58,7 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
   --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
   --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
   --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
-  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);--vermilion:oklch(0.50 0.16 30);
   --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
   --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
@@ -613,6 +613,109 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-mapframe .maplibregl-ctrl-attrib{background:color-mix(in oklch,var(--paper) 86%,transparent);font-size:9px}
 .atlas-mapframe .maplibregl-ctrl-attrib a{color:var(--mute)}
 #atlas-verdict[hidden],#atlas-deeper[hidden]{display:none}
+
+/* ===== Mithila-scroll homepage ===== */
+/* ============================================================================
+   Mithila-scroll homepage — full-screen living map + illustrated story chapters.
+   Reuses the page design tokens (paper/ink, --mono, type scale). Replaces the
+   old uniform two-column .section doc layout with a varied painted scroll.
+   ============================================================================ */
+
+/* ---- full-screen living map hero ---------------------------------------- */
+.earth-hero{position:relative;height:calc(100vh - 40px);min-height:560px;max-height:920px;
+  border-bottom:2px solid var(--ink);overflow:hidden;background:var(--paper)}
+.earth-hero #atlas-map{position:absolute;inset:0;height:100%;width:100%;z-index:1}
+.earth-hero .atlas-hint{position:absolute;left:16px;bottom:16px;z-index:4}
+/* double-line Mithila frame drawn over the map edges */
+.earth-hero::before{content:"";position:absolute;inset:10px;border:1px solid var(--ink);z-index:3;pointer-events:none}
+.earth-hero::after{content:"";position:absolute;inset:15px;border:1px solid var(--rule-strong);z-index:3;pointer-events:none}
+
+/* title cartouche overlaid top-centre */
+.hero-cartouche{position:absolute;left:50%;top:26px;transform:translateX(-50%);z-index:5;
+  width:min(680px,calc(100% - 56px));text-align:center;pointer-events:none}
+.hero-cartouche .sun{width:min(340px,64%);height:auto;display:block;margin:0 auto -.3rem}
+/* a translucent paper cartouche so the title always reads over the busy map */
+.hero-cartouche .plate{background:color-mix(in oklch,var(--paper) 86%,transparent);
+  border:1px solid var(--rule-strong);box-shadow:0 0 0 4px color-mix(in oklch,var(--paper) 70%,transparent),0 18px 50px -28px rgba(0,0,0,.55);
+  padding:.9rem 1.4rem 1.1rem;backdrop-filter:blur(2px)}
+.hero-cartouche .kicker{font-size:var(--t-xs);letter-spacing:.22em;text-transform:uppercase;color:var(--vermilion)}
+.hero-cartouche h1{font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.07;letter-spacing:-.02em;margin:.25rem 0 .45rem;color:var(--ink);font-weight:600}
+.hero-cartouche h1 .accent{color:var(--accent)}
+.hero-cartouche .sub{font-size:var(--t-md);color:var(--ink-2);max-width:48ch;margin:0 auto;line-height:1.45}
+
+/* the consensus card floats bottom-right over the map; becomes a normal block on mobile */
+.hero-consensus{position:absolute;right:22px;bottom:22px;z-index:5;width:min(380px,calc(100% - 44px));
+  border:2px solid var(--ink);background:color-mix(in oklch,var(--paper-2) 96%,transparent);
+  box-shadow:0 0 0 4px var(--paper),0 14px 40px -18px rgba(0,0,0,.5);max-height:min(70%,520px);overflow:auto}
+.hero-consensus .mc-head{border-bottom:1px solid var(--rule)}
+@media (max-width:880px){
+  .earth-hero{height:auto;max-height:none}
+  .earth-hero #atlas-map{position:relative;height:62vh;min-height:360px}
+  .hero-cartouche{position:static;transform:none;width:auto;padding:1.4rem var(--pad-x) .4rem;pointer-events:auto}
+  .hero-consensus{position:static;width:auto;margin:0 var(--pad-x) 1.4rem;max-height:none}
+}
+
+/* ---- the painted story scroll ------------------------------------------- */
+.scroll{max-width:1180px;margin:0 auto;padding:0 var(--pad-x)}
+/* a Mithila divider between chapters: a thin double rule with a centred lotus dot */
+.mith-div{display:flex;align-items:center;gap:1rem;margin:0;color:var(--rule-strong)}
+.mith-div::before,.mith-div::after{content:"";height:0;flex:1;border-top:1px solid var(--rule);box-shadow:0 3px 0 -2px var(--rule)}
+.mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);flex:0 0 auto;opacity:.8}
+
+.chapter{display:grid;grid-template-columns:1fr 1fr;gap:2.6rem;align-items:center;padding:4.2rem 0}
+.chapter.wide{grid-template-columns:1fr}
+.chapter .art{margin:0;min-width:0}
+.chapter .art svg{display:block;width:100%;height:auto;border:0}
+/* the painted panels get the paper frame + cross-hatch corner the diagrams use */
+.chapter .art{position:relative;background:var(--paper);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.chapter .words{min-width:0}
+.chapter:nth-of-type(even) .art{order:2}
+.chapter:nth-of-type(even) .words{order:1}
+.chapter .kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--mute-2);display:flex;align-items:center;gap:.6rem}
+.chapter .kicker .n{color:var(--accent);font-weight:700}
+.chapter h2{font-size:clamp(1.5rem,2.6vw,2.1rem);line-height:1.12;letter-spacing:-.02em;margin:.5rem 0 .8rem;color:var(--ink);font-weight:600}
+.chapter .cap{font-size:var(--t-md);color:var(--ink-2);line-height:1.5;max-width:42ch;margin:0 0 1.3rem}
+.chapter .go{font-size:var(--t-sm)}
+.chapter .go a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 40%,transparent)}
+.chapter .go a:hover{background:var(--accent-bg)}
+.chapter .go a+a{margin-left:1.1rem}
+@media (max-width:880px){
+  .chapter{grid-template-columns:1fr;gap:1.4rem;padding:2.8rem 0}
+  .chapter:nth-of-type(even) .art{order:0}
+  .chapter:nth-of-type(even) .words{order:0}
+}
+
+/* the live console + verify card sit inside their chapter's words column */
+.chapter .live{margin:1.3rem 0 0}
+
+/* ---- who it serves: industry grid --------------------------------------- */
+.who{padding:3.6rem 0 4.4rem}
+.who .who-head{text-align:center;max-width:60ch;margin:0 auto 2.2rem}
+.who .who-head .kicker{font-size:var(--t-xs);letter-spacing:.2em;text-transform:uppercase;color:var(--mute-2)}
+.who .who-head h2{font-size:clamp(1.5rem,2.8vw,2.2rem);letter-spacing:-.02em;margin:.4rem 0 .6rem;color:var(--ink);font-weight:600}
+.who .who-head p{color:var(--ink-2);font-size:var(--t-md);margin:0}
+.who-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.1rem}
+@media (max-width:980px){.who-grid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:540px){.who-grid{grid-template-columns:1fr}}
+.who-card{display:flex;flex-direction:column;text-decoration:none;color:inherit;
+  background:var(--paper-2);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule);transition:box-shadow .18s,transform .18s}
+.who-card:hover{box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--accent);transform:translateY(-2px)}
+.who-card .frame{aspect-ratio:16/10;overflow:hidden;border-bottom:1px solid var(--rule);background:var(--paper)}
+.who-card .frame img{width:100%;height:100%;object-fit:cover;display:block}
+.who-card .meta{padding:.7rem .85rem .9rem}
+.who-card .meta .lab{font-weight:700;color:var(--ink);font-size:var(--t-sm);letter-spacing:.01em}
+.who-card .meta .ln{color:var(--ink-2);font-size:var(--t-xs);line-height:1.4;margin-top:.2rem}
+.who-more{text-align:center;margin:2.2rem 0 0}
+.who-more a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 40%,transparent);font-size:var(--t-sm)}
+
+/* ---- closing band ------------------------------------------------------- */
+.finale{border-top:2px solid var(--ink);background:var(--paper-2);padding:4rem 0}
+.finale .scroll{text-align:center}
+.finale h2{font-size:clamp(1.6rem,3vw,2.4rem);letter-spacing:-.02em;color:var(--ink);margin:0 0 .6rem;font-weight:600}
+.finale h2 .accent{color:var(--accent)}
+.finale p{color:var(--ink-2);font-size:var(--t-md);max-width:56ch;margin:0 auto 1.6rem}
+.finale .hero-cta{justify-content:center}
+
 </style>
 <link rel="stylesheet" href="/maplibre-gl.css">
 </head>
@@ -621,12 +724,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <header class="statusbar">
   <div class="statusbar-inner">
     <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
-    <a href="#atlas" class="nav-sec">pick a patch</a>
-    <a href="#idea" class="nav-sec">what it is</a>
-    <a href="#proof" class="nav-sec">how a fact is proven</a>
-    <a href="#memory" class="nav-sec">memory layer</a>
-    <a href="#impact" class="nav-sec">who it&rsquo;s for</a>
-    <a href="#connect" class="nav-sec">connect</a>
+    <a href="#map" class="nav-sec">the map</a>
+    <a href="#address" class="nav-sec">address</a>
+    <a href="#fact" class="nav-sec">signed fact</a>
+    <a href="#consensus" class="nav-sec">consensus</a>
+    <a href="#who" class="nav-sec">who it serves</a>
+    <a href="#build" class="nav-sec">build</a>
     <span class="spacer"></span>
     <a href="/how-it-works" class="nav-sec">how it works</a>
     <a href="/solutions" class="nav-sec">solutions</a>
@@ -636,212 +739,484 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </header>
 
-<!-- Earth-memory rail: a wordless Mithila (Kachni line-art) story that draws
-     itself down the right-hand whitespace as you scroll. Decorative only:
-     aria-hidden, pointer-events:none, desktop-only, static where scroll-driven
-     animation isn't supported or motion is reduced. Toggle off with
-     <html class="no-art">. -->
-<!-- Earth-memory rail: a wordless Mithila (Kachni line-art) story that draws
-     itself down the right-hand whitespace as you scroll, culminating in a
-     centered Tree of Life over a pond (kohbar) — the happy ending. Decorative
-     only: aria-hidden, pointer-events:none, desktop-only, behind content,
-     static where scroll animation isn't supported / motion is reduced.
-     Disable with <html class="no-art">. -->
-<div class="earth-rail" aria-hidden="true">
-  <svg viewBox="0 0 150 1000" preserveAspectRatio="xMidYMid meet" fill="none">
-    <!-- double-line vine (Mithila signature) — two parallel strokes -->
-    <path class="ev-spine" pathLength="1" d="M75 14
-      C 62 64 90 110 75 162 C 64 206 92 262 76 314 C 62 366 90 416 76 462
-      L76 520 L75 600
-      C 70 660 80 712 75 760 C 72 806 76 850 75 892"/>
-    <path class="ev-spine" pathLength="1" transform="translate(3.6 0)" d="M75 14
-      C 62 64 90 110 75 162 C 64 206 92 262 76 314 C 62 366 90 416 76 462
-      L76 520 L75 600
-      C 70 660 80 712 75 760 C 72 806 76 850 75 892"/>
-    <!-- vine dots between the registers -->
-    <circle class="ev-dot" cx="80" cy="92" r="1"/><circle class="ev-dot" cx="72" cy="208" r="1"/>
-    <circle class="ev-dot" cx="80" cy="392" r="1"/><circle class="ev-dot" cx="74" cy="660" r="1"/>
-    <circle class="ev-dot" cx="80" cy="836" r="1"/>
-    <!-- trunk rungs: the hatch between the double-line, where the vine runs straight -->
-    <path class="ev-line" d="M75.5 478h4"/><path class="ev-line" d="M75.5 502h4"/>
-    <path class="ev-line" d="M75 562h4"/><path class="ev-line" d="M75 588h4"/>
+<!-- ===================== HERO: the living map ===================== -->
+<section class="earth-hero" id="map" aria-label="interactive map of Earth's memory">
+  <div class="atlas-map" id="atlas-map"></div>
+  <div class="hero-cartouche">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 150" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="150" fill="#f3eee2"/>
 
-    <!-- 1 · sun over the seed — Earth begins -->
-    <g class="ev-motif" style="--i:0">
-      <circle class="ev-line" cx="75" cy="40" r="16"/><circle class="ev-line" cx="75" cy="40" r="11"/>
-      <path class="ev-line" d="M75 18v-8"/><path class="ev-line" d="M75 70v8"/>
-      <path class="ev-line" d="M51 40h-8"/><path class="ev-line" d="M99 40h8"/>
-      <path class="ev-line" d="M58 23l-5-6"/><path class="ev-line" d="M92 23l5-6"/>
-      <path class="ev-line" d="M58 57l-5 6"/><path class="ev-line" d="M92 57l5 6"/>
-      <circle class="ev-dot" cx="70" cy="38" r="1.4"/><circle class="ev-dot" cx="80" cy="38" r="1.4"/>
-      <path class="ev-line" d="M70 45q5 4 10 0"/>
-    </g>
+<!-- ============ BOTTOM DOUBLE-LINE TICK BORDER (the horizon) ============ -->
+<rect x="0" y="129" width="1200" height="2.6" fill="#2b2620"/>
+<rect x="0" y="140" width="1200" height="2.6" fill="#2b2620"/>
+<g fill="#2b2620">
+<rect x="8" y="132.5" width="3" height="6"/><rect x="28" y="132.5" width="3" height="6"/><rect x="48" y="132.5" width="3" height="6"/><rect x="68" y="132.5" width="3" height="6"/><rect x="88" y="132.5" width="3" height="6"/><rect x="108" y="132.5" width="3" height="6"/><rect x="128" y="132.5" width="3" height="6"/><rect x="148" y="132.5" width="3" height="6"/><rect x="168" y="132.5" width="3" height="6"/><rect x="188" y="132.5" width="3" height="6"/><rect x="208" y="132.5" width="3" height="6"/><rect x="228" y="132.5" width="3" height="6"/><rect x="248" y="132.5" width="3" height="6"/><rect x="268" y="132.5" width="3" height="6"/><rect x="288" y="132.5" width="3" height="6"/><rect x="308" y="132.5" width="3" height="6"/><rect x="328" y="132.5" width="3" height="6"/><rect x="348" y="132.5" width="3" height="6"/><rect x="368" y="132.5" width="3" height="6"/><rect x="388" y="132.5" width="3" height="6"/><rect x="408" y="132.5" width="3" height="6"/><rect x="428" y="132.5" width="3" height="6"/><rect x="448" y="132.5" width="3" height="6"/><rect x="468" y="132.5" width="3" height="6"/><rect x="488" y="132.5" width="3" height="6"/><rect x="508" y="132.5" width="3" height="6"/><rect x="528" y="132.5" width="3" height="6"/><rect x="548" y="132.5" width="3" height="6"/><rect x="568" y="132.5" width="3" height="6"/><rect x="588" y="132.5" width="3" height="6"/><rect x="608" y="132.5" width="3" height="6"/><rect x="628" y="132.5" width="3" height="6"/><rect x="648" y="132.5" width="3" height="6"/><rect x="668" y="132.5" width="3" height="6"/><rect x="688" y="132.5" width="3" height="6"/><rect x="708" y="132.5" width="3" height="6"/><rect x="728" y="132.5" width="3" height="6"/><rect x="748" y="132.5" width="3" height="6"/><rect x="768" y="132.5" width="3" height="6"/><rect x="788" y="132.5" width="3" height="6"/><rect x="808" y="132.5" width="3" height="6"/><rect x="828" y="132.5" width="3" height="6"/><rect x="848" y="132.5" width="3" height="6"/><rect x="868" y="132.5" width="3" height="6"/><rect x="888" y="132.5" width="3" height="6"/><rect x="908" y="132.5" width="3" height="6"/><rect x="928" y="132.5" width="3" height="6"/><rect x="948" y="132.5" width="3" height="6"/><rect x="968" y="132.5" width="3" height="6"/><rect x="988" y="132.5" width="3" height="6"/><rect x="1008" y="132.5" width="3" height="6"/><rect x="1028" y="132.5" width="3" height="6"/><rect x="1048" y="132.5" width="3" height="6"/><rect x="1068" y="132.5" width="3" height="6"/><rect x="1088" y="132.5" width="3" height="6"/><rect x="1108" y="132.5" width="3" height="6"/><rect x="1128" y="132.5" width="3" height="6"/><rect x="1148" y="132.5" width="3" height="6"/><rect x="1168" y="132.5" width="3" height="6"/><rect x="1188" y="132.5" width="3" height="6"/>
+</g>
+<!-- dot row beneath the horizon ticks -->
+<g fill="#5c5346">
+<circle cx="18" cy="146.5" r="1.5"/><circle cx="38" cy="146.5" r="1.5"/><circle cx="58" cy="146.5" r="1.5"/><circle cx="78" cy="146.5" r="1.5"/><circle cx="98" cy="146.5" r="1.5"/><circle cx="118" cy="146.5" r="1.5"/><circle cx="138" cy="146.5" r="1.5"/><circle cx="158" cy="146.5" r="1.5"/><circle cx="178" cy="146.5" r="1.5"/><circle cx="198" cy="146.5" r="1.5"/><circle cx="1002" cy="146.5" r="1.5"/><circle cx="1022" cy="146.5" r="1.5"/><circle cx="1042" cy="146.5" r="1.5"/><circle cx="1062" cy="146.5" r="1.5"/><circle cx="1082" cy="146.5" r="1.5"/><circle cx="1102" cy="146.5" r="1.5"/><circle cx="1122" cy="146.5" r="1.5"/><circle cx="1142" cy="146.5" r="1.5"/><circle cx="1162" cy="146.5" r="1.5"/><circle cx="1182" cy="146.5" r="1.5"/>
+</g>
 
-    <!-- 2 · a lone bird, looking — the world unread -->
-    <g class="ev-motif" style="--i:1">
-      <path class="ev-line" d="M92 150c-10-6-23-5-29 3 8 1 9 5 8 10 6-5 14-8 20-6"/>
-      <circle class="ev-dot" cx="65" cy="153" r="1.3"/><path class="ev-line" d="M59 154l-7-2"/>
-    </g>
+<!-- ============ CENTRAL RADIANT SUN ============ -->
+<!-- long pointed rays (alternating ochre / indigo), behind disc -->
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.6" stroke-linejoin="round">
+<polygon points="600,8 606,52 594,52"/>
+<polygon points="668,16 650,56 638,50"/>
+<polygon points="532,16 562,50 550,56"/>
+<polygon points="722,44 678,62 672,50"/>
+<polygon points="478,44 528,50 522,62"/>
+<polygon points="740,96 690,80 698,68"/>
+<polygon points="460,96 510,68 502,80"/>
+</g>
+<g fill="#344a8c" stroke="#2b2620" stroke-width="1.6" stroke-linejoin="round">
+<polygon points="634,10 632,52 620,50"/>
+<polygon points="566,10 580,50 568,52"/>
+<polygon points="700,28 666,58 658,48"/>
+<polygon points="500,28 542,48 534,58"/>
+<polygon points="730,68 684,72 686,60"/>
+<polygon points="470,68 514,60 516,72"/>
+</g>
+<!-- ray-tip dots -->
+<g fill="#bb3b2c"><circle cx="600" cy="12" r="2.4"/><circle cx="666" cy="18" r="2.4"/><circle cx="534" cy="18" r="2.4"/><circle cx="718" cy="46" r="2.4"/><circle cx="482" cy="46" r="2.4"/></g>
 
-    <!-- 3 · a fish on the river — truth, abundance -->
-    <g class="ev-motif" style="--i:2">
-      <path class="ev-line" d="M58 252c13-11 32-11 44 0-12 11-31 11-44 0z"/>
-      <path class="ev-line" d="M102 252l11-6v12z"/>
-      <path class="ev-line" d="M70 249q4 3 0 6"/><path class="ev-line" d="M80 247q5 5 0 10"/>
-      <circle class="ev-dot" cx="64" cy="252" r="1.3"/>
-    </g>
+<!-- sun disc: double outline -->
+<circle cx="600" cy="78" r="44" fill="#bb3b2c" stroke="#2b2620" stroke-width="3"/>
+<circle cx="600" cy="78" r="44" fill="none" stroke="#2b2620" stroke-width="3"/>
+<circle cx="600" cy="78" r="39" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+<!-- ring of dots inside disc edge -->
+<g fill="#f3eee2">
+<circle cx="600" cy="44" r="1.7"/><circle cx="617" cy="46" r="1.7"/><circle cx="630" cy="55" r="1.7"/><circle cx="635" cy="70" r="1.7"/><circle cx="634" cy="86" r="1.7"/><circle cx="627" cy="100" r="1.7"/><circle cx="614" cy="109" r="1.7"/><circle cx="600" cy="112" r="1.7"/><circle cx="583" cy="46" r="1.7"/><circle cx="570" cy="55" r="1.7"/><circle cx="565" cy="70" r="1.7"/><circle cx="566" cy="86" r="1.7"/><circle cx="573" cy="100" r="1.7"/><circle cx="586" cy="109" r="1.7"/>
+</g>
 
-    <!-- 4 · three birds in agreement — consensus -->
-    <g class="ev-motif" style="--i:3">
-      <path class="ev-line" d="M54 348q7-8 14 0"/><path class="ev-line" d="M68 341q7-8 14 0"/><path class="ev-line" d="M82 348q7-8 14 0"/>
-      <circle class="ev-dot" cx="61" cy="348" r="1.1"/><circle class="ev-dot" cx="75" cy="341" r="1.1"/><circle class="ev-dot" cx="89" cy="348" r="1.1"/>
-    </g>
+<!-- inner ochre field for the face -->
+<circle cx="600" cy="78" r="31" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
 
-    <!-- 5 · the vine leafs out — what it's for -->
-    <g class="ev-motif" style="--i:4">
-      <path class="ev-line" d="M77 426q-20-5-27-20 14-2 27 9z"/><path class="ev-line" d="M64 411q5 6 9 11"/>
-      <path class="ev-line" d="M75 444q20-5 27-20-14-2-27 9z"/><path class="ev-line" d="M88 429q-5 6-9 11"/>
-    </g>
+<!-- SIDE-PROFILE sun face (looking right) -->
+<g stroke="#2b2620" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<!-- profile silhouette: forehead, nose, lips, chin -->
+<path d="M 597 50 C 612 51 624 60 626 72 L 631 76 L 626 80 C 627 86 623 90 619 91 C 621 95 618 99 614 100 L 605 103" />
+<!-- receding brow -->
+<path d="M 591 64 C 599 60 609 61 615 66"/>
+</g>
+<!-- one large almond fish-eye -->
+<path d="M 597 70 C 604 66 614 66 620 71 C 614 76 604 76 597 71 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="608" cy="71" r="4.2" fill="#344a8c"/>
+<circle cx="608" cy="71" r="1.7" fill="#2b2620"/>
+<!-- cheek rosette + hatch fill in face -->
+<circle cx="588" cy="84" r="4.5" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.4"/>
+<g stroke="#2b2620" stroke-width="1.2"><path d="M576 92 q6 4 14 4"/><path d="M575 88 q5 3 11 3"/></g>
 
-    <!-- 6 · lotus with a seal — purity, the verified receipt -->
-    <g class="ev-motif" style="--i:5">
-      <path class="ev-line" d="M76 506c0-11 7-18 7-18s7 7 7 18"/>
-      <path class="ev-line" d="M76 506c0-11-7-18-7-18s-7 7-7 18"/>
-      <path class="ev-line" d="M62 506q14 9 28 0"/><path class="ev-line" d="M70 500q6 7 12 0"/>
-      <circle class="ev-line" cx="76" cy="494" r="3.5"/><circle class="ev-dot" cx="76" cy="494" r="1.2"/>
-    </g>
+<!-- ============ LEFT FLANK: profile bird + lotus vine ============ -->
+<!-- vine trunk reaching to left edge -->
+<path d="M 470 84 C 410 70 350 96 290 78 C 230 60 160 92 96 78 C 60 70 28 86 0 80" fill="none" stroke="#4f8a3d" stroke-width="4"/>
+<path d="M 470 92 C 410 78 350 104 290 86 C 230 68 160 100 96 86 C 60 78 28 94 0 88" fill="none" stroke="#4f8a3d" stroke-width="2"/>
+<!-- leaves along left vine (alternating green, double-outline veins) -->
+<g stroke="#2b2620" stroke-width="1.3" stroke-linejoin="round">
+<path d="M430 80 q-14 -18 -30 -14 q10 16 30 14 Z" fill="#4f8a3d"/>
+<path d="M380 96 q-12 18 -30 16 q8 -16 30 -16 Z" fill="#4f8a3d"/>
+<path d="M330 78 q-14 -18 -30 -12 q12 16 30 12 Z" fill="#4f8a3d"/>
+<path d="M280 92 q-12 18 -28 16 q6 -16 28 -16 Z" fill="#4f8a3d"/>
+<path d="M210 82 q-14 -18 -30 -12 q12 16 30 12 Z" fill="#4f8a3d"/>
+<path d="M160 96 q-12 18 -28 16 q6 -16 28 -16 Z" fill="#4f8a3d"/>
+<path d="M96 80 q-14 -18 -28 -12 q11 16 28 12 Z" fill="#4f8a3d"/>
+<path d="M48 92 q-12 17 -26 15 q6 -15 26 -15 Z" fill="#4f8a3d"/>
+</g>
+<g stroke="#2b2620" stroke-width="0.9" fill="none">
+<path d="M408 70 q5 8 14 8"/><path d="M358 110 q5 -8 14 -10"/><path d="M308 68 q6 8 14 8"/><path d="M256 106 q5 -8 14 -10"/><path d="M188 70 q6 8 14 8"/><path d="M138 110 q5 -8 14 -10"/><path d="M74 70 q6 7 14 8"/><path d="M28 105 q4 -7 12 -9"/>
+</g>
+<!-- buds on the vine -->
+<g stroke="#2b2620" stroke-width="1.3">
+<path d="M355 84 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M235 86 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M120 86 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
+</g>
+<!-- dot rows packing the left field -->
+<g fill="#5c5346">
+<circle cx="440" cy="58" r="1.6"/><circle cx="420" cy="54" r="1.6"/><circle cx="400" cy="56" r="1.6"/><circle cx="380" cy="52" r="1.6"/><circle cx="360" cy="56" r="1.6"/><circle cx="340" cy="52" r="1.6"/><circle cx="320" cy="56" r="1.6"/><circle cx="300" cy="52" r="1.6"/><circle cx="280" cy="56" r="1.6"/><circle cx="260" cy="52" r="1.6"/><circle cx="240" cy="56" r="1.6"/><circle cx="220" cy="52" r="1.6"/><circle cx="200" cy="56" r="1.6"/><circle cx="180" cy="52" r="1.6"/><circle cx="160" cy="56" r="1.6"/><circle cx="140" cy="52" r="1.6"/><circle cx="120" cy="56" r="1.6"/><circle cx="100" cy="52" r="1.6"/><circle cx="80" cy="56" r="1.6"/><circle cx="60" cy="52" r="1.6"/><circle cx="40" cy="56" r="1.6"/><circle cx="20" cy="52" r="1.6"/>
+</g>
+<!-- fish-scale arcs filling upper-left -->
+<g fill="none" stroke="#344a8c" stroke-width="1.1">
+<path d="M30 38 q10 -10 20 0"/><path d="M50 38 q10 -10 20 0"/><path d="M70 38 q10 -10 20 0"/><path d="M90 38 q10 -10 20 0"/><path d="M110 38 q10 -10 20 0"/><path d="M40 30 q10 -10 20 0"/><path d="M60 30 q10 -10 20 0"/><path d="M80 30 q10 -10 20 0"/><path d="M100 30 q10 -10 20 0"/>
+</g>
 
-    <!-- 7 · THE TREE OF LIFE, in bloom — the centred climax / happy ending -->
-    <g class="ev-motif ev-tree" style="--i:7">
-      <!-- branches from the trunk top (~y560) spreading up -->
-      <path class="ev-line" d="M75 600c-18-2-32-16-36-36"/>
-      <path class="ev-line" d="M75 600c18-2 32-16 36-36"/>
-      <path class="ev-line" d="M75 584c-13-2-23-12-27-27"/>
-      <path class="ev-line" d="M75 584c13-2 23-12 27-27"/>
-      <path class="ev-line" d="M75 568c-8-3-14-10-16-21"/>
-      <path class="ev-line" d="M75 568c8-3 14-10 16-21"/>
-      <!-- leaves / buds on the canopy -->
-      <path class="ev-line" d="M39 564q-7-5-6-13 8 1 10 9z"/><path class="ev-line" d="M111 564q7-5 6-13-8 1-10 9z"/>
-      <path class="ev-line" d="M48 557q-6-6-4-14 7 2 8 11z"/><path class="ev-line" d="M102 557q6-6 4-14-7 2-8 11z"/>
-      <path class="ev-line" d="M59 547q-4-7 0-14 6 4 5 13z"/><path class="ev-line" d="M91 547q4-7 0-14-6 4-5 13z"/>
-      <!-- crowning sun-bud + two resting birds -->
-      <circle class="ev-line" cx="75" cy="536" r="6"/>
-      <path class="ev-line" d="M75 524v-6"/><path class="ev-line" d="M69 530l-5-4"/><path class="ev-line" d="M81 530l5-4"/>
-      <circle class="ev-dot" cx="75" cy="536" r="1.3"/>
-      <path class="ev-line" d="M60 576q6-6 12 0"/><path class="ev-line" d="M78 576q6-6 12 0"/>
-      <circle class="ev-dot" cx="66" cy="574" r="1"/><circle class="ev-dot" cx="84" cy="574" r="1"/>
-    </g>
+<!-- LEFT BIRD: side profile, facing center (right) -->
+<g>
+<!-- body double-outline -->
+<path d="M205 70 C 188 56 158 56 142 70 C 132 80 138 96 156 100 C 176 104 198 96 210 84 C 214 80 212 74 205 70 Z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M205 70 C 188 56 158 56 142 70 C 132 80 138 96 156 100 C 176 104 198 96 210 84 C 214 80 212 74 205 70 Z" fill="none" stroke="#f3eee2" stroke-width="1"/>
+<!-- head + curved beak, profile -->
+<path d="M205 70 C 214 62 224 62 230 66 L 240 70 L 230 74 C 226 78 218 80 210 78" fill="#2e8c84" stroke="#2b2620" stroke-width="2.4"/>
+<!-- almond fish-eye -->
+<path d="M214 66 C 219 63 226 63 230 67 C 226 71 219 71 214 67 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="222" cy="67" r="2.6" fill="#2b2620"/>
+<!-- wing with concentric petals -->
+<path d="M178 72 C 168 70 158 76 158 86 C 168 90 182 86 188 78 Z" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M174 76 q6 4 10 0" fill="none" stroke="#2b2620" stroke-width="1"/>
+<!-- tail feathers, hatched -->
+<g stroke="#2b2620" stroke-width="1.8" fill="#d59a2a">
+<path d="M142 78 L 116 70 L 122 82 Z"/>
+<path d="M142 84 L 114 84 L 122 92 Z"/>
+<path d="M144 90 L 118 98 L 128 98 Z"/>
+</g>
+<!-- legs -->
+<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M170 100 l0 12 l-6 4"/><path d="M170 112 l6 4"/><path d="M184 100 l0 12 l-6 4"/><path d="M184 112 l6 4"/></g>
+<!-- body scale fill -->
+<g fill="none" stroke="#f3eee2" stroke-width="0.9"><path d="M158 78 q6 -6 12 0"/><path d="M172 80 q6 -6 12 0"/><path d="M160 88 q6 -6 12 0"/><path d="M174 90 q6 -6 12 0"/></g>
+</g>
 
-    <!-- 8 · the pond of memory — roots dip in; the foundation keeps growing -->
-    <g class="ev-motif" style="--i:6">
-      <path class="ev-line" d="M48 720q27-10 54 0"/>
-      <path class="ev-line" d="M50 732q25-9 50 0"/>
-      <path class="ev-line" d="M60 745c8-6 18-6 26 0-7 6-19 6-26 0z"/>
-      <path class="ev-line" d="M86 745l8-4v8z"/>
-      <circle class="ev-dot" cx="64" cy="745" r="1.1"/>
-      <circle class="ev-dot" cx="55" cy="726" r="1"/><circle class="ev-dot" cx="95" cy="726" r="1"/>
-    </g>
-  </svg>
-</div>
+<!-- ============ RIGHT FLANK: mirrored, hand-paired (slightly imperfect) ============ -->
+<path d="M 730 84 C 790 70 850 96 910 78 C 970 60 1040 92 1104 78 C 1140 70 1172 86 1200 80" fill="none" stroke="#4f8a3d" stroke-width="4"/>
+<path d="M 730 92 C 790 78 850 104 910 86 C 970 68 1040 100 1104 86 C 1140 78 1172 94 1200 88" fill="none" stroke="#4f8a3d" stroke-width="2"/>
+<g stroke="#2b2620" stroke-width="1.3" stroke-linejoin="round">
+<path d="M770 80 q14 -18 30 -14 q-10 16 -30 14 Z" fill="#4f8a3d"/>
+<path d="M820 96 q12 18 30 16 q-8 -16 -30 -16 Z" fill="#4f8a3d"/>
+<path d="M870 78 q14 -18 30 -12 q-12 16 -30 12 Z" fill="#4f8a3d"/>
+<path d="M922 92 q12 18 28 16 q-6 -16 -28 -16 Z" fill="#4f8a3d"/>
+<path d="M992 82 q14 -18 30 -12 q-12 16 -30 12 Z" fill="#4f8a3d"/>
+<path d="M1042 96 q12 18 28 16 q-6 -16 -28 -16 Z" fill="#4f8a3d"/>
+<path d="M1106 80 q14 -18 28 -12 q-11 16 -28 12 Z" fill="#4f8a3d"/>
+<path d="M1154 92 q12 17 26 15 q-6 -15 -26 -15 Z" fill="#4f8a3d"/>
+</g>
+<g stroke="#2b2620" stroke-width="0.9" fill="none">
+<path d="M792 70 q-5 8 -14 8"/><path d="M842 110 q-5 -8 -14 -10"/><path d="M892 68 q-6 8 -14 8"/><path d="M944 106 q-5 -8 -14 -10"/><path d="M1012 70 q-6 8 -14 8"/><path d="M1062 110 q-5 -8 -14 -10"/><path d="M1126 70 q-6 7 -14 8"/><path d="M1172 105 q-4 -7 -12 -9"/>
+</g>
+<g stroke="#2b2620" stroke-width="1.3">
+<path d="M845 84 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M965 86 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M1080 86 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
+</g>
+<g fill="#5c5346">
+<circle cx="760" cy="58" r="1.6"/><circle cx="780" cy="54" r="1.6"/><circle cx="800" cy="56" r="1.6"/><circle cx="820" cy="52" r="1.6"/><circle cx="840" cy="56" r="1.6"/><circle cx="860" cy="52" r="1.6"/><circle cx="880" cy="56" r="1.6"/><circle cx="900" cy="52" r="1.6"/><circle cx="920" cy="56" r="1.6"/><circle cx="940" cy="52" r="1.6"/><circle cx="960" cy="56" r="1.6"/><circle cx="980" cy="52" r="1.6"/><circle cx="1000" cy="56" r="1.6"/><circle cx="1020" cy="52" r="1.6"/><circle cx="1040" cy="56" r="1.6"/><circle cx="1060" cy="52" r="1.6"/><circle cx="1080" cy="56" r="1.6"/><circle cx="1100" cy="52" r="1.6"/><circle cx="1120" cy="56" r="1.6"/><circle cx="1140" cy="52" r="1.6"/><circle cx="1160" cy="56" r="1.6"/><circle cx="1180" cy="52" r="1.6"/>
+</g>
+<g fill="none" stroke="#344a8c" stroke-width="1.1">
+<path d="M1090 38 q10 -10 20 0"/><path d="M1110 38 q10 -10 20 0"/><path d="M1130 38 q10 -10 20 0"/><path d="M1150 38 q10 -10 20 0"/><path d="M1170 38 q10 -10 20 0"/><path d="M1080 30 q10 -10 20 0"/><path d="M1100 30 q10 -10 20 0"/><path d="M1120 30 q10 -10 20 0"/><path d="M1140 30 q10 -10 20 0"/>
+</g>
 
+<!-- RIGHT BIRD: side profile, facing center (left) -->
+<g>
+<path d="M995 70 C 1012 56 1042 56 1058 70 C 1068 80 1062 96 1044 100 C 1024 104 1002 96 990 84 C 986 80 988 74 995 70 Z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M995 70 C 1012 56 1042 56 1058 70 C 1068 80 1062 96 1044 100 C 1024 104 1002 96 990 84 C 986 80 988 74 995 70 Z" fill="none" stroke="#f3eee2" stroke-width="1"/>
+<path d="M995 70 C 986 62 976 62 970 66 L 960 70 L 970 74 C 974 78 982 80 990 78" fill="#2e8c84" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M986 66 C 981 63 974 63 970 67 C 974 71 981 71 986 67 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="978" cy="67" r="2.6" fill="#2b2620"/>
+<path d="M1022 72 C 1032 70 1042 76 1042 86 C 1032 90 1018 86 1012 78 Z" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M1026 76 q-6 4 -10 0" fill="none" stroke="#2b2620" stroke-width="1"/>
+<g stroke="#2b2620" stroke-width="1.8" fill="#d59a2a">
+<path d="M1058 78 L 1084 70 L 1078 82 Z"/>
+<path d="M1058 84 L 1086 84 L 1078 92 Z"/>
+<path d="M1056 90 L 1082 98 L 1072 98 Z"/>
+</g>
+<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M1030 100 l0 12 l6 4"/><path d="M1030 112 l-6 4"/><path d="M1016 100 l0 12 l6 4"/><path d="M1016 112 l-6 4"/></g>
+<g fill="none" stroke="#f3eee2" stroke-width="0.9"><path d="M1030 78 q-6 -6 -12 0"/><path d="M1016 80 q-6 -6 -12 0"/><path d="M1028 88 q-6 -6 -12 0"/><path d="M1014 90 q-6 -6 -12 0"/></g>
+</g>
 
-<section class="hero page" id="top">
-  <aside class="hero-meta">
-    <div class="kv"><span class="k">protocol</span><span class="v">Cell &times; Band &times; Tslot &rarr; Fact</span></div>
-    <div class="kv"><span class="k">address</span><span class="v">cell64 &middot; ~9.55 m on a side</span></div>
-    <div class="kv"><span class="k">every read</span><span class="v">ed25519 receipt &middot; blake3 content id</span></div>
-    <div class="kv"><span class="k">interfaces</span><span class="v">MCP + REST, one handler each</span></div>
-    <div class="kv"><span class="k">hosted node</span><span class="v accent">https://emem.dev</span></div>
-    <div class="kv"><span class="k">license</span><span class="v">Apache-2.0 &middot; no keys</span></div>
-  </aside>
+<!-- corner-style rosettes near the sun base to bridge flanks to center -->
+<g>
+<circle cx="500" cy="106" r="9" fill="#6e4a93" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="500" cy="106" r="3.5" fill="#f3eee2"/>
+<g stroke="#2b2620" stroke-width="1" fill="none"><path d="M491 106 h-6"/><path d="M509 106 h6"/><path d="M500 97 v-6"/><path d="M500 115 v6"/></g>
+</g>
+<g>
+<circle cx="700" cy="106" r="9" fill="#6e4a93" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="700" cy="106" r="3.5" fill="#f3eee2"/>
+<g stroke="#2b2620" stroke-width="1" fill="none"><path d="M691 106 h-6"/><path d="M709 106 h6"/><path d="M700 97 v-6"/><path d="M700 115 v6"/></g>
+</g>
 
-  <div>
-    <h1>A verifiable memory of <span class="accent">Earth</span> that AI agents can read, write, and cite.</h1>
+<!-- small 6-tick suns filling residual gaps above flanks -->
+<g stroke="#bb3b2c" stroke-width="1.3" fill="#ochre">
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.2"><circle cx="255" cy="40" r="4"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.2"><circle cx="945" cy="40" r="4"/></g>
+</g>
+<g stroke="#2b2620" stroke-width="1">
+<path d="M255 32 v-5"/><path d="M255 48 v5"/><path d="M247 40 h-5"/><path d="M263 40 h5"/><path d="M249 34 l-3 -3"/><path d="M261 46 l3 3"/>
+<path d="M945 32 v-5"/><path d="M945 48 v5"/><path d="M937 40 h-5"/><path d="M953 40 h5"/><path d="M939 34 l-3 -3"/><path d="M951 46 l3 3"/>
+</g>
 
-    <p class="sub">Ask an agent what is on the ground at a place it has never measured and it guesses, with no way to prove the answer. emem is the missing handle. Every patch of Earth gets a stable address, every measurement is one signed fact, and any agent or person can verify it offline without trusting the server that produced it.</p>
-
-    <div class="hero-formula">
-      <span class="box">cell64</span><span class="arrow">&times;</span>
-      <span class="box">band</span><span class="arrow">&times;</span>
-      <span class="box">tslot</span><span class="arrow">&rarr;</span>
-      <span class="out">signed fact</span>
+<!-- hatch fill bridging vine base to horizon (left + right) -->
+<g stroke="#5c5346" stroke-width="0.9">
+<path d="M40 110 l8 12"/><path d="M70 108 l8 12"/><path d="M110 112 l8 12"/><path d="M150 110 l8 12"/><path d="M200 114 l8 12"/><path d="M260 112 l8 12"/><path d="M320 116 l8 12"/><path d="M380 114 l8 12"/>
+<path d="M1160 110 l-8 12"/><path d="M1130 108 l-8 12"/><path d="M1090 112 l-8 12"/><path d="M1050 110 l-8 12"/><path d="M1000 114 l-8 12"/><path d="M940 112 l-8 12"/><path d="M880 116 l-8 12"/><path d="M820 114 l-8 12"/>
+</g>
+</svg>
+    <div class="plate">
+      <div class="kicker">Memory of Earth</div>
+      <h1>A memory of Earth that agents can cite</h1>
+      <p class="sub">Every patch of ground gets a stable address, every reading becomes a signed fact, and anyone can re-check it without trusting the server.</p>
     </div>
-    <p class="formula-gloss">A place, a measurement, a moment, hashed into one content-addressed receipt anyone can re-check.</p>
-
-    <div class="hero-cta">
-      <a class="btn" href="#connect">Connect an agent &rarr;</a>
-      <a class="btn ghost" href="#proof">See a signed answer &rarr;</a>
-      <a class="btn ghost" href="/spec.md">Read the spec &rarr;</a>
-    </div>
-
-    <div class="stats network">
-      <div class="stat"><div class="n">satellites</div><div class="lbl">feed the readings</div></div>
-      <div class="stat"><div class="n">responders</div><div class="lbl">run by governments, companies, people</div></div>
-      <div class="stat"><div class="n">agents</div><div class="lbl">read, write, and cite</div></div>
-      <div class="stat"><div class="n">anyone</div><div class="lbl">verifies offline, trusts no server</div></div>
-    </div>
-
-    <p class="hero-trust">A research-grade protocol, open and self-hostable. Signed by <code>777er3yihg&#8230;womvka</code> &middot; one <code>docker run</code> self-hosts the same binary.</p>
   </div>
+  <div class="atlas-hint" id="atlas-hint">click a red patch, or anywhere on land &middot; drag to spin the globe</div>
+  <aside class="hero-consensus atlas-panel" id="atlas-panel">
+    <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><span>no key &middot; same-origin</span></div>
+    <div class="atlas-body">
+      <div class="atlas-place"><span id="atlas-place-name">Pick a patch to begin.</span><span class="cell" id="atlas-cell"></span></div>
+      <div class="atlas-status" id="atlas-status" role="status" aria-live="polite"></div>
+      <div class="atlas-encs" id="atlas-encs"></div>
+      <div class="mc-verdict" id="atlas-verdict" hidden></div>
+      <div class="mc-deeper" id="atlas-deeper" hidden>
+        <a id="atlas-verify" href="/verify">verify any reading yourself &rarr;</a>
+        <a href="/reference">the endpoints behind this &rarr;</a>
+      </div>
+    </div>
+  </aside>
 </section>
 
-<!-- ===== try it live: the memory console ===== -->
-<section class="section page mc-section" id="try">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">00</span><span class="idx-label">try it live</span></div>
-    <dl>
-      <dt>locate</dt><dd>place &rarr; cell64</dd>
-      <dt>recall</dt><dd>signed fact + receipt</dd>
-      <dt>verify</dt><dd>ed25519, in your browser</dd>
-      <dt>trust</dt><dd>none. you check the math</dd>
-    </dl>
-  </aside>
-  <div class="section-body">
-    <h2>Ask about a real place. Get a signed answer. Check the signature yourself.</h2>
-    <p class="mc-lede">Pick a place and a band. The hosted responder resolves it to a cell, signs the reading, and hands back a receipt. Your browser recomputes the blake3 preimage and runs ed25519.verify against the responder&rsquo;s key. Nothing here is canned; every value comes off the live endpoint.</p>
+<main class="scroll">
+<div class="mith-div"><span class="gem"></span></div>
+<section class="chapter" id="address">
+  <figure class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
 
-    <div class="mc" id="mc-console">
-      <div class="mc-head"><span class="label">memory console</span><span class="url">POST /v1/locate &rarr; POST /v1/recall</span><span class="spacer"></span><span>no key &middot; same-origin</span></div>
+<!-- ===== LAND FIELD BACKGROUND (paper-2 blocks top and bottom) ===== -->
+<rect x="16" y="16" width="1168" height="170" fill="#ebe4d3"/>
+<rect x="16" y="300" width="1168" height="144" fill="#ebe4d3"/>
+
+<!-- ===== UPPER LAND: dotted furrows ===== -->
+<g fill="#5c5346">
+<circle cx="40" cy="52" r="3"/><circle cx="76" cy="52" r="3"/><circle cx="112" cy="52" r="3"/><circle cx="148" cy="52" r="3"/><circle cx="184" cy="52" r="3"/><circle cx="220" cy="52" r="3"/><circle cx="256" cy="52" r="3"/><circle cx="292" cy="52" r="3"/><circle cx="328" cy="52" r="3"/><circle cx="364" cy="52" r="3"/><circle cx="400" cy="52" r="3"/><circle cx="436" cy="52" r="3"/><circle cx="472" cy="52" r="3"/><circle cx="508" cy="52" r="3"/><circle cx="544" cy="52" r="3"/><circle cx="580" cy="52" r="3"/><circle cx="616" cy="52" r="3"/><circle cx="652" cy="52" r="3"/><circle cx="688" cy="52" r="3"/><circle cx="724" cy="52" r="3"/><circle cx="760" cy="52" r="3"/><circle cx="796" cy="52" r="3"/><circle cx="832" cy="52" r="3"/><circle cx="868" cy="52" r="3"/><circle cx="904" cy="52" r="3"/><circle cx="940" cy="52" r="3"/><circle cx="976" cy="52" r="3"/><circle cx="1012" cy="52" r="3"/><circle cx="1048" cy="52" r="3"/><circle cx="1084" cy="52" r="3"/><circle cx="1120" cy="52" r="3"/><circle cx="1156" cy="52" r="3"/>
+</g>
+
+<!-- Upper land: running vine (bel) with leaves -->
+<g fill="none" stroke="#4f8a3d" stroke-width="3" stroke-linecap="round">
+<path d="M36 86 Q60 70 84 86 Q108 102 132 86 Q156 70 180 86 Q204 102 228 86 Q252 70 276 86 Q300 102 324 86 Q348 70 372 86 Q396 102 420 86 Q444 70 468 86 Q492 102 516 86 Q540 70 564 86 Q588 102 612 86 Q636 70 660 86 Q684 102 708 86 Q732 70 756 86 Q780 102 804 86 Q828 70 852 86 Q876 102 900 86 Q924 70 948 86 Q972 102 996 86 Q1020 70 1044 86 Q1068 102 1092 86 Q1116 70 1140 86 Q1152 94 1164 86"/>
+</g>
+<g fill="#4f8a3d">
+<path d="M84 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M180 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M276 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M372 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M468 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M564 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M660 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M756 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M852 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M948 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M1044 86 q10 -14 22 -8 q-6 12 -22 8 Z"/><path d="M1140 86 q10 -14 22 -8 q-6 12 -22 8 Z"/>
+</g>
+
+<!-- Upper land: row of tiny lotus buds -->
+<g fill="none" stroke="#6e4a93" stroke-width="2.5">
+<path d="M52 130 q-8 -18 0 -30 q8 12 0 30 M52 130 q-14 -10 -16 -24 q14 6 16 24 M52 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M148 130 q-8 -18 0 -30 q8 12 0 30 M148 130 q-14 -10 -16 -24 q14 6 16 24 M148 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M244 130 q-8 -18 0 -30 q8 12 0 30 M244 130 q-14 -10 -16 -24 q14 6 16 24 M244 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M340 130 q-8 -18 0 -30 q8 12 0 30 M340 130 q-14 -10 -16 -24 q14 6 16 24 M340 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M436 130 q-8 -18 0 -30 q8 12 0 30 M436 130 q-14 -10 -16 -24 q14 6 16 24 M436 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M532 130 q-8 -18 0 -30 q8 12 0 30 M532 130 q-14 -10 -16 -24 q14 6 16 24 M532 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M628 130 q-8 -18 0 -30 q8 12 0 30 M628 130 q-14 -10 -16 -24 q14 6 16 24 M628 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M724 130 q-8 -18 0 -30 q8 12 0 30 M724 130 q-14 -10 -16 -24 q14 6 16 24 M724 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M916 130 q-8 -18 0 -30 q8 12 0 30 M916 130 q-14 -10 -16 -24 q14 6 16 24 M916 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M1012 130 q-8 -18 0 -30 q8 12 0 30 M1012 130 q-14 -10 -16 -24 q14 6 16 24 M1012 130 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M1108 130 q-8 -18 0 -30 q8 12 0 30 M1108 130 q-14 -10 -16 -24 q14 6 16 24 M1108 130 q14 -10 16 -24 q-14 6 -16 24"/>
+</g>
+
+<!-- Upper land: tiny 6-tick suns scattered -->
+<g stroke="#d59a2a" stroke-width="2.5" fill="#d59a2a">
+<g><circle cx="100" cy="116" r="4"/><path d="M100 105 v-7 M100 127 v7 M89 116 h-7 M111 116 h7 M92 108 l-5 -5 M108 108 l5 -5 M92 124 l-5 5 M108 124 l5 5" stroke="#d59a2a"/></g>
+<g><circle cx="388" cy="116" r="4"/><path d="M388 105 v-7 M388 127 v7 M377 116 h-7 M399 116 h7 M380 108 l-5 -5 M396 108 l5 -5 M380 124 l-5 5 M396 124 l5 5" stroke="#d59a2a"/></g>
+<g><circle cx="676" cy="116" r="4"/><path d="M676 105 v-7 M676 127 v7 M665 116 h-7 M687 116 h7 M668 108 l-5 -5 M684 108 l5 -5 M668 124 l-5 5 M684 124 l5 5" stroke="#d59a2a"/></g>
+<g><circle cx="964" cy="116" r="4"/><path d="M964 105 v-7 M964 127 v7 M953 116 h-7 M975 116 h7 M956 108 l-5 -5 M972 108 l5 -5 M956 124 l-5 5 M972 124 l5 5" stroke="#d59a2a"/></g>
+<g><circle cx="1156" cy="116" r="4"/><path d="M1156 105 v-7 M1156 127 v7 M1145 116 h-7 M1167 116 h7 M1148 108 l-5 -5 M1164 108 l5 -5 M1148 124 l-5 5" stroke="#d59a2a"/></g>
+</g>
+
+<!-- Upper land: hatching strip at base of land -->
+<g stroke="#2b2620" stroke-width="2">
+<path d="M40 158 l12 14 M60 158 l12 14 M80 158 l12 14 M100 158 l12 14 M120 158 l12 14 M140 158 l12 14 M160 158 l12 14 M180 158 l12 14 M200 158 l12 14 M220 158 l12 14 M240 158 l12 14 M260 158 l12 14 M280 158 l12 14 M300 158 l12 14 M320 158 l12 14 M340 158 l12 14 M360 158 l12 14 M380 158 l12 14 M400 158 l12 14 M420 158 l12 14 M440 158 l12 14 M460 158 l12 14 M480 158 l12 14 M500 158 l12 14 M520 158 l12 14 M540 158 l12 14 M560 158 l12 14 M580 158 l12 14 M600 158 l12 14 M620 158 l12 14 M640 158 l12 14 M660 158 l12 14 M680 158 l12 14 M700 158 l12 14 M720 158 l12 14 M740 158 l12 14 M760 158 l12 14 M780 158 l12 14 M800 158 l12 14 M820 158 l12 14 M840 158 l12 14 M860 158 l12 14 M880 158 l12 14 M900 158 l12 14 M920 158 l12 14 M940 158 l12 14 M960 158 l12 14 M980 158 l12 14 M1000 158 l12 14 M1020 158 l12 14 M1040 158 l12 14 M1060 158 l12 14 M1080 158 l12 14 M1100 158 l12 14 M1120 158 l12 14 M1140 158 l12 14 M1160 158 l12 14"/>
+</g>
+
+<!-- ===== ARIPANA LATTICE over upper-left land (ochre) ===== -->
+<g stroke="#d59a2a" stroke-width="2.5" fill="none">
+<path d="M780 30 h160 M780 54 h160 M780 78 h160 M780 102 h160 M780 126 h160 M780 150 h160"/>
+<path d="M780 30 v120 M804 30 v120 M828 30 v120 M852 30 v120 M876 30 v120 M900 30 v120 M924 30 v120 M940 30 v120"/>
+</g>
+<g fill="#d59a2a">
+<circle cx="792" cy="42" r="2"/><circle cx="840" cy="42" r="2"/><circle cx="888" cy="42" r="2"/><circle cx="936" cy="42" r="2"/>
+<circle cx="816" cy="66" r="2"/><circle cx="864" cy="66" r="2"/><circle cx="912" cy="66" r="2"/>
+<circle cx="792" cy="90" r="2"/><circle cx="840" cy="90" r="2"/><circle cx="888" cy="90" r="2"/><circle cx="936" cy="90" r="2"/>
+<circle cx="816" cy="114" r="2"/><circle cx="864" cy="114" r="2"/><circle cx="912" cy="114" r="2"/>
+<circle cx="792" cy="138" r="2"/><circle cx="840" cy="138" r="2"/><circle cx="888" cy="138" r="2"/><circle cx="936" cy="138" r="2"/>
+</g>
+
+<!-- ===== THE VERMILION CELL (the one focal red) ===== -->
+<rect x="828" y="102" width="24" height="24" fill="#bb3b2c"/>
+<rect x="828" y="102" width="24" height="24" fill="none" stroke="#2b2620" stroke-width="2.5"/>
+<rect x="822" y="96" width="36" height="36" fill="none" stroke="#bb3b2c" stroke-width="2"/>
+<g stroke="#bb3b2c" stroke-width="2">
+<path d="M840 90 v-8 M840 138 v8 M810 114 h-8 M870 114 h8"/>
+</g>
+
+<!-- ===== RIVER BAND (indigo flat water) ===== -->
+<rect x="16" y="186" width="1168" height="114" fill="#344a8c"/>
+<!-- river bank double-lines -->
+<g stroke="#2b2620" stroke-width="3" fill="none">
+<path d="M16 186 h1168 M16 192 h1168 M16 294 h1168 M16 300 h1168"/>
+</g>
+<!-- repeated wave lines in water -->
+<g stroke="#f3eee2" stroke-width="2.5" fill="none">
+<path d="M20 210 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0"/>
+<path d="M20 276 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0 q24 -12 48 0 q24 12 48 0"/>
+</g>
+<!-- dotted current -->
+<g fill="#ebe4d3">
+<circle cx="40" cy="243" r="2.5"/><circle cx="80" cy="243" r="2.5"/><circle cx="120" cy="243" r="2.5"/><circle cx="160" cy="243" r="2.5"/><circle cx="200" cy="243" r="2.5"/><circle cx="240" cy="243" r="2.5"/><circle cx="280" cy="243" r="2.5"/><circle cx="320" cy="243" r="2.5"/><circle cx="360" cy="243" r="2.5"/><circle cx="400" cy="243" r="2.5"/><circle cx="1000" cy="243" r="2.5"/><circle cx="1040" cy="243" r="2.5"/><circle cx="1080" cy="243" r="2.5"/><circle cx="1120" cy="243" r="2.5"/><circle cx="1160" cy="243" r="2.5"/>
+</g>
+<!-- fish-scale arcs band in water -->
+<g stroke="#2e8c84" stroke-width="2" fill="none">
+<path d="M20 230 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0"/>
+<path d="M1000 256 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0 a10 10 0 0 1 20 0"/>
+</g>
+
+<!-- ===== THE FISH (profile, double outline, mouth toward cell) ===== -->
+<!-- body double outline -->
+<path d="M470 243 C500 198 600 196 700 218 C740 226 770 236 790 243 C770 250 740 260 700 268 C600 290 500 288 470 243 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M476 243 C504 204 600 202 696 222 C732 230 760 238 780 243 C760 248 732 256 696 264 C600 284 504 282 476 243 Z" fill="none" stroke="#2b2620" stroke-width="2"/>
+
+<!-- tail patterned -->
+<path d="M470 243 C440 218 420 208 396 206 C406 226 404 260 396 280 C420 278 440 268 470 243 Z" fill="#2e8c84" stroke="#2b2620" stroke-width="3"/>
+<g stroke="#2b2620" stroke-width="1.8" fill="none">
+<path d="M400 214 q34 28 64 29 M400 232 q34 12 64 11 M400 252 q34 -8 64 -9 M400 272 q34 -24 64 -27"/>
+</g>
+
+<!-- top fin patterned -->
+<path d="M560 204 q14 -26 36 -30 q6 22 14 30 q-26 -4 -50 0 Z" fill="#4f8a3d" stroke="#2b2620" stroke-width="2.5"/>
+<g stroke="#2b2620" stroke-width="1.6"><path d="M566 200 l8 -20 M580 198 l8 -22 M594 200 l4 -22"/></g>
+<!-- bottom fin patterned -->
+<path d="M560 280 q14 24 34 30 q4 -20 14 -28 q-26 2 -48 -2 Z" fill="#6e4a93" stroke="#2b2620" stroke-width="2.5"/>
+<g stroke="#2b2620" stroke-width="1.6"><path d="M566 286 l6 18 M580 288 l8 20 M594 286 l4 22"/></g>
+
+<!-- fish-scale arcs packing body -->
+<g stroke="#344a8c" stroke-width="1.8" fill="none">
+<path d="M520 220 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M512 238 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M512 256 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+</g>
+<!-- dot rows between scales -->
+<g fill="#bb3b2c">
+<!-- (kept: vermilion is reserved for the cell ONLY) -->
+</g>
+<g fill="#d59a2a">
+<circle cx="528" cy="232" r="2"/><circle cx="560" cy="232" r="2"/><circle cx="592" cy="232" r="2"/><circle cx="624" cy="232" r="2"/><circle cx="656" cy="232" r="2"/><circle cx="688" cy="232" r="2"/>
+<circle cx="544" cy="250" r="2"/><circle cx="576" cy="250" r="2"/><circle cx="608" cy="250" r="2"/><circle cx="640" cy="250" r="2"/><circle cx="672" cy="250" r="2"/><circle cx="704" cy="250" r="2"/>
+</g>
+
+<!-- gill arc -->
+<path d="M730 222 q-22 21 0 42" fill="none" stroke="#2b2620" stroke-width="2.5"/>
+<!-- head hatching -->
+<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M740 226 q-10 17 0 34 M750 230 q-8 13 0 26"/></g>
+
+<!-- almond fish-eye (one) -->
+<path d="M756 236 q12 -10 24 0 q-12 10 -24 0 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2.5"/>
+<circle cx="768" cy="236" r="5" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="768" cy="236" r="2.4" fill="#2b2620"/>
+
+<!-- mouth pointing up-right toward the cell -->
+<path d="M788 240 q14 -6 26 -14" fill="none" stroke="#2b2620" stroke-width="3" stroke-linecap="round"/>
+<path d="M788 246 q10 0 20 -3" fill="none" stroke="#2b2620" stroke-width="2.5" stroke-linecap="round"/>
+<!-- bubble trail from mouth up to the cell -->
+<g fill="none" stroke="#2e8c84" stroke-width="2">
+<circle cx="816" cy="220"  r="4"/><circle cx="824" cy="200" r="3.5"/><circle cx="832" cy="178" r="3"/><circle cx="838" cy="156" r="2.6"/><circle cx="840" cy="138" r="2.2"/>
+</g>
+
+<!-- ===== LOWER LAND: dotted furrows ===== -->
+<g fill="#5c5346">
+<circle cx="40" cy="320" r="3"/><circle cx="76" cy="320" r="3"/><circle cx="112" cy="320" r="3"/><circle cx="148" cy="320" r="3"/><circle cx="184" cy="320" r="3"/><circle cx="220" cy="320" r="3"/><circle cx="256" cy="320" r="3"/><circle cx="292" cy="320" r="3"/><circle cx="328" cy="320" r="3"/><circle cx="364" cy="320" r="3"/><circle cx="400" cy="320" r="3"/><circle cx="436" cy="320" r="3"/><circle cx="472" cy="320" r="3"/><circle cx="508" cy="320" r="3"/><circle cx="544" cy="320" r="3"/><circle cx="580" cy="320" r="3"/><circle cx="616" cy="320" r="3"/><circle cx="652" cy="320" r="3"/><circle cx="688" cy="320" r="3"/><circle cx="724" cy="320" r="3"/><circle cx="760" cy="320" r="3"/><circle cx="796" cy="320" r="3"/><circle cx="832" cy="320" r="3"/><circle cx="868" cy="320" r="3"/><circle cx="904" cy="320" r="3"/><circle cx="940" cy="320" r="3"/><circle cx="976" cy="320" r="3"/><circle cx="1012" cy="320" r="3"/><circle cx="1048" cy="320" r="3"/><circle cx="1084" cy="320" r="3"/><circle cx="1120" cy="320" r="3"/><circle cx="1156" cy="320" r="3"/>
+</g>
+
+<!-- Lower land: row of leaves (alternating green/teal) -->
+<g stroke="#2b2620" stroke-width="2">
+<path d="M48 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M112 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M176 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M240 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M304 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M368 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M432 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M496 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M560 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M624 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M688 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M752 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M816 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M880 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M944 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M1008 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+<path d="M1072 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#4f8a3d"/>
+<path d="M1136 360 q18 -22 40 0 q-18 22 -40 0 Z" fill="#2e8c84"/>
+</g>
+<g stroke="#2b2620" stroke-width="1.4" fill="none">
+<path d="M48 360 h40 M112 360 h40 M176 360 h40 M240 360 h40 M304 360 h40 M368 360 h40 M432 360 h40 M496 360 h40 M560 360 h40 M624 360 h40 M688 360 h40 M752 360 h40 M816 360 h40 M880 360 h40 M944 360 h40 M1008 360 h40 M1072 360 h40 M1136 360 h40"/>
+</g>
+
+<!-- Lower land: lotus bud row -->
+<g fill="none" stroke="#6e4a93" stroke-width="2.5">
+<path d="M68 416 q-8 -18 0 -30 q8 12 0 30 M68 416 q-14 -10 -16 -24 q14 6 16 24 M68 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M196 416 q-8 -18 0 -30 q8 12 0 30 M196 416 q-14 -10 -16 -24 q14 6 16 24 M196 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M324 416 q-8 -18 0 -30 q8 12 0 30 M324 416 q-14 -10 -16 -24 q14 6 16 24 M324 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M452 416 q-8 -18 0 -30 q8 12 0 30 M452 416 q-14 -10 -16 -24 q14 6 16 24 M452 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M580 416 q-8 -18 0 -30 q8 12 0 30 M580 416 q-14 -10 -16 -24 q14 6 16 24 M580 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M708 416 q-8 -18 0 -30 q8 12 0 30 M708 416 q-14 -10 -16 -24 q14 6 16 24 M708 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M836 416 q-8 -18 0 -30 q8 12 0 30 M836 416 q-14 -10 -16 -24 q14 6 16 24 M836 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M964 416 q-8 -18 0 -30 q8 12 0 30 M964 416 q-14 -10 -16 -24 q14 6 16 24 M964 416 q14 -10 16 -24 q-14 6 -16 24"/>
+<path d="M1092 416 q-8 -18 0 -30 q8 12 0 30 M1092 416 q-14 -10 -16 -24 q14 6 16 24 M1092 416 q14 -10 16 -24 q-14 6 -16 24"/>
+</g>
+<!-- Lower land: tiny suns between buds -->
+<g stroke="#d59a2a" stroke-width="2.5" fill="#d59a2a">
+<g><circle cx="132" cy="402" r="4"/><path d="M132 391 v-6 M132 413 v6 M121 402 h-6 M143 402 h6 M124 394 l-5 -5 M140 394 l5 -5 M124 410 l-5 5 M140 410 l5 5"/></g>
+<g><circle cx="388" cy="402" r="4"/><path d="M388 391 v-6 M388 413 v6 M377 402 h-6 M399 402 h6 M380 394 l-5 -5 M396 394 l5 -5 M380 410 l-5 5 M396 410 l5 5"/></g>
+<g><circle cx="644" cy="402" r="4"/><path d="M644 391 v-6 M644 413 v6 M633 402 h-6 M655 402 h6 M636 394 l-5 -5 M652 394 l5 -5 M636 410 l-5 5 M652 410 l5 5"/></g>
+<g><circle cx="900" cy="402" r="4"/><path d="M900 391 v-6 M900 413 v6 M889 402 h-6 M911 402 h6 M892 394 l-5 -5 M908 394 l5 -5 M892 410 l-5 5 M908 410 l5 5"/></g>
+<g><circle cx="1028" cy="402" r="4"/><path d="M1028 391 v-6 M1028 413 v6 M1017 402 h-6 M1039 402 h6 M1020 394 l-5 -5 M1036 394 l5 -5 M1020 410 l-5 5 M1036 410 l5 5"/></g>
+<g><circle cx="1156" cy="402" r="4"/><path d="M1156 391 v-6 M1156 413 v6 M1145 402 h-6 M1167 402 h6 M1148 394 l-5 -5 M1164 394 l5 -5 M1148 410 l-5 5"/></g>
+</g>
+
+<!-- ===== DOUBLE-LINE BORDER with dotted channel ===== -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- dots in channel: top and bottom rows -->
+<g fill="#2b2620">
+<circle cx="35" cy="19.5" r="1.6"/><circle cx="59" cy="19.5" r="1.6"/><circle cx="83" cy="19.5" r="1.6"/><circle cx="107" cy="19.5" r="1.6"/><circle cx="131" cy="19.5" r="1.6"/><circle cx="155" cy="19.5" r="1.6"/><circle cx="179" cy="19.5" r="1.6"/><circle cx="203" cy="19.5" r="1.6"/><circle cx="227" cy="19.5" r="1.6"/><circle cx="251" cy="19.5" r="1.6"/><circle cx="275" cy="19.5" r="1.6"/><circle cx="299" cy="19.5" r="1.6"/><circle cx="323" cy="19.5" r="1.6"/><circle cx="347" cy="19.5" r="1.6"/><circle cx="371" cy="19.5" r="1.6"/><circle cx="395" cy="19.5" r="1.6"/><circle cx="419" cy="19.5" r="1.6"/><circle cx="443" cy="19.5" r="1.6"/><circle cx="467" cy="19.5" r="1.6"/><circle cx="491" cy="19.5" r="1.6"/><circle cx="515" cy="19.5" r="1.6"/><circle cx="539" cy="19.5" r="1.6"/><circle cx="563" cy="19.5" r="1.6"/><circle cx="587" cy="19.5" r="1.6"/><circle cx="611" cy="19.5" r="1.6"/><circle cx="635" cy="19.5" r="1.6"/><circle cx="659" cy="19.5" r="1.6"/><circle cx="683" cy="19.5" r="1.6"/><circle cx="707" cy="19.5" r="1.6"/><circle cx="731" cy="19.5" r="1.6"/><circle cx="755" cy="19.5" r="1.6"/><circle cx="779" cy="19.5" r="1.6"/><circle cx="803" cy="19.5" r="1.6"/><circle cx="827" cy="19.5" r="1.6"/><circle cx="851" cy="19.5" r="1.6"/><circle cx="875" cy="19.5" r="1.6"/><circle cx="899" cy="19.5" r="1.6"/><circle cx="923" cy="19.5" r="1.6"/><circle cx="947" cy="19.5" r="1.6"/><circle cx="971" cy="19.5" r="1.6"/><circle cx="995" cy="19.5" r="1.6"/><circle cx="1019" cy="19.5" r="1.6"/><circle cx="1043" cy="19.5" r="1.6"/><circle cx="1067" cy="19.5" r="1.6"/><circle cx="1091" cy="19.5" r="1.6"/><circle cx="1115" cy="19.5" r="1.6"/><circle cx="1139" cy="19.5" r="1.6"/><circle cx="1163" cy="19.5" r="1.6"/>
+<circle cx="35" cy="440.5" r="1.6"/><circle cx="59" cy="440.5" r="1.6"/><circle cx="83" cy="440.5" r="1.6"/><circle cx="107" cy="440.5" r="1.6"/><circle cx="131" cy="440.5" r="1.6"/><circle cx="155" cy="440.5" r="1.6"/><circle cx="179" cy="440.5" r="1.6"/><circle cx="203" cy="440.5" r="1.6"/><circle cx="227" cy="440.5" r="1.6"/><circle cx="251" cy="440.5" r="1.6"/><circle cx="275" cy="440.5" r="1.6"/><circle cx="299" cy="440.5" r="1.6"/><circle cx="323" cy="440.5" r="1.6"/><circle cx="347" cy="440.5" r="1.6"/><circle cx="371" cy="440.5" r="1.6"/><circle cx="395" cy="440.5" r="1.6"/><circle cx="419" cy="440.5" r="1.6"/><circle cx="443" cy="440.5" r="1.6"/><circle cx="467" cy="440.5" r="1.6"/><circle cx="491" cy="440.5" r="1.6"/><circle cx="515" cy="440.5" r="1.6"/><circle cx="539" cy="440.5" r="1.6"/><circle cx="563" cy="440.5" r="1.6"/><circle cx="587" cy="440.5" r="1.6"/><circle cx="611" cy="440.5" r="1.6"/><circle cx="635" cy="440.5" r="1.6"/><circle cx="659" cy="440.5" r="1.6"/><circle cx="683" cy="440.5" r="1.6"/><circle cx="707" cy="440.5" r="1.6"/><circle cx="731" cy="440.5" r="1.6"/><circle cx="755" cy="440.5" r="1.6"/><circle cx="779" cy="440.5" r="1.6"/><circle cx="803" cy="440.5" r="1.6"/><circle cx="827" cy="440.5" r="1.6"/><circle cx="851" cy="440.5" r="1.6"/><circle cx="875" cy="440.5" r="1.6"/><circle cx="899" cy="440.5" r="1.6"/><circle cx="923" cy="440.5" r="1.6"/><circle cx="947" cy="440.5" r="1.6"/><circle cx="971" cy="440.5" r="1.6"/><circle cx="995" cy="440.5" r="1.6"/><circle cx="1019" cy="440.5" r="1.6"/><circle cx="1043" cy="440.5" r="1.6"/><circle cx="1067" cy="440.5" r="1.6"/><circle cx="1091" cy="440.5" r="1.6"/><circle cx="1115" cy="440.5" r="1.6"/><circle cx="1139" cy="440.5" r="1.6"/><circle cx="1163" cy="440.5" r="1.6"/>
+</g>
+<!-- side channels: vertical dot rows -->
+<g fill="#2b2620">
+<circle cx="19.5" cy="47" r="1.6"/><circle cx="19.5" cy="71" r="1.6"/><circle cx="19.5" cy="95" r="1.6"/><circle cx="19.5" cy="119" r="1.6"/><circle cx="19.5" cy="143" r="1.6"/><circle cx="19.5" cy="167" r="1.6"/><circle cx="19.5" cy="191" r="1.6"/><circle cx="19.5" cy="215" r="1.6"/><circle cx="19.5" cy="239" r="1.6"/><circle cx="19.5" cy="263" r="1.6"/><circle cx="19.5" cy="287" r="1.6"/><circle cx="19.5" cy="311" r="1.6"/><circle cx="19.5" cy="335" r="1.6"/><circle cx="19.5" cy="359" r="1.6"/><circle cx="19.5" cy="383" r="1.6"/><circle cx="19.5" cy="407" r="1.6"/>
+<circle cx="1180.5" cy="47" r="1.6"/><circle cx="1180.5" cy="71" r="1.6"/><circle cx="1180.5" cy="95" r="1.6"/><circle cx="1180.5" cy="119" r="1.6"/><circle cx="1180.5" cy="143" r="1.6"/><circle cx="1180.5" cy="167" r="1.6"/><circle cx="1180.5" cy="191" r="1.6"/><circle cx="1180.5" cy="215" r="1.6"/><circle cx="1180.5" cy="239" r="1.6"/><circle cx="1180.5" cy="263" r="1.6"/><circle cx="1180.5" cy="287" r="1.6"/><circle cx="1180.5" cy="311" r="1.6"/><circle cx="1180.5" cy="335" r="1.6"/><circle cx="1180.5" cy="359" r="1.6"/><circle cx="1180.5" cy="383" r="1.6"/><circle cx="1180.5" cy="407" r="1.6"/>
+</g>
+
+<!-- ===== CORNER ROSETTES (lotus/sun) ===== -->
+<g stroke="#2b2620" stroke-width="2.5" fill="#d59a2a">
+<g><circle cx="44" cy="44" r="9"/><circle cx="44" cy="44" r="3.5" fill="#bb3b2c"/></g>
+</g>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M44 31 v-6 M44 57 v6 M31 44 h-6 M57 44 h6 M35 35 l-4 -4 M53 35 l4 -4 M35 53 l-4 4 M53 53 l4 4"/></g>
+<g stroke="#2b2620" stroke-width="2.5" fill="#4f8a3d">
+<g><circle cx="1156" cy="44" r="9"/><circle cx="1156" cy="44" r="3.5" fill="#f3eee2"/></g>
+</g>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M1156 31 v-6 M1156 57 v6 M1143 44 h-6 M1169 44 h6 M1147 35 l-4 -4 M1165 35 l4 -4 M1147 53 l-4 4 M1165 53 l4 4"/></g>
+<g stroke="#2b2620" stroke-width="2.5" fill="#6e4a93">
+<g><circle cx="44" cy="416" r="9"/><circle cx="44" cy="416" r="3.5" fill="#f3eee2"/></g>
+</g>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M44 403 v-6 M44 429 v6 M31 416 h-6 M57 416 h6 M35 407 l-4 -4 M53 407 l4 -4 M35 425 l-4 4 M53 425 l4 4"/></g>
+<g stroke="#2b2620" stroke-width="2.5" fill="#2e8c84">
+<g><circle cx="1156" cy="416" r="9"/><circle cx="1156" cy="416" r="3.5" fill="#f3eee2"/></g>
+</g>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M1156 403 v-6 M1156 429 v6 M1143 416 h-6 M1169 416 h6 M1147 407 l-4 -4 M1165 407 l4 -4 M1147 425 l-4 4 M1165 425 l4 4"/></g>
+</svg></figure>
+  <div class="words">
+    <div class="kicker"><span class="n">01</span> The grid</div>
+    <h2>Every place is an address</h2>
+    <p class="cap">Earth is cut into fixed 9.55 m cells called cell64; each one is a stable handle that holds a memory across time, sources, and agents.</p>
+    <div class="mc live" id="mc-console">
+      <div class="mc-head"><span class="label">memory console</span><span class="url">POST /v1/locate &rarr; POST /v1/recall</span><span class="spacer"></span><span>no key</span></div>
       <div class="mc-body">
         <form class="mc-form" id="mc-form">
-          <div class="mc-field">
-            <label for="mc-place">place</label>
-            <input id="mc-place" type="text" spellcheck="false" autocomplete="off" value="Kyoto" placeholder="a city, landmark, or lat,lng">
-          </div>
-          <div class="mc-field">
-            <label for="mc-band">band</label>
-            <select id="mc-band">
-              <option value="copdem30m.elevation_mean" selected>copdem30m.elevation_mean</option>
-              <option value="weather.temperature_2m">weather.temperature_2m</option>
-              <option value="indices.ndvi">indices.ndvi</option>
-              <option value="forest_change.lossyear">forest_change.lossyear</option>
-            </select>
-          </div>
+          <div class="mc-field"><label for="mc-place">place</label><input id="mc-place" type="text" spellcheck="false" autocomplete="off" value="Kyoto" placeholder="a city, landmark, or lat,lng"></div>
+          <div class="mc-field"><label for="mc-band">band</label><select id="mc-band">
+            <option value="copdem30m.elevation_mean" selected>copdem30m.elevation_mean</option>
+            <option value="weather.temperature_2m">weather.temperature_2m</option>
+            <option value="indices.ndvi">indices.ndvi</option>
+            <option value="forest_change.lossyear">forest_change.lossyear</option>
+          </select></div>
           <button class="mc-btn" id="mc-go" type="submit">recall &rarr;</button>
         </form>
-        <div class="mc-egs">
-          <span class="lbl">try</span>
+        <div class="mc-egs"><span class="lbl">try</span>
           <button class="eg" type="button" data-place="Kyoto">Kyoto</button>
           <button class="eg" type="button" data-place="Reykjavik">Reykjavik</button>
           <button class="eg" type="button" data-place="Borneo">Borneo</button>
           <button class="eg" type="button" data-place="Mount Everest">Mount Everest</button>
         </div>
-
         <div class="mc-status" id="mc-status" role="status" aria-live="polite">Pick a place and hit recall. Cold cells take a few seconds while the responder fetches and signs.</div>
-
         <div class="mc-out" id="mc-out">
-          <div class="mc-card" id="mc-fact-card">
-            <div class="ctitle"><span class="signed">signed fact</span><span id="mc-fact-place"></span></div>
-            <div class="mc-grid" id="mc-fact-grid"></div>
-          </div>
-          <div class="mc-card" id="mc-receipt-card">
-            <div class="ctitle">receipt <span id="mc-receipt-primitive"></span></div>
-            <div class="mc-grid" id="mc-receipt-grid"></div>
-            <div class="mc-verdict" id="mc-verdict"></div>
-            <div class="mc-deeper">
-              <a id="mc-verify-link" href="/verify">verify it yourself &rarr;</a>
-              <span id="mc-curl"></span>
-              <a href="/humans">open in /humans &rarr;</a>
-            </div>
+          <div class="mc-card" id="mc-fact-card"><div class="ctitle"><span class="signed">signed fact</span><span id="mc-fact-place"></span></div><div class="mc-grid" id="mc-fact-grid"></div></div>
+          <div class="mc-card" id="mc-receipt-card"><div class="ctitle">receipt <span id="mc-receipt-primitive"></span></div><div class="mc-grid" id="mc-receipt-grid"></div><div class="mc-verdict" id="mc-verdict"></div>
+            <div class="mc-deeper"><a id="mc-verify-link" href="/verify">verify it yourself &rarr;</a><span id="mc-curl"></span><a href="/humans">open in /humans &rarr;</a></div>
           </div>
         </div>
       </div>
@@ -853,254 +1228,1398 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <span><a href="/v1/stream">/v1/stream</a> &middot; signed SSE</span>
       </div>
     </div>
+    <div class="go"><a href="/how-it-works">how the address works &rarr;</a><a href="/spec.md">the spec &rarr;</a></div>
   </div>
 </section>
+<div class="mith-div"><span class="gem"></span></div>
+<section class="chapter" id="fact">
+  <figure class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
 
-<!-- ===== pick a patch: every model's verdict, signed ===== -->
-<section class="section page" id="atlas">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">01</span><span class="idx-label">pick a patch</span></div>
-    <dl>
-      <dt>map</dt><dd>Natural Earth, drawn in your browser</dd>
-      <dt>click</dt><dd>land &rarr; one cell64</dd>
-      <dt>models</dt><dd>four encoders, each signs</dd>
-      <dt>consensus</dt><dd>do they corroborate?</dd>
-    </dl>
-  </aside>
-  <div class="section-body">
-    <h2>Pick a patch of Earth. Watch four models read it, and check whether they agree.</h2>
-    <p class="mc-lede">The address space under the console, drawn as a map. Click a marked patch and the hosted responder asks four independent foundation models, Tessera, Clay, Prithvi, and Galileo, to embed that one cell. Each hands back its own signed reading. A consensus pass then scores whether they corroborate. No tiles are fetched from anyone: the coastline is the public-domain Natural Earth outline, rendered in your browser.</p>
+<!-- ================= BACKGROUND HORROR-VACUI FIELD ================= -->
+<!-- field of dots across whole panel -->
+<g fill="#5c5346">
+<circle cx="60" cy="60" r="2.4"/><circle cx="110" cy="60" r="2.4"/><circle cx="160" cy="60" r="2.4"/><circle cx="210" cy="60" r="2.4"/><circle cx="260" cy="60" r="2.4"/><circle cx="940" cy="60" r="2.4"/><circle cx="990" cy="60" r="2.4"/><circle cx="1040" cy="60" r="2.4"/><circle cx="1090" cy="60" r="2.4"/><circle cx="1140" cy="60" r="2.4"/>
+<circle cx="85" cy="100" r="2.4"/><circle cx="135" cy="100" r="2.4"/><circle cx="185" cy="100" r="2.4"/><circle cx="235" cy="100" r="2.4"/><circle cx="965" cy="100" r="2.4"/><circle cx="1015" cy="100" r="2.4"/><circle cx="1065" cy="100" r="2.4"/><circle cx="1115" cy="100" r="2.4"/>
+<circle cx="60" cy="140" r="2.4"/><circle cx="110" cy="140" r="2.4"/><circle cx="160" cy="140" r="2.4"/><circle cx="990" cy="140" r="2.4"/><circle cx="1040" cy="140" r="2.4"/><circle cx="1090" cy="140" r="2.4"/><circle cx="1140" cy="140" r="2.4"/>
+<circle cx="60" cy="320" r="2.4"/><circle cx="110" cy="320" r="2.4"/><circle cx="160" cy="320" r="2.4"/><circle cx="990" cy="320" r="2.4"/><circle cx="1040" cy="320" r="2.4"/><circle cx="1090" cy="320" r="2.4"/><circle cx="1140" cy="320" r="2.4"/>
+<circle cx="85" cy="360" r="2.4"/><circle cx="135" cy="360" r="2.4"/><circle cx="185" cy="360" r="2.4"/><circle cx="235" cy="360" r="2.4"/><circle cx="965" cy="360" r="2.4"/><circle cx="1015" cy="360" r="2.4"/><circle cx="1065" cy="360" r="2.4"/><circle cx="1115" cy="360" r="2.4"/>
+<circle cx="60" cy="400" r="2.4"/><circle cx="110" cy="400" r="2.4"/><circle cx="160" cy="400" r="2.4"/><circle cx="210" cy="400" r="2.4"/><circle cx="260" cy="400" r="2.4"/><circle cx="940" cy="400" r="2.4"/><circle cx="990" cy="400" r="2.4"/><circle cx="1040" cy="400" r="2.4"/><circle cx="1090" cy="400" r="2.4"/><circle cx="1140" cy="400" r="2.4"/>
+</g>
 
-    <div class="atlas-wrap">
-      <div class="atlas-mapframe">
-        <div class="atlas-map" id="atlas-map"></div>
-        <div class="atlas-hint" id="atlas-hint">click a marked patch, or anywhere on land</div>
-      </div>
-      <div class="atlas-panel" id="atlas-panel">
-        <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><span>no key &middot; same-origin</span></div>
-        <div class="atlas-body">
-          <div class="atlas-place"><span id="atlas-place-name">Pick a patch to begin.</span><span class="cell" id="atlas-cell"></span></div>
-          <div class="atlas-status" id="atlas-status" role="status" aria-live="polite"></div>
-          <div class="atlas-encs" id="atlas-encs"></div>
-          <div class="mc-verdict" id="atlas-verdict" hidden></div>
-          <div class="mc-deeper" id="atlas-deeper" hidden>
-            <a id="atlas-verify" href="/verify">verify any reading yourself &rarr;</a>
-            <a href="/reference">the endpoints behind this &rarr;</a>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
+<!-- left & right hatched corner fans -->
+<g stroke="#344a8c" stroke-width="2" fill="none" stroke-linecap="round">
+<path d="M40 175 q30 5 58 0"/><path d="M40 190 q30 6 58 1"/><path d="M40 205 q30 5 58 0"/><path d="M40 220 q30 6 58 1"/><path d="M40 235 q30 5 58 0"/><path d="M40 250 q30 6 58 1"/><path d="M40 265 q30 5 58 0"/><path d="M40 280 q30 6 58 1"/>
+<path d="M1102 175 q30 5 58 0"/><path d="M1102 190 q30 6 58 1"/><path d="M1102 205 q30 5 58 0"/><path d="M1102 220 q30 6 58 1"/><path d="M1102 235 q30 5 58 0"/><path d="M1102 250 q30 6 58 1"/><path d="M1102 265 q30 5 58 0"/><path d="M1102 280 q30 6 58 1"/>
+</g>
 
-<!-- ===== the problem ===== -->
-<section class="section page" id="problem">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">02</span><span class="idx-label">the gap</span></div></aside>
-  <div class="section-body">
-    <h2>Ask an agent about a place, and it guesses.</h2>
-    <p class="lede">A forest in Borneo, a floodplain outside Chennai, a field in Iowa. Ask an AI agent what is true on the ground there, and it improvises.</p>
-    <p>It has no shared handle for the patch of land you mean, and no way to prove the number it hands back. That was harmless when agents only answered questions. It stops being harmless once they <em>act</em>: filing compliance, pricing risk, triaging a disaster, releasing a payment. Roughly a quarter of organizations are already scaling agents that take real-world actions <a href="https://www.mckinsey.com/capabilities/quantumblack/our-insights/the-state-of-ai">(McKinsey, 2025)</a>. Acting on an unverifiable guess has become a liability.</p>
-  </div>
-</section>
+<!-- little leaves scattered around the field -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1.5">
+<path d="M150 230 q14 -16 30 0 q-14 16 -30 0 z"/>
+<path d="M150 270 q14 -16 30 0 q-14 16 -30 0 z"/>
+<path d="M1020 230 q14 -16 30 0 q-14 16 -30 0 z"/>
+<path d="M1020 270 q14 -16 30 0 q-14 16 -30 0 z"/>
+</g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.5">
+<path d="M150 250 q14 -16 30 0 q-14 16 -30 0 z"/>
+<path d="M1020 250 q14 -16 30 0 q-14 16 -30 0 z"/>
+</g>
 
-<!-- ===== what it is ===== -->
-<section class="section page" id="idea">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">03</span><span class="idx-label">what it is</span></div>
-    <dl>
-      <dt>address</dt><dd>cell64, 64-bit, ~9.55 m</dd>
-      <dt>fact key</dt><dd>(cell, band, time)</dd>
-      <dt>encoding</dt><dd>canonical CBOR</dd>
-      <dt>content id</dt><dd>blake3, 26 chars</dd>
-    </dl>
-  </aside>
-  <div class="section-body">
-    <h2>Every place on Earth becomes an address with a memory.</h2>
-    <p class="lede">A cell64 addresses ground the way a token addresses text in an LLM. The planet is cut into fixed cells about 9.55 m across, and each one carries facts you can recall, verify, and cite.</p>
-    <p>A fact is one measurement at one cell, keyed by <code>(cell, band, time)</code> and packed in a fixed byte order so the same reading hashes the same way on every machine. That hash is the fact&rsquo;s content id. Change one byte and the id changes, so the id proves the bytes. Ids that look alike sit physically near each other, so an agent that emits <code>defi.zb493&#8230;</code> already lands in roughly the right place.</p>
+<!-- ================= DOUBLE-LINE BORDER WITH TICK CHANNEL ================= -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- tick channel dots between the two lines -->
+<g fill="#bb3b2c">
+<circle cx="40" cy="19.5" r="2"/><circle cx="80" cy="19.5" r="2"/><circle cx="120" cy="19.5" r="2"/><circle cx="160" cy="19.5" r="2"/><circle cx="200" cy="19.5" r="2"/><circle cx="240" cy="19.5" r="2"/><circle cx="280" cy="19.5" r="2"/><circle cx="320" cy="19.5" r="2"/><circle cx="360" cy="19.5" r="2"/><circle cx="400" cy="19.5" r="2"/><circle cx="440" cy="19.5" r="2"/><circle cx="480" cy="19.5" r="2"/><circle cx="520" cy="19.5" r="2"/><circle cx="560" cy="19.5" r="2"/><circle cx="600" cy="19.5" r="2"/><circle cx="640" cy="19.5" r="2"/><circle cx="680" cy="19.5" r="2"/><circle cx="720" cy="19.5" r="2"/><circle cx="760" cy="19.5" r="2"/><circle cx="800" cy="19.5" r="2"/><circle cx="840" cy="19.5" r="2"/><circle cx="880" cy="19.5" r="2"/><circle cx="920" cy="19.5" r="2"/><circle cx="960" cy="19.5" r="2"/><circle cx="1000" cy="19.5" r="2"/><circle cx="1040" cy="19.5" r="2"/><circle cx="1080" cy="19.5" r="2"/><circle cx="1120" cy="19.5" r="2"/><circle cx="1160" cy="19.5" r="2"/>
+<circle cx="40" cy="440.5" r="2"/><circle cx="80" cy="440.5" r="2"/><circle cx="120" cy="440.5" r="2"/><circle cx="160" cy="440.5" r="2"/><circle cx="200" cy="440.5" r="2"/><circle cx="240" cy="440.5" r="2"/><circle cx="280" cy="440.5" r="2"/><circle cx="320" cy="440.5" r="2"/><circle cx="360" cy="440.5" r="2"/><circle cx="400" cy="440.5" r="2"/><circle cx="440" cy="440.5" r="2"/><circle cx="480" cy="440.5" r="2"/><circle cx="520" cy="440.5" r="2"/><circle cx="560" cy="440.5" r="2"/><circle cx="600" cy="440.5" r="2"/><circle cx="640" cy="440.5" r="2"/><circle cx="680" cy="440.5" r="2"/><circle cx="720" cy="440.5" r="2"/><circle cx="760" cy="440.5" r="2"/><circle cx="800" cy="440.5" r="2"/><circle cx="840" cy="440.5" r="2"/><circle cx="880" cy="440.5" r="2"/><circle cx="920" cy="440.5" r="2"/><circle cx="960" cy="440.5" r="2"/><circle cx="1000" cy="440.5" r="2"/><circle cx="1040" cy="440.5" r="2"/><circle cx="1080" cy="440.5" r="2"/><circle cx="1120" cy="440.5" r="2"/><circle cx="1160" cy="440.5" r="2"/>
+</g>
+<g fill="#344a8c">
+<circle cx="19.5" cy="60" r="2"/><circle cx="19.5" cy="100" r="2"/><circle cx="19.5" cy="140" r="2"/><circle cx="19.5" cy="180" r="2"/><circle cx="19.5" cy="220" r="2"/><circle cx="19.5" cy="260" r="2"/><circle cx="19.5" cy="300" r="2"/><circle cx="19.5" cy="340" r="2"/><circle cx="19.5" cy="380" r="2"/><circle cx="19.5" cy="420" r="2"/>
+<circle cx="1180.5" cy="60" r="2"/><circle cx="1180.5" cy="100" r="2"/><circle cx="1180.5" cy="140" r="2"/><circle cx="1180.5" cy="180" r="2"/><circle cx="1180.5" cy="220" r="2"/><circle cx="1180.5" cy="260" r="2"/><circle cx="1180.5" cy="300" r="2"/><circle cx="1180.5" cy="340" r="2"/><circle cx="1180.5" cy="380" r="2"/><circle cx="1180.5" cy="420" r="2"/>
+</g>
 
-    <div class="memt-block">
-      <div class="memt-head"><span class="label">the address algebra</span><span class="gloss">readable, reproducible, content-addressed</span><span class="spacer"></span><a href="/spec.md">spec &rarr;</a></div>
-      <div class="memt-body">
-        <div class="memt-grammar"><b>cell64</b> &times; <b>band</b> &times; <b>tslot</b> &rarr; <b>fact</b>, named by its own blake3 hash</div>
-        <div class="memt-example">defi.zb493.xuqA.zcb5f &times; copdem30m.elevation_mean &times; t.aaaaagy</div>
-        <div class="memt-parts">
-          <span class="k">cell64</span><span>four base-1024 bigrams, dot-separated; Hilbert-ordered so neighbours share a prefix</span>
-          <span class="k">band</span><span>a measurement type (elevation, rainfall, this year&rsquo;s forest loss, a satellite embedding), auto-fetched and signed on first read</span>
-          <span class="k">tslot</span><span>a moment in time, base32 leb128</span>
-          <span class="k">fact_cid</span><span>32-byte blake3, base32, 26 chars; the durable handle you cite</span>
-        </div>
-      </div>
-    </div>
+<!-- corner sun-rosette motifs -->
+<g stroke="#2b2620" stroke-width="2" fill="#d59a2a">
+<circle cx="40" cy="40" r="9"/><circle cx="1160" cy="40" r="9"/><circle cx="40" cy="420" r="9"/><circle cx="1160" cy="420" r="9"/>
+</g>
+<g stroke="#2b2620" stroke-width="1.6" stroke-linecap="round">
+<g><path d="M40 26 v-7"/><path d="M40 54 v7"/><path d="M26 40 h-7"/><path d="M54 40 h7"/><path d="M30 30 l-5 -5"/><path d="M50 50 l5 5"/><path d="M50 30 l5 -5"/><path d="M30 50 l-5 5"/></g>
+<g><path d="M1160 26 v-7"/><path d="M1160 54 v7"/><path d="M1146 40 h-7"/><path d="M1174 40 h7"/><path d="M1150 30 l-5 -5"/><path d="M1170 50 l5 5"/><path d="M1170 30 l5 -5"/><path d="M1150 50 l-5 5"/></g>
+<g><path d="M40 406 v-7"/><path d="M40 434 v7"/><path d="M26 420 h-7"/><path d="M54 420 h7"/><path d="M30 410 l-5 -5"/><path d="M50 430 l5 5"/><path d="M50 410 l5 -5"/><path d="M30 430 l-5 5"/></g>
+<g><path d="M1160 406 v-7"/><path d="M1160 434 v7"/><path d="M1146 420 h-7"/><path d="M1174 420 h7"/><path d="M1150 410 l-5 -5"/><path d="M1170 430 l5 5"/><path d="M1170 410 l5 -5"/><path d="M1150 430 l-5 5"/></g>
+</g>
 
-    <p>The address is identical on every node, so two agents asking about the same ground reach the same memory. Nothing is pre-seeded. Ask about a place nobody has measured and the responder fetches the value from one of 46 real satellite sources, signs it, and returns it in the same response, then keeps it.</p>
-  </div>
-</section>
+<!-- ================= INK PETAL-RAYS RADIATING (behind flower) ================= -->
+<g stroke="#2b2620" stroke-width="2.6" fill="none" stroke-linecap="round">
+<path d="M600 230 L600 60 M600 230 L753 73 M600 230 L887 124 M600 230 L940 230 M600 230 L887 336 M600 230 L753 387 M600 230 L600 400 M600 230 L447 387 M600 230 L313 336 M600 230 L260 230 M600 230 L313 124 M600 230 L447 73"/>
+</g>
+<!-- ray-tip buds -->
+<g fill="#6e4a93" stroke="#2b2620" stroke-width="1.6">
+<path d="M600 50 q-9 -16 0 -28 q9 12 0 28 z"/>
+<path d="M947 230 q16 -9 28 0 q-12 9 -28 0 z"/>
+<path d="M600 408 q-9 16 0 28 q9 -16 0 -28 z"/>
+<path d="M253 230 q-16 -9 -28 0 q12 9 28 0 z"/>
+</g>
+<g fill="#2e8c84" stroke="#2b2620" stroke-width="1.5">
+<circle cx="760" cy="66" r="6"/><circle cx="894" cy="118" r="6"/><circle cx="894" cy="342" r="6"/><circle cx="760" cy="394" r="6"/><circle cx="440" cy="394" r="6"/><circle cx="306" cy="342" r="6"/><circle cx="306" cy="118" r="6"/><circle cx="440" cy="66" r="6"/>
+</g>
 
-<!-- ===== how a fact is proven ===== -->
-<section class="section page" id="proof">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">04</span><span class="idx-label">how a fact is proven</span></div>
-    <dl>
-      <dt>signature</dt><dd>ed25519, the kind that secures SSH and HTTPS</dd>
-      <dt>content id</dt><dd>blake3 over canonical CBOR</dd>
-      <dt>log</dt><dd>append-only, RFC 6962 merkle</dd>
-      <dt>verify</dt><dd>offline, no callback to us</dd>
-    </dl>
-  </aside>
-  <div class="section-body">
-    <h2>Don&rsquo;t take our word. Take the receipt.</h2>
-    <p class="lede">Every read returns a receipt: the responder&rsquo;s public key, the signed payload, and the content id for each fact. Recompute the blake3 hash, check the ed25519 signature, and the answer reproduces in your own browser with no callback to us.</p>
-    <p>Ask <code>emem.dev</code> for the elevation under Denver and it returns the city&rsquo;s nickname as a signed number, mile-high at 1609 m. Here is a real fact, exactly as the responder returned it:</p>
-    <div class="fact">
+<!-- ================= OUTER LOTUS PETAL RING (green, double-outline) ================= -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="3">
+<path d="M600 230 q-46 -150 0 -176 q46 26 0 176 z"/>
+<path d="M600 230 q150 -46 176 0 q-26 46 -176 0 z"/>
+<path d="M600 230 q46 150 0 176 q-46 -26 0 -176 z"/>
+<path d="M600 230 q-150 46 -176 0 q26 -46 176 0 z"/>
+<path d="M600 230 q72 -132 124 -124 q8 52 -124 124 z"/>
+<path d="M600 230 q132 72 124 124 q-52 8 -124 -124 z"/>
+<path d="M600 230 q-72 132 -124 124 q-8 -52 124 -124 z"/>
+<path d="M600 230 q-132 -72 -124 -124 q52 -8 124 124 z"/>
+</g>
+<!-- inner thin outline + center-vein on outer petals -->
+<g fill="none" stroke="#f3eee2" stroke-width="1.4">
+<path d="M600 64 q-30 90 0 160"/><path d="M766 230 q-90 -30 -160 0"/><path d="M600 396 q30 -90 0 -160"/><path d="M434 230 q90 30 160 0"/>
+</g>
+<!-- dot rows inside outer petals -->
+<g fill="#f3eee2">
+<circle cx="600" cy="120" r="2.6"/><circle cx="600" cy="150" r="2.6"/><circle cx="600" cy="180" r="2.6"/>
+<circle cx="710" cy="230" r="2.6"/><circle cx="680" cy="230" r="2.6"/><circle cx="650" cy="230" r="2.6"/>
+<circle cx="600" cy="340" r="2.6"/><circle cx="600" cy="310" r="2.6"/><circle cx="600" cy="280" r="2.6"/>
+<circle cx="490" cy="230" r="2.6"/><circle cx="520" cy="230" r="2.6"/><circle cx="550" cy="230" r="2.6"/>
+</g>
+
+<!-- ================= MIDDLE PETAL RING (indigo) ================= -->
+<g fill="#344a8c" stroke="#2b2620" stroke-width="3">
+<path d="M600 230 q-34 -110 0 -130 q34 20 0 130 z"/>
+<path d="M600 230 q110 -34 130 0 q-20 34 -130 0 z"/>
+<path d="M600 230 q34 110 0 130 q-34 -20 0 -130 z"/>
+<path d="M600 230 q-110 34 -130 0 q20 -34 130 0 z"/>
+<path d="M600 230 q56 -98 92 -92 q6 36 -92 92 z"/>
+<path d="M600 230 q98 56 92 92 q-36 6 -92 -92 z"/>
+<path d="M600 230 q-56 98 -92 92 q-6 -36 92 -92 z"/>
+<path d="M600 230 q-98 -56 -92 -92 q36 -6 92 92 z"/>
+</g>
+<!-- fish-scale arcs inside indigo petals -->
+<g fill="none" stroke="#ebe4d3" stroke-width="1.6">
+<path d="M588 140 a12 12 0 0 1 24 0"/><path d="M588 170 a12 12 0 0 1 24 0"/>
+<path d="M676 218 a12 12 0 0 1 0 24"/><path d="M646 218 a12 12 0 0 1 0 24"/>
+<path d="M588 320 a12 12 0 0 0 24 0"/><path d="M588 290 a12 12 0 0 0 24 0"/>
+<path d="M524 218 a12 12 0 0 0 0 24"/><path d="M554 218 a12 12 0 0 0 0 24"/>
+</g>
+
+<!-- ================= INNER PETAL RING (ochre) ================= -->
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="2.6">
+<path d="M600 230 q-22 -74 0 -88 q22 14 0 88 z"/>
+<path d="M600 230 q74 -22 88 0 q-14 22 -88 0 z"/>
+<path d="M600 230 q22 74 0 88 q-22 -14 0 -88 z"/>
+<path d="M600 230 q-74 22 -88 0 q14 -22 88 0 z"/>
+<path d="M600 230 q38 -66 62 -62 q4 24 -62 62 z"/>
+<path d="M600 230 q66 38 62 62 q-24 4 -62 -62 z"/>
+<path d="M600 230 q-38 66 -62 62 q-4 -24 62 -62 z"/>
+<path d="M600 230 q-66 -38 -62 -62 q24 -4 62 62 z"/>
+</g>
+<!-- hatch lines inside ochre petals -->
+<g stroke="#2b2620" stroke-width="1.2">
+<path d="M600 166 v54"/><path d="M666 230 h-54"/><path d="M600 294 v-54"/><path d="M534 230 h54"/>
+</g>
+
+<!-- ================= CENTER VERMILION SEAL MEDALLION ================= -->
+<circle cx="600" cy="230" r="58" fill="#bb3b2c" stroke="#2b2620" stroke-width="3.5"/>
+<circle cx="600" cy="230" r="58" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+<circle cx="600" cy="230" r="48" fill="none" stroke="#2b2620" stroke-width="2.4"/>
+<!-- ring of seal dots -->
+<g fill="#f3eee2">
+<circle cx="600" cy="177" r="2.6"/><circle cx="637" cy="193" r="2.6"/><circle cx="653" cy="230" r="2.6"/><circle cx="637" cy="267" r="2.6"/><circle cx="600" cy="283" r="2.6"/><circle cx="563" cy="267" r="2.6"/><circle cx="547" cy="230" r="2.6"/><circle cx="563" cy="193" r="2.6"/>
+<circle cx="619" cy="183" r="2.6"/><circle cx="647" cy="211" r="2.6"/><circle cx="647" cy="249" r="2.6"/><circle cx="619" cy="277" r="2.6"/><circle cx="581" cy="277" r="2.6"/><circle cx="553" cy="249" r="2.6"/><circle cx="553" cy="211" r="2.6"/><circle cx="581" cy="183" r="2.6"/>
+</g>
+<!-- stylized key / knot signature, flat ink on paper-coloured field -->
+<circle cx="600" cy="230" r="36" fill="#f3eee2" stroke="#2b2620" stroke-width="2.4"/>
+<g fill="none" stroke="#2b2620" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+<!-- interlaced knot loops -->
+<path d="M600 206 q-22 0 -22 24 q0 24 22 24 q22 0 22 -24 q0 -24 -22 -24 z"/>
+<path d="M578 230 q22 -22 44 0 q-22 22 -44 0 z"/>
+<!-- key bow + shaft + bit -->
+<circle cx="600" cy="216" r="6" fill="#bb3b2c"/>
+<path d="M600 222 v26"/>
+<path d="M600 248 h10"/><path d="M600 240 h8"/>
+</g>
+
+<!-- ================= LOTUS BUD RING (around flower) ================= -->
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="2">
+<path d="M600 30 q-11 -20 0 -34 q11 14 0 34 z"/>
+<path d="M770 80 q-2 -23 14 -28 q2 18 -14 28 z"/>
+<path d="M920 230 q20 -11 34 0 q-14 11 -34 0 z"/>
+<path d="M770 380 q14 -2 28 14 q-18 2 -28 -14 z"/>
+<path d="M600 430 q11 20 0 34 q-11 -14 0 -34 z"/>
+<path d="M430 380 q2 23 -14 28 q-2 -18 14 -28 z"/>
+<path d="M280 230 q-20 -11 -34 0 q14 11 34 0 z"/>
+<path d="M430 80 q-14 2 -28 -14 q18 -2 28 14 z"/>
+</g>
+
+<!-- ================= TWO PROFILE LEAVES AT BASE ================= -->
+<!-- stem -->
+<path d="M600 290 q4 60 0 110" fill="none" stroke="#2b2620" stroke-width="3.5"/>
+<!-- left profile leaf -->
+<g>
+<path d="M598 360 q-78 -8 -120 26 q66 30 120 -10 z" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<path d="M540 366 q-40 6 -60 18" fill="none" stroke="#2b2620" stroke-width="1.6"/>
+<g stroke="#2b2620" stroke-width="1.4">
+<path d="M560 360 l-8 14"/><path d="M540 360 l-8 16"/><path d="M520 362 l-7 16"/><path d="M500 366 l-6 14"/>
+</g>
+</g>
+<!-- right profile leaf -->
+<g>
+<path d="M602 366 q78 -8 120 26 q-66 30 -120 -10 z" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<path d="M660 372 q40 6 60 18" fill="none" stroke="#2b2620" stroke-width="1.6"/>
+<g stroke="#2b2620" stroke-width="1.4">
+<path d="M640 366 l8 14"/><path d="M660 366 l8 16"/><path d="M680 368 l7 16"/><path d="M700 372 l6 14"/>
+</g>
+</g>
+
+<!-- ================= EXTRA FILLER: running vine top & bottom inside border ================= -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.2">
+<path d="M70 44 q20 -14 40 0 q20 14 40 0 q20 -14 40 0 q20 14 40 0"/>
+<path d="M930 44 q20 -14 40 0 q20 14 40 0 q20 -14 40 0 q20 14 40 0"/>
+</g>
+<g fill="#bb3b2c">
+<circle cx="90" cy="44" r="3"/><circle cx="170" cy="44" r="3"/><circle cx="250" cy="44" r="3"/>
+<circle cx="950" cy="44" r="3"/><circle cx="1030" cy="44" r="3"/><circle cx="1110" cy="44" r="3"/>
+</g>
+
+<!-- small paired leaves lower field -->
+<g fill="#2e8c84" stroke="#2b2620" stroke-width="1.5">
+<path d="M250 360 q14 -16 30 0 q-14 16 -30 0 z"/>
+<path d="M920 360 q14 -16 30 0 q-14 16 -30 0 z"/>
+<path d="M250 320 q14 -16 30 0 q-14 16 -30 0 z"/>
+<path d="M920 320 q14 -16 30 0 q-14 16 -30 0 z"/>
+</g>
+</svg></figure>
+  <div class="words">
+    <div class="kicker"><span class="n">02</span> One reading</div>
+    <h2>A reading becomes a receipt</h2>
+    <p class="cap">A fact is keyed by cell, band, and time, named by a blake3 id over its canonical CBOR, and returned with an ed25519 signature you can re-check.</p>
+    <div class="fact live">
       <div class="fact-head"><span class="signed">signed fact</span> &middot; verifiable offline <span class="spacer"></span></div>
       <div class="fact-grid">
         <span class="k">cell</span><span class="v"><span class="cell">defi.zb4d7.ze56c.zf24c</span></span>
         <span class="k">band</span><span class="v"><span class="band">copdem30m.elevation_mean</span></span>
         <span class="k">value</span><span class="v big">10.0<span class="unit">m</span></span>
-        <span class="k">source</span><span class="v">copernicus.dem.glo30</span>
         <span class="k">fact_cid</span><span class="v cid">4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma</span>
       </div>
       <div class="fact-verify"><span class="check">re-derived in browser</span><a href="/verify/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma">verify this receipt yourself &rarr;</a></div>
     </div>
-    <p>The fact_cid is a durable handle. Paste it into a chat and a colleague pulls the same bytes from any node and checks the signature, on any day, in any year. Run enough nodes and you get a federation: independent responders that resolve the same ids byte for byte and write down where they disagree.</p>
+    <div class="go"><a href="/verify">verify a receipt &rarr;</a><a href="/whitepaper">the trust model &rarr;</a></div>
+  </div>
+</section>
+<div class="mith-div"><span class="gem"></span></div>
+<section class="chapter" id="consensus">
+  <figure class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
 
-    <h3>Four models read the same ground, and their disagreement is recorded.</h3>
-    <p>Four independent foundation encoders, <strong>Clay, Prithvi, Tessera, Galileo</strong>, read the same cell. Where they agree, that agreement is a signal an agent can act on. Where two attesters sign different values at the same <code>(cell, band, time)</code>, <code>memory_contradictions</code> scores the gap by band kind and records it, rather than averaging it away. A poisoned note can&rsquo;t be slipped into a private agent memory the way <a href="https://arxiv.org/abs/2503.03704">MINJA (NeurIPS 2025)</a> shows, because every fact here is signed and content-addressed.</p>
-    <p><a href="/how-it-works">See how it works, in depth &rarr;</a> &middot; <a href="/whitepaper">Read the whitepaper &rarr;</a> &middot; <a href="https://eudr.dev">eudr.dev</a> already runs on this, issuing signed EU deforestation statements.</p>
+<!-- ============ BACKGROUND FIELD: horror vacui fillers ============ -->
+<!-- diagonal hatch field upper band -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 40 L80 80 M70 40 L110 80 M100 40 L140 80 M130 40 L170 80 M160 40 L200 80 M190 40 L230 80 M220 40 L260 80 M250 40 L290 80 M280 40 L320 80 M310 40 L350 80 M340 40 L380 80 M370 40 L410 80 M400 40 L440 80 M430 40 L470 80 M460 40 L500 80 M490 40 L530 80 M520 40 L560 80 M550 40 L590 80 M580 40 L620 80 M610 40 L650 80 M640 40 L680 80 M670 40 L710 80 M700 40 L740 80 M730 40 L770 80 M760 40 L800 80 M790 40 L830 80 M820 40 L860 80 M850 40 L890 80 M880 40 L920 80 M910 40 L950 80 M940 40 L980 80 M970 40 L1010 80 M1000 40 L1040 80 M1030 40 L1070 80 M1060 40 L1100 80 M1090 40 L1130 80 M1120 40 L1160 80"/>
+</g>
+<!-- dot field everywhere (background) -->
+<g fill="#5c5346">
+<circle cx="60" cy="120" r="2"/><circle cx="100" cy="120" r="2"/><circle cx="140" cy="120" r="2"/><circle cx="180" cy="120" r="2"/><circle cx="220" cy="120" r="2"/><circle cx="980" cy="120" r="2"/><circle cx="1020" cy="120" r="2"/><circle cx="1060" cy="120" r="2"/><circle cx="1100" cy="120" r="2"/><circle cx="1140" cy="120" r="2"/>
+<circle cx="60" cy="160" r="2"/><circle cx="100" cy="160" r="2"/><circle cx="140" cy="160" r="2"/><circle cx="1060" cy="160" r="2"/><circle cx="1100" cy="160" r="2"/><circle cx="1140" cy="160" r="2"/>
+<circle cx="60" cy="300" r="2"/><circle cx="100" cy="300" r="2"/><circle cx="140" cy="300" r="2"/><circle cx="1060" cy="300" r="2"/><circle cx="1100" cy="300" r="2"/><circle cx="1140" cy="300" r="2"/>
+<circle cx="60" cy="340" r="2"/><circle cx="100" cy="340" r="2"/><circle cx="140" cy="340" r="2"/><circle cx="180" cy="340" r="2"/><circle cx="980" cy="340" r="2"/><circle cx="1020" cy="340" r="2"/><circle cx="1060" cy="340" r="2"/><circle cx="1100" cy="340" r="2"/><circle cx="1140" cy="340" r="2"/>
+<circle cx="60" cy="400" r="2"/><circle cx="110" cy="400" r="2"/><circle cx="160" cy="400" r="2"/><circle cx="210" cy="400" r="2"/><circle cx="260" cy="400" r="2"/><circle cx="940" cy="400" r="2"/><circle cx="990" cy="400" r="2"/><circle cx="1040" cy="400" r="2"/><circle cx="1090" cy="400" r="2"/><circle cx="1140" cy="400" r="2"/>
+</g>
+<!-- fish-scale arc field along bottom -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 420 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0"/>
+<path d="M60 436 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0"/>
+</g>
+
+<!-- running vine left side -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.2"><path d="M48 100 q14 24 0 48 q-14 24 0 48 q14 24 0 48 q-14 24 0 48 q14 24 0 48"/></g>
+<g fill="#4f8a3d"><path d="M48 124 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M48 172 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M48 220 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M48 268 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M48 316 q22 -6 30 8 q-18 6 -30 -8z"/></g>
+<!-- running vine right side -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.2"><path d="M1152 100 q-14 24 0 48 q14 24 0 48 q-14 24 0 48 q14 24 0 48 q-14 24 0 48"/></g>
+<g fill="#4f8a3d"><path d="M1152 124 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M1152 172 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M1152 220 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M1152 268 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M1152 316 q-22 -6 -30 8 q18 6 30 -8z"/></g>
+
+<!-- ============ DOUBLE-LINE BORDER WITH TICK CHANNEL ============ -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="32" y="32" width="1136" height="396" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- tick channel: dashes between the two borders -->
+<g stroke="#2b2620" stroke-width="2">
+<!-- top ticks -->
+<path d="M40 24 v0 M40 24 m0 0 l0 0"/>
+<g>
+<path d="M44 18 v12 M64 18 v12 M84 18 v12 M104 18 v12 M124 18 v12 M144 18 v12 M164 18 v12 M184 18 v12 M204 18 v12 M224 18 v12 M244 18 v12 M264 18 v12 M284 18 v12 M304 18 v12 M324 18 v12 M344 18 v12 M364 18 v12 M384 18 v12 M404 18 v12 M424 18 v12 M444 18 v12 M464 18 v12 M484 18 v12 M504 18 v12 M524 18 v12 M544 18 v12 M564 18 v12 M584 18 v12 M604 18 v12 M624 18 v12 M644 18 v12 M664 18 v12 M684 18 v12 M704 18 v12 M724 18 v12 M744 18 v12 M764 18 v12 M784 18 v12 M804 18 v12 M824 18 v12 M844 18 v12 M864 18 v12 M884 18 v12 M904 18 v12 M924 18 v12 M944 18 v12 M964 18 v12 M984 18 v12 M1004 18 v12 M1024 18 v12 M1044 18 v12 M1064 18 v12 M1084 18 v12 M1104 18 v12 M1124 18 v12 M1144 18 v12 M1156 18 v12"/>
+<!-- bottom ticks -->
+<path d="M44 430 v12 M64 430 v12 M84 430 v12 M104 430 v12 M124 430 v12 M144 430 v12 M164 430 v12 M184 430 v12 M204 430 v12 M224 430 v12 M244 430 v12 M264 430 v12 M284 430 v12 M304 430 v12 M324 430 v12 M344 430 v12 M364 430 v12 M384 430 v12 M404 430 v12 M424 430 v12 M444 430 v12 M464 430 v12 M484 430 v12 M504 430 v12 M524 430 v12 M544 430 v12 M564 430 v12 M584 430 v12 M604 430 v12 M624 430 v12 M644 430 v12 M664 430 v12 M684 430 v12 M704 430 v12 M724 430 v12 M744 430 v12 M764 430 v12 M784 430 v12 M804 430 v12 M824 430 v12 M844 430 v12 M864 430 v12 M884 430 v12 M904 430 v12 M924 430 v12 M944 430 v12 M964 430 v12 M984 430 v12 M1004 430 v12 M1024 430 v12 M1044 430 v12 M1064 430 v12 M1084 430 v12 M1104 430 v12 M1124 430 v12 M1144 430 v12 M1156 430 v12"/>
+<!-- left ticks -->
+<path d="M18 44 h12 M18 64 h12 M18 84 h12 M18 104 h12 M18 124 h12 M18 144 h12 M18 164 h12 M18 184 h12 M18 204 h12 M18 224 h12 M18 244 h12 M18 264 h12 M18 284 h12 M18 304 h12 M18 324 h12 M18 344 h12 M18 364 h12 M18 384 h12 M18 404 h12"/>
+<!-- right ticks -->
+<path d="M1170 44 h12 M1170 64 h12 M1170 84 h12 M1170 104 h12 M1170 124 h12 M1170 144 h12 M1170 164 h12 M1170 184 h12 M1170 204 h12 M1170 224 h12 M1170 244 h12 M1170 264 h12 M1170 284 h12 M1170 304 h12 M1170 324 h12 M1170 344 h12 M1170 364 h12 M1170 384 h12 M1170 404 h12"/>
+</g>
+</g>
+
+<!-- ============ CORNER ROSETTES (lotus/sun motif) ============ -->
+<g>
+<!-- TL -->
+<circle cx="48" cy="48" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.6"><path d="M48 33 v8 M48 55 v8 M33 48 h8 M55 48 h8 M38 38 l5 5 M58 38 l-5 5 M38 58 l5 -5 M58 58 l-5 -5"/></g>
+<circle cx="48" cy="48" r="3.5" fill="#2b2620"/>
+<!-- TR -->
+<circle cx="1152" cy="48" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.6"><path d="M1152 33 v8 M1152 55 v8 M1137 48 h8 M1159 48 h8 M1142 38 l5 5 M1162 38 l-5 5 M1142 58 l5 -5 M1162 58 l-5 -5"/></g>
+<circle cx="1152" cy="48" r="3.5" fill="#2b2620"/>
+<!-- BL -->
+<circle cx="48" cy="412" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.6"><path d="M48 397 v8 M48 419 v8 M33 412 h8 M55 412 h8 M38 402 l5 5 M58 402 l-5 5 M38 422 l5 -5 M58 422 l-5 -5"/></g>
+<circle cx="48" cy="412" r="3.5" fill="#2b2620"/>
+<!-- BR -->
+<circle cx="1152" cy="412" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.6"><path d="M1152 397 v8 M1152 419 v8 M1137 412 h8 M1159 412 h8 M1142 402 l5 5 M1162 402 l-5 5 M1142 422 l5 -5 M1162 422 l-5 -5"/></g>
+<circle cx="1152" cy="412" r="3.5" fill="#2b2620"/>
+</g>
+
+<!-- ============ CENTRE: GROUND PATCH + VERMILION SUN ============ -->
+<!-- ground patch (small, at center bottom) -->
+<g>
+<path d="M520 370 q80 -26 160 0 q-10 22 0 30 q-80 16 -160 0 q10 -16 0 -30z" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<path d="M520 370 q80 -26 160 0" fill="none" stroke="#2b2620" stroke-width="1.5" transform="translate(0,5)"/>
+<!-- furrow hatch on ground -->
+<g fill="none" stroke="#2b2620" stroke-width="1.2"><path d="M540 372 v22 M560 369 v26 M580 367 v28 M600 366 v30 M620 367 v28 M640 369 v26 M660 372 v22"/></g>
+<!-- little sprouts on ground -->
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1"><path d="M560 366 q-5 -10 0 -16 q5 6 0 16z"/><path d="M600 364 q-5 -12 0 -18 q5 6 0 18z"/><path d="M640 366 q-5 -10 0 -16 q5 6 0 16z"/></g>
+</g>
+
+<!-- SUN: solid vermilion radiant disc with profile face -->
+<g>
+<!-- ray ring -->
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1.5">
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(0 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(30 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(60 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(90 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(120 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(150 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(180 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(210 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(240 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(270 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(300 600 230)"/>
+<path d="M600 168 l8 -26 l8 26z" transform="rotate(330 600 230)"/>
+</g>
+<!-- short rays between -->
+<g stroke="#2b2620" stroke-width="2">
+<path d="M608 178 l4 -12" transform="rotate(15 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(45 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(75 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(105 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(135 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(165 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(195 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(225 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(255 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(285 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(315 608 230)"/>
+<path d="M608 178 l4 -12" transform="rotate(345 608 230)"/>
+</g>
+<!-- sun disc double outline -->
+<circle cx="600" cy="230" r="56" fill="#bb3b2c" stroke="#2b2620" stroke-width="3"/>
+<circle cx="600" cy="230" r="48" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<!-- inner petal/dot ring -->
+<g fill="#f3eee2"><circle cx="600" cy="186" r="2.5"/><circle cx="622" cy="192" r="2.5"/><circle cx="638" cy="208" r="2.5"/><circle cx="644" cy="230" r="2.5"/><circle cx="638" cy="252" r="2.5"/><circle cx="622" cy="268" r="2.5"/><circle cx="600" cy="274" r="2.5"/><circle cx="578" cy="268" r="2.5"/><circle cx="562" cy="252" r="2.5"/><circle cx="556" cy="230" r="2.5"/><circle cx="562" cy="208" r="2.5"/><circle cx="578" cy="192" r="2.5"/></g>
+<!-- SUN PROFILE FACE (side profile, one almond eye) -->
+<!-- profile contour: brow, nose, lips, chin facing right -->
+<path d="M584 206 q10 -6 18 2 q12 4 14 16 l6 4 l-8 6 q2 8 -2 14 q-6 8 -16 8 q-14 0 -20 -12 q-6 -14 2 -28 q2 -8 6 -10z" fill="#f3eee2" stroke="#2b2620" stroke-width="2.5"/>
+<!-- one almond fish-eye -->
+<path d="M596 218 q9 -6 18 0 q-9 6 -18 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="605" cy="218" r="3.5" fill="#2b2620"/>
+<!-- brow line -->
+<path d="M592 210 q10 -5 22 -2" fill="none" stroke="#2b2620" stroke-width="1.8"/>
+<!-- lips / cheek -->
+<path d="M600 240 q10 3 16 -1" fill="none" stroke="#bb3b2c" stroke-width="2"/>
+<circle cx="592" cy="236" r="3" fill="#bb3b2c"/>
+</g>
+
+<!-- ============ BIRD: INDIGO (top-left, leaning inward/down) ============ -->
+<g>
+<!-- tail -->
+<g>
+<path d="M150 90 q-40 -40 -86 -42 q34 26 40 64 q-44 -24 -76 -8 q40 16 58 52 q-44 -8 -68 16 q44 4 66 36" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<!-- feather hatch on tail -->
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M120 78 q-20 -16 -44 -22 M124 102 q-26 -8 -52 0 M132 132 q-28 0 -52 14 M140 162 q-26 6 -48 24"/></g>
+<g fill="#ochre"></g>
+<!-- tail eye-spots -->
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"><circle cx="78" cy="70" r="6"/><circle cx="66" cy="108" r="6"/><circle cx="74" cy="150" r="6"/></g>
+<g fill="#bb3b2c"><circle cx="78" cy="70" r="2.5"/><circle cx="66" cy="108" r="2.5"/><circle cx="74" cy="150" r="2.5"/></g>
+</g>
+<!-- body -->
+<path d="M150 90 q70 6 96 64 q16 40 -8 78 q-28 38 -78 30 q-44 -8 -56 -52 q-12 -50 18 -94 q12 -20 28 -26z" fill="#344a8c" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M150 102 q60 8 84 60 q14 34 -6 66" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<!-- wing packed with feather rows -->
+<path d="M138 150 q56 -10 88 30 q-6 40 -42 58 q-40 6 -58 -28 q-10 -34 12 -60z" fill="#344a8c" stroke="#2b2620" stroke-width="2.5"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M150 158 q40 -4 64 22 M146 176 q44 -2 68 26 M144 196 q40 6 60 30 M150 216 q34 10 50 28"/></g>
+<g fill="#d59a2a"><circle cx="168" cy="172" r="3"/><circle cx="190" cy="184" r="3"/><circle cx="210" cy="198" r="3"/><circle cx="160" cy="194" r="3"/><circle cx="182" cy="206" r="3"/><circle cx="172" cy="218" r="3"/></g>
+<!-- body dot field -->
+<g fill="#f3eee2"><circle cx="120" cy="120" r="2.5"/><circle cx="134" cy="132" r="2.5"/><circle cx="112" cy="150" r="2.5"/><circle cx="100" cy="176" r="2.5"/><circle cx="108" cy="200" r="2.5"/></g>
+<!-- head side profile facing inward/down (to lower-right) -->
+<g>
+<path d="M226 154 q34 -8 48 18 q8 18 -6 34 q-16 18 -40 14 q-22 -4 -26 -26 q-2 -24 24 -40z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<!-- crest -->
+<g fill="none" stroke="#2b2620" stroke-width="2"><path d="M244 138 l4 -16 M254 140 l8 -14 M264 146 l12 -10"/></g>
+<g fill="#d59a2a"><circle cx="248" cy="120" r="3"/><circle cx="262" cy="124" r="3"/><circle cx="276" cy="134" r="3"/></g>
+<!-- almond fish-eye -->
+<path d="M250 168 q12 -7 24 0 q-12 7 -24 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="262" cy="168" r="3.5" fill="#2b2620"/>
+<path d="M248 160 q12 -4 26 0" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<!-- beak pointing down-right toward ground -->
+<path d="M270 188 q22 14 18 36 q-12 -6 -22 -16 q-6 -10 4 -20z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/>
+<path d="M272 196 q14 12 14 26" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+<!-- leg/feet -->
+<g fill="none" stroke="#2b2620" stroke-width="2.5"><path d="M196 256 l-8 30 m-8 0 l8 0 m-2 0 l6 8 m-6 -8 l-8 8 M214 258 l4 30 m-6 0 l8 0 m-2 0 l6 8 m-6 -8 l-8 8"/></g>
+</g>
+
+<!-- ============ BIRD: GREEN (top-right, leaning inward/down) ============ -->
+<g>
+<!-- tail -->
+<g>
+<path d="M1050 90 q40 -40 86 -42 q-34 26 -40 64 q44 -24 76 -8 q-40 16 -58 52 q44 -8 68 16 q-44 4 -66 36" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M1080 78 q20 -16 44 -22 M1076 102 q26 -8 52 0 M1068 132 q28 0 52 14 M1060 162 q26 6 48 24"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"><circle cx="1122" cy="70" r="6"/><circle cx="1134" cy="108" r="6"/><circle cx="1126" cy="150" r="6"/></g>
+<g fill="#bb3b2c"><circle cx="1122" cy="70" r="2.5"/><circle cx="1134" cy="108" r="2.5"/><circle cx="1126" cy="150" r="2.5"/></g>
+</g>
+<!-- body -->
+<path d="M1050 90 q-70 6 -96 64 q-16 40 8 78 q28 38 78 30 q44 -8 56 -52 q12 -50 -18 -94 q-12 -20 -28 -26z" fill="#4f8a3d" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M1050 102 q-60 8 -84 60 q-14 34 6 66" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<!-- wing -->
+<path d="M1062 150 q-56 -10 -88 30 q6 40 42 58 q40 6 58 -28 q10 -34 -12 -60z" fill="#4f8a3d" stroke="#2b2620" stroke-width="2.5"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M1050 158 q-40 -4 -64 22 M1054 176 q-44 -2 -68 26 M1056 196 q-40 6 -60 30 M1050 216 q-34 10 -50 28"/></g>
+<g fill="#d59a2a"><circle cx="1032" cy="172" r="3"/><circle cx="1010" cy="184" r="3"/><circle cx="990" cy="198" r="3"/><circle cx="1040" cy="194" r="3"/><circle cx="1018" cy="206" r="3"/><circle cx="1028" cy="218" r="3"/></g>
+<g fill="#f3eee2"><circle cx="1080" cy="120" r="2.5"/><circle cx="1066" cy="132" r="2.5"/><circle cx="1088" cy="150" r="2.5"/><circle cx="1100" cy="176" r="2.5"/><circle cx="1092" cy="200" r="2.5"/></g>
+<!-- head side profile facing inward/down (to lower-left) -->
+<g>
+<path d="M974 154 q-34 -8 -48 18 q-8 18 6 34 q16 18 40 14 q22 -4 26 -26 q2 -24 -24 -40z" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="2"><path d="M956 138 l-4 -16 M946 140 l-8 -14 M936 146 l-12 -10"/></g>
+<g fill="#d59a2a"><circle cx="952" cy="120" r="3"/><circle cx="938" cy="124" r="3"/><circle cx="924" cy="134" r="3"/></g>
+<path d="M950 168 q-12 -7 -24 0 q12 7 24 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="938" cy="168" r="3.5" fill="#2b2620"/>
+<path d="M952 160 q-12 -4 -26 0" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<!-- beak down-left toward ground -->
+<path d="M930 188 q-22 14 -18 36 q12 -6 22 -16 q6 -10 -4 -20z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/>
+<path d="M928 196 q-14 12 -14 26" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+<g fill="none" stroke="#2b2620" stroke-width="2.5"><path d="M1004 256 l8 30 m8 0 l-8 0 m2 0 l-6 8 m6 -8 l8 8 M986 258 l-4 30 m6 0 l-8 0 m2 0 l-6 8 m6 -8 l8 8"/></g>
+</g>
+
+<!-- ============ BIRD: OCHRE (bottom-left, leaning inward/up toward ground) ============ -->
+<g>
+<!-- tail sweeping down-left -->
+<g>
+<path d="M196 330 q-48 18 -88 56 q40 -8 64 8 q-30 22 -34 56 q34 -22 60 -16 q-18 30 -8 60" fill="#d59a2a" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.5"><path d="M168 348 q-34 16 -58 42 M176 374 q-26 14 -42 42 M186 400 q-18 18 -24 46"/></g>
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1.5"><circle cx="100" cy="382" r="6"/><circle cx="130" cy="416" r="6"/></g>
+<g fill="#f3eee2"><circle cx="100" cy="382" r="2.5"/><circle cx="130" cy="416" r="2.5"/></g>
+</g>
+<!-- body -->
+<path d="M210 318 q66 -4 92 50 q18 42 -6 78 q-26 36 -74 30 q-44 -6 -58 -48 q-14 -48 14 -90 q14 -20 32 -20z" fill="#d59a2a" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M210 330 q56 -2 80 50 q16 32 -2 64" fill="none" stroke="#2b2620" stroke-width="1.8"/>
+<!-- wing -->
+<path d="M196 372 q56 -8 86 32 q-8 38 -44 54 q-40 4 -56 -30 q-8 -34 14 -56z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.5"><path d="M210 380 q40 -2 62 26 M206 398 q44 0 66 28 M208 418 q38 8 58 30"/></g>
+<g fill="#bb3b2c"><circle cx="226" cy="392" r="3"/><circle cx="248" cy="404" r="3"/><circle cx="268" cy="418" r="3"/><circle cx="220" cy="414" r="3"/><circle cx="242" cy="424" r="3"/></g>
+<g fill="#2b2620"><circle cx="180" cy="350" r="2.5"/><circle cx="194" cy="362" r="2.5"/><circle cx="172" cy="380" r="2.5"/><circle cx="184" cy="402" r="2.5"/></g>
+<!-- head profile facing inward/up to upper-right (toward ground patch above) -->
+<g>
+<path d="M302 326 q34 -6 46 18 q6 18 -8 32 q-18 16 -40 10 q-20 -6 -22 -28 q0 -22 24 -34z" fill="#d59a2a" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="2"><path d="M320 312 l2 -16 M332 316 l8 -14 M342 324 l14 -8"/></g>
+<g fill="#bb3b2c"><circle cx="322" cy="294" r="3"/><circle cx="340" cy="298" r="3"/><circle cx="356" cy="312" r="3"/></g>
+<path d="M326 340 q12 -7 24 0 q-12 7 -24 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="338" cy="340" r="3.5" fill="#2b2620"/>
+<path d="M324 332 q12 -4 26 0" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<!-- beak up-right toward ground/center -->
+<path d="M346 326 q22 -8 36 4 q-14 6 -24 10 q-12 0 -12 -14z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.5"/>
+<path d="M350 328 q16 -2 26 6" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+<g fill="none" stroke="#2b2620" stroke-width="2.5"><path d="M232 468 l0 0" /></g>
+</g>
+
+<!-- ============ BIRD: PLUM (bottom-right, leaning inward/up toward ground) ============ -->
+<g>
+<!-- tail sweeping down-right -->
+<g>
+<path d="M1004 330 q48 18 88 56 q-40 -8 -64 8 q30 22 34 56 q-34 -22 -60 -16 q18 30 8 60" fill="#6e4a93" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M1032 348 q34 16 58 42 M1024 374 q26 14 42 42 M1014 400 q18 18 24 46"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"><circle cx="1100" cy="382" r="6"/><circle cx="1070" cy="416" r="6"/></g>
+<g fill="#bb3b2c"><circle cx="1100" cy="382" r="2.5"/><circle cx="1070" cy="416" r="2.5"/></g>
+</g>
+<!-- body -->
+<path d="M990 318 q-66 -4 -92 50 q-18 42 6 78 q26 36 74 30 q44 -6 58 -48 q14 -48 -14 -90 q-14 -20 -32 -20z" fill="#6e4a93" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M990 330 q-56 -2 -80 50 q-16 32 2 64" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<!-- wing -->
+<path d="M1004 372 q-56 -8 -86 32 q8 38 44 54 q40 4 56 -30 q8 -34 -14 -56z" fill="#6e4a93" stroke="#2b2620" stroke-width="2.5"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M990 380 q-40 -2 -62 26 M994 398 q-44 0 -66 28 M992 418 q-38 8 -58 30"/></g>
+<g fill="#d59a2a"><circle cx="974" cy="392" r="3"/><circle cx="952" cy="404" r="3"/><circle cx="932" cy="418" r="3"/><circle cx="980" cy="414" r="3"/><circle cx="958" cy="424" r="3"/></g>
+<g fill="#f3eee2"><circle cx="1020" cy="350" r="2.5"/><circle cx="1006" cy="362" r="2.5"/><circle cx="1028" cy="380" r="2.5"/><circle cx="1016" cy="402" r="2.5"/></g>
+<!-- head profile facing inward/up to upper-left -->
+<g>
+<path d="M898 326 q-34 -6 -46 18 q-6 18 8 32 q18 16 40 10 q20 -6 22 -28 q0 -22 -24 -34z" fill="#6e4a93" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="2"><path d="M880 312 l-2 -16 M868 316 l-8 -14 M858 324 l-14 -8"/></g>
+<g fill="#d59a2a"><circle cx="878" cy="294" r="3"/><circle cx="860" cy="298" r="3"/><circle cx="844" cy="312" r="3"/></g>
+<path d="M874 340 q-12 -7 -24 0 q12 7 24 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="862" cy="340" r="3.5" fill="#2b2620"/>
+<path d="M876 332 q-12 -4 -26 0" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<!-- beak up-left toward ground/center -->
+<path d="M854 326 q-22 -8 -36 4 q14 6 24 10 q12 0 12 -14z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.5"/>
+<path d="M850 328 q-16 -2 -26 6" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+</g>
+
+<!-- ============ EXTRA GAP FILLERS: vines & buds between birds and sun ============ -->
+<!-- top centre vine arch -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.2"><path d="M320 110 q140 -40 280 -28 q140 -12 280 28"/></g>
+<g fill="#4f8a3d"><path d="M380 96 q-6 -16 8 -22 q8 14 -8 22z"/><path d="M460 88 q-6 -16 8 -22 q8 14 -8 22z"/><path d="M740 88 q6 -16 -8 -22 q-8 14 8 22z"/><path d="M820 96 q6 -16 -8 -22 q-8 14 8 22z"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1"><circle cx="420" cy="92" r="4"/><circle cx="540" cy="84" r="4"/><circle cx="660" cy="84" r="4"/><circle cx="780" cy="92" r="4"/></g>
+
+<!-- little 6-tick suns scattered in gaps -->
+<g>
+<g><circle cx="350" cy="200" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M350 188 v6 M350 206 v6 M338 200 h6 M356 200 h6 M342 192 l4 4 M358 192 l-4 4 M342 208 l4 -4 M358 208 l-4 -4"/></g></g>
+<g><circle cx="850" cy="200" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M850 188 v6 M850 206 v6 M838 200 h6 M856 200 h6 M842 192 l4 4 M858 192 l-4 4 M842 208 l4 -4 M858 208 l-4 -4"/></g></g>
+<g><circle cx="440" cy="300" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M440 288 v6 M440 306 v6 M428 300 h6 M446 300 h6 M432 292 l4 4 M448 292 l-4 4 M432 308 l4 -4 M448 308 l-4 -4"/></g></g>
+<g><circle cx="760" cy="300" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M760 288 v6 M760 306 v6 M748 300 h6 M766 300 h6 M752 292 l4 4 M768 292 l-4 4 M752 308 l4 -4 M768 308 l-4 -4"/></g></g>
+</g>
+
+<!-- bottom-centre flanking vines toward ground -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2"><path d="M390 350 q60 28 110 26 M810 350 q-60 28 -110 26"/></g>
+<g fill="#4f8a3d"><path d="M430 364 q-4 14 -16 16 q-4 -12 16 -16z"/><path d="M770 364 q4 14 16 16 q4 -12 -16 -16z"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1"><circle cx="470" cy="372" r="3.5"/><circle cx="730" cy="372" r="3.5"/></g>
+
+<!-- tiny leaf pairs filling residual gaps near sun -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1">
+<path d="M510 250 q-12 -8 -22 2 q14 6 22 -2z"/><path d="M690 250 q12 -8 22 2 q-14 6 -22 -2z"/>
+<path d="M520 300 q-12 6 -10 20 q12 -8 10 -20z"/><path d="M680 300 q12 6 10 20 q-12 -8 -10 -20z"/>
+</g>
+
+<!-- residual dot rows close to sun rays -->
+<g fill="#2b2620"><circle cx="540" cy="170" r="2"/><circle cx="560" cy="160" r="2"/><circle cx="640" cy="160" r="2"/><circle cx="660" cy="170" r="2"/><circle cx="500" cy="220" r="2"/><circle cx="700" cy="220" r="2"/></g>
+</svg></figure>
+  <div class="words">
+    <div class="kicker"><span class="n">03</span> Four readers</div>
+    <h2>Four models read the same ground</h2>
+    <p class="cap">Tessera, Clay, Prithvi, and Galileo each read the same cell, and a consensus pass scores whether they corroborate or disagree.</p>
+    <div class="go"><a href="#map">try it on the map above &uarr;</a><a href="/how-it-works">how consensus is scored &rarr;</a></div>
+  </div>
+</section>
+<div class="mith-div"><span class="gem"></span></div>
+<section class="chapter" id="memory">
+  <figure class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
+
+<!-- ===================== BACKGROUND SKY FIELD (horror vacui) ===================== -->
+<!-- big block field so paper never reads as void; pattern packed over it with paths -->
+<rect x="16" y="16" width="1168" height="428" fill="#ebe4d3"/>
+
+<!-- left sky: rows of dots -->
+<g fill="#5c5346">
+<circle cx="70" cy="70" r="3.2"/><circle cx="110" cy="72" r="3.2"/><circle cx="150" cy="69" r="3.2"/><circle cx="190" cy="73" r="3.2"/><circle cx="230" cy="70" r="3.2"/><circle cx="270" cy="72" r="3.2"/><circle cx="310" cy="69" r="3.2"/><circle cx="350" cy="72" r="3.2"/>
+<circle cx="90" cy="106" r="3.2"/><circle cx="130" cy="108" r="3.2"/><circle cx="170" cy="105" r="3.2"/><circle cx="210" cy="109" r="3.2"/><circle cx="250" cy="106" r="3.2"/><circle cx="290" cy="108" r="3.2"/><circle cx="330" cy="105" r="3.2"/>
+<circle cx="72" cy="142" r="3.2"/><circle cx="112" cy="144" r="3.2"/><circle cx="152" cy="141" r="3.2"/><circle cx="192" cy="145" r="3.2"/><circle cx="232" cy="142" r="3.2"/><circle cx="272" cy="144" r="3.2"/>
+</g>
+<!-- right sky: rows of dots -->
+<g fill="#5c5346">
+<circle cx="850" cy="71" r="3.2"/><circle cx="890" cy="73" r="3.2"/><circle cx="930" cy="70" r="3.2"/><circle cx="970" cy="72" r="3.2"/><circle cx="1010" cy="69" r="3.2"/><circle cx="1050" cy="72" r="3.2"/><circle cx="1090" cy="70" r="3.2"/><circle cx="1130" cy="72" r="3.2"/>
+<circle cx="870" cy="107" r="3.2"/><circle cx="910" cy="109" r="3.2"/><circle cx="950" cy="106" r="3.2"/><circle cx="990" cy="108" r="3.2"/><circle cx="1030" cy="105" r="3.2"/><circle cx="1070" cy="108" r="3.2"/><circle cx="1110" cy="106" r="3.2"/>
+<circle cx="930" cy="143" r="3.2"/><circle cx="970" cy="145" r="3.2"/><circle cx="1010" cy="142" r="3.2"/><circle cx="1050" cy="144" r="3.2"/><circle cx="1090" cy="141" r="3.2"/><circle cx="1130" cy="144" r="3.2"/>
+</g>
+
+<!-- little 6-tick suns in sky corners -->
+<g stroke="#d59a2a" stroke-width="2.5" fill="none" stroke-linecap="round">
+<g transform="translate(60,200)"><circle r="7" fill="#d59a2a" stroke="none"/><line x1="0" y1="-13" x2="0" y2="-19"/><line x1="11" y1="-7" x2="16" y2="-10"/><line x1="11" y1="7" x2="16" y2="10"/><line x1="0" y1="13" x2="0" y2="19"/><line x1="-11" y1="7" x2="-16" y2="10"/><line x1="-11" y1="-7" x2="-16" y2="-10"/></g>
+<g transform="translate(1140,200)"><circle r="7" fill="#d59a2a" stroke="none"/><line x1="0" y1="-13" x2="0" y2="-19"/><line x1="11" y1="-7" x2="16" y2="-10"/><line x1="11" y1="7" x2="16" y2="10"/><line x1="0" y1="13" x2="0" y2="19"/><line x1="-11" y1="7" x2="-16" y2="10"/><line x1="-11" y1="-7" x2="-16" y2="-10"/></g>
+</g>
+
+<!-- small leaf rows in sky -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1.3">
+<path d="M40 250 q9 -10 18 0 q-9 10 -18 0 Z"/><path d="M40 285 q9 -10 18 0 q-9 10 -18 0 Z"/><path d="M40 320 q9 -10 18 0 q-9 10 -18 0 Z"/><path d="M40 355 q9 -10 18 0 q-9 10 -18 0 Z"/>
+<path d="M1142 250 q9 -10 18 0 q-9 10 -18 0 Z"/><path d="M1142 285 q9 -10 18 0 q-9 10 -18 0 Z"/><path d="M1142 320 q9 -10 18 0 q-9 10 -18 0 Z"/><path d="M1142 355 q9 -10 18 0 q-9 10 -18 0 Z"/>
+</g>
+
+<!-- diagonal hatching panels filling mid sky behind canopy -->
+<g stroke="#5c5346" stroke-width="1.2">
+<line x1="95" y1="175" x2="135" y2="215"/><line x1="115" y1="175" x2="155" y2="215"/><line x1="135" y1="175" x2="175" y2="215"/><line x1="155" y1="175" x2="195" y2="215"/>
+<line x1="1010" y1="175" x2="1050" y2="215"/><line x1="1030" y1="175" x2="1070" y2="215"/><line x1="1050" y1="175" x2="1090" y2="215"/><line x1="1070" y1="175" x2="1110" y2="215"/>
+</g>
+
+<!-- ===================== DOUBLE-LINE BORDER + TICK CHANNEL ===================== -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3.2"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3.2"/>
+<!-- dot channel between the two borders -->
+<g fill="#2b2620">
+<!-- top & bottom rows of dots -->
+<g id="p4-dotrow">
+<circle cx="40" cy="19.5" r="1.9"/><circle cx="64" cy="19.5" r="1.9"/><circle cx="88" cy="19.5" r="1.9"/><circle cx="112" cy="19.5" r="1.9"/><circle cx="136" cy="19.5" r="1.9"/><circle cx="160" cy="19.5" r="1.9"/><circle cx="184" cy="19.5" r="1.9"/><circle cx="208" cy="19.5" r="1.9"/><circle cx="232" cy="19.5" r="1.9"/><circle cx="256" cy="19.5" r="1.9"/><circle cx="280" cy="19.5" r="1.9"/><circle cx="304" cy="19.5" r="1.9"/><circle cx="328" cy="19.5" r="1.9"/><circle cx="352" cy="19.5" r="1.9"/><circle cx="376" cy="19.5" r="1.9"/><circle cx="400" cy="19.5" r="1.9"/><circle cx="424" cy="19.5" r="1.9"/><circle cx="448" cy="19.5" r="1.9"/><circle cx="472" cy="19.5" r="1.9"/><circle cx="496" cy="19.5" r="1.9"/><circle cx="520" cy="19.5" r="1.9"/><circle cx="544" cy="19.5" r="1.9"/><circle cx="568" cy="19.5" r="1.9"/><circle cx="592" cy="19.5" r="1.9"/><circle cx="616" cy="19.5" r="1.9"/><circle cx="640" cy="19.5" r="1.9"/><circle cx="664" cy="19.5" r="1.9"/><circle cx="688" cy="19.5" r="1.9"/><circle cx="712" cy="19.5" r="1.9"/><circle cx="736" cy="19.5" r="1.9"/><circle cx="760" cy="19.5" r="1.9"/><circle cx="784" cy="19.5" r="1.9"/><circle cx="808" cy="19.5" r="1.9"/><circle cx="832" cy="19.5" r="1.9"/><circle cx="856" cy="19.5" r="1.9"/><circle cx="880" cy="19.5" r="1.9"/><circle cx="904" cy="19.5" r="1.9"/><circle cx="928" cy="19.5" r="1.9"/><circle cx="952" cy="19.5" r="1.9"/><circle cx="976" cy="19.5" r="1.9"/><circle cx="1000" cy="19.5" r="1.9"/><circle cx="1024" cy="19.5" r="1.9"/><circle cx="1048" cy="19.5" r="1.9"/><circle cx="1072" cy="19.5" r="1.9"/><circle cx="1096" cy="19.5" r="1.9"/><circle cx="1120" cy="19.5" r="1.9"/><circle cx="1144" cy="19.5" r="1.9"/><circle cx="1160" cy="19.5" r="1.9"/>
+</g>
+<use href="#p4-dotrow" transform="translate(0,421)"/>
+<!-- left & right columns of dots -->
+<g id="p4-dotcol">
+<circle cx="19.5" cy="40" r="1.9"/><circle cx="19.5" cy="64" r="1.9"/><circle cx="19.5" cy="88" r="1.9"/><circle cx="19.5" cy="112" r="1.9"/><circle cx="19.5" cy="136" r="1.9"/><circle cx="19.5" cy="160" r="1.9"/><circle cx="19.5" cy="184" r="1.9"/><circle cx="19.5" cy="208" r="1.9"/><circle cx="19.5" cy="232" r="1.9"/><circle cx="19.5" cy="256" r="1.9"/><circle cx="19.5" cy="280" r="1.9"/><circle cx="19.5" cy="304" r="1.9"/><circle cx="19.5" cy="328" r="1.9"/><circle cx="19.5" cy="352" r="1.9"/><circle cx="19.5" cy="376" r="1.9"/><circle cx="19.5" cy="400" r="1.9"/>
+</g>
+<use href="#p4-dotcol" transform="translate(1141,0)"/>
+</g>
+
+<!-- corner motifs: lotus-bud rosettes -->
+<g stroke="#2b2620" stroke-width="2.2" fill="#bb3b2c">
+<g id="p4-corner"><circle cx="40" cy="40" r="6" fill="#d59a2a"/><path d="M40 28 q5 8 0 12 q-5 -4 0 -12 Z" fill="#4f8a3d"/><path d="M52 40 q-8 5 -12 0 q4 -5 12 0 Z" fill="#4f8a3d"/><path d="M40 52 q5 -8 0 -12 q-5 4 0 12 Z" fill="#4f8a3d"/><path d="M28 40 q8 5 12 0 q-4 5 -12 0 Z" fill="#4f8a3d"/></g>
+</g>
+<use href="#p4-corner" transform="translate(1120,0)"/>
+<use href="#p4-corner" transform="translate(0,380)"/>
+<use href="#p4-corner" transform="translate(1120,380)"/>
+
+<!-- ===================== KOHBAR POND (flat indigo) ===================== -->
+<path d="M120 360 q480 -34 960 0 q12 38 0 60 q-480 26 -960 0 q-10 -28 0 -60 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<!-- dotted ripples in pond -->
+<g fill="#ebe4d3">
+<circle cx="200" cy="382" r="2.4"/><circle cx="240" cy="390" r="2.4"/><circle cx="280" cy="384" r="2.4"/><circle cx="320" cy="392" r="2.4"/><circle cx="360" cy="386" r="2.4"/><circle cx="430" cy="392" r="2.4"/><circle cx="470" cy="386" r="2.4"/><circle cx="730" cy="386" r="2.4"/><circle cx="770" cy="392" r="2.4"/><circle cx="840" cy="384" r="2.4"/><circle cx="880" cy="392" r="2.4"/><circle cx="920" cy="386" r="2.4"/><circle cx="960" cy="392" r="2.4"/><circle cx="1000" cy="386" r="2.4"/>
+<circle cx="220" cy="406" r="2.4"/><circle cx="270" cy="402" r="2.4"/><circle cx="330" cy="406" r="2.4"/><circle cx="900" cy="406" r="2.4"/><circle cx="960" cy="402" r="2.4"/><circle cx="1010" cy="406" r="2.4"/>
+</g>
+<!-- concentric ripple arcs -->
+<g fill="none" stroke="#ebe4d3" stroke-width="1.6">
+<path d="M170 398 q40 -12 80 0"/><path d="M160 408 q50 -14 100 0"/>
+<path d="M940 398 q40 -12 80 0"/><path d="M950 408 q50 -14 100 0"/>
+</g>
+
+<!-- TWO PROFILE FISH in pond -->
+<g stroke="#2b2620" stroke-width="2.4">
+<!-- left fish facing right -->
+<g>
+<path d="M250 400 q40 -26 86 0 q-40 26 -86 0 Z" fill="#2e8c84"/>
+<path d="M250 400 l-26 -16 l8 16 l-8 16 Z" fill="# d59a2a" fill-rule="evenodd"/>
+<path d="M250 400 l-26 -16 l8 16 l-8 16 Z" fill="#d59a2a"/>
+<!-- almond fish-eye, profile -->
+<ellipse cx="316" cy="396" rx="7.5" ry="5" fill="#f3eee2"/><circle cx="316" cy="396" r="3.4" fill="#2b2620"/><circle cx="316" cy="396" r="1.3" fill="#f3eee2"/>
+<!-- scale arcs -->
+<g fill="none" stroke="#f3eee2" stroke-width="1.3"><path d="M270 392 q6 8 0 16"/><path d="M284 390 q6 10 0 20"/><path d="M298 390 q6 10 0 20"/></g>
+</g>
+<!-- right fish facing left -->
+<g>
+<path d="M950 400 q-40 -26 -86 0 q40 26 86 0 Z" fill="#2e8c84"/>
+<path d="M950 400 l26 -16 l-8 16 l8 16 Z" fill="#d59a2a"/>
+<ellipse cx="884" cy="396" rx="7.5" ry="5" fill="#f3eee2"/><circle cx="884" cy="396" r="3.4" fill="#2b2620"/><circle cx="884" cy="396" r="1.3" fill="#f3eee2"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.3"><path d="M930 392 q-6 8 0 16"/><path d="M916 390 q-6 10 0 20"/><path d="M902 390 q-6 10 0 20"/></g>
+</g>
+</g>
+
+<!-- ===================== ROOTS reaching into pond ===================== -->
+<g fill="none" stroke="#2b2620" stroke-width="3" stroke-linecap="round">
+<path d="M600 330 q-30 24 -70 38 q-20 8 -34 22"/>
+<path d="M600 330 q-12 26 -10 56"/>
+<path d="M600 330 q14 26 12 56"/>
+<path d="M600 330 q30 24 70 38 q20 8 34 22"/>
+<path d="M560 348 q-24 12 -40 30"/>
+<path d="M640 348 q24 12 40 30"/>
+</g>
+<g fill="#5c5346"><circle cx="496" cy="390" r="3"/><circle cx="520" cy="380" r="3"/><circle cx="704" cy="390" r="3"/><circle cx="680" cy="380" r="3"/></g>
+
+<!-- ===================== TRUNK (double outline + hatching) ===================== -->
+<path d="M572 340 q-6 -90 6 -150 q8 -36 22 -36 q14 0 22 36 q12 60 6 150 Z" fill="#ebe4d3" stroke="#2b2620" stroke-width="3.4"/>
+<path d="M582 336 q-5 -86 6 -142 q6 -28 12 -28 q6 0 12 28 q11 56 6 142 Z" fill="none" stroke="#2b2620" stroke-width="2"/>
+<!-- chevron hatching inside trunk -->
+<g fill="none" stroke="#5c5346" stroke-width="1.6">
+<path d="M588 320 l12 -8 l12 8"/><path d="M588 300 l12 -8 l12 8"/><path d="M588 280 l12 -8 l12 8"/><path d="M588 260 l12 -8 l12 8"/><path d="M590 240 l10 -8 l10 8"/><path d="M591 220 l9 -8 l9 8"/><path d="M592 200 l8 -7 l8 7"/><path d="M593 182 l7 -6 l7 6"/>
+</g>
+
+<!-- branches -->
+<g fill="none" stroke="#2b2620" stroke-width="3.2" stroke-linecap="round">
+<path d="M600 178 q-60 -8 -120 -40"/>
+<path d="M600 178 q60 -8 120 -40"/>
+<path d="M600 168 q-40 -30 -96 -52"/>
+<path d="M600 168 q40 -30 96 -52"/>
+<path d="M600 160 q0 -34 0 -64"/>
+</g>
+
+<!-- ===================== CANOPY (double-outline) ===================== -->
+<path d="M600 96
+  q-110 -18 -180 18
+  q-70 26 -60 70
+  q-110 6 -110 70
+  q0 56 92 60
+  q-8 50 70 56
+  q60 6 96 -28
+  q36 34 96 28
+  q78 -6 70 -56
+  q92 -4 92 -60
+  q0 -64 -110 -70
+  q10 -44 -60 -70
+  q-70 -36 -180 -18 Z" fill="#4f8a3d" stroke="#2b2620" stroke-width="3.6"/>
+<path d="M600 110
+  q-100 -16 -166 16
+  q-62 24 -54 62
+  q-100 6 -100 62
+  q0 48 84 52
+  q-6 44 62 50
+  q54 6 88 -26
+  q34 32 88 26
+  q68 -6 62 -50
+  q84 -4 84 -52
+  q0 -56 -100 -62
+  q8 -38 -54 -62
+  q-64 -32 -166 -16 Z" fill="none" stroke="#2b2620" stroke-width="2"/>
+
+<!-- canopy interior: packed leaves, buds, blossoms, scale fields, dots -->
+<!-- fish-scale arc field across canopy -->
+<g fill="none" stroke="#2b2620" stroke-width="1.4">
+<path d="M330 150 q14 16 0 32"/><path d="M360 150 q14 16 0 32"/><path d="M390 150 q14 16 0 32"/><path d="M420 150 q14 16 0 32"/><path d="M450 150 q14 16 0 32"/><path d="M480 150 q14 16 0 32"/>
+<path d="M720 150 q14 16 0 32"/><path d="M750 150 q14 16 0 32"/><path d="M780 150 q14 16 0 32"/><path d="M810 150 q14 16 0 32"/><path d="M840 150 q14 16 0 32"/><path d="M870 150 q14 16 0 32"/>
+<path d="M345 188 q14 16 0 32"/><path d="M375 188 q14 16 0 32"/><path d="M405 188 q14 16 0 32"/><path d="M435 188 q14 16 0 32"/><path d="M465 188 q14 16 0 32"/>
+<path d="M705 188 q14 16 0 32"/><path d="M735 188 q14 16 0 32"/><path d="M765 188 q14 16 0 32"/><path d="M795 188 q14 16 0 32"/><path d="M825 188 q14 16 0 32"/>
+</g>
+
+<!-- ochre buds packed -->
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.4">
+<path d="M300 140 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M520 132 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M660 132 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M900 140 q8 -12 16 0 q-8 8 -16 0 Z"/>
+<path d="M270 200 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M340 250 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M520 230 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M660 230 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M850 250 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M920 200 q8 -12 16 0 q-8 8 -16 0 Z"/>
+<path d="M420 110 q8 -12 16 0 q-8 8 -16 0 Z"/><path d="M770 110 q8 -12 16 0 q-8 8 -16 0 Z"/>
+</g>
+
+<!-- leaf rows (flat green leaves with vein) -->
+<g fill="#2e8c84" stroke="#2b2620" stroke-width="1.5">
+<g id="p4-leaf"><path d="M0 0 q11 -13 22 0 q-11 13 -22 0 Z"/></g>
+<use href="#p4-leaf" transform="translate(380,160)"/><use href="#p4-leaf" transform="translate(410,170)"/><use href="#p4-leaf" transform="translate(560,160)"/><use href="#p4-leaf" transform="translate(640,160)"/><use href="#p4-leaf" transform="translate(790,160)"/><use href="#p4-leaf" transform="translate(820,170)"/>
+<use href="#p4-leaf" transform="translate(330,210)"/><use href="#p4-leaf" transform="translate(470,200)"/><use href="#p4-leaf" transform="translate(560,210)"/><use href="#p4-leaf" transform="translate(640,210)"/><use href="#p4-leaf" transform="translate(730,200)"/><use href="#p4-leaf" transform="translate(870,210)"/>
+<use href="#p4-leaf" transform="translate(290,170)"/><use href="#p4-leaf" transform="translate(890,170)"/>
+</g>
+<!-- leaf veins -->
+<g stroke="#f3eee2" stroke-width="1.2">
+<line x1="380" y1="160" x2="402" y2="160"/><line x1="560" y1="160" x2="582" y2="160"/><line x1="640" y1="160" x2="662" y2="160"/><line x1="790" y1="160" x2="812" y2="160"/>
+</g>
+
+<!-- vermilion blossoms (ONLY two focal) -->
+<g stroke="#2b2620" stroke-width="2">
+<g transform="translate(470,150)"><circle r="13" fill="#bb3b2c"/><circle r="5" fill="#d59a2a"/><g fill="#bb3b2c"><path d="M0 -13 q5 -8 0 -16 q-5 8 0 16 Z"/><path d="M13 0 q8 -5 16 0 q-8 5 -16 0 Z"/><path d="M0 13 q5 8 0 16 q-5 -8 0 -16 Z"/><path d="M-13 0 q-8 -5 -16 0 q8 5 16 0 Z"/></g></g>
+<g transform="translate(730,150)"><circle r="13" fill="#bb3b2c"/><circle r="5" fill="#d59a2a"/><g fill="#bb3b2c"><path d="M0 -13 q5 -8 0 -16 q-5 8 0 16 Z"/><path d="M13 0 q8 -5 16 0 q-8 5 -16 0 Z"/><path d="M0 13 q5 8 0 16 q-5 -8 0 -16 Z"/><path d="M-13 0 q-8 -5 -16 0 q8 5 16 0 Z"/></g></g>
+</g>
+
+<!-- plum accent flowers -->
+<g fill="#6e4a93" stroke="#2b2620" stroke-width="1.6">
+<g transform="translate(360,260)"><circle r="8" fill="#6e4a93"/><circle r="3" fill="#ebe4d3"/></g>
+<g transform="translate(840,260)"><circle r="8" fill="#6e4a93"/><circle r="3" fill="#ebe4d3"/></g>
+<g transform="translate(600,240)"><circle r="8" fill="#6e4a93"/><circle r="3" fill="#ebe4d3"/></g>
+</g>
+
+<!-- dot fill scattered in canopy gaps -->
+<g fill="#2b2620">
+<circle cx="320" cy="180" r="2.2"/><circle cx="345" cy="170" r="2.2"/><circle cx="500" cy="180" r="2.2"/><circle cx="700" cy="180" r="2.2"/><circle cx="860" cy="180" r="2.2"/><circle cx="880" cy="180" r="2.2"/>
+<circle cx="300" cy="240" r="2.2"/><circle cx="500" cy="250" r="2.2"/><circle cx="700" cy="250" r="2.2"/><circle cx="900" cy="240" r="2.2"/>
+<circle cx="600" cy="130" r="2.2"/><circle cx="440" cy="130" r="2.2"/><circle cx="760" cy="130" r="2.2"/>
+</g>
+
+<!-- ===================== TWO NESTING PROFILE BIRDS ===================== -->
+<g stroke="#2b2620" stroke-width="2.4">
+<!-- left bird facing right (toward trunk) -->
+<g>
+<path d="M430 230 q-34 -14 -54 8 q-12 16 6 28 q14 10 36 4 q22 -6 30 -22 q-8 -14 -18 -18 Z" fill="#ochre" />
+<path d="M430 230 q-34 -14 -54 8 q-12 16 6 28 q14 10 36 4 q22 -6 30 -22 q-8 -14 -18 -18 Z" fill="#d59a2a"/>
+<!-- head profile + beak -->
+<path d="M442 226 q14 -4 22 6 q-2 8 -12 8 q-12 0 -16 -8 Z" fill="#d59a2a"/>
+<path d="M464 232 l16 2 l-16 6 Z" fill="#bb3b2c"/>
+<!-- almond eye -->
+<ellipse cx="452" cy="230" rx="5.5" ry="3.6" fill="#f3eee2"/><circle cx="452" cy="230" r="2.4" fill="#2b2620"/><circle cx="452.6" cy="229.3" r="0.9" fill="#f3eee2"/>
+<!-- wing scale arcs + tail -->
+<g fill="none" stroke="#2b2620" stroke-width="1.3"><path d="M400 232 q6 8 0 16"/><path d="M412 230 q6 9 0 18"/></g>
+<path d="M376 238 l-22 -4 l16 14 Z" fill="#4f8a3d"/>
+</g>
+<!-- right bird facing left (toward trunk) -->
+<g>
+<path d="M770 230 q34 -14 54 8 q12 16 -6 28 q-14 10 -36 4 q-22 -6 -30 -22 q8 -14 18 -18 Z" fill="#d59a2a"/>
+<path d="M758 226 q-14 -4 -22 6 q2 8 12 8 q12 0 16 -8 Z" fill="#d59a2a"/>
+<path d="M736 232 l-16 2 l16 6 Z" fill="#bb3b2c"/>
+<ellipse cx="748" cy="230" rx="5.5" ry="3.6" fill="#f3eee2"/><circle cx="748" cy="230" r="2.4" fill="#2b2620"/><circle cx="748.6" cy="229.3" r="0.9" fill="#f3eee2"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.3"><path d="M800 232 q-6 8 0 16"/><path d="M788 230 q-6 9 0 18"/></g>
+<path d="M824 238 l22 -4 l-16 14 Z" fill="#4f8a3d"/>
+</g>
+</g>
+
+<!-- running vine (bel) along pond bank -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.4">
+<path d="M140 350 q24 -16 48 0 q24 16 48 0 q24 -16 48 0 q24 16 48 0"/>
+<path d="M820 350 q24 -16 48 0 q24 16 48 0 q24 -16 48 0 q24 16 48 0"/>
+</g>
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1.2">
+<path d="M164 344 q7 -9 14 0 q-7 7 -14 0 Z"/><path d="M212 356 q7 -9 14 0 q-7 7 -14 0 Z"/><path d="M260 344 q7 -9 14 0 q-7 7 -14 0 Z"/><path d="M308 356 q7 -9 14 0 q-7 7 -14 0 Z"/>
+<path d="M844 344 q7 -9 14 0 q-7 7 -14 0 Z"/><path d="M892 356 q7 -9 14 0 q-7 7 -14 0 Z"/><path d="M940 344 q7 -9 14 0 q-7 7 -14 0 Z"/><path d="M988 356 q7 -9 14 0 q-7 7 -14 0 Z"/>
+</g>
+
+<!-- lower-sky filler hatching near trunk base to kill blank paper -->
+<g stroke="#5c5346" stroke-width="1.2">
+<line x1="470" y1="300" x2="500" y2="330"/><line x1="486" y1="300" x2="516" y2="330"/><line x1="502" y1="300" x2="532" y2="330"/>
+<line x1="700" y1="300" x2="670" y2="330"/><line x1="716" y1="300" x2="686" y2="330"/><line x1="732" y1="300" x2="702" y2="330"/>
+</g>
+<g fill="#5c5346">
+<circle cx="450" cy="320" r="2.4"/><circle cx="430" cy="305" r="2.4"/><circle cx="750" cy="320" r="2.4"/><circle cx="770" cy="305" r="2.4"/>
+<circle cx="200" cy="320" r="2.6"/><circle cx="240" cy="335" r="2.6"/><circle cx="280" cy="320" r="2.6"/><circle cx="960" cy="320" r="2.6"/><circle cx="1000" cy="335" r="2.6"/><circle cx="1040" cy="320" r="2.6"/>
+</g>
+</svg></figure>
+  <div class="words">
+    <div class="kicker"><span class="n">04</span> It remembers</div>
+    <h2>It links and self-corrects</h2>
+    <p class="cap">Signed writes, typed temporal edges, multi-attester contradictions, and bi-temporal reads let the record correct itself instead of caching a stale tile.</p>
+    <div class="go"><a href="/how-it-works">the memory layer &rarr;</a><a href="/whitepaper">whitepaper &rarr;</a></div>
+  </div>
+</section>
+</main>
+
+<!-- ===================== WHO IT SERVES ===================== -->
+<section class="who" id="who">
+  <div class="scroll">
+    <div class="who-head">
+      <div class="kicker">In use now</div>
+      <h2>Agents already act on this</h2>
+      <p>emem already backs agents doing real work across deforestation due-diligence, insurance, climate risk, disaster response, carbon MRV, agriculture, energy, defense, and maritime.</p>
+    </div>
+    <div class="who-grid">
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/29-eudr-supply-chain.svg" alt="eudr compliance" loading="lazy"></span><span class="meta"><span class="lab">eudr compliance</span><span class="ln">A deforestation-free plot signed into one handle that clears customs</span></span></a>
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/13-parametric-insurance.svg" alt="parametric insurance" loading="lazy"></span><span class="meta"><span class="lab">parametric insurance</span><span class="ln">Trigger and payout cite the same signed pixels</span></span></a>
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/16-disaster-response.svg" alt="disaster response" loading="lazy"></span><span class="meta"><span class="lab">disaster response</span><span class="ln">Every responder works from one common operating picture</span></span></a>
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/20-carbon-mrv.svg" alt="carbon mrv" loading="lazy"></span><span class="meta"><span class="lab">carbon mrv</span><span class="ln">A carbon credit where the carbon is content-addressed</span></span></a>
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/12-reinsurance-cat.svg" alt="reinsurance cat" loading="lazy"></span><span class="meta"><span class="lab">reinsurance cat</span><span class="ln">Catastrophe layers priced on facts, not a black-box curve</span></span></a>
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/27-precision-agriculture.svg" alt="precision agriculture" loading="lazy"></span><span class="meta"><span class="lab">precision agriculture</span><span class="ln">Per-field decisions citing per-pixel facts</span></span></a>
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/15-defense-geoint.svg" alt="defense geoint" loading="lazy"></span><span class="meta"><span class="lab">defense geoint</span><span class="ln">Fuse classified and open intel without losing chain of custody</span></span></a>
+      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/11-insurance-pc.svg" alt="property underwriting" loading="lazy"></span><span class="meta"><span class="lab">property underwriting</span><span class="ln">Price every parcel from the same signed truth</span></span></a>
+    </div>
+    <div class="who-more"><a href="/solutions">see what people are building &rarr;</a></div>
   </div>
 </section>
 
-<!-- ===== the memory layer ===== -->
-<section class="section page" id="memory">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">05</span><span class="idx-label">the memory layer</span></div>
-    <dl>
-      <dt>writes</dt><dd>signed, content-addressed files</dd>
-      <dt>kinds</dt><dd>episodic / semantic / procedural / resource</dd>
-      <dt>search</dt><dd>BGE-768 over LanceDB IVF_PQ</dd>
-      <dt>time</dt><dd>bi-temporal: valid-time + knowledge-time</dd>
-    </dl>
-  </aside>
-  <div class="section-body">
-    <h2>A cache hands back a tile. A memory remembers.</h2>
-    <p class="lede">On top of the fact store, an agent gets a memory it owns: it remembers what it saw, links it to what it saw before, and says so when two sources disagree.</p>
-    <p>Writes land as content-addressed, signed files. An agent makes a note, edits it, and finds it again next week by meaning rather than by filename, through a BGE-768 embedding search over a LanceDB index. The signature that proves a Sentinel-2 reading is the same one that proves the agent&rsquo;s own notes are untouched. A path owned by one key turns away every other signer.</p>
+<!-- ===================== VERIFY / TRUST ===================== -->
+<main class="scroll">
+<div class="mith-div"><span class="gem"></span></div>
+<section class="chapter" id="verify">
+  <figure class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
 
-    <div class="substrate-grid">
-      <div class="lane">
-        <span class="verb">connect</span>
-        <span class="title">Typed temporal edges</span>
-        <span class="endpoint">emem_edges_recall</span>
-        <span class="desc">A fact carries signed connections, <code>supersedes</code>, <code>relates_to</code>, <code>disagrees_with</code>, bounded by valid-time. The graph is part of the record, not a side index.</span>
-      </div>
-      <div class="lane">
-        <span class="verb">reconcile</span>
-        <span class="title">Multi-attester contradictions</span>
-        <span class="endpoint">memory_contradictions</span>
-        <span class="desc">Where two signers disagree at the same cell, band, and time, the gap is scored per band kind, normalised spread for scalars, cosine for vectors, mode-share for categories.</span>
-      </div>
-      <div class="lane">
-        <span class="verb">cite</span>
-        <span class="title">Bundled citations</span>
-        <span class="endpoint">memory_bundle</span>
-        <span class="desc">Fold N facts into one signed envelope, <code>memb:&lt;bundle_cid&gt;</code>, that resolves to identical bytes on any peer. Hand over one handle for a whole finding.</span>
-      </div>
-    </div>
+<!-- ================= BACKGROUND FIELD FILLER (horror vacui) ================= -->
+<g fill="none" stroke="#5c5346" stroke-width="1.4" stroke-linecap="round">
+<!-- diagonal hatch lattice over whole field, broken later by motifs -->
+<path d="M40 40 L1160 40 M40 70 L1160 70 M40 100 L1160 100 M40 130 L1160 130 M40 160 L1160 160 M40 190 L1160 190 M40 220 L1160 220 M40 250 L1160 250 M40 280 L1160 280 M40 310 L1160 310 M40 340 L1160 340 M40 370 L1160 370 M40 400 L1160 400" opacity="1"/>
+</g>
+<!-- overpaint the field rows with paper-2 ribbons so hatch reads as banded background -->
+<g fill="#ebe4d3">
+<rect x="40" y="55" width="1120" height="14"/>
+<rect x="40" y="115" width="1120" height="14"/>
+<rect x="40" y="175" width="1120" height="14"/>
+<rect x="40" y="235" width="1120" height="14"/>
+<rect x="40" y="295" width="1120" height="14"/>
+<rect x="40" y="355" width="1120" height="14"/>
+</g>
+<!-- dot rows woven into the paper-2 ribbons -->
+<g fill="#2b2620">
+<g>
+<circle cx="60" cy="62" r="2"/><circle cx="100" cy="62" r="2"/><circle cx="140" cy="62" r="2"/><circle cx="180" cy="62" r="2"/><circle cx="220" cy="62" r="2"/><circle cx="260" cy="62" r="2"/><circle cx="300" cy="62" r="2"/><circle cx="340" cy="62" r="2"/><circle cx="380" cy="62" r="2"/><circle cx="420" cy="62" r="2"/><circle cx="780" cy="62" r="2"/><circle cx="820" cy="62" r="2"/><circle cx="860" cy="62" r="2"/><circle cx="900" cy="62" r="2"/><circle cx="940" cy="62" r="2"/><circle cx="980" cy="62" r="2"/><circle cx="1020" cy="62" r="2"/><circle cx="1060" cy="62" r="2"/><circle cx="1100" cy="62" r="2"/><circle cx="1140" cy="62" r="2"/>
+</g>
+<g>
+<circle cx="60" cy="362" r="2"/><circle cx="100" cy="362" r="2"/><circle cx="140" cy="362" r="2"/><circle cx="180" cy="362" r="2"/><circle cx="220" cy="362" r="2"/><circle cx="260" cy="362" r="2"/><circle cx="300" cy="362" r="2"/><circle cx="340" cy="362" r="2"/><circle cx="860" cy="362" r="2"/><circle cx="900" cy="362" r="2"/><circle cx="940" cy="362" r="2"/><circle cx="980" cy="362" r="2"/><circle cx="1020" cy="362" r="2"/><circle cx="1060" cy="362" r="2"/><circle cx="1100" cy="362" r="2"/><circle cx="1140" cy="362" r="2"/>
+</g>
+</g>
 
-    <p>Every read takes a bi-temporal bound. <code>as_of_tslot</code> asks what the world looked like at a past moment; <code>as_of_signed_at</code> asks what the system knew at one. The receipt records the bound, so an auditor in 2027 takes a 2026 receipt to any peer and replays the exact same query. A deterministic refinement loop re-derives a fact when a newer attestation or a <code>disagrees_with</code> edge lands, so the memory self-corrects instead of silently overwriting.</p>
+<!-- scattered tiny leaves / buds in upper and lower field gaps -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1.1">
+<path d="M150 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M250 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M950 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M1050 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M150 388 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M1010 388 q10 -10 20 0 q-10 10 -20 0 Z"/>
+</g>
+<!-- little six-tick suns in corners of field -->
+<g fill="none" stroke="#d59a2a" stroke-width="1.6">
+<g><circle cx="100" cy="92" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M100 80 v-6 M100 104 v6 M88 92 h-6 M112 92 h6 M91 83 l-4 -4 M109 83 l4 -4 M91 101 l-4 4 M109 101 l4 4" stroke="#5c5346"/></g>
+<g><circle cx="1100" cy="92" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M1100 80 v-6 M1100 104 v6 M1088 92 h-6 M1112 92 h6 M1091 83 l-4 -4 M1109 83 l4 -4 M1091 101 l-4 4 M1109 101 l4 4" stroke="#5c5346"/></g>
+<g><circle cx="100" cy="388" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M100 376 v-6 M100 400 v6 M88 388 h-6 M112 388 h6" stroke="#5c5346"/></g>
+<g><circle cx="1100" cy="388" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M1100 376 v-6 M1100 400 v6 M1088 388 h-6 M1112 388 h6" stroke="#5c5346"/></g>
+</g>
+
+<!-- running vine (bel) framing inside upper and lower bands -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2">
+<path d="M440 100 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0"/>
+<path d="M440 360 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0"/>
+</g>
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="0.9">
+<circle cx="480" cy="96" r="3"/><circle cx="560" cy="96" r="3"/><circle cx="640" cy="96" r="3"/><circle cx="720" cy="96" r="3"/>
+<circle cx="480" cy="364" r="3"/><circle cx="560" cy="364" r="3"/><circle cx="640" cy="364" r="3"/><circle cx="720" cy="364" r="3"/>
+</g>
+
+<!-- ================= DOUBLE-LINE BORDER + TICK CHANNEL ================= -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- tick channel: dashes between the two border lines -->
+<g stroke="#2b2620" stroke-width="2.4">
+<!-- top -->
+<path d="M30 19.5 v4 M44 19.5 v4 M58 19.5 v4 M72 19.5 v4 M86 19.5 v4 M100 19.5 v4 M114 19.5 v4 M128 19.5 v4 M142 19.5 v4 M156 19.5 v4 M170 19.5 v4 M184 19.5 v4 M198 19.5 v4 M212 19.5 v4 M226 19.5 v4 M240 19.5 v4 M254 19.5 v4 M268 19.5 v4 M282 19.5 v4 M296 19.5 v4 M310 19.5 v4 M324 19.5 v4 M338 19.5 v4 M352 19.5 v4 M366 19.5 v4 M380 19.5 v4 M394 19.5 v4 M408 19.5 v4 M422 19.5 v4 M436 19.5 v4 M450 19.5 v4 M464 19.5 v4 M478 19.5 v4 M492 19.5 v4 M506 19.5 v4 M520 19.5 v4 M534 19.5 v4 M548 19.5 v4 M562 19.5 v4 M576 19.5 v4 M590 19.5 v4 M604 19.5 v4 M618 19.5 v4 M632 19.5 v4 M646 19.5 v4 M660 19.5 v4 M674 19.5 v4 M688 19.5 v4 M702 19.5 v4 M716 19.5 v4 M730 19.5 v4 M744 19.5 v4 M758 19.5 v4 M772 19.5 v4 M786 19.5 v4 M800 19.5 v4 M814 19.5 v4 M828 19.5 v4 M842 19.5 v4 M856 19.5 v4 M870 19.5 v4 M884 19.5 v4 M898 19.5 v4 M912 19.5 v4 M926 19.5 v4 M940 19.5 v4 M954 19.5 v4 M968 19.5 v4 M982 19.5 v4 M996 19.5 v4 M1010 19.5 v4 M1024 19.5 v4 M1038 19.5 v4 M1052 19.5 v4 M1066 19.5 v4 M1080 19.5 v4 M1094 19.5 v4 M1108 19.5 v4 M1122 19.5 v4 M1136 19.5 v4 M1150 19.5 v4 M1164 19.5 v4"/>
+<!-- bottom -->
+<path d="M30 436.5 v4 M44 436.5 v4 M58 436.5 v4 M72 436.5 v4 M86 436.5 v4 M100 436.5 v4 M114 436.5 v4 M128 436.5 v4 M142 436.5 v4 M156 436.5 v4 M170 436.5 v4 M184 436.5 v4 M198 436.5 v4 M212 436.5 v4 M226 436.5 v4 M240 436.5 v4 M254 436.5 v4 M268 436.5 v4 M282 436.5 v4 M296 436.5 v4 M310 436.5 v4 M324 436.5 v4 M338 436.5 v4 M352 436.5 v4 M366 436.5 v4 M380 436.5 v4 M394 436.5 v4 M408 436.5 v4 M422 436.5 v4 M436 436.5 v4 M450 436.5 v4 M464 436.5 v4 M478 436.5 v4 M492 436.5 v4 M506 436.5 v4 M520 436.5 v4 M534 436.5 v4 M548 436.5 v4 M562 436.5 v4 M576 436.5 v4 M590 436.5 v4 M604 436.5 v4 M618 436.5 v4 M632 436.5 v4 M646 436.5 v4 M660 436.5 v4 M674 436.5 v4 M688 436.5 v4 M702 436.5 v4 M716 436.5 v4 M730 436.5 v4 M744 436.5 v4 M758 436.5 v4 M772 436.5 v4 M786 436.5 v4 M800 436.5 v4 M814 436.5 v4 M828 436.5 v4 M842 436.5 v4 M856 436.5 v4 M870 436.5 v4 M884 436.5 v4 M898 436.5 v4 M912 436.5 v4 M926 436.5 v4 M940 436.5 v4 M954 436.5 v4 M968 436.5 v4 M982 436.5 v4 M996 436.5 v4 M1010 436.5 v4 M1024 436.5 v4 M1038 436.5 v4 M1052 436.5 v4 M1066 436.5 v4 M1080 436.5 v4 M1094 436.5 v4 M1108 436.5 v4 M1122 436.5 v4 M1136 436.5 v4 M1150 436.5 v4 M1164 436.5 v4"/>
+<!-- left -->
+<path d="M19.5 30 h4 M19.5 44 h4 M19.5 58 h4 M19.5 72 h4 M19.5 86 h4 M19.5 100 h4 M19.5 114 h4 M19.5 128 h4 M19.5 142 h4 M19.5 156 h4 M19.5 170 h4 M19.5 184 h4 M19.5 198 h4 M19.5 212 h4 M19.5 226 h4 M19.5 240 h4 M19.5 254 h4 M19.5 268 h4 M19.5 282 h4 M19.5 296 h4 M19.5 310 h4 M19.5 324 h4 M19.5 338 h4 M19.5 352 h4 M19.5 366 h4 M19.5 380 h4 M19.5 394 h4 M19.5 408 h4 M19.5 422 h4"/>
+<!-- right -->
+<path d="M1176.5 30 h4 M1176.5 44 h4 M1176.5 58 h4 M1176.5 72 h4 M1176.5 86 h4 M1176.5 100 h4 M1176.5 114 h4 M1176.5 128 h4 M1176.5 142 h4 M1176.5 156 h4 M1176.5 170 h4 M1176.5 184 h4 M1176.5 198 h4 M1176.5 212 h4 M1176.5 226 h4 M1176.5 240 h4 M1176.5 254 h4 M1176.5 268 h4 M1176.5 282 h4 M1176.5 296 h4 M1176.5 310 h4 M1176.5 324 h4 M1176.5 338 h4 M1176.5 352 h4 M1176.5 366 h4 M1176.5 380 h4 M1176.5 394 h4 M1176.5 408 h4 M1176.5 422 h4"/>
+</g>
+
+<!-- corner lotus-bud rosettes -->
+<g>
+<g transform="translate(16,16)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+<g transform="translate(1184,16)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+<g transform="translate(16,444)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+<g transform="translate(1184,444)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+</g>
+
+<!-- ============ CENTRAL VERMILION SEAL (focal point) ============ -->
+<g>
+<circle cx="600" cy="232" r="62" fill="#bb3b2c" stroke="#2b2620" stroke-width="3.5"/>
+<circle cx="600" cy="232" r="62" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+<circle cx="600" cy="232" r="50" fill="none" stroke="#2b2620" stroke-width="2"/>
+<!-- petal ring inside seal -->
+<g fill="#f3eee2" stroke="#2b2620" stroke-width="1.3">
+<path d="M600 188 q9 14 0 28 q-9 -14 0 -28 Z"/>
+<path d="M644 232 q-14 9 -28 0 q14 -9 28 0 Z"/>
+<path d="M600 276 q9 -14 0 -28 q-9 14 0 28 Z"/>
+<path d="M556 232 q14 9 28 0 q-14 9 -28 0 Z"/>
+<path d="M631 201 q-3 16 -16 16 q3 -16 16 -16 Z"/>
+<path d="M631 263 q-16 -3 -16 -16 q16 3 16 16 Z"/>
+<path d="M569 263 q3 -16 16 -16 q-3 16 -16 16 Z"/>
+<path d="M569 201 q16 3 16 16 q-16 -3 -16 -16 Z"/>
+</g>
+<circle cx="600" cy="232" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<circle cx="600" cy="232" r="6" fill="#2b2620"/>
+<!-- radiating proof-rays around seal -->
+<g stroke="#bb3b2c" stroke-width="2.4">
+<path d="M600 165 v-12 M600 299 v12 M533 232 h-12 M667 232 h12 M553 185 l-9 -9 M647 185 l9 -9 M553 279 l-9 9 M647 279 l9 9"/>
+</g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1">
+<circle cx="600" cy="149" r="3.5"/><circle cx="600" cy="315" r="3.5"/><circle cx="517" cy="232" r="3.5"/><circle cx="683" cy="232" r="3.5"/>
+</g>
+</g>
+
+<!-- ================= LEFT FIGURE (side profile, facing right) ================= -->
+<g>
+<!-- body, ornamented indigo -->
+<path d="M300 300 q-6 -70 40 -96 q30 -16 60 -8 q34 9 40 44 q5 30 -4 60 l8 88 q1 12 -14 12 l-118 0 q-15 0 -14 -12 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<path d="M300 300 q-6 -70 40 -96 q30 -16 60 -8 q34 9 40 44 q5 30 -4 60 l8 88 q1 12 -14 12 l-118 0 q-15 0 -14 -12 Z" fill="none" stroke="#f3eee2" stroke-width="1.2"/>
+<!-- body interior pattern: dot rows + scales -->
+<g fill="#f3eee2">
+<circle cx="320" cy="320" r="2.5"/><circle cx="345" cy="320" r="2.5"/><circle cx="370" cy="320" r="2.5"/><circle cx="395" cy="320" r="2.5"/><circle cx="420" cy="320" r="2.5"/>
+<circle cx="320" cy="350" r="2.5"/><circle cx="345" cy="350" r="2.5"/><circle cx="370" cy="350" r="2.5"/><circle cx="395" cy="350" r="2.5"/><circle cx="420" cy="350" r="2.5"/>
+<circle cx="320" cy="380" r="2.5"/><circle cx="345" cy="380" r="2.5"/><circle cx="370" cy="380" r="2.5"/><circle cx="395" cy="380" r="2.5"/><circle cx="420" cy="380" r="2.5"/>
+</g>
+<g fill="none" stroke="#d59a2a" stroke-width="1.6">
+<path d="M300 290 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0"/>
+<path d="M300 270 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0"/>
+</g>
+<!-- arm reaching toward seal -->
+<path d="M420 230 q60 -10 110 6 q14 5 14 18 q0 12 -16 12 q-50 -2 -106 -8 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#d59a2a" stroke-width="1.5"><path d="M440 240 h80 M440 252 h78"/></g>
+<!-- hand touching seal -->
+<path d="M526 248 q14 -6 24 4 q6 8 -2 16 q-12 6 -24 -4 q-6 -10 2 -16 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.4"/>
+<g stroke="#2b2620" stroke-width="1.6"><path d="M544 246 l8 -3 M548 254 l9 0 M546 262 l8 4"/></g>
+<!-- neck -->
+<path d="M348 210 l0 -34 l34 0 l0 30 Z" fill="#344a8c" stroke="#2b2620" stroke-width="2.6"/>
+<g fill="#ochre"/>
+<!-- necklace -->
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1.2"><circle cx="352" cy="200" r="3.5"/><circle cx="362" cy="204" r="3.5"/><circle cx="372" cy="200" r="3.5"/></g>
+<!-- HEAD in side profile, facing right -->
+<path d="M360 80 q56 -14 78 30 q14 28 -6 56 q-14 20 -40 24 q4 14 -8 18 l-26 4 q-14 1 -16 -12 q-2 -16 6 -30 q-22 -10 -22 -44 q0 -50 34 -46 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="3"/>
+<path d="M360 80 q56 -14 78 30 q14 28 -6 56 q-14 20 -40 24 q4 14 -8 18 l-26 4 q-14 1 -16 -12 q-2 -16 6 -30 q-22 -10 -22 -44 q0 -50 34 -46 Z" fill="none" stroke="#f3eee2" stroke-width="1.1"/>
+<!-- profile nose (pointing right) -->
+<path d="M438 116 q22 6 22 22 q0 12 -18 14 q6 8 -2 14 l-14 4" fill="#d59a2a" stroke="#2b2620" stroke-width="2.6"/>
+<!-- lips -->
+<path d="M430 156 q14 2 20 -2" fill="none" stroke="#bb3b2c" stroke-width="2.4"/>
+<!-- ONE almond fish-eye -->
+<path d="M388 108 q24 -16 48 0 q-24 16 -48 0 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2.4"/>
+<circle cx="412" cy="108" r="10" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="412" cy="108" r="4.5" fill="#2b2620"/>
+<!-- receding brow -->
+<path d="M384 96 q24 -14 52 -4" fill="none" stroke="#2b2620" stroke-width="2.6"/>
+<!-- hair filled with hatching -->
+<path d="M324 70 q40 -34 92 -8 q-10 -22 -40 -24 q-56 -4 -52 32 Z" fill="#2b2620" stroke="#2b2620" stroke-width="2"/>
+<path d="M306 110 q-16 -36 18 -40 q-20 22 -6 44 Z" fill="#2b2620"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.1"><path d="M334 64 q30 -18 70 -4 M330 74 q34 -20 78 -2"/></g>
+<!-- earring -->
+<circle cx="352" cy="148" r="6" fill="#bb3b2c" stroke="#2b2620" stroke-width="2"/>
+<circle cx="352" cy="162" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/>
+<!-- crown / topknot dots -->
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1"><circle cx="356" cy="58" r="4"/><circle cx="380" cy="50" r="4"/><circle cx="404" cy="56" r="4"/></g>
+</g>
+
+<!-- ================= RIGHT FIGURE (side profile, facing left) ================= -->
+<g>
+<path d="M900 300 q6 -70 -40 -96 q-30 -16 -60 -8 q-34 9 -40 44 q-5 30 4 60 l-8 88 q-1 12 14 12 l118 0 q15 0 14 -12 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<path d="M900 300 q6 -70 -40 -96 q-30 -16 -60 -8 q-34 9 -40 44 q-5 30 4 60 l-8 88 q-1 12 14 12 l118 0 q15 0 14 -12 Z" fill="none" stroke="#f3eee2" stroke-width="1.2"/>
+<g fill="#f3eee2">
+<circle cx="780" cy="320" r="2.5"/><circle cx="805" cy="320" r="2.5"/><circle cx="830" cy="320" r="2.5"/><circle cx="855" cy="320" r="2.5"/><circle cx="880" cy="320" r="2.5"/>
+<circle cx="780" cy="350" r="2.5"/><circle cx="805" cy="350" r="2.5"/><circle cx="830" cy="350" r="2.5"/><circle cx="855" cy="350" r="2.5"/><circle cx="880" cy="350" r="2.5"/>
+<circle cx="780" cy="380" r="2.5"/><circle cx="805" cy="380" r="2.5"/><circle cx="830" cy="380" r="2.5"/><circle cx="855" cy="380" r="2.5"/><circle cx="880" cy="380" r="2.5"/>
+</g>
+<g fill="none" stroke="#d59a2a" stroke-width="1.6">
+<path d="M900 290 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0"/>
+<path d="M900 270 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0"/>
+</g>
+<!-- arm reaching toward seal -->
+<path d="M780 230 q-60 -10 -110 6 q-14 5 -14 18 q0 12 16 12 q50 -2 106 -8 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#d59a2a" stroke-width="1.5"><path d="M760 240 h-80 M760 252 h-78"/></g>
+<!-- hand touching seal -->
+<path d="M674 248 q-14 -6 -24 4 q-6 8 2 16 q12 6 24 -4 q6 -10 -2 -16 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.4"/>
+<g stroke="#2b2620" stroke-width="1.6"><path d="M656 246 l-8 -3 M652 254 l-9 0 M654 262 l-8 4"/></g>
+<!-- neck -->
+<path d="M852 210 l0 -34 l-34 0 l0 30 Z" fill="#344a8c" stroke="#2b2620" stroke-width="2.6"/>
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1.2"><circle cx="848" cy="200" r="3.5"/><circle cx="838" cy="204" r="3.5"/><circle cx="828" cy="200" r="3.5"/></g>
+<!-- HEAD in side profile facing left -->
+<path d="M840 80 q-56 -14 -78 30 q-14 28 6 56 q14 20 40 24 q-4 14 8 18 l26 4 q14 1 16 -12 q2 -16 -6 -30 q22 -10 22 -44 q0 -50 -34 -46 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="3"/>
+<path d="M840 80 q-56 -14 -78 30 q-14 28 6 56 q14 20 40 24 q-4 14 8 18 l26 4 q14 1 16 -12 q2 -16 -6 -30 q22 -10 22 -44 q0 -50 -34 -46 Z" fill="none" stroke="#f3eee2" stroke-width="1.1"/>
+<path d="M762 116 q-22 6 -22 22 q0 12 18 14 q-6 8 2 14 l14 4" fill="#d59a2a" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M770 156 q-14 2 -20 -2" fill="none" stroke="#bb3b2c" stroke-width="2.4"/>
+<!-- almond fish-eye -->
+<path d="M812 108 q-24 -16 -48 0 q24 16 48 0 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2.4"/>
+<circle cx="788" cy="108" r="10" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="788" cy="108" r="4.5" fill="#2b2620"/>
+<path d="M816 96 q-24 -14 -52 -4" fill="none" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M876 70 q-40 -34 -92 -8 q10 -22 40 -24 q56 -4 52 32 Z" fill="#2b2620" stroke="#2b2620" stroke-width="2"/>
+<path d="M894 110 q16 -36 -18 -40 q20 22 6 44 Z" fill="#2b2620"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.1"><path d="M866 64 q-30 -18 -70 -4 M870 74 q-34 -20 -78 -2"/></g>
+<circle cx="848" cy="148" r="6" fill="#bb3b2c" stroke="#2b2620" stroke-width="2"/>
+<circle cx="848" cy="162" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/>
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1"><circle cx="844" cy="58" r="4"/><circle cx="820" cy="50" r="4"/><circle cx="796" cy="56" r="4"/></g>
+</g>
+
+<!-- ============ FILLER between figures & seal: fish-scale arcs, leaves ============ -->
+<g fill="none" stroke="#2e8c84" stroke-width="1.6">
+<path d="M470 200 q10 10 0 20 q-10 -10 0 -20 M470 220 q10 10 0 20 M470 240 q10 10 0 20"/>
+<path d="M730 200 q-10 10 0 20 q10 -10 0 -20 M730 220 q-10 10 0 20 M730 240 q-10 10 0 20"/>
+</g>
+<g fill="#6e4a93" stroke="#2b2620" stroke-width="1.1">
+<path d="M500 320 q12 -14 24 0 q-12 14 -24 0 Z"/>
+<path d="M676 320 q12 -14 24 0 q-12 14 -24 0 Z"/>
+<path d="M540 130 q10 -12 20 0 q-10 12 -20 0 Z"/>
+<path d="M640 130 q10 -12 20 0 q-10 12 -20 0 Z"/>
+</g>
+
+<!-- ground filler band under figures -->
+<g fill="none" stroke="#5c5346" stroke-width="1.4">
+<path d="M120 420 q14 -12 28 0 q14 12 28 0 q14 -12 28 0 q14 12 28 0 q14 -12 28 0"/>
+<path d="M880 420 q14 -12 28 0 q14 12 28 0 q14 -12 28 0 q14 12 28 0 q14 -12 28 0"/>
+</g>
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1">
+<circle cx="148" cy="416" r="2.5"/><circle cx="204" cy="416" r="2.5"/><circle cx="260" cy="416" r="2.5"/>
+<circle cx="908" cy="416" r="2.5"/><circle cx="964" cy="416" r="2.5"/><circle cx="1020" cy="416" r="2.5"/>
+</g>
+
+<!-- small suns flanking the seal high up -->
+<g fill="#ochre" stroke="#2b2620" stroke-width="1.4">
+<g><circle cx="540" cy="170" r="7" fill="#d59a2a"/><path d="M540 156 v-7 M540 184 v7 M526 170 h-7 M554 170 h7 M531 161 l-5 -5 M549 161 l5 -5 M531 179 l-5 5 M549 179 l5 5" fill="none" stroke="#5c5346"/></g>
+<g><circle cx="660" cy="170" r="7" fill="#d59a2a"/><path d="M660 156 v-7 M660 184 v7 M646 170 h-7 M674 170 h7 M651 161 l-5 -5 M669 161 l5 -5 M651 179 l-5 5 M669 179 l5 5" fill="none" stroke="#5c5346"/></g>
+</g>
+
+</svg></figure>
+  <div class="words">
+    <div class="kicker"><span class="n">05</span> Trust no one</div>
+    <h2>Anyone verifies offline</h2>
+    <p class="cap">Recompute the blake3 id, check the ed25519 signature, and the answer holds with no key, no account, and no callback to us.</p>
+    <div class="go"><a href="/verify">verify a receipt yourself &rarr;</a><a href="/whitepaper">the federation design &rarr;</a></div>
   </div>
 </section>
+</main>
 
-<!-- ===== what becomes possible ===== -->
-<section class="section page" id="impact">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">06</span><span class="idx-label">who it&rsquo;s for</span></div></aside>
-  <div class="section-body">
-    <h2>What an agent can finally do, with the receipt attached.</h2>
-    <p class="lede">Give an agent a memory of Earth it can cite, and the actions it can stand behind change. The same handlers answer agents over MCP and developers over plain REST.</p>
-    <ul>
-      <li><strong>Prove a shipment&rsquo;s land was never cleared.</strong> The audit the EU requires under its Deforestation Regulation, in a year the tropics lost a record 6.7 million hectares of primary rainforest <a href="https://www.wri.org/news/release-global-forest-loss-shatters-records-2024-fueled-massive-fires">(WRI / Global Forest Watch)</a>. The endpoint signs an Annex II Due Diligence Statement against the Article 2(4) test.</li>
-      <li><strong>Raise a flood or wildfire flag a day sooner.</strong> A single day of warning can cut disaster damage by up to a third <a href="https://www.un.org/en/climatechange/early-warnings-for-all">(UN Early Warnings for All)</a>. Hunter mode sweeps a named region for twelve event types and returns signed hotspots.</li>
-      <li><strong>Keep a carbon credit honest</strong> with continuous, signed evidence instead of a once-a-year spot check, every figure traceable to its source fact.</li>
-      <li><strong>Defend a decision</strong>, a price, a claim, a route, with the place, the time, and the signature on record.</li>
-    </ul>
-    <p><a href="/solutions">See what people are building &rarr;</a> &middot; <a href="/docs/gallery">live coverage map and case studies &rarr;</a></p>
-  </div>
-</section>
+<!-- ===================== FINALE / BUILD ===================== -->
+<section class="finale" id="build">
+  <div class="scroll">
+    <figure class="art" style="max-width:760px;margin:0 auto 2rem;background:var(--paper);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
 
-<!-- ===== come build on it ===== -->
-<section class="section page" id="connect">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">07</span><span class="idx-label">connect</span></div>
-    <dl>
-      <dt>mcp</dt><dd>https://emem.dev/mcp</dd>
-      <dt>rest</dt><dd>plain JSON under /v1/*</dd>
-      <dt>auth</dt><dd>none on reads</dd>
-      <dt>self-host</dt><dd>one docker run</dd>
-    </dl>
-  </aside>
-  <div class="section-body">
-    <h2>It&rsquo;s open. Come build on it.</h2>
-    <p class="lede">No keys, no signup. Point any MCP client at the endpoint, or call plain REST. Claude, Cursor, Cline, Gemini, ChatGPT, LangChain, and LlamaIndex all connect the same way.</p>
+<!-- ============ BACKGROUND HORROR-VACUI FIELD ============ -->
+<!-- dot grid filling the whole panel -->
+<g fill="#5c5346">
+<g>
+<circle cx="60" cy="60" r="2.2"/><circle cx="120" cy="60" r="2.2"/><circle cx="180" cy="60" r="2.2"/><circle cx="240" cy="60" r="2.2"/><circle cx="300" cy="60" r="2.2"/><circle cx="360" cy="60" r="2.2"/><circle cx="420" cy="60" r="2.2"/><circle cx="480" cy="60" r="2.2"/><circle cx="540" cy="60" r="2.2"/><circle cx="600" cy="60" r="2.2"/><circle cx="660" cy="60" r="2.2"/><circle cx="720" cy="60" r="2.2"/><circle cx="780" cy="60" r="2.2"/><circle cx="840" cy="60" r="2.2"/><circle cx="900" cy="60" r="2.2"/><circle cx="960" cy="60" r="2.2"/><circle cx="1020" cy="60" r="2.2"/><circle cx="1080" cy="60" r="2.2"/><circle cx="1140" cy="60" r="2.2"/>
+<circle cx="90" cy="110" r="2.2"/><circle cx="150" cy="110" r="2.2"/><circle cx="210" cy="110" r="2.2"/><circle cx="270" cy="110" r="2.2"/><circle cx="330" cy="110" r="2.2"/><circle cx="870" cy="110" r="2.2"/><circle cx="930" cy="110" r="2.2"/><circle cx="990" cy="110" r="2.2"/><circle cx="1050" cy="110" r="2.2"/><circle cx="1110" cy="110" r="2.2"/>
+<circle cx="60" cy="160" r="2.2"/><circle cx="120" cy="160" r="2.2"/><circle cx="180" cy="160" r="2.2"/><circle cx="1020" cy="160" r="2.2"/><circle cx="1080" cy="160" r="2.2"/><circle cx="1140" cy="160" r="2.2"/>
+<circle cx="60" cy="300" r="2.2"/><circle cx="120" cy="300" r="2.2"/><circle cx="180" cy="300" r="2.2"/><circle cx="1020" cy="300" r="2.2"/><circle cx="1080" cy="300" r="2.2"/><circle cx="1140" cy="300" r="2.2"/>
+<circle cx="90" cy="350" r="2.2"/><circle cx="150" cy="350" r="2.2"/><circle cx="210" cy="350" r="2.2"/><circle cx="270" cy="350" r="2.2"/><circle cx="330" cy="350" r="2.2"/><circle cx="870" cy="350" r="2.2"/><circle cx="930" cy="350" r="2.2"/><circle cx="990" cy="350" r="2.2"/><circle cx="1050" cy="350" r="2.2"/><circle cx="1110" cy="350" r="2.2"/>
+<circle cx="60" cy="400" r="2.2"/><circle cx="120" cy="400" r="2.2"/><circle cx="180" cy="400" r="2.2"/><circle cx="240" cy="400" r="2.2"/><circle cx="300" cy="400" r="2.2"/><circle cx="360" cy="400" r="2.2"/><circle cx="420" cy="400" r="2.2"/><circle cx="480" cy="400" r="2.2"/><circle cx="540" cy="400" r="2.2"/><circle cx="600" cy="400" r="2.2"/><circle cx="660" cy="400" r="2.2"/><circle cx="720" cy="400" r="2.2"/><circle cx="780" cy="400" r="2.2"/><circle cx="840" cy="400" r="2.2"/><circle cx="900" cy="400" r="2.2"/><circle cx="960" cy="400" r="2.2"/><circle cx="1020" cy="400" r="2.2"/><circle cx="1080" cy="400" r="2.2"/><circle cx="1140" cy="400" r="2.2"/>
+</g>
+</g>
 
-    <div class="code">
-      <div class="code-head"><span class="lang">json</span><span class="tab">mcp client config</span><span class="spacer"></span><button class="copy" data-copy-target="#mcp-snippet">copy</button></div>
-      <pre id="mcp-snippet"><code><span class="tok-p">{</span>
-  <span class="tok-s">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>
-    <span class="tok-s">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span> <span class="tok-s">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span> <span class="tok-p">}</span>
-  <span class="tok-p">}</span>
-<span class="tok-p">}</span></code></pre>
-    </div>
+<!-- background fish-scale arc fields, top corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.6">
+<g>
+<path d="M40 140 a14 14 0 0 1 28 0"/><path d="M68 140 a14 14 0 0 1 28 0"/><path d="M96 140 a14 14 0 0 1 28 0"/><path d="M124 140 a14 14 0 0 1 28 0"/>
+<path d="M54 154 a14 14 0 0 1 28 0"/><path d="M82 154 a14 14 0 0 1 28 0"/><path d="M110 154 a14 14 0 0 1 28 0"/>
+</g>
+<g>
+<path d="M1076 140 a14 14 0 0 1 28 0"/><path d="M1104 140 a14 14 0 0 1 28 0"/><path d="M1132 140 a14 14 0 0 1 28 0"/>
+<path d="M1062 154 a14 14 0 0 1 28 0"/><path d="M1090 154 a14 14 0 0 1 28 0"/><path d="M1118 154 a14 14 0 0 1 28 0"/>
+</g>
+</g>
 
-    <p>Or call it from a shell. Resolve a place to a cell, recall a band, and the answer comes back signed, auto-fetched if the cell is cold:</p>
+<!-- background hatch panels lower corners -->
+<g stroke="#5c5346" stroke-width="1.4">
+<path d="M44 320 l44 -16 M44 332 l44 -16 M44 344 l44 -16 M44 356 l44 -16 M44 368 l44 -16"/>
+<path d="M1112 320 l-44 -16 M1112 332 l-44 -16 M1112 344 l-44 -16 M1112 356 l-44 -16 M1112 368 l-44 -16"/>
+</g>
 
-    <div class="code">
-      <div class="code-head"><span class="lang">bash</span><span class="tab">rest, no key</span><span class="spacer"></span><button class="copy" data-copy-target="#curl-snippet">copy</button></div>
-      <pre id="curl-snippet"><code><span class="tok-cmd">curl</span> -s -X POST https://emem.dev/v1/recall \
-  -H <span class="tok-s">'content-type: application/json'</span> \
-  -d <span class="tok-s">'{"cell":"defi.zb493.xuqA.zcb5f","bands":["weather.temperature_2m"]}'</span> \
-  | jq <span class="tok-s">'.facts[0]'</span></code></pre>
-    </div>
+<!-- ============ DOUBLE-LINE BORDER WITH TICK CHANNEL ============ -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- tick channel: dashes between the two strokes -->
+<g stroke="#2b2620" stroke-width="2.4">
+<!-- top -->
+<path d="M40 19.5 l0 4 M64 19.5 l0 4 M88 19.5 l0 4 M112 19.5 l0 4 M136 19.5 l0 4 M160 19.5 l0 4 M184 19.5 l0 4 M208 19.5 l0 4 M232 19.5 l0 4 M256 19.5 l0 4 M280 19.5 l0 4 M304 19.5 l0 4 M328 19.5 l0 4 M352 19.5 l0 4 M376 19.5 l0 4 M400 19.5 l0 4 M424 19.5 l0 4 M448 19.5 l0 4 M472 19.5 l0 4 M496 19.5 l0 4 M520 19.5 l0 4 M544 19.5 l0 4 M568 19.5 l0 4 M592 19.5 l0 4 M616 19.5 l0 4 M640 19.5 l0 4 M664 19.5 l0 4 M688 19.5 l0 4 M712 19.5 l0 4 M736 19.5 l0 4 M760 19.5 l0 4 M784 19.5 l0 4 M808 19.5 l0 4 M832 19.5 l0 4 M856 19.5 l0 4 M880 19.5 l0 4 M904 19.5 l0 4 M928 19.5 l0 4 M952 19.5 l0 4 M976 19.5 l0 4 M1000 19.5 l0 4 M1024 19.5 l0 4 M1048 19.5 l0 4 M1072 19.5 l0 4 M1096 19.5 l0 4 M1120 19.5 l0 4 M1144 19.5 l0 4 M1160 19.5 l0 4"/>
+<!-- bottom -->
+<path d="M40 436.5 l0 4 M64 436.5 l0 4 M88 436.5 l0 4 M112 436.5 l0 4 M136 436.5 l0 4 M160 436.5 l0 4 M184 436.5 l0 4 M208 436.5 l0 4 M232 436.5 l0 4 M256 436.5 l0 4 M280 436.5 l0 4 M304 436.5 l0 4 M328 436.5 l0 4 M352 436.5 l0 4 M376 436.5 l0 4 M400 436.5 l0 4 M424 436.5 l0 4 M448 436.5 l0 4 M472 436.5 l0 4 M496 436.5 l0 4 M520 436.5 l0 4 M544 436.5 l0 4 M568 436.5 l0 4 M592 436.5 l0 4 M616 436.5 l0 4 M640 436.5 l0 4 M664 436.5 l0 4 M688 436.5 l0 4 M712 436.5 l0 4 M736 436.5 l0 4 M760 436.5 l0 4 M784 436.5 l0 4 M808 436.5 l0 4 M832 436.5 l0 4 M856 436.5 l0 4 M880 436.5 l0 4 M904 436.5 l0 4 M928 436.5 l0 4 M952 436.5 l0 4 M976 436.5 l0 4 M1000 436.5 l0 4 M1024 436.5 l0 4 M1048 436.5 l0 4 M1072 436.5 l0 4 M1096 436.5 l0 4 M1120 436.5 l0 4 M1144 436.5 l0 4 M1160 436.5 l0 4"/>
+<!-- left -->
+<path d="M19.5 48 l4 0 M19.5 72 l4 0 M19.5 96 l4 0 M19.5 120 l4 0 M19.5 144 l4 0 M19.5 168 l4 0 M19.5 192 l4 0 M19.5 216 l4 0 M19.5 240 l4 0 M19.5 264 l4 0 M19.5 288 l4 0 M19.5 312 l4 0 M19.5 336 l4 0 M19.5 360 l4 0 M19.5 384 l4 0 M19.5 408 l4 0"/>
+<!-- right -->
+<path d="M1176.5 48 l4 0 M1176.5 72 l4 0 M1176.5 96 l4 0 M1176.5 120 l4 0 M1176.5 144 l4 0 M1176.5 168 l4 0 M1176.5 192 l4 0 M1176.5 216 l4 0 M1176.5 240 l4 0 M1176.5 264 l4 0 M1176.5 288 l4 0 M1176.5 312 l4 0 M1176.5 336 l4 0 M1176.5 360 l4 0 M1176.5 384 l4 0 M1176.5 408 l4 0"/>
+</g>
 
-    <p>Discovery is built for agents to read, not humans to memorise:</p>
-    <div class="scroll-x">
-    <table class="endpoints">
-      <thead><tr><th class="method">verb</th><th>path</th><th class="desc">what it returns</th></tr></thead>
-      <tbody>
-        <tr><td class="method">GET</td><td class="path">/openapi.json</td><td class="desc">OpenAPI 3.1 of every REST route</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/tools</td><td class="desc">every MCP tool, each with when_to_use and behaviour annotations</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/agent_card</td><td class="desc">live capability snapshot + manifest CIDs</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td class="desc">signed fact at a cell, auto-fetched on a cold miss</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/eudr_dds</td><td class="desc">signed EU deforestation Due Diligence Statement</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/verify_receipt</td><td class="desc">check a receipt&rsquo;s signature server-side</td></tr>
-        <tr><td class="method">GET</td><td class="path">/v1/stream</td><td class="desc">signed corpus heartbeat over Server-Sent Events</td></tr>
-      </tbody>
-    </table>
-    </div>
+<!-- corner lotus-bud rosettes -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1.6">
+<g>
+<path d="M40 40 q-9 -9 0 -18 q9 9 0 18 z"/><path d="M40 40 q9 -9 18 0 q-9 9 -18 0 z"/><path d="M40 40 q9 9 0 18 q-9 -9 0 -18 z"/><path d="M40 40 q-9 9 -18 0 q9 -9 18 0 z"/>
+</g>
+<g>
+<path d="M1160 40 q-9 -9 0 -18 q9 9 0 18 z"/><path d="M1160 40 q9 -9 18 0 q-9 9 -18 0 z"/><path d="M1160 40 q9 9 0 18 q-9 -9 0 -18 z"/><path d="M1160 40 q-9 9 -18 0 q9 -9 18 0 z"/>
+</g>
+<g>
+<path d="M40 420 q-9 -9 0 -18 q9 9 0 18 z"/><path d="M40 420 q9 -9 18 0 q-9 9 -18 0 z"/><path d="M40 420 q9 9 0 18 q-9 -9 0 -18 z"/><path d="M40 420 q-9 9 -18 0 q9 -9 18 0 z"/>
+</g>
+<g>
+<path d="M1160 420 q-9 -9 0 -18 q9 9 0 18 z"/><path d="M1160 420 q9 -9 18 0 q-9 9 -18 0 z"/><path d="M1160 420 q9 9 0 18 q-9 -9 0 -18 z"/><path d="M1160 420 q-9 9 -18 0 q9 -9 18 0 z"/>
+</g>
+</g>
+<g fill="#bb3b2c"><circle cx="40" cy="40" r="3.4"/><circle cx="1160" cy="40" r="3.4"/><circle cx="40" cy="420" r="3.4"/><circle cx="1160" cy="420" r="3.4"/></g>
 
-    <p>Self-host the same binary with one command. No required env vars; reads need no auth.</p>
-    <div class="code">
-      <div class="code-head"><span class="lang">bash</span><span class="tab">self-host</span><span class="spacer"></span><button class="copy" data-copy-target="#docker-snippet">copy</button></div>
-      <pre id="docker-snippet"><code><span class="tok-cmd">docker</span> run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code></pre>
-    </div>
+<!-- ============ THE VINE NETWORK (drawn first, under nodes) ============ -->
+<!-- main branches: green vine with indigo companion line -->
+<g fill="none">
+<!-- to top-left hut -->
+<path d="M600 230 C470 200 380 150 270 120" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C470 206 380 156 270 126" stroke="#344a8c" stroke-width="2"/>
+<!-- to mid-left hut -->
+<path d="M600 230 C460 230 320 230 160 230" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C460 236 320 236 160 236" stroke="#344a8c" stroke-width="2"/>
+<!-- to bottom-left hut -->
+<path d="M600 230 C470 260 380 310 270 340" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C470 266 380 316 270 346" stroke="#344a8c" stroke-width="2"/>
+<!-- to top-mid-left hut -->
+<path d="M600 230 C540 170 500 120 440 92" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C546 170 506 120 446 92" stroke="#344a8c" stroke-width="2"/>
+<!-- to bottom-mid-left hut -->
+<path d="M600 230 C540 290 500 340 440 368" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C546 290 506 340 446 368" stroke="#344a8c" stroke-width="2"/>
+<!-- to top-right hut -->
+<path d="M600 230 C730 200 820 150 930 120" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C730 206 820 156 930 126" stroke="#344a8c" stroke-width="2"/>
+<!-- to mid-right hut -->
+<path d="M600 230 C740 230 880 230 1040 230" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C740 236 880 236 1040 236" stroke="#344a8c" stroke-width="2"/>
+<!-- to bottom-right hut -->
+<path d="M600 230 C730 260 820 310 930 340" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C730 266 820 316 930 346" stroke="#344a8c" stroke-width="2"/>
+<!-- to top-mid-right hut -->
+<path d="M600 230 C660 170 700 120 760 92" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C654 170 694 120 754 92" stroke="#344a8c" stroke-width="2"/>
+<!-- to bottom-mid-right hut -->
+<path d="M600 230 C660 290 700 340 760 368" stroke="#4f8a3d" stroke-width="4.5"/>
+<path d="M600 230 C654 290 694 340 754 368" stroke="#344a8c" stroke-width="2"/>
+</g>
 
-    <div class="hero-cta">
-      <a class="btn" href="/reference">Read the API &rarr;</a>
+<!-- vine leaves and buds packed along branches -->
+<g stroke="#2b2620" stroke-width="1.4">
+<g fill="#4f8a3d">
+<path d="M360 138 q14 -10 24 -2 q-14 10 -24 2 z"/>
+<path d="M470 200 q14 -10 24 -2 q-14 10 -24 2 z"/>
+<path d="M360 322 q14 10 24 2 q-14 -10 -24 -2 z"/>
+<path d="M470 260 q14 10 24 2 q-14 -10 -24 -2 z"/>
+<path d="M500 130 q-10 -14 -2 -24 q10 14 2 24 z"/>
+<path d="M500 330 q-10 14 -2 24 q10 -14 2 -24 z"/>
+<path d="M320 234 q14 -10 24 -2 q-14 10 -24 2 z"/>
+<path d="M820 138 q-14 -10 -24 -2 q14 10 24 2 z"/>
+<path d="M730 200 q-14 -10 -24 -2 q14 10 24 2 z"/>
+<path d="M820 322 q-14 10 -24 2 q14 -10 24 -2 z"/>
+<path d="M730 260 q-14 10 -24 2 q14 -10 24 -2 z"/>
+<path d="M700 130 q10 -14 2 -24 q-10 14 -2 24 z"/>
+<path d="M700 330 q10 14 2 24 q-10 -14 -2 -24 z"/>
+<path d="M880 234 q-14 -10 -24 -2 q14 10 24 2 z"/>
+</g>
+<g fill="#d59a2a">
+<circle cx="420" cy="170" r="4.5"/><circle cx="420" cy="290" r="4.5"/>
+<circle cx="780" cy="170" r="4.5"/><circle cx="780" cy="290" r="4.5"/>
+<circle cx="260" cy="225" r="4.5"/><circle cx="940" cy="225" r="4.5"/>
+<circle cx="540" cy="155" r="4.5"/><circle cx="660" cy="155" r="4.5"/>
+<circle cx="540" cy="305" r="4.5"/><circle cx="660" cy="305" r="4.5"/>
+</g>
+</g>
+
+<!-- ============ CENTRAL SEED / SUN (focal — solid vermilion) ============ -->
+<!-- sun rays -->
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1.6">
+<g>
+<path d="M600 150 l10 26 l-20 0 z"/><path d="M600 310 l10 -26 l-20 0 z"/>
+<path d="M520 230 l26 10 l0 -20 z"/><path d="M680 230 l-26 10 l0 -20 z"/>
+<path d="M543 173 l22 14 l-12 12 z"/><path d="M657 173 l-22 14 l12 12 z"/>
+<path d="M543 287 l22 -14 l-12 -12 z"/><path d="M657 287 l-22 -14 l12 -12 z"/>
+</g>
+</g>
+<!-- outer concentric petal ring -->
+<g fill="#ochre" stroke="#2b2620" stroke-width="2"/>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="2">
+<circle cx="600" cy="230" r="58"/>
+</g>
+<!-- petals ring around the ochre disc -->
+<g fill="#f3eee2" stroke="#2b2620" stroke-width="1.6">
+<path d="M600 172 q9 14 0 26 q-9 -12 0 -26 z"/>
+<path d="M641 189 q-2 17 -16 23 q4 -15 16 -23 z"/>
+<path d="M658 230 q-14 9 -26 0 q12 -9 26 0 z"/>
+<path d="M641 271 q-17 -2 -23 -16 q15 4 23 16 z"/>
+<path d="M600 288 q-9 -14 0 -26 q9 12 0 26 z"/>
+<path d="M559 271 q2 -17 16 -23 q-4 15 -16 23 z"/>
+<path d="M542 230 q14 -9 26 0 q-12 9 -26 0 z"/>
+<path d="M559 189 q17 2 23 16 q-15 -4 -23 -16 z"/>
+</g>
+<!-- inner vermilion seed disc -->
+<circle cx="600" cy="230" r="34" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.4"/>
+<!-- seed interior pattern: concentric + dot rosette -->
+<circle cx="600" cy="230" r="22" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<g fill="#f3eee2">
+<circle cx="600" cy="230" r="5"/>
+<circle cx="600" cy="212" r="2.6"/><circle cx="600" cy="248" r="2.6"/><circle cx="582" cy="230" r="2.6"/><circle cx="618" cy="230" r="2.6"/>
+<circle cx="588" cy="218" r="2.4"/><circle cx="612" cy="218" r="2.4"/><circle cx="588" cy="242" r="2.4"/><circle cx="612" cy="242" r="2.4"/>
+</g>
+
+<!-- ============ HUT NODE (reusable shape inline, hand-paired) ============ -->
+<!-- Each hut: double-outline temple, hatched roof, dotted walls, indigo door, kalash finial -->
+
+<!-- TOP-LEFT HUT -->
+<g>
+<path d="M225 96 l45 -34 l45 34 z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M232 96 l38 -28 l38 28 z" fill="none" stroke="#f3eee2" stroke-width="1.5"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M250 88 l40 0 M256 80 l28 0 M262 73 l16 0"/></g>
+<rect x="240" y="96" width="60" height="44" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.4"/>
+<g fill="#344a8c"><circle cx="248" cy="106" r="2"/><circle cx="262" cy="106" r="2"/><circle cx="278" cy="106" r="2"/><circle cx="292" cy="106" r="2"/><circle cx="248" cy="122" r="2"/><circle cx="292" cy="122" r="2"/></g>
+<rect x="258" y="116" width="24" height="24" fill="#344a8c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M258 116 q12 -10 24 0" fill="none" stroke="#f3eee2" stroke-width="1.4"/>
+<path d="M270 62 l0 -12 M264 56 l12 0" stroke="#2b2620" stroke-width="2.2"/><circle cx="270" cy="50" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.6"/>
+</g>
+
+<!-- MID-LEFT HUT -->
+<g>
+<path d="M115 206 l45 -34 l45 34 z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M122 206 l38 -28 l38 28 z" fill="none" stroke="#f3eee2" stroke-width="1.5"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M140 198 l40 0 M146 190 l28 0 M152 183 l16 0"/></g>
+<rect x="130" y="206" width="60" height="44" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.4"/>
+<g fill="#344a8c"><circle cx="138" cy="216" r="2"/><circle cx="152" cy="216" r="2"/><circle cx="168" cy="216" r="2"/><circle cx="182" cy="216" r="2"/><circle cx="138" cy="232" r="2"/><circle cx="182" cy="232" r="2"/></g>
+<rect x="148" y="226" width="24" height="24" fill="#344a8c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M148 226 q12 -10 24 0" fill="none" stroke="#f3eee2" stroke-width="1.4"/>
+<path d="M160 172 l0 -12 M154 166 l12 0" stroke="#2b2620" stroke-width="2.2"/><circle cx="160" cy="160" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.6"/>
+</g>
+
+<!-- BOTTOM-LEFT HUT -->
+<g>
+<path d="M225 316 l45 -34 l45 34 z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M232 316 l38 -28 l38 28 z" fill="none" stroke="#f3eee2" stroke-width="1.5"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M250 308 l40 0 M256 300 l28 0 M262 293 l16 0"/></g>
+<rect x="240" y="316" width="60" height="44" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.4"/>
+<g fill="#344a8c"><circle cx="248" cy="326" r="2"/><circle cx="262" cy="326" r="2"/><circle cx="278" cy="326" r="2"/><circle cx="292" cy="326" r="2"/><circle cx="248" cy="342" r="2"/><circle cx="292" cy="342" r="2"/></g>
+<rect x="258" y="336" width="24" height="24" fill="#344a8c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M258 336 q12 -10 24 0" fill="none" stroke="#f3eee2" stroke-width="1.4"/>
+<path d="M270 282 l0 -12 M264 276 l12 0" stroke="#2b2620" stroke-width="2.2"/><circle cx="270" cy="270" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.6"/>
+</g>
+
+<!-- TOP-MID-LEFT HUT (smaller) -->
+<g>
+<path d="M408 88 l36 -28 l36 28 z" fill="#6e4a93" stroke="#2b2620" stroke-width="2.2"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M422 80 l44 0 M428 73 l32 0 M434 67 l20 0"/></g>
+<rect x="420" y="88" width="48" height="38" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.2"/>
+<g fill="#344a8c"><circle cx="428" cy="98" r="1.8"/><circle cx="444" cy="98" r="1.8"/><circle cx="460" cy="98" r="1.8"/><circle cx="428" cy="114" r="1.8"/><circle cx="460" cy="114" r="1.8"/></g>
+<rect x="434" y="106" width="20" height="20" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/>
+<path d="M444 60 l0 -10 M439 55 l10 0" stroke="#2b2620" stroke-width="2"/><circle cx="444" cy="50" r="3.4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+
+<!-- BOTTOM-MID-LEFT HUT (smaller) -->
+<g>
+<path d="M408 364 l36 -28 l36 28 z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.2"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M422 356 l44 0 M428 349 l32 0 M434 343 l20 0"/></g>
+<rect x="420" y="364" width="48" height="38" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.2"/>
+<g fill="#344a8c"><circle cx="428" cy="374" r="1.8"/><circle cx="444" cy="374" r="1.8"/><circle cx="460" cy="374" r="1.8"/><circle cx="428" cy="390" r="1.8"/><circle cx="460" cy="390" r="1.8"/></g>
+<rect x="434" y="382" width="20" height="20" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/>
+<path d="M444 336 l0 -10 M439 331 l10 0" stroke="#2b2620" stroke-width="2"/><circle cx="444" cy="326" r="3.4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+
+<!-- TOP-RIGHT HUT -->
+<g>
+<path d="M885 96 l45 -34 l45 34 z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M892 96 l38 -28 l38 28 z" fill="none" stroke="#f3eee2" stroke-width="1.5"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M910 88 l40 0 M916 80 l28 0 M922 73 l16 0"/></g>
+<rect x="900" y="96" width="60" height="44" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.4"/>
+<g fill="#344a8c"><circle cx="908" cy="106" r="2"/><circle cx="922" cy="106" r="2"/><circle cx="938" cy="106" r="2"/><circle cx="952" cy="106" r="2"/><circle cx="908" cy="122" r="2"/><circle cx="952" cy="122" r="2"/></g>
+<rect x="918" y="116" width="24" height="24" fill="#344a8c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M918 116 q12 -10 24 0" fill="none" stroke="#f3eee2" stroke-width="1.4"/>
+<path d="M930 62 l0 -12 M924 56 l12 0" stroke="#2b2620" stroke-width="2.2"/><circle cx="930" cy="50" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.6"/>
+</g>
+
+<!-- MID-RIGHT HUT -->
+<g>
+<path d="M995 206 l45 -34 l45 34 z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M1002 206 l38 -28 l38 28 z" fill="none" stroke="#f3eee2" stroke-width="1.5"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M1020 198 l40 0 M1026 190 l28 0 M1032 183 l16 0"/></g>
+<rect x="1010" y="206" width="60" height="44" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.4"/>
+<g fill="#344a8c"><circle cx="1018" cy="216" r="2"/><circle cx="1032" cy="216" r="2"/><circle cx="1048" cy="216" r="2"/><circle cx="1062" cy="216" r="2"/><circle cx="1018" cy="232" r="2"/><circle cx="1062" cy="232" r="2"/></g>
+<rect x="1028" y="226" width="24" height="24" fill="#344a8c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M1028 226 q12 -10 24 0" fill="none" stroke="#f3eee2" stroke-width="1.4"/>
+<path d="M1040 172 l0 -12 M1034 166 l12 0" stroke="#2b2620" stroke-width="2.2"/><circle cx="1040" cy="160" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.6"/>
+</g>
+
+<!-- BOTTOM-RIGHT HUT -->
+<g>
+<path d="M885 316 l45 -34 l45 34 z" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M892 316 l38 -28 l38 28 z" fill="none" stroke="#f3eee2" stroke-width="1.5"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M910 308 l40 0 M916 300 l28 0 M922 293 l16 0"/></g>
+<rect x="900" y="316" width="60" height="44" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.4"/>
+<g fill="#344a8c"><circle cx="908" cy="326" r="2"/><circle cx="922" cy="326" r="2"/><circle cx="938" cy="326" r="2"/><circle cx="952" cy="326" r="2"/><circle cx="908" cy="342" r="2"/><circle cx="952" cy="342" r="2"/></g>
+<rect x="918" y="336" width="24" height="24" fill="#344a8c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M918 336 q12 -10 24 0" fill="none" stroke="#f3eee2" stroke-width="1.4"/>
+<path d="M930 282 l0 -12 M924 276 l12 0" stroke="#2b2620" stroke-width="2.2"/><circle cx="930" cy="270" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.6"/>
+</g>
+
+<!-- TOP-MID-RIGHT HUT (smaller) -->
+<g>
+<path d="M720 88 l36 -28 l36 28 z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.2"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M734 80 l44 0 M740 73 l32 0 M746 67 l20 0"/></g>
+<rect x="732" y="88" width="48" height="38" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.2"/>
+<g fill="#344a8c"><circle cx="740" cy="98" r="1.8"/><circle cx="756" cy="98" r="1.8"/><circle cx="772" cy="98" r="1.8"/><circle cx="740" cy="114" r="1.8"/><circle cx="772" cy="114" r="1.8"/></g>
+<rect x="746" y="106" width="20" height="20" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/>
+<path d="M756 60 l0 -10 M751 55 l10 0" stroke="#2b2620" stroke-width="2"/><circle cx="756" cy="50" r="3.4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+
+<!-- BOTTOM-MID-RIGHT HUT (smaller) -->
+<g>
+<path d="M720 364 l36 -28 l36 28 z" fill="#6e4a93" stroke="#2b2620" stroke-width="2.2"/>
+<g stroke="#f3eee2" stroke-width="1.3"><path d="M734 356 l44 0 M740 349 l32 0 M746 343 l20 0"/></g>
+<rect x="732" y="364" width="48" height="38" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.2"/>
+<g fill="#344a8c"><circle cx="740" cy="374" r="1.8"/><circle cx="756" cy="374" r="1.8"/><circle cx="772" cy="374" r="1.8"/><circle cx="740" cy="390" r="1.8"/><circle cx="772" cy="390" r="1.8"/></g>
+<rect x="746" y="382" width="20" height="20" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/>
+<path d="M756 336 l0 -10 M751 331 l10 0" stroke="#2b2620" stroke-width="2"/><circle cx="756" cy="326" r="3.4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+
+<!-- ============ EXTRA FILLER to kill remaining voids ============ -->
+<!-- little 6-tick suns scattered in gaps -->
+<g stroke="#d59a2a" stroke-width="1.8" fill="#d59a2a">
+<g>
+<circle cx="340" cy="230" r="4"/>
+<path d="M340 222 l0 -6 M340 238 l0 6 M332 230 l-6 0 M348 230 l6 0 M334 224 l-4 -4 M346 224 l4 -4 M334 236 l-4 4 M346 236 l4 4" stroke="#d59a2a" stroke-width="1.6"/>
+</g>
+<g>
+<circle cx="860" cy="230" r="4"/>
+<path d="M860 222 l0 -6 M860 238 l0 6 M852 230 l-6 0 M868 230 l6 0 M854 224 l-4 -4 M866 224 l4 -4 M854 236 l-4 4 M866 236 l4 4" stroke="#d59a2a" stroke-width="1.6"/>
+</g>
+</g>
+
+<!-- small leaf-pairs filling vertical mid gaps -->
+<g stroke="#2b2620" stroke-width="1.3" fill="#4f8a3d">
+<path d="M600 130 q12 -8 20 0 q-12 8 -20 0 z"/>
+<path d="M600 130 q-12 -8 -20 0 q12 8 20 0 z"/>
+<path d="M600 330 q12 8 20 0 q-12 -8 -20 0 z"/>
+<path d="M600 330 q-12 8 -20 0 q12 -8 20 0 z"/>
+</g>
+<g fill="#bb3b2c"><circle cx="600" cy="118" r="3.4"/><circle cx="600" cy="342" r="3.4"/></g>
+
+<!-- running vine dot-rows along inner top & bottom edges to seal the field -->
+<g fill="#6e4a93">
+<circle cx="500" cy="44" r="2"/><circle cx="540" cy="44" r="2"/><circle cx="580" cy="44" r="2"/><circle cx="620" cy="44" r="2"/><circle cx="660" cy="44" r="2"/><circle cx="700" cy="44" r="2"/>
+<circle cx="500" cy="416" r="2"/><circle cx="540" cy="416" r="2"/><circle cx="580" cy="416" r="2"/><circle cx="620" cy="416" r="2"/><circle cx="660" cy="416" r="2"/><circle cx="700" cy="416" r="2"/>
+</g>
+
+<!-- tiny buds tucked beside central seed to fill near-core space -->
+<g stroke="#2b2620" stroke-width="1.3" fill="#d59a2a">
+<path d="M508 200 q-8 -6 -4 -14 q8 6 4 14 z"/>
+<path d="M692 200 q8 -6 4 -14 q-8 6 -4 14 z"/>
+<path d="M508 260 q-8 6 -4 14 q8 -6 4 -14 z"/>
+<path d="M692 260 q8 6 4 14 q-8 -6 -4 -14 z"/>
+</g>
+</svg></figure>
+    <div class="kicker" style="letter-spacing:.2em;text-transform:uppercase;color:var(--mute-2);font-size:var(--t-xs)">Open source</div>
+    <h2>Connect an agent or self-host</h2>
+    <p>Reach it over MCP or REST with the same handlers, discover everything at /openapi.json, and run your own copy with one docker run under Apache-2.0.</p>
+    <div style="max-width:680px;margin:1.6rem auto 0;text-align:left">
+    <div class="code"><div class="code-head"><span class="lang">json</span><span class="tab">mcp client</span><span class="spacer"></span><button class="copy" data-copy-target="#mcp-snippet">copy</button></div>
+      <pre id="mcp-snippet"><code>{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }</code></pre></div>
+    <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">rest, no key</span><span class="spacer"></span><button class="copy" data-copy-target="#curl-snippet">copy</button></div>
+      <pre id="curl-snippet"><code>curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["weather.temperature_2m"]}' | jq '.facts[0]'</code></pre></div>
+    <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">self-host</span><span class="spacer"></span><button class="copy" data-copy-target="#docker-snippet">copy</button></div>
+      <pre id="docker-snippet"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code></pre></div></div>
+    <div class="hero-cta" style="margin-top:1.6rem">
+      <a class="btn" href="/reference">Connect an agent &rarr;</a>
       <a class="btn ghost" href="/humans">Try it in the browser &rarr;</a>
       <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub &rarr;</a>
     </div>
+    <p class="closer" style="margin-top:2.4rem;font-size:var(--t-lg);color:var(--ink)">Earth now has a memory. <span class="accent">Help it remember.</span></p>
   </div>
 </section>
 
-<!-- ===== where this is going ===== -->
-<section class="section page" id="direction">
-  <aside class="section-meta"><div class="idx"><span class="idx-num">08</span><span class="idx-label">where this goes</span></div></aside>
-  <div class="section-body">
-    <h2>Where this is going.</h2>
-    <p>emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline. Today that is one hosted responder and self-hosted nodes, and the hard part already ships beneath them: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a self-correcting refinement loop.</p>
-    <p>The design target is a federation of those responders, resolving the same facts byte-for-byte and cross-citing each other&rsquo;s attestations, so the more of the world that is observed, the more trustworthy the shared memory becomes. Give it time, and Earth&rsquo;s memory stops being something you query. It becomes a common record of the planet that any person, any company, and any agent can build on, and that no one has to take on faith.</p>
-    <p class="closer">Earth now has a memory. <span class="accent">Help it remember.</span></p>
-    <div class="hero-cta closer-cta">
-      <a class="btn" href="/reference">Connect an agent &rarr;</a>
-      <a class="btn ghost" href="/docs">Read the docs &rarr;</a>
-    </div>
-  </div>
-</section>
 
 <footer class="page foot">
   <div class="foot-meta">

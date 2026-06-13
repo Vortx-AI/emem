@@ -5752,7 +5752,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "extended": emem_mcp::TOOLS.len() - core_count,
         "by_category": by_category,
         "list": "/v1/tools",
-        "mcp": "POST /mcp {\"method\":\"tools/list\"} returns all 80 tools by default; pass {\"tier\":\"core\"} for just the 10 essentials",
+        "mcp": "POST /mcp {\"method\":\"tools/list\"} returns all 81 tools by default; pass {\"tier\":\"core\"} for just the 10 essentials",
         "note": "Full descriptors (input_schema, when_to_use, annotations) at /v1/tools or via MCP tools/list. Summarized here to keep discovery token-cheap.",
     });
     Json(json!({
@@ -13653,7 +13653,7 @@ async fn mcp_jsonrpc(
             }))
         }
         "tools/list" => {
-            // Return the FULL catalog (all 80 tools) by default — that is what
+            // Return the FULL catalog (all 81 tools) by default — that is what
             // a standard MCP client expects from a no-param tools/list, and
             // most hosts do not follow a non-standard nextCursor, so a
             // core-only default left 70 tools undiscoverable. Token-conscious

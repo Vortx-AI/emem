@@ -354,7 +354,7 @@ verification, or similarity in a Claude Code session. See each
 - `https://emem.dev/agents.md` — consumer-agent ontology + recipes
 - `https://emem.dev/humans` — interactive console where every `/v1/*`
   call prints in a live log pane
-- `https://emem.dev/mcp` — JSON-RPC 2.0 MCP endpoint (80 tools — 10 core, 70 extended)
+- `https://emem.dev/mcp` — JSON-RPC 2.0 MCP endpoint (81 tools — 10 core, 71 extended)
 
 ## License
 
