@@ -99,7 +99,7 @@ def federation():
     for (x, y, col) in nodes:
         ctrl = ((x + CX) / 2 + (CY - y) * 0.08, (y + CY) / 2 - (CX - x) * 0.08)
         s.qpath((x, y), ctrl, (CX, CY), LEAF, 6.0, op=0.22, glow=True)
-        s.qpath((x, y), ctrl, (CX, CY), LEAF, 1.2, op=0.55)
+        s.qpath((x, y), ctrl, (CX, CY), LEAF, 1.2, op=0.55, cls="flowline")
     for i in range(N):
         a, b = nodes[i], nodes[(i + 1) % N]
         mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
@@ -279,7 +279,7 @@ def agent_loop():
         a, b = pos[i], pos[(i + 1) % len(stages)]
         mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
         ox, oy = mx - CX, my - CY; ol = math.hypot(ox, oy) or 1
-        s.qpath(a, (mx + ox / ol * 40, my + oy / ol * 40), b, LEAF, 1.4, op=0.7)
+        s.qpath(a, (mx + ox / ol * 40, my + oy / ol * 40), b, LEAF, 1.4, op=0.7, cls="flowline")
         s.dot(mx + ox / ol * 40, my + oy / ol * 40, 2.4, LEAF, op=0.8)
     for i, (lab, sub, col) in enumerate(stages):
         x, y = pos[i]
@@ -379,7 +379,7 @@ def cite_economy():
         a, b = pos[i], pos[(i + 1) % len(stages)]
         mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
         ox, oy = mx - CX, my - CY; ol = math.hypot(ox, oy) or 1
-        s.qpath(a, (mx + ox / ol * 38, my + oy / ol * 38), b, INK_SOFT, 1.3, op=0.65)
+        s.qpath(a, (mx + ox / ol * 38, my + oy / ol * 38), b, INK_SOFT, 1.3, op=0.65, cls="flowline")
         s.dot(mx + ox / ol * 38, my + oy / ol * 38, 2.2, TURMERIC, op=0.8)
     for i, (lab, sub, col) in enumerate(stages):
         x, y = pos[i]

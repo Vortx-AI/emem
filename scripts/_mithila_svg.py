@@ -36,9 +36,10 @@ class Svg:
         self._add(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" '
                   f'rx="{rx}" fill="{fill}" stroke="{stroke}" stroke-width="{sw}" opacity="{op}"{extra}/>')
 
-    def circle(self, cx, cy, r, fill="none", stroke="none", sw=1, op=1, glow=False):
+    def circle(self, cx, cy, r, fill="none", stroke="none", sw=1, op=1, glow=False, cls=""):
+        cc = f' class="{cls}"' if cls else ""
         self._add(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="{fill}" '
-                  f'stroke="{stroke}" stroke-width="{sw}" opacity="{op}"/>', glow)
+                  f'stroke="{stroke}" stroke-width="{sw}" opacity="{op}"{cc}/>', glow)
 
     def dot(self, cx, cy, r, fill, op=1, glow=False):
         self.circle(cx, cy, r, fill=fill, op=op, glow=glow)
@@ -47,11 +48,12 @@ class Svg:
         self._add(f'<line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" '
                   f'stroke="{stroke}" stroke-width="{sw}" opacity="{op}" stroke-linecap="round"/>', glow)
 
-    def qpath(self, p0, c, p1, stroke, sw=1, op=1, glow=False, dash=None):
+    def qpath(self, p0, c, p1, stroke, sw=1, op=1, glow=False, dash=None, cls=""):
         d = f'M{p0[0]:.1f},{p0[1]:.1f} Q{c[0]:.1f},{c[1]:.1f} {p1[0]:.1f},{p1[1]:.1f}'
         da = f' stroke-dasharray="{dash}"' if dash else ""
+        cc = f' class="{cls}"' if cls else ""
         self._add(f'<path d="{d}" fill="none" stroke="{stroke}" stroke-width="{sw}" '
-                  f'opacity="{op}" stroke-linecap="round"{da}/>', glow)
+                  f'opacity="{op}" stroke-linecap="round"{da}{cc}/>', glow)
 
     def poly(self, pts, fill="none", stroke="none", sw=1, op=1, close=False):
         d = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts) + (" Z" if close else "")
@@ -121,7 +123,7 @@ class Svg:
     def lotus(self, cx, cy, R, pulse=True):
         if pulse:
             for gr in (R * 1.7, R * 1.3, R * 1.05):
-                self.circle(cx, cy, gr, fill=LEAF, op=0.07, glow=True)
+                self.circle(cx, cy, gr, fill=LEAF, op=0.07, glow=True, cls="pulse")
         self.circle(cx, cy, R * 1.34, fill=PAPER, op=0.92)
         self.circle(cx, cy, R * 1.30, stroke=INK, sw=1.2, op=0.55)
         self.dot_ring(cx, cy, R * 1.30, 36, 1.3, INK, op=0.5)
@@ -145,14 +147,16 @@ class Svg:
         self.dot(cx, cy, R * 0.10, INK)
         self.dot_ring(cx, cy, R * 0.18, 6, 1.8, LEAF)
 
-    def flow(self, a, b, col, sw=1.2, op=0.9, bow=0.0, beads=True, glow=False):
+    def flow(self, a, b, col, sw=1.2, op=0.9, bow=0.0, beads=True, glow=False, animate=None):
+        if animate is None:
+            animate = glow            # the signed (glowing) flows carry the motion
         mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
         dx, dy = b[0] - a[0], b[1] - a[1]
         nl = math.hypot(dx, dy) or 1
         ctrl = (mx - dy / nl * bow, my + dx / nl * bow)
         if glow:
             self.qpath(a, ctrl, b, col, sw * 3.4, op=0.28, glow=True)
-        self.qpath(a, ctrl, b, col, sw, op=op)
+        self.qpath(a, ctrl, b, col, sw, op=op, cls=("flowline" if animate else ""))
         if beads:
             for k in range(1, 6):
                 t = k / 6
@@ -170,6 +174,14 @@ class Svg:
             '</radialGradient>'
             '<filter id="blur" x="-30%" y="-30%" width="160%" height="160%">'
             '<feGaussianBlur stdDeviation="7"/></filter>'
+            '<style>'
+            '.flowline{stroke-dasharray:7 11;animation:emflow 1.25s linear infinite}'
+            '@keyframes emflow{to{stroke-dashoffset:-18}}'
+            '.pulse{animation:empulse 3.4s ease-in-out infinite}'
+            '@keyframes empulse{0%,100%{opacity:.45}50%{opacity:1}}'
+            '@media(prefers-reduced-motion:reduce){'
+            '.flowline{animation:none}.pulse{animation:none}}'
+            '</style>'
             '</defs>'
         )
         body = (f'<g filter="url(#blur)">{"".join(self.glow)}</g>' if self.glow else "")
