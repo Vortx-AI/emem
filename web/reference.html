@@ -298,6 +298,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .code::after,.fact::after,.substrate-grid::after{content:"";position:absolute;inset:-3px;pointer-events:none;opacity:.4;padding:2px;background:repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
 .code-head::before,.memt-block .memt-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
 .statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
+
+/* ===== Mithila skin: painted hero + art bands + dividers (matches the homepage) ===== */
+.hero.hero-lean{text-align:center}
+.hero.hero-lean .sub{margin-left:auto;margin-right:auto}
+.hero.hero-lean .hero-cta{justify-content:center}
+.hero.hero-lean .hero-trust{text-align:center;white-space:normal}
+.mith-sun{display:block;width:min(330px,60%);height:auto;margin:0 auto -.1rem}
+.mith-band{max-width:1280px;margin:0 auto;padding:2.6rem var(--pad-x) .2rem}
+.mith-band figure{margin:0;background:var(--paper);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.mith-band figure img{display:block;width:100%;height:auto;border:0}
+.mith-div{display:flex;align-items:center;gap:1rem;max-width:1280px;margin:0 auto;padding:2.6rem var(--pad-x) .2rem}
+.mith-div::before,.mith-div::after{content:"";height:0;flex:1;border-top:1px solid var(--rule);box-shadow:0 3px 0 -2px var(--rule)}
+.mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);opacity:.8;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -318,7 +331,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <header class="hero hero-lean page">
   <div>
-    <h1>The <span class="accent">read surface</span>.</h1>
+    <img class="mith-sun" src="/art/hero.svg" alt=""><h1>The <span class="accent">read surface</span>.</h1>
     <p class="sub">One set of handlers answers every read, whether an agent reaches it over MCP or plain REST, and every answer comes back as an ed25519 receipt it can verify offline. This page is the human-readable index of that surface: client setup, the high-traffic endpoints, the one-shot domain tools, the twelve hunter events, and the physics solvers. The full machine contract is <a href="/openapi.json">/openapi.json</a>.</p>
     <div class="hero-cta">
       <a class="btn" href="#client-setup">Client setup</a>
@@ -327,6 +340,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p class="hero-trust">No API keys for reads · one MCP tool per primitive, mirrored as plain <code>/v1</code> REST · every answer an ed25519 receipt, verifiable offline.</p>
   </div>
 </header>
+
+<div class="mith-div"><span class="gem"></span></div>
 
 <section class="section page" id="client-setup">
   <aside class="section-meta">
@@ -375,6 +390,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p>Reads are idempotent. The MCP layer is a convenience wrapper over the same handlers behind <a href="/openapi.json">/openapi.json</a>. Writes (<span class="band">/v1/attest</span>, <span class="band">/v1/challenge</span>) require an Ed25519 secret the attester controls and are not exposed via MCP for that reason. The recommended first tool is <span class="band">emem_ask</span>: it routes a free-text question through place resolution, recall, and the applicable algorithms in one call.</p>
   </div>
 </section>
+
+<div class="mith-band"><figure><img src="/art/p6.svg" alt="" loading="lazy"></figure></div>
 
 <section class="section page" id="endpoints">
   <aside class="section-meta">
@@ -445,6 +462,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
+<div class="mith-band"><figure><img src="/art/p1.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="primitives">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">03</span><span class="idx-label">Primitives</span></div>
@@ -481,6 +500,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p>Empty is a signed answer, not a 404: when a cell has no fact for a band, the responder returns a signed record of that absence rather than failing silently.</p>
   </div>
 </section>
+
+<div class="mith-band"><figure><img src="/art/p3.svg" alt="" loading="lazy"></figure></div>
 
 <section class="section page" id="hunter">
   <aside class="section-meta">
@@ -522,6 +543,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
 </section>
 
+<div class="mith-div"><span class="gem"></span></div>
+
 <section class="section page" id="physics">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">05</span><span class="idx-label">Physics &amp; forecasting</span></div>
@@ -556,6 +579,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients: deterministic and reproducible. <span class="band">/v1/jepa_predict_v2</span> runs Tessera-embedding dynamics; when it cannot improve on the last observed vintage it short-circuits to that identity baseline and the receipt carries <span class="band">untrained_baseline</span>. The v2 forecast is an untrained baseline, never a learned prediction.</p>
   </div>
 </section>
+
+<div class="mith-div"><span class="gem"></span></div>
 
 <section class="section page" id="contract">
   <aside class="section-meta">

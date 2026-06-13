@@ -369,6 +369,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .mc-heartbeat .metric{color:var(--ink-2)}
 .mc-heartbeat .metric b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 .mc-heartbeat .metric.bumped b{color:var(--accent);transition:color .1s}
+
+/* ===== Mithila skin: painted hero + art bands + dividers (matches the homepage) ===== */
+.hero.hero-lean{text-align:center}
+.hero.hero-lean .sub{margin-left:auto;margin-right:auto}
+.hero.hero-lean .hero-cta{justify-content:center}
+.hero.hero-lean .hero-trust{text-align:center;white-space:normal}
+.mith-sun{display:block;width:min(330px,60%);height:auto;margin:0 auto -.1rem}
+.mith-band{max-width:1280px;margin:0 auto;padding:2.6rem var(--pad-x) .2rem}
+.mith-band figure{margin:0;background:var(--paper);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.mith-band figure img{display:block;width:100%;height:auto;border:0}
+.mith-div{display:flex;align-items:center;gap:1rem;max-width:1280px;margin:0 auto;padding:2.6rem var(--pad-x) .2rem}
+.mith-div::before,.mith-div::after{content:"";height:0;flex:1;border-top:1px solid var(--rule);box-shadow:0 3px 0 -2px var(--rule)}
+.mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);opacity:.8;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -389,7 +402,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 <section class="hero page hero-lean">
   <div>
-    <h1>How emem works</h1>
+    <img class="mith-sun" src="/art/hero.svg" alt=""><h1>How emem works</h1>
     <p class="sub">Every place on Earth resolves to a stable token. Every fact at that token is ed25519-signed and content-addressed. Facts link through typed edges and improve through contradiction scoring and a refinement loop, over a typed, bi-temporal memory substrate.</p>
     <div class="hero-cta">
       <a class="btn" href="/">Back to home</a>
@@ -398,6 +411,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p class="hero-trust">open &middot; no keys &middot; Apache-2.0 &middot; ed25519-signed by <code>777er3yihg&#8230;womvka</code></p>
   </div>
 </section>
+
+<div class="mith-band"><figure><img src="/art/p1.svg" alt="" loading="lazy"></figure></div>
 
 <section class="section page" id="tokenizing-earth">
   <aside class="section-meta">
@@ -441,6 +456,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p>The right-hand column is what makes the answer durable. A receipt-bearing fact survives the session, survives the model, survives the responder. Quote the <span class="band">fact_cid</span> in a chat and your colleague can pull byte-identical bytes from any replica and verify the signature in their browser at <a href="/verify">/verify</a> &mdash; no callback to the issuer. The recall surface is keyed on three coordinates: <span class="band">Cell &times; Band &times; Tslot &rarr; Fact</span>, where Band names a measurement (elevation, NDVI, land cover, a foundation embedding) and Tslot names a Unix-epoch time window.</p>
   </div>
 </section>
+
+<div class="mith-band"><figure><img src="/art/p2.svg" alt="" loading="lazy"></figure></div>
 
 <section class="section page" id="signing">
   <aside class="section-meta">
@@ -554,6 +571,8 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </div>
 </section>
 
+<div class="mith-band"><figure><img src="/art/p3.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="connect-evolve">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">03</span><span class="idx-label">Connect &amp; evolve</span></div>
@@ -626,6 +645,8 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </div>
 </section>
 
+<div class="mith-band"><figure><img src="/art/p4.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="substrate">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">04</span><span class="idx-label">Substrate</span></div>
@@ -696,6 +717,8 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </div>
 </section>
 
+<div class="mith-div"><span class="gem"></span></div>
+
 <section class="section page" id="absence">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">05</span><span class="idx-label">Absence</span></div>
@@ -725,6 +748,8 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     </table>
   </div>
 </section>
+
+<div class="mith-band"><figure><img src="/art/p6.svg" alt="" loading="lazy"></figure></div>
 
 <section class="section page" id="liveness">
   <aside class="section-meta">

@@ -433,6 +433,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .code::after,.fact::after,.substrate-grid::after{content:"";position:absolute;inset:-3px;pointer-events:none;opacity:.4;padding:2px;background:repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
 .code-head::before,.memt-block .memt-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
 .statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
+
+/* ===== Mithila skin: painted hero + art bands + dividers (matches the homepage) ===== */
+.hero.hero-lean{text-align:center}
+.hero.hero-lean .sub{margin-left:auto;margin-right:auto}
+.hero.hero-lean .hero-cta{justify-content:center}
+.hero.hero-lean .hero-trust{text-align:center;white-space:normal}
+.mith-sun{display:block;width:min(330px,60%);height:auto;margin:0 auto -.1rem}
+.mith-band{max-width:1280px;margin:0 auto;padding:2.6rem var(--pad-x) .2rem}
+.mith-band figure{margin:0;background:var(--paper);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.mith-band figure img{display:block;width:100%;height:auto;border:0}
+.mith-div{display:flex;align-items:center;gap:1rem;max-width:1280px;margin:0 auto;padding:2.6rem var(--pad-x) .2rem}
+.mith-div::before,.mith-div::after{content:"";height:0;flex:1;border-top:1px solid var(--rule);box-shadow:0 3px 0 -2px var(--rule)}
+.mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);opacity:.8;flex:0 0 auto}
 </style>
 </head>
 <body>
@@ -454,7 +467,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <!-- Page intro -->
 <section class="hero hero-lean page">
   <div>
-    <h1>Built with <span class="accent">emem</span></h1>
+    <img class="mith-sun" src="/art/hero.svg" alt=""><h1>Built with <span class="accent">emem</span></h1>
     <p class="sub">Four agents already run on the read surface, in regulated workflows where a number has to hold up under audit. Each one names the exact bands and algorithm it calls, and every answer comes back as an ed25519-signed receipt an auditor can re-verify offline, on any node, in any year.</p>
     <div class="hero-cta">
       <a class="btn" href="#eudr">EUDR compliance</a>
@@ -465,6 +478,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </section>
 
 <!-- EUDR compliance -->
+<div class="mith-band"><figure><img src="/docs/diagrams/29-eudr-supply-chain.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="eudr">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">01</span><span class="idx-label">Built with emem</span></div>
@@ -498,6 +513,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </section>
 
 <!-- Carbon-credit verifier -->
+<div class="mith-band"><figure><img src="/docs/diagrams/20-carbon-mrv.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="carbon">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">02</span><span class="idx-label">Built with emem</span></div>
@@ -529,6 +546,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </section>
 
 <!-- Insurance flood pre-screen -->
+<div class="mith-band"><figure><img src="/docs/diagrams/16-disaster-response.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="flood">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">03</span><span class="idx-label">Built with emem</span></div>
@@ -558,6 +577,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </section>
 
 <!-- Supply-chain location verifier -->
+<div class="mith-band"><figure><img src="/docs/diagrams/21-commodity-trading.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="supplychain">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">04</span><span class="idx-label">Built with emem</span></div>
@@ -586,6 +607,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </section>
 
 <!-- Production patterns -->
+<div class="mith-band"><figure><img src="/art/p6.svg" alt="" loading="lazy"></figure></div>
+
 <section class="section page" id="patterns">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">05</span><span class="idx-label">Production patterns</span></div>

@@ -182,6 +182,22 @@ const MAPLIBRE_CSS: &str = include_str!("../../../web/maplibre-gl.css");
 // the homepage map draws — no external tile server is contacted. Properties are
 // stripped; the responder styles it ink-on-cream in the Mithila hand.
 const LAND_GEOJSON: &str = include_str!("../../../web/land-110m.geojson");
+
+/// Bespoke Mithila (Madhubani) story panels reused across the homepage and the
+/// narrative pages (`/how-it-works`, `/solutions`, `/reference`). Flat-fill SVGs
+/// with no internal `<style>`/`<script>`, so they render identically whether
+/// inlined or loaded via `<img src="/art/<name>.svg">`. Served as static files
+/// (rather than re-inlined per page) to keep each page lean. See
+/// `serve_art_panel` + the `/art/:name` route.
+const ART_PANELS: &[(&str, &str)] = &[
+    ("p1.svg", include_str!("../../../web/art/p1.svg")),
+    ("p2.svg", include_str!("../../../web/art/p2.svg")),
+    ("p3.svg", include_str!("../../../web/art/p3.svg")),
+    ("p4.svg", include_str!("../../../web/art/p4.svg")),
+    ("p5.svg", include_str!("../../../web/art/p5.svg")),
+    ("p6.svg", include_str!("../../../web/art/p6.svg")),
+    ("hero.svg", include_str!("../../../web/art/hero.svg")),
+];
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
 /// `/docs/api/` and `/docs/api` — the ReDoc interactive REST reference,
@@ -715,6 +731,7 @@ pub fn router(state: AppState) -> Router {
         .route("/maplibre-gl.js", get(serve_maplibre_js))
         .route("/maplibre-gl.css", get(serve_maplibre_css))
         .route("/land-110m.geojson", get(serve_land_geojson))
+        .route("/art/:name", get(serve_art_panel))
         .route(
             "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
             get(serve_indexnow_key),
@@ -3186,6 +3203,23 @@ async fn serve_maplibre_css() -> Response {
 }
 async fn serve_land_geojson() -> Response {
     text_response("application/geo+json; charset=utf-8", LAND_GEOJSON)
+}
+/// `/art/<name>.svg` — one of the bespoke Mithila story panels. Slug must match
+/// the file name verbatim (e.g. `p1.svg`). 404 with a short reason on an unknown
+/// slug so a typo surfaces instead of silently rendering nothing.
+async fn serve_art_panel(axum::extract::Path(name): axum::extract::Path<String>) -> Response {
+    for (slug, body) in ART_PANELS {
+        if *slug == name.as_str() {
+            return text_response("image/svg+xml; charset=utf-8", body);
+        }
+    }
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(axum::body::Body::from(format!(
+            "art panel not found: {name}\navailable: p1.svg..p6.svg, hero.svg\n"
+        )))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 async fn serve_og_image() -> Response {
     text_response("image/svg+xml; charset=utf-8", OG_IMAGE_SVG)

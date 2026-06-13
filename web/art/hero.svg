@@ -1,0 +1,195 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 150" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="150" fill="#f3eee2"/>
+
+<!-- ============ BOTTOM DOUBLE-LINE TICK BORDER (the horizon) ============ -->
+<rect x="0" y="129" width="1200" height="2.6" fill="#2b2620"/>
+<rect x="0" y="140" width="1200" height="2.6" fill="#2b2620"/>
+<g fill="#2b2620">
+<rect x="8" y="132.5" width="3" height="6"/><rect x="28" y="132.5" width="3" height="6"/><rect x="48" y="132.5" width="3" height="6"/><rect x="68" y="132.5" width="3" height="6"/><rect x="88" y="132.5" width="3" height="6"/><rect x="108" y="132.5" width="3" height="6"/><rect x="128" y="132.5" width="3" height="6"/><rect x="148" y="132.5" width="3" height="6"/><rect x="168" y="132.5" width="3" height="6"/><rect x="188" y="132.5" width="3" height="6"/><rect x="208" y="132.5" width="3" height="6"/><rect x="228" y="132.5" width="3" height="6"/><rect x="248" y="132.5" width="3" height="6"/><rect x="268" y="132.5" width="3" height="6"/><rect x="288" y="132.5" width="3" height="6"/><rect x="308" y="132.5" width="3" height="6"/><rect x="328" y="132.5" width="3" height="6"/><rect x="348" y="132.5" width="3" height="6"/><rect x="368" y="132.5" width="3" height="6"/><rect x="388" y="132.5" width="3" height="6"/><rect x="408" y="132.5" width="3" height="6"/><rect x="428" y="132.5" width="3" height="6"/><rect x="448" y="132.5" width="3" height="6"/><rect x="468" y="132.5" width="3" height="6"/><rect x="488" y="132.5" width="3" height="6"/><rect x="508" y="132.5" width="3" height="6"/><rect x="528" y="132.5" width="3" height="6"/><rect x="548" y="132.5" width="3" height="6"/><rect x="568" y="132.5" width="3" height="6"/><rect x="588" y="132.5" width="3" height="6"/><rect x="608" y="132.5" width="3" height="6"/><rect x="628" y="132.5" width="3" height="6"/><rect x="648" y="132.5" width="3" height="6"/><rect x="668" y="132.5" width="3" height="6"/><rect x="688" y="132.5" width="3" height="6"/><rect x="708" y="132.5" width="3" height="6"/><rect x="728" y="132.5" width="3" height="6"/><rect x="748" y="132.5" width="3" height="6"/><rect x="768" y="132.5" width="3" height="6"/><rect x="788" y="132.5" width="3" height="6"/><rect x="808" y="132.5" width="3" height="6"/><rect x="828" y="132.5" width="3" height="6"/><rect x="848" y="132.5" width="3" height="6"/><rect x="868" y="132.5" width="3" height="6"/><rect x="888" y="132.5" width="3" height="6"/><rect x="908" y="132.5" width="3" height="6"/><rect x="928" y="132.5" width="3" height="6"/><rect x="948" y="132.5" width="3" height="6"/><rect x="968" y="132.5" width="3" height="6"/><rect x="988" y="132.5" width="3" height="6"/><rect x="1008" y="132.5" width="3" height="6"/><rect x="1028" y="132.5" width="3" height="6"/><rect x="1048" y="132.5" width="3" height="6"/><rect x="1068" y="132.5" width="3" height="6"/><rect x="1088" y="132.5" width="3" height="6"/><rect x="1108" y="132.5" width="3" height="6"/><rect x="1128" y="132.5" width="3" height="6"/><rect x="1148" y="132.5" width="3" height="6"/><rect x="1168" y="132.5" width="3" height="6"/><rect x="1188" y="132.5" width="3" height="6"/>
+</g>
+<!-- dot row beneath the horizon ticks -->
+<g fill="#5c5346">
+<circle cx="18" cy="146.5" r="1.5"/><circle cx="38" cy="146.5" r="1.5"/><circle cx="58" cy="146.5" r="1.5"/><circle cx="78" cy="146.5" r="1.5"/><circle cx="98" cy="146.5" r="1.5"/><circle cx="118" cy="146.5" r="1.5"/><circle cx="138" cy="146.5" r="1.5"/><circle cx="158" cy="146.5" r="1.5"/><circle cx="178" cy="146.5" r="1.5"/><circle cx="198" cy="146.5" r="1.5"/><circle cx="1002" cy="146.5" r="1.5"/><circle cx="1022" cy="146.5" r="1.5"/><circle cx="1042" cy="146.5" r="1.5"/><circle cx="1062" cy="146.5" r="1.5"/><circle cx="1082" cy="146.5" r="1.5"/><circle cx="1102" cy="146.5" r="1.5"/><circle cx="1122" cy="146.5" r="1.5"/><circle cx="1142" cy="146.5" r="1.5"/><circle cx="1162" cy="146.5" r="1.5"/><circle cx="1182" cy="146.5" r="1.5"/>
+</g>
+
+<!-- ============ CENTRAL RADIANT SUN ============ -->
+<!-- long pointed rays (alternating ochre / indigo), behind disc -->
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.6" stroke-linejoin="round">
+<polygon points="600,8 606,52 594,52"/>
+<polygon points="668,16 650,56 638,50"/>
+<polygon points="532,16 562,50 550,56"/>
+<polygon points="722,44 678,62 672,50"/>
+<polygon points="478,44 528,50 522,62"/>
+<polygon points="740,96 690,80 698,68"/>
+<polygon points="460,96 510,68 502,80"/>
+</g>
+<g fill="#344a8c" stroke="#2b2620" stroke-width="1.6" stroke-linejoin="round">
+<polygon points="634,10 632,52 620,50"/>
+<polygon points="566,10 580,50 568,52"/>
+<polygon points="700,28 666,58 658,48"/>
+<polygon points="500,28 542,48 534,58"/>
+<polygon points="730,68 684,72 686,60"/>
+<polygon points="470,68 514,60 516,72"/>
+</g>
+<!-- ray-tip dots -->
+<g fill="#bb3b2c"><circle cx="600" cy="12" r="2.4"/><circle cx="666" cy="18" r="2.4"/><circle cx="534" cy="18" r="2.4"/><circle cx="718" cy="46" r="2.4"/><circle cx="482" cy="46" r="2.4"/></g>
+
+<!-- sun disc: double outline -->
+<circle cx="600" cy="78" r="44" fill="#bb3b2c" stroke="#2b2620" stroke-width="3"/>
+<circle cx="600" cy="78" r="44" fill="none" stroke="#2b2620" stroke-width="3"/>
+<circle cx="600" cy="78" r="39" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+<!-- ring of dots inside disc edge -->
+<g fill="#f3eee2">
+<circle cx="600" cy="44" r="1.7"/><circle cx="617" cy="46" r="1.7"/><circle cx="630" cy="55" r="1.7"/><circle cx="635" cy="70" r="1.7"/><circle cx="634" cy="86" r="1.7"/><circle cx="627" cy="100" r="1.7"/><circle cx="614" cy="109" r="1.7"/><circle cx="600" cy="112" r="1.7"/><circle cx="583" cy="46" r="1.7"/><circle cx="570" cy="55" r="1.7"/><circle cx="565" cy="70" r="1.7"/><circle cx="566" cy="86" r="1.7"/><circle cx="573" cy="100" r="1.7"/><circle cx="586" cy="109" r="1.7"/>
+</g>
+
+<!-- inner ochre field for the face -->
+<circle cx="600" cy="78" r="31" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+
+<!-- SIDE-PROFILE sun face (looking right) -->
+<g stroke="#2b2620" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
+<!-- profile silhouette: forehead, nose, lips, chin -->
+<path d="M 597 50 C 612 51 624 60 626 72 L 631 76 L 626 80 C 627 86 623 90 619 91 C 621 95 618 99 614 100 L 605 103" />
+<!-- receding brow -->
+<path d="M 591 64 C 599 60 609 61 615 66"/>
+</g>
+<!-- one large almond fish-eye -->
+<path d="M 597 70 C 604 66 614 66 620 71 C 614 76 604 76 597 71 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="608" cy="71" r="4.2" fill="#344a8c"/>
+<circle cx="608" cy="71" r="1.7" fill="#2b2620"/>
+<!-- cheek rosette + hatch fill in face -->
+<circle cx="588" cy="84" r="4.5" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.4"/>
+<g stroke="#2b2620" stroke-width="1.2"><path d="M576 92 q6 4 14 4"/><path d="M575 88 q5 3 11 3"/></g>
+
+<!-- ============ LEFT FLANK: profile bird + lotus vine ============ -->
+<!-- vine trunk reaching to left edge -->
+<path d="M 470 84 C 410 70 350 96 290 78 C 230 60 160 92 96 78 C 60 70 28 86 0 80" fill="none" stroke="#4f8a3d" stroke-width="4"/>
+<path d="M 470 92 C 410 78 350 104 290 86 C 230 68 160 100 96 86 C 60 78 28 94 0 88" fill="none" stroke="#4f8a3d" stroke-width="2"/>
+<!-- leaves along left vine (alternating green, double-outline veins) -->
+<g stroke="#2b2620" stroke-width="1.3" stroke-linejoin="round">
+<path d="M430 80 q-14 -18 -30 -14 q10 16 30 14 Z" fill="#4f8a3d"/>
+<path d="M380 96 q-12 18 -30 16 q8 -16 30 -16 Z" fill="#4f8a3d"/>
+<path d="M330 78 q-14 -18 -30 -12 q12 16 30 12 Z" fill="#4f8a3d"/>
+<path d="M280 92 q-12 18 -28 16 q6 -16 28 -16 Z" fill="#4f8a3d"/>
+<path d="M210 82 q-14 -18 -30 -12 q12 16 30 12 Z" fill="#4f8a3d"/>
+<path d="M160 96 q-12 18 -28 16 q6 -16 28 -16 Z" fill="#4f8a3d"/>
+<path d="M96 80 q-14 -18 -28 -12 q11 16 28 12 Z" fill="#4f8a3d"/>
+<path d="M48 92 q-12 17 -26 15 q6 -15 26 -15 Z" fill="#4f8a3d"/>
+</g>
+<g stroke="#2b2620" stroke-width="0.9" fill="none">
+<path d="M408 70 q5 8 14 8"/><path d="M358 110 q5 -8 14 -10"/><path d="M308 68 q6 8 14 8"/><path d="M256 106 q5 -8 14 -10"/><path d="M188 70 q6 8 14 8"/><path d="M138 110 q5 -8 14 -10"/><path d="M74 70 q6 7 14 8"/><path d="M28 105 q4 -7 12 -9"/>
+</g>
+<!-- buds on the vine -->
+<g stroke="#2b2620" stroke-width="1.3">
+<path d="M355 84 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M235 86 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M120 86 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
+</g>
+<!-- dot rows packing the left field -->
+<g fill="#5c5346">
+<circle cx="440" cy="58" r="1.6"/><circle cx="420" cy="54" r="1.6"/><circle cx="400" cy="56" r="1.6"/><circle cx="380" cy="52" r="1.6"/><circle cx="360" cy="56" r="1.6"/><circle cx="340" cy="52" r="1.6"/><circle cx="320" cy="56" r="1.6"/><circle cx="300" cy="52" r="1.6"/><circle cx="280" cy="56" r="1.6"/><circle cx="260" cy="52" r="1.6"/><circle cx="240" cy="56" r="1.6"/><circle cx="220" cy="52" r="1.6"/><circle cx="200" cy="56" r="1.6"/><circle cx="180" cy="52" r="1.6"/><circle cx="160" cy="56" r="1.6"/><circle cx="140" cy="52" r="1.6"/><circle cx="120" cy="56" r="1.6"/><circle cx="100" cy="52" r="1.6"/><circle cx="80" cy="56" r="1.6"/><circle cx="60" cy="52" r="1.6"/><circle cx="40" cy="56" r="1.6"/><circle cx="20" cy="52" r="1.6"/>
+</g>
+<!-- fish-scale arcs filling upper-left -->
+<g fill="none" stroke="#344a8c" stroke-width="1.1">
+<path d="M30 38 q10 -10 20 0"/><path d="M50 38 q10 -10 20 0"/><path d="M70 38 q10 -10 20 0"/><path d="M90 38 q10 -10 20 0"/><path d="M110 38 q10 -10 20 0"/><path d="M40 30 q10 -10 20 0"/><path d="M60 30 q10 -10 20 0"/><path d="M80 30 q10 -10 20 0"/><path d="M100 30 q10 -10 20 0"/>
+</g>
+
+<!-- LEFT BIRD: side profile, facing center (right) -->
+<g>
+<!-- body double-outline -->
+<path d="M205 70 C 188 56 158 56 142 70 C 132 80 138 96 156 100 C 176 104 198 96 210 84 C 214 80 212 74 205 70 Z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M205 70 C 188 56 158 56 142 70 C 132 80 138 96 156 100 C 176 104 198 96 210 84 C 214 80 212 74 205 70 Z" fill="none" stroke="#f3eee2" stroke-width="1"/>
+<!-- head + curved beak, profile -->
+<path d="M205 70 C 214 62 224 62 230 66 L 240 70 L 230 74 C 226 78 218 80 210 78" fill="#2e8c84" stroke="#2b2620" stroke-width="2.4"/>
+<!-- almond fish-eye -->
+<path d="M214 66 C 219 63 226 63 230 67 C 226 71 219 71 214 67 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="222" cy="67" r="2.6" fill="#2b2620"/>
+<!-- wing with concentric petals -->
+<path d="M178 72 C 168 70 158 76 158 86 C 168 90 182 86 188 78 Z" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M174 76 q6 4 10 0" fill="none" stroke="#2b2620" stroke-width="1"/>
+<!-- tail feathers, hatched -->
+<g stroke="#2b2620" stroke-width="1.8" fill="#d59a2a">
+<path d="M142 78 L 116 70 L 122 82 Z"/>
+<path d="M142 84 L 114 84 L 122 92 Z"/>
+<path d="M144 90 L 118 98 L 128 98 Z"/>
+</g>
+<!-- legs -->
+<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M170 100 l0 12 l-6 4"/><path d="M170 112 l6 4"/><path d="M184 100 l0 12 l-6 4"/><path d="M184 112 l6 4"/></g>
+<!-- body scale fill -->
+<g fill="none" stroke="#f3eee2" stroke-width="0.9"><path d="M158 78 q6 -6 12 0"/><path d="M172 80 q6 -6 12 0"/><path d="M160 88 q6 -6 12 0"/><path d="M174 90 q6 -6 12 0"/></g>
+</g>
+
+<!-- ============ RIGHT FLANK: mirrored, hand-paired (slightly imperfect) ============ -->
+<path d="M 730 84 C 790 70 850 96 910 78 C 970 60 1040 92 1104 78 C 1140 70 1172 86 1200 80" fill="none" stroke="#4f8a3d" stroke-width="4"/>
+<path d="M 730 92 C 790 78 850 104 910 86 C 970 68 1040 100 1104 86 C 1140 78 1172 94 1200 88" fill="none" stroke="#4f8a3d" stroke-width="2"/>
+<g stroke="#2b2620" stroke-width="1.3" stroke-linejoin="round">
+<path d="M770 80 q14 -18 30 -14 q-10 16 -30 14 Z" fill="#4f8a3d"/>
+<path d="M820 96 q12 18 30 16 q-8 -16 -30 -16 Z" fill="#4f8a3d"/>
+<path d="M870 78 q14 -18 30 -12 q-12 16 -30 12 Z" fill="#4f8a3d"/>
+<path d="M922 92 q12 18 28 16 q-6 -16 -28 -16 Z" fill="#4f8a3d"/>
+<path d="M992 82 q14 -18 30 -12 q-12 16 -30 12 Z" fill="#4f8a3d"/>
+<path d="M1042 96 q12 18 28 16 q-6 -16 -28 -16 Z" fill="#4f8a3d"/>
+<path d="M1106 80 q14 -18 28 -12 q-11 16 -28 12 Z" fill="#4f8a3d"/>
+<path d="M1154 92 q12 17 26 15 q-6 -15 -26 -15 Z" fill="#4f8a3d"/>
+</g>
+<g stroke="#2b2620" stroke-width="0.9" fill="none">
+<path d="M792 70 q-5 8 -14 8"/><path d="M842 110 q-5 -8 -14 -10"/><path d="M892 68 q-6 8 -14 8"/><path d="M944 106 q-5 -8 -14 -10"/><path d="M1012 70 q-6 8 -14 8"/><path d="M1062 110 q-5 -8 -14 -10"/><path d="M1126 70 q-6 7 -14 8"/><path d="M1172 105 q-4 -7 -12 -9"/>
+</g>
+<g stroke="#2b2620" stroke-width="1.3">
+<path d="M845 84 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M965 86 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
+<path d="M1080 86 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
+</g>
+<g fill="#5c5346">
+<circle cx="760" cy="58" r="1.6"/><circle cx="780" cy="54" r="1.6"/><circle cx="800" cy="56" r="1.6"/><circle cx="820" cy="52" r="1.6"/><circle cx="840" cy="56" r="1.6"/><circle cx="860" cy="52" r="1.6"/><circle cx="880" cy="56" r="1.6"/><circle cx="900" cy="52" r="1.6"/><circle cx="920" cy="56" r="1.6"/><circle cx="940" cy="52" r="1.6"/><circle cx="960" cy="56" r="1.6"/><circle cx="980" cy="52" r="1.6"/><circle cx="1000" cy="56" r="1.6"/><circle cx="1020" cy="52" r="1.6"/><circle cx="1040" cy="56" r="1.6"/><circle cx="1060" cy="52" r="1.6"/><circle cx="1080" cy="56" r="1.6"/><circle cx="1100" cy="52" r="1.6"/><circle cx="1120" cy="56" r="1.6"/><circle cx="1140" cy="52" r="1.6"/><circle cx="1160" cy="56" r="1.6"/><circle cx="1180" cy="52" r="1.6"/>
+</g>
+<g fill="none" stroke="#344a8c" stroke-width="1.1">
+<path d="M1090 38 q10 -10 20 0"/><path d="M1110 38 q10 -10 20 0"/><path d="M1130 38 q10 -10 20 0"/><path d="M1150 38 q10 -10 20 0"/><path d="M1170 38 q10 -10 20 0"/><path d="M1080 30 q10 -10 20 0"/><path d="M1100 30 q10 -10 20 0"/><path d="M1120 30 q10 -10 20 0"/><path d="M1140 30 q10 -10 20 0"/>
+</g>
+
+<!-- RIGHT BIRD: side profile, facing center (left) -->
+<g>
+<path d="M995 70 C 1012 56 1042 56 1058 70 C 1068 80 1062 96 1044 100 C 1024 104 1002 96 990 84 C 986 80 988 74 995 70 Z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M995 70 C 1012 56 1042 56 1058 70 C 1068 80 1062 96 1044 100 C 1024 104 1002 96 990 84 C 986 80 988 74 995 70 Z" fill="none" stroke="#f3eee2" stroke-width="1"/>
+<path d="M995 70 C 986 62 976 62 970 66 L 960 70 L 970 74 C 974 78 982 80 990 78" fill="#2e8c84" stroke="#2b2620" stroke-width="2.4"/>
+<path d="M986 66 C 981 63 974 63 970 67 C 974 71 981 71 986 67 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="978" cy="67" r="2.6" fill="#2b2620"/>
+<path d="M1022 72 C 1032 70 1042 76 1042 86 C 1032 90 1018 86 1012 78 Z" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.8"/>
+<path d="M1026 76 q-6 4 -10 0" fill="none" stroke="#2b2620" stroke-width="1"/>
+<g stroke="#2b2620" stroke-width="1.8" fill="#d59a2a">
+<path d="M1058 78 L 1084 70 L 1078 82 Z"/>
+<path d="M1058 84 L 1086 84 L 1078 92 Z"/>
+<path d="M1056 90 L 1082 98 L 1072 98 Z"/>
+</g>
+<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M1030 100 l0 12 l6 4"/><path d="M1030 112 l-6 4"/><path d="M1016 100 l0 12 l6 4"/><path d="M1016 112 l-6 4"/></g>
+<g fill="none" stroke="#f3eee2" stroke-width="0.9"><path d="M1030 78 q-6 -6 -12 0"/><path d="M1016 80 q-6 -6 -12 0"/><path d="M1028 88 q-6 -6 -12 0"/><path d="M1014 90 q-6 -6 -12 0"/></g>
+</g>
+
+<!-- corner-style rosettes near the sun base to bridge flanks to center -->
+<g>
+<circle cx="500" cy="106" r="9" fill="#6e4a93" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="500" cy="106" r="3.5" fill="#f3eee2"/>
+<g stroke="#2b2620" stroke-width="1" fill="none"><path d="M491 106 h-6"/><path d="M509 106 h6"/><path d="M500 97 v-6"/><path d="M500 115 v6"/></g>
+</g>
+<g>
+<circle cx="700" cy="106" r="9" fill="#6e4a93" stroke="#2b2620" stroke-width="1.8"/>
+<circle cx="700" cy="106" r="3.5" fill="#f3eee2"/>
+<g stroke="#2b2620" stroke-width="1" fill="none"><path d="M691 106 h-6"/><path d="M709 106 h6"/><path d="M700 97 v-6"/><path d="M700 115 v6"/></g>
+</g>
+
+<!-- small 6-tick suns filling residual gaps above flanks -->
+<g stroke="#bb3b2c" stroke-width="1.3" fill="#ochre">
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.2"><circle cx="255" cy="40" r="4"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.2"><circle cx="945" cy="40" r="4"/></g>
+</g>
+<g stroke="#2b2620" stroke-width="1">
+<path d="M255 32 v-5"/><path d="M255 48 v5"/><path d="M247 40 h-5"/><path d="M263 40 h5"/><path d="M249 34 l-3 -3"/><path d="M261 46 l3 3"/>
+<path d="M945 32 v-5"/><path d="M945 48 v5"/><path d="M937 40 h-5"/><path d="M953 40 h5"/><path d="M939 34 l-3 -3"/><path d="M951 46 l3 3"/>
+</g>
+
+<!-- hatch fill bridging vine base to horizon (left + right) -->
+<g stroke="#5c5346" stroke-width="0.9">
+<path d="M40 110 l8 12"/><path d="M70 108 l8 12"/><path d="M110 112 l8 12"/><path d="M150 110 l8 12"/><path d="M200 114 l8 12"/><path d="M260 112 l8 12"/><path d="M320 116 l8 12"/><path d="M380 114 l8 12"/>
+<path d="M1160 110 l-8 12"/><path d="M1130 108 l-8 12"/><path d="M1090 112 l-8 12"/><path d="M1050 110 l-8 12"/><path d="M1000 114 l-8 12"/><path d="M940 112 l-8 12"/><path d="M880 116 l-8 12"/><path d="M820 114 l-8 12"/>
+</g>
+</svg>

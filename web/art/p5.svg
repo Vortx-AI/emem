@@ -1,0 +1,239 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
+
+<!-- ================= BACKGROUND FIELD FILLER (horror vacui) ================= -->
+<g fill="none" stroke="#5c5346" stroke-width="1.4" stroke-linecap="round">
+<!-- diagonal hatch lattice over whole field, broken later by motifs -->
+<path d="M40 40 L1160 40 M40 70 L1160 70 M40 100 L1160 100 M40 130 L1160 130 M40 160 L1160 160 M40 190 L1160 190 M40 220 L1160 220 M40 250 L1160 250 M40 280 L1160 280 M40 310 L1160 310 M40 340 L1160 340 M40 370 L1160 370 M40 400 L1160 400" opacity="1"/>
+</g>
+<!-- overpaint the field rows with paper-2 ribbons so hatch reads as banded background -->
+<g fill="#ebe4d3">
+<rect x="40" y="55" width="1120" height="14"/>
+<rect x="40" y="115" width="1120" height="14"/>
+<rect x="40" y="175" width="1120" height="14"/>
+<rect x="40" y="235" width="1120" height="14"/>
+<rect x="40" y="295" width="1120" height="14"/>
+<rect x="40" y="355" width="1120" height="14"/>
+</g>
+<!-- dot rows woven into the paper-2 ribbons -->
+<g fill="#2b2620">
+<g>
+<circle cx="60" cy="62" r="2"/><circle cx="100" cy="62" r="2"/><circle cx="140" cy="62" r="2"/><circle cx="180" cy="62" r="2"/><circle cx="220" cy="62" r="2"/><circle cx="260" cy="62" r="2"/><circle cx="300" cy="62" r="2"/><circle cx="340" cy="62" r="2"/><circle cx="380" cy="62" r="2"/><circle cx="420" cy="62" r="2"/><circle cx="780" cy="62" r="2"/><circle cx="820" cy="62" r="2"/><circle cx="860" cy="62" r="2"/><circle cx="900" cy="62" r="2"/><circle cx="940" cy="62" r="2"/><circle cx="980" cy="62" r="2"/><circle cx="1020" cy="62" r="2"/><circle cx="1060" cy="62" r="2"/><circle cx="1100" cy="62" r="2"/><circle cx="1140" cy="62" r="2"/>
+</g>
+<g>
+<circle cx="60" cy="362" r="2"/><circle cx="100" cy="362" r="2"/><circle cx="140" cy="362" r="2"/><circle cx="180" cy="362" r="2"/><circle cx="220" cy="362" r="2"/><circle cx="260" cy="362" r="2"/><circle cx="300" cy="362" r="2"/><circle cx="340" cy="362" r="2"/><circle cx="860" cy="362" r="2"/><circle cx="900" cy="362" r="2"/><circle cx="940" cy="362" r="2"/><circle cx="980" cy="362" r="2"/><circle cx="1020" cy="362" r="2"/><circle cx="1060" cy="362" r="2"/><circle cx="1100" cy="362" r="2"/><circle cx="1140" cy="362" r="2"/>
+</g>
+</g>
+
+<!-- scattered tiny leaves / buds in upper and lower field gaps -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1.1">
+<path d="M150 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M250 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M950 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M1050 90 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M150 388 q10 -10 20 0 q-10 10 -20 0 Z"/>
+<path d="M1010 388 q10 -10 20 0 q-10 10 -20 0 Z"/>
+</g>
+<!-- little six-tick suns in corners of field -->
+<g fill="none" stroke="#d59a2a" stroke-width="1.6">
+<g><circle cx="100" cy="92" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M100 80 v-6 M100 104 v6 M88 92 h-6 M112 92 h6 M91 83 l-4 -4 M109 83 l4 -4 M91 101 l-4 4 M109 101 l4 4" stroke="#5c5346"/></g>
+<g><circle cx="1100" cy="92" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M1100 80 v-6 M1100 104 v6 M1088 92 h-6 M1112 92 h6 M1091 83 l-4 -4 M1109 83 l4 -4 M1091 101 l-4 4 M1109 101 l4 4" stroke="#5c5346"/></g>
+<g><circle cx="100" cy="388" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M100 376 v-6 M100 400 v6 M88 388 h-6 M112 388 h6" stroke="#5c5346"/></g>
+<g><circle cx="1100" cy="388" r="6" fill="#d59a2a" stroke="#2b2620"/><path d="M1100 376 v-6 M1100 400 v6 M1088 388 h-6 M1112 388 h6" stroke="#5c5346"/></g>
+</g>
+
+<!-- running vine (bel) framing inside upper and lower bands -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2">
+<path d="M440 100 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0"/>
+<path d="M440 360 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0 q20 16 40 0 q20 -16 40 0"/>
+</g>
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="0.9">
+<circle cx="480" cy="96" r="3"/><circle cx="560" cy="96" r="3"/><circle cx="640" cy="96" r="3"/><circle cx="720" cy="96" r="3"/>
+<circle cx="480" cy="364" r="3"/><circle cx="560" cy="364" r="3"/><circle cx="640" cy="364" r="3"/><circle cx="720" cy="364" r="3"/>
+</g>
+
+<!-- ================= DOUBLE-LINE BORDER + TICK CHANNEL ================= -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- tick channel: dashes between the two border lines -->
+<g stroke="#2b2620" stroke-width="2.4">
+<!-- top -->
+<path d="M30 19.5 v4 M44 19.5 v4 M58 19.5 v4 M72 19.5 v4 M86 19.5 v4 M100 19.5 v4 M114 19.5 v4 M128 19.5 v4 M142 19.5 v4 M156 19.5 v4 M170 19.5 v4 M184 19.5 v4 M198 19.5 v4 M212 19.5 v4 M226 19.5 v4 M240 19.5 v4 M254 19.5 v4 M268 19.5 v4 M282 19.5 v4 M296 19.5 v4 M310 19.5 v4 M324 19.5 v4 M338 19.5 v4 M352 19.5 v4 M366 19.5 v4 M380 19.5 v4 M394 19.5 v4 M408 19.5 v4 M422 19.5 v4 M436 19.5 v4 M450 19.5 v4 M464 19.5 v4 M478 19.5 v4 M492 19.5 v4 M506 19.5 v4 M520 19.5 v4 M534 19.5 v4 M548 19.5 v4 M562 19.5 v4 M576 19.5 v4 M590 19.5 v4 M604 19.5 v4 M618 19.5 v4 M632 19.5 v4 M646 19.5 v4 M660 19.5 v4 M674 19.5 v4 M688 19.5 v4 M702 19.5 v4 M716 19.5 v4 M730 19.5 v4 M744 19.5 v4 M758 19.5 v4 M772 19.5 v4 M786 19.5 v4 M800 19.5 v4 M814 19.5 v4 M828 19.5 v4 M842 19.5 v4 M856 19.5 v4 M870 19.5 v4 M884 19.5 v4 M898 19.5 v4 M912 19.5 v4 M926 19.5 v4 M940 19.5 v4 M954 19.5 v4 M968 19.5 v4 M982 19.5 v4 M996 19.5 v4 M1010 19.5 v4 M1024 19.5 v4 M1038 19.5 v4 M1052 19.5 v4 M1066 19.5 v4 M1080 19.5 v4 M1094 19.5 v4 M1108 19.5 v4 M1122 19.5 v4 M1136 19.5 v4 M1150 19.5 v4 M1164 19.5 v4"/>
+<!-- bottom -->
+<path d="M30 436.5 v4 M44 436.5 v4 M58 436.5 v4 M72 436.5 v4 M86 436.5 v4 M100 436.5 v4 M114 436.5 v4 M128 436.5 v4 M142 436.5 v4 M156 436.5 v4 M170 436.5 v4 M184 436.5 v4 M198 436.5 v4 M212 436.5 v4 M226 436.5 v4 M240 436.5 v4 M254 436.5 v4 M268 436.5 v4 M282 436.5 v4 M296 436.5 v4 M310 436.5 v4 M324 436.5 v4 M338 436.5 v4 M352 436.5 v4 M366 436.5 v4 M380 436.5 v4 M394 436.5 v4 M408 436.5 v4 M422 436.5 v4 M436 436.5 v4 M450 436.5 v4 M464 436.5 v4 M478 436.5 v4 M492 436.5 v4 M506 436.5 v4 M520 436.5 v4 M534 436.5 v4 M548 436.5 v4 M562 436.5 v4 M576 436.5 v4 M590 436.5 v4 M604 436.5 v4 M618 436.5 v4 M632 436.5 v4 M646 436.5 v4 M660 436.5 v4 M674 436.5 v4 M688 436.5 v4 M702 436.5 v4 M716 436.5 v4 M730 436.5 v4 M744 436.5 v4 M758 436.5 v4 M772 436.5 v4 M786 436.5 v4 M800 436.5 v4 M814 436.5 v4 M828 436.5 v4 M842 436.5 v4 M856 436.5 v4 M870 436.5 v4 M884 436.5 v4 M898 436.5 v4 M912 436.5 v4 M926 436.5 v4 M940 436.5 v4 M954 436.5 v4 M968 436.5 v4 M982 436.5 v4 M996 436.5 v4 M1010 436.5 v4 M1024 436.5 v4 M1038 436.5 v4 M1052 436.5 v4 M1066 436.5 v4 M1080 436.5 v4 M1094 436.5 v4 M1108 436.5 v4 M1122 436.5 v4 M1136 436.5 v4 M1150 436.5 v4 M1164 436.5 v4"/>
+<!-- left -->
+<path d="M19.5 30 h4 M19.5 44 h4 M19.5 58 h4 M19.5 72 h4 M19.5 86 h4 M19.5 100 h4 M19.5 114 h4 M19.5 128 h4 M19.5 142 h4 M19.5 156 h4 M19.5 170 h4 M19.5 184 h4 M19.5 198 h4 M19.5 212 h4 M19.5 226 h4 M19.5 240 h4 M19.5 254 h4 M19.5 268 h4 M19.5 282 h4 M19.5 296 h4 M19.5 310 h4 M19.5 324 h4 M19.5 338 h4 M19.5 352 h4 M19.5 366 h4 M19.5 380 h4 M19.5 394 h4 M19.5 408 h4 M19.5 422 h4"/>
+<!-- right -->
+<path d="M1176.5 30 h4 M1176.5 44 h4 M1176.5 58 h4 M1176.5 72 h4 M1176.5 86 h4 M1176.5 100 h4 M1176.5 114 h4 M1176.5 128 h4 M1176.5 142 h4 M1176.5 156 h4 M1176.5 170 h4 M1176.5 184 h4 M1176.5 198 h4 M1176.5 212 h4 M1176.5 226 h4 M1176.5 240 h4 M1176.5 254 h4 M1176.5 268 h4 M1176.5 282 h4 M1176.5 296 h4 M1176.5 310 h4 M1176.5 324 h4 M1176.5 338 h4 M1176.5 352 h4 M1176.5 366 h4 M1176.5 380 h4 M1176.5 394 h4 M1176.5 408 h4 M1176.5 422 h4"/>
+</g>
+
+<!-- corner lotus-bud rosettes -->
+<g>
+<g transform="translate(16,16)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+<g transform="translate(1184,16)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+<g transform="translate(16,444)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+<g transform="translate(1184,444)">
+<circle cx="0" cy="0" r="11" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M0 0 L0 -16 M0 0 L11 -11 M0 0 L16 0 M0 0 L11 11 M0 0 L0 16 M0 0 L-11 11 M0 0 L-16 0 M0 0 L-11 -11" stroke="#bb3b2c" stroke-width="2" fill="none"/>
+<circle cx="0" cy="0" r="4" fill="#bb3b2c"/>
+</g>
+</g>
+
+<!-- ============ CENTRAL VERMILION SEAL (focal point) ============ -->
+<g>
+<circle cx="600" cy="232" r="62" fill="#bb3b2c" stroke="#2b2620" stroke-width="3.5"/>
+<circle cx="600" cy="232" r="62" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+<circle cx="600" cy="232" r="50" fill="none" stroke="#2b2620" stroke-width="2"/>
+<!-- petal ring inside seal -->
+<g fill="#f3eee2" stroke="#2b2620" stroke-width="1.3">
+<path d="M600 188 q9 14 0 28 q-9 -14 0 -28 Z"/>
+<path d="M644 232 q-14 9 -28 0 q14 -9 28 0 Z"/>
+<path d="M600 276 q9 -14 0 -28 q-9 14 0 28 Z"/>
+<path d="M556 232 q14 9 28 0 q-14 9 -28 0 Z"/>
+<path d="M631 201 q-3 16 -16 16 q3 -16 16 -16 Z"/>
+<path d="M631 263 q-16 -3 -16 -16 q16 3 16 16 Z"/>
+<path d="M569 263 q3 -16 16 -16 q-3 16 -16 16 Z"/>
+<path d="M569 201 q16 3 16 16 q-16 -3 -16 -16 Z"/>
+</g>
+<circle cx="600" cy="232" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<circle cx="600" cy="232" r="6" fill="#2b2620"/>
+<!-- radiating proof-rays around seal -->
+<g stroke="#bb3b2c" stroke-width="2.4">
+<path d="M600 165 v-12 M600 299 v12 M533 232 h-12 M667 232 h12 M553 185 l-9 -9 M647 185 l9 -9 M553 279 l-9 9 M647 279 l9 9"/>
+</g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1">
+<circle cx="600" cy="149" r="3.5"/><circle cx="600" cy="315" r="3.5"/><circle cx="517" cy="232" r="3.5"/><circle cx="683" cy="232" r="3.5"/>
+</g>
+</g>
+
+<!-- ================= LEFT FIGURE (side profile, facing right) ================= -->
+<g>
+<!-- body, ornamented indigo -->
+<path d="M300 300 q-6 -70 40 -96 q30 -16 60 -8 q34 9 40 44 q5 30 -4 60 l8 88 q1 12 -14 12 l-118 0 q-15 0 -14 -12 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<path d="M300 300 q-6 -70 40 -96 q30 -16 60 -8 q34 9 40 44 q5 30 -4 60 l8 88 q1 12 -14 12 l-118 0 q-15 0 -14 -12 Z" fill="none" stroke="#f3eee2" stroke-width="1.2"/>
+<!-- body interior pattern: dot rows + scales -->
+<g fill="#f3eee2">
+<circle cx="320" cy="320" r="2.5"/><circle cx="345" cy="320" r="2.5"/><circle cx="370" cy="320" r="2.5"/><circle cx="395" cy="320" r="2.5"/><circle cx="420" cy="320" r="2.5"/>
+<circle cx="320" cy="350" r="2.5"/><circle cx="345" cy="350" r="2.5"/><circle cx="370" cy="350" r="2.5"/><circle cx="395" cy="350" r="2.5"/><circle cx="420" cy="350" r="2.5"/>
+<circle cx="320" cy="380" r="2.5"/><circle cx="345" cy="380" r="2.5"/><circle cx="370" cy="380" r="2.5"/><circle cx="395" cy="380" r="2.5"/><circle cx="420" cy="380" r="2.5"/>
+</g>
+<g fill="none" stroke="#d59a2a" stroke-width="1.6">
+<path d="M300 290 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0"/>
+<path d="M300 270 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0 q12 -10 24 0"/>
+</g>
+<!-- arm reaching toward seal -->
+<path d="M420 230 q60 -10 110 6 q14 5 14 18 q0 12 -16 12 q-50 -2 -106 -8 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#d59a2a" stroke-width="1.5"><path d="M440 240 h80 M440 252 h78"/></g>
+<!-- hand touching seal -->
+<path d="M526 248 q14 -6 24 4 q6 8 -2 16 q-12 6 -24 -4 q-6 -10 2 -16 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.4"/>
+<g stroke="#2b2620" stroke-width="1.6"><path d="M544 246 l8 -3 M548 254 l9 0 M546 262 l8 4"/></g>
+<!-- neck -->
+<path d="M348 210 l0 -34 l34 0 l0 30 Z" fill="#344a8c" stroke="#2b2620" stroke-width="2.6"/>
+<g fill="#ochre"/>
+<!-- necklace -->
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1.2"><circle cx="352" cy="200" r="3.5"/><circle cx="362" cy="204" r="3.5"/><circle cx="372" cy="200" r="3.5"/></g>
+<!-- HEAD in side profile, facing right -->
+<path d="M360 80 q56 -14 78 30 q14 28 -6 56 q-14 20 -40 24 q4 14 -8 18 l-26 4 q-14 1 -16 -12 q-2 -16 6 -30 q-22 -10 -22 -44 q0 -50 34 -46 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="3"/>
+<path d="M360 80 q56 -14 78 30 q14 28 -6 56 q-14 20 -40 24 q4 14 -8 18 l-26 4 q-14 1 -16 -12 q-2 -16 6 -30 q-22 -10 -22 -44 q0 -50 34 -46 Z" fill="none" stroke="#f3eee2" stroke-width="1.1"/>
+<!-- profile nose (pointing right) -->
+<path d="M438 116 q22 6 22 22 q0 12 -18 14 q6 8 -2 14 l-14 4" fill="#d59a2a" stroke="#2b2620" stroke-width="2.6"/>
+<!-- lips -->
+<path d="M430 156 q14 2 20 -2" fill="none" stroke="#bb3b2c" stroke-width="2.4"/>
+<!-- ONE almond fish-eye -->
+<path d="M388 108 q24 -16 48 0 q-24 16 -48 0 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2.4"/>
+<circle cx="412" cy="108" r="10" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="412" cy="108" r="4.5" fill="#2b2620"/>
+<!-- receding brow -->
+<path d="M384 96 q24 -14 52 -4" fill="none" stroke="#2b2620" stroke-width="2.6"/>
+<!-- hair filled with hatching -->
+<path d="M324 70 q40 -34 92 -8 q-10 -22 -40 -24 q-56 -4 -52 32 Z" fill="#2b2620" stroke="#2b2620" stroke-width="2"/>
+<path d="M306 110 q-16 -36 18 -40 q-20 22 -6 44 Z" fill="#2b2620"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.1"><path d="M334 64 q30 -18 70 -4 M330 74 q34 -20 78 -2"/></g>
+<!-- earring -->
+<circle cx="352" cy="148" r="6" fill="#bb3b2c" stroke="#2b2620" stroke-width="2"/>
+<circle cx="352" cy="162" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/>
+<!-- crown / topknot dots -->
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1"><circle cx="356" cy="58" r="4"/><circle cx="380" cy="50" r="4"/><circle cx="404" cy="56" r="4"/></g>
+</g>
+
+<!-- ================= RIGHT FIGURE (side profile, facing left) ================= -->
+<g>
+<path d="M900 300 q6 -70 -40 -96 q-30 -16 -60 -8 q-34 9 -40 44 q-5 30 4 60 l-8 88 q-1 12 14 12 l118 0 q15 0 14 -12 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<path d="M900 300 q6 -70 -40 -96 q-30 -16 -60 -8 q-34 9 -40 44 q-5 30 4 60 l-8 88 q-1 12 14 12 l118 0 q15 0 14 -12 Z" fill="none" stroke="#f3eee2" stroke-width="1.2"/>
+<g fill="#f3eee2">
+<circle cx="780" cy="320" r="2.5"/><circle cx="805" cy="320" r="2.5"/><circle cx="830" cy="320" r="2.5"/><circle cx="855" cy="320" r="2.5"/><circle cx="880" cy="320" r="2.5"/>
+<circle cx="780" cy="350" r="2.5"/><circle cx="805" cy="350" r="2.5"/><circle cx="830" cy="350" r="2.5"/><circle cx="855" cy="350" r="2.5"/><circle cx="880" cy="350" r="2.5"/>
+<circle cx="780" cy="380" r="2.5"/><circle cx="805" cy="380" r="2.5"/><circle cx="830" cy="380" r="2.5"/><circle cx="855" cy="380" r="2.5"/><circle cx="880" cy="380" r="2.5"/>
+</g>
+<g fill="none" stroke="#d59a2a" stroke-width="1.6">
+<path d="M900 290 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0"/>
+<path d="M900 270 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0 q-12 -10 -24 0"/>
+</g>
+<!-- arm reaching toward seal -->
+<path d="M780 230 q-60 -10 -110 6 q-14 5 -14 18 q0 12 16 12 q50 -2 106 -8 Z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#d59a2a" stroke-width="1.5"><path d="M760 240 h-80 M760 252 h-78"/></g>
+<!-- hand touching seal -->
+<path d="M674 248 q-14 -6 -24 4 q-6 8 2 16 q12 6 24 -4 q6 -10 -2 -16 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.4"/>
+<g stroke="#2b2620" stroke-width="1.6"><path d="M656 246 l-8 -3 M652 254 l-9 0 M654 262 l-8 4"/></g>
+<!-- neck -->
+<path d="M852 210 l0 -34 l-34 0 l0 30 Z" fill="#344a8c" stroke="#2b2620" stroke-width="2.6"/>
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1.2"><circle cx="848" cy="200" r="3.5"/><circle cx="838" cy="204" r="3.5"/><circle cx="828" cy="200" r="3.5"/></g>
+<!-- HEAD in side profile facing left -->
+<path d="M840 80 q-56 -14 -78 30 q-14 28 6 56 q14 20 40 24 q-4 14 8 18 l26 4 q14 1 16 -12 q2 -16 -6 -30 q22 -10 22 -44 q0 -50 -34 -46 Z" fill="#d59a2a" stroke="#2b2620" stroke-width="3"/>
+<path d="M840 80 q-56 -14 -78 30 q-14 28 6 56 q14 20 40 24 q-4 14 8 18 l26 4 q14 1 16 -12 q2 -16 -6 -30 q22 -10 22 -44 q0 -50 -34 -46 Z" fill="none" stroke="#f3eee2" stroke-width="1.1"/>
+<path d="M762 116 q-22 6 -22 22 q0 12 18 14 q-6 8 2 14 l14 4" fill="#d59a2a" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M770 156 q-14 2 -20 -2" fill="none" stroke="#bb3b2c" stroke-width="2.4"/>
+<!-- almond fish-eye -->
+<path d="M812 108 q-24 -16 -48 0 q24 16 48 0 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2.4"/>
+<circle cx="788" cy="108" r="10" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="788" cy="108" r="4.5" fill="#2b2620"/>
+<path d="M816 96 q-24 -14 -52 -4" fill="none" stroke="#2b2620" stroke-width="2.6"/>
+<path d="M876 70 q-40 -34 -92 -8 q10 -22 40 -24 q56 -4 52 32 Z" fill="#2b2620" stroke="#2b2620" stroke-width="2"/>
+<path d="M894 110 q16 -36 -18 -40 q20 22 6 44 Z" fill="#2b2620"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.1"><path d="M866 64 q-30 -18 -70 -4 M870 74 q-34 -20 -78 -2"/></g>
+<circle cx="848" cy="148" r="6" fill="#bb3b2c" stroke="#2b2620" stroke-width="2"/>
+<circle cx="848" cy="162" r="4" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/>
+<g fill="#bb3b2c" stroke="#2b2620" stroke-width="1"><circle cx="844" cy="58" r="4"/><circle cx="820" cy="50" r="4"/><circle cx="796" cy="56" r="4"/></g>
+</g>
+
+<!-- ============ FILLER between figures & seal: fish-scale arcs, leaves ============ -->
+<g fill="none" stroke="#2e8c84" stroke-width="1.6">
+<path d="M470 200 q10 10 0 20 q-10 -10 0 -20 M470 220 q10 10 0 20 M470 240 q10 10 0 20"/>
+<path d="M730 200 q-10 10 0 20 q10 -10 0 -20 M730 220 q-10 10 0 20 M730 240 q-10 10 0 20"/>
+</g>
+<g fill="#6e4a93" stroke="#2b2620" stroke-width="1.1">
+<path d="M500 320 q12 -14 24 0 q-12 14 -24 0 Z"/>
+<path d="M676 320 q12 -14 24 0 q-12 14 -24 0 Z"/>
+<path d="M540 130 q10 -12 20 0 q-10 12 -20 0 Z"/>
+<path d="M640 130 q10 -12 20 0 q-10 12 -20 0 Z"/>
+</g>
+
+<!-- ground filler band under figures -->
+<g fill="none" stroke="#5c5346" stroke-width="1.4">
+<path d="M120 420 q14 -12 28 0 q14 12 28 0 q14 -12 28 0 q14 12 28 0 q14 -12 28 0"/>
+<path d="M880 420 q14 -12 28 0 q14 12 28 0 q14 -12 28 0 q14 12 28 0 q14 -12 28 0"/>
+</g>
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1">
+<circle cx="148" cy="416" r="2.5"/><circle cx="204" cy="416" r="2.5"/><circle cx="260" cy="416" r="2.5"/>
+<circle cx="908" cy="416" r="2.5"/><circle cx="964" cy="416" r="2.5"/><circle cx="1020" cy="416" r="2.5"/>
+</g>
+
+<!-- small suns flanking the seal high up -->
+<g fill="#ochre" stroke="#2b2620" stroke-width="1.4">
+<g><circle cx="540" cy="170" r="7" fill="#d59a2a"/><path d="M540 156 v-7 M540 184 v7 M526 170 h-7 M554 170 h7 M531 161 l-5 -5 M549 161 l5 -5 M531 179 l-5 5 M549 179 l5 5" fill="none" stroke="#5c5346"/></g>
+<g><circle cx="660" cy="170" r="7" fill="#d59a2a"/><path d="M660 156 v-7 M660 184 v7 M646 170 h-7 M674 170 h7 M651 161 l-5 -5 M669 161 l5 -5 M651 179 l-5 5 M669 179 l5 5" fill="none" stroke="#5c5346"/></g>
+</g>
+
+</svg>
