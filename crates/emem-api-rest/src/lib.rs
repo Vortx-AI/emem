@@ -1543,13 +1543,16 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         return Some("public, max-age=3600, stale-while-revalidate=86400");
     }
     match path {
-        // Homepage + agent.json are build-pinned static surfaces; cache
-        // them like the other static introspection responses so a fresh
-        // Claude Desktop install doesn't re-fetch on every connector
-        // listing refresh.
-        "/" | "/index.html" | "/agent.json" => {
-            Some("public, max-age=3600, stale-while-revalidate=86400")
-        }
+        // agent.json is a build-pinned static surface; cache it like the
+        // other static introspection responses.
+        "/agent.json" => Some("public, max-age=3600, stale-while-revalidate=86400"),
+        // The homepage + the narrative pages carry the live interactive map
+        // and are iterated heavily; serve them `no-cache` so every deploy is
+        // visible on the next load instead of after a stale-while-revalidate
+        // window (a deploy of the 3D engram was invisible for up to an hour
+        // because the browser held the prior copy). Revalidation is a plain
+        // GET (no ETag yet) — acceptable while the map is under active design.
+        "/" | "/index.html" | "/how-it-works" | "/solutions" | "/reference" => Some("no-cache"),
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info"
         | "/v1/agent_card"
@@ -33818,11 +33821,20 @@ async fn coverage_json(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<JsonValue> {
+    // Hard cap is tunable so the homepage map can stream the whole corpus, not
+    // a slice. Default raised to 200k (well above the current distinct-cell
+    // count) so "show everywhere Earth is remembered" is literally true; the
+    // ceiling stays as a runaway guard. PMTiles vector tiles are the path to
+    // true millions once the corpus outgrows a single GeoJSON payload.
+    let max_cells: usize = std::env::var("EMEM_COVERAGE_MAX_CELLS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(200_000);
     let limit: usize = q
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(1000)
-        .min(10_000);
+        .min(max_cells);
     let storage = s.storage.as_ref();
     let entries = storage
         .iter_index(Some(limit * 8))

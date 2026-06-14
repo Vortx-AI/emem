@@ -621,17 +621,37 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-scene .scene-note{font-size:var(--t-xs);color:var(--mute);padding:.85rem .6rem;text-align:center;line-height:1.4}
 .atlas-scene.empty{background:repeating-linear-gradient(45deg,var(--paper) 0 6px,var(--paper-2) 6px 12px)}
 #atlas-scene[hidden]{display:none}
-/* the 3D embedding engram — the cell's latent memory as four orbiting point clouds */
-.atlas-engram{margin:0;border:1px solid var(--rule);background:#1b1812;position:relative;overflow:hidden}
-.atlas-engram canvas{display:block;width:100%;height:188px;cursor:grab;touch-action:none}
+/* the 3D embedding engram — the cell's latent memory as four orbiting point clouds, on paper */
+.atlas-engram{margin:0;border:1px solid var(--rule-strong);background:var(--paper-3);position:relative;overflow:hidden}
+.atlas-engram canvas{display:block;width:100%;height:172px;cursor:grab;touch-action:none}
 .atlas-engram canvas:active{cursor:grabbing}
 .atlas-engram .eng-cap{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.5rem;
-  padding:.3rem .5rem;font-size:9.5px;color:var(--paper);background:linear-gradient(0deg,rgba(15,13,10,.78),transparent)}
+  padding:.3rem .5rem;font-size:9.5px;color:var(--ink-2);background:linear-gradient(0deg,color-mix(in oklch,var(--paper-3) 88%,transparent),transparent)}
 .atlas-engram .eng-legend{display:flex;gap:.5rem;flex-wrap:wrap}
 .atlas-engram .eng-legend span{display:inline-flex;align-items:center;gap:.22rem;white-space:nowrap}
 .atlas-engram .eng-legend i{width:7px;height:7px;border-radius:50%;display:inline-block}
-.atlas-engram .eng-hint{margin-left:auto;opacity:.7;font-style:italic}
+.atlas-engram .eng-hint{margin-left:auto;opacity:.75;font-style:italic}
 #atlas-engram[hidden]{display:none}
+/* latent fingerprint: a PCA-RGB swatch — places that look alike share a colour */
+.atlas-fp{display:flex;align-items:center;gap:.6rem;border:1px solid var(--rule);background:var(--paper);padding:.5rem .6rem;margin:0}
+.atlas-fp .sw{width:42px;height:42px;flex:0 0 auto;border:1px solid var(--ink);position:relative}
+.atlas-fp .sw::after{content:"";position:absolute;right:-1px;top:-1px;width:7px;height:7px;border:1px solid var(--ochre);background:var(--paper)}
+.atlas-fp .fp-t{font-size:var(--t-xs);line-height:1.4}
+.atlas-fp .fp-t b{color:var(--ink)}
+.atlas-fp .fp-t span{color:var(--mute)}
+#atlas-fp[hidden]{display:none}
+/* most-similar places (find_similar) — this place is like those */
+.atlas-similar{border:1px solid var(--rule);background:var(--paper);padding:.5rem .6rem;margin:0}
+.atlas-similar .sim-h{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin-bottom:.4rem}
+.atlas-similar .sim-row{display:grid;grid-template-columns:24px 1fr auto;gap:.45rem;align-items:center;padding:.2rem 0;cursor:pointer}
+.atlas-similar .sim-row:hover{background:var(--accent-bg)}
+.atlas-similar .sim-row img{width:24px;height:24px;object-fit:cover;border:1px solid var(--rule);display:block}
+.atlas-similar .sim-row .sim-thumb{width:24px;height:24px;background:var(--paper-2);border:1px solid var(--rule)}
+.atlas-similar .sim-row .sim-name{font-size:var(--t-xs);color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.atlas-similar .sim-row .sim-bar{height:5px;background:var(--rule);width:64px;flex:0 0 auto;position:relative}
+.atlas-similar .sim-row .sim-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);display:block}
+.atlas-similar .sim-row .sim-sc{font-family:var(--mono);font-size:9.5px;color:var(--ink-2)}
+#atlas-similar[hidden]{display:none}
 /* Mithila minimise button on map boxes */
 .box-min{width:18px;height:18px;flex:0 0 auto;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);
   font:700 13px/1 var(--mono);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
@@ -1071,10 +1091,18 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <div class="ans-bands" id="ans-bands"></div>
       </div>
       <figure class="atlas-scene" id="atlas-scene" hidden></figure>
+      <div class="atlas-fp" id="atlas-fp" hidden>
+        <span class="sw" id="fp-sw"></span>
+        <span class="fp-t"><b>latent fingerprint</b><br><span>places that look alike to the models share a colour</span></span>
+      </div>
       <figure class="atlas-engram" id="atlas-engram" hidden>
         <canvas id="engram-canvas"></canvas>
-        <figcaption class="eng-cap"><span class="eng-legend" id="engram-legend"></span><span class="eng-hint">the cell&rsquo;s memory, as four models hold it &middot; drag to turn</span></figcaption>
+        <figcaption class="eng-cap"><span class="eng-legend" id="engram-legend"></span><span class="eng-hint">the model&rsquo;s numbers in 3D &middot; drag to turn</span></figcaption>
       </figure>
+      <div class="atlas-similar" id="atlas-similar" hidden>
+        <div class="sim-h">most like this patch</div>
+        <div id="sim-rows"></div>
+      </div>
       <div class="atlas-encs" id="atlas-encs"></div>
       <div class="mc-verdict" id="atlas-verdict" hidden></div>
       <div class="mc-deeper" id="atlas-deeper" hidden>
@@ -3439,6 +3467,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         hotpulse:{type:'geojson', data:fc([])},
         fields:{type:'geojson', data:fc([])},
         hunt:{type:'geojson', data:fc([])},
+        similar:{type:'geojson', data:fc([])},
         cellfoot:{type:'geojson', data:fc([])},
         patches:{type:'geojson', data:fc(patchFeatures)},
         sel:{type:'geojson', data:fc([])}
@@ -3472,6 +3501,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         // /v1/hunt — anomaly hotspots (triggered)
         {id:'hunt-glow', type:'circle', source:'hunt', paint:{'circle-radius':['interpolate',['linear'],['get','c'],0,9,1,28],'circle-color':VERM,'circle-opacity':0.16}},
         {id:'hunt-dot', type:'circle', source:'hunt', paint:{'circle-radius':5.5,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.5}},
+        // /v1/find_similar — places whose embedding is most like the selected cell
+        {id:'similar-line', type:'line', source:'similar', paint:{'line-color':LEAF,'line-width':1,'line-opacity':0.5,'line-dasharray':[2,2]}},
+        {id:'similar-dot', type:'circle', source:'similar', paint:{'circle-radius':['interpolate',['linear'],['get','s'],0.7,4,1,8],'circle-color':LEAF,'circle-stroke-color':PAPER,'circle-stroke-width':1.5}},
         {id:'sel-halo', type:'circle', source:'sel', paint:{'circle-radius':15,'circle-color':INDIGO,'circle-opacity':0.13}},
         {id:'sel-ring', type:'circle', source:'sel', paint:{'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':INDIGO,'circle-stroke-width':2.2}},
         {id:'patch-dot', type:'circle', source:'patches', paint:{'circle-radius':6,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':2}}
@@ -3488,7 +3520,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       elCell=document.getElementById('atlas-cell'),
       elStatus=document.getElementById('atlas-status'),
       elScene=document.getElementById('atlas-scene'),
+      elFp=document.getElementById('atlas-fp'), fpSw=document.getElementById('fp-sw'),
       elEngram=document.getElementById('atlas-engram'),
+      elSimilar=document.getElementById('atlas-similar'), simRows=document.getElementById('sim-rows'),
       elEncs=document.getElementById('atlas-encs'),
       elVerdict=document.getElementById('atlas-verdict'),
       elDeeper=document.getElementById('atlas-deeper');
@@ -3579,6 +3613,56 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     };
   })();
 
+  // Latent fingerprint: a fixed, deterministic 3-component projection of the
+  // embedding -> RGB. The basis is the same for every cell, so similar places
+  // get a similar colour — a stable visual hash of the place (the technique
+  // Tessera/AlphaEarth use: project the latent to 3 axes -> R,G,B).
+  function latentRGB(vec){
+    var acc=[0,0,0], seed=[12.9898,78.233,37.719], i, c;
+    for(i=0;i<vec.length;i++){
+      for(c=0;c<3;c++){ var w=Math.sin((i+1)*seed[c])*43758.5453; w=w-Math.floor(w); acc[c]+=vec[i]*(w*2-1); }
+    }
+    var n=(Math.sqrt(vec.length)||1)*1.7;
+    return acc.map(function(a){ var t=Math.max(-1,Math.min(1,a/n)); return Math.round((t*0.5+0.5)*255); });
+  }
+  function renderFingerprint(encoders){
+    var e=(encoders||[]).filter(function(x){ return Array.isArray(x.vector)&&x.vector.length; })[0];
+    if(!e){ elFp.hidden=true; return; }
+    var rgb=latentRGB(e.vector);
+    fpSw.style.background='rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+')';
+    elFp.hidden=false;
+  }
+
+  // Most similar places (/v1/find_similar): "this patch is like those". The
+  // single most meaningful embedding demo — neighbours by cosine, pinned on the
+  // map and listed with their similarity, each clickable to jump there.
+  function renderSimilar(neighbors, lng, lat, seq){
+    neighbors=(neighbors||[]).filter(function(n){ return typeof n.lng==='number' && typeof n.lat==='number'; }).slice(0,4);
+    if(!neighbors.length){ elSimilar.hidden=true; if(map.getSource('similar')) map.getSource('similar').setData(fc([])); return; }
+    clearKids(simRows);
+    neighbors.forEach(function(n){
+      var row=el('div','sim-row');
+      var th; if(n.scene_png_url){ th=el('img'); th.src=n.scene_png_url; th.alt=''; } else { th=el('span','sim-thumb'); }
+      row.appendChild(th);
+      row.appendChild(el('span','sim-name', n.place_label_cached || n.label || n.cell || 'a cell'));
+      var sc=(typeof n.score==='number')?n.score:0;
+      var bar=el('span','sim-bar'); var filli=el('i'); filli.style.width=Math.round(Math.max(0,Math.min(1,sc))*100)+'%'; bar.appendChild(filli);
+      var wrap=el('span'); wrap.style.display='flex'; wrap.style.alignItems='center'; wrap.style.gap='.35rem';
+      wrap.appendChild(bar); wrap.appendChild(el('span','sim-sc', sc.toFixed(2)));
+      row.appendChild(wrap);
+      row.addEventListener('click', function(){ selectAt(n.lng, n.lat, n.place_label_cached || n.label || null, true); });
+      simRows.appendChild(row);
+    });
+    elSimilar.hidden=false;
+    // pins + dashed lines from the selected cell to each neighbour
+    var feats=[];
+    neighbors.forEach(function(n){
+      feats.push({type:'Feature', properties:{s:n.score||0.7}, geometry:{type:'Point', coordinates:[n.lng,n.lat]}});
+      feats.push({type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:[[lng,lat],[n.lng,n.lat]]}});
+    });
+    if(map.getSource('similar')) map.getSource('similar').setData(fc(feats));
+  }
+
   // The real Sentinel-2 true-colour scene for the selected cell. Loaded
   // lazily after the embeddings render; on a cloudy patch the endpoint 404s
   // and we say so plainly rather than show a broken image.
@@ -3644,6 +3728,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     ((state && state.encoders) || []).forEach(function(e){ elEncs.appendChild(encRow(e)); });
     ((state && state.missing) || []).forEach(function(m){ elEncs.appendChild(absentRow(m)); });
     ENG.setData((state && state.encoders) || []);   // the 3D engram from the signed vectors
+    renderFingerprint((state && state.encoders) || []);
   }
 
   function renderConsensus(cons){
@@ -3667,7 +3752,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     if (ease) map.easeTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 2.6), duration:700});
     elName.textContent = label || 'selected patch';
     elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; ENG.clear(); clearKids(elEncs);
+    elFp.hidden = true; elSimilar.hidden = true;
     if (map.getSource('cellfoot')) map.getSource('cellfoot').setData(fc([]));
+    if (map.getSource('similar')) map.getSource('similar').setData(fc([]));
     setStatus('resolving cell…');
 
     fetchJson('/v1/locate', {lat:lat, lng:lng}).then(function(loc){
@@ -3694,6 +3781,12 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         elDeeper.hidden = false;
         setStatus(n+' of 4 models signed a reading at this cell. Each row is one ed25519 receipt.');
       }, function(){ if (seq===reqSeq) setStatus('the responder did not answer for this patch. Try a marked patch.'); });
+      // most-similar places by foundation-embedding cosine — "this patch is like those"
+      fetchJson('/v1/find_similar', {key:cell, k:4}).then(function(r){
+        if (seq!==reqSeq) return;
+        var ns = (r.j && (r.j.neighbors || r.j.neighbours)) || [];
+        renderSimilar(ns, lng, lat, seq);
+      }, function(){});
     }, function(){ if (seq===reqSeq) setStatus('could not reach the responder.'); });
   }
 
@@ -3771,7 +3864,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 
   function loadCoverage(){
     setLeg(elCovN, 'loading…');
-    fetch('/v1/coverage?limit=10000').then(function(r){ return r.json(); }).then(function(j){
+    fetch('/v1/coverage?limit=50000').then(function(r){ return r.json(); }).then(function(j){
       var feats = ((j && j.cells) || []).filter(function(c){ return typeof c.lng_deg === 'number'; }).map(function(c){
         return {type:'Feature', properties:{f: c.fact_count || 1}, geometry:{type:'Point', coordinates:[c.lng_deg, c.lat_deg]}};
       });
