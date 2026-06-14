@@ -720,6 +720,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .map-legend .sw{width:11px;height:11px;flex:0 0 auto;border:1px solid var(--ink)}
 .map-legend .sw.cov{background:linear-gradient(90deg,var(--machine),var(--accent),var(--absent))}
 .map-legend .sw.fld{background:var(--warn)}
+.map-legend .sw.tess{background:conic-gradient(from 0deg,#bb3b2c,#d59a2a,#4f8a3d,#344a8c,#bb3b2c)}
 .map-legend .sw.hnt{background:var(--absent)}
 .map-legend .ml-btn{display:flex;align-items:center;gap:.4rem;width:100%;background:var(--paper);border:1px solid var(--rule-strong);
   color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.3rem .4rem;cursor:pointer;text-align:left}
@@ -752,9 +753,16 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   width:min(680px,calc(100% - 56px));text-align:center;pointer-events:none}
 .hero-cartouche .sun{width:min(340px,64%);height:auto;display:block;margin:0 auto -.3rem}
 /* a translucent paper cartouche so the title always reads over the busy map */
-.hero-cartouche .plate{background:color-mix(in oklch,var(--paper) 86%,transparent);
+.hero-cartouche .plate{position:relative;background:color-mix(in oklch,var(--paper) 86%,transparent);
   border:1px solid var(--rule-strong);box-shadow:0 0 0 4px color-mix(in oklch,var(--paper) 70%,transparent),0 18px 50px -28px rgba(0,0,0,.55);
   padding:.9rem 1.4rem 1.1rem;backdrop-filter:blur(2px)}
+/* the centre box collapses to just its search bar so it never blocks the map */
+.plate-min{position:absolute;top:.35rem;right:.5rem;z-index:2;pointer-events:auto;border:1px solid var(--rule-strong);
+  background:var(--paper);color:var(--ink-2);font:700 13px/1 var(--mono);width:20px;height:20px;cursor:pointer;border-radius:0}
+.plate-min:hover{border-color:var(--accent);color:var(--accent)}
+.hero-cartouche .plate.collapsed{padding:.45rem .55rem}
+.plate.collapsed .kicker,.plate.collapsed h1,.plate.collapsed .sub,.plate.collapsed .ask-egs,.plate.collapsed #atlas-answer{display:none}
+.plate.collapsed .ask-bar{margin-top:0}
 .hero-cartouche .kicker{font-size:var(--t-xs);letter-spacing:.22em;text-transform:uppercase;color:var(--vermilion)}
 .hero-cartouche h1{font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.07;letter-spacing:-.02em;margin:.25rem 0 .45rem;color:var(--ink);font-weight:600}
 .hero-cartouche h1 .accent{color:var(--accent)}
@@ -800,6 +808,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-answer .ans-explanation{margin-top:.5rem;padding:.5rem .6rem;border-left:2px solid var(--ochre);
   background:color-mix(in oklch,var(--ochre) 9%,var(--paper));font-size:var(--t-sm);line-height:1.5;color:var(--ink-2)}
 .atlas-answer .ans-explanation .xh{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2);margin-bottom:.25rem;display:block}
+.atlas-answer .ans-explanation .x-cite{margin-top:.35rem;font-size:9px;color:var(--mute)}
+.atlas-answer .ans-explanation .x-cite a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent)}
 .atlas-answer .ans-topics{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.5rem}
 .atlas-answer .ans-chip{font-size:9.5px;padding:.12rem .4rem;border:1px solid var(--accent);color:var(--accent);background:var(--paper);border-radius:2px;white-space:nowrap}
 .atlas-answer .ans-bands{margin-top:.5rem;display:flex;flex-direction:column;gap:.15rem}
@@ -1121,7 +1131,8 @@ input::placeholder{color:var(--mute,#7a7363)}
 <path d="M1160 110 l-8 12"/><path d="M1130 108 l-8 12"/><path d="M1090 112 l-8 12"/><path d="M1050 110 l-8 12"/><path d="M1000 114 l-8 12"/><path d="M940 112 l-8 12"/><path d="M880 116 l-8 12"/><path d="M820 114 l-8 12"/>
 </g>
 </svg>
-    <div class="plate">
+    <div class="plate" id="hero-plate">
+      <button type="button" class="plate-min" id="plate-min" aria-label="minimise" title="minimise">&minus;</button>
       <div class="kicker">Memory of Earth</div>
       <h1>A memory of Earth that agents can cite</h1>
       <p class="sub">Every patch of ground gets a stable address, every reading becomes a signed fact, and anyone can re-check it without trusting the server.</p>
@@ -1149,6 +1160,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="ml-title"><span>data layers</span><button class="box-min" id="leg-min" type="button" aria-label="minimise layers" title="minimise">&minus;</button></div>
     <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">the memory</span><b id="lyr-cov-n">&hellip;</b></label>
     <label class="ml-row"><input type="checkbox" id="lyr-fld"><span class="sw fld"></span><span class="lbl">land parcels</span><b id="lyr-fld-n"></b></label>
+    <label class="ml-row"><input type="checkbox" id="lyr-tess"><span class="sw tess"></span><span class="lbl">embedding field</span><b id="lyr-tess-n"></b></label>
     <div class="ml-sub">find events &middot; everyday &amp; compliance</div>
     <div class="ml-row ml-hunt">
       <select id="lyr-hnt-ev" class="ml-sel" aria-label="event">
@@ -4053,6 +4065,13 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         var h=el('span','xh','plain language · '+(d.model? d.model.replace('google/','') : 'Gemma-4')+' · unsigned commentary');
         elAnsExplanation.appendChild(h);
         elAnsExplanation.appendChild(el('span',null,d.explanation));
+        // cite the SIGNED source this prose rewords: fact count + verify link
+        var src=(d.source||{}), fcids=(src.fact_cids||(lastAsk&&lastAsk.fact_cids)||[]);
+        var cite=el('div','x-cite');
+        cite.appendChild(el('span',null,'rewords '+fcids.length+' signed fact'+(fcids.length===1?'':'s')+' · '));
+        if(fcids[0]){ var a=el('a',null,'verify ✓'); a.href='/verify/'+fcids[0]; a.target='_blank'; a.rel='noopener'; cite.appendChild(a); }
+        else { cite.appendChild(el('span',null,'see the signed answer above')); }
+        elAnsExplanation.appendChild(cite);
       } else {
         elAnsExplanation.innerHTML='<span class="xh">plain language · unsigned</span><span>'+((d.reason)||'the explain layer is offline right now — the signed answer above is unaffected.')+'</span>';
       }
@@ -4327,10 +4346,45 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   if (legMin) legMin.addEventListener('click', function(){ var on=!document.getElementById('map-legend').classList.contains('collapsed'); setCollapsed('map-legend', legMin, on); lsSet('emem.leg.collapsed', on?'1':'0'); });
   // expose for the answer flow to auto-collapse/restore the consensus panel
   window.__consCollapse = function(force){ setCollapsed('atlas-panel', consMin, force ? true : consUserCollapsed); };
+  // the centre ask box is collapsible too (to a bare search bar), state remembered
+  var plateMin=document.getElementById('plate-min');
+  setCollapsed('hero-plate', plateMin, lsGet('emem.plate.collapsed')==='1');
+  if (plateMin) plateMin.addEventListener('click', function(){ var on=!document.getElementById('hero-plate').classList.contains('collapsed'); setCollapsed('hero-plate', plateMin, on); lsSet('emem.plate.collapsed', on?'1':'0'); });
 
   if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot','hot-pulse','hot-core'], tCov.checked); });
   if (tFld) tFld.addEventListener('change', function(){ fieldsOn = tFld.checked; setVis(['fields-fill','fields-line'], fieldsOn); if (fieldsOn) loadFields(); else setLeg(elFldN, ''); });
   if (bHnt) bHnt.addEventListener('click', huntHere);
+
+  // ── embedding field (Tessera) — a DENSE per-pixel latent-colour raster read
+  // from the geotessera COG window for the viewport (one range read, not
+  // cell-by-cell), so places that look alike to the model share a colour.
+  // Overlays beautifully under the land-parcels and markers.
+  var tTess=document.getElementById('lyr-tess'), elTessN=document.getElementById('lyr-tess-n');
+  var tessOn=false, tessBusy=false, tessSeq=0;
+  function loadTesseraField(){
+    if(!tessOn) return;
+    if(map.getZoom() < 12){ setLeg(elTessN, 'zoom into a place'); setVis(['tessfield-img'], false); return; }
+    var b=map.getBounds();
+    var dlat=Math.abs(b.getNorth()-b.getSouth()), dlng=Math.abs(b.getEast()-b.getWest());
+    if(dlat>0.09 || dlng>0.09){ setLeg(elTessN, 'zoom in more'); setVis(['tessfield-img'], false); return; }
+    if(tessBusy) return;
+    tessBusy=true; var seq=++tessSeq; setLeg(elTessN, 'reading Tessera…');
+    fetchJson('/v1/tessera_field', {polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
+      tessBusy=false; if(seq!==tessSeq || !tessOn) return;
+      var d=r.j||{};
+      if(d.available && d.image_data_url && d.coordinates){
+        if(map.getSource('tessfield')){
+          map.getSource('tessfield').updateImage({url:d.image_data_url, coordinates:d.coordinates});
+        } else {
+          map.addSource('tessfield', {type:'image', url:d.image_data_url, coordinates:d.coordinates});
+          map.addLayer({id:'tessfield-img', type:'raster', source:'tessfield', paint:{'raster-opacity':0.74, 'raster-fade-duration':0}}, 'fields-fill');
+        }
+        setVis(['tessfield-img'], true);
+        setLeg(elTessN, 'Tessera ' + (d.year||'') + ' · latent colour');
+      } else { setVis(['tessfield-img'], false); setLeg(elTessN, (d.reason)||'unavailable'); }
+    }, function(){ tessBusy=false; setLeg(elTessN, 'error'); });
+  }
+  if (tTess) tTess.addEventListener('change', function(){ tessOn=tTess.checked; if(tessOn){ loadTesseraField(); } else { setVis(['tessfield-img'], false); setLeg(elTessN, ''); } });
 
   // basemap switcher: Mithila (self-hosted Natural Earth) / OSM streets / Esri satellite
   function setBasemap(bm){
@@ -4372,7 +4426,13 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     pulseRAF = requestAnimationFrame(pulse);
     selectAt(PATCHES[0].lng, PATCHES[0].lat, PATCHES[0].name, false);
   });
-  map.on('moveend', loadFields);
+  // Debounce the on-move data layers (fields + embedding field) so a pan/zoom
+  // gesture fires ONE fetch after the camera settles, not one per frame.
+  var _moveT=null;
+  map.on('moveend', function(){
+    if(_moveT) clearTimeout(_moveT);
+    _moveT=setTimeout(function(){ loadFields(); loadTesseraField(); }, 500);
+  });
   ['patch-dot','hunt-dot','hunt-glow','similar-dot'].forEach(function(ly){
     map.on('mouseenter', ly, function(){ map.getCanvas().style.cursor='pointer'; });
     map.on('mouseleave', ly, function(){ map.getCanvas().style.cursor='crosshair'; });

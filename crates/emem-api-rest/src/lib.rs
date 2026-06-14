@@ -987,6 +987,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
         .route("/v1/explain", post(post_explain))
+        .route("/v1/tessera_field", post(post_tessera_field))
         .route("/v1/hunt", post(post_hunt))
         // NOTE: /v1/eudr_dds is NOT registered here. It is a deliberately
         // long-running compliance endpoint (a visual-evidence run legitimately
@@ -24346,6 +24347,256 @@ async fn fetch_geotessera_pixel(lat: f64, lng: f64, year: i32) -> Result<Vec<f64
     Ok(out)
 }
 
+/// Project a latent embedding to a fixed RGB "fingerprint" — byte-compatible
+/// with the homepage `latentRGB`: a deterministic sin-hash basis onto 3 axes,
+/// so two cells with similar embeddings get a similar colour. Opaque per-dim,
+/// stable across cells — the whole point of the embedding-field overlay.
+fn latent_rgb(vec: &[f64]) -> [u8; 3] {
+    let seed = [12.9898_f64, 78.233, 37.719];
+    let mut acc = [0.0_f64; 3];
+    for (i, &x) in vec.iter().enumerate() {
+        for (c, &sd) in seed.iter().enumerate() {
+            let mut w = (((i + 1) as f64) * sd).sin() * 43758.5453;
+            w -= w.floor();
+            acc[c] += x * (w * 2.0 - 1.0);
+        }
+    }
+    let n = (vec.len() as f64).sqrt().max(1.0) * 1.7;
+    let mut out = [0u8; 3];
+    for (c, a) in acc.iter().enumerate() {
+        let t = (a / n).clamp(-1.0, 1.0);
+        out[c] = ((t * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+    out
+}
+
+#[derive(Deserialize)]
+struct TesseraFieldReq {
+    #[serde(default)]
+    polygon_bbox: Option<RecallPolygonBbox>,
+    #[serde(default)]
+    year: Option<i32>,
+    #[serde(default)]
+    size: Option<usize>,
+}
+
+/// `POST /v1/tessera_field` — a DENSE Tessera embedding-field overlay for a
+/// region, read from the geotessera COG **window** (one contiguous range read,
+/// NOT cell-by-cell). Each output pixel's signed 128-D vector is projected to a
+/// fixed RGB fingerprint (latent_rgb), so places that look alike to the model
+/// share a colour. The raster is rendered in TARGET lat/lng space (sampling the
+/// UTM source per pixel), so the returned 4 corners are exactly the requested
+/// bbox — drop them straight into a MapLibre image source. Zoom-gated (one tile)
+/// + bounded read.
+async fn post_tessera_field(
+    State(_s): State<AppState>,
+    EmemJson(req): EmemJson<TesseraFieldReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let bb = req.polygon_bbox.ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "tessera_field: pass polygon_bbox {min_lat,max_lat,min_lng,max_lng}"
+                    .into(),
+                details: None,
+            },
+        )
+    })?;
+    let (min_lat, max_lat, min_lng, max_lng) = (bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng);
+    let dlat = (max_lat - min_lat).abs();
+    let dlng = (max_lng - min_lng).abs();
+    if dlat <= 0.0 || dlng <= 0.0 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "tessera_field: empty bbox".into(),
+                details: None,
+            },
+        ));
+    }
+    let unavail = |reason: String| {
+        Ok(Json(
+            json!({ "schema":"emem.tessera_field.v1", "available": false, "reason": reason }),
+        ))
+    };
+    // One 0.1° Tessera tile at a time; keep the COG window read bounded.
+    if dlat > 0.09 || dlng > 0.09 {
+        return unavail(
+            "zoom in — the embedding field renders over a region up to ~0.09° (one Tessera tile) at a time"
+                .into(),
+        );
+    }
+    let year = req.year.unwrap_or(2024);
+    let size = req.size.unwrap_or(192).clamp(48, 256);
+    let clat = (min_lat + max_lat) / 2.0;
+    let clng = (min_lng + max_lng) / 2.0;
+
+    let hdr = match get_or_fetch_tessera_header(clat, clng, year).await {
+        Ok(h) => h,
+        Err(e) => return unavail(format!("tessera tile unavailable: {e}")),
+    };
+
+    let (r_a, c_a, _, _, _) = tessera_row_col(
+        max_lat,
+        min_lng,
+        hdr.tile_lat_r,
+        hdr.tile_lon_r,
+        hdr.h,
+        hdr.w,
+    );
+    let (r_b, c_b, _, _, _) = tessera_row_col(
+        min_lat,
+        max_lng,
+        hdr.tile_lat_r,
+        hdr.tile_lon_r,
+        hdr.h,
+        hdr.w,
+    );
+    let _ = (r_a, r_b, c_a, c_b); // bbox extent informs the per-row plan below
+    let sc_per = hdr.scales_per_pixel * 4;
+
+    // Plan the read: map every output pixel to a source (row,col) and collect
+    // the EXACT column span needed per source row. We then fetch ONLY those
+    // rows' needed columns — not full tile rows — so the COG read stays small
+    // and independent of how the bbox sits inside the (UTM) tile. Rendering in
+    // target lat/lng space means the returned corners == the requested bbox.
+    let mut px_src: Vec<(usize, usize)> = vec![(0, 0); size * size];
+    let mut rows_need: std::collections::HashMap<usize, (usize, usize)> =
+        std::collections::HashMap::new();
+    for oy in 0..size {
+        let lat = max_lat - ((oy as f64 + 0.5) / size as f64) * dlat;
+        for ox in 0..size {
+            let lng = min_lng + ((ox as f64 + 0.5) / size as f64) * dlng;
+            let (row, col, _, _, _) =
+                tessera_row_col(lat, lng, hdr.tile_lat_r, hdr.tile_lon_r, hdr.h, hdr.w);
+            px_src[oy * size + ox] = (row, col);
+            let e = rows_need.entry(row).or_insert((col, col));
+            if col < e.0 {
+                e.0 = col;
+            }
+            if col > e.1 {
+                e.1 = col;
+            }
+        }
+    }
+    let total_bytes: usize = rows_need
+        .values()
+        .map(|(a, b)| (b - a + 1) * (128 + sc_per))
+        .sum();
+    if total_bytes > 48_000_000 {
+        return unavail("zoom in more — region too large for the embedding-field read".into());
+    }
+
+    let cli = reqwest_client();
+    let emb_url = hdr.emb_url.clone();
+    let scales_url = hdr.scales_url.clone();
+    let emb_data_off = hdr.emb_data_off;
+    let sc_data_off = hdr.sc_data_off;
+    let w = hdr.w;
+    let plan: Vec<(usize, usize, usize)> =
+        rows_need.iter().map(|(&r, &(a, b))| (r, a, b)).collect();
+    use futures_util::StreamExt as _;
+    // row -> (min_col, emb_bytes, scale_bytes)
+    let row_bufs: std::collections::HashMap<usize, (usize, Vec<u8>, Vec<u8>)> =
+        futures_util::stream::iter(plan.into_iter().map(|(row, a, b)| {
+            let cli = cli.clone();
+            let emb_url = emb_url.clone();
+            let scales_url = scales_url.clone();
+            async move {
+                let ncols = b - a + 1;
+                let e_lo = emb_data_off + (row * w + a) * 128;
+                let s_lo = sc_data_off + (row * w + a) * sc_per;
+                let get = |url: String, lo: usize, len: usize| {
+                    let cli = cli.clone();
+                    async move {
+                        let resp = cli
+                            .get(&url)
+                            .header("range", format!("bytes={}-{}", lo, lo + len - 1))
+                            .send()
+                            .await
+                            .ok()?;
+                        resp.bytes().await.ok().map(|b| b.to_vec())
+                    }
+                };
+                let (e, s) = tokio::join!(
+                    get(emb_url, e_lo, ncols * 128),
+                    get(scales_url, s_lo, ncols * sc_per)
+                );
+                match (e, s) {
+                    (Some(e), Some(s)) => Some((row, a, e, s)),
+                    _ => None,
+                }
+            }
+        }))
+        .buffer_unordered(24)
+        .filter_map(|x| async move { x })
+        .map(|(row, a, e, s)| (row, (a, e, s)))
+        .collect()
+        .await;
+
+    let mut rgb = vec![0u8; size * size * 3];
+    let mut v = [0f64; 128];
+    for oy in 0..size {
+        for ox in 0..size {
+            let (row, col) = px_src[oy * size + ox];
+            let Some((a, e, s)) = row_bufs.get(&row) else {
+                continue;
+            };
+            let local = col - *a;
+            let eoff = local * 128;
+            let soff = local * sc_per;
+            if eoff + 128 > e.len() || soff + sc_per > s.len() {
+                continue;
+            }
+            if hdr.scales_per_pixel == 1 {
+                let sf = f32::from_le_bytes([s[soff], s[soff + 1], s[soff + 2], s[soff + 3]]);
+                for (i, vi) in v.iter_mut().enumerate() {
+                    *vi = (e[eoff + i] as i8 as f32 * sf) as f64;
+                }
+            } else {
+                for (i, vi) in v.iter_mut().enumerate() {
+                    let so = soff + i * 4;
+                    let sf = f32::from_le_bytes([s[so], s[so + 1], s[so + 2], s[so + 3]]);
+                    *vi = (e[eoff + i] as i8 as f32 * sf) as f64;
+                }
+            }
+            let crgb = latent_rgb(&v);
+            let p = (oy * size + ox) * 3;
+            rgb[p] = crgb[0];
+            rgb[p + 1] = crgb[1];
+            rgb[p + 2] = crgb[2];
+        }
+    }
+
+    let mut png_bytes: Vec<u8> = Vec::new();
+    {
+        let mut enc = png::Encoder::new(&mut png_bytes, size as u32, size as u32);
+        enc.set_color(png::ColorType::Rgb);
+        enc.set_depth(png::BitDepth::Eight);
+        match enc.write_header() {
+            Ok(mut wr) => {
+                if let Err(e) = wr.write_image_data(&rgb) {
+                    return unavail(format!("png encode: {e}"));
+                }
+            }
+            Err(e) => return unavail(format!("png header: {e}")),
+        }
+    }
+    let b64 = data_encoding::BASE64.encode(&png_bytes);
+    Ok(Json(json!({
+        "schema": "emem.tessera_field.v1",
+        "available": true,
+        "year": year,
+        "size": size,
+        // MapLibre image-source corner order: TL, TR, BR, BL ([lng,lat]).
+        "coordinates": [[min_lng,max_lat],[max_lng,max_lat],[max_lng,min_lat],[min_lng,min_lat]],
+        "image_data_url": format!("data:image/png;base64,{b64}"),
+        "note": "Dense Tessera embedding field — each pixel's signed 128-D vector projected to a fixed RGB fingerprint (places that look alike to the model share a colour). Read from the geotessera COG window for the region in one range read, not cell-by-cell.",
+    })))
+}
+
 /// Per-year Tessera band materializer. `band` is `geotessera.YYYY` for
 /// YYYY in 2017..=2025.
 async fn materialize_geotessera_year_band(
@@ -41700,15 +41951,14 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 .unwrap_or(16)
                 .clamp(2, 60),
         );
-        match tokio::time::timeout(
+        // On elapse the snapshot answer + scored algorithms still ship;
+        // temporal is supplementary, so an empty Vec is the right fallback.
+        tokio::time::timeout(
             temporal_budget,
             dispatch_temporal_recipes(&cell, &algorithm_keys_with_recipe, &recall_resp, &s),
         )
         .await
-        {
-            Ok(v) => v,
-            Err(_) => Vec::new(),
-        }
+        .unwrap_or_default()
     };
 
     // 0.0.3 Phase C — formula-AST evaluation. For every matched
