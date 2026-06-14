@@ -33853,6 +33853,12 @@ async fn coverage_json(
     for (k, _) in &entries {
         *by_cell.entry(k.cell.clone()).or_default() += 1;
     }
+    // Honest total: distinct cells seen in this scan window BEFORE the
+    // per-page `limit` truncation below. The field used to report the
+    // truncated `cells.len()`, so a client (e.g. the homepage map legend)
+    // could not tell a capped page from the whole corpus — it read
+    // "50,000 cells" when 133k existed. `returned` carries the page size.
+    let total_distinct = by_cell.len();
     let mut cells: Vec<JsonValue> = by_cell
         .into_iter()
         .filter_map(|(c, n)| {
@@ -33874,7 +33880,8 @@ async fn coverage_json(
     cells.truncate(limit);
     Json(json!({
         "schema": "emem.coverage.v1",
-        "total_cells": cells.len(),
+        "total_cells": total_distinct,
+        "returned": cells.len(),
         "limit": limit,
         "cells": cells,
         "next": [

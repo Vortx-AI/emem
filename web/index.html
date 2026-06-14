@@ -3971,12 +3971,19 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 
   function loadCoverage(){
     setLeg(elCovN, 'loading…');
-    fetch('/v1/coverage?limit=50000').then(function(r){ return r.json(); }).then(function(j){
+    // Stream the whole signed corpus, not a slice. The endpoint is gzipped
+    // (~2.5 MB for 130k+ cells) and server-cached (max-age=300, SWR=900), and
+    // MapLibre renders the points on the GPU, so there is no reason to cap the
+    // map at a fraction of what we hold. 200000 is the server's max_cells.
+    fetch('/v1/coverage?limit=200000').then(function(r){ return r.json(); }).then(function(j){
       var feats = ((j && j.cells) || []).filter(function(c){ return typeof c.lng_deg === 'number'; }).map(function(c){
         return {type:'Feature', properties:{f: c.fact_count || 1}, geometry:{type:'Point', coordinates:[c.lng_deg, c.lat_deg]}};
       });
       if (map.getSource('coverage')) map.getSource('coverage').setData(fc(feats));
-      setLeg(elCovN, feats.length.toLocaleString() + ' cells');
+      // Honest legend: show the page size, and "of <total>" when the corpus
+      // is larger than what this page returned (total_cells is the true count).
+      var tot = (j && typeof j.total_cells === 'number') ? j.total_cells : feats.length;
+      setLeg(elCovN, feats.length.toLocaleString() + ' cells' + (tot > feats.length ? (' of ' + tot.toLocaleString()) : ''));
       // the hottest cells (most signed facts) get a live pulse
       var hot = feats.slice().sort(function(a,b){ return (b.properties.f||0)-(a.properties.f||0); }).slice(0,18);
       if (map.getSource('hotpulse')) map.getSource('hotpulse').setData(fc(hot));
