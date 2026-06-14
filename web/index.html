@@ -791,6 +791,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-answer .ans-foot{margin-top:.5rem;font-size:9px;color:var(--mute);border-top:1px solid var(--rule);padding-top:.35rem;display:flex;justify-content:space-between;gap:.5rem;align-items:center}
 .atlas-answer .ans-foot a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent)}
 .atlas-answer .ans-foot a:hover{background:var(--accent-bg)}
+/* the optional Gemma-4 "explain" affordance — clearly an UNSIGNED commentary
+   layer, set apart from the signed readings above it */
+.atlas-answer .ans-explain{margin-top:.55rem;font:inherit;font-size:var(--t-xs);padding:.28rem .55rem;
+  border:1px dashed var(--accent);background:var(--paper);color:var(--accent);cursor:pointer;border-radius:0}
+.atlas-answer .ans-explain:hover{background:var(--accent-bg)}
+.atlas-answer .ans-explain[disabled]{opacity:.6;cursor:default}
+.atlas-answer .ans-explanation{margin-top:.5rem;padding:.5rem .6rem;border-left:2px solid var(--ochre);
+  background:color-mix(in oklch,var(--ochre) 9%,var(--paper));font-size:var(--t-sm);line-height:1.5;color:var(--ink-2)}
+.atlas-answer .ans-explanation .xh{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2);margin-bottom:.25rem;display:block}
 .atlas-answer .ans-topics{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.5rem}
 .atlas-answer .ans-chip{font-size:9.5px;padding:.12rem .4rem;border:1px solid var(--accent);color:var(--accent);background:var(--paper);border-radius:2px;white-space:nowrap}
 .atlas-answer .ans-bands{margin-top:.5rem;display:flex;flex-direction:column;gap:.15rem}
@@ -1128,6 +1137,8 @@ input::placeholder{color:var(--mute,#7a7363)}
         <div class="ans-sec" id="ans-readings-sec" hidden><div class="ans-h">signed readings</div><div class="ans-bands" id="ans-bands"></div></div>
         <div class="ans-sec" id="ans-scored-sec" hidden><div class="ans-h">scored by emem</div><div class="ans-scored" id="ans-scored"></div></div>
         <div class="ans-topics" id="ans-topics"></div>
+        <button type="button" class="ans-explain" id="ans-explain" hidden>explain in plain words &#9670;</button>
+        <div class="ans-explanation" id="ans-explanation" hidden></div>
         <div class="ans-foot" id="ans-foot"></div>
       </div>
     </div>
@@ -1433,10 +1444,30 @@ input::placeholder{color:var(--mute,#7a7363)}
         <form class="mc-form" id="mc-form">
           <div class="mc-field"><label for="mc-place">place</label><input id="mc-place" type="text" spellcheck="false" autocomplete="off" value="Kyoto" placeholder="a city, landmark, or lat,lng"></div>
           <div class="mc-field"><label for="mc-band">band</label><select id="mc-band">
-            <option value="copdem30m.elevation_mean" selected>copdem30m.elevation_mean</option>
-            <option value="weather.temperature_2m">weather.temperature_2m</option>
-            <option value="indices.ndvi">indices.ndvi</option>
-            <option value="forest_change.lossyear">forest_change.lossyear</option>
+            <optgroup label="terrain &amp; water">
+              <option value="copdem30m.elevation_mean" selected>copdem30m.elevation_mean</option>
+              <option value="surface_water.recurrence">surface_water.recurrence</option>
+            </optgroup>
+            <optgroup label="vegetation">
+              <option value="indices.ndvi">indices.ndvi</option>
+              <option value="indices.ndmi">indices.ndmi</option>
+              <option value="modis.lst_day_8day">modis.lst_day_8day</option>
+            </optgroup>
+            <optgroup label="climate &amp; air">
+              <option value="weather.temperature_2m">weather.temperature_2m</option>
+              <option value="weather.precipitation_mm">weather.precipitation_mm</option>
+              <option value="cams.pm25">cams.pm25</option>
+              <option value="cams.no2">cams.no2</option>
+            </optgroup>
+            <optgroup label="land cover &amp; people">
+              <option value="esa_worldcover.lc_2021">esa_worldcover.lc_2021</option>
+              <option value="overture.buildings.count">overture.buildings.count</option>
+              <option value="overture.places.count">overture.places.count</option>
+            </optgroup>
+            <optgroup label="forest &amp; carbon">
+              <option value="forest_change.lossyear">forest_change.lossyear</option>
+              <option value="soilgrids.soc_0_5cm_mean">soilgrids.soc_0_5cm_mean</option>
+            </optgroup>
           </select></div>
           <button class="mc-btn" id="mc-go" type="submit">recall &rarr;</button>
         </form>
@@ -4003,9 +4034,30 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   var elAnswer=document.getElementById('atlas-answer'),
       elAnsQ=document.getElementById('ans-q'), elAnsText=document.getElementById('ans-text'),
       elAnsTopics=document.getElementById('ans-topics'), elAnsBands=document.getElementById('ans-bands'),
-      elAnsFoot=document.getElementById('ans-foot'), ansX=document.getElementById('ans-x');
+      elAnsFoot=document.getElementById('ans-foot'), ansX=document.getElementById('ans-x'),
+      elAnsExplain=document.getElementById('ans-explain'), elAnsExplanation=document.getElementById('ans-explanation');
+  var lastAsk=null;   // the last /v1/ask response, for the Gemma "explain" layer
   function clearAnswer(){ if(elAnswer) elAnswer.hidden=true; if(window.__consCollapse) window.__consCollapse(false); }
   if(ansX) ansX.addEventListener('click', clearAnswer);
+  // Optional Gemma-4 "explain" — rewords the SIGNED facts in plain English via
+  // POST /v1/explain. Clearly unsigned: the signed answer above is untouched.
+  if(elAnsExplain) elAnsExplain.addEventListener('click', function(){
+    if(!lastAsk){ return; }
+    elAnsExplain.disabled=true; elAnsExplain.textContent='asking Gemma-4… ◆';
+    elAnsExplanation.hidden=false; elAnsExplanation.innerHTML='<span class="xh">plain language · Gemma-4 · unsigned</span><span>thinking…</span>';
+    fetchJson('/v1/explain', {ask:lastAsk}).then(function(r){
+      elAnsExplain.disabled=false; elAnsExplain.textContent='explain in plain words ◆';
+      var d=r.j||{};
+      if(d.explanation){
+        elAnsExplanation.innerHTML='';
+        var h=el('span','xh','plain language · '+(d.model? d.model.replace('google/','') : 'Gemma-4')+' · unsigned commentary');
+        elAnsExplanation.appendChild(h);
+        elAnsExplanation.appendChild(el('span',null,d.explanation));
+      } else {
+        elAnsExplanation.innerHTML='<span class="xh">plain language · unsigned</span><span>'+((d.reason)||'the explain layer is offline right now — the signed answer above is unaffected.')+'</span>';
+      }
+    }, function(){ elAnsExplain.disabled=false; elAnsExplain.textContent='explain in plain words ◆'; elAnsExplanation.innerHTML='<span class="xh">plain language · unsigned</span><span>could not reach the explain layer.</span>'; });
+  });
   // Friendly labels for the bands an everyday question surfaces, so a row reads
   // "PM2.5  22 µg/m³" not "cams.pm25  22 ug/m^3". Unknown bands fall through to
   // the raw key (still honest, still the signed band name).
@@ -4019,6 +4071,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function renderAnswer(d){
     if(!elAnswer) return;
     elAnswer.hidden=false;
+    lastAsk=d;
+    // offer the Gemma-4 plain-language layer for any answer that carries a fact
+    if(elAnsExplain){ elAnsExplain.hidden = !(d.answer || (d.fact_cids||[]).length); elAnsExplain.disabled=false; elAnsExplain.textContent='explain in plain words ◆'; }
+    if(elAnsExplanation){ elAnsExplanation.hidden=true; elAnsExplanation.innerHTML=''; }
     elAnsQ.textContent = 'you asked: ' + (d.question || '');
     // Humanise the synthesised answer: strip the "key@version" machine form to
     // a plain phrase ("aqi_class@1 2" -> "aqi class 2"). The signed band rows
@@ -4091,6 +4147,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         elAnsText.textContent=hfeats.length+' '+ev+' hotspots across '+where+', ranked by coherence. The red markers are the strongest candidates — click one to read its signed cell.';
         clearKids(elAnsTopics); elAnsTopics.appendChild(el('span','ans-chip', ev)); clearKids(elAnsBands);
         document.getElementById('ans-readings-sec').hidden=true; document.getElementById('ans-scored-sec').hidden=true;
+        if(elAnsExplain) elAnsExplain.hidden=true; if(elAnsExplanation) elAnsExplanation.hidden=true;
         if(elAnsFoot){ clearKids(elAnsFoot); elAnsFoot.appendChild(el('span',null,'the map zoomed to the hotspots · click any red marker for its signed cell')); }
         // the hotspots ARE the answer — clear the prior single-cell selection
         // visuals and collapse the consensus panel so the map reads cleanly.

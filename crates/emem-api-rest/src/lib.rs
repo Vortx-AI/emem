@@ -986,6 +986,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", post(post_locate))
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
+        .route("/v1/explain", post(post_explain))
         .route("/v1/hunt", post(post_hunt))
         // NOTE: /v1/eudr_dds is NOT registered here. It is a deliberately
         // long-running compliance endpoint (a visual-evidence run legitimately
@@ -41049,6 +41050,108 @@ fn attach_eudr_next_step(body: &mut JsonValue, cell: Option<&str>) {
         None => {
             m.insert("next_steps".to_string(), json!([step]));
         }
+    }
+}
+
+fn explain_sidecar_url() -> String {
+    std::env::var("EMEM_EXPLAIN_SIDECAR_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5071/explain".to_string())
+}
+
+#[derive(Deserialize)]
+struct ExplainReq {
+    /// A prefetched /v1/ask response to reword (preferred — avoids a re-ask).
+    #[serde(default)]
+    ask: Option<JsonValue>,
+    /// …or the ask params; emem runs /v1/ask itself, then explains it.
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    cell: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
+}
+
+/// `POST /v1/explain` — OPTIONAL, UNSIGNED natural-language layer over emem's
+/// signed facts. It forwards an /v1/ask response to the loopback Gemma-4
+/// "explain" sidecar, which rewords the already-signed numbers for a human. The
+/// deterministic, signable /v1/ask path is never touched: the prose is returned
+/// flagged `signed:false`, alongside a pointer at the real signed answer +
+/// receipt. If the sidecar is offline the endpoint says so honestly (200,
+/// `available:false`) and the signed answer is unaffected.
+async fn post_explain(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<ExplainReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let ask: JsonValue = if let Some(a) = req.ask {
+        a
+    } else if let Some(q) = req.q {
+        let ar = AskReq {
+            q,
+            place: req.place,
+            cell: req.cell,
+            lat: req.lat,
+            lng: req.lng,
+            include_image: false,
+            verbose: None,
+            include: Some(vec![
+                "band_observations".to_string(),
+                "algorithm_outcomes".to_string(),
+            ]),
+        };
+        ask_inner(s.clone(), ar).await?
+    } else {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "explain: pass `ask` (a /v1/ask response) or `q` (+ cell/place/lat+lng)"
+                    .into(),
+                details: None,
+            },
+        ));
+    };
+
+    let source = json!({
+        "routed_to": ask.get("routed_to"),
+        "answer":    ask.get("answer"),
+        "receipt":   ask.get("receipt"),
+        "fact_cids": ask.get("fact_cids"),
+    });
+
+    let resp = s2_http_client()
+        .post(explain_sidecar_url())
+        .json(&json!({ "ask": ask }))
+        .timeout(std::time::Duration::from_secs(40))
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            let ex: JsonValue = r.json().await.unwrap_or_else(|_| json!({}));
+            Ok(Json(json!({
+                "schema":      "emem.explain.v1",
+                "signed":      false,
+                "explanation": ex.get("explanation"),
+                "model":       ex.get("model"),
+                "disclaimer":  ex.get("disclaimer"),
+                "latency_ms":  ex.get("latency_ms"),
+                "source":      source,
+                "note": "UNSIGNED Gemma-4 commentary over emem's signed facts. The signed truth is source.answer + source.receipt; this prose is not a fact and carries no signature.",
+            })))
+        }
+        _ => Ok(Json(json!({
+            "schema":      "emem.explain.v1",
+            "available":   false,
+            "signed":      false,
+            "explanation": JsonValue::Null,
+            "reason":      "the explain layer (Gemma-4 sidecar) is offline or slow; the signed answer is unaffected",
+            "source":      source,
+        }))),
     }
 }
 
