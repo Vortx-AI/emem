@@ -533,7 +533,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 @media (max-width:620px){.mc-form{grid-template-columns:1fr}}
 .mc-field{display:flex;flex-direction:column;gap:.3rem;min-width:0}
 .mc-field label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
-.mc-field input,.mc-field select{font-family:var(--mono);font-size:var(--t-sm);color:var(--ink);background:var(--paper);border:1px solid var(--rule-strong);padding:.55rem .7rem;border-radius:2px;outline:none;width:100%}
+.mc-field input,.mc-field select{font-family:var(--mono);font-size:var(--t-sm);color:var(--ink);background-color:var(--paper);border:1px solid var(--ink);padding:.55rem .7rem;border-radius:0;outline:none;width:100%}
+.mc-field select{padding-right:1.7rem}
 .mc-field input:focus,.mc-field select:focus{border-color:var(--accent)}
 .mc-btn{font-family:var(--mono);font-size:var(--t-sm);font-weight:700;color:var(--paper);background:var(--ink);border:1px solid var(--ink);padding:.55rem 1.1rem;border-radius:2px;cursor:pointer;white-space:nowrap;align-self:end}
 .mc-btn:hover{background:var(--ink-2)}
@@ -708,7 +709,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.3rem .4rem;cursor:pointer;text-align:left}
 .map-legend .ml-btn:hover{border-color:var(--accent);background:var(--accent-bg)}
 .map-legend .ml-hunt{gap:.4rem}
-.map-legend .ml-sel{flex:1;min-width:0;background:var(--paper);border:1px solid var(--rule-strong);color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.25rem .3rem;cursor:pointer}
+.map-legend .ml-sel{flex:1;min-width:0;background-color:var(--paper);border:1px solid var(--ink);color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.3rem 1.45rem .3rem .45rem;cursor:pointer}
 .map-legend .ml-hunt .ml-btn{width:auto;flex:0 0 auto}
 .map-legend .ml-hunt-n{margin:.1rem 0 0;min-height:0}
 .map-legend .ml-hunt-n b{color:var(--absent);font-weight:700}
@@ -846,6 +847,18 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .finale p{color:var(--ink-2);font-size:var(--t-md);max-width:56ch;margin:0 auto 1.6rem}
 .finale .hero-cta{justify-content:center}
 
+
+/* ===== Mithila form controls — coherent native UI across the product ===== */
+select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.45rem 1.7rem .45rem .6rem;border-radius:0;cursor:pointer}
+select:hover{border-color:var(--accent,#3f7a4e)}
+option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
+optgroup{background:var(--paper,#f3eee2);color:var(--mute-2,#8a8170);font-style:normal;font-weight:700}
+input[type=checkbox]{appearance:none;-webkit-appearance:none;width:14px;height:14px;border:1.5px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);cursor:pointer;position:relative;flex:0 0 auto;border-radius:0;margin:0;vertical-align:middle}
+input[type=checkbox]:checked{background:var(--accent,#3f7a4e);border-color:var(--ink,#2b2620)}
+input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:.5px;width:4px;height:8px;border:solid var(--paper,#f3eee2);border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
+input::placeholder{color:var(--mute,#7a7363)}
+:focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
 </style>
 <link rel="stylesheet" href="/maplibre-gl.css">
 </head>
@@ -2197,9 +2210,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <section class="who" id="who">
   <div class="scroll">
     <div class="who-head">
-      <div class="kicker">In use now</div>
-      <h2>Agents already act on this</h2>
-      <p>emem already backs agents doing real work across deforestation due-diligence, insurance, climate risk, disaster response, carbon MRV, agriculture, energy, defense, and maritime.</p>
+      <div class="kicker">From everyday questions to compliance</div>
+      <h2>Whatever an agent needs to know about a place</h2>
+      <p>A family checking flood risk before they buy a home, a trip planner reading air quality and heat, a city scoring walkability, a bank signing a deforestation-free EUDR statement, an insurer pricing a storm. The same signed memory answers the everyday question and the audit-grade one.</p>
     </div>
     <div class="who-grid">
       <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/29-eudr-supply-chain.svg" alt="eudr compliance" loading="lazy"></span><span class="meta"><span class="lab">eudr compliance</span><span class="ln">A deforestation-free plot signed into one handle that clears customs</span></span></a>

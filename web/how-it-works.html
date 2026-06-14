@@ -322,7 +322,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 @media (max-width:620px){.mc-form{grid-template-columns:1fr}}
 .mc-field{display:flex;flex-direction:column;gap:.3rem;min-width:0}
 .mc-field label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
-.mc-field input,.mc-field select{font-family:var(--mono);font-size:var(--t-sm);color:var(--ink);background:var(--paper);border:1px solid var(--rule-strong);padding:.55rem .7rem;border-radius:2px;outline:none;width:100%}
+.mc-field input,.mc-field select{font-family:var(--mono);font-size:var(--t-sm);color:var(--ink);background-color:var(--paper);border:1px solid var(--ink);padding:.55rem .7rem;border-radius:0;outline:none;width:100%}
+.mc-field select{padding-right:1.7rem}
 .mc-field input:focus,.mc-field select:focus{border-color:var(--accent)}
 .mc-btn{font-family:var(--mono);font-size:var(--t-sm);font-weight:700;color:var(--paper);background:var(--ink);border:1px solid var(--ink);padding:.55rem 1.1rem;border-radius:2px;cursor:pointer;white-space:nowrap;align-self:end}
 .mc-btn:hover{background:var(--ink-2)}
@@ -383,6 +384,18 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .mith-div::before,.mith-div::after{content:"";height:0;flex:1;border-top:1px solid var(--rule);box-shadow:0 3px 0 -2px var(--rule)}
 .mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);opacity:.8;flex:0 0 auto}
 .cev-art{margin:0}.cev-art img{display:block;width:100%;height:auto;border:0}
+
+/* ===== Mithila form controls — coherent native UI across the product ===== */
+select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.45rem 1.7rem .45rem .6rem;border-radius:0;cursor:pointer}
+select:hover{border-color:var(--accent,#3f7a4e)}
+option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
+optgroup{background:var(--paper,#f3eee2);color:var(--mute-2,#8a8170);font-style:normal;font-weight:700}
+input[type=checkbox]{appearance:none;-webkit-appearance:none;width:14px;height:14px;border:1.5px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);cursor:pointer;position:relative;flex:0 0 auto;border-radius:0;margin:0;vertical-align:middle}
+input[type=checkbox]:checked{background:var(--accent,#3f7a4e);border-color:var(--ink,#2b2620)}
+input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:.5px;width:4px;height:8px;border:solid var(--paper,#f3eee2);border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
+input::placeholder{color:var(--mute,#7a7363)}
+:focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
 </style>
 </head>
 <body>
