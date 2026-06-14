@@ -621,6 +621,24 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-scene .scene-note{font-size:var(--t-xs);color:var(--mute);padding:.85rem .6rem;text-align:center;line-height:1.4}
 .atlas-scene.empty{background:repeating-linear-gradient(45deg,var(--paper) 0 6px,var(--paper-2) 6px 12px)}
 #atlas-scene[hidden]{display:none}
+/* the 3D embedding engram — the cell's latent memory as four orbiting point clouds */
+.atlas-engram{margin:0;border:1px solid var(--rule);background:#1b1812;position:relative;overflow:hidden}
+.atlas-engram canvas{display:block;width:100%;height:188px;cursor:grab;touch-action:none}
+.atlas-engram canvas:active{cursor:grabbing}
+.atlas-engram .eng-cap{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.5rem;
+  padding:.3rem .5rem;font-size:9.5px;color:var(--paper);background:linear-gradient(0deg,rgba(15,13,10,.78),transparent)}
+.atlas-engram .eng-legend{display:flex;gap:.5rem;flex-wrap:wrap}
+.atlas-engram .eng-legend span{display:inline-flex;align-items:center;gap:.22rem;white-space:nowrap}
+.atlas-engram .eng-legend i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.atlas-engram .eng-hint{margin-left:auto;opacity:.7;font-style:italic}
+#atlas-engram[hidden]{display:none}
+/* Mithila minimise button on map boxes */
+.box-min{width:18px;height:18px;flex:0 0 auto;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);
+  font:700 13px/1 var(--mono);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.box-min:hover{border-color:var(--accent);background:var(--accent-bg)}
+.hero-consensus.collapsed .atlas-body{display:none}
+.hero-consensus.collapsed .box-min,.map-legend.collapsed .box-min{}
+.map-legend.collapsed .ml-row,.map-legend.collapsed .ml-note{display:none}
 .atlas-mapframe .maplibregl-ctrl-group{border:1px solid var(--ink);border-radius:0;background:var(--paper);box-shadow:none}
 .atlas-mapframe .maplibregl-ctrl-group button+button{border-top:1px solid var(--rule)}
 .atlas-mapframe .maplibregl-ctrl-attrib{background:color-mix(in oklch,var(--paper) 86%,transparent);font-size:9px}
@@ -644,7 +662,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .map-legend{position:absolute;left:22px;top:22px;z-index:6;width:226px;
   background:color-mix(in oklch,var(--paper-2) 95%,transparent);border:2px solid var(--ink);
   box-shadow:0 0 0 4px var(--paper),0 14px 36px -20px rgba(0,0,0,.5);padding:.6rem .7rem .55rem;font-size:var(--t-xs)}
-.map-legend .ml-title{font-weight:700;color:var(--ink);letter-spacing:.04em;text-transform:uppercase;font-size:10px;margin-bottom:.45rem}
+.map-legend .ml-title{font-weight:700;color:var(--ink);letter-spacing:.04em;text-transform:uppercase;font-size:10px;margin-bottom:.45rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.map-legend.collapsed{width:auto}
+.map-legend.collapsed .ml-title{margin-bottom:0}
 .map-legend .ml-row{display:flex;align-items:center;gap:.4rem;margin:.28rem 0;color:var(--ink-2);cursor:pointer}
 .map-legend .ml-row input{accent-color:var(--accent);margin:0;cursor:pointer}
 .map-legend .ml-row .lbl{flex:1}
@@ -656,7 +676,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .map-legend .ml-btn{display:flex;align-items:center;gap:.4rem;width:100%;background:var(--paper);border:1px solid var(--rule-strong);
   color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.3rem .4rem;cursor:pointer;text-align:left}
 .map-legend .ml-btn:hover{border-color:var(--accent);background:var(--accent-bg)}
-.map-legend .ml-hunt{gap:.5rem}
+.map-legend .ml-hunt{gap:.4rem}
+.map-legend .ml-sel{flex:1;min-width:0;background:var(--paper);border:1px solid var(--rule-strong);color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.25rem .3rem;cursor:pointer}
+.map-legend .ml-hunt .ml-btn{width:auto;flex:0 0 auto}
+.map-legend .ml-hunt-n{margin:.1rem 0 0;min-height:0}
+.map-legend .ml-hunt-n b{color:var(--absent);font-weight:700}
 .map-legend .ml-note{margin-top:.5rem;color:var(--mute);font-size:9.5px;line-height:1.35;border-top:1px solid var(--rule);padding-top:.4rem}
 @media (max-width:880px){.map-legend{left:12px;top:12px;width:200px}}
 /* double-line Mithila frame drawn over the map edges */
@@ -986,18 +1010,37 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   </div>
   <div class="atlas-hint" id="atlas-hint">click a red patch, or anywhere on land &middot; drag to spin &middot; <span class="zoomhint">+ to zoom into farms</span></div>
   <div class="map-legend" id="map-legend">
-    <div class="ml-title">data layers</div>
+    <div class="ml-title"><span>data layers</span><button class="box-min" id="leg-min" type="button" aria-label="minimise layers" title="minimise">&minus;</button></div>
     <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">coverage</span><b id="lyr-cov-n">&hellip;</b></label>
     <label class="ml-row"><input type="checkbox" id="lyr-fld"><span class="sw fld"></span><span class="lbl">farm fields</span><b id="lyr-fld-n"></b></label>
-    <div class="ml-row ml-hunt"><button type="button" id="lyr-hnt-go" class="ml-btn"><span class="sw hnt"></span>hunt deforestation</button><b id="lyr-hnt-n"></b></div>
-    <div class="ml-note">live from /v1/coverage &middot; /v1/field_boundaries &middot; /v1/hunt</div>
+    <div class="ml-row ml-hunt">
+      <select id="lyr-hnt-ev" class="ml-sel" aria-label="hunt event">
+        <option value="deforestation">deforestation</option>
+        <option value="flood_extent">flood</option>
+        <option value="wildfire">wildfire</option>
+        <option value="urban_heat_island">urban heat</option>
+        <option value="algal_bloom">algal bloom</option>
+        <option value="methane_plume">methane</option>
+        <option value="crop_stress">crop stress</option>
+        <option value="water_turbidity">turbid water</option>
+        <option value="drought">drought</option>
+        <option value="landslide">landslide</option>
+      </select>
+      <button type="button" id="lyr-hnt-go" class="ml-btn"><span class="sw hnt"></span>hunt</button>
+    </div>
+    <div class="ml-row ml-hunt-n"><b id="lyr-hnt-n"></b></div>
+    <div class="ml-note">live from /v1/coverage &middot; /v1/field_boundaries &middot; /v1/hunt &middot; zoom to a region, pick an event, hunt</div>
   </div>
   <aside class="hero-consensus atlas-panel" id="atlas-panel">
-    <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><span>no key &middot; same-origin</span></div>
+    <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><button class="box-min" id="cons-min" type="button" aria-label="minimise panel" title="minimise">&minus;</button></div>
     <div class="atlas-body">
       <div class="atlas-place"><span id="atlas-place-name">Pick a patch to begin.</span><span class="cell" id="atlas-cell"></span></div>
       <div class="atlas-status" id="atlas-status" role="status" aria-live="polite"></div>
       <figure class="atlas-scene" id="atlas-scene" hidden></figure>
+      <figure class="atlas-engram" id="atlas-engram" hidden>
+        <canvas id="engram-canvas"></canvas>
+        <figcaption class="eng-cap"><span class="eng-legend" id="engram-legend"></span><span class="eng-hint">the cell&rsquo;s memory, as four models hold it &middot; drag to turn</span></figcaption>
+      </figure>
       <div class="atlas-encs" id="atlas-encs"></div>
       <div class="mc-verdict" id="atlas-verdict" hidden></div>
       <div class="mc-deeper" id="atlas-deeper" hidden>
@@ -3343,6 +3386,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     {name:'Sumatra peat',        lng:101.50, lat:-0.50}
   ];
   var ENC_NAME = {geotessera:'Tessera', clay_v1:'Clay v1.5', prithvi_eo2:'Prithvi-EO-2', galileo:'Galileo'};
+  var ENC_COL  = {geotessera:'#5b78c8', clay_v1:'#5fa84a', prithvi_eo2:'#e0a838', galileo:'#cf5142'};
   function encLabel(k){ return ENC_NAME[k] || k; }
   function fc(features){ return {type:'FeatureCollection', features:features}; }
 
@@ -3410,6 +3454,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       elCell=document.getElementById('atlas-cell'),
       elStatus=document.getElementById('atlas-status'),
       elScene=document.getElementById('atlas-scene'),
+      elEngram=document.getElementById('atlas-engram'),
       elEncs=document.getElementById('atlas-encs'),
       elVerdict=document.getElementById('atlas-verdict'),
       elDeeper=document.getElementById('atlas-deeper');
@@ -3420,41 +3465,85 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function clearKids(n){ while(n.firstChild) n.removeChild(n.firstChild); }
   function el(tag, cls, text){ var e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
 
-  // Diverging colour for one normalised embedding component t in [-1,1]:
-  // warm paper at zero, vermilion for positive, indigo for negative — the
-  // page's own ink-pigment palette, so a vector reads as a Mithila barcode.
-  function heatColor(t){
-    var paper=[230,220,194], pos=[187,59,44], neg=[52,74,140];
-    var b = t>=0 ? pos : neg, k=Math.min(1, Math.abs(t));
-    var r=Math.round(paper[0]+(b[0]-paper[0])*k),
-        g=Math.round(paper[1]+(b[1]-paper[1])*k),
-        bl=Math.round(paper[2]+(b[2]-paper[2])*k);
-    return 'rgb('+r+','+g+','+bl+')';
-  }
-  // The signed embedding vector → an SVG barcode. High-dim vectors
-  // (Clay/Prithvi 1024-D, Galileo 768-D) are bucket-averaged to <=96 bars so
-  // every encoder reads at the same width. Colours are presentation
-  // attributes (not inline styles), so the hash-based CSP never blocks them.
-  function heatSvg(vec){
-    var N=vec.length, W=Math.min(96, N);
-    var maxAbs=1e-6, i;
-    for(i=0;i<N;i++){ var a=Math.abs(vec[i]); if(a>maxAbs) maxAbs=a; }
-    var svg=document.createElementNS(SVGNS,'svg');
-    svg.setAttribute('viewBox','0 0 '+W+' 10');
-    svg.setAttribute('preserveAspectRatio','none');
-    svg.setAttribute('role','img');
-    for(var j=0;j<W;j++){
-      var s=Math.floor(j*N/W), e=Math.floor((j+1)*N/W); if(e<=s) e=s+1;
-      var sum=0; for(var k=s;k<e;k++) sum+=vec[k];
-      var t=(sum/(e-s))/maxAbs;
-      var r=document.createElementNS(SVGNS,'rect');
-      r.setAttribute('x', j); r.setAttribute('y', 0);
-      r.setAttribute('width', 1.04); r.setAttribute('height', 10);
-      r.setAttribute('fill', heatColor(t));
-      svg.appendChild(r);
+  // ── the 3D embedding engram ────────────────────────────────────────────
+  // The four signed vectors for a cell, each rendered as a rotating 3D point
+  // cloud (canvas, no library). Each vector is reshaped into 3-tuples →
+  // points; the cloud SHAPE is a fingerprint of that cell's latent state, so
+  // different cells visibly differ and the four encoders read as four
+  // constellations over the same ground. Drag to turn; depth-fog + perspective
+  // sell the third axis. Honest: the points ARE the signed components.
+  var ENG = (function(){
+    var cv, ctx, W=0, H=0, dpr=1, raf=null, clouds=[];
+    var rotX=0.42, rotY=0.0, auto=true, drag=false, lx=0, ly=0, started=false;
+    function build(vec, maxPts){
+      var pts=[], mx=1e-6, i;
+      for(i=0;i+2<vec.length;i+=3){ pts.push([vec[i],vec[i+1],vec[i+2]]); }
+      // subsample evenly to maxPts
+      if(pts.length>maxPts){ var out=[], st=pts.length/maxPts; for(i=0;i<maxPts;i++) out.push(pts[Math.floor(i*st)]); pts=out; }
+      for(i=0;i<pts.length;i++){ var p=pts[i], r=Math.sqrt(p[0]*p[0]+p[1]*p[1]+p[2]*p[2]); if(r>mx)mx=r; }
+      for(i=0;i<pts.length;i++){ pts[i][0]/=mx; pts[i][1]/=mx; pts[i][2]/=mx; }
+      return pts;
     }
-    return svg;
-  }
+    function resize(){
+      dpr=Math.min(2, window.devicePixelRatio||1);
+      W=cv.clientWidth; H=cv.clientHeight;
+      cv.width=Math.max(1,Math.round(W*dpr)); cv.height=Math.max(1,Math.round(H*dpr));
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    function proj(p){
+      var cyw=Math.cos(rotY), syw=Math.sin(rotY), cxw=Math.cos(rotX), sxw=Math.sin(rotX);
+      var x=p[0], y=p[1], z=p[2];
+      var x1=x*cyw - z*syw, z1=x*syw + z*cyw;
+      var y1=y*cxw - z1*sxw, z2=y*sxw + z1*cxw;
+      var d=3.4, f=d/(d - z2), s=Math.min(W,H)*0.5;
+      return [W/2 + x1*f*s, H/2 + y1*f*s, z2, f];
+    }
+    function frame(){
+      raf=requestAnimationFrame(frame);
+      if(!W||!H){ resize(); if(!W) return; }
+      if(auto && !drag) rotY += 0.0045;
+      ctx.clearRect(0,0,W,H);
+      var all=[], ci, pi;
+      for(ci=0;ci<clouds.length;ci++){ var c=clouds[ci]; for(pi=0;pi<c.pts.length;pi++){ all.push([proj(c.pts[pi]), c.color]); } }
+      all.sort(function(a,b){ return a[0][2]-b[0][2]; });
+      for(var k=0;k<all.length;k++){
+        var pr=all[k][0], col=all[k][1];
+        var fog=(pr[2]+1.15)/2.3;                 // 0 far … 1 near
+        ctx.globalAlpha=Math.max(0.08, Math.min(0.92, 0.2+0.7*fog));
+        ctx.fillStyle=col;
+        var rad=Math.max(0.6, (0.8+1.7*pr[3])*(0.55+0.6*fog));
+        ctx.beginPath(); ctx.arc(pr[0],pr[1],rad,0,6.2832); ctx.fill();
+      }
+      ctx.globalAlpha=1;
+    }
+    function start(){ if(!raf) raf=requestAnimationFrame(frame); }
+    function init(){
+      if(started) return; started=true;
+      cv=document.getElementById('engram-canvas'); if(!cv) return;
+      ctx=cv.getContext('2d');
+      window.addEventListener('resize', resize);
+      cv.addEventListener('pointerdown', function(ev){ drag=true; auto=false; lx=ev.clientX; ly=ev.clientY; cv.setPointerCapture&&cv.setPointerCapture(ev.pointerId); });
+      cv.addEventListener('pointermove', function(ev){ if(!drag) return; rotY+=(ev.clientX-lx)*0.01; rotX+=(ev.clientY-ly)*0.01; rotX=Math.max(-1.4,Math.min(1.4,rotX)); lx=ev.clientX; ly=ev.clientY; });
+      function up(){ drag=false; setTimeout(function(){ auto=true; }, 2600); }
+      cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up); cv.addEventListener('pointerleave', up);
+    }
+    return {
+      setData: function(encoders){
+        init();
+        clouds=[];
+        (encoders||[]).forEach(function(e){
+          if(Array.isArray(e.vector) && e.vector.length){
+            clouds.push({color: ENC_COL[e.encoder] || '#cbb68a', pts: build(e.vector, 80)});
+          }
+        });
+        if(clouds.length){ elEngram.hidden=false; resize(); start();
+          var lg=document.getElementById('engram-legend');
+          if(lg){ clearKids(lg); (encoders||[]).forEach(function(e){ if(Array.isArray(e.vector)&&e.vector.length){ var sp=el('span'); var i2=el('i'); i2.style.background=ENC_COL[e.encoder]||'#cbb68a'; sp.appendChild(i2); sp.appendChild(document.createTextNode(encLabel(e.encoder))); lg.appendChild(sp); } }); }
+        } else { elEngram.hidden=true; }
+      },
+      clear: function(){ clouds=[]; if(elEngram) elEngram.hidden=true; }
+    };
+  })();
 
   // The real Sentinel-2 true-colour scene for the selected cell. Loaded
   // lazily after the embeddings render; on a cloudy patch the endpoint 404s
@@ -3489,13 +3578,12 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // (no truncated "…" that can't be copied or checked).
   function encRow(e){
     var row = el('div','atlas-enc');
-    var nm = el('div','name'); nm.appendChild(el('span','seal')); nm.appendChild(el('span', null, encLabel(e.encoder)));
+    var nm = el('div','name'); var seal=el('span','seal');
+    if (ENC_COL[e.encoder]) seal.style.background = ENC_COL[e.encoder];   // tie row to the engram colour
+    nm.appendChild(seal); nm.appendChild(el('span', null, encLabel(e.encoder)));
     row.appendChild(nm);
     var l2 = (typeof e.l2_norm==='number') ? e.l2_norm.toFixed(2) : '?';
     row.appendChild(el('div','meta', e.dim+'-D · |v| '+l2));
-    if (Array.isArray(e.vector) && e.vector.length){
-      var heat = el('div','heat'); heat.appendChild(heatSvg(e.vector)); row.appendChild(heat);
-    }
     var cid = el('div','cid');
     cid.appendChild(document.createTextNode('signed · '));
     if (e.fact_cid){
@@ -3521,6 +3609,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     clearKids(elEncs);
     ((state && state.encoders) || []).forEach(function(e){ elEncs.appendChild(encRow(e)); });
     ((state && state.missing) || []).forEach(function(m){ elEncs.appendChild(absentRow(m)); });
+    ENG.setData((state && state.encoders) || []);   // the 3D engram from the signed vectors
   }
 
   function renderConsensus(cons){
@@ -3543,7 +3632,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     map.getSource('sel').setData(fc([{type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[lng,lat]}}]));
     if (ease) map.easeTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 2.6), duration:700});
     elName.textContent = label || 'selected patch';
-    elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; clearKids(elEncs);
+    elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; ENG.clear(); clearKids(elEncs);
     if (map.getSource('cellfoot')) map.getSource('cellfoot').setData(fc([]));
     setStatus('resolving cell…');
 
@@ -3627,8 +3716,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function huntHere(){
     var b = map.getBounds();
     if ((b.getNorth()-b.getSouth()) * (b.getEast()-b.getWest()) > 60){ setLeg(elHntN, 'zoom to a region'); return; }
-    setLeg(elHntN, 'hunting… (~5s)');
-    fetchJson('/v1/hunt', {event:'deforestation', polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
+    var ev = (document.getElementById('lyr-hnt-ev')||{}).value || 'deforestation';
+    setLeg(elHntN, 'hunting ' + ev.replace(/_/g,' ') + '… (~5s)');
+    fetchJson('/v1/hunt', {event:ev, polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
       if (r.ok && r.j && r.j.hotspots){
         var feats = r.j.hotspots.filter(function(h){ return typeof h.lng === 'number'; }).map(function(h){
           return {type:'Feature', properties:{c: h.coherence || 0.5}, geometry:{type:'Point', coordinates:[h.lng, h.lat]}};
@@ -3642,6 +3732,11 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function setVis(ids, on){ ids.forEach(function(id){ if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); }); }
 
   var tCov=document.getElementById('lyr-cov'), tFld=document.getElementById('lyr-fld'), bHnt=document.getElementById('lyr-hnt-go');
+  // Mithila minimise/expand on the two map boxes
+  var consMin=document.getElementById('cons-min'), legMin=document.getElementById('leg-min');
+  if (consMin) consMin.addEventListener('click', function(){ var c=document.getElementById('atlas-panel').classList.toggle('collapsed'); consMin.textContent=c?'+':'−'; consMin.title=c?'expand':'minimise'; });
+  if (legMin) legMin.addEventListener('click', function(){ var c=document.getElementById('map-legend').classList.toggle('collapsed'); legMin.textContent=c?'+':'−'; legMin.title=c?'expand':'minimise'; });
+
   if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot','hot-pulse','hot-core'], tCov.checked); });
   if (tFld) tFld.addEventListener('change', function(){ fieldsOn = tFld.checked; setVis(['fields-fill','fields-line'], fieldsOn); if (fieldsOn) loadFields(); else setLeg(elFldN, ''); });
   if (bHnt) bHnt.addEventListener('click', huntHere);
