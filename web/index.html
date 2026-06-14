@@ -701,6 +701,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .map-legend .ml-hunt .ml-btn{width:auto;flex:0 0 auto}
 .map-legend .ml-hunt-n{margin:.1rem 0 0;min-height:0}
 .map-legend .ml-hunt-n b{color:var(--absent);font-weight:700}
+.map-legend .ml-sub{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:.55rem 0 .25rem}
+.map-legend .ml-base{display:flex;gap:.25rem}
+.map-legend .ml-base .bm{flex:1;font:inherit;font-size:9.5px;padding:.25rem .2rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink-2);cursor:pointer}
+.map-legend .ml-base .bm:hover{border-color:var(--accent)}
+.map-legend .ml-base .bm.on{background:var(--accent);color:var(--paper);border-color:var(--ink)}
+.map-legend .ml-drop{margin-top:.4rem}
+.map-legend .ml-drop .ml-btn{width:100%}
+.map-legend .ml-drop b{color:var(--accent);font-weight:700}
+.earth-hero.dragover::after{border-color:var(--accent);border-width:2px}
 .map-legend .ml-note{margin-top:.5rem;color:var(--mute);font-size:9.5px;line-height:1.35;border-top:1px solid var(--rule);padding-top:.4rem}
 @media (max-width:880px){.map-legend{left:12px;top:12px;width:200px}}
 /* double-line Mithila frame drawn over the map edges */
@@ -1077,7 +1086,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <button type="button" id="lyr-hnt-go" class="ml-btn"><span class="sw hnt"></span>hunt</button>
     </div>
     <div class="ml-row ml-hunt-n"><b id="lyr-hnt-n"></b></div>
-    <div class="ml-note">live from /v1/coverage &middot; /v1/field_boundaries &middot; /v1/hunt &middot; zoom to a region, pick an event, hunt</div>
+    <div class="ml-sub">basemap</div>
+    <div class="ml-base" role="group" aria-label="basemap">
+      <button type="button" class="bm on" data-bm="mithila">Mithila</button>
+      <button type="button" class="bm" data-bm="streets">streets</button>
+      <button type="button" class="bm" data-bm="sat">satellite</button>
+    </div>
+    <div class="ml-row ml-drop"><button type="button" id="geo-add" class="ml-btn">overlay a GeoJSON file</button><b id="geo-n"></b></div>
+    <input type="file" id="geo-file" accept=".geojson,.json,application/geo+json,application/json" style="display:none">
+    <div class="ml-note">live from /v1/coverage &middot; /v1/field_boundaries &middot; /v1/hunt &middot; or drop a .geojson onto the map</div>
   </div>
   <aside class="hero-consensus atlas-panel" id="atlas-panel">
     <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><button class="box-min" id="cons-min" type="button" aria-label="minimise panel" title="minimise">&minus;</button></div>
@@ -3463,6 +3480,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       version:8,
       sources:{
         land:{type:'geojson', data:'/land-110m.geojson'},
+        osm:{type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256, maxzoom:19, attribution:'&copy; OpenStreetMap contributors'},
+        sat:{type:'raster', tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize:256, maxzoom:19, attribution:'Esri, Maxar, Earthstar Geographics'},
+        dropped:{type:'geojson', data:fc([])},
         coverage:{type:'geojson', data:fc([])},
         hotpulse:{type:'geojson', data:fc([])},
         fields:{type:'geojson', data:fc([])},
@@ -3474,6 +3494,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       },
       layers:[
         {id:'sea',   type:'background', paint:{'background-color':PAPER}},
+        // FOSS raster basemaps, hidden until chosen in the basemap switcher
+        {id:'osm-tiles', type:'raster', source:'osm', layout:{visibility:'none'}, paint:{'raster-opacity':0.92}},
+        {id:'sat-tiles', type:'raster', source:'sat', layout:{visibility:'none'}},
         {id:'land',  type:'fill', source:'land', paint:{'fill-color':LAND}},
         {id:'coast', type:'line', source:'land', paint:{'line-color':INK,'line-width':1.0,'line-opacity':0.85}},
         // /v1/coverage — where Earth is already remembered (signed-fact density)
@@ -3498,6 +3521,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         // selected cell true footprint (/v1/cells/<cell>/geojson)
         {id:'cell-foot', type:'fill', source:'cellfoot', paint:{'fill-color':INDIGO,'fill-opacity':0.28}},
         {id:'cell-foot-line', type:'line', source:'cellfoot', paint:{'line-color':INDIGO,'line-width':1.4}},
+        // a user-dropped / pasted GeoJSON file, overlaid live (client-side only)
+        {id:'dropped-fill', type:'fill', source:'dropped', filter:['==',['geometry-type'],'Polygon'], paint:{'fill-color':OCHRE,'fill-opacity':0.28}},
+        {id:'dropped-line', type:'line', source:'dropped', paint:{'line-color':VERM,'line-width':1.4}},
+        {id:'dropped-dot', type:'circle', source:'dropped', filter:['==',['geometry-type'],'Point'], paint:{'circle-radius':4,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.2}},
         // /v1/hunt — anomaly hotspots (triggered)
         {id:'hunt-glow', type:'circle', source:'hunt', paint:{'circle-radius':['interpolate',['linear'],['get','c'],0,9,1,28],'circle-color':VERM,'circle-opacity':0.16}},
         {id:'hunt-dot', type:'circle', source:'hunt', paint:{'circle-radius':5.5,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.5}},
@@ -3933,6 +3960,36 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot','hot-pulse','hot-core'], tCov.checked); });
   if (tFld) tFld.addEventListener('change', function(){ fieldsOn = tFld.checked; setVis(['fields-fill','fields-line'], fieldsOn); if (fieldsOn) loadFields(); else setLeg(elFldN, ''); });
   if (bHnt) bHnt.addEventListener('click', huntHere);
+
+  // basemap switcher: Mithila (self-hosted Natural Earth) / OSM streets / Esri satellite
+  function setBasemap(bm){
+    setVis(['osm-tiles'], bm==='streets');
+    setVis(['sat-tiles'], bm==='sat');
+    setVis(['land','coast'], bm==='mithila');
+    document.querySelectorAll('.ml-base .bm').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-bm')===bm); });
+  }
+  document.querySelectorAll('.ml-base .bm').forEach(function(b){ b.addEventListener('click', function(){ setBasemap(b.getAttribute('data-bm')); }); });
+
+  // overlay a user GeoJSON (drag-drop, or file picker) — read locally, never uploaded
+  function showGeoJSON(text){
+    var data; try{ data=JSON.parse(text); }catch(e){ setLeg(document.getElementById('geo-n'), 'not valid JSON'); return; }
+    if(map.getSource('dropped')) map.getSource('dropped').setData(data);
+    var bb=new maplibregl.LngLatBounds(), any=false;
+    function walk(co){ if(typeof co[0]==='number'){ bb.extend(co); any=true; } else if(Array.isArray(co)) co.forEach(walk); }
+    var feats = data.features || (data.type==='Feature' ? [data] : []);
+    feats.forEach(function(f){ if(f && f.geometry && f.geometry.coordinates) walk(f.geometry.coordinates); });
+    if(any) map.fitBounds(bb, {padding:50, maxZoom:13, duration:800});
+    setLeg(document.getElementById('geo-n'), feats.length + ' feature' + (feats.length===1?'':'s'));
+  }
+  function readGeoFile(f){ if(!f) return; var r=new FileReader(); r.onload=function(ev){ showGeoJSON(ev.target.result); }; r.readAsText(f); }
+  var geoAdd=document.getElementById('geo-add'), geoFile=document.getElementById('geo-file');
+  if(geoAdd && geoFile){ geoAdd.addEventListener('click', function(){ geoFile.click(); }); geoFile.addEventListener('change', function(e){ readGeoFile(e.target.files[0]); }); }
+  var heroEl=document.getElementById('map');
+  if(heroEl){
+    heroEl.addEventListener('dragover', function(e){ e.preventDefault(); heroEl.classList.add('dragover'); });
+    heroEl.addEventListener('dragleave', function(){ heroEl.classList.remove('dragover'); });
+    heroEl.addEventListener('drop', function(e){ e.preventDefault(); heroEl.classList.remove('dragover'); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) readGeoFile(f); });
+  }
 
   map.on('load', function(){
     map.resize();

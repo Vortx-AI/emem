@@ -2585,7 +2585,7 @@ fn csp_header_value() -> &'static HeaderValue {
         let csp = format!(
             "default-src 'self'; \
              script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com{script_src_extra}; \
-             connect-src 'self' https://www.google-analytics.com https://esm.sh; \
+             connect-src 'self' https://www.google-analytics.com https://esm.sh https://tile.openstreetmap.org https://server.arcgisonline.com https://tiles.maps.eox.at; \
              img-src 'self' data: https:; \
              style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
              style-src-attr 'unsafe-inline'; \
