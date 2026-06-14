@@ -3485,13 +3485,18 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // real satellite image + four signed embedding barcodes. The cloudy
   // tropical patches (Amazon/Borneo/Sumatra) follow; they still show the
   // embeddings, with an honest "no cloud-free scene" note for the image.
+  // Cities lead (the everyday consumer questions — flood, air, walkability,
+  // density — read richly there); the forest/wetland patches follow for the
+  // four-model consensus + EUDR story. The default (index 0) opens on a city.
   var PATCHES = [
+    {name:'Mumbai',              lng:72.87,  lat:19.07},
+    {name:'São Paulo',      lng:-46.63, lat:-23.55},
+    {name:'Chicago',             lng:-87.63, lat:41.88},
+    {name:'Jakarta',             lng:106.85, lat:-6.20},
     {name:'Pantanal wetland',    lng:-56.60, lat:-17.70},
-    {name:'Iowa cropland',       lng:-93.60, lat:42.00},
-    {name:'Congo Basin',         lng:21.00,  lat:0.60},
     {name:'Amazon, Para',        lng:-54.10, lat:-3.20},
     {name:'Borneo, Kalimantan',  lng:113.90, lat:0.50},
-    {name:'Sumatra peat',        lng:101.50, lat:-0.50}
+    {name:'Iowa cropland',       lng:-93.60, lat:42.00}
   ];
   var ENC_NAME = {geotessera:'Tessera', clay_v1:'Clay v1.5', prithvi_eo2:'Prithvi-EO-2', galileo:'Galileo'};
   var ENC_COL  = {geotessera:'#5b78c8', clay_v1:'#5fa84a', prithvi_eo2:'#e0a838', galileo:'#cf5142'};
