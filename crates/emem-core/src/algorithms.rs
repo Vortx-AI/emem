@@ -2090,27 +2090,36 @@ mod tests {
         let expected = 505.0 * 0.65_f64.powf(2.04);
         assert!(approx(v, expected, 1e-6));
 
-        // Boundary: ndvi above 0.85 clamps; below 0.40 also clamps.
+        // Outside the Baccini calibration envelope NDVI ∈ [0.40, 0.85] the
+        // power law is undefined — it must return Absence, NOT a clamped floor
+        // value. The old behaviour fabricated 505·0.40^2.04 ≈ 77.9 Mg/ha on
+        // ocean / bare ground (NDVI < 0.40), which read as real biomass.
         s.insert("indices.ndvi".to_string(), 0.95);
-        let v_top = DEFAULT
-            .evaluate("agb_ndvi_powerlaw@1", &s)
-            .unwrap()
-            .unwrap();
-        let expected_top = 505.0 * 0.85_f64.powf(2.04);
         assert!(
-            approx(v_top, expected_top, 1e-6),
-            "ndvi=0.95 should clamp to 0.85 saturation"
+            DEFAULT
+                .evaluate("agb_ndvi_powerlaw@1", &s)
+                .unwrap()
+                .is_none(),
+            "ndvi=0.95 is above the 0.85 saturation envelope → Absence, not a clamped value"
         );
 
         s.insert("indices.ndvi".to_string(), 0.10);
-        let v_low = DEFAULT
-            .evaluate("agb_ndvi_powerlaw@1", &s)
-            .unwrap()
-            .unwrap();
-        let expected_low = 505.0 * 0.40_f64.powf(2.04);
         assert!(
-            approx(v_low, expected_low, 1e-6),
-            "ndvi=0.10 should clamp to 0.40 floor"
+            DEFAULT
+                .evaluate("agb_ndvi_powerlaw@1", &s)
+                .unwrap()
+                .is_none(),
+            "ndvi=0.10 is below the 0.40 forest floor → Absence, not 505·0.40^2.04"
+        );
+
+        // A negative NDVI (open water) must NOT yield a biomass number.
+        s.insert("indices.ndvi".to_string(), -0.118);
+        assert!(
+            DEFAULT
+                .evaluate("agb_ndvi_powerlaw@1", &s)
+                .unwrap()
+                .is_none(),
+            "ocean NDVI must be Absence, never fabricated biomass"
         );
     }
 

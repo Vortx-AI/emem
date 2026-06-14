@@ -41019,6 +41019,15 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             },
         ));
     }
+    // Did the CALLER pin a location, or are we about to greedily extract one
+    // from the question text? Captured before any lat/lng/place promotion
+    // below. When NO topic routes AND no location was pinned, a resolved place
+    // is almost certainly a greedy geocoder grab ("meaning of life" → "Life,
+    // Tennessee") — we must NOT dress its elevation/temp up as a confident
+    // answer. With an explicit anchor, a topic-miss is still a real place the
+    // caller chose, so we answer (the air-quality-without-a-topic case).
+    let location_explicit =
+        req.cell.is_some() || req.lat.is_some() || req.lng.is_some() || req.place.is_some();
     // Verbosity gate. The default flipped to `false` on 2026-05-05 after
     // the MCP deepscan reported /v1/ask responses up to 84 KB — well over
     // MCP's 25 KB cap. When `verbose=false` the response trims:
@@ -42126,7 +42135,37 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
     // synthesis is a pure projection of the structured response, with
     // every cited number traceable back to a fact_cid in the receipt.
     if let Some(map) = body.as_object_mut() {
-        if !map.contains_key("answer") || map.get("answer").map(|v| v.is_null()).unwrap_or(true) {
+        // OUT-OF-SCOPE GUARD (runs before synthesis). No topic routed AND the
+        // caller pinned no location → the resolved place was greedily extracted
+        // from the wording ("meaning of life" → "Life, Tennessee"). Do NOT dress
+        // its elevation/temperature up as a confident answer: say out_of_scope
+        // and hand back the near-miss under `almost_matched`. The receipt over
+        // whatever facts did land still ships (signed, but plainly not an
+        // answer to this question). With an explicit anchor we fall through and
+        // answer as normal — a topic-miss at a place the caller chose is real.
+        let suppress_out_of_scope = topics_empty && !location_explicit;
+        if suppress_out_of_scope {
+            let almost = map
+                .get("place_resolved")
+                .cloned()
+                .unwrap_or(JsonValue::Null);
+            map.insert("status".into(), json!("out_of_scope"));
+            map.insert("routed_to".into(), json!("out_of_scope"));
+            map.insert("envelope_schema".into(), json!("out_of_scope"));
+            map.insert("almost_matched".into(), almost);
+            let msg = "This question matched no Earth-observation topic, and you pinned no \
+                       location, so the place under `almost_matched` was extracted from the \
+                       wording and is almost certainly not what you meant. emem answers \
+                       questions about the physical state of a place — vegetation, water, \
+                       terrain, climate, air quality, land cover, forest change, population. \
+                       Pass an explicit `cell` / `place` / `lat`+`lng`, or call /v1/topics for \
+                       the catalogue."
+                .to_string();
+            map.insert("answer".into(), json!(msg.clone()));
+            map.insert("answer_md".into(), json!(msg));
+        } else if !map.contains_key("answer")
+            || map.get("answer").map(|v| v.is_null()).unwrap_or(true)
+        {
             let synth = synthesise_ask_answer(map);
             if !synth.is_empty() {
                 map.insert("answer".into(), JsonValue::String(synth.clone()));

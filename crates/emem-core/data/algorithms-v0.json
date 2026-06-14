@@ -898,29 +898,31 @@
       "accuracy_band": "R² = 0.82, RMSE 50.5 Mg/ha for tropical Africa moist forest within the calibration envelope (Baccini et al. 2008). Drops to R² ≈ 0.45 for boreal, temperate, and savanna applications — do not extrapolate outside the tropics without a biome-specific refit. Above NDVI = 0.80 saturation pushes uncertainty to ±100 Mg/ha; treat as a lower-bound estimate.",
       "pitfalls": "1. Power-law coefficients (a=505, b=2.04) are calibrated for TROPICAL MOIST FOREST (Baccini et al. 2008, African inventory plots). They DO NOT transfer to boreal, temperate, savanna, mangrove, or peat-swamp forest — the regional fits there differ by factors of 2–3. Treat outputs outside Africa, the Amazon, and SE Asia humid tropics as relative ranking, not absolute Mg/ha. 2. NDVI saturation above 0.85 means the algorithm CANNOT distinguish 350 Mg/ha from 600 Mg/ha old-growth — the receipt MUST be paired with a SAR (Sentinel-1 γ⁰ HV) or GEDI L4A attestation in dense-canopy regimes. 3. Cloud-contaminated NDVI biases AGB low; require Scene Classification Layer SCL ∈ {4,5,6} (vegetation/bare/water) before evaluating. 4. Sub-pixel mixing (10 m S2 vs the 463 m MODIS calibration) is uncorrected — sparse-canopy savanna may be over-predicted at S2 resolution. 5. NOT a substitute for direct LiDAR or SAR biomass products (ESA CCI Biomass v5, GEDI L4B); use this only when those higher-tier bands are unavailable for the cell.",
       "evaluation": {
-        "op": "mul",
-        "terms": [
-          {
-            "op": "const",
-            "value": 505.0
+        "op": "where",
+        "cond": { "op": "band", "band": "indices.ndvi" },
+        "gt": 0.3999,
+        "then_": {
+          "op": "where",
+          "cond": {
+            "op": "sub",
+            "a": { "op": "const", "value": 0.85 },
+            "b": { "op": "band", "band": "indices.ndvi" }
           },
-          {
-            "op": "pow",
-            "base": {
-              "op": "clamp",
-              "inner": {
-                "op": "band",
-                "band": "indices.ndvi"
-              },
-              "lo": 0.4,
-              "hi": 0.85
-            },
-            "exp": {
-              "op": "const",
-              "value": 2.04
-            }
-          }
-        ]
+          "gt": -0.0001,
+          "then_": {
+            "op": "mul",
+            "terms": [
+              { "op": "const", "value": 505.0 },
+              {
+                "op": "pow",
+                "base": { "op": "band", "band": "indices.ndvi" },
+                "exp": { "op": "const", "value": 2.04 }
+              }
+            ]
+          },
+          "else_": { "op": "div", "a": { "op": "const", "value": 1.0 }, "b": { "op": "const", "value": 0.0 } }
+        },
+        "else_": { "op": "div", "a": { "op": "const", "value": 1.0 }, "b": { "op": "const", "value": 0.0 } }
       }
     },
     {
