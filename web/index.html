@@ -852,6 +852,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .chapter .go{font-size:var(--t-sm)}
 .chapter .go a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 40%,transparent)}
 .chapter .go a:hover{background:var(--accent-bg)}
+/* two compact "where the latent comes from" cards (the upstream beats) */
+.latent-cards{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-top:1.1rem}
+@media (max-width:680px){.latent-cards{grid-template-columns:1fr}}
+.latent-cards .lcard{display:flex;flex-direction:column;gap:.35rem;text-decoration:none;padding:.7rem .8rem;
+  background:var(--paper-2);border:1px solid var(--ink);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule)}
+.latent-cards .lcard:hover{box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
+.latent-cards .lc-k{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--vermilion)}
+.latent-cards .lc-t{font-size:var(--t-sm);color:var(--ink-2);line-height:1.4}
+.latent-cards .lc-go{font-size:var(--t-xs);color:var(--accent);margin-top:auto}
 .chapter .go a+a{margin-left:1.1rem}
 @media (max-width:880px){
   .chapter{grid-template-columns:1fr;gap:1.4rem;padding:2.8rem 0}
@@ -2024,6 +2033,18 @@ input::placeholder{color:var(--mute,#7a7363)}
     <h2>Four models read the same ground</h2>
     <p class="cap">Tessera, Clay, Prithvi, and Galileo each read the same cell, and a consensus pass scores whether they corroborate or disagree.</p>
     <div class="go"><a href="#map">try it on the map above &uarr;</a><a href="/how-it-works">how consensus is scored &rarr;</a></div>
+    <div class="latent-cards">
+      <a class="lcard" href="/how-it-works#latent-origin">
+        <span class="lc-k">where the latent comes from</span>
+        <span class="lc-t">What reaches emem is a latent, not an image. The encoder runs at the source; emem is the open decoder for it.</span>
+        <span class="lc-go">the split &rarr;</span>
+      </a>
+      <a class="lcard" href="/how-it-works#embedding-first">
+        <span class="lc-k">why now</span>
+        <span class="lc-t">Gemma&nbsp;4 went encoder-free in 2026 — the field agrees: the embedding, not the pixels, is the substrate.</span>
+        <span class="lc-go">embedding-first &rarr;</span>
+      </a>
+    </div>
   </div>
 </section>
 <div class="mith-div"><span class="gem"></span></div>
@@ -4363,10 +4384,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   var tessOn=false, tessBusy=false, tessSeq=0;
   function loadTesseraField(){
     if(!tessOn) return;
-    if(map.getZoom() < 12){ setLeg(elTessN, 'zoom into a place'); setVis(['tessfield-img'], false); return; }
+    if(map.getZoom() < 10){ setLeg(elTessN, 'zoom into a region'); setVis(['tessfield-img'], false); return; }
     var b=map.getBounds();
     var dlat=Math.abs(b.getNorth()-b.getSouth()), dlng=Math.abs(b.getEast()-b.getWest());
-    if(dlat>0.09 || dlng>0.09){ setLeg(elTessN, 'zoom in more'); setVis(['tessfield-img'], false); return; }
+    if(dlat>0.5 || dlng>0.5){ setLeg(elTessN, 'zoom in a little'); setVis(['tessfield-img'], false); return; }
     if(tessBusy) return;
     tessBusy=true; var seq=++tessSeq; setLeg(elTessN, 'reading Tessera…');
     fetchJson('/v1/tessera_field', {polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
