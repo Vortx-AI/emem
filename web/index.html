@@ -713,6 +713,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .map-legend .ml-hunt-n{margin:.1rem 0 0;min-height:0}
 .map-legend .ml-hunt-n b{color:var(--absent);font-weight:700}
 .map-legend .ml-sub{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:.55rem 0 .25rem}
+.map-legend .ml-live{gap:.4rem;color:var(--mute);font-size:9.5px}
+.map-legend .ml-live .livedot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:0 0 auto;animation:livepulse 2.2s ease-in-out infinite}
+@keyframes livepulse{0%,100%{opacity:.35}50%{opacity:1}}
 .map-legend .ml-base{display:flex;gap:.25rem}
 .map-legend .ml-base .bm{flex:1;font:inherit;font-size:9.5px;padding:.25rem .2rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink-2);cursor:pointer}
 .map-legend .ml-base .bm:hover{border-color:var(--accent)}
@@ -1073,26 +1076,23 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <input id="ask-q" type="text" autocomplete="off" spellcheck="false" placeholder="ask Earth anything — is this area flood-prone? · NDVI in Iowa · deforestation in Borneo">
         <button type="submit" id="ask-go" class="ask-go">ask &rarr;</button>
       </form>
-      <div class="ask-egs"><span class="lbl">try</span><button type="button" class="ask-eg" data-q="is this neighbourhood flood-prone for a flat purchase">flood risk</button><button type="button" class="ask-eg" data-q="what is the ndvi and vegetation here">vegetation</button><button type="button" class="ask-eg" data-q="how built up and walkable is this area">urban</button><button type="button" class="ask-eg" data-q="elevation and terrain ruggedness here">terrain</button></div>
+      <div class="ask-egs"><span class="lbl">try</span><button type="button" class="ask-eg" data-q="is this neighbourhood flood-prone for a flat purchase">flood risk</button><button type="button" class="ask-eg" data-q="deforestation in the Amazon">deforestation</button><button type="button" class="ask-eg" data-q="wildfire in California">wildfire</button><button type="button" class="ask-eg" data-q="urban heat in Delhi">urban heat</button><button type="button" class="ask-eg" data-q="what is the ndvi and vegetation here">crop health</button></div>
     </div>
   </div>
   <div class="atlas-hint" id="atlas-hint">click a red patch, or anywhere on land &middot; drag to spin &middot; <span class="zoomhint">+ to zoom into farms</span></div>
   <div class="map-legend" id="map-legend">
     <div class="ml-title"><span>data layers</span><button class="box-min" id="leg-min" type="button" aria-label="minimise layers" title="minimise">&minus;</button></div>
-    <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">coverage</span><b id="lyr-cov-n">&hellip;</b></label>
-    <label class="ml-row"><input type="checkbox" id="lyr-fld"><span class="sw fld"></span><span class="lbl">farm fields</span><b id="lyr-fld-n"></b></label>
+    <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">the memory</span><b id="lyr-cov-n">&hellip;</b></label>
+    <label class="ml-row"><input type="checkbox" id="lyr-fld"><span class="sw fld"></span><span class="lbl">land parcels</span><b id="lyr-fld-n"></b></label>
+    <div class="ml-sub">find events &middot; any industry</div>
     <div class="ml-row ml-hunt">
-      <select id="lyr-hnt-ev" class="ml-sel" aria-label="hunt event">
-        <option value="deforestation">deforestation</option>
-        <option value="flood_extent">flood</option>
-        <option value="wildfire">wildfire</option>
-        <option value="urban_heat_island">urban heat</option>
-        <option value="algal_bloom">algal bloom</option>
-        <option value="methane_plume">methane</option>
-        <option value="crop_stress">crop stress</option>
-        <option value="water_turbidity">turbid water</option>
-        <option value="drought">drought</option>
-        <option value="landslide">landslide</option>
+      <select id="lyr-hnt-ev" class="ml-sel" aria-label="event">
+        <optgroup label="forestry / EUDR"><option value="deforestation">deforestation</option></optgroup>
+        <optgroup label="insurance / disaster"><option value="flood_extent">flood</option><option value="wildfire">wildfire</option><option value="drought">drought</option><option value="landslide">landslide</option></optgroup>
+        <optgroup label="water / ESG"><option value="algal_bloom">algal bloom</option><option value="water_turbidity">turbid water</option></optgroup>
+        <optgroup label="energy"><option value="methane_plume">methane plume</option></optgroup>
+        <optgroup label="urban"><option value="urban_heat_island">urban heat</option></optgroup>
+        <optgroup label="agriculture"><option value="crop_stress">crop stress</option></optgroup>
       </select>
       <button type="button" id="lyr-hnt-go" class="ml-btn"><span class="sw hnt"></span>hunt</button>
     </div>
@@ -1105,7 +1105,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     </div>
     <div class="ml-row ml-drop"><button type="button" id="geo-add" class="ml-btn">overlay a GeoJSON file</button><b id="geo-n"></b></div>
     <input type="file" id="geo-file" accept=".geojson,.json,application/geo+json,application/json" style="display:none">
-    <div class="ml-note">live from /v1/coverage &middot; /v1/field_boundaries &middot; /v1/hunt &middot; or drop a .geojson onto the map</div>
+    <div class="ml-row ml-live"><span class="livedot"></span><span id="ml-live">streaming /v1/stream&hellip;</span></div>
+    <div class="ml-note">coverage &middot; parcels &middot; events &middot; basemaps &middot; drop a .geojson &middot; all live, all signed</div>
   </div>
   <aside class="hero-consensus atlas-panel" id="atlas-panel">
     <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><button class="box-min" id="cons-min" type="button" aria-label="minimise panel" title="minimise">&minus;</button></div>
@@ -3910,16 +3911,28 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     fetchJson('/v1/ask', body).then(function(r){
       if(box) box.classList.remove('busy');
       if(!r.ok || !r.j){ setStatus('the responder did not answer that question. Try a place + a topic.'); return; }
-      var d=r.j; renderAnswer(d);
+      var d=r.j;
+      // HUNTER mode first: an event over a region returns hotspots AND a
+      // resolved region centre — show the hotspots (forestry / disaster / water
+      // / energy / urban / agri), not the region's centre cell.
+      if (d.hotspots && d.hotspots.length){
+        var hfeats=d.hotspots.filter(function(h){return typeof h.lng==='number';}).map(function(h){return {type:'Feature',properties:{c:h.coherence||0.5},geometry:{type:'Point',coordinates:[h.lng,h.lat]}};});
+        if(map.getSource('hunt')) map.getSource('hunt').setData(fc(hfeats));
+        var ev=String(d.event||'event').replace(/_/g,' ');
+        var where=(d.place_resolved && (d.place_resolved.label || d.place_resolved.place_label)) || 'this region';
+        elAnswer.hidden=false; elAnsQ.textContent='you asked: '+q;
+        elAnsText.textContent=hfeats.length+' '+ev+' hotspots across '+where+', ranked by coherence. The red markers are the strongest candidates — click one to read its signed cell.';
+        clearKids(elAnsTopics); elAnsTopics.appendChild(el('span','ans-chip', ev)); clearKids(elAnsBands);
+        var h0=d.hotspots[0]; if(typeof h0.lng==='number') map.easeTo({center:[h0.lng,h0.lat], zoom:Math.max(map.getZoom(),4), duration:800});
+        elName.textContent=ev+' · '+where;
+        setStatus('hunter mode: '+hfeats.length+' hotspots. Click a red marker for its cell.');
+        return;
+      }
+      renderAnswer(d);
       var pr=d.place_resolved||{};
       var lat=pr.lat, lng=pr.lng;
       if(typeof lat==='number' && typeof lng==='number'){
         selectAt(lng, lat, pr.label || pr.place_label || null, true);   // fly + cell + consensus + engram
-      } else if (d.hotspots && d.hotspots.length){
-        var feats=d.hotspots.filter(function(h){return typeof h.lng==='number';}).map(function(h){return {type:'Feature',properties:{c:h.coherence||0.5},geometry:{type:'Point',coordinates:[h.lng,h.lat]}};});
-        if(map.getSource('hunt')) map.getSource('hunt').setData(fc(feats));
-        var h0=d.hotspots[0]; if(typeof h0.lng==='number') map.easeTo({center:[h0.lng,h0.lat], zoom:Math.max(map.getZoom(),4), duration:800});
-        setStatus(feats.length+' hotspots for that question. Click one to read its cell.');
       } else {
         setStatus('that reads as a corpus or out-of-scope question — see the answer above.');
       }
@@ -4040,6 +4053,23 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     heroEl.addEventListener('dragleave', function(){ heroEl.classList.remove('dragover'); });
     heroEl.addEventListener('drop', function(e){ e.preventDefault(); heroEl.classList.remove('dragover'); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) readGeoFile(f); });
   }
+
+  // live corpus heartbeat over the signed SSE stream — the map stays alive
+  (function(){
+    var li=document.getElementById('ml-live'); if(!li || typeof EventSource==='undefined') return;
+    function show(data){
+      try{ var d=JSON.parse(data); var c=d.corpus||d;
+        var cells=c.distinct_cells||c.cells, f=c.facts_scanned||c.distinct_facts||c.facts;
+        if(typeof cells==='number') li.textContent='live · '+cells.toLocaleString()+' cells'+(typeof f==='number'?(' · '+f.toLocaleString()+' facts'):'')+' signed';
+      }catch(e){}
+    }
+    try{
+      var es=new EventSource('/v1/stream?interval=20');
+      es.addEventListener('state', function(ev){ show(ev.data); });
+      es.onmessage=function(ev){ show(ev.data); };
+      es.onerror=function(){};   // EventSource auto-reconnects
+    }catch(e){}
+  })();
 
   map.on('load', function(){
     map.resize();
