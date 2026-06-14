@@ -13,15 +13,15 @@
 - `GET /v1/coverage` — `cells[].{cell64, fact_count, lat_deg, lng_deg}` (densest first)
 - `GET /v1/coverage_matrix?limit=200` — per-band facts_count, last_attested_unix_s, family, tempo_seconds, history bounds
 - `GET /v1/data_availability` — per-band tempo_seconds + history_available_{from,to}_unix
-- `GET /v1/bands` — band registry (35 cube slots, 118 materializer-wired band names)
-- `GET /v1/algorithms` — algorithm registry (159 composition recipes; each carries `parameters` + `learned_from` provenance)
+- `GET /v1/bands` — band registry (43 cube slots, 124 materializer-wired band names)
+- `GET /v1/algorithms` — algorithm registry (160 composition recipes; each carries `parameters` + `learned_from` provenance)
 - `GET /v1/algorithms/{key}` — per-key drill-down with formula, inputs, citation, accuracy_band
 - `GET /v1/sources` — fetch-source registry (46 declared schemes)
 - `GET /v1/manifests` — the manifest CIDs (registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet)
 - `GET /v1/schema` — canonical CBOR wire schema
 - `GET /v1/topics` — 27 declared topic clusters with `live_bands_by_topic` filtered to this responder's wired materializers
 - `GET /v1/agent_card` — agent-readable summary, live counts, manifest CIDs
-- `GET /v1/tools` — 75 MCP tools (10 core, 65 extended) with `when_to_use` strings + four behavioural annotations
+- `GET /v1/tools` — 81 MCP tools (10 core, 71 extended) with `when_to_use` strings + four behavioural annotations
 - `GET /v1/quickstart` — copy-paste snippets for the canonical flows
 - `GET /v1/cells/{cell64}/info` — bbox, centre, approximate metres
 - `GET /v1/cells/{cell64}/scene.png` — optional Sentinel-2 thumbnail
@@ -113,7 +113,7 @@ live try-it drawer. Press `?` for the keyboard shortcut sheet.
 ## Try-it drawer (`T`)
 
 A slide-out drawer exposes 20 primitives the page knows about (the full
-agent surface has 75 MCP tools (10 core, 65 extended) — discover at `GET /v1/tools`). For each:
+agent surface has 81 MCP tools (10 core, 71 extended) — discover at `GET /v1/tools`). For each:
 
 - pre-filled JSON request body seeded from the corpus this responder
   actually serves (densest cell, top band)

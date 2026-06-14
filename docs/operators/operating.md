@@ -271,8 +271,8 @@ curl -sS http://127.0.0.1:5051/v1/coverage_matrix \
   | jq '.totals, (.bands | length)'
 ```
 
-The expected shape today is ~118 distinct band names surfaced (those
-118 names route into the 35 cube slots that sum to 1792-D); lower
+The expected shape today is ~124 distinct band names surfaced (those
+124 names route into the 43 cube slots that sum to 1792-D); lower
 numbers mean a registry CID rolled back or a materializer was removed.
 `/v1/materializers` reports the 20 live materializer registrations
 directly.

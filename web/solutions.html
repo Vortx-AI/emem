@@ -578,7 +578,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
     <p>The agent takes an address or lat/lng, calls <span class="band">/v1/elevation</span> for <span class="band">copdem30m.elevation_mean</span> (Copernicus DEM 30&nbsp;m, GMRT for bathymetry), <span class="band">/v1/water</span> for <span class="band">surface_water.recurrence</span> (JRC Global Surface Water, 1984&ndash;2021) plus <span class="band">sentinel1_raw</span> backscatter, and <span class="band">/v1/weather</span> for <span class="band">weather.precipitation_mm</span> (MET Norway nowcast). The <span class="band">flood_risk@2</span> algorithm fuses these into a single 0&ndash;1 risk score.</p>
 
-    <p>Every input band is a signed fact: the insurer cites <span class="band">fact_cid</span> values in the policy file and any auditor re-verifies offline via <span class="band">/v1/verify_receipt</span>. Surface-water recurrence is a 37-year JRC baseline; Sentinel-1 SAR cuts through cloud for flood-extent detection. The agent surfaces what the data says and what it does not &mdash; <span class="band">caveats[]</span> notes grid resolution and revisit cadence.</p>
+    <p>Every input band is a signed fact: the insurer cites <span class="band">fact_cid</span> values in the policy file and any auditor re-verifies offline via <span class="band">/v1/verify_receipt</span>. Surface-water recurrence is a 38-year JRC baseline (1984&ndash;2021); Sentinel-1 SAR cuts through cloud for flood-extent detection. The agent surfaces what the data says and what it does not &mdash; <span class="band">caveats[]</span> notes grid resolution and revisit cadence.</p>
 
     <p style="margin-top:1.5rem">
       <a class="btn" href="/v1/elevation?place=Ashok+Nagar+Ranchi">/v1/elevation &rarr;</a>

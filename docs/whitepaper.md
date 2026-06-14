@@ -44,16 +44,19 @@ bands, algorithms, sources, schema, and the function registry. The
 reference responder is a single Rust binary at
 `github.com/Vortx-AI/emem`, running at `https://emem.dev`.
 
-Four foundation encoders sit GPU-pinned inside the same tenant as
-the responder: Clay v1.5 (1024-D, Sentinel-2, receptive field
-~2.56 km), Prithvi-EO-2.0-300M-TL (1024-D, HLS V2, ~6.7 km),
+Four foundation encoders feed the responder. Three sit GPU-pinned
+inside the same tenant: Clay v1.5 (1024-D, Sentinel-2, receptive
+field ~2.56 km), Prithvi-EO-2.0-300M-TL (1024-D, HLS V2, ~6.7 km),
+and Galileo (multimodal stack: S1, S2, DEM, climate). The fourth,
 Tessera (128-D annual stack via `geotessera.multi_year`, per-pixel),
-and Galileo (multimodal stack: S1, S2, DEM, climate). Their
-receptive fields and modality coverage are independent, and the
-protocol surfaces a triple-consensus change algorithm that votes
-across all three. Consensus across the three is strong signal;
-one-or-none flags receptive-field aliasing rather than land-surface
-change.
+is not GPU-pinned: it is published as Cloud-Optimized GeoTIFF tiles
+on a 0.1° grid, so the responder streams it on CPU and can render a
+dense embedding field over a whole region without inference (the
+`/v1/tessera_field` primitive). Their receptive fields and modality
+coverage are independent, and the protocol surfaces a triple-consensus
+change algorithm that votes across Clay, Prithvi, and Tessera.
+Consensus across the three is strong signal; one-or-none flags
+receptive-field aliasing rather than land-surface change.
 
 This document specifies the math and architecture that 0.0.9 ships.
 Items not in 0.0.9 are listed under "Honest limits" and not discussed
@@ -1107,9 +1110,11 @@ responder does not hit OSM for ~99% of city queries.
 
 ## 12. Inference
 
-Four GPU-pinned encoders co-resident on a 20 GB VRAM budget. Latency
-warm numbers measured on RTX 4090; cold numbers include weight load
-from `<EMEM_DATA>/hf_cache/`.
+Three GPU-pinned encoders (Clay, Prithvi, Galileo) co-resident on a
+20 GB VRAM budget; Tessera is not among them, since it streams from
+precomputed GeoTIFF tiles on CPU rather than running inference.
+Latency warm numbers measured on RTX 4090; cold numbers include
+weight load from `<EMEM_DATA>/hf_cache/`.
 
 ```text
   model                    input shape          output  cold    warm    role

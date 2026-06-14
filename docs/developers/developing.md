@@ -51,7 +51,7 @@ each:
 | `emem-attest` | pure `merkle_root` + `merkle_root_and_paths` |
 | `emem-intent` | 7-variant `Intent` enum → `Plan{calls[]}` rule-based planner |
 | `emem-mcp` | MCP tool registry (single file) |
-| `emem-api-rest` | HTTP/MCP router, 169 `.route()` registrations (mapping to 90 OpenAPI-documented REST paths in `openapi.json`, 87 of them under `/v1/*`) + 75 MCP tools (10 core, 65 extended), all inline materializers |
+| `emem-api-rest` | HTTP/MCP router, 169 `.route()` registrations (mapping to 96 OpenAPI-documented REST paths in `openapi.json`, 93 of them under `/v1/*`) + 81 MCP tools (10 core, 71 extended), all inline materializers |
 | `emem-cli` | 7 binaries (see below) |
 
 The bulk of the codebase is concentrated. `crates/emem-api-rest/src/lib.rs`

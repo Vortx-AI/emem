@@ -468,6 +468,12 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="path">emem_forest</td><td>/v1/forest</td><td class="desc">forest cover &amp; loss</td><td class="desc">Hansen GFC, canopy bands</td></tr>
         <tr><td class="path">emem_weather</td><td>/v1/weather</td><td class="desc">now-only weather</td><td class="desc">met.no nowcast</td></tr>
         <tr><td class="path">emem_elevation</td><td>/v1/elevation</td><td class="desc">terrain elevation</td><td class="desc">Copernicus DEM 30 m</td></tr>
+        <tr><td class="path">emem_terrain</td><td>/v1/terrain</td><td class="desc">slope, aspect, ruggedness</td><td class="desc">Copernicus DEM 30 m</td></tr>
+        <tr><td class="path">emem_spi</td><td>/v1/spi</td><td class="desc">meteorological drought</td><td class="desc">standardized precipitation index</td></tr>
+        <tr><td class="path">emem_burn_severity</td><td>/v1/burn_severity</td><td class="desc">fire burn severity</td><td class="desc">Sentinel-2 dNBR, pre / post</td></tr>
+        <tr><td class="path">emem_deforestation_alert</td><td>/v1/deforestation_alert</td><td class="desc">forest-loss alert</td><td class="desc">NDVI drop vs baseline</td></tr>
+        <tr><td class="path">emem_sar_forest_disturbance</td><td>/v1/sar_forest_disturbance</td><td class="desc">cloud-free disturbance</td><td class="desc">Sentinel-1 VV backscatter drop</td></tr>
+        <tr><td class="path">emem_rice_ch4</td><td>/v1/rice_ch4</td><td class="desc">rice-paddy methane</td><td class="desc">flooded-paddy CH4 proxy</td></tr>
       </tbody>
     </table>
     </div>
@@ -510,6 +516,43 @@ input::placeholder{color:var(--mute,#7a7363)}
     </table>
     </div>
     <p>Empty is a signed answer, not a 404: when a cell has no fact for a band, the responder returns a signed record of that absence rather than failing silently.</p>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:2rem">Embeddings &amp; geography</p>
+    <p>Analytics over <em>sets</em> of 128-D GeoTessera vectors, with published formulas the scalar evaluator cannot express. All CPU-fetched, no GPU, so they run on a cold responder. Each returns a signed <span class="band">inconclusive</span> carrying the observed cell count rather than a fabricated number when coverage is too thin.</p>
+
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead>
+        <tr><th>MCP tool</th><th>REST</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="path">emem_tessera_field</td><td>/v1/tessera_field</td><td class="desc">dense Tessera embedding field over a bounding box, rendered as a colour raster; Tessera is the one encoder published as precomputed COG tiles, so this stays cheap over a whole region</td></tr>
+        <tr><td class="path">emem_embedding_centroid</td><td>/v1/embedding_centroid</td><td class="desc">mean GeoTessera centroid over a region's cells, L2-normalised, with a content-addressed cid</td></tr>
+        <tr><td class="path">emem_region_similarity</td><td>/v1/region_similarity</td><td class="desc">cosine between two regions' centroids in [-1, 1]: how alike two places are</td></tr>
+        <tr><td class="path">emem_embedding_diversity</td><td>/v1/embedding_diversity</td><td class="desc">mean pairwise cosine distance across a region; high means a varied landscape</td></tr>
+        <tr><td class="path">emem_neighborhood_consistency</td><td>/v1/neighborhood_consistency</td><td class="desc">mean cosine to a cell's 8 neighbours; its complement is a region-outlier score</td></tr>
+        <tr><td class="path">emem_triple_consensus</td><td>/v1/triple_consensus</td><td class="desc">Clay + Prithvi + Tessera at one cell, with the cross-encoder disagreement scored</td></tr>
+        <tr><td class="path">emem_state_multi</td><td>/v1/state_multi</td><td class="desc">per-encoder fan-out across the four foundation encoders; typed missing[] when one is unwired</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:2rem">Memory graph &amp; narration</p>
+    <p>The corpus is a typed graph, not a flat store. These read the edges between facts, surface contradictions instead of hiding them, and optionally narrate a signed answer in plain language without ever becoming the authority.</p>
+
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead>
+        <tr><th>MCP tool</th><th>REST</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="path">emem_edges_recall</td><td>/v1/edges/recall</td><td class="desc">typed edges (supersedes, relates_to) incident to a cell or fact</td></tr>
+        <tr><td class="path">emem_memory_search</td><td>/v1/memory/search</td><td class="desc">search the corpus by text or topic</td></tr>
+        <tr><td class="path">emem_memory_contradictions</td><td>/v1/memory_contradictions</td><td class="desc">facts that disagree at a cell or band, surfaced rather than silently dropped</td></tr>
+        <tr><td class="path">&mdash;</td><td>/v1/explain</td><td class="desc">optional Gemma 4 narrative over an already-signed answer; returns signed:false and points back to the canonical receipt + fact_cids. REST only, never the authority</td></tr>
+      </tbody>
+    </table>
+    </div>
   </div>
 </section>
 
