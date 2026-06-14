@@ -2,7 +2,7 @@
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>emem whitepaper: a content-addressed protocol for verifiable agent memory</title>
-<meta name=description content="The emem whitepaper. A content-addressed protocol for verifiable agent memory: cell64 + tslot addressing, canonical CBOR + BLAKE3 + base32 CIDs, ed25519 receipts over a domain-separated preimage, RFC 6962 Merkle proofs, the 1792-D voxel, triple-encoder consensus, and the full primitive surface. Version 0.0.9.">
+<meta name=description content="The emem whitepaper. A content-addressed protocol for verifiable agent memory: cell64 + tslot addressing, canonical CBOR + BLAKE3 + base32 CIDs, ed25519 receipts over a domain-separated preimage, RFC 6962 Merkle proofs, the 1792-D voxel, triple-encoder consensus, and the full primitive surface. Version 0.1.0.">
 <link rel=canonical href="https://emem.dev/whitepaper.html">
 <link rel=alternate type=text/markdown href=/whitepaper.md>
 <link rel=icon type="image/gif" href="/vortxgola.gif">
@@ -10,11 +10,11 @@
 <meta property=og:type content=article>
 <meta property=og:url content="https://emem.dev/whitepaper.html">
 <meta property=og:title content="emem whitepaper: a content-addressed protocol for verifiable agent memory">
-<meta property=og:description content="The flagship technical document for emem. cell64 + tslot, canonical CBOR + BLAKE3 + base32 CIDs, ed25519 receipts, RFC 6962 Merkle, triple-encoder consensus. Version 0.0.9.">
+<meta property=og:description content="The flagship technical document for emem. cell64 + tslot, canonical CBOR + BLAKE3 + base32 CIDs, ed25519 receipts, RFC 6962 Merkle, triple-encoder consensus. Version 0.1.0.">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary>
 <meta name=twitter:title content="emem whitepaper">
-<meta name=twitter:description content="A content-addressed protocol for verifiable agent memory. Version 0.0.9.">
+<meta name=twitter:description content="A content-addressed protocol for verifiable agent memory. Version 0.1.0.">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
@@ -253,7 +253,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <p class="kicker"><span class="seal"></span> Whitepaper &middot; Vortx AI</p>
     <h1>emem: a content-addressed protocol for <span class="accent">verifiable agent memory</span></h1>
     <p class="teaser">A memory substrate for AI agents that need a stable, citation-carrying place to ground spatial answers and a writable scratchpad for their own observations. Two layers ride a single trust surface. The lower layer is Earth memory, an open-data corpus addressed by <code>(cell, band, tslot)</code> whose unit is a signed fact. The upper layer is agent memory, a content-addressed file store under <code>/memories/*</code>. Both layers return signed receipts; the same <code>/verify</code> page checks them both without trusting the issuer.</p>
-    <p class="meta-line"><b>Vortx AI</b> <span class="dot">&middot;</span> <b>v0.0.9</b> &middot; 2026-05-30 <span class="dot">&middot;</span> Apache-2.0 <span class="dot">&middot;</span> reference responder <code>emem.dev</code></p>
+    <p class="meta-line"><b>Vortx AI</b> <span class="dot">&middot;</span> <b>v0.1.0</b> &middot; 2026-06-14 <span class="dot">&middot;</span> Apache-2.0 <span class="dot">&middot;</span> reference responder <code>emem.dev</code></p>
     <div class="hero-cta">
       <a class="btn" href="/spec.md">spec.md</a>
       <a class="btn ghost" href="/docs">docs</a>
@@ -305,7 +305,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <p>Every read primitive accepts two optional bounds, <code>as_of_tslot</code> (observation time) and <code>as_of_signed_at</code> (transaction time). Set either, both, or neither. The receipt carries an <code>as_of</code> block when the bound is non-empty so a verifier in year <em>t+k</em> replays the exact query a system answered at year <em>t</em>. Three derived primitives complete the substrate: <code>memory_bundle</code> composes N facts into one signed envelope (<code>memb:&lt;bundle_cid&gt;</code>); <code>memory_search</code> embeds queries through BGE-base-en-v1.5 and runs cosine against a LanceDB IVF_PQ partition over memory-file contents; <code>memory_contradictions</code> walks a parallel multi-attester index and scores cross-signer disagreement per band kind (scalar, vector, categorical, mixed). A Server-Sent Events stream surfaces every memory write with server-side filter on <code>path_prefix</code>, <code>kind</code>, and <code>attester</code>.</p>
       <p>The protocol defines the loader, the validator, the CID rule, the receipt-signing rule, the capability-binding rule, and the primitive semantics. It is never the data itself. Any conforming implementation must produce byte-identical CIDs from byte-identical inputs; the conformance set is a content-addressed manifest pinning bands, algorithms, sources, schema, and the function registry. The reference responder is a single Rust binary at <code>github.com/Vortx-AI/emem</code>, running at <a href="https://emem.dev">emem.dev</a>.</p>
       <p>Four foundation encoders feed the responder. Three sit GPU-pinned inside the same tenant: Clay v1.5 (1024-D, Sentinel-2, receptive field ~2.56 km), Prithvi-EO-2.0-300M-TL (1024-D, HLS V2, ~6.7 km), and Galileo (multimodal stack: S1, S2, DEM, climate). The fourth, Tessera (128-D annual stack via <code>geotessera.multi_year</code>, per-pixel), is not GPU-pinned: it is published as Cloud-Optimized GeoTIFF tiles on a 0.1&deg; grid, so the responder streams it on CPU and can render a dense embedding field over a whole region without inference (the <code>/v1/tessera_field</code> primitive). Their receptive fields and modality coverage are independent, and the protocol surfaces a triple-consensus change algorithm that votes across Clay, Prithvi, and Tessera. Consensus across the three is strong signal; one-or-none flags receptive-field aliasing rather than land-surface change.</p>
-      <p>This document specifies the math and architecture that 0.0.9 ships. Items not in 0.0.9 are listed under "Honest limits" and not discussed elsewhere.</p>
+      <p>This document specifies the math and architecture that 0.1.0 ships. Items not in 0.1.0 are listed under "Honest limits" and not discussed elsewhere.</p>
       <figure class="fig">
         <img src="/docs/diagrams/01-architecture.svg" alt="emem architecture: one Rust binary, two wire surfaces, one optional sidecar" loading="lazy">
         <figcaption><b>Figure 1: the entire stack.</b> REST and MCP share handlers; sled holds the hot cache, the append-only Merkle log holds the trust state. Open the SVG for the labelled variant.</figcaption>
@@ -358,7 +358,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   lat_q = round((lat + 90) / 180 &middot; (2&sup2;&sup1; &minus; 1))
   lng_q = round((lng + 180) / 360 &middot; (2&sup2;&sup2; &minus; 1))
   cell64.raw = (1 &lt;&lt; 60) | (21 &lt;&lt; 52) | (0xab &lt;&lt; 44) | (lat_q &lt;&lt; 22) | lng_q</pre></div>
-      <p>The asymmetric bit count (21 lat &times; 22 lng) keeps cells square at the equator: <code>&Delta;lat &asymp; &Delta;lng &asymp; 8.583e-5&deg;</code>, equator extent ~9.55 m. Poleward the lng pixel narrows by cos(lat); cells become taller than wide. The eventual migration target is an H3-style hex DGGS at resolution 13 (~3.4 m equal-area cells); cell64 is the active grid in 0.0.9.</p>
+      <p>The asymmetric bit count (21 lat &times; 22 lng) keeps cells square at the equator: <code>&Delta;lat &asymp; &Delta;lng &asymp; 8.583e-5&deg;</code>, equator extent ~9.55 m. Poleward the lng pixel narrows by cos(lat); cells become taller than wide. The eventual migration target is an H3-style hex DGGS at resolution 13 (~3.4 m equal-area cells); cell64 is the active grid in 0.1.0.</p>
 
       <h3 id="s2-3">2.3 Why a square 10 m grid</h3>
       <p>Sentinel-2 and Sentinel-1 RTC native pitch is 10 m. Cop-DEM 30 m mean-pools cleanly to 10 m. A 10 m grid lets a fact be materialised per pixel without aggregation loss. A coarser grid forces every optical ingest to pre-aggregate or pre-resample, an opinion the protocol does not need to take.</p>
@@ -538,7 +538,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <!-- 6 Signed Absence -->
     <section id="s6">
       <h2><span class="num">6</span>Signed Absence</h2>
-      <p>"We don't have this here" is a citable receipt, not a 404. A NegativeFact carries the same <code>(cell, band, tslot)</code> key as a PrimaryFact would, plus a <code>ReasonCid</code> pointing at the upstream evidence that confirmed the absence. Typed reasons in 0.0.9:</p>
+      <p>"We don't have this here" is a citable receipt, not a 404. A NegativeFact carries the same <code>(cell, band, tslot)</code> key as a PrimaryFact would, plus a <code>ReasonCid</code> pointing at the upstream evidence that confirmed the absence. Typed reasons in 0.1.0:</p>
       <div class="tbl-wrap"><table class="t">
         <thead><tr><th>reason</th><th>meaning</th></tr></thead>
         <tbody>
@@ -618,7 +618,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="Three foundation encoders with independent receptive fields voting on a per-cell change index" loading="lazy">
         <figcaption><b>Encoders in orbit, decoders on the ground.</b> Clay, Prithvi, and Tessera alias differently; agreement across all three is land-surface change, one-or-none is receptive-field artifact.</figcaption>
       </figure>
-      <p>The central change algorithm in 0.0.9 is <code>clay_prithvi_tessera_triple_consensus@1</code> plus six domain variants. Three foundation encoders with independent receptive fields vote on a per-cell change index over a 365-day window.</p>
+      <p>The central change algorithm in 0.1.0 is <code>clay_prithvi_tessera_triple_consensus@1</code> plus six domain variants. Three foundation encoders with independent receptive fields vote on a per-cell change index over a 365-day window.</p>
       <div class="code"><div class="code-head"><span class="tab">encoders in the vote</span><span class="lang">text</span></div><pre><code>  encoder      receptive field    output    role in the vote
   -----------  -----------------  --------  ----------------------------
   Clay v1.5    ~2.56 km           1024-D    chip-scale optical context
@@ -732,7 +732,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   Mode::Resolve   when the band has no fact at the targeted tslot,
                   call storage.materialize_many(...) and re-scan</code></pre></div>
       <p>A <code>MaterializeMiss</code> (no upstream connector) surfaces to the caller rather than collapsing to <code>verdict=false</code>. Open-ended windows (no tslot, no single-point window) cannot pick a target tslot, so they fall back to Fast over whatever is already in the index.</p>
-      <p><code>Mode::Zk</code> was removed in 0.0.4 (Rust enum, MCP schema, OpenAPI VerifyReq schema). It returned 500 on every call. ZK is not in 0.0.9.</p>
+      <p><code>Mode::Zk</code> was removed in 0.0.4 (Rust enum, MCP schema, OpenAPI VerifyReq schema). It returned 500 on every call. ZK is not in 0.1.0.</p>
 
       <h3 id="s9-5">9.5 compare / compare_bands</h3>
       <p>Two Primary facts side by side, with a structured difference object. <code>compare_bands(cell, a, b, tslot_a?, tslot_b?)</code> resolves omitted tslots to the latest tslot for that band at the cell. A caller who omits both tslots gets <code>tslot_resolution.reason = "auto_picked_latest"</code>; a caller who supplies tslots gets <code>"caller_supplied"</code>. A band with no history at the cell surfaces as <code>bands_with_no_history[]</code> and the response carries an empty-cite receipt: labelled empty, not zeroed.</p>
@@ -910,7 +910,7 @@ input::placeholder{color:var(--mute,#7a7363)}
                                                                         warning.</code></pre></div>
       <p><code>D*</code> for the Galileo row is variant-dependent: <code>EMEM_GALILEO_VARIANT</code> defaults to <code>base</code> in the deployed responder; <code>tiny</code> and <code>nano</code> are also selectable. The advertised capability becomes <code>galileo-&lt;variant&gt;</code> in <code>/v1/capabilities.extensions[]</code> so an agent can read which dim ships at request time.</p>
       <p>All three trained encoders serve frozen embeddings; receipts carry <code>frozen_pretrained_encoder</code>. Clay v1.5 loads from <code>made-with-clay/Clay/v1.5/clay-v1.5.ckpt</code>. Galileo's non-S2 modalities are zero-masked; the encoder accepts the multimodal shape but only S2 chips are wired today. The FastAPI shape (<code>POST /predict/&lt;name&gt;</code> with <code>{cell, scene_url?, band_indices?}</code> request) is a public contract; a customer drops in their own encoder under the same call.</p>
-      <p>JEPA v2 architecture: 3 &times; 128-D lags &rarr; flatten <code>[B, 384]</code> &rarr; 128-D projection &rarr; 4 pre-LN residual blocks &rarr; zero-init head &rarr; <code>last_vintage + delta</code>. With delta starting at zero the baseline is identity. The v2 handler short-circuits ONNX/sidecar inference when <code>is_trained() == false</code> (which it is in 0.0.9) and returns <code>last_input_vintage</code> directly, attaching <code>untrained_baseline</code> and <code>upstream_geotessera_single_vintage</code> honesty warnings on the receipt.</p>
+      <p>JEPA v2 architecture: 3 &times; 128-D lags &rarr; flatten <code>[B, 384]</code> &rarr; 128-D projection &rarr; 4 pre-LN residual blocks &rarr; zero-init head &rarr; <code>last_vintage + delta</code>. With delta starting at zero the baseline is identity. The v2 handler short-circuits ONNX/sidecar inference when <code>is_trained() == false</code> (which it is in 0.1.0) and returns <code>last_input_vintage</code> directly, attaching <code>untrained_baseline</code> and <code>upstream_geotessera_single_vintage</code> honesty warnings on the receipt.</p>
       <p><code>docs/developers/inference.md</code> carries the per-encoder chip-fetcher details, sidecar protocol, VRAM partitioning, and the trained-checkpoint loader contract.</p>
 
       <h3 id="s12-1">12.1 Physics solvers</h3>
@@ -941,7 +941,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   vector         FTW field polygons (~3.17 B fields), OSM Overpass
                  (WDPA fallback)
   embeddings     Tessera annual vintages (2017-2024 + multi_year + bin128)
-  * declared, materialiser not wired in 0.0.9</code></pre></div>
+  * declared, materialiser not wired in 0.1.0</code></pre></div>
       <p>Utility modules: <code>cog</code> (universal pure-Rust COG range sampler: Deflate, LZW, Predictor 1/2/3, 8/16/32-bit LE), <code>cache_window</code> (in-flight fetch coalescing), <code>connectors</code> (dispatcher), <code>proj</code> (WGS84&harr;UTM), <code>stac</code> (Element84 + MPC search), <code>template</code> (URL templating).</p>
     </section>
 

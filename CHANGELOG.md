@@ -7,6 +7,53 @@ to verify.
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.1.0] — 2026-06-14
+
+_Per-geography embeddings, a narrative layer, and an agent-surface truth pass.
+The minor bump signals the new geography-scale read path; old facts under old
+CIDs continue to verify._
+
+### Geography-scale embeddings + region algorithms
+
+- **`POST /v1/tessera_field`** renders a dense Tessera 128-D embedding field for
+  a bounding box as a colour raster, read from the geotessera COG window(s) and
+  mosaicked across 0.1° tiles — one region read, never cell-by-cell. Tessera is
+  the only foundation encoder published as precomputed COG tiles, so this stays
+  cheap over a whole region; the other three stay per-cell GPU inference.
+- **`POST /v1/region_archetype_map`** clusters that field into k land-cover
+  archetypes with deterministic k-means (greedy farthest-point seeding, Lloyd
+  iterations over L2-normalised vectors) and returns a categorical map plus a
+  legend `[{archetype_id, rgb, hex, pixel_fraction, pixels, fingerprint_rgb}]`.
+  Same bbox+year+k returns byte-identical output; honest sparse (transparent
+  where no tile covers a pixel, `available:false` when coverage is too thin).
+- Both render endpoints share one `read_tessera_field_grid` helper. The homepage
+  map gains an "embedding field" and a "land archetypes" overlay, debounced on
+  camera-settle and gated to zoom ≥ 10 and ≤ 0.5°.
+
+### Narration
+
+- **`POST /v1/explain`** (REST only) forwards a signed `/v1/ask` answer to a
+  local Gemma 4 12B sidecar for a plain-language narrative. It returns
+  `signed:false` and points back to the canonical receipt + `fact_cids`: a
+  narrator over the signed facts, never the authority.
+
+### Agent-surface + docs truth pass
+
+- `reference` surfaces ~17 endpoints that shipped but were undocumented —
+  thematic wrappers (`terrain`, `spi`, `burn_severity`, `deforestation_alert`,
+  `sar_forest_disturbance`, `rice_ch4`), the embedding/geography analytics
+  (`embedding_centroid`, `region_similarity`, `embedding_diversity`,
+  `neighborhood_consistency`, `triple_consensus`, `state_multi`), and the
+  memory-graph reads (`edges/recall`, `memory/search`, `memory_contradictions`).
+- Whitepaper correctness: Tessera is no longer described as GPU-pinned — it
+  streams from precomputed GeoTIFF tiles on CPU, not the 20 GB inference budget.
+- Homepage leads with the "latent, not an image" cards directly under the map,
+  and the "who it serves" card captions no longer overlap.
+- Refreshed every stale count: 81 MCP tools, 93 `/v1` paths, 96 OpenAPI paths,
+  43 cube slots, 124 band names, 160 algorithms, 16 crates.
+
 ### EUDR comprehensive data + visuals + optional NRT (2026-06-01)
 
 - **Scientific date correctness in the EUDR visual-evidence block.** The annual

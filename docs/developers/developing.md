@@ -12,7 +12,7 @@ not duplicate `docs/developers/architecture.md` (system topology) or
 |---|---|
 | Rust toolchain | 1.91 (workspace `rust-version` in `Cargo.toml`) |
 | Edition | 2021 |
-| Workspace version | 0.0.9 |
+| Workspace version | 0.1.0 |
 | OS for production | Linux, `debian:trixie-slim` (glibc 2.41 — required by `ort-sys` 2.0.0-rc.12) |
 | OS for dev | Linux or macOS; older glibc is fine if you skip the topic-router ONNX backend |
 | Repo | `github.com/Vortx-AI/emem`, branch `main` |
@@ -34,7 +34,7 @@ permanently unavailable for emem; do not try to switch defaults to 5050.
 
 ## Workspace tour
 
-The workspace is 14 Rust crates plus a Python sidecar. One-line role for
+The workspace is 16 Rust crates plus a Python sidecar. One-line role for
 each:
 
 | Crate | Role |
@@ -53,6 +53,8 @@ each:
 | `emem-mcp` | MCP tool registry (single file) |
 | `emem-api-rest` | HTTP/MCP router, 169 `.route()` registrations (mapping to 96 OpenAPI-documented REST paths in `openapi.json`, 93 of them under `/v1/*`) + 81 MCP tools (10 core, 71 extended), all inline materializers |
 | `emem-cli` | 7 binaries (see below) |
+| `emem-sleep-agent` | sleep-time consolidation agent: background edge + refinement formation over the corpus |
+| `emem-membench` | memory-surface benchmark harness (MemoryAgentBench-style recall/edges runs) |
 
 The bulk of the codebase is concentrated. `crates/emem-api-rest/src/lib.rs`
 is one file at ~24.8 k lines; it is the central router and holds every

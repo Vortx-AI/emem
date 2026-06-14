@@ -22,7 +22,7 @@ The app is read-only. It does not modify user data or take external write action
 - Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
 - Smithery: https://smithery.ai/servers/vortxai/emem
 - HuggingFace Space: https://huggingface.co/spaces/vortx-ai/emem
-- GHCR: ghcr.io/vortx-ai/emem:0.0.9
+- GHCR: ghcr.io/vortx-ai/emem:0.1.0
 
 ## Technical
 

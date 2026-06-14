@@ -164,7 +164,7 @@ data: {
   "responder": { "pubkey_b32": "777er3yihgifqmv5hmc2wwmy…", "key_epoch": 0 },
   "signature": {
     "alg": "ed25519",
-    "preimage": "emem.stream.tick|v0.0.9|epoch0|2026-06-12T16:17:30Z|registry:3pbqnyni…|cells:8147",
+    "preimage": "emem.stream.tick|v0.1.0|epoch0|2026-06-12T16:17:30Z|registry:3pbqnyni…|cells:8147",
     "signature_b32": "xk2hiluwmfywwnfj…"
   }
 }
@@ -205,7 +205,7 @@ Python (`ememdev`) and TypeScript (`@emem/client`) SDKs live under `sdks/` (PyPI
 - **Recall / recall_many / recall_polygon:** 124 materializer-wired band names across 43 cube slots. Recall answers any wired band, auto-fetching on a cold miss and signing the result. Signed Absence on out-of-coverage.
 - **Find similar:** k-NN over any vector band. Hamming fast path (sign-bit pop-count) auto-derives from the cosine band when the binary sibling is absent. Mode `hamming_then_rerank` triages with Hamming then re-orders by cosine; the over-sampling factor is EWMA-adaptive.
 - **Compare / compare_bands / diff / trajectory:** pairwise and time-series.
-- **Connect & evolve:** typed temporal edges (`emem_edges_recall` reads a fact's signed connections of type `disagrees_with`, `supersedes`, or `relates_to`, bounded by valid-time), multi-attester contradiction scoring (`memory_contradictions`, per band kind), and a deterministic refinement loop that re-derives a fact when a newer attestation or a `disagrees_with` edge lands. All three ship in 0.0.9.
+- **Connect & evolve:** typed temporal edges (`emem_edges_recall` reads a fact's signed connections of type `disagrees_with`, `supersedes`, or `relates_to`, bounded by valid-time), multi-attester contradiction scoring (`memory_contradictions`, per band kind), and a deterministic refinement loop that re-derives a fact when a newer attestation or a `disagrees_with` edge lands. All three ship in 0.1.0.
 - **Verify:** structured claim against attested facts; returns signed verdict + evidence CIDs.
 - **Physics:** `/v1/heat_solve` (2-D explicit FTCS heat, MODIS LST stencil), `/v1/wave_solve` (1-D shallow-water along seaward bathymetry gradient), `/v1/jepa_predict` (closed-form NDVI AR(2) seasonal), `/v1/jepa_predict_v2` (Tessera embedding dynamics; short-circuits to last-vintage identity baseline while the trained head is pending, receipt carries `untrained_baseline`).
 - **Ask:** free-text question with topic routing. The classifier covers three intent families: place-anchored topical questions (the topic router fan-out), foundation-embedding intents on `find places like` / `what changed` / `deforestation` / `anomaly` (cross-encoder consensus over Clay + Prithvi + Tessera), corpus-meta intents on `where do you have data` / `how fresh is your corpus` (redirect to coverage surfaces), and hunter-mode discovery on `find <event> in <region>` (routes to `/v1/hunt`).
@@ -297,7 +297,7 @@ The active grid is ~9.54 m × ~9.55 m at the equator (lat 21 bits × lng 22 bits
 
 ```
 emem/
-├── crates/                       # 16 workspace crates, MSRV 1.91, version 0.0.9
+├── crates/                       # 16 workspace crates, MSRV 1.91, version 0.1.0
 │   ├── emem-core/                # bands, algorithms, functions, sources, topics, schema
 │   ├── emem-codec/               # cell64, cid64, vec64, hilbert, geo, alphabet
 │   ├── emem-fact/                # canonical CBOR; fact, receipt, attestation
@@ -338,7 +338,7 @@ Sidecar crash does not cascade. The REST router degrades to scalar bands and sig
 
 ## Where this is going
 
-emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. None of the multi-host federation routing ships in 0.0.9. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
+emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. None of the multi-host federation routing ships in 0.1.0. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
 
 <p align="center">
   <img src="docs/diagrams/federation.png" alt="Federation: independent responders ringed around one shared content id, each signing under its own key, all resolving the same id byte-for-byte, cross-citing each other with one pair disagreeing, while clients verify offline" width="900"/>
