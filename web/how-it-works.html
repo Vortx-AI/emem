@@ -426,7 +426,52 @@ input::placeholder{color:var(--mute,#7a7363)}
   </div>
 </section>
 
+<section class="section page" id="latent-origin">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">&#9670;</span><span class="idx-label">where the latent comes from</span></div>
+    <dl>
+      <dt>the encoder</dt><dd>runs at the source &mdash; payload, drone, camera</dd>
+      <dt>what travels</dt><dd>a compact latent vector, not the image</dd>
+      <dt>emem</dt><dd>the open decoder for that latent</dd>
+      <dt>today's encoders</dt><dd>Tessera &middot; Clay &middot; Prithvi &middot; Galileo</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">&#9670;</span>What reaches emem is a latent, not an image</h2>
+    <p class="lede">The bottleneck in Earth observation was never the lens &mdash; it is the link. A sensor sees far more than physics will let it send home.</p>
+
+    <p>So the encoder runs at the source: on an orbital payload, a drone, a vehicle camera, a fixed CCTV. A scene becomes a compact <span class="band">latent vector</span> before it ever touches a ground station &mdash; orders of magnitude smaller than the raw imagery. <strong>emem is the open decoder for that latent.</strong> It resolves each one onto the cell64 lattice (section&nbsp;01) and turns it into a signed fact (section&nbsp;02). Today those latents come from four open Earth-observation foundation encoders &mdash; Tessera, Clay&nbsp;v1.5, Prithvi-EO-2.0, and Galileo &mdash; read side by side and scored for agreement (section&nbsp;03 onward).</p>
+
+    <p>The encoder-physically-in-orbit thesis &mdash; downlink only the embedding, decode it on the ground &mdash; is <a href="https://vortx.ai" rel="noopener">Vortx</a>'s. emem is the part you can read, cite, and self-host: the open decoder and the signed memory. If the encoder kernels are deterministic, a latent emulated on the ground today is the same vector the payload would emit in orbit, so the decoder you run now is the one that flies.</p>
+    <p><a class="btn ghost" href="https://vortx.ai" rel="noopener">The orbital encoder &rarr; vortx.ai</a></p>
+  </div>
+</section>
+
 <div class="mith-band"><figure><img src="/art/p1.svg" alt="" loading="lazy"></figure></div>
+
+<section class="section page" id="embedding-first">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">&#9670;</span><span class="idx-label">why now</span></div>
+    <dl>
+      <dt>Gemma&nbsp;4&nbsp;12B</dt><dd>encoder-free, shipped 3&nbsp;Jun&nbsp;2026</dd>
+      <dt>the move</dt><dd>collapse the encoder into the model</dd>
+      <dt>emem's move</dt><dd>split it across the source/ground boundary</dd>
+      <dt>the unit</dt><dd>the embedding, either way</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">&#9670;</span>The field agreed: meaning travels, not pixels</h2>
+    <p class="lede">On 3&nbsp;June&nbsp;2026 Google DeepMind shipped <a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/" rel="noopener">Gemma&nbsp;4&nbsp;12B</a> &mdash; a model that removes its image and audio encoders entirely and projects raw inputs straight into one shared latent space.</p>
+
+    <p>The lesson, arriving from the opposite direction to ours: the heavy modality encoder was never where the intelligence lived; the embedding is the substrate. A model can collapse the encoder inward (Gemma&nbsp;4) or split it across the source-to-ground boundary (the latent-origin beat above) &mdash; both make the embedding, not the pixels, the unit that matters. emem is built on the same conviction: store the <em>meaning</em> of a place, addressable and signed, not a pile of imagery.</p>
+
+    <p style="font-size:var(--t-sm);color:var(--mute);border-left:2px solid var(--rule-strong);padding-left:.7rem">Gemma&nbsp;4 is the validation, not a component. emem decodes Earth-observation embeddings into signed facts; it does not slice a language model. The four encoders it reads are listed above and scored for consensus in the sections that follow.</p>
+  </div>
+</section>
+
+<div class="mith-band"><figure><img src="/art/p2.svg" alt="" loading="lazy"></figure></div>
 
 <section class="section page" id="tokenizing-earth">
   <aside class="section-meta">
