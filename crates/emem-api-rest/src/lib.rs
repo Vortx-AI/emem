@@ -13190,14 +13190,82 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
         }
     }
 
+    // Build a CONCRETE, actionable retrieval pointer (not a vague hint): the
+    // exact REST call that returns the omitted fields, derived from the result's
+    // own `schema` + the identifying anchor we kept (cell / place / fact_cids).
+    // An agent can run it verbatim. This is the resource_link-equivalent: the
+    // MCP result stays small, and the full signed payload is one call away.
+    let rest_path = map
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .and_then(schema_to_rest_path);
+    let anchor = map
+        .get("cell")
+        .or_else(|| map.get("cell64"))
+        .or_else(|| map.get("place"))
+        .cloned();
+    let fetch = rest_path.map(|p| {
+        let mut body = serde_json::Map::new();
+        if let Some(a) = &anchor {
+            // most tools key on `cell`; geocoded tools accept `place` too
+            let key = if map.get("place").is_some() && map.get("cell").is_none() {
+                "place"
+            } else {
+                "cell"
+            };
+            body.insert(key.to_string(), a.clone());
+        }
+        json!({
+            "method": "POST",
+            "path":   p,
+            "url":    format!("{}{p}", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
+            "body":   JsonValue::Object(body),
+            "why":    "returns the complete, signed payload including the fields omitted above — the MCP host caps a single tool result, REST does not",
+        })
+    });
     let note = json!({
-        "reason": "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were omitted (not lost) — fetch the full, un-truncated payload over REST",
+        "reason": "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). Run `fetch` for the complete signed payload, or pass a pagination cursor (cursor, page, max_cells, encoders) to fit the MCP cap.",
         "budget_bytes": budget,
         "omitted_fields": dropped,
-        "rest_hint": "call the matching POST /v1/<tool> endpoint for the complete payload, or narrow the query / use a pagination cursor (cursor, page, max_cells, encoders) to fit the MCP cap",
+        "fetch": fetch,
     });
     map.insert("_emem_truncation".to_string(), note.clone());
     (JsonValue::Object(map), note)
+}
+
+/// Map a response `schema` ("emem.<tool>.vN") to its REST path ("/v1/<tool>"),
+/// so the MCP slimmer can hand the agent the exact call that returns the
+/// omitted (un-budgeted) fields. A few schemas don't mirror their path 1:1;
+/// those are spelled out. Returns None for an unknown schema (the note then
+/// omits `fetch` rather than inventing a wrong endpoint).
+fn schema_to_rest_path(schema: &str) -> Option<String> {
+    let mid = schema
+        .strip_prefix("emem.")
+        .unwrap_or(schema)
+        .rsplit_once('.')
+        .map(|(m, _v)| m)
+        .unwrap_or(schema);
+    let path = match mid {
+        "ask" => "/v1/ask",
+        "coverage" => "/v1/coverage",
+        "coverage_matrix" => "/v1/coverage_matrix",
+        "field_boundaries" | "fields" => "/v1/field_boundaries",
+        "recall" => "/v1/recall",
+        "state" | "state_cube" | "cube" => "/v1/state",
+        "state_multi" => "/v1/state_multi",
+        "hunt" => "/v1/hunt",
+        "query_region" => "/v1/query_region",
+        "trajectory" => "/v1/trajectory",
+        "eudr" | "eudr_dds" => "/v1/eudr_dds",
+        other
+            if !other.is_empty()
+                && other.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+        {
+            return Some(format!("/v1/{other}"));
+        }
+        _ => return None,
+    };
+    Some(path.to_string())
 }
 
 /// Wrap a tool's inner JSON into the spec `CallToolResult` envelope, mirroring
@@ -34781,6 +34849,8 @@ async fn post_ask(
             };
             Ok(Json(json!({
                 "schema":        "emem.ask.v1",
+                "routed_to":     "incomplete",
+                "envelope_schema": "incomplete",
                 "status":        "incomplete",
                 "question":      q_preview,
                 "answer":        answer,
@@ -40872,6 +40942,72 @@ fn interpret_cell_input(raw: &str) -> CellInputKind {
     CellInputKind::Place(trimmed.to_string())
 }
 
+/// Tag an /v1/ask 200 with which of the four classifiers produced it, so an
+/// agent can branch on `routed_to` instead of sniffing for shape-specific
+/// fields. Idempotent (never overwrites an existing tag).
+fn tag_ask_route(body: &mut JsonValue, route: &str) {
+    if let Some(m) = body.as_object_mut() {
+        m.entry("routed_to".to_string()).or_insert(json!(route));
+        m.entry("envelope_schema".to_string())
+            .or_insert(json!(route));
+    }
+}
+
+/// True when a question is about EUDR / deforestation due-diligence — which
+/// wants the SIGNED /v1/eudr_dds verdict, not just hunter hotspot dots.
+fn question_looks_eudr(q: &str) -> bool {
+    let ql = q.to_lowercase();
+    [
+        "eudr",
+        "deforest",
+        "forest loss",
+        "tree cover loss",
+        "land clearing",
+        "due diligence",
+        "deforestation-free",
+        "deforestation free",
+    ]
+    .iter()
+    .any(|k| ql.contains(k))
+}
+
+/// Prepend (never overwrite) a next_steps pointer to the signed /v1/eudr_dds
+/// due-diligence verdict, so an EUDR question routed to hunt/answer still tells
+/// the agent where the compliance receipt actually comes from.
+fn attach_eudr_next_step(body: &mut JsonValue, cell: Option<&str>) {
+    let Some(m) = body.as_object_mut() else {
+        return;
+    };
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let geom = match cell {
+        Some(c) => json!(format!(
+            "<GeoJSON Polygon of the plot — or derive it from cell {c}'s footprint via /v1/cells/{c}/geojson>"
+        )),
+        None => json!("<GeoJSON Polygon of the plot>"),
+    };
+    let step = json!({
+        "tool": "eudr_dds",
+        "why":  "EUDR is a signed due-diligence VERDICT (compliant / non-compliant per Reg 2023/1115), not an event sweep — call this with the plot polygon for the receipt an auditor needs.",
+        "method": "POST",
+        "path": "/v1/eudr_dds",
+        "url":  format!("{origin}/v1/eudr_dds"),
+        "body": {
+            "plots": [{
+                "geometry_geojson": geom,
+                "country_of_production": "<ISO-3166 alpha-2>",
+                "commodity_hs": "<HS code, >=4 digits>",
+                "quantity_kg": 0
+            }]
+        }
+    });
+    match m.get_mut("next_steps").and_then(|v| v.as_array_mut()) {
+        Some(arr) => arr.insert(0, step),
+        None => {
+            m.insert("next_steps".to_string(), json!([step]));
+        }
+    }
+}
+
 async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
@@ -40921,7 +41057,9 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
     // /v1/coverage_matrix where the actual data lives.
     if req.cell.is_none() && req.lat.is_none() && req.lng.is_none() && req.place.is_none() {
         if let Some(audit) = ask_foundation::classify_corpus_audit(&req.q) {
-            return Ok(corpus_audit_response(audit, &req.q));
+            let mut r = corpus_audit_response(audit, &req.q);
+            tag_ask_route(&mut r, "corpus_audit");
+            return Ok(r);
         }
         // Hunter mode — open-world event-discovery questions. We try
         // this AFTER corpus_audit so "where do you have flood data"
@@ -40933,7 +41071,15 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         // passed an explicit cell/place — they're not asking us to
         // hunt, they're anchoring the question on a known point.
         if let Some(hunter) = ask_foundation::classify_hunter(&req.q) {
-            return hunter_response(s, hunter, &req.q).await;
+            let mut r = hunter_response(s, hunter, &req.q).await?;
+            tag_ask_route(&mut r, "hunter");
+            // A region deforestation sweep is hunter-appropriate, but EUDR is a
+            // COMPLIANCE verdict — point the agent at the signed /v1/eudr_dds so
+            // it isn't left thinking the hotspot dots are a due-diligence answer.
+            if question_looks_eudr(&req.q) {
+                attach_eudr_next_step(&mut r, None);
+            }
+            return Ok(r);
         }
     }
 
@@ -41239,6 +41385,8 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             // at the top of the call stack sees a structured response.
             return Ok(json!({
                 "schema":   "emem.ask.v1",
+                "routed_to": "needs_location",
+                "envelope_schema": "needs_location",
                 "status":   "needs_location",
                 "question": req.q,
                 "message":  "no location provided and could not extract one from the question. Pass `place` (free text), `cell` (cell64), or `lat`+`lng`.",
@@ -41793,6 +41941,14 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
 
     let mut body = json!({
         "schema":         "emem.ask.v1",
+        // Which of the four /v1/ask classifiers produced this 200, so an agent
+        // can branch without sniffing for fields. The shapes are: "answer"
+        // (point question → signed readings + algorithms, this body), "hunter"
+        // (region/event sweep → hotspots), "corpus_audit" (meta question about
+        // the corpus), "needs_location"/"out_of_scope"/"incomplete". Every
+        // branch now carries routed_to + envelope_schema.
+        "routed_to":      "answer",
+        "envelope_schema": "answer",
         "question":       req.q,
         "place_resolved": place_resolved,
         "verbose":        verbose,
@@ -42043,6 +42199,14 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 );
             }
         }
+    }
+    // An EUDR/deforestation question anchored on a place still routes through
+    // the normal topic→recall→algorithm path (it has a location, so it isn't
+    // hunter mode), but the COMPLIANCE verdict only comes from the signed
+    // /v1/eudr_dds. Point the agent there so it doesn't quote raw forest bands
+    // as a due-diligence answer.
+    if question_looks_eudr(&req.q) {
+        attach_eudr_next_step(&mut body, Some(cell.as_str()));
     }
     Ok(body)
 }
