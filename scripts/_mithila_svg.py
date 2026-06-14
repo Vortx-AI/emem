@@ -113,14 +113,14 @@ class Svg:
             return True
 
         # 1) fine cross-stipple grid — the dotted "rice-paste" ground
-        step = 23
+        step = 21
         yy = top
         row = 0
         while yy < H - m:
             xx = m + (step / 2 if row % 2 else 0)
             while xx < W - m:
                 if clear(xx, yy, 6):
-                    g.append(f'<circle cx="{xx:.1f}" cy="{yy:.1f}" r="0.9" fill="{INK}" opacity="0.05"/>')
+                    g.append(f'<circle cx="{xx:.1f}" cy="{yy:.1f}" r="0.95" fill="{INK}" opacity="0.065"/>')
                 xx += step
             yy += step
             row += 1
@@ -129,7 +129,7 @@ class Svg:
         kinds = ["fish", "leaf", "bud", "ring", "tri", "tri"]
         tries = 0
         placed = 0
-        target = int((W * H) / 30000)
+        target = int((W * H) / 23000)
         while placed < target and tries < target * 14:
             tries += 1
             x = random.uniform(m + 10, W - m - 10)
@@ -138,7 +138,7 @@ class Svg:
                 continue
             k = random.choice(kinds)
             col = random.choice(DYES)
-            o = 0.14
+            o = 0.17
             if k == "fish":
                 self._ground_fish(g, x, y, random.uniform(7, 11), col, o)
             elif k == "leaf":

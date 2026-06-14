@@ -197,6 +197,10 @@ const ART_PANELS: &[(&str, &str)] = &[
     ("p5.svg", include_str!("../../../web/art/p5.svg")),
     ("p6.svg", include_str!("../../../web/art/p6.svg")),
     ("hero.svg", include_str!("../../../web/art/hero.svg")),
+    (
+        "connect-evolve.svg",
+        include_str!("../../../web/art/connect-evolve.svg"),
+    ),
 ];
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");
@@ -3217,7 +3221,7 @@ async fn serve_art_panel(axum::extract::Path(name): axum::extract::Path<String>)
         .status(StatusCode::NOT_FOUND)
         .header(CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(axum::body::Body::from(format!(
-            "art panel not found: {name}\navailable: p1.svg..p6.svg, hero.svg\n"
+            "art panel not found: {name}\navailable: p1.svg..p6.svg, hero.svg, connect-evolve.svg\n"
         )))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
