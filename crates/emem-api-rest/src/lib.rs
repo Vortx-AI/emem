@@ -988,6 +988,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/ask", post(post_ask))
         .route("/v1/explain", post(post_explain))
         .route("/v1/tessera_field", post(post_tessera_field))
+        .route("/v1/region_archetype_map", post(post_region_archetype_map))
         .route("/v1/hunt", post(post_hunt))
         // NOTE: /v1/eudr_dds is NOT registered here. It is a deliberately
         // long-running compliance endpoint (a visual-evidence run legitimately
@@ -24384,62 +24385,62 @@ struct TesseraFieldReq {
     size: Option<usize>,
 }
 
-/// `POST /v1/tessera_field` — a DENSE Tessera embedding-field overlay for a
-/// region, read from the geotessera COG **window** (one contiguous range read,
-/// NOT cell-by-cell). Each output pixel's signed 128-D vector is projected to a
-/// fixed RGB fingerprint (latent_rgb), so places that look alike to the model
-/// share a colour. The raster is rendered in TARGET lat/lng space (sampling the
-/// UTM source per pixel), so the returned 4 corners are exactly the requested
-/// bbox — drop them straight into a MapLibre image source. Zoom-gated (one tile)
-/// + bounded read.
-async fn post_tessera_field(
-    State(_s): State<AppState>,
-    EmemJson(req): EmemJson<TesseraFieldReq>,
-) -> Result<Json<JsonValue>, ApiError> {
-    let bb = req.polygon_bbox.ok_or_else(|| {
-        ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody {
-                code: ErrorCode::InvalidArgument,
-                message: "tessera_field: pass polygon_bbox {min_lat,max_lat,min_lng,max_lng}"
-                    .into(),
-                details: None,
-            },
-        )
-    })?;
+/// The decoded dense Tessera embedding grid for a bbox: one 128-D vector per
+/// output pixel (row-major, `size`×`size`), `None` where no tile or read
+/// covered it. Both `/v1/tessera_field` (colour fingerprint) and
+/// `/v1/region_archetype_map` (k-means land-cover classes) render from this
+/// same read, so the COG window fetch happens once per shape.
+struct TesseraFieldGrid {
+    size: usize,
+    min_lat: f64,
+    max_lat: f64,
+    min_lng: f64,
+    max_lng: f64,
+    tiles_read: usize,
+    vectors: Vec<Option<Vec<f32>>>,
+}
+
+impl TesseraFieldGrid {
+    /// MapLibre image-source corner order: TL, TR, BR, BL (`[lng,lat]`).
+    fn coordinates(&self) -> JsonValue {
+        json!([
+            [self.min_lng, self.max_lat],
+            [self.max_lng, self.max_lat],
+            [self.max_lng, self.min_lat],
+            [self.min_lng, self.min_lat]
+        ])
+    }
+}
+
+/// Read the geotessera COG window(s) for `bb` and decode a dense `size`×`size`
+/// grid of 128-D embeddings. Multi-tile mosaic; only the needed column segments
+/// are fetched, concurrently, never cell-by-cell. On failure returns
+/// `Err((is_bad_request, message))`: `true` maps to a 400, `false` to a 200
+/// `available:false` body carrying that reason.
+async fn read_tessera_field_grid(
+    bb: &RecallPolygonBbox,
+    year: i32,
+    size: usize,
+) -> Result<TesseraFieldGrid, (bool, String)> {
     let (min_lat, max_lat, min_lng, max_lng) = (bb.min_lat, bb.max_lat, bb.min_lng, bb.max_lng);
     let dlat = (max_lat - min_lat).abs();
     let dlng = (max_lng - min_lng).abs();
     if dlat <= 0.0 || dlng <= 0.0 {
-        return Err(ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody {
-                code: ErrorCode::InvalidArgument,
-                message: "tessera_field: empty bbox".into(),
-                details: None,
-            },
+        return Err((true, "tessera field: empty bbox".into()));
+    }
+    if dlat > 0.5 || dlng > 0.5 {
+        return Err((
+            false,
+            "zoom in — the embedding field renders up to ~0.5° at a time".into(),
         ));
     }
-    let unavail = |reason: String| {
-        Ok(Json(
-            json!({ "schema":"emem.tessera_field.v1", "available": false, "reason": reason }),
-        ))
-    };
-    // Larger areas are a multi-TILE mosaic: Tessera publishes one COG per 0.1°
-    // grid tile, so a wide bbox simply reads from several tiles. Bound the area
-    // (and the tile fan-out + the 48 MB read cap below) so it stays cheap.
-    // Reject an antimeridian-spanning bbox — tiles don't wrap.
-    if dlat > 0.5 || dlng > 0.5 {
-        return unavail("zoom in — the embedding field renders up to ~0.5° at a time".into());
-    }
     if min_lng > max_lng {
-        return unavail("bbox spans the antimeridian — split it into two requests".into());
+        return Err((
+            false,
+            "bbox spans the antimeridian — split it into two requests".into(),
+        ));
     }
-    let year = req.year.unwrap_or(2024);
-    let size = req.size.unwrap_or(160).clamp(48, 256);
 
-    // Enumerate the distinct 0.1° tiles the bbox touches (centres sit at X.X5)
-    // and fetch each header once — single-flighted per (year,tile) + concurrent.
     let tile_c = |x: f64| -> f64 { (x * 10.0).floor() / 10.0 + 0.05 };
     let mut tile_centers: Vec<(f64, f64)> = Vec::new();
     let mut tlat = tile_c(min_lat);
@@ -24452,7 +24453,7 @@ async fn post_tessera_field(
         tlat += 0.1;
     }
     if tile_centers.len() > 36 {
-        return unavail("zoom in — too many Tessera tiles for one field".into());
+        return Err((false, "zoom in — too many Tessera tiles for one field".into()));
     }
     use futures_util::StreamExt as _;
     let headers: std::collections::HashMap<String, TesseraTileHeader> =
@@ -24467,9 +24468,8 @@ async fn post_tessera_field(
         .collect()
         .await;
     if headers.is_empty() {
-        return unavail("no Tessera tile covers this area".into());
+        return Err((false, "no Tessera tile covers this area".into()));
     }
-    // Tessera is uniform across tiles; read the scale convention from any header.
     let scales_per_pixel = headers
         .values()
         .next()
@@ -24477,14 +24477,6 @@ async fn post_tessera_field(
         .unwrap_or(1);
     let sc_per = scales_per_pixel * 4;
 
-    // Plan the read: map every output pixel to a source (row,col) and collect
-    // the EXACT column span needed per source row. We then fetch ONLY those
-    // rows' needed columns — not full tile rows — so the COG read stays small
-    // and independent of how the bbox sits inside the (UTM) tile. Rendering in
-    // target lat/lng space means the returned corners == the requested bbox.
-    // Map every output pixel to (tile, row, col) using ITS OWN tile's UTM, and
-    // collect the needed column span per (tile,row). Pixels whose tile is
-    // missing stay None (rendered transparent — honest sparse, never clamped).
     let mut px_src: Vec<Option<(String, usize, usize)>> = vec![None; size * size];
     let mut rows_need: std::collections::HashMap<(String, usize), (usize, usize)> =
         std::collections::HashMap::new();
@@ -24513,7 +24505,10 @@ async fn post_tessera_field(
         .map(|(a, b)| (b - a + 1) * (128 + sc_per))
         .sum();
     if total_bytes > 110_000_000 {
-        return unavail("zoom in more — region too large for the embedding-field read".into());
+        return Err((
+            false,
+            "zoom in more — region too large for the embedding-field read".into(),
+        ));
     }
 
     let cli = reqwest_client();
@@ -24521,7 +24516,6 @@ async fn post_tessera_field(
         .iter()
         .map(|((k, r), &(a, b))| (k.clone(), *r, a, b))
         .collect();
-    // (tile,row) -> (min_col, emb_bytes, scale_bytes)
     let row_bufs: TessRowBufs =
         futures_util::stream::iter(plan.into_iter().map(|(key, row, a, b)| {
             let cli = cli.clone();
@@ -24558,10 +24552,7 @@ async fn post_tessera_field(
         .collect()
         .await;
 
-    // RGBA so tiles/rows we couldn't read render fully TRANSPARENT (alpha 0),
-    // honest about coverage instead of painting a fabricated colour.
-    let mut rgba = vec![0u8; size * size * 4];
-    let mut v = [0f64; 128];
+    let mut vectors: Vec<Option<Vec<f32>>> = vec![None; size * size];
     for oy in 0..size {
         for ox in 0..size {
             let Some((key, row, col)) = px_src[oy * size + ox].clone() else {
@@ -24576,52 +24567,387 @@ async fn post_tessera_field(
             if eoff + 128 > e.len() || soff + sc_per > s.len() {
                 continue;
             }
+            let mut vv = vec![0f32; 128];
             if scales_per_pixel == 1 {
                 let sf = f32::from_le_bytes([s[soff], s[soff + 1], s[soff + 2], s[soff + 3]]);
-                for (i, vi) in v.iter_mut().enumerate() {
-                    *vi = (e[eoff + i] as i8 as f32 * sf) as f64;
+                for (i, vi) in vv.iter_mut().enumerate() {
+                    *vi = e[eoff + i] as i8 as f32 * sf;
                 }
             } else {
-                for (i, vi) in v.iter_mut().enumerate() {
+                for (i, vi) in vv.iter_mut().enumerate() {
                     let so = soff + i * 4;
                     let sf = f32::from_le_bytes([s[so], s[so + 1], s[so + 2], s[so + 3]]);
-                    *vi = (e[eoff + i] as i8 as f32 * sf) as f64;
+                    *vi = e[eoff + i] as i8 as f32 * sf;
                 }
             }
-            let crgb = latent_rgb(&v);
-            let p = (oy * size + ox) * 4;
-            rgba[p] = crgb[0];
-            rgba[p + 1] = crgb[1];
-            rgba[p + 2] = crgb[2];
-            rgba[p + 3] = 255;
+            vectors[oy * size + ox] = Some(vv);
         }
     }
 
+    Ok(TesseraFieldGrid {
+        size,
+        min_lat,
+        max_lat,
+        min_lng,
+        max_lng,
+        tiles_read: headers.len(),
+        vectors,
+    })
+}
+
+/// Encode a `size`×`size` RGBA buffer to a base64 PNG `data:` URL.
+fn rgba_to_png_data_url(rgba: &[u8], size: usize) -> Result<String, String> {
     let mut png_bytes: Vec<u8> = Vec::new();
     {
         let mut enc = png::Encoder::new(&mut png_bytes, size as u32, size as u32);
         enc.set_color(png::ColorType::Rgba);
         enc.set_depth(png::BitDepth::Eight);
-        match enc.write_header() {
-            Ok(mut wr) => {
-                if let Err(e) = wr.write_image_data(&rgba) {
-                    return unavail(format!("png encode: {e}"));
+        let mut wr = enc.write_header().map_err(|e| format!("png header: {e}"))?;
+        wr.write_image_data(rgba)
+            .map_err(|e| format!("png encode: {e}"))?;
+    }
+    Ok(format!(
+        "data:image/png;base64,{}",
+        data_encoding::BASE64.encode(&png_bytes)
+    ))
+}
+
+/// L2-normalise a vector over its finite dims; non-finite dims become 0, and a
+/// zero/non-finite norm passes the finite components through so a dead pixel
+/// never divides by zero.
+fn l2_normalize_vec(v: &[f32]) -> Vec<f32> {
+    let n: f32 = v
+        .iter()
+        .filter(|x| x.is_finite())
+        .map(|x| x * x)
+        .sum::<f32>()
+        .sqrt();
+    if n > 0.0 && n.is_finite() {
+        v.iter()
+            .map(|x| if x.is_finite() { x / n } else { 0.0 })
+            .collect()
+    } else {
+        v.iter()
+            .map(|x| if x.is_finite() { *x } else { 0.0 })
+            .collect()
+    }
+}
+
+/// Deterministic k-means over equal-length vectors. Seeds by greedy
+/// farthest-point (k-means++ without randomness, so the same input yields the
+/// same clusters and the rendered map is reproducible), then runs Lloyd
+/// iterations. Returns `(assignment per input, centroids)`; the centroid count
+/// can be `< k` when the data holds fewer than `k` distinct points.
+fn kmeans_deterministic(data: &[Vec<f32>], k: usize, iters: usize) -> (Vec<usize>, Vec<Vec<f32>>) {
+    let n = data.len();
+    let dim = data[0].len();
+    let dist2 = |a: &[f32], b: &[f32]| -> f32 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| {
+                let d = x - y;
+                d * d
+            })
+            .sum()
+    };
+    let mut centroids: Vec<Vec<f32>> = vec![data[0].clone()];
+    while centroids.len() < k {
+        let mut best = 0usize;
+        let mut bestd = -1.0f32;
+        for (i, p) in data.iter().enumerate() {
+            let dmin = centroids
+                .iter()
+                .map(|c| dist2(p, c))
+                .fold(f32::INFINITY, f32::min);
+            if dmin > bestd {
+                bestd = dmin;
+                best = i;
+            }
+        }
+        if bestd <= 0.0 {
+            break;
+        }
+        centroids.push(data[best].clone());
+    }
+    let kk = centroids.len();
+    let mut assign = vec![0usize; n];
+    for _ in 0..iters {
+        let mut changed = false;
+        for (i, p) in data.iter().enumerate() {
+            let mut best = 0usize;
+            let mut bd = f32::INFINITY;
+            for (c, cen) in centroids.iter().enumerate() {
+                let d = dist2(p, cen);
+                if d < bd {
+                    bd = d;
+                    best = c;
                 }
             }
-            Err(e) => return unavail(format!("png header: {e}")),
+            if assign[i] != best {
+                assign[i] = best;
+                changed = true;
+            }
+        }
+        let mut sums = vec![vec![0f32; dim]; kk];
+        let mut cnts = vec![0usize; kk];
+        for (i, p) in data.iter().enumerate() {
+            let a = assign[i];
+            cnts[a] += 1;
+            for (d, pv) in p.iter().enumerate() {
+                sums[a][d] += pv;
+            }
+        }
+        for (c, cen) in centroids.iter_mut().enumerate() {
+            if cnts[c] > 0 {
+                for (d, cv) in cen.iter_mut().enumerate() {
+                    *cv = sums[c][d] / cnts[c] as f32;
+                }
+            }
+        }
+        if !changed {
+            break;
         }
     }
-    let b64 = data_encoding::BASE64.encode(&png_bytes);
+    (assign, centroids)
+}
+
+/// HSV→RGB with `h` in `[0,1)`. Evenly-spaced hues give the categorical
+/// archetype palette so adjacent classes stay visually distinct.
+fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [u8; 3] {
+    let h6 = ((h.fract() + 1.0).fract()) * 6.0;
+    let i = h6.floor() as i64;
+    let f = h6 - i as f64;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - s * f);
+    let t = v * (1.0 - s * (1.0 - f));
+    let (r, g, b) = match i.rem_euclid(6) {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    [
+        (r * 255.0).round().clamp(0.0, 255.0) as u8,
+        (g * 255.0).round().clamp(0.0, 255.0) as u8,
+        (b * 255.0).round().clamp(0.0, 255.0) as u8,
+    ]
+}
+
+/// `POST /v1/tessera_field` — a DENSE Tessera embedding-field overlay for a
+/// region, read from the geotessera COG **window** (one contiguous range read,
+/// NOT cell-by-cell). Each output pixel's signed 128-D vector is projected to a
+/// fixed RGB fingerprint (latent_rgb), so places that look alike to the model
+/// share a colour. The raster is rendered in TARGET lat/lng space (sampling the
+/// UTM source per pixel), so the returned 4 corners are exactly the requested
+/// bbox — drop them straight into a MapLibre image source. Zoom-gated (one tile)
+/// + bounded read.
+async fn post_tessera_field(
+    State(_s): State<AppState>,
+    EmemJson(req): EmemJson<TesseraFieldReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let bb = req.polygon_bbox.ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "tessera_field: pass polygon_bbox {min_lat,max_lat,min_lng,max_lng}"
+                    .into(),
+                details: None,
+            },
+        )
+    })?;
+    let year = req.year.unwrap_or(2024);
+    let size = req.size.unwrap_or(160).clamp(48, 256);
+    let grid = match read_tessera_field_grid(&bb, year, size).await {
+        Ok(g) => g,
+        Err((true, m)) => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: m,
+                    details: None,
+                },
+            ))
+        }
+        Err((false, m)) => {
+            return Ok(Json(
+                json!({ "schema":"emem.tessera_field.v1", "available": false, "reason": m }),
+            ))
+        }
+    };
+
+    // RGBA so pixels with no covering tile/read stay fully TRANSPARENT (alpha 0),
+    // honest about coverage instead of painting a fabricated colour.
+    let size = grid.size;
+    let mut rgba = vec![0u8; size * size * 4];
+    for (idx, slot) in grid.vectors.iter().enumerate() {
+        let Some(vec_f32) = slot else { continue };
+        let vf: Vec<f64> = vec_f32.iter().map(|&x| x as f64).collect();
+        let crgb = latent_rgb(&vf);
+        let p = idx * 4;
+        rgba[p] = crgb[0];
+        rgba[p + 1] = crgb[1];
+        rgba[p + 2] = crgb[2];
+        rgba[p + 3] = 255;
+    }
+    let url = match rgba_to_png_data_url(&rgba, size) {
+        Ok(u) => u,
+        Err(e) => {
+            return Ok(Json(
+                json!({ "schema":"emem.tessera_field.v1", "available": false, "reason": e }),
+            ))
+        }
+    };
     Ok(Json(json!({
         "schema": "emem.tessera_field.v1",
         "available": true,
         "year": year,
         "size": size,
-        "tiles_read": headers.len(),
-        // MapLibre image-source corner order: TL, TR, BR, BL ([lng,lat]).
-        "coordinates": [[min_lng,max_lat],[max_lng,max_lat],[max_lng,min_lat],[min_lng,min_lat]],
-        "image_data_url": format!("data:image/png;base64,{b64}"),
+        "tiles_read": grid.tiles_read,
+        "coordinates": grid.coordinates(),
+        "image_data_url": url,
         "note": "Dense Tessera embedding field — each pixel's signed 128-D vector projected to a fixed RGB fingerprint (places that look alike to the model share a colour). Read from the geotessera COG window(s) for the region, mosaicked across 0.1° tiles, not cell-by-cell. Transparent where no tile covers the pixel.",
+    })))
+}
+
+#[derive(Deserialize)]
+struct RegionArchetypeReq {
+    #[serde(default)]
+    polygon_bbox: Option<RecallPolygonBbox>,
+    #[serde(default)]
+    year: Option<i32>,
+    #[serde(default)]
+    size: Option<usize>,
+    #[serde(default)]
+    k: Option<usize>,
+}
+
+/// `POST /v1/region_archetype_map` — cluster the dense Tessera embedding field
+/// for a region into `k` land-cover archetypes (deterministic k-means over the
+/// 128-D vectors) and render a CATEGORICAL map plus a legend. Reuses the same
+/// single COG-window read as `/v1/tessera_field`, so it costs one region read,
+/// no GPU. Deterministic: same bbox+year+k returns the same bytes.
+async fn post_region_archetype_map(
+    State(_s): State<AppState>,
+    EmemJson(req): EmemJson<RegionArchetypeReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let bb = req.polygon_bbox.ok_or_else(|| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message:
+                    "region_archetype_map: pass polygon_bbox {min_lat,max_lat,min_lng,max_lng}"
+                        .into(),
+                details: None,
+            },
+        )
+    })?;
+    let year = req.year.unwrap_or(2024);
+    let size = req.size.unwrap_or(128).clamp(48, 224);
+    let k = req.k.unwrap_or(6).clamp(2, 12);
+    let unavail = |reason: String| {
+        Ok(Json(json!({
+            "schema": "emem.region_archetype_map.v1",
+            "available": false,
+            "reason": reason
+        })))
+    };
+    let grid = match read_tessera_field_grid(&bb, year, size).await {
+        Ok(g) => g,
+        Err((true, m)) => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: m,
+                    details: None,
+                },
+            ))
+        }
+        Err((false, m)) => return unavail(m),
+    };
+
+    let size = grid.size;
+    // Collect the covered pixels and L2-normalise them, so clustering is by
+    // direction in embedding space — the same geometry the cosine analytics use.
+    let mut idxs: Vec<usize> = Vec::new();
+    let mut data: Vec<Vec<f32>> = Vec::new();
+    for (i, slot) in grid.vectors.iter().enumerate() {
+        if let Some(v) = slot {
+            idxs.push(i);
+            data.push(l2_normalize_vec(v));
+        }
+    }
+    if data.len() < k * 4 {
+        return unavail(format!(
+            "only {} embedded pixels cover this region — too sparse for {} archetypes; zoom to a denser area",
+            data.len(),
+            k
+        ));
+    }
+
+    let (assign, centroids) = kmeans_deterministic(&data, k, 16);
+    let k_eff = centroids.len();
+    let palette: Vec<[u8; 3]> = (0..k_eff)
+        .map(|i| hsv_to_rgb(i as f64 / k_eff as f64, 0.62, 0.86))
+        .collect();
+
+    let mut rgba = vec![0u8; size * size * 4];
+    let mut counts = vec![0usize; k_eff];
+    for (j, &pix) in idxs.iter().enumerate() {
+        let a = assign[j];
+        counts[a] += 1;
+        let c = palette[a];
+        let p = pix * 4;
+        rgba[p] = c[0];
+        rgba[p + 1] = c[1];
+        rgba[p + 2] = c[2];
+        rgba[p + 3] = 255;
+    }
+    let covered = idxs.len() as f64;
+    let mut legend: Vec<JsonValue> = (0..k_eff)
+        .map(|a| {
+            let cen_f: Vec<f64> = centroids[a].iter().map(|&x| x as f64).collect();
+            let frgb = latent_rgb(&cen_f);
+            json!({
+                "archetype_id": a,
+                "rgb": palette[a],
+                "hex": format!("#{:02x}{:02x}{:02x}", palette[a][0], palette[a][1], palette[a][2]),
+                "pixel_fraction": counts[a] as f64 / covered,
+                "pixels": counts[a],
+                "fingerprint_rgb": frgb,
+            })
+        })
+        .collect();
+    legend.sort_by(|a, b| {
+        b["pixel_fraction"]
+            .as_f64()
+            .partial_cmp(&a["pixel_fraction"].as_f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let url = match rgba_to_png_data_url(&rgba, size) {
+        Ok(u) => u,
+        Err(e) => return unavail(e),
+    };
+    Ok(Json(json!({
+        "schema": "emem.region_archetype_map.v1",
+        "available": true,
+        "year": year,
+        "size": size,
+        "k": k_eff,
+        "k_requested": k,
+        "tiles_read": grid.tiles_read,
+        "covered_pixels": idxs.len(),
+        "coordinates": grid.coordinates(),
+        "image_data_url": url,
+        "legend": legend,
+        "deterministic": true,
+        "note": "Tessera embedding field clustered into k land-cover archetypes by deterministic k-means (greedy farthest-point seeding, up to 16 Lloyd iterations) over the region's 128-D vectors. Each archetype is one colour; pixel_fraction is its share of covered pixels and fingerprint_rgb is the latent_rgb of its centroid (the same colour space as /v1/tessera_field). Transparent where no tile covers the pixel. Reproducible: same bbox+year+k returns the same bytes.",
     })))
 }
 

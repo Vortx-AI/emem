@@ -518,7 +518,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <p>Empty is a signed answer, not a 404: when a cell has no fact for a band, the responder returns a signed record of that absence rather than failing silently.</p>
 
     <p style="font-weight:700;color:var(--ink);margin-top:2rem">Embeddings &amp; geography</p>
-    <p>Analytics over <em>sets</em> of 128-D GeoTessera vectors, with published formulas the scalar evaluator cannot express. All CPU-fetched, no GPU, so they run on a cold responder. Each returns a signed <span class="band">inconclusive</span> carrying the observed cell count rather than a fabricated number when coverage is too thin.</p>
+    <p>Analytics over <em>sets</em> of 128-D GeoTessera vectors, with published formulas the scalar evaluator cannot express. All CPU-fetched, no GPU, so they run on a cold responder. Each returns a signed <span class="band">inconclusive</span> carrying the observed cell count rather than a fabricated number when coverage is too thin. The two render endpoints (<span class="band">tessera_field</span>, <span class="band">region_archetype_map</span>) return a PNG for the map rather than a signed fact, so they are REST only, not part of the signed MCP surface.</p>
 
     <div class="scroll-x">
     <table class="endpoints">
@@ -526,7 +526,8 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><th>MCP tool</th><th>REST</th><th>What it does</th></tr>
       </thead>
       <tbody>
-        <tr><td class="path">emem_tessera_field</td><td>/v1/tessera_field</td><td class="desc">dense Tessera embedding field over a bounding box, rendered as a colour raster; Tessera is the one encoder published as precomputed COG tiles, so this stays cheap over a whole region</td></tr>
+        <tr><td class="path">&mdash;</td><td>/v1/tessera_field</td><td class="desc">dense Tessera embedding field over a bounding box, rendered as a colour raster; Tessera is the one encoder published as precomputed COG tiles, so this stays cheap over a whole region</td></tr>
+        <tr><td class="path">&mdash;</td><td>/v1/region_archetype_map</td><td class="desc">clusters that same embedding field into k land-cover archetypes (deterministic k-means) and renders a categorical map plus a legend with each archetype's pixel share</td></tr>
         <tr><td class="path">emem_embedding_centroid</td><td>/v1/embedding_centroid</td><td class="desc">mean GeoTessera centroid over a region's cells, L2-normalised, with a content-addressed cid</td></tr>
         <tr><td class="path">emem_region_similarity</td><td>/v1/region_similarity</td><td class="desc">cosine between two regions' centroids in [-1, 1]: how alike two places are</td></tr>
         <tr><td class="path">emem_embedding_diversity</td><td>/v1/embedding_diversity</td><td class="desc">mean pairwise cosine distance across a region; high means a varied landscape</td></tr>
