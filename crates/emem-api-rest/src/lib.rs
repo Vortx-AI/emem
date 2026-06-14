@@ -24453,7 +24453,10 @@ async fn read_tessera_field_grid(
         tlat += 0.1;
     }
     if tile_centers.len() > 36 {
-        return Err((false, "zoom in — too many Tessera tiles for one field".into()));
+        return Err((
+            false,
+            "zoom in — too many Tessera tiles for one field".into(),
+        ));
     }
     use futures_util::StreamExt as _;
     let headers: std::collections::HashMap<String, TesseraTileHeader> =
