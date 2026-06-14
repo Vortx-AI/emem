@@ -746,6 +746,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .finale .scroll{text-align:center}
 .finale h2{font-size:clamp(1.6rem,3vw,2.4rem);letter-spacing:-.02em;color:var(--ink);margin:0 0 .6rem;font-weight:600}
 .finale h2 .accent{color:var(--accent)}
+.builton{max-width:760px;margin:2.6rem auto 0;border-top:1px solid var(--rule);padding-top:1.6rem;text-align:center}
+.builton-h{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--mute-2);margin-bottom:.9rem}
+.builton-rows{display:flex;flex-direction:column;gap:.5rem;font-size:var(--t-sm);color:var(--ink-2);line-height:1.5}
+.builton-rows .bk{display:inline-block;min-width:5.5rem;text-align:right;margin-right:.7rem;color:var(--accent);font-weight:700;font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.06em}
+.builton-note{margin-top:1.1rem;font-size:var(--t-xs);color:var(--mute)}
+.builton-note a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 35%,transparent)}
+@media (max-width:620px){.builton-rows .bk{display:block;text-align:center;min-width:0;margin:0 0 .15rem}}
 .finale p{color:var(--ink-2);font-size:var(--t-md);max-width:56ch;margin:0 auto 1.6rem}
 .finale .hero-cta{justify-content:center}
 
@@ -2658,6 +2665,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub &rarr;</a>
     </div>
     <p class="closer" style="margin-top:2.4rem;font-size:var(--t-lg);color:var(--ink)">Earth now has a memory. <span class="accent">Help it remember.</span></p>
+    <div class="builton">
+      <div class="builton-h">read by satellites, encoded by foundation models</div>
+      <div class="builton-rows">
+        <div><span class="bk">satellites</span> Sentinel-1 &middot; Sentinel-2 &middot; Sentinel-5P &middot; Landsat 8/9 &middot; MODIS &middot; VIIRS &middot; Copernicus DEM</div>
+        <div><span class="bk">models</span> Tessera &middot; Clay v1.5 &middot; Prithvi-EO-2.0 &middot; Galileo</div>
+        <div><span class="bk">data</span> ESA Copernicus &middot; NASA &middot; USGS &middot; JRC &middot; Hansen/GFW &middot; SoilGrids &middot; ECMWF &middot; Overture &middot; Fields of The World</div>
+      </div>
+      <div class="builton-note">46 sources, 124 bands, four encoders &middot; full credits in the <a href="/whitepaper#refs">whitepaper references</a> &middot; <a href="/v1/sources">/v1/sources</a></div>
+    </div>
   </div>
 </section>
 
@@ -3342,6 +3358,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       sources:{
         land:{type:'geojson', data:'/land-110m.geojson'},
         coverage:{type:'geojson', data:fc([])},
+        hotpulse:{type:'geojson', data:fc([])},
         fields:{type:'geojson', data:fc([])},
         hunt:{type:'geojson', data:fc([])},
         cellfoot:{type:'geojson', data:fc([])},
@@ -3363,6 +3380,11 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         {id:'coverage-dot', type:'circle', source:'coverage', minzoom:5, paint:{
           'circle-radius':['interpolate',['linear'],['get','f'],1,2,40,7],
           'circle-color':INDIGO,'circle-opacity':0.5,'circle-stroke-color':PAPER,'circle-stroke-width':0.5}},
+        // the hottest cells breathe — a live pulse over the densest memory
+        {id:'hot-pulse', type:'circle', source:'hotpulse', paint:{
+          'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':VERM,'circle-stroke-width':1.6,'circle-stroke-opacity':0.6}},
+        {id:'hot-core', type:'circle', source:'hotpulse', paint:{
+          'circle-radius':3,'circle-color':VERM,'circle-opacity':0.85}},
         // /v1/field_boundaries — Fields of The World farm polygons (on zoom)
         {id:'fields-fill', type:'fill', source:'fields', paint:{'fill-color':OCHRE,'fill-opacity':0.16}},
         {id:'fields-line', type:'line', source:'fields', paint:{'line-color':INK,'line-width':0.7,'line-opacity':0.55}},
@@ -3566,7 +3588,25 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       });
       if (map.getSource('coverage')) map.getSource('coverage').setData(fc(feats));
       setLeg(elCovN, feats.length.toLocaleString() + ' cells');
+      // the hottest cells (most signed facts) get a live pulse
+      var hot = feats.slice().sort(function(a,b){ return (b.properties.f||0)-(a.properties.f||0); }).slice(0,18);
+      if (map.getSource('hotpulse')) map.getSource('hotpulse').setData(fc(hot));
     }).catch(function(){ setLeg(elCovN, 'unavailable'); });
+  }
+
+  // a slow heartbeat over the densest memory — the hot cells breathe
+  var pulseT = 0, pulseRAF = null, lastPulse = 0;
+  function pulse(ts){
+    pulseRAF = requestAnimationFrame(pulse);
+    if (ts - lastPulse < 55) return;          // ~18 fps is plenty for a breath
+    lastPulse = ts;
+    pulseT = (pulseT + 0.018) % 1;
+    var e = 0.5 - 0.5 * Math.cos(2 * Math.PI * pulseT);   // 0..1..0 ease
+    if (map.getLayer('hot-pulse')){
+      map.setPaintProperty('hot-pulse', 'circle-radius', 7 + 17 * e);
+      map.setPaintProperty('hot-pulse', 'circle-stroke-opacity', 0.55 * (1 - e));
+    }
+    if (map.getLayer('hot-core')) map.setPaintProperty('hot-core', 'circle-opacity', 0.55 + 0.35 * e);
   }
 
   var fieldsOn = false, fieldsBusy = false;
@@ -3602,13 +3642,14 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function setVis(ids, on){ ids.forEach(function(id){ if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); }); }
 
   var tCov=document.getElementById('lyr-cov'), tFld=document.getElementById('lyr-fld'), bHnt=document.getElementById('lyr-hnt-go');
-  if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot'], tCov.checked); });
+  if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot','hot-pulse','hot-core'], tCov.checked); });
   if (tFld) tFld.addEventListener('change', function(){ fieldsOn = tFld.checked; setVis(['fields-fill','fields-line'], fieldsOn); if (fieldsOn) loadFields(); else setLeg(elFldN, ''); });
   if (bHnt) bHnt.addEventListener('click', huntHere);
 
   map.on('load', function(){
     map.resize();
     loadCoverage();
+    pulseRAF = requestAnimationFrame(pulse);
     selectAt(PATCHES[0].lng, PATCHES[0].lat, PATCHES[0].name, false);
   });
   map.on('moveend', loadFields);
