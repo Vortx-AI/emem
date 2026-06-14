@@ -755,11 +755,18 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .ask-egs .ask-eg{font:inherit;font-size:var(--t-xs);padding:.2rem .5rem;border:1px solid var(--rule-strong);background:color-mix(in oklch,var(--paper) 85%,transparent);color:var(--ink-2);cursor:pointer}
 .ask-egs .ask-eg:hover{border-color:var(--accent);color:var(--ink);background:var(--accent-bg)}
 @media (max-width:880px){.ask-bar{max-width:none}}
-/* the answer box inside the consensus panel */
-.atlas-answer{border:1px solid var(--accent);background:var(--accent-bg);padding:.6rem .7rem;margin:0}
+/* the answer card — appears directly under the ask bar, over the map, where
+   the eye already is. Opaque paper + ink frame so it reads over the busy map. */
+.atlas-answer{position:relative;text-align:left;pointer-events:auto;margin:.7rem auto 0;max-width:46ch;
+  border:2px solid var(--ink);background:color-mix(in oklch,var(--paper) 97%,transparent);
+  box-shadow:0 0 0 3px var(--paper),0 16px 40px -22px rgba(0,0,0,.55);
+  padding:.6rem .75rem;max-height:min(46vh,340px);overflow:auto}
 #atlas-answer[hidden]{display:none}
-.atlas-answer .ans-q{font-size:var(--t-xs);color:var(--mute);margin-bottom:.3rem}
-.atlas-answer .ans-text{font-size:var(--t-sm);color:var(--ink);line-height:1.45}
+.atlas-answer .ans-x{position:absolute;top:.25rem;right:.4rem;border:none;background:none;color:var(--mute);font-size:16px;line-height:1;cursor:pointer;padding:.1rem .25rem}
+.atlas-answer .ans-x:hover{color:var(--vermilion)}
+.atlas-answer .ans-q{font-size:var(--t-xs);color:var(--mute);margin-bottom:.3rem;padding-right:1rem}
+.atlas-answer .ans-text{font-size:var(--t-sm);color:var(--ink);line-height:1.5;font-weight:500}
+.atlas-answer .ans-foot{margin-top:.5rem;font-size:9px;color:var(--mute);border-top:1px solid var(--rule);padding-top:.35rem}
 .atlas-answer .ans-topics{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.5rem}
 .atlas-answer .ans-chip{font-size:9.5px;padding:.12rem .4rem;border:1px solid var(--accent);color:var(--accent);background:var(--paper);border-radius:2px;white-space:nowrap}
 .atlas-answer .ans-bands{margin-top:.5rem;display:flex;flex-direction:column;gap:.15rem}
@@ -1090,9 +1097,17 @@ input::placeholder{color:var(--mute,#7a7363)}
         <button type="submit" id="ask-go" class="ask-go">ask &rarr;</button>
       </form>
       <div class="ask-egs"><span class="lbl">ask here</span><button type="button" class="ask-eg" data-q="is this a good neighbourhood to buy a home, is it flood-safe">buy a home</button><button type="button" class="ask-eg" data-q="what is the air quality and heat risk here">air &amp; health</button><button type="button" class="ask-eg" data-q="how walkable, green and livable is this area">livable</button><button type="button" class="ask-eg" data-q="how densely populated and built up is this area">population</button><button type="button" class="ask-eg" data-q="is this place deforestation-free for EUDR">EUDR &check;</button></div>
+      <div class="atlas-answer" id="atlas-answer" hidden>
+        <button type="button" class="ans-x" id="ans-x" aria-label="dismiss answer" title="dismiss">&times;</button>
+        <div class="ans-q" id="ans-q"></div>
+        <div class="ans-text" id="ans-text"></div>
+        <div class="ans-topics" id="ans-topics"></div>
+        <div class="ans-bands" id="ans-bands"></div>
+        <div class="ans-foot" id="ans-foot"></div>
+      </div>
     </div>
   </div>
-  <div class="atlas-hint" id="atlas-hint">click a red patch, or anywhere on land &middot; drag to spin &middot; <span class="zoomhint">+ to zoom into farms</span></div>
+  <div class="atlas-hint" id="atlas-hint">tap a gold city or anywhere on land &middot; drag to pan &middot; <span class="zoomhint">&#8984;/Ctrl&#8209;scroll or +/&minus; to zoom</span></div>
   <div class="map-legend" id="map-legend">
     <div class="ml-title"><span>data layers</span><button class="box-min" id="leg-min" type="button" aria-label="minimise layers" title="minimise">&minus;</button></div>
     <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">the memory</span><b id="lyr-cov-n">&hellip;</b></label>
@@ -1125,12 +1140,6 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="atlas-body">
       <div class="atlas-place"><span id="atlas-place-name">Pick a patch to begin.</span><span class="cell" id="atlas-cell"></span></div>
       <div class="atlas-status" id="atlas-status" role="status" aria-live="polite"></div>
-      <div class="atlas-answer" id="atlas-answer" hidden>
-        <div class="ans-q" id="ans-q"></div>
-        <div class="ans-text" id="ans-text"></div>
-        <div class="ans-topics" id="ans-topics"></div>
-        <div class="ans-bands" id="ans-bands"></div>
-      </div>
       <figure class="atlas-scene" id="atlas-scene" hidden></figure>
       <div class="atlas-fp" id="atlas-fp" hidden>
         <span class="sw" id="fp-sw"></span>
@@ -3534,21 +3543,28 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         {id:'land',  type:'fill', source:'land', paint:{'fill-color':LAND}},
         {id:'coast', type:'line', source:'land', paint:{'line-color':INK,'line-width':1.0,'line-opacity':0.85}},
         // /v1/coverage — where Earth is already remembered (signed-fact density)
-        {id:'coverage-heat', type:'heatmap', source:'coverage', maxzoom:8, paint:{
+        // The whole signed corpus reads as a soft indigo→gold density wash at
+        // world/continent zoom (the "memory" texture) and resolves to faint
+        // dots only once you zoom in, so 130k cells never become a wall of
+        // markers. Red is deliberately NOT in this ramp — it is reserved for
+        // active results (hunt hotspots, dropped overlays) so those stand out.
+        {id:'coverage-heat', type:'heatmap', source:'coverage', maxzoom:7, paint:{
           'heatmap-weight':['interpolate',['linear'],['get','f'],0,0,40,1],
-          'heatmap-intensity':['interpolate',['linear'],['zoom'],0,0.7,8,2.2],
-          'heatmap-radius':['interpolate',['linear'],['zoom'],0,7,8,34],
-          'heatmap-opacity':['interpolate',['linear'],['zoom'],6,0.85,8,0.35],
+          'heatmap-intensity':['interpolate',['linear'],['zoom'],0,0.5,7,1.4],
+          'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,7,26],
+          'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.55,5,0.6,7,0.25],
           'heatmap-color':['interpolate',['linear'],['heatmap-density'],
-            0,'rgba(243,238,226,0)',0.2,'rgba(52,74,140,0.35)',0.5,'rgba(213,154,42,0.6)',0.8,'rgba(187,59,44,0.82)',1,'rgba(187,59,44,0.95)']}},
-        {id:'coverage-dot', type:'circle', source:'coverage', minzoom:5, paint:{
-          'circle-radius':['interpolate',['linear'],['get','f'],1,2,40,7],
-          'circle-color':INDIGO,'circle-opacity':0.5,'circle-stroke-color':PAPER,'circle-stroke-width':0.5}},
-        // the hottest cells breathe — a live pulse over the densest memory
-        {id:'hot-pulse', type:'circle', source:'hotpulse', paint:{
-          'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':VERM,'circle-stroke-width':1.6,'circle-stroke-opacity':0.6}},
-        {id:'hot-core', type:'circle', source:'hotpulse', paint:{
-          'circle-radius':3,'circle-color':VERM,'circle-opacity':0.85}},
+            0,'rgba(243,238,226,0)',0.25,'rgba(52,74,140,0.28)',0.6,'rgba(52,74,140,0.45)',0.85,'rgba(213,154,42,0.6)',1,'rgba(213,154,42,0.8)']}},
+        {id:'coverage-dot', type:'circle', source:'coverage', minzoom:6, paint:{
+          'circle-radius':['interpolate',['linear'],['zoom'],6,1.1,12,3.2],
+          'circle-color':INDIGO,
+          'circle-opacity':['interpolate',['linear'],['zoom'],6,0.18,10,0.4]}},
+        // the densest cells breathe — a quiet GOLD pulse (not red) so it reads
+        // as "richest memory", never as an alert
+        {id:'hot-pulse', type:'circle', source:'hotpulse', maxzoom:7, paint:{
+          'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':OCHRE,'circle-stroke-width':1.6,'circle-stroke-opacity':0.55}},
+        {id:'hot-core', type:'circle', source:'hotpulse', maxzoom:7, paint:{
+          'circle-radius':2.6,'circle-color':OCHRE,'circle-opacity':0.8}},
         // /v1/field_boundaries — Fields of The World farm polygons (on zoom)
         {id:'fields-fill', type:'fill', source:'fields', paint:{'fill-color':OCHRE,'fill-opacity':0.16}},
         {id:'fields-line', type:'line', source:'fields', paint:{'line-color':INK,'line-width':0.7,'line-opacity':0.55}},
@@ -3560,22 +3576,35 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         {id:'dropped-line', type:'line', source:'dropped', paint:{'line-color':VERM,'line-width':1.4}},
         {id:'dropped-dot', type:'circle', source:'dropped', filter:['==',['geometry-type'],'Point'], paint:{'circle-radius':4,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.2}},
         // /v1/hunt — anomaly hotspots (triggered)
-        {id:'hunt-glow', type:'circle', source:'hunt', paint:{'circle-radius':['interpolate',['linear'],['get','c'],0,9,1,28],'circle-color':VERM,'circle-opacity':0.16}},
-        {id:'hunt-dot', type:'circle', source:'hunt', paint:{'circle-radius':5.5,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.5}},
+        // hunt hotspots — the one thing on the map painted RED. A wide soft
+        // glow doubles as a generous click/tap target (queried below), and the
+        // solid core is large with a thick paper ring so it never gets lost.
+        {id:'hunt-glow', type:'circle', source:'hunt', paint:{'circle-radius':['interpolate',['linear'],['get','c'],0,16,1,38],'circle-color':VERM,'circle-opacity':0.2}},
+        {id:'hunt-dot', type:'circle', source:'hunt', paint:{'circle-radius':8.5,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':2.6}},
         // /v1/find_similar — places whose embedding is most like the selected cell
         {id:'similar-line', type:'line', source:'similar', paint:{'line-color':LEAF,'line-width':1,'line-opacity':0.5,'line-dasharray':[2,2]}},
         {id:'similar-dot', type:'circle', source:'similar', paint:{'circle-radius':['interpolate',['linear'],['get','s'],0.7,4,1,8],'circle-color':LEAF,'circle-stroke-color':PAPER,'circle-stroke-width':1.5}},
         {id:'sel-halo', type:'circle', source:'sel', paint:{'circle-radius':15,'circle-color':INDIGO,'circle-opacity':0.13}},
         {id:'sel-ring', type:'circle', source:'sel', paint:{'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':INDIGO,'circle-stroke-width':2.2}},
-        {id:'patch-dot', type:'circle', source:'patches', paint:{'circle-radius':6,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':2}}
+        // the eight seeded cities — GOLD entry points, distinct from red hunt
+        // results and indigo selection, so "tap a city to begin" reads clearly
+        {id:'patch-dot', type:'circle', source:'patches', paint:{'circle-radius':6,'circle-color':OCHRE,'circle-stroke-color':INK,'circle-stroke-width':2}}
       ]
     },
     center:[8,16], zoom:1.1, minZoom:0.5, maxZoom:16,
     renderWorldCopies:true, dragRotate:false, pitchWithRotate:false,
-    scrollZoom:false, keyboard:false
+    // Cooperative gestures: the wheel zooms the map only with Ctrl/⌘ (two
+    // fingers on touch), so scrolling the page past a full-screen map hero
+    // still works while the map stays directly zoomable. Replaces the old
+    // scrollZoom:false, which left visitors unable to zoom at all without the
+    // +/- buttons. Keyboard nav (arrows + / -) is on for accessibility.
+    cooperativeGestures:true, keyboard:true
   });
   map.touchZoomRotate.disableRotation();
   map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'top-right');
+  // Expose the map for power users + automated UI checks (layer visibility,
+  // camera bounds). Harmless read handle; no state is driven through it.
+  window.atlasMap = map;
 
   var elName=document.getElementById('atlas-place-name'),
       elCell=document.getElementById('atlas-cell'),
@@ -3891,13 +3920,29 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // the same consensus/engram a click would, and explain it in the panel.
   var elAnswer=document.getElementById('atlas-answer'),
       elAnsQ=document.getElementById('ans-q'), elAnsText=document.getElementById('ans-text'),
-      elAnsTopics=document.getElementById('ans-topics'), elAnsBands=document.getElementById('ans-bands');
+      elAnsTopics=document.getElementById('ans-topics'), elAnsBands=document.getElementById('ans-bands'),
+      elAnsFoot=document.getElementById('ans-foot'), ansX=document.getElementById('ans-x');
   function clearAnswer(){ if(elAnswer) elAnswer.hidden=true; }
+  if(ansX) ansX.addEventListener('click', clearAnswer);
+  // Friendly labels for the bands an everyday question surfaces, so a row reads
+  // "PM2.5  22 µg/m³" not "cams.pm25  22 ug/m^3". Unknown bands fall through to
+  // the raw key (still honest, still the signed band name).
+  var BAND_LABEL={'cams.pm25':'PM2.5','cams.pm10':'PM10','cams.no2':'NO₂','cams.o3':'ozone','cams.co':'CO','cams.so2':'SO₂',
+    'indices.ndvi':'greenness (NDVI)','indices.evi':'greenness (EVI)','indices.ndbi':'built-up (NDBI)','indices.ndmi':'moisture (NDMI)',
+    'indices.urban_canopy_index':'tree canopy','modis.lst_day_8day':'land surface temp (day)','modis.lst_night_8day':'land surface temp (night)',
+    'weather.temperature_2m':'air temperature','weather.relative_humidity_2m':'humidity','weather.wind_speed_10m':'wind speed',
+    'weather.precipitation_mm':'precipitation','copdem30m.elevation_mean':'elevation','surface_water.recurrence':'surface water',
+    'overture.buildings.count':'buildings','overture.places.count':'places','overture.transportation.road_length_m':'road length'};
+  function prettyUnit(u){ return ({'ug/m^3':'µg/m³','m^3':'m³','degC':'°C','C':'°C'})[u]||u; }
   function renderAnswer(d){
     if(!elAnswer) return;
     elAnswer.hidden=false;
     elAnsQ.textContent = 'you asked: ' + (d.question || '');
-    elAnsText.textContent = d.answer || '';
+    // Humanise the synthesised answer: strip the "key@version" machine form to
+    // a plain phrase ("aqi_class@1 2" -> "aqi class 2"). The signed band rows
+    // below carry the actual numbers, so this stays a readable lead.
+    var txt = (d.answer||'').replace(/([a-z][a-z_]*)@\d+/gi, function(_,k){ return k.replace(/_/g,' '); });
+    elAnsText.textContent = txt || 'Signed readings for this place are below.';
     clearKids(elAnsTopics);
     ((d.topic_routing && d.topic_routing.matched_topics) || []).slice(0,5).forEach(function(t){
       elAnsTopics.appendChild(el('span','ans-chip', t.replace(/_/g,' ')));
@@ -3906,11 +3951,13 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     var bands = (d.band_observations_summary && d.band_observations_summary.bands) || [];
     bands.slice(0,6).forEach(function(b){
       var row=el('div','ans-band');
-      row.appendChild(el('span','b', b.band));
+      row.appendChild(el('span','b', BAND_LABEL[b.band] || b.band));
       var v = (typeof b.value==='number') ? (Math.abs(b.value)<100 ? b.value.toFixed(2) : Math.round(b.value)) : b.value;
-      row.appendChild(el('span','v', v + (b.unit ? ' '+b.unit : '')));
+      row.appendChild(el('span','v', v + (b.unit ? ' '+prettyUnit(b.unit) : '')));
       elAnsBands.appendChild(row);
     });
+    var nf=(d.fact_cids||[]).length;
+    if(elAnsFoot) elAnsFoot.textContent = (nf? nf+' signed facts · ':'') + 'ed25519 receipt · click the map to explore';
   }
   function askEarth(q){
     q = (q||'').trim(); if(!q) return;
@@ -3940,11 +3987,13 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         elAnswer.hidden=false; elAnsQ.textContent='you asked: '+q;
         elAnsText.textContent=hfeats.length+' '+ev+' hotspots across '+where+', ranked by coherence. The red markers are the strongest candidates — click one to read its signed cell.';
         clearKids(elAnsTopics); elAnsTopics.appendChild(el('span','ans-chip', ev)); clearKids(elAnsBands);
-        var h0=d.hotspots[0]; if(typeof h0.lng==='number') map.easeTo({center:[h0.lng,h0.lat], zoom:Math.max(map.getZoom(),4), duration:800});
+        if(elAnsFoot) elAnsFoot.textContent='the map zoomed to the hotspots · click any red marker for its signed cell';
+        focusHunt(hfeats);
         elName.textContent=ev+' · '+where;
         setStatus('hunter mode: '+hfeats.length+' hotspots. Click a red marker for its cell.');
         return;
       }
+      clearHunt();   // a point answer — clear any red hotspots from a prior hunt
       renderAnswer(d);
       var pr=d.place_resolved||{};
       var lat=pr.lat, lng=pr.lng;
@@ -4031,12 +4080,37 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
           return {type:'Feature', properties:{c: h.coherence || 0.5}, geometry:{type:'Point', coordinates:[h.lng, h.lat]}};
         });
         if (map.getSource('hunt')) map.getSource('hunt').setData(fc(feats));
-        setLeg(elHntN, feats.length + ' hotspots');
+        focusHunt(feats);
+        setLeg(elHntN, feats.length + ' hotspots · click a red marker');
       } else setLeg(elHntN, 'none found');
     }, function(){ setLeg(elHntN, 'error'); });
   }
 
   function setVis(ids, on){ ids.forEach(function(id){ if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); }); }
+
+  // When a hunt returns, the red hotspots ARE the answer — so fit the camera to
+  // them and quiet everything else (fade the coverage wash, hide the gold city
+  // dots + pulse) so the markers are unmistakable and easy to pick. clearHunt()
+  // undoes it for the next non-hunt interaction.
+  var COV_DOT_OP=['interpolate',['linear'],['zoom'],6,0.18,10,0.4];
+  var COV_HEAT_OP=['interpolate',['linear'],['zoom'],0,0.55,5,0.6,7,0.25];
+  function focusHunt(feats){
+    if(!feats || !feats.length) return;
+    var bb=new maplibregl.LngLatBounds(); feats.forEach(function(f){ bb.extend(f.geometry.coordinates); });
+    if(map.getLayer('coverage-dot')) map.setPaintProperty('coverage-dot','circle-opacity',0.06);
+    if(map.getLayer('coverage-heat')) map.setPaintProperty('coverage-heat','heatmap-opacity',0.1);
+    setVis(['patch-dot','hot-pulse','hot-core'], false);
+    if(feats.length===1) map.easeTo({center:feats[0].geometry.coordinates, zoom:Math.max(map.getZoom(),7), duration:900});
+    else map.fitBounds(bb, {padding:90, maxZoom:9, duration:900});
+  }
+  function clearHunt(){
+    if(map.getSource('hunt')) map.getSource('hunt').setData(fc([]));
+    if(map.getLayer('coverage-dot')) map.setPaintProperty('coverage-dot','circle-opacity',COV_DOT_OP);
+    if(map.getLayer('coverage-heat')) map.setPaintProperty('coverage-heat','heatmap-opacity',COV_HEAT_OP);
+    setVis(['patch-dot'], true);
+    var cov=document.getElementById('lyr-cov'); if(cov && cov.checked) setVis(['hot-pulse','hot-core'], true);
+    setLeg(elHntN, '');
+  }
 
   var tCov=document.getElementById('lyr-cov'), tFld=document.getElementById('lyr-fld'), bHnt=document.getElementById('lyr-hnt-go');
   // Mithila minimise/expand on the two map boxes
@@ -4102,15 +4176,21 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     selectAt(PATCHES[0].lng, PATCHES[0].lat, PATCHES[0].name, false);
   });
   map.on('moveend', loadFields);
-  map.on('mouseenter','patch-dot', function(){ map.getCanvas().style.cursor='pointer'; });
-  map.on('mouseleave','patch-dot', function(){ map.getCanvas().style.cursor='crosshair'; });
+  ['patch-dot','hunt-dot','hunt-glow','similar-dot'].forEach(function(ly){
+    map.on('mouseenter', ly, function(){ map.getCanvas().style.cursor='pointer'; });
+    map.on('mouseleave', ly, function(){ map.getCanvas().style.cursor='crosshair'; });
+  });
   map.on('click', function(e){
+    // A hunt hotspot first — query the wide soft glow as well as the core so
+    // the small red marker is forgiving to click/tap. Picks the hotspot's cell.
+    var hh = map.queryRenderedFeatures(e.point, {layers:['hunt-dot','hunt-glow']});
+    if (hh && hh.length){ var g=hh[0].geometry.coordinates; clearAnswer(); selectAt(g[0], g[1], null, true); return; }
     clearAnswer();   // a direct map pick starts fresh; ask-driven picks keep the answer
     var hits = map.queryRenderedFeatures(e.point, {layers:['patch-dot']});
-    if (hits && hits.length){ var i=hits[0].properties.idx; selectAt(PATCHES[i].lng, PATCHES[i].lat, PATCHES[i].name, true); return; }
+    if (hits && hits.length){ var i=hits[0].properties.idx; clearHunt(); selectAt(PATCHES[i].lng, PATCHES[i].lat, PATCHES[i].name, true); return; }
     var land = map.queryRenderedFeatures(e.point, {layers:['land']});
     if (!land || !land.length){ setStatus('that is open water. Pick a spot on land.'); return; }
-    selectAt(e.lngLat.lng, e.lngLat.lat, null, true);
+    clearHunt(); selectAt(e.lngLat.lng, e.lngLat.lat, null, true);
   });
   window.addEventListener('resize', function(){ map.resize(); });
 })();
