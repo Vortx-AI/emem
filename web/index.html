@@ -652,6 +652,17 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-similar .sim-row .sim-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);display:block}
 .atlas-similar .sim-row .sim-sc{font-family:var(--mono);font-size:9.5px;color:var(--ink-2)}
 #atlas-similar[hidden]{display:none}
+/* the full 1792-D voxel cube — 43 band slots, fill status, downloadable */
+.atlas-cube{border:1px solid var(--rule);background:var(--paper);padding:.5rem .6rem;margin:0}
+.atlas-cube .cube-h{display:flex;justify-content:space-between;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin-bottom:.4rem}
+.atlas-cube .cube-h b{color:var(--ink)}
+.atlas-cube .cube-strip{display:flex;height:15px;border:1px solid var(--ink);overflow:hidden}
+.atlas-cube .cube-strip .seg{height:100%;border-right:1px solid color-mix(in oklch,var(--paper) 60%,transparent)}
+.atlas-cube .cube-foot{display:flex;justify-content:space-between;align-items:center;margin-top:.4rem;gap:.5rem}
+.atlas-cube .cube-foot .cid{font-family:var(--mono);font-size:9px;color:var(--accent);word-break:break-all;flex:1;min-width:0}
+.atlas-cube .cube-dl{font:inherit;font-size:9.5px;padding:.25rem .5rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer;white-space:nowrap}
+.atlas-cube .cube-dl:hover{border-color:var(--accent);background:var(--accent-bg)}
+#atlas-cube[hidden]{display:none}
 /* Mithila minimise button on map boxes */
 .box-min{width:18px;height:18px;flex:0 0 auto;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);
   font:700 13px/1 var(--mono);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
@@ -1121,6 +1132,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
         <div id="sim-rows"></div>
       </div>
       <div class="atlas-encs" id="atlas-encs"></div>
+      <div class="atlas-cube" id="atlas-cube" hidden>
+        <div class="cube-h"><span>full state cube</span><b id="cube-dim"></b></div>
+        <div class="cube-strip" id="cube-strip"></div>
+        <div class="cube-foot"><span class="cid" id="cube-cid"></span><button type="button" id="cube-dl" class="cube-dl">download 1792-D &darr;</button></div>
+      </div>
       <div class="mc-verdict" id="atlas-verdict" hidden></div>
       <div class="mc-deeper" id="atlas-deeper" hidden>
         <a id="atlas-verify" href="/verify">verify any reading yourself &rarr;</a>
@@ -3550,6 +3566,8 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       elFp=document.getElementById('atlas-fp'), fpSw=document.getElementById('fp-sw'),
       elEngram=document.getElementById('atlas-engram'),
       elSimilar=document.getElementById('atlas-similar'), simRows=document.getElementById('sim-rows'),
+      elCube=document.getElementById('atlas-cube'), cubeStrip=document.getElementById('cube-strip'),
+      cubeDim=document.getElementById('cube-dim'), cubeCid=document.getElementById('cube-cid'),
       elEncs=document.getElementById('atlas-encs'),
       elVerdict=document.getElementById('atlas-verdict'),
       elDeeper=document.getElementById('atlas-deeper');
@@ -3690,6 +3708,36 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     if(map.getSource('similar')) map.getSource('similar').setData(fc(feats));
   }
 
+  // The full 1792-D voxel cube (/v1/state view=cube): all 43 band slots in
+  // canonical offset order, coloured by fill status, plus the state_cid and a
+  // one-click download of the whole signed cube. This is the "show the full
+  // embeddings, not just a few" view — a memory layer, not one model's vector.
+  var lastCube=null;
+  function renderCube(d){
+    if(!d || !Array.isArray(d.coverage) || !d.coverage.length){ elCube.hidden=true; return; }
+    lastCube=d;
+    var dim=d.dim||1792;
+    cubeDim.textContent=dim+'-D · '+(d.filled_dims!=null?d.filled_dims:'?')+' filled';
+    clearKids(cubeStrip);
+    d.coverage.forEach(function(c){
+      var seg=el('div','seg'); seg.style.width=((c.dims||1)/dim*100)+'%';
+      var st=c.status;
+      seg.style.background = st==='primary' ? LEAF : (st==='dim_mismatch' ? OCHRE : ((st==='missing'||st==='absent') ? '#cdc2a6' : INDIGO));
+      seg.title=(c.key||'?')+' · '+(c.dims||0)+'-D · '+st+(typeof c.offset==='number'?(' · offset '+c.offset):'');
+      cubeStrip.appendChild(seg);
+    });
+    cubeCid.textContent='state_cid '+(d.state_cid||'');
+    elCube.hidden=false;
+  }
+  function downloadCube(){
+    if(!lastCube) return;
+    var blob=new Blob([JSON.stringify(lastCube,null,1)], {type:'application/json'});
+    var url=URL.createObjectURL(blob), a=document.createElement('a');
+    a.href=url; a.download=(lastCube.cell||'cell')+'.state-cube.json'; document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
+  }
+  (function(){ var d=document.getElementById('cube-dl'); if(d) d.addEventListener('click', downloadCube); })();
+
   // The real Sentinel-2 true-colour scene for the selected cell. Loaded
   // lazily after the embeddings render; on a cloudy patch the endpoint 404s
   // and we say so plainly rather than show a broken image.
@@ -3779,7 +3827,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     if (ease) map.easeTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 2.6), duration:700});
     elName.textContent = label || 'selected patch';
     elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; ENG.clear(); clearKids(elEncs);
-    elFp.hidden = true; elSimilar.hidden = true;
+    elFp.hidden = true; elSimilar.hidden = true; elCube.hidden = true;
     if (map.getSource('cellfoot')) map.getSource('cellfoot').setData(fc([]));
     if (map.getSource('similar')) map.getSource('similar').setData(fc([]));
     setStatus('resolving cell…');
@@ -3800,6 +3848,8 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       var sm = fetchJson('/v1/state_multi', {cell:cell, vectors:true});
       var tc = fetchJson('/v1/triple_consensus', {cell:cell});
       sm.then(function(r){ if (seq===reqSeq && r.ok && r.j) renderEncoders(r.j); });
+      // the full 1792-D voxel cube (all 43 band slots), downloadable
+      fetchJson('/v1/state', {cell:cell, view:'cube'}).then(function(r){ if (seq===reqSeq && r.ok && r.j) renderCube(r.j); }, function(){});
       Promise.all([sm, tc]).then(function(rs){
         if (seq!==reqSeq) return;
         var smr=rs[0], tcr=rs[1];
