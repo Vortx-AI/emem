@@ -17,7 +17,10 @@ PATCHES=(
   "0.50 113.90 Borneo"
   "42.00 -93.60 Iowa"
 )
-BANDS='["cams.pm25","cams.no2","cams.aod_550","modis.lst_day_8day","copdem30m.elevation_mean","surface_water.recurrence","indices.mndwi","indices.ndvi","indices.urban_canopy_index","overture.transportation.road_length_m","overture.buildings.count","overture.places.count"]'
+# the FULL band union the consumer topics fan out to (real_estate, flood,
+# urban_livability, public_health, built_up, weather, vegetation, topography,
+# fire, air_quality, reflectance) — so /v1/ask completes inside its budget.
+BANDS='["cams.aod_550","cams.co","cams.no2","cams.o3","cams.pm10","cams.pm25","cams.so2","copdem30m.elevation_mean","indices.evi","indices.nbr","indices.ndbi","indices.ndmi","indices.ndvi","indices.savi","indices.urban_canopy_index","modis.lst_day_8day","modis.lst_night_8day","modis.ndvi_mean","overture.buildings.count","overture.places.count","overture.transportation.road_length_m","s2.B02","s2.B03","s2.B04","s2.B08","s2.B11","s2.B12","sentinel1_raw","surface_water.recurrence","weather.cloud_cover","weather.precipitation_mm","weather.relative_humidity_2m","weather.temperature_2m","weather.wind_speed_10m"]'
 
 post(){ curl -s -o /dev/null -w "%{http_code}" --max-time 200 -X POST "$BASE/$1" -H 'content-type: application/json' -d "$2"; }
 
