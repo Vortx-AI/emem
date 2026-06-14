@@ -34826,6 +34826,10 @@ async fn post_ask(
     ]
     .iter()
     .any(|k| q_lower.contains(k));
+    // `ask_inner` consumes `s`; keep a cheap Arc clone + a start instant so the
+    // timeout branch below can still sign its `incomplete` envelope.
+    let s_sign = s.clone();
+    let ask_started = std::time::Instant::now();
     match tokio::time::timeout(std::time::Duration::from_secs(budget), ask_inner(s, req)).await {
         Ok(Ok(v)) => Ok(Json(v)),
         Ok(Err(e)) => Err(e),
@@ -34847,6 +34851,19 @@ async fn post_ask(
             } else {
                 "This question fans out across many cold satellite bands and did not finish within the time budget. Call POST /v1/recall with the specific band(s) you need, or POST /v1/hunt for an event sweep — both are bounded and signed. Re-asking warms the bands and gets faster."
             };
+            // Sign the incomplete envelope too — a non-repudiable acknowledgment
+            // that THIS responder issued this "did not finish" reply (over an
+            // empty fact set, the honest content). Same v1 preimage; an agent
+            // can verify the responder identity even on a timeout, so the
+            // envelope is signed like every other /v1/ask shape.
+            let receipt = s_sign.sign_receipt(
+                "ask_incomplete",
+                vec![],
+                vec![],
+                false,
+                ask_started,
+                Some("ask:incomplete".to_string()),
+            );
             Ok(Json(json!({
                 "schema":        "emem.ask.v1",
                 "routed_to":     "incomplete",
@@ -34854,6 +34871,7 @@ async fn post_ask(
                 "status":        "incomplete",
                 "question":      q_preview,
                 "answer":        answer,
+                "receipt":       receipt,
                 "reason":        format!("ask fan-out exceeded the {budget}s budget on cold upstreams; no signed answer was cached for this place yet"),
                 "out_of_scope":  false,
                 "next":          next,
@@ -36510,6 +36528,7 @@ async fn hunter_response(
     intent: ask_foundation::HunterIntent,
     q: &str,
 ) -> Result<JsonValue, ApiError> {
+    let hunt_started = std::time::Instant::now();
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     let kind = intent.kind;
     let algorithm_key = kind.algorithm_key();
@@ -36805,11 +36824,36 @@ async fn hunter_response(
         }
     };
 
+    // Sign a sweep receipt over the hotspot cells + their primary fact_cids,
+    // so a hunter answer (deforestation, fire, flood…) is signed exactly like a
+    // point recall instead of an unsigned list of dots. Same responder
+    // identity + v1 preimage as every other receipt; `primitive:"hunt"` and the
+    // event in `intent` make it self-describing and re-verifiable offline.
+    let mut hs_cells: Vec<String> = Vec::new();
+    let mut hs_fact_cids: Vec<emem_fact::FactCid> = Vec::new();
+    for h in &hotspots {
+        if let Some(c) = h.get("cell64").and_then(|v| v.as_str()) {
+            hs_cells.push(c.to_string());
+        }
+        if let Some(fc) = h.get("fact_cid").and_then(|v| v.as_str()) {
+            hs_fact_cids.push(emem_fact::FactCid::new(fc));
+        }
+    }
+    let sweep_receipt = s.sign_receipt(
+        "hunt",
+        hs_cells,
+        hs_fact_cids,
+        false,
+        hunt_started,
+        Some(format!("hunt:{event_label}")),
+    );
+
     Ok(json!({
         "schema":         "emem.ask.v1",
         "status":         "hunter_mode",
         "question":       q,
         "event":          event_label,
+        "receipt":        sweep_receipt,
         "algorithm_key":  algorithm_key,
         "algorithm_url":  format!("{origin}/v1/algorithms/{algorithm_key}"),
         "input_bands":    input_bands,
