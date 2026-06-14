@@ -670,7 +670,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .box-min:hover{border-color:var(--accent);background:var(--accent-bg)}
 .hero-consensus.collapsed .atlas-body{display:none}
 .hero-consensus.collapsed .box-min,.map-legend.collapsed .box-min{}
-.map-legend.collapsed .ml-row,.map-legend.collapsed .ml-note{display:none}
+.map-legend.collapsed > *:not(.ml-title){display:none}
 .atlas-mapframe .maplibregl-ctrl-group{border:1px solid var(--ink);border-radius:0;background:var(--paper);box-shadow:none}
 .atlas-mapframe .maplibregl-ctrl-group button+button{border-top:1px solid var(--rule)}
 .atlas-mapframe .maplibregl-ctrl-attrib{background:color-mix(in oklch,var(--paper) 86%,transparent);font-size:9px}
@@ -688,8 +688,24 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .earth-hero{position:relative;height:calc(100vh - 40px);min-height:560px;max-height:920px;
   border-bottom:2px solid var(--ink);overflow:hidden;background:var(--paper)}
 .earth-hero #atlas-map{position:absolute;inset:0;height:100%;width:100%;z-index:1}
+/* visible keyboard focus on every hero control (the paper theme makes the
+   browser default ring nearly invisible) */
+.earth-hero :focus-visible,.map-legend :focus-visible,.maplibregl-ctrl button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .earth-hero .atlas-hint{position:absolute;left:16px;bottom:16px;z-index:4}
 .atlas-hint .zoomhint{color:var(--accent)}
+/* hover tooltip — a tiny paper cartouche that previews the feature under the
+   cursor (city / hotspot / similar place / memory cell) with its provenance */
+.map-tip{position:absolute;z-index:7;pointer-events:none;max-width:240px;
+  background:color-mix(in oklch,var(--paper) 97%,transparent);border:1px solid var(--ink);
+  box-shadow:0 0 0 2px var(--paper),0 8px 22px -12px rgba(0,0,0,.5);
+  padding:.3rem .45rem;font:500 var(--t-xs)/1.35 var(--mono);color:var(--ink)}
+.map-tip b{color:var(--ink);font-weight:700}
+.map-tip .tip-sub{color:var(--mute);font-size:9px}
+.map-tip .tip-sig{color:var(--accent);font-size:9px}
+/* reverse-geocoded place label pinned at the selected cell */
+.sel-label{background:color-mix(in oklch,var(--paper) 95%,transparent);border:1px solid var(--ink);
+  box-shadow:0 0 0 2px var(--paper);padding:.1rem .35rem;font:700 10px/1.2 var(--mono);color:var(--ink);
+  white-space:nowrap;transform:translateY(-2px);max-width:200px;overflow:hidden;text-overflow:ellipsis}
 /* map data-layer legend (top-left), Mithila paper panel */
 .map-legend{position:absolute;left:22px;top:22px;z-index:6;width:226px;
   background:color-mix(in oklch,var(--paper-2) 95%,transparent);border:2px solid var(--ink);
@@ -766,7 +782,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .atlas-answer .ans-x:hover{color:var(--vermilion)}
 .atlas-answer .ans-q{font-size:var(--t-xs);color:var(--mute);margin-bottom:.3rem;padding-right:1rem}
 .atlas-answer .ans-text{font-size:var(--t-sm);color:var(--ink);line-height:1.5;font-weight:500}
-.atlas-answer .ans-foot{margin-top:.5rem;font-size:9px;color:var(--mute);border-top:1px solid var(--rule);padding-top:.35rem}
+.atlas-answer .ans-sec{margin-top:.55rem}
+.atlas-answer .ans-h{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2);margin-bottom:.25rem}
+.atlas-answer .ans-scored{display:flex;flex-direction:column;gap:.12rem}
+.atlas-answer .ans-metric{display:flex;justify-content:space-between;gap:.6rem;font-family:var(--mono);font-size:var(--t-xs)}
+.atlas-answer .ans-metric .m{color:var(--ink-2)}
+.atlas-answer .ans-metric .mv{color:var(--accent);font-weight:700}
+.atlas-answer .ans-foot{margin-top:.5rem;font-size:9px;color:var(--mute);border-top:1px solid var(--rule);padding-top:.35rem;display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+.atlas-answer .ans-foot a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent)}
+.atlas-answer .ans-foot a:hover{background:var(--accent-bg)}
 .atlas-answer .ans-topics{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.5rem}
 .atlas-answer .ans-chip{font-size:9.5px;padding:.12rem .4rem;border:1px solid var(--accent);color:var(--accent);background:var(--paper);border-radius:2px;white-space:nowrap}
 .atlas-answer .ans-bands{margin-top:.5rem;display:flex;flex-direction:column;gap:.15rem}
@@ -1101,13 +1125,15 @@ input::placeholder{color:var(--mute,#7a7363)}
         <button type="button" class="ans-x" id="ans-x" aria-label="dismiss answer" title="dismiss">&times;</button>
         <div class="ans-q" id="ans-q"></div>
         <div class="ans-text" id="ans-text"></div>
+        <div class="ans-sec" id="ans-readings-sec" hidden><div class="ans-h">signed readings</div><div class="ans-bands" id="ans-bands"></div></div>
+        <div class="ans-sec" id="ans-scored-sec" hidden><div class="ans-h">scored by emem</div><div class="ans-scored" id="ans-scored"></div></div>
         <div class="ans-topics" id="ans-topics"></div>
-        <div class="ans-bands" id="ans-bands"></div>
         <div class="ans-foot" id="ans-foot"></div>
       </div>
     </div>
   </div>
   <div class="atlas-hint" id="atlas-hint">tap a gold city or anywhere on land &middot; drag to pan &middot; <span class="zoomhint">&#8984;/Ctrl&#8209;scroll or +/&minus; to zoom</span></div>
+  <div class="map-tip" id="map-tip" hidden></div>
   <div class="map-legend" id="map-legend">
     <div class="ml-title"><span>data layers</span><button class="box-min" id="leg-min" type="button" aria-label="minimise layers" title="minimise">&minus;</button></div>
     <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">the memory</span><b id="lyr-cov-n">&hellip;</b></label>
@@ -3462,11 +3488,21 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     }
     const p = $('mc-pulse'); if (p) p.classList.add('live');
     const pl = $('mc-pulse-label'); if (pl) pl.textContent = 'corpus · live';
+    // One stream feeds BOTH the console heartbeat and the map legend's live
+    // indicator (the map had a second, duplicate EventSource — removed). One
+    // connection, one parse, half the long-lived sockets per visitor.
+    const li = document.getElementById('ml-live');
+    if (li && cells != null){
+      const f = c.facts_scanned;
+      li.textContent = 'live · ' + Number(cells).toLocaleString() + ' cells' +
+        (typeof f === 'number' ? (' · ' + Number(f).toLocaleString() + ' facts') : '') + ' signed';
+    }
   }
   try {
     const es = new EventSource('/v1/stream?interval=15');
     es.addEventListener('state', ev => { try { paint(JSON.parse(ev.data)); } catch(_){} });
     es.onerror = () => { /* keep last paint; EventSource auto-retries */ };
+    window.addEventListener('pagehide', () => { try { es.close(); } catch(_){} });
   } catch(_){}
 })();
 </script>
@@ -3572,7 +3608,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         {id:'cell-foot', type:'fill', source:'cellfoot', paint:{'fill-color':INDIGO,'fill-opacity':0.28}},
         {id:'cell-foot-line', type:'line', source:'cellfoot', paint:{'line-color':INDIGO,'line-width':1.4}},
         // a user-dropped / pasted GeoJSON file, overlaid live (client-side only)
-        {id:'dropped-fill', type:'fill', source:'dropped', filter:['==',['geometry-type'],'Polygon'], paint:{'fill-color':OCHRE,'fill-opacity':0.28}},
+        {id:'dropped-fill', type:'fill', source:'dropped', filter:['==',['geometry-type'],'Polygon'], paint:{'fill-color':VERM,'fill-opacity':0.22}},
         {id:'dropped-line', type:'line', source:'dropped', paint:{'line-color':VERM,'line-width':1.4}},
         {id:'dropped-dot', type:'circle', source:'dropped', filter:['==',['geometry-type'],'Point'], paint:{'circle-radius':4,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.2}},
         // /v1/hunt — anomaly hotspots (triggered)
@@ -3605,6 +3641,17 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // Expose the map for power users + automated UI checks (layer visibility,
   // camera bounds). Harmless read handle; no state is driven through it.
   window.atlasMap = map;
+  // Honour the OS reduced-motion setting for every CAMERA move (the page's
+  // CSS animations are already guarded). A user-driven move is marked
+  // essential:true so it still happens under reduce — it just jumps instead
+  // of animating. `flyTo` arcs (zoom out → pan → in) give spatial context on
+  // long jumps; `goTo` centralises the duration + essential flag.
+  var PREFERS_REDUCED = (window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches) || false;
+  function goTo(opts){
+    var o = {essential:true, duration: PREFERS_REDUCED ? 0 : 900};
+    for (var k in opts) o[k] = opts[k];
+    map.flyTo(o);
+  }
 
   var elName=document.getElementById('atlas-place-name'),
       elCell=document.getElementById('atlas-cell'),
@@ -3677,11 +3724,18 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       ctx.globalAlpha=1;
     }
     function start(){ if(!raf) raf=requestAnimationFrame(frame); }
+    // Stop the render loop. Without this the rAF re-scheduled forever (even
+    // with an empty/hidden engram), a constant CPU/battery drain on the hero.
+    function stop(){ if(raf){ cancelAnimationFrame(raf); raf=null; } }
     function init(){
       if(started) return; started=true;
       cv=document.getElementById('engram-canvas'); if(!cv) return;
       ctx=cv.getContext('2d');
       window.addEventListener('resize', resize);
+      // pause while the tab is hidden; resume only if there's something to draw
+      document.addEventListener('visibilitychange', function(){
+        if(document.hidden) stop(); else if(clouds.length) start();
+      });
       cv.addEventListener('pointerdown', function(ev){ drag=true; auto=false; lx=ev.clientX; ly=ev.clientY; cv.setPointerCapture&&cv.setPointerCapture(ev.pointerId); });
       cv.addEventListener('pointermove', function(ev){ if(!drag) return; rotY+=(ev.clientX-lx)*0.01; rotX+=(ev.clientY-ly)*0.01; rotX=Math.max(-1.4,Math.min(1.4,rotX)); lx=ev.clientX; ly=ev.clientY; });
       function up(){ drag=false; setTimeout(function(){ auto=true; }, 2600); }
@@ -3699,9 +3753,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         if(clouds.length){ elEngram.hidden=false; resize(); start();
           var lg=document.getElementById('engram-legend');
           if(lg){ clearKids(lg); (encoders||[]).forEach(function(e){ if(Array.isArray(e.vector)&&e.vector.length){ var sp=el('span'); var i2=el('i'); i2.style.background=ENC_COL[e.encoder]||'#cbb68a'; sp.appendChild(i2); sp.appendChild(document.createTextNode(encLabel(e.encoder))); lg.appendChild(sp); } }); }
-        } else { elEngram.hidden=true; }
+        } else { elEngram.hidden=true; stop(); }
       },
-      clear: function(){ clouds=[]; if(elEngram) elEngram.hidden=true; }
+      clear: function(){ clouds=[]; stop(); if(elEngram) elEngram.hidden=true; }
     };
   })();
 
@@ -3720,9 +3774,13 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function renderFingerprint(encoders){
     var e=(encoders||[]).filter(function(x){ return Array.isArray(x.vector)&&x.vector.length; })[0];
     if(!e){ elFp.hidden=true; return; }
-    var rgb=latentRGB(e.vector);
-    fpSw.style.background='rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+')';
+    var rgb=latentRGB(e.vector), css='rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+')';
+    fpSw.style.background=css;
     elFp.hidden=false;
+    // Paint the embedding ON the map: tint the selected cell's footprint with
+    // its own latent-fingerprint colour, so two places that look alike to the
+    // models read as the same hue on the map, not just in the side panel.
+    if(map.getLayer('cell-foot')) map.setPaintProperty('cell-foot','fill-color', css);
   }
 
   // Most similar places (/v1/find_similar): "this patch is like those". The
@@ -3734,15 +3792,18 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     clearKids(simRows);
     neighbors.forEach(function(n){
       var row=el('div','sim-row');
-      var th; if(n.scene_png_url){ th=el('img'); th.src=n.scene_png_url; th.alt=''; } else { th=el('span','sim-thumb'); }
-      row.appendChild(th);
-      row.appendChild(el('span','sim-name', n.place_label_cached || n.label || n.cell || 'a cell'));
+      // The /v1/find_similar Neighbor payload is {cell, score, lat, lng,
+      // place_label_cached} — no thumbnail or label field, so use the paper
+      // swatch + place_label_cached||cell (the earlier n.scene_png_url/n.label
+      // reads were dead against the real contract).
+      row.appendChild(el('span','sim-thumb'));
+      row.appendChild(el('span','sim-name', n.place_label_cached || n.cell || 'a cell'));
       var sc=(typeof n.score==='number')?n.score:0;
       var bar=el('span','sim-bar'); var filli=el('i'); filli.style.width=Math.round(Math.max(0,Math.min(1,sc))*100)+'%'; bar.appendChild(filli);
       var wrap=el('span'); wrap.style.display='flex'; wrap.style.alignItems='center'; wrap.style.gap='.35rem';
       wrap.appendChild(bar); wrap.appendChild(el('span','sim-sc', sc.toFixed(2)));
       row.appendChild(wrap);
-      row.addEventListener('click', function(){ selectAt(n.lng, n.lat, n.place_label_cached || n.label || null, true); });
+      row.addEventListener('click', function(){ selectAt(n.lng, n.lat, n.place_label_cached || null, true); });
       simRows.appendChild(row);
     });
     elSimilar.hidden=false;
@@ -3769,7 +3830,17 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     d.coverage.forEach(function(c){
       var seg=el('div','seg'); seg.style.width=((c.dims||1)/dim*100)+'%';
       var st=c.status;
-      seg.style.background = st==='primary' ? LEAF : (st==='dim_mismatch' ? OCHRE : ((st==='missing'||st==='absent') ? '#cdc2a6' : INDIGO));
+      // Honest fill: 'placeholder' is an EMPTY slot (no real data) and must
+      // read grey like missing/absent, not the solid indigo of a filled slot —
+      // otherwise the bar overstates how much of the 1792-D cube is populated.
+      // 'scalar_filled' (a single materialiser scalar atop the slot) gets its
+      // own muted ochre, distinct from a 'primary' full-vector slot.
+      seg.style.background =
+          st==='primary'                       ? LEAF
+        : st==='scalar_filled'                 ? '#c9a86a'
+        : st==='dim_mismatch'                  ? OCHRE
+        : (st==='missing'||st==='absent'||st==='placeholder') ? '#cdc2a6'
+        : INDIGO;
       seg.title=(c.key||'?')+' · '+(c.dims||0)+'-D · '+st+(typeof c.offset==='number'?(' · offset '+c.offset):'');
       cubeStrip.appendChild(seg);
     });
@@ -3871,7 +3942,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function selectAt(lng, lat, label, ease){
     var seq = ++reqSeq;
     map.getSource('sel').setData(fc([{type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[lng,lat]}}]));
-    if (ease) map.easeTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 2.6), duration:700});
+    // Fly to a real place-view zoom so the selected cell is actually visible
+    // (the old Math.max(...,2.6) left a city-level pick at continental zoom).
+    if (ease) goTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 11)});
     elName.textContent = label || 'selected patch';
     elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; ENG.clear(); clearKids(elEncs);
     elFp.hidden = true; elSimilar.hidden = true; elCube.hidden = true;
@@ -3885,6 +3958,15 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       var cell = loc.j.cell64;
       var resolved = loc.j.place_label || (loc.j.place_resolution && loc.j.place_resolution.resolved_label);
       if (resolved && !label) elName.textContent = resolved;
+      var placeName = (resolved || label || '').toString();
+      if (placeName){
+        if (!selMarker){
+          var lblEl=document.createElement('div'); lblEl.className='sel-label';
+          selMarker=new maplibregl.Marker({element:lblEl, anchor:'bottom', offset:[0,-12]});
+        }
+        selMarker.getElement().textContent=placeName;
+        selMarker.setLngLat([lng,lat]).addTo(map);
+      } else if (selMarker){ selMarker.remove(); }
       elCell.textContent = cell;
       setStatus('four models reading this patch… a cold patch takes a few seconds while the responder fetches and signs.');
       loadScene(cell, seq);
@@ -3922,7 +4004,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       elAnsQ=document.getElementById('ans-q'), elAnsText=document.getElementById('ans-text'),
       elAnsTopics=document.getElementById('ans-topics'), elAnsBands=document.getElementById('ans-bands'),
       elAnsFoot=document.getElementById('ans-foot'), ansX=document.getElementById('ans-x');
-  function clearAnswer(){ if(elAnswer) elAnswer.hidden=true; }
+  function clearAnswer(){ if(elAnswer) elAnswer.hidden=true; if(window.__consCollapse) window.__consCollapse(false); }
   if(ansX) ansX.addEventListener('click', clearAnswer);
   // Friendly labels for the bands an everyday question surfaces, so a row reads
   // "PM2.5  22 µg/m³" not "cams.pm25  22 ug/m^3". Unknown bands fall through to
@@ -3949,15 +4031,36 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     });
     clearKids(elAnsBands);
     var bands = (d.band_observations_summary && d.band_observations_summary.bands) || [];
-    bands.slice(0,6).forEach(function(b){
+    bands.slice(0,8).forEach(function(b){
       var row=el('div','ans-band');
       row.appendChild(el('span','b', BAND_LABEL[b.band] || b.band));
       var v = (typeof b.value==='number') ? (Math.abs(b.value)<100 ? b.value.toFixed(2) : Math.round(b.value)) : b.value;
       row.appendChild(el('span','v', v + (b.unit ? ' '+prettyUnit(b.unit) : '')));
       elAnsBands.appendChild(row);
     });
-    var nf=(d.fact_cids||[]).length;
-    if(elAnsFoot) elAnsFoot.textContent = (nf? nf+' signed facts · ':'') + 'ed25519 receipt · click the map to explore';
+    document.getElementById('ans-readings-sec').hidden = !bands.length;
+    // Scored metrics: the algorithms emem actually evaluated (green space
+    // access, flood risk, outdoor comfort…). These are the "answer" for a
+    // composite question — surface them as their own labelled section.
+    var scored=document.getElementById('ans-scored'); clearKids(scored);
+    var outs=(d.algorithm_outcomes_summary || d.algorithm_outcomes || [])
+      .filter(function(o){ return o && typeof o.value==='number'; }).slice(0,6);
+    outs.forEach(function(o){
+      var row=el('div','ans-metric');
+      row.appendChild(el('span','m', (o.algorithm_key||o.key||'').replace(/@\d+$/,'').replace(/_/g,' ')));
+      var v=(Math.abs(o.value)<100)? o.value.toFixed(2) : Math.round(o.value);
+      row.appendChild(el('span','mv', v));
+      scored.appendChild(row);
+    });
+    document.getElementById('ans-scored-sec').hidden = !outs.length;
+    // Footer: signed-fact count + a real /verify deep-link on the lead fact, so
+    // a reader can re-check the receipt offline in the browser.
+    var nf=(d.fact_cids||[]).length, cid=(d.fact_cids||[])[0];
+    if(elAnsFoot){
+      clearKids(elAnsFoot);
+      elAnsFoot.appendChild(el('span',null,(nf? nf+' signed facts · ':'')+'ed25519'));
+      if(cid){ var a=el('a',null,'verify ✓'); a.href='/verify/'+cid; a.target='_blank'; a.rel='noopener'; elAnsFoot.appendChild(a); }
+    }
   }
   function askEarth(q){
     q = (q||'').trim(); if(!q) return;
@@ -3965,7 +4068,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     // map, so we anchor it to the selected cell. A question that names its own
     // place ("deforestation in Borneo", "NDVI in Iowa") carries no anchor — we
     // let /v1/ask resolve the place or run hunter mode itself.
-    var body={q:q, include:['band_observations']};
+    var body={q:q, include:['band_observations','algorithm_outcomes']};
     var deictic=/\b(here|this area|this place|this neighbou?r?hood|this cell|this patch|this spot|this region|this land|this home|this property|nearby|around here|this farm|this field|to live)\b/i.test(q);
     var curCell=(elCell.textContent||'').trim();
     if(deictic && /^defi\./.test(curCell)) body.cell=curCell;
@@ -3987,7 +4090,15 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         elAnswer.hidden=false; elAnsQ.textContent='you asked: '+q;
         elAnsText.textContent=hfeats.length+' '+ev+' hotspots across '+where+', ranked by coherence. The red markers are the strongest candidates — click one to read its signed cell.';
         clearKids(elAnsTopics); elAnsTopics.appendChild(el('span','ans-chip', ev)); clearKids(elAnsBands);
-        if(elAnsFoot) elAnsFoot.textContent='the map zoomed to the hotspots · click any red marker for its signed cell';
+        document.getElementById('ans-readings-sec').hidden=true; document.getElementById('ans-scored-sec').hidden=true;
+        if(elAnsFoot){ clearKids(elAnsFoot); elAnsFoot.appendChild(el('span',null,'the map zoomed to the hotspots · click any red marker for its signed cell')); }
+        // the hotspots ARE the answer — clear the prior single-cell selection
+        // visuals and collapse the consensus panel so the map reads cleanly.
+        if(map.getSource('sel')) map.getSource('sel').setData(fc([]));
+        if(map.getSource('cellfoot')) map.getSource('cellfoot').setData(fc([]));
+        if(selMarker) selMarker.remove();
+        elVerdict.hidden=true; elDeeper.hidden=true;
+        if(window.__consCollapse) window.__consCollapse(true);
         focusHunt(hfeats);
         elName.textContent=ev+' · '+where;
         setStatus('hunter mode: '+hfeats.length+' hotspots. Click a red marker for its cell.');
@@ -4055,35 +4166,63 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   }
 
   var fieldsOn = false, fieldsBusy = false;
+  // The reverse-geocoded place name, shown as a small label pinned at the
+  // selected cell (maplibregl.Marker auto-tracks the camera) — so /v1/locate's
+  // reverse geocoding reads ON the map, not only in the side panel.
+  var selMarker = null;
+  // Active basemap. The land/water hit-test below queries the 'land' fill,
+  // which setBasemap HIDES on streets/satellite — so on those basemaps the
+  // query returns [] and every click was wrongly rejected as open water. We
+  // only run the land guard on the Mithila basemap (where 'land' is drawn);
+  // on raster basemaps we let /v1/locate decide (it returns no cell over sea).
+  var BASEMAP = 'mithila';
   function loadFields(){
     if (!fieldsOn) return;
-    if (map.getZoom() < 10.5){ if (map.getSource('fields')) map.getSource('fields').setData(fc([])); setLeg(elFldN, 'zoom in to load'); return; }
+    var clearF=function(){ if (map.getSource('fields')) map.getSource('fields').setData(fc([])); };
+    if (map.getZoom() < 10.5){ clearF(); setLeg(elFldN, 'zoom in to load'); return; }
     var b = map.getBounds();
-    if ((b.getNorth()-b.getSouth()) * (b.getEast()-b.getWest()) > 0.2){ if (map.getSource('fields')) map.getSource('fields').setData(fc([])); setLeg(elFldN, 'zoom in more'); return; }
+    // normalise the longitude span so the area guard behaves across the
+    // antimeridian / world-copy wrap (getEast-getWest can exceed 360 there).
+    var dlng=Math.abs(b.getEast()-b.getWest()); if(dlng>180) dlng=360-dlng;
+    if ((b.getNorth()-b.getSouth()) * dlng > 0.2){ clearF(); setLeg(elFldN, 'zoom in more'); return; }
     if (fieldsBusy) return;
     fieldsBusy = true; setLeg(elFldN, 'loading…');
     fetchJson('/v1/field_boundaries', {polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}, max_features:4000}).then(function(r){
       fieldsBusy = false;
-      if (r.ok && r.j && r.j.geojson && map.getSource('fields')){ map.getSource('fields').setData(r.j.geojson); setLeg(elFldN, (r.j.count||0).toLocaleString() + ' fields'); }
-      else setLeg(elFldN, 'none here');
-    }, function(){ fieldsBusy = false; setLeg(elFldN, 'error'); });
+      if (r.ok && r.j && r.j.geojson && map.getSource('fields')){
+        map.getSource('fields').setData(r.j.geojson);
+        // count is the true total in view; only `drawn` are rendered (capped),
+        // so say "drawn of total" rather than implying every one is on screen.
+        var drawn=(r.j.geojson.features||[]).length, tot=r.j.count||drawn;
+        setLeg(elFldN, drawn.toLocaleString() + (tot>drawn ? (' of '+tot.toLocaleString()) : '') + ' fields');
+      } else { clearF(); setLeg(elFldN, 'none here'); }
+    }, function(){ fieldsBusy = false; clearF(); setLeg(elFldN, 'could not load — pan to retry'); });
   }
 
+  var huntBusy=false;
   function huntHere(){
+    if (huntBusy) return;
     var b = map.getBounds();
-    if ((b.getNorth()-b.getSouth()) * (b.getEast()-b.getWest()) > 60){ setLeg(elHntN, 'zoom to a region'); return; }
+    var dlng=Math.abs(b.getEast()-b.getWest()); if(dlng>180) dlng=360-dlng;
+    // region cap raised 60→220 deg² so a continent-ish view (Borneo at z6,
+    // ~150 deg²) hunts instead of demanding more zoom; wrap-normalised.
+    if ((b.getNorth()-b.getSouth()) * dlng > 220){ setLeg(elHntN, 'zoom to a region first'); return; }
     var ev = (document.getElementById('lyr-hnt-ev')||{}).value || 'deforestation';
+    huntBusy=true; if(bHnt) bHnt.disabled=true;
     setLeg(elHntN, 'hunting ' + ev.replace(/_/g,' ') + '… (~5s)');
+    // hard client timeout so a hung responder can't wedge the button
+    var done=false, to=setTimeout(function(){ if(done) return; done=true; huntBusy=false; if(bHnt) bHnt.disabled=false; setLeg(elHntN,'timed out — try a smaller area'); }, 30000);
     fetchJson('/v1/hunt', {event:ev, polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
-      if (r.ok && r.j && r.j.hotspots){
+      if(done) return; done=true; clearTimeout(to); huntBusy=false; if(bHnt) bHnt.disabled=false;
+      if (r.ok && r.j && r.j.hotspots && r.j.hotspots.length){
         var feats = r.j.hotspots.filter(function(h){ return typeof h.lng === 'number'; }).map(function(h){
           return {type:'Feature', properties:{c: h.coherence || 0.5}, geometry:{type:'Point', coordinates:[h.lng, h.lat]}};
         });
         if (map.getSource('hunt')) map.getSource('hunt').setData(fc(feats));
         focusHunt(feats);
         setLeg(elHntN, feats.length + ' hotspots · click a red marker');
-      } else setLeg(elHntN, 'none found');
-    }, function(){ setLeg(elHntN, 'error'); });
+      } else setLeg(elHntN, 'none found here');
+    }, function(){ if(done) return; done=true; clearTimeout(to); huntBusy=false; if(bHnt) bHnt.disabled=false; setLeg(elHntN, 'error — try again'); });
   }
 
   function setVis(ids, on){ ids.forEach(function(id){ if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); }); }
@@ -4115,8 +4254,22 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   var tCov=document.getElementById('lyr-cov'), tFld=document.getElementById('lyr-fld'), bHnt=document.getElementById('lyr-hnt-go');
   // Mithila minimise/expand on the two map boxes
   var consMin=document.getElementById('cons-min'), legMin=document.getElementById('leg-min');
-  if (consMin) consMin.addEventListener('click', function(){ var c=document.getElementById('atlas-panel').classList.toggle('collapsed'); consMin.textContent=c?'+':'−'; consMin.title=c?'expand':'minimise'; });
-  if (legMin) legMin.addEventListener('click', function(){ var c=document.getElementById('map-legend').classList.toggle('collapsed'); legMin.textContent=c?'+':'−'; legMin.title=c?'expand':'minimise'; });
+  // Collapse helpers that remember state across reloads (Felt pattern). The
+  // consensus panel also auto-collapses while an ask answer is on screen so the
+  // two boxes never fight for the same corner; it restores to the user's choice.
+  function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+  function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+  function setCollapsed(elId, btn, on){
+    var el=document.getElementById(elId); if(!el) return;
+    el.classList.toggle('collapsed', on); if(btn){ btn.textContent=on?'+':'−'; btn.title=on?'expand':'minimise'; }
+  }
+  var consUserCollapsed = lsGet('emem.cons.collapsed')==='1';
+  setCollapsed('atlas-panel', consMin, consUserCollapsed);
+  setCollapsed('map-legend', legMin, lsGet('emem.leg.collapsed')==='1');
+  if (consMin) consMin.addEventListener('click', function(){ consUserCollapsed=!document.getElementById('atlas-panel').classList.contains('collapsed'); setCollapsed('atlas-panel', consMin, consUserCollapsed); lsSet('emem.cons.collapsed', consUserCollapsed?'1':'0'); });
+  if (legMin) legMin.addEventListener('click', function(){ var on=!document.getElementById('map-legend').classList.contains('collapsed'); setCollapsed('map-legend', legMin, on); lsSet('emem.leg.collapsed', on?'1':'0'); });
+  // expose for the answer flow to auto-collapse/restore the consensus panel
+  window.__consCollapse = function(force){ setCollapsed('atlas-panel', consMin, force ? true : consUserCollapsed); };
 
   if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot','hot-pulse','hot-core'], tCov.checked); });
   if (tFld) tFld.addEventListener('change', function(){ fieldsOn = tFld.checked; setVis(['fields-fill','fields-line'], fieldsOn); if (fieldsOn) loadFields(); else setLeg(elFldN, ''); });
@@ -4124,6 +4277,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 
   // basemap switcher: Mithila (self-hosted Natural Earth) / OSM streets / Esri satellite
   function setBasemap(bm){
+    BASEMAP = bm;
     setVis(['osm-tiles'], bm==='streets');
     setVis(['sat-tiles'], bm==='sat');
     setVis(['land','coast'], bm==='mithila');
@@ -4152,22 +4306,8 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     heroEl.addEventListener('drop', function(e){ e.preventDefault(); heroEl.classList.remove('dragover'); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) readGeoFile(f); });
   }
 
-  // live corpus heartbeat over the signed SSE stream — the map stays alive
-  (function(){
-    var li=document.getElementById('ml-live'); if(!li || typeof EventSource==='undefined') return;
-    function show(data){
-      try{ var d=JSON.parse(data); var c=d.corpus||d;
-        var cells=c.distinct_cells||c.cells, f=c.facts_scanned||c.distinct_facts||c.facts;
-        if(typeof cells==='number') li.textContent='live · '+cells.toLocaleString()+' cells'+(typeof f==='number'?(' · '+f.toLocaleString()+' facts'):'')+' signed';
-      }catch(e){}
-    }
-    try{
-      var es=new EventSource('/v1/stream?interval=20');
-      es.addEventListener('state', function(ev){ show(ev.data); });
-      es.onmessage=function(ev){ show(ev.data); };
-      es.onerror=function(){};   // EventSource auto-reconnects
-    }catch(e){}
-  })();
+  // (The map legend's #ml-live indicator is now driven by the single SSE
+  // connection in the console heartbeat above — no second EventSource here.)
 
   map.on('load', function(){
     map.resize();
@@ -4180,6 +4320,29 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     map.on('mouseenter', ly, function(){ map.getCanvas().style.cursor='pointer'; });
     map.on('mouseleave', ly, function(){ map.getCanvas().style.cursor='crosshair'; });
   });
+  // Hover tooltip — a 1-line paper preview of the feature under the cursor, so
+  // the map reads as queryable (and reinforces provenance: most previews end in
+  // "· signed"). Lightweight div, not a maplibregl.Popup, to keep the theme.
+  var mapTip=document.getElementById('map-tip');
+  function tipHtml(f){
+    var p=f.properties||{}, layer=f.layer && f.layer.id;
+    if(layer==='patch-dot'){ var nm=(PATCHES[p.idx]||{}).name||'city'; return '<b>'+nm+'</b><div class="tip-sub">seeded city · click to read its memory</div>'; }
+    if(layer==='hunt-dot'||layer==='hunt-glow'){ return '<b>event hotspot</b><div class="tip-sub">coherence '+(typeof p.c==='number'?p.c.toFixed(2):'—')+'</div><div class="tip-sig">click for its signed cell</div>'; }
+    if(layer==='similar-dot'){ return '<b>similar place</b><div class="tip-sub">cosine '+(typeof p.s==='number'?(Math.round(p.s*100)+'%'):'—')+'</div><div class="tip-sig">click to compare · signed</div>'; }
+    if(layer==='coverage-dot'){ return '<b>memory cell</b><div class="tip-sub">'+(p.f||1)+' signed fact'+((p.f||1)==1?'':'s')+'</div><div class="tip-sig">click to read</div>'; }
+    return '';
+  }
+  map.on('mousemove', function(e){
+    var hits=map.queryRenderedFeatures(e.point, {layers:['patch-dot','hunt-dot','hunt-glow','similar-dot','coverage-dot']});
+    if(hits && hits.length){
+      var h=tipHtml(hits[0]); if(!h){ mapTip.hidden=true; return; }
+      mapTip.innerHTML=h; mapTip.hidden=false;
+      var x=e.point.x+14, y=e.point.y+14, w=mapTip.offsetWidth, mw=map.getCanvas().clientWidth;
+      if(x+w>mw-8) x=e.point.x-w-14;
+      mapTip.style.left=x+'px'; mapTip.style.top=y+'px';
+    } else { mapTip.hidden=true; }
+  });
+  map.on('mouseout', function(){ mapTip.hidden=true; });
   map.on('click', function(e){
     // A hunt hotspot first — query the wide soft glow as well as the core so
     // the small red marker is forgiving to click/tap. Picks the hotspot's cell.
@@ -4188,8 +4351,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     clearAnswer();   // a direct map pick starts fresh; ask-driven picks keep the answer
     var hits = map.queryRenderedFeatures(e.point, {layers:['patch-dot']});
     if (hits && hits.length){ var i=hits[0].properties.idx; clearHunt(); selectAt(PATCHES[i].lng, PATCHES[i].lat, PATCHES[i].name, true); return; }
-    var land = map.queryRenderedFeatures(e.point, {layers:['land']});
-    if (!land || !land.length){ setStatus('that is open water. Pick a spot on land.'); return; }
+    if (BASEMAP === 'mithila'){
+      var land = map.queryRenderedFeatures(e.point, {layers:['land']});
+      if (!land || !land.length){ setStatus('that is open water. Pick a spot on land.'); return; }
+    }
     clearHunt(); selectAt(e.lngLat.lng, e.lngLat.lat, null, true);
   });
   window.addEventListener('resize', function(){ map.resize(); });

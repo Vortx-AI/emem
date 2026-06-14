@@ -89,6 +89,13 @@ Environment=EMEM_WRI_GDM_CACHE=/home/ubuntu/emem/var/emem/wri_gdm_cache/drivers_
 # longer EMEM_EUDR_ROUTE_TIMEOUT_SECS, so this does not touch the EUDR path.
 Environment=EMEM_MATERIALIZER_TIMEOUT_SECS=14
 Environment=EMEM_MATERIALIZER_RETRIES=1
+# /v1/ask budget (40s) + temporal-recipe sub-budget (16s). A cold COMPOSITE
+# question runs the cold-band materialise (cap 8 × ≤14s) then the temporal
+# recipes (run concurrently across recipes, bounded to 16s) back-to-back; 40s
+# leaves headroom to return a real scored answer on the first ask instead of a
+# timeout envelope. Both phases stay individually bounded, so 40s is a ceiling.
+Environment=EMEM_ASK_TIMEOUT_SECS=40
+Environment=EMEM_ASK_TEMPORAL_BUDGET_SECS=16
 
 LimitNOFILE=65536
 ExecStart=/home/ubuntu/emem/target/release/emem-server

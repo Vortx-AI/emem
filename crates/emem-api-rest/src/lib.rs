@@ -33789,10 +33789,15 @@ async fn try_materialize_bands(
 /// `EMEM_MATERIALIZE_CONCURRENCY` (clamped 1..=32). Setting it to 1
 /// reproduces the original strictly-serial await loop.
 fn materialize_concurrency() -> usize {
+    // Default 8 (raised from 6 on 2026-06-14) so /v1/ask's cold-band cap of 8
+    // clears in a single materialiser wave (each band hard-capped at 14s),
+    // keeping composite consumer questions inside the 30s ask budget. Still a
+    // per-request fan-out cap under the global materialise permit. Tune via
+    // EMEM_MATERIALIZE_CONCURRENCY.
     std::env::var("EMEM_MATERIALIZE_CONCURRENCY")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(6)
+        .unwrap_or(8)
         .clamp(1, 32)
 }
 
@@ -33805,10 +33810,19 @@ fn materialize_concurrency() -> usize {
 /// /v1/recall. Tunable via `EMEM_ASK_COLD_BAND_CAP` (clamped 1..=64); set
 /// high to restore the old unbounded ask fan-out.
 fn ask_cold_band_cap() -> usize {
+    // Default 8 (raised from 3 on 2026-06-14). A composite consumer question
+    // (urban_livability / real_estate / flood_risk_composite) needs ~6-8 band
+    // inputs before any algorithm can score; with the candidate list now
+    // ordered algorithm-inputs-first (see ask_inner) an 8-band cap lets those
+    // questions return REAL scored answers on the first ask instead of a
+    // "recall these yourself" dead-end. Budget-safe because each materialiser
+    // is now hard-capped at EMEM_MATERIALIZER_TIMEOUT_SECS (14s) and the fan
+    // out runs at EMEM_MATERIALIZE_CONCURRENCY (8), so 8 cold bands clear in a
+    // single ~14s wave inside the 30s ask budget. Tune via EMEM_ASK_COLD_BAND_CAP.
     std::env::var("EMEM_ASK_COLD_BAND_CAP")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(3)
+        .unwrap_or(8)
         .clamp(1, 64)
 }
 
@@ -35211,8 +35225,23 @@ async fn dispatch_temporal_recipes(
         }
         None
     };
-    let mut out: Vec<JsonValue> = Vec::new();
+    // Run windows concurrently ACROSS ALL RECIPES, not just within one. A
+    // livability/real-estate question can route 5-6 recipes (flood_risk +
+    // siblings); running them one-recipe-at-a-time made a cold /v1/ask blow
+    // its 30s budget (6 recipes × ~14s each). One flat JoinSet over every
+    // (recipe, window) fetch collapses that to a single ~14s wave. The cheap
+    // trigger-threshold gate up front keeps dry-day flood checks free.
+    struct RecipePlan {
+        key: String,
+        label: JsonValue,
+        note: JsonValue,
+        windows_out: Vec<Option<JsonValue>>,
+    }
+    let mut plans: Vec<RecipePlan> = Vec::new();
     let mut seen_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // JoinSet items: (recipe_index, window_index, result)
+    let mut window_set: tokio::task::JoinSet<(usize, usize, JsonValue)> =
+        tokio::task::JoinSet::new();
     for k in algorithm_keys {
         if !seen_keys.insert(k.clone()) {
             continue;
@@ -35225,18 +35254,13 @@ async fn dispatch_temporal_recipes(
             Some(r) => r,
             None => continue,
         };
-        // Run windows concurrently — they're independent network fetches,
-        // and a flood_risk@2 recipe with 3 windows × ~8 samples each
-        // becomes the dominant /v1/ask latency when serialised. We still
-        // do the cheap trigger-threshold gate up front so dry-day flood
-        // checks stay free.
-        let mut window_set: tokio::task::JoinSet<(usize, JsonValue)> = tokio::task::JoinSet::new();
-        let mut prefilled: Vec<Option<JsonValue>> = vec![None; recipe.windows.len()];
-        for (idx, w) in recipe.windows.iter().enumerate() {
+        let ri = plans.len();
+        let mut windows_out: Vec<Option<JsonValue>> = vec![None; recipe.windows.len()];
+        for (wi, w) in recipe.windows.iter().enumerate() {
             if let Some(t) = w.trigger_threshold {
                 if let Some(snap) = snapshot_value_for(&w.band) {
                     if snap < t {
-                        prefilled[idx] = Some(json!({
+                        windows_out[wi] = Some(json!({
                             "band":          w.band,
                             "purpose":       w.purpose,
                             "lookback_days": w.lookback_days,
@@ -35253,23 +35277,36 @@ async fn dispatch_temporal_recipes(
             let s = s.clone();
             window_set.spawn(async move {
                 let v = run_temporal_window(&cell, &w, &s, now_unix).await;
-                (idx, v)
+                (ri, wi, v)
             });
         }
-        while let Some(j) = window_set.join_next().await {
-            if let Ok((idx, v)) = j {
-                prefilled[idx] = Some(v);
+        plans.push(RecipePlan {
+            key: alg.key.clone(),
+            label: json!(recipe.label),
+            note: json!(recipe.note),
+            windows_out,
+        });
+    }
+    while let Some(j) = window_set.join_next().await {
+        if let Ok((ri, wi, v)) = j {
+            if let Some(p) = plans.get_mut(ri) {
+                if let Some(slot) = p.windows_out.get_mut(wi) {
+                    *slot = Some(v);
+                }
             }
         }
-        let windows_out: Vec<JsonValue> = prefilled.into_iter().flatten().collect();
-        out.push(json!({
-            "algorithm_key": alg.key,
-            "label":         recipe.label,
-            "note":          recipe.note,
-            "windows":       windows_out,
-        }));
     }
-    out
+    plans
+        .into_iter()
+        .map(|p| {
+            json!({
+                "algorithm_key": p.key,
+                "label":         p.label,
+                "note":          p.note,
+                "windows":       p.windows_out.into_iter().flatten().collect::<Vec<_>>(),
+            })
+        })
+        .collect()
 }
 
 /// Tiny helper: dereference a fact_cid → scalar Float value. Returns
@@ -41265,10 +41302,36 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         Vec::new()
     };
     let narrowed = !narrowed_to.is_empty();
+    // When not narrowed, ORDER the materialize set so the bands the matched
+    // algorithms actually read to SCORE come first, then the sibling topic
+    // bands they don't. The cold-band cap below materialises a bounded prefix
+    // of this list, so ordering it algorithm-first means a composite question
+    // ("how walkable / livable is this area" → urban_livability needs ~8
+    // inputs) gets those inputs materialised and returns REAL algorithm
+    // outputs on the FIRST ask — instead of materialising 3 arbitrary
+    // alphabetical bands, failing to score, and dead-ending with a
+    // "recall these yourself" next_steps. Bare /v1/recall is unaffected.
     let bands_vec: Vec<String> = if narrowed {
         narrowed_to.clone()
     } else {
-        want_bands.iter().cloned().collect()
+        let mut ordered: Vec<String> = Vec::with_capacity(want_bands.len());
+        let mut seen: std::collections::BTreeSet<String> = Default::default();
+        for t in &topics {
+            for alg_key in algorithms_keys_for_topic(t) {
+                for b in alg_reg.input_bands(&alg_key) {
+                    let b = b.to_string();
+                    if want_bands.contains(&b) && seen.insert(b.clone()) {
+                        ordered.push(b);
+                    }
+                }
+            }
+        }
+        for b in want_bands.iter() {
+            if seen.insert(b.clone()) {
+                ordered.push(b.clone());
+            }
+        }
+        ordered
     };
 
     let recall_req = RecallReq {
@@ -41323,7 +41386,25 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
     let temporal_composition = if algorithm_keys_with_recipe.is_empty() {
         Vec::new()
     } else {
-        dispatch_temporal_recipes(&cell, &algorithm_keys_with_recipe, &recall_resp, &s).await
+        // Backstop: even parallelised, a cold multi-recipe fan-out must not eat
+        // the whole ask budget. Bound the temporal phase; on elapse the snapshot
+        // answer + scored algorithms still ship (temporal is supplementary).
+        let temporal_budget = std::time::Duration::from_secs(
+            std::env::var("EMEM_ASK_TEMPORAL_BUDGET_SECS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(16)
+                .clamp(2, 60),
+        );
+        match tokio::time::timeout(
+            temporal_budget,
+            dispatch_temporal_recipes(&cell, &algorithm_keys_with_recipe, &recall_resp, &s),
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => Vec::new(),
+        }
     };
 
     // 0.0.3 Phase C — formula-AST evaluation. For every matched
@@ -41992,6 +42073,45 @@ fn band_value_range(band: &str) -> Option<(f64, f64)> {
     Some((arr[0].as_f64()?, arr[1].as_f64()?))
 }
 
+/// Friendly display label for an everyday band, so a synthesised answer reads
+/// "PM2.5 22 ug/m^3" not "cams.pm25 22 ug/m^3". Unknown bands fall back to the
+/// last dotted segment with underscores spaced — still the real, honest band.
+fn band_display_label(band: &str) -> String {
+    match band {
+        "cams.pm25" => "PM2.5".into(),
+        "cams.pm10" => "PM10".into(),
+        "cams.no2" => "NO2".into(),
+        "cams.o3" => "ozone".into(),
+        "cams.co" => "CO".into(),
+        "cams.so2" => "SO2".into(),
+        "indices.ndvi" | "modis.ndvi_mean" => "greenness (NDVI)".into(),
+        "indices.evi" => "greenness (EVI)".into(),
+        "indices.ndbi" => "built-up (NDBI)".into(),
+        "indices.ndmi" => "moisture (NDMI)".into(),
+        "indices.savi" => "greenness (SAVI)".into(),
+        "indices.urban_canopy_index" => "tree canopy".into(),
+        "modis.lst_day_8day" => "land-surface temp (day)".into(),
+        "modis.lst_night_8day" => "land-surface temp (night)".into(),
+        "weather.temperature_2m" => "air temperature".into(),
+        "weather.relative_humidity_2m" => "humidity".into(),
+        "weather.wind_speed_10m" => "wind speed".into(),
+        "weather.precipitation_mm" => "precipitation".into(),
+        "weather.cloud_cover" => "cloud cover".into(),
+        "copdem30m.elevation_mean" => "elevation".into(),
+        "surface_water.recurrence" => "surface water".into(),
+        "overture.buildings.count" => "buildings".into(),
+        "overture.places.count" => "places".into(),
+        "overture.transportation.road_length_m" => "road length".into(),
+        _ => band.rsplit('.').next().unwrap_or(band).replace('_', " "),
+    }
+}
+
+/// Strip the `@version` machine suffix and underscores from an algorithm key
+/// so the answer reads "green space access 0.94" not "green_space_access@1 0.94".
+fn pretty_outcome_key(k: &str) -> String {
+    k.split('@').next().unwrap_or(k).replace('_', " ")
+}
+
 fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
     let place = body
         .get("place_resolved")
@@ -42005,14 +42125,27 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
         .unwrap_or("the requested cell");
 
     // Pull band observations (either the full array or the slim summary).
+    // NOTE the `.filter(non-empty)`: when `band_observations` is present but an
+    // EMPTY array, `as_array().map(...)` would return `Some(vec![])` and shadow
+    // the summary fallback, so the answer came back with algorithm keys and no
+    // readings. Falling through on empty fixes the "aqi_class@1 2; ..." answers.
     let bands: Vec<(String, JsonValue, Option<String>)> = body
         .get("band_observations")
         .and_then(|v| v.as_array())
+        .filter(|arr| !arr.is_empty())
         .map(|arr| {
             arr.iter()
                 .filter_map(|o| {
                     let m = o.as_object()?;
-                    let b = m.get("band")?.as_str()?.to_string();
+                    // The FULL band_observations entries key the band as
+                    // `band_key`; the slim summary uses `band`. Accept either,
+                    // else every full entry was dropped and the answer lost its
+                    // readings (the "Scored: …" with no PM2.5 bug).
+                    let b = m
+                        .get("band")
+                        .or_else(|| m.get("band_key"))?
+                        .as_str()?
+                        .to_string();
                     let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
                     let u = m.get("unit").and_then(|x| x.as_str()).map(String::from);
                     Some((b, v, u))
@@ -42110,20 +42243,22 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
             format!("{x:.2}")
         }
     }
+    let band_count = bands.len();
     let band_phrases: Vec<String> = bands
-        .into_iter()
+        .iter()
         .take(6)
         .map(|(band, value, unit)| {
-            let base = match &unit {
+            let label = band_display_label(band);
+            let base = match unit {
                 Some(u) if !u.is_empty() && u != "1" => {
-                    format!("{band} {} {u}", fmt_value(&value))
+                    format!("{label} {} {u}", fmt_value(value))
                 }
-                _ => format!("{band} {}", fmt_value(&value)),
+                _ => format!("{label} {}", fmt_value(value)),
             };
             // Append the registry value range so a bare number carries
             // scale. Factual, not a fabricated "low/high" label (those
             // mislead on skewed ranges). Only for numeric values.
-            match (value.is_number(), band_value_range(&band)) {
+            match (value.is_number(), band_value_range(band)) {
                 (true, Some((lo, hi))) => {
                     format!("{base} (range {}..{})", fmt_num(lo), fmt_num(hi))
                 }
@@ -42139,15 +42274,35 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
         .into_iter()
         .filter(|(_, v)| v.is_number())
         .take(3)
-        .map(|(k, v)| format!("{k} {}", fmt_value(&v)))
+        .map(|(k, v)| format!("{} {}", pretty_outcome_key(&k), fmt_value(&v)))
         .collect();
+
+    // One factual interpretation clause from the band registry for the lead
+    // reading, so a bare number means something ("NDVI: higher is denser
+    // vegetation"). Pulled verbatim from `interpretation` (first sentence) —
+    // never a fabricated low/high judgement.
+    let interp = bands.first().and_then(|(band, _, _)| {
+        band_metadata_for_response(band)
+            .get("interpretation")
+            .and_then(|v| v.as_str())
+            .map(|s| s.split(['.', ';']).next().unwrap_or(s).trim().to_string())
+            .filter(|s| !s.is_empty() && s.len() <= 160)
+    });
 
     let mut parts = Vec::new();
     if !band_phrases.is_empty() {
-        parts.push(format!("At {place}: {}.", band_phrases.join(", ")));
+        let more = if band_count > 6 {
+            format!(" (+{} more signed readings)", band_count - 6)
+        } else {
+            String::new()
+        };
+        parts.push(format!("At {place}: {}{more}.", band_phrases.join(", ")));
     }
     if !outcome_phrases.is_empty() {
-        parts.push(outcome_phrases.join("; ") + ".");
+        parts.push(format!("Scored: {}.", outcome_phrases.join("; ")));
+    }
+    if let Some(it) = interp {
+        parts.push(format!("{it}."));
     }
     parts.join(" ")
 }
