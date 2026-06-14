@@ -75,6 +75,21 @@ Environment=EMEM_GA_MEASUREMENT_ID=
 #     https://zenodo.org/records/15366671/files/drivers_forest_loss_1km_2001_2024_v1_2.tif
 Environment=EMEM_WRI_GDM_CACHE=/home/ubuntu/emem/var/emem/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif
 
+# /v1/ask latency floor. Each cold-band materialiser (try_materialize_bands)
+# is wrapped in a dispatch-level hard timeout of EMEM_MATERIALIZER_TIMEOUT_SECS.
+# Its code default (30s) equals the /v1/ask budget (EMEM_ASK_TIMEOUT_SECS, also
+# 30s) — leaving ZERO slack, so a single slow/unavailable cold upstream (CAMS,
+# MODIS LST 8-day, Overture) ran the full 30s and the ask budget fired at the
+# same instant, returning an empty `incomplete` envelope for every consumer
+# question. Cap each materialiser at 14s (still covers the SoilGrids/ORNL/STAC
+# p95 ~12s the 30s default was sized for) and drop the hot-path retry, so the
+# ask always reserves >=16s to synthesise a real signed partial answer from the
+# warm facts + whatever materialised in time. Deferred bands ship as honest
+# materialize_notes + next_steps recall pointers. /v1/eudr_dds keeps its own
+# longer EMEM_EUDR_ROUTE_TIMEOUT_SECS, so this does not touch the EUDR path.
+Environment=EMEM_MATERIALIZER_TIMEOUT_SECS=14
+Environment=EMEM_MATERIALIZER_RETRIES=1
+
 LimitNOFILE=65536
 ExecStart=/home/ubuntu/emem/target/release/emem-server
 Restart=on-failure

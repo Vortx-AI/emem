@@ -1351,20 +1351,28 @@ async fn handle_overload(err: axum::BoxError) -> Response {
     }
 }
 
-/// Per-upstream materializer fetch timeout. Defaults to **30 s**; tunable
-/// via `EMEM_MATERIALIZER_TIMEOUT_SECS` (clamped to 2..=240). Doubled
-/// from the previous 15 s default after observing real-world
-/// SoilGrids / ORNL DAAC / STAC PC p95 latencies hit ~12 s on cold
-/// cells. Bounding the upstream call here is what stops a slow MODIS /
-/// met.no / STAC peer from dragging the recall request past the
-/// gateway timeout — the previous behavior was an unbounded
-/// `reqwest::send().await`, which surfaced to agents as a generic 504
-/// with no per-band attribution.
+/// Per-upstream materializer fetch timeout. Defaults to **14 s**; tunable
+/// via `EMEM_MATERIALIZER_TIMEOUT_SECS` (clamped to 2..=240). This is the
+/// dispatch-level hard cap `try_materialize_bands` wraps around each cold
+/// band's fetch. It must stay STRICTLY BELOW the /v1/ask budget
+/// (`EMEM_ASK_TIMEOUT_SECS`, default 30 s): the previous 30 s default
+/// equalled that budget, leaving zero slack, so a single slow/unavailable
+/// cold upstream (CAMS, MODIS LST 8-day, Overture) ran the full 30 s and the
+/// ask budget fired at the same instant — every consumer ask returned an
+/// empty `incomplete` envelope at 30001 ms (2026-06-14). 14 s still covers
+/// the SoilGrids / ORNL DAAC / STAC PC p95 ~12 s this bound was sized for,
+/// while leaving ask >=16 s to synthesise a real signed partial answer from
+/// the warm facts plus whatever materialised in time. /v1/eudr_dds keeps its
+/// own longer `eudr_route_timeout_secs`, so the EUDR path is unaffected.
+/// Bounding the upstream call here is also what stops a slow MODIS / met.no /
+/// STAC peer from dragging a recall past the gateway timeout — the original
+/// behavior was an unbounded `reqwest::send().await` that surfaced as a
+/// generic 504 with no per-band attribution.
 fn materializer_timeout_secs() -> u64 {
     std::env::var("EMEM_MATERIALIZER_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(30u64)
+        .unwrap_or(14u64)
         .clamp(2, 240)
 }
 
