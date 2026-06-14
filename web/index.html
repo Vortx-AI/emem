@@ -639,6 +639,26 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   border-bottom:2px solid var(--ink);overflow:hidden;background:var(--paper)}
 .earth-hero #atlas-map{position:absolute;inset:0;height:100%;width:100%;z-index:1}
 .earth-hero .atlas-hint{position:absolute;left:16px;bottom:16px;z-index:4}
+.atlas-hint .zoomhint{color:var(--accent)}
+/* map data-layer legend (top-left), Mithila paper panel */
+.map-legend{position:absolute;left:22px;top:22px;z-index:6;width:226px;
+  background:color-mix(in oklch,var(--paper-2) 95%,transparent);border:2px solid var(--ink);
+  box-shadow:0 0 0 4px var(--paper),0 14px 36px -20px rgba(0,0,0,.5);padding:.6rem .7rem .55rem;font-size:var(--t-xs)}
+.map-legend .ml-title{font-weight:700;color:var(--ink);letter-spacing:.04em;text-transform:uppercase;font-size:10px;margin-bottom:.45rem}
+.map-legend .ml-row{display:flex;align-items:center;gap:.4rem;margin:.28rem 0;color:var(--ink-2);cursor:pointer}
+.map-legend .ml-row input{accent-color:var(--accent);margin:0;cursor:pointer}
+.map-legend .ml-row .lbl{flex:1}
+.map-legend .ml-row b{color:var(--ink);font-weight:700}
+.map-legend .sw{width:11px;height:11px;flex:0 0 auto;border:1px solid var(--ink)}
+.map-legend .sw.cov{background:linear-gradient(90deg,var(--machine),var(--accent),var(--absent))}
+.map-legend .sw.fld{background:var(--warn)}
+.map-legend .sw.hnt{background:var(--absent)}
+.map-legend .ml-btn{display:flex;align-items:center;gap:.4rem;width:100%;background:var(--paper);border:1px solid var(--rule-strong);
+  color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.3rem .4rem;cursor:pointer;text-align:left}
+.map-legend .ml-btn:hover{border-color:var(--accent);background:var(--accent-bg)}
+.map-legend .ml-hunt{gap:.5rem}
+.map-legend .ml-note{margin-top:.5rem;color:var(--mute);font-size:9.5px;line-height:1.35;border-top:1px solid var(--rule);padding-top:.4rem}
+@media (max-width:880px){.map-legend{left:12px;top:12px;width:200px}}
 /* double-line Mithila frame drawn over the map edges */
 .earth-hero::before{content:"";position:absolute;inset:10px;border:1px solid var(--ink);z-index:3;pointer-events:none}
 .earth-hero::after{content:"";position:absolute;inset:15px;border:1px solid var(--rule-strong);z-index:3;pointer-events:none}
@@ -957,7 +977,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <p class="sub">Every patch of ground gets a stable address, every reading becomes a signed fact, and anyone can re-check it without trusting the server.</p>
     </div>
   </div>
-  <div class="atlas-hint" id="atlas-hint">click a red patch, or anywhere on land &middot; drag to spin the globe</div>
+  <div class="atlas-hint" id="atlas-hint">click a red patch, or anywhere on land &middot; drag to spin &middot; <span class="zoomhint">+ to zoom into farms</span></div>
+  <div class="map-legend" id="map-legend">
+    <div class="ml-title">data layers</div>
+    <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">coverage</span><b id="lyr-cov-n">&hellip;</b></label>
+    <label class="ml-row"><input type="checkbox" id="lyr-fld"><span class="sw fld"></span><span class="lbl">farm fields</span><b id="lyr-fld-n"></b></label>
+    <div class="ml-row ml-hunt"><button type="button" id="lyr-hnt-go" class="ml-btn"><span class="sw hnt"></span>hunt deforestation</button><b id="lyr-hnt-n"></b></div>
+    <div class="ml-note">live from /v1/coverage &middot; /v1/field_boundaries &middot; /v1/hunt</div>
+  </div>
   <aside class="hero-consensus atlas-panel" id="atlas-panel">
     <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><span>no key &middot; same-origin</span></div>
     <div class="atlas-body">
@@ -3281,7 +3308,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // parchment land, the page's own cream as the sea, so the map dissolves
   // into the page instead of sitting in a hard rectangle.
   var PAPER='#f3eee2', LAND='#e6dcc2', INK='#2b2620',
-      VERM='#bb3b2c', INDIGO='#344a8c';
+      VERM='#bb3b2c', INDIGO='#344a8c', OCHRE='#d59a2a', LEAF='#4f8a3d';
 
   // Pre-warmed showcase patches: vegetated / cropland cells where all four
   // encoders carry data. Warmed server-side after deploy so their verdict is
@@ -3314,6 +3341,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       version:8,
       sources:{
         land:{type:'geojson', data:'/land-110m.geojson'},
+        coverage:{type:'geojson', data:fc([])},
+        fields:{type:'geojson', data:fc([])},
+        hunt:{type:'geojson', data:fc([])},
+        cellfoot:{type:'geojson', data:fc([])},
         patches:{type:'geojson', data:fc(patchFeatures)},
         sel:{type:'geojson', data:fc([])}
       },
@@ -3321,12 +3352,32 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         {id:'sea',   type:'background', paint:{'background-color':PAPER}},
         {id:'land',  type:'fill', source:'land', paint:{'fill-color':LAND}},
         {id:'coast', type:'line', source:'land', paint:{'line-color':INK,'line-width':1.0,'line-opacity':0.85}},
+        // /v1/coverage — where Earth is already remembered (signed-fact density)
+        {id:'coverage-heat', type:'heatmap', source:'coverage', maxzoom:8, paint:{
+          'heatmap-weight':['interpolate',['linear'],['get','f'],0,0,40,1],
+          'heatmap-intensity':['interpolate',['linear'],['zoom'],0,0.7,8,2.2],
+          'heatmap-radius':['interpolate',['linear'],['zoom'],0,7,8,34],
+          'heatmap-opacity':['interpolate',['linear'],['zoom'],6,0.85,8,0.35],
+          'heatmap-color':['interpolate',['linear'],['heatmap-density'],
+            0,'rgba(243,238,226,0)',0.2,'rgba(52,74,140,0.35)',0.5,'rgba(213,154,42,0.6)',0.8,'rgba(187,59,44,0.82)',1,'rgba(187,59,44,0.95)']}},
+        {id:'coverage-dot', type:'circle', source:'coverage', minzoom:5, paint:{
+          'circle-radius':['interpolate',['linear'],['get','f'],1,2,40,7],
+          'circle-color':INDIGO,'circle-opacity':0.5,'circle-stroke-color':PAPER,'circle-stroke-width':0.5}},
+        // /v1/field_boundaries — Fields of The World farm polygons (on zoom)
+        {id:'fields-fill', type:'fill', source:'fields', paint:{'fill-color':OCHRE,'fill-opacity':0.16}},
+        {id:'fields-line', type:'line', source:'fields', paint:{'line-color':INK,'line-width':0.7,'line-opacity':0.55}},
+        // selected cell true footprint (/v1/cells/<cell>/geojson)
+        {id:'cell-foot', type:'fill', source:'cellfoot', paint:{'fill-color':INDIGO,'fill-opacity':0.28}},
+        {id:'cell-foot-line', type:'line', source:'cellfoot', paint:{'line-color':INDIGO,'line-width':1.4}},
+        // /v1/hunt — anomaly hotspots (triggered)
+        {id:'hunt-glow', type:'circle', source:'hunt', paint:{'circle-radius':['interpolate',['linear'],['get','c'],0,9,1,28],'circle-color':VERM,'circle-opacity':0.16}},
+        {id:'hunt-dot', type:'circle', source:'hunt', paint:{'circle-radius':5.5,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.5}},
         {id:'sel-halo', type:'circle', source:'sel', paint:{'circle-radius':15,'circle-color':INDIGO,'circle-opacity':0.13}},
         {id:'sel-ring', type:'circle', source:'sel', paint:{'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':INDIGO,'circle-stroke-width':2.2}},
         {id:'patch-dot', type:'circle', source:'patches', paint:{'circle-radius':6,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':2}}
       ]
     },
-    center:[8,16], zoom:1.1, minZoom:0.5, maxZoom:7,
+    center:[8,16], zoom:1.1, minZoom:0.5, maxZoom:16,
     renderWorldCopies:true, dragRotate:false, pitchWithRotate:false,
     scrollZoom:false, keyboard:false
   });
@@ -3471,6 +3522,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     if (ease) map.easeTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 2.6), duration:700});
     elName.textContent = label || 'selected patch';
     elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; clearKids(elEncs);
+    if (map.getSource('cellfoot')) map.getSource('cellfoot').setData(fc([]));
     setStatus('resolving cell…');
 
     fetchJson('/v1/locate', {lat:lat, lng:lng}).then(function(loc){
@@ -3482,6 +3534,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       elCell.textContent = cell;
       setStatus('four models reading this patch… a cold patch takes a few seconds while the responder fetches and signs.');
       loadScene(cell, seq);
+      // draw the cell's true ~9.5 m footprint (visible when zoomed in)
+      fetch('/v1/cells/'+encodeURIComponent(cell)+'/geojson').then(function(r){return r.json();}).then(function(g){
+        if (seq===reqSeq && g && g.geometry && map.getSource('cellfoot')) map.getSource('cellfoot').setData(g);
+      }).catch(function(){});
       var sm = fetchJson('/v1/state_multi', {cell:cell, vectors:true});
       var tc = fetchJson('/v1/triple_consensus', {cell:cell});
       sm.then(function(r){ if (seq===reqSeq && r.ok && r.j) renderEncoders(r.j); });
@@ -3496,10 +3552,66 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     }, function(){ if (seq===reqSeq) setStatus('could not reach the responder.'); });
   }
 
+  // ── data layers: coverage (on load), farm fields (on zoom), hunt (button) ──
+  var elCovN=document.getElementById('lyr-cov-n'),
+      elFldN=document.getElementById('lyr-fld-n'),
+      elHntN=document.getElementById('lyr-hnt-n');
+  function setLeg(el, txt){ if (el) el.textContent = txt; }
+
+  function loadCoverage(){
+    setLeg(elCovN, 'loading…');
+    fetch('/v1/coverage?limit=5000').then(function(r){ return r.json(); }).then(function(j){
+      var feats = ((j && j.cells) || []).filter(function(c){ return typeof c.lng_deg === 'number'; }).map(function(c){
+        return {type:'Feature', properties:{f: c.fact_count || 1}, geometry:{type:'Point', coordinates:[c.lng_deg, c.lat_deg]}};
+      });
+      if (map.getSource('coverage')) map.getSource('coverage').setData(fc(feats));
+      setLeg(elCovN, feats.length.toLocaleString() + ' cells');
+    }).catch(function(){ setLeg(elCovN, 'unavailable'); });
+  }
+
+  var fieldsOn = false, fieldsBusy = false;
+  function loadFields(){
+    if (!fieldsOn) return;
+    if (map.getZoom() < 10.5){ if (map.getSource('fields')) map.getSource('fields').setData(fc([])); setLeg(elFldN, 'zoom in to load'); return; }
+    var b = map.getBounds();
+    if ((b.getNorth()-b.getSouth()) * (b.getEast()-b.getWest()) > 0.2){ if (map.getSource('fields')) map.getSource('fields').setData(fc([])); setLeg(elFldN, 'zoom in more'); return; }
+    if (fieldsBusy) return;
+    fieldsBusy = true; setLeg(elFldN, 'loading…');
+    fetchJson('/v1/field_boundaries', {polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}, max_features:4000}).then(function(r){
+      fieldsBusy = false;
+      if (r.ok && r.j && r.j.geojson && map.getSource('fields')){ map.getSource('fields').setData(r.j.geojson); setLeg(elFldN, (r.j.count||0).toLocaleString() + ' fields'); }
+      else setLeg(elFldN, 'none here');
+    }, function(){ fieldsBusy = false; setLeg(elFldN, 'error'); });
+  }
+
+  function huntHere(){
+    var b = map.getBounds();
+    if ((b.getNorth()-b.getSouth()) * (b.getEast()-b.getWest()) > 60){ setLeg(elHntN, 'zoom to a region'); return; }
+    setLeg(elHntN, 'hunting… (~5s)');
+    fetchJson('/v1/hunt', {event:'deforestation', polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
+      if (r.ok && r.j && r.j.hotspots){
+        var feats = r.j.hotspots.filter(function(h){ return typeof h.lng === 'number'; }).map(function(h){
+          return {type:'Feature', properties:{c: h.coherence || 0.5}, geometry:{type:'Point', coordinates:[h.lng, h.lat]}};
+        });
+        if (map.getSource('hunt')) map.getSource('hunt').setData(fc(feats));
+        setLeg(elHntN, feats.length + ' hotspots');
+      } else setLeg(elHntN, 'none found');
+    }, function(){ setLeg(elHntN, 'error'); });
+  }
+
+  function setVis(ids, on){ ids.forEach(function(id){ if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); }); }
+
+  var tCov=document.getElementById('lyr-cov'), tFld=document.getElementById('lyr-fld'), bHnt=document.getElementById('lyr-hnt-go');
+  if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot'], tCov.checked); });
+  if (tFld) tFld.addEventListener('change', function(){ fieldsOn = tFld.checked; setVis(['fields-fill','fields-line'], fieldsOn); if (fieldsOn) loadFields(); else setLeg(elFldN, ''); });
+  if (bHnt) bHnt.addEventListener('click', huntHere);
+
   map.on('load', function(){
     map.resize();
+    loadCoverage();
     selectAt(PATCHES[0].lng, PATCHES[0].lat, PATCHES[0].name, false);
   });
+  map.on('moveend', loadFields);
   map.on('mouseenter','patch-dot', function(){ map.getCanvas().style.cursor='pointer'; });
   map.on('mouseleave','patch-dot', function(){ map.getCanvas().style.cursor='crosshair'; });
   map.on('click', function(e){
