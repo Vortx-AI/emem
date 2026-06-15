@@ -15,7 +15,7 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 
 ## Primitives
 
-- [recall](https://emem.dev/v1/recall): POST cell × bands → signed facts; auto-fetches from open-data upstream on a miss and signs the result.
+- [recall](https://emem.dev/v1/recall): POST cell × bands → signed facts; auto-fetches from open-data upstream on a miss and signs the result. Pass include:["freshness"] for an advisory per-fact Q(Δt) staleness score, or include:["edges"] for typed temporal edges.
 - [ask](https://emem.dev/v1/ask): POST free-text question (+ place) → topic-route → recall → applicable algorithms, in one call.
 - [find_similar](https://emem.dev/v1/find_similar): POST cell or embedding × k → top-K cosine neighbours over a foundation embedding.
 - [verify_receipt](https://emem.dev/v1/verify_receipt): POST a receipt (optionally + the facts you rely on) → {valid, signer}; rebuilds the preimage, checks the signature, and content-addresses any supplied facts against the receipt so a tampered value fails.
@@ -26,6 +26,11 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [memory search](https://emem.dev/v1/memory/search): POST query → BGE-768 semantic search over the writable agent-memory layer.
 - [memory contradictions](https://emem.dev/v1/memory_contradictions): POST → multi-attester contradiction scoring per band kind.
 - [memory bundle](https://emem.dev/v1/memory_bundle): POST → a signed, content-addressed bundle of facts (memb:<bundle_cid>).
+- [triple_consensus](https://emem.dev/v1/triple_consensus): POST cell → Clay + Prithvi + Tessera change-agreement at one cell; honest inconclusive when an encoder is absent.
+- [region_similarity](https://emem.dev/v1/region_similarity): POST two regions → cosine between their mean GeoTessera embeddings in [-1, 1].
+- [tessera_field](https://emem.dev/v1/tessera_field): POST bbox → a dense Tessera 128-D embedding field for a region, rendered as a colour raster (REST only; a picture, not a signed fact).
+- [region_archetype_map](https://emem.dev/v1/region_archetype_map): POST bbox → that embedding field clustered into k land-cover archetypes (deterministic k-means) with a legend (REST only).
+- [explain](https://emem.dev/v1/explain): POST an ask response → an UNSIGNED Gemma-4 plain-language reword (signed:false; the signed receipt remains the ground truth).
 
 ## Reference
 

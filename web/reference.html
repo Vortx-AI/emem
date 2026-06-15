@@ -427,7 +427,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       </thead>
       <tbody>
         <tr><td class="method post">POST</td><td class="path">/v1/locate</td><td>emem_locate</td><td class="desc">place name &rarr; cell64 + neighbourhood + live band inventory</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td>emem_recall</td><td class="desc">{cell, bands?, tslot?} &rarr; signed facts, auto-materialise on miss</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td>emem_recall</td><td class="desc">{cell, bands?, tslot?, include?} &rarr; signed facts, auto-materialise on miss; include:[&quot;edges&quot;,&quot;freshness&quot;] adds typed temporal edges + an advisory per-fact Q(&Delta;t) staleness score</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/recall_many</td><td>emem_recall_many</td><td class="desc">batch recall, up to 256 cells per envelope</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/recall_polygon</td><td>emem_recall_polygon</td><td class="desc">recall across a place's polygon, optional Fields-of-The-World overlay</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/find_similar</td><td>emem_find_similar</td><td class="desc">k-NN by 128-D Tessera embedding; cosine / hamming / hamming_then_rerank</td></tr>
@@ -665,7 +665,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <footer class="page foot">
   <div class="foot-meta">
     <div class="name">emem</div>
-    <div class="desc">Earth memory protocol. Cell × Band × Tslot → Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+    <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
   </div>
   <div>
     <div class="foot-grid">

@@ -453,22 +453,19 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <section class="section page" id="embedding-first">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">&#9670;</span><span class="idx-label">why now</span></div>
+    <div class="idx"><span class="idx-num">&#9670;</span><span class="idx-label">the validation</span></div>
     <dl>
-      <dt>Gemma&nbsp;4&nbsp;12B</dt><dd>encoder-free, shipped 3&nbsp;Jun&nbsp;2026</dd>
-      <dt>the move</dt><dd>collapse the encoder into the model</dd>
-      <dt>emem's move</dt><dd>split it across the source/ground boundary</dd>
-      <dt>the unit</dt><dd>the embedding, either way</dd>
+      <dt>Gemma&nbsp;4&nbsp;12B</dt><dd>encoder-free, 3&nbsp;Jun&nbsp;2026</dd>
+      <dt>reads</dt><dd>the embedding, directly</dd>
+      <dt>emem</dt><dd>stores and signs that embedding</dd>
     </dl>
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">&#9670;</span>The field agreed: meaning travels, not pixels</h2>
-    <p class="lede">On 3&nbsp;June&nbsp;2026 Google DeepMind shipped <a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/" rel="noopener">Gemma&nbsp;4&nbsp;12B</a> &mdash; a model that removes its image and audio encoders entirely and projects raw inputs straight into one shared latent space.</p>
-
-    <p>The lesson, arriving from the opposite direction to ours: the heavy modality encoder was never where the intelligence lived; the embedding is the substrate. A model can collapse the encoder inward (Gemma&nbsp;4) or split it across the source-to-ground boundary (the latent-origin beat above) &mdash; both make the embedding, not the pixels, the unit that matters. emem is built on the same conviction: store the <em>meaning</em> of a place, addressable and signed, not a pile of imagery.</p>
-
-    <p style="font-size:var(--t-sm);color:var(--mute);border-left:2px solid var(--rule-strong);padding-left:.7rem">Gemma&nbsp;4 is the validation, not a component. emem decodes Earth-observation embeddings into signed facts; it does not slice a language model. The four encoders it reads are listed above and scored for consensus in the sections that follow.</p>
+    <h2><span class="num">&#9670;</span>A 2026 model reads the embedding directly</h2>
+    <figure class="cev-art"><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="The encoder runs at the source and emits an embedding; emem stores and signs that embedding on the ground." loading="lazy"></figure>
+    <p>Gemma&nbsp;4&nbsp;12B (Google&nbsp;DeepMind, 3&nbsp;June&nbsp;2026) removed its image and audio encoders and projects raw inputs straight into one shared embedding space. emem reaches the same point from the source side: the encoder runs where the data is born, and emem stores, indexes, and signs the embedding it emits, not the pixels.</p>
+    <p style="font-size:var(--t-sm);color:var(--mute)">Reference: <a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/" rel="noopener">Introducing Gemma&nbsp;4&nbsp;12B</a>, Google&nbsp;DeepMind, 2026.</p>
   </div>
 </section>
 
@@ -821,7 +818,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 <footer class="page foot">
   <div class="foot-meta">
     <div class="name">emem</div>
-    <div class="desc">Earth memory protocol. Cell × Band × Tslot → Fact. Ed25519, BLAKE3, content-addressed. Apache-2.0. Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>.</div>
+    <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
   </div>
   <div>
     <div class="foot-grid">
