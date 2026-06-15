@@ -58,8 +58,12 @@ pub struct RecallReq {
     /// `"edges"`, every returned fact's temporal knowledge-graph edges
     /// (latest-per-object, honouring `as_of_tslot`) are attached to
     /// `RecallResp.edges` and their CIDs enter the receipt signature
-    /// preimage. Absent / empty leaves the response + preimage byte-
-    /// identical to the pre-v0.0.9 recall path. (v0.0.9.)
+    /// preimage. When it contains `"freshness"`, the API layer attaches an
+    /// advisory per-fact `freshness` block (a Q(Δt) staleness score from the
+    /// band's physics decay kernel, the same one `/v1/temporal_route` ranks
+    /// with); unlike `"edges"`, freshness is computed AFTER signing and never
+    /// enters the preimage. Absent / empty leaves the response + preimage byte-
+    /// identical to the pre-v0.0.9 recall path. (v0.0.9; `freshness` added later.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
 }

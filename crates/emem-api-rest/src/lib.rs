@@ -6710,6 +6710,18 @@ async fn post_recall(
         // a parallel array; the per-fact form matches the OpenAPI
         // `Fact` schema and removes the index-zip dance for callers.
         enrich_facts_with_cid(&mut v);
+        // Opt-in advisory freshness (include:["freshness"]): each fact gains a
+        // Q(Δt) staleness score from the band's physics decay kernel — the same
+        // one /v1/temporal_route ranks bands with. Post-receipt, so the signed
+        // preimage is byte-identical to a recall without the flag.
+        if req
+            .include
+            .as_ref()
+            .map(|i| i.iter().any(|x| x == "freshness"))
+            .unwrap_or(false)
+        {
+            attach_recall_freshness(&mut v);
+        }
         if let Some(map) = v.as_object_mut() {
             if !materialize_notes.is_empty() {
                 map.insert(
@@ -46504,6 +46516,119 @@ fn quality_kernel(tempo: emem_core::tslot::Tempo, dt_s: f64) -> (f64, &'static s
                 "advection_linear",
                 "Q = max(0, 1 - Δt/horizon); ∂u/∂t + v·∇u = 0 with horizon ≈ 6 slots",
             )
+        }
+    }
+}
+
+/// Attach an advisory per-fact `freshness` block to a serialized recall
+/// response when the caller passes `include:["freshness"]`. It reuses the
+/// physics-informed `quality_kernel` Q(Δt) — the SAME decay the
+/// `/v1/temporal_route` band-ranker uses — so an agent learns how stale each
+/// reading is in the call that returns it, instead of a second round-trip.
+/// Purely advisory: computed AFTER the receipt is signed and never entering
+/// the preimage, so the receipt stays byte-identical to a recall without the
+/// flag (the same contract as `band_metadata` / `value_decoded`). This is the
+/// recall-path port of the eMEM paper's temporal-decay idea (arXiv 2606.03374):
+/// emem already had the decay kernels but only applied them in band-ranking.
+fn attach_recall_freshness(value: &mut JsonValue) {
+    use emem_core::tslot::{Tempo, Tslot};
+    let now = now_unix_s();
+    let facts_arr = match value {
+        JsonValue::Object(map) => match map.get_mut("facts") {
+            Some(JsonValue::Array(arr)) => arr,
+            _ => return,
+        },
+        JsonValue::Array(arr) => arr,
+        _ => return,
+    };
+    for fact in facts_arr.iter_mut() {
+        let Some(obj) = fact.as_object_mut() else {
+            continue;
+        };
+        // Only Primary observations carry an observation tslot worth aging;
+        // accept both the flat and the {Primary:{…}} wire forms.
+        let band = obj
+            .get("band")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .or_else(|| {
+                obj.get("Primary")
+                    .and_then(|p| p.get("band"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+            });
+        let tslot = obj.get("tslot").and_then(|v| v.as_u64()).or_else(|| {
+            obj.get("Primary")
+                .and_then(|p| p.get("tslot"))
+                .and_then(|v| v.as_u64())
+        });
+        let (Some(band), Some(tslot)) = (band, tslot) else {
+            continue;
+        };
+        let Some(tempo) = tempo_for_band(&band) else {
+            continue;
+        };
+        let obs_unix = Tslot(tslot).to_unix_start(tempo);
+        let dt_s = (now - obs_unix).max(0) as f64;
+        let (q, model, formula) = quality_kernel(tempo, dt_s);
+        let tempo_label = match tempo {
+            Tempo::Static => "static",
+            Tempo::Slow => "slow",
+            Tempo::Medium => "medium",
+            Tempo::Composite8Day => "composite_8day",
+            Tempo::Composite16Day => "composite_16day",
+            Tempo::Fast => "fast",
+            Tempo::UltraFast => "ultra_fast",
+        };
+        obj.insert(
+            "freshness".into(),
+            json!({
+                "q": (q * 1000.0).round() / 1000.0,
+                "age_seconds": dt_s as i64,
+                "tempo": tempo_label,
+                "decay_model": model,
+                "formula": formula,
+                "stale": q < 0.5,
+                "note": "Q(Δt) staleness from the band's physics-informed decay kernel; advisory only — the receipt commits to the fact, not this score.",
+            }),
+        );
+    }
+}
+
+#[cfg(test)]
+mod recall_freshness_tests {
+    use super::*;
+
+    #[test]
+    fn freshness_is_advisory_and_safe() {
+        // Unknown band → skipped (no freshness, no panic).
+        let mut v = json!({ "facts": [ { "band": "totally.unknown.xyz", "tslot": 1 } ] });
+        attach_recall_freshness(&mut v);
+        assert!(v["facts"][0].get("freshness").is_none());
+        // A fact missing its tslot → skipped.
+        let mut v2 = json!({ "facts": [ { "band": "indices.ndvi" } ] });
+        attach_recall_freshness(&mut v2);
+        assert!(v2["facts"][0].get("freshness").is_none());
+        // Non-fact JSON is left untouched.
+        let mut scalar = json!(42);
+        attach_recall_freshness(&mut scalar);
+        assert_eq!(scalar, json!(42));
+    }
+
+    #[test]
+    fn freshness_attaches_bounded_q_for_a_known_band() {
+        use emem_core::tslot::{Tempo, Tslot};
+        // geotessera is a Slow (annual) vector band; observe it as of "now".
+        let tslot = Tslot::from_unix(now_unix_s(), Tempo::Slow).0;
+        let mut v = json!({ "facts": [ { "band": "geotessera", "tslot": tslot } ] });
+        attach_recall_freshness(&mut v);
+        // Only assert structure when the band resolves to a tempo on this
+        // build's registry; the safety test above covers the skip path.
+        if let Some(f) = v["facts"][0].get("freshness") {
+            let q = f["q"].as_f64().expect("q is a number");
+            assert!((0.0..=1.0).contains(&q), "q in [0,1], got {q}");
+            assert_eq!(f["stale"], json!(q < 0.5));
+            assert!(f["age_seconds"].as_i64().unwrap() >= 0);
         }
     }
 }

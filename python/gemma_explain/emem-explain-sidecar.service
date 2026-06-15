@@ -1,0 +1,27 @@
+[Unit]
+Description=emem Gemma-4 "explain" sidecar — optional UNSIGNED natural-language layer over signed facts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/emem/python/gemma_explain
+# Loopback-only: emem's /v1/explain proxy is the public surface; the model
+# server is never exposed. Loads google/gemma-4-12B-it in 4-bit (~14 GB GPU).
+Environment=EMEM_EXPLAIN_BIND=127.0.0.1:5071
+Environment=EMEM_EXPLAIN_MODEL=google/gemma-4-12B-it
+# 112 is plenty for a 2-4 sentence reword; fewer tokens = snappier on the shared GPU
+Environment=EMEM_EXPLAIN_MAX_TOKENS=112
+Environment=HF_HOME=/home/ubuntu/.cache/huggingface
+Environment=HF_HUB_OFFLINE=1
+Environment=CUDA_VISIBLE_DEVICES=0
+# The transformers-5.12 venv that supports the gemma4_unified architecture
+# (shared with the memory-injection project — that is where Gemma is installed).
+ExecStart=/home/ubuntu/memory-injection/.venv/bin/python /home/ubuntu/emem/python/gemma_explain/explain_sidecar.py
+Restart=on-failure
+RestartSec=10
+# model load + a generation can take a moment; don't let the watchdog kill it
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target
