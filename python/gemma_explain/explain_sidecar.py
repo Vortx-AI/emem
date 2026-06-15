@@ -34,11 +34,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MODEL = os.environ.get("EMEM_EXPLAIN_MODEL", "google/gemma-4-12B-it")
 BIND = os.environ.get("EMEM_EXPLAIN_BIND", "127.0.0.1:5071")
-MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "160"))
+MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "112"))
 
 _tok = None
 _model = None
 _lock = threading.Lock()
+# The GPU is shared (jepa + other sidecars) and runs near full. Two concurrent
+# generations would each claim KV cache with almost no headroom and OOM — which
+# surfaces to the user as the explain layer being "non-responsive". Serialise
+# generation so concurrent clicks queue instead of fighting for VRAM.
+_gen_lock = threading.Lock()
 
 SYSTEM = (
     "You explain emem's SIGNED Earth-observation facts to a non-expert. "
@@ -96,9 +101,14 @@ def explain(ask: dict) -> dict:
     ).to("cuda:0")
     n_in = inputs["input_ids"].shape[1]
     t0 = time.time()
-    with torch.no_grad():
-        out = _model.generate(**inputs, max_new_tokens=MAX_TOKENS, do_sample=False)
-    text = _tok.decode(out[0][n_in:], skip_special_tokens=True).strip()
+    # One generation at a time on the shared GPU (see _gen_lock), then release
+    # the KV cache so the next request starts with headroom rather than OOMing.
+    with _gen_lock:
+        with torch.no_grad():
+            out = _model.generate(**inputs, max_new_tokens=MAX_TOKENS, do_sample=False)
+        text = _tok.decode(out[0][n_in:], skip_special_tokens=True).strip()
+        del out, inputs
+        torch.cuda.empty_cache()
     return {
         "explanation": text,
         "signed": False,
