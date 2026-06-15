@@ -24791,6 +24791,25 @@ fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [u8; 3] {
     ]
 }
 
+/// Bound the number of CONCURRENT CPU-heavy region renders (tessera_field /
+/// region_archetype_map). Each render runs on the blocking pool via
+/// `spawn_blocking`, so it no longer pins the async workers — but without a cap a
+/// burst (a map being panned, or a crawler) could still spawn dozens of
+/// multi-second k-means/PNG jobs and oversubscribe the cores, starving the async
+/// runtime of scheduler time. Default 8; tune via `EMEM_RENDER_CONCURRENCY`
+/// (clamped 1..=64). Acquired AFTER the COG read (I/O), around the CPU render.
+fn render_semaphore() -> &'static tokio::sync::Semaphore {
+    static S: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    S.get_or_init(|| {
+        let n = std::env::var("EMEM_RENDER_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(8)
+            .clamp(1, 64);
+        tokio::sync::Semaphore::new(n)
+    })
+}
+
 /// `POST /v1/tessera_field` — a DENSE Tessera embedding-field overlay for a
 /// region, read from the geotessera COG **window** (one contiguous range read,
 /// NOT cell-by-cell). Each output pixel's signed 128-D vector is projected to a
@@ -24835,25 +24854,42 @@ async fn post_tessera_field(
         }
     };
 
-    // RGBA so pixels with no covering tile/read stay fully TRANSPARENT (alpha 0),
-    // honest about coverage instead of painting a fabricated colour.
+    // The per-pixel latent_rgb (a sin-hash over 128 dims, up to ~65k pixels) plus
+    // PNG encoding is pure CPU. Run it on the blocking pool, NOT the async worker
+    // threads: on 2026-06-15 a burst of map renders pinned all 30 async workers
+    // with non-yielding CPU loops and silently stalled the whole runtime (the
+    // accept loop and the 40 s timeout timer could no longer be polled). The grid
+    // is owned, so it moves into the closure cleanly. RGBA leaves uncovered pixels
+    // fully TRANSPARENT (alpha 0), honest about coverage rather than fabricated.
     let size = grid.size;
-    let mut rgba = vec![0u8; size * size * 4];
-    for (idx, slot) in grid.vectors.iter().enumerate() {
-        let Some(vec_f32) = slot else { continue };
-        let vf: Vec<f64> = vec_f32.iter().map(|&x| x as f64).collect();
-        let crgb = latent_rgb(&vf);
-        let p = idx * 4;
-        rgba[p] = crgb[0];
-        rgba[p + 1] = crgb[1];
-        rgba[p + 2] = crgb[2];
-        rgba[p + 3] = 255;
-    }
-    let url = match rgba_to_png_data_url(&rgba, size) {
-        Ok(u) => u,
-        Err(e) => {
+    let tiles_read = grid.tiles_read;
+    let coordinates = grid.coordinates();
+    let _render_permit = render_semaphore().acquire().await.ok();
+    let render = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let mut rgba = vec![0u8; size * size * 4];
+        for (idx, slot) in grid.vectors.iter().enumerate() {
+            let Some(vec_f32) = slot else { continue };
+            let vf: Vec<f64> = vec_f32.iter().map(|&x| x as f64).collect();
+            let crgb = latent_rgb(&vf);
+            let p = idx * 4;
+            rgba[p] = crgb[0];
+            rgba[p + 1] = crgb[1];
+            rgba[p + 2] = crgb[2];
+            rgba[p + 3] = 255;
+        }
+        rgba_to_png_data_url(&rgba, size)
+    })
+    .await;
+    let url = match render {
+        Ok(Ok(u)) => u,
+        Ok(Err(e)) => {
             return Ok(Json(
                 json!({ "schema":"emem.tessera_field.v1", "available": false, "reason": e }),
+            ))
+        }
+        Err(_) => {
+            return Ok(Json(
+                json!({ "schema":"emem.tessera_field.v1", "available": false, "reason": "render task failed" }),
             ))
         }
     };
@@ -24862,8 +24898,8 @@ async fn post_tessera_field(
         "available": true,
         "year": year,
         "size": size,
-        "tiles_read": grid.tiles_read,
-        "coordinates": grid.coordinates(),
+        "tiles_read": tiles_read,
+        "coordinates": coordinates,
         "image_data_url": url,
         "note": "Dense Tessera embedding field — each pixel's signed 128-D vector projected to a fixed RGB fingerprint (places that look alike to the model share a colour). Read from the geotessera COG window(s) for the region, mosaicked across 0.1° tiles, not cell-by-cell. Transparent where no tile covers the pixel.",
     })))
@@ -24928,67 +24964,79 @@ async fn post_region_archetype_map(
     };
 
     let size = grid.size;
-    // Collect the covered pixels and L2-normalise them, so clustering is by
-    // direction in embedding space — the same geometry the cosine analytics use.
-    let mut idxs: Vec<usize> = Vec::new();
-    let mut data: Vec<Vec<f32>> = Vec::new();
-    for (i, slot) in grid.vectors.iter().enumerate() {
-        if let Some(v) = slot {
-            idxs.push(i);
-            data.push(l2_normalize_vec(v));
-        }
-    }
-    if data.len() < k * 4 {
-        return unavail(format!(
-            "only {} embedded pixels cover this region — too sparse for {} archetypes; zoom to a denser area",
-            data.len(),
-            k
-        ));
-    }
-
-    let (assign, centroids) = kmeans_deterministic(&data, k, 16);
-    let k_eff = centroids.len();
-    let palette: Vec<[u8; 3]> = (0..k_eff)
-        .map(|i| hsv_to_rgb(i as f64 / k_eff as f64, 0.62, 0.86))
-        .collect();
-
-    let mut rgba = vec![0u8; size * size * 4];
-    let mut counts = vec![0usize; k_eff];
-    for (j, &pix) in idxs.iter().enumerate() {
-        let a = assign[j];
-        counts[a] += 1;
-        let c = palette[a];
-        let p = pix * 4;
-        rgba[p] = c[0];
-        rgba[p + 1] = c[1];
-        rgba[p + 2] = c[2];
-        rgba[p + 3] = 255;
-    }
-    let covered = idxs.len() as f64;
-    let mut legend: Vec<JsonValue> = (0..k_eff)
-        .map(|a| {
-            let cen_f: Vec<f64> = centroids[a].iter().map(|&x| x as f64).collect();
-            let frgb = latent_rgb(&cen_f);
-            json!({
-                "archetype_id": a,
-                "rgb": palette[a],
-                "hex": format!("#{:02x}{:02x}{:02x}", palette[a][0], palette[a][1], palette[a][2]),
-                "pixel_fraction": counts[a] as f64 / covered,
-                "pixels": counts[a],
-                "fingerprint_rgb": frgb,
-            })
-        })
-        .collect();
-    legend.sort_by(|a, b| {
-        b["pixel_fraction"]
-            .as_f64()
-            .partial_cmp(&a["pixel_fraction"].as_f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let url = match rgba_to_png_data_url(&rgba, size) {
-        Ok(u) => u,
-        Err(e) => return unavail(e),
+    let tiles_read = grid.tiles_read;
+    let coordinates = grid.coordinates();
+    let _render_permit = render_semaphore().acquire().await.ok();
+    // Clustering (k-means over up to ~50k 128-D vectors × 16 iterations) plus the
+    // categorical render and PNG encode is heavy CPU. Run it on the blocking pool
+    // so it never pins the async runtime (the 2026-06-15 silent stall). Clustering
+    // is by direction in embedding space (L2-normalised), matching the cosine
+    // analytics. Returns Err(reason) for the too-sparse / encode-failure cases.
+    let render = tokio::task::spawn_blocking(
+        move || -> Result<(String, Vec<JsonValue>, usize, usize), String> {
+            let mut idxs: Vec<usize> = Vec::new();
+            let mut data: Vec<Vec<f32>> = Vec::new();
+            for (i, slot) in grid.vectors.iter().enumerate() {
+                if let Some(v) = slot {
+                    idxs.push(i);
+                    data.push(l2_normalize_vec(v));
+                }
+            }
+            if data.len() < k * 4 {
+                return Err(format!(
+                    "only {} embedded pixels cover this region — too sparse for {} archetypes; zoom to a denser area",
+                    data.len(),
+                    k
+                ));
+            }
+            let (assign, centroids) = kmeans_deterministic(&data, k, 16);
+            let k_eff = centroids.len();
+            let palette: Vec<[u8; 3]> = (0..k_eff)
+                .map(|i| hsv_to_rgb(i as f64 / k_eff as f64, 0.62, 0.86))
+                .collect();
+            let mut rgba = vec![0u8; size * size * 4];
+            let mut counts = vec![0usize; k_eff];
+            for (j, &pix) in idxs.iter().enumerate() {
+                let a = assign[j];
+                counts[a] += 1;
+                let c = palette[a];
+                let p = pix * 4;
+                rgba[p] = c[0];
+                rgba[p + 1] = c[1];
+                rgba[p + 2] = c[2];
+                rgba[p + 3] = 255;
+            }
+            let covered = idxs.len();
+            let covered_f = covered as f64;
+            let mut legend: Vec<JsonValue> = (0..k_eff)
+                .map(|a| {
+                    let cen_f: Vec<f64> = centroids[a].iter().map(|&x| x as f64).collect();
+                    let frgb = latent_rgb(&cen_f);
+                    json!({
+                        "archetype_id": a,
+                        "rgb": palette[a],
+                        "hex": format!("#{:02x}{:02x}{:02x}", palette[a][0], palette[a][1], palette[a][2]),
+                        "pixel_fraction": counts[a] as f64 / covered_f,
+                        "pixels": counts[a],
+                        "fingerprint_rgb": frgb,
+                    })
+                })
+                .collect();
+            legend.sort_by(|a, b| {
+                b["pixel_fraction"]
+                    .as_f64()
+                    .partial_cmp(&a["pixel_fraction"].as_f64())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            let url = rgba_to_png_data_url(&rgba, size)?;
+            Ok((url, legend, k_eff, covered))
+        },
+    )
+    .await;
+    let (url, legend, k_eff, covered) = match render {
+        Ok(Ok(t)) => t,
+        Ok(Err(reason)) => return unavail(reason),
+        Err(_) => return unavail("render task failed".into()),
     };
     Ok(Json(json!({
         "schema": "emem.region_archetype_map.v1",
@@ -24997,9 +25045,9 @@ async fn post_region_archetype_map(
         "size": size,
         "k": k_eff,
         "k_requested": k,
-        "tiles_read": grid.tiles_read,
-        "covered_pixels": idxs.len(),
-        "coordinates": grid.coordinates(),
+        "tiles_read": tiles_read,
+        "covered_pixels": covered,
+        "coordinates": coordinates,
         "image_data_url": url,
         "legend": legend,
         "deterministic": true,
