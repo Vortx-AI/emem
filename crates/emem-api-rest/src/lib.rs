@@ -201,6 +201,47 @@ const ART_PANELS: &[(&str, &str)] = &[
         "connect-evolve.svg",
         include_str!("../../../web/art/connect-evolve.svg"),
     ),
+    // Per-page bespoke Madhubani band art (replaces the shared p1..p6 reuse).
+    (
+        "hiw-latent-payload.svg",
+        include_str!("../../../web/art/hiw-latent-payload.svg"),
+    ),
+    (
+        "hiw-shared-latent-loom.svg",
+        include_str!("../../../web/art/hiw-shared-latent-loom.svg"),
+    ),
+    (
+        "hiw-cell-tokenise.svg",
+        include_str!("../../../web/art/hiw-cell-tokenise.svg"),
+    ),
+    (
+        "hiw-receipt-seal.svg",
+        include_str!("../../../web/art/hiw-receipt-seal.svg"),
+    ),
+    (
+        "hiw-edge-vine.svg",
+        include_str!("../../../web/art/hiw-edge-vine.svg"),
+    ),
+    (
+        "hiw-absence-fish.svg",
+        include_str!("../../../web/art/hiw-absence-fish.svg"),
+    ),
+    (
+        "ref-mcp-conch.svg",
+        include_str!("../../../web/art/ref-mcp-conch.svg"),
+    ),
+    (
+        "ref-endpoint-peacock.svg",
+        include_str!("../../../web/art/ref-endpoint-peacock.svg"),
+    ),
+    (
+        "ref-primitive-lotus.svg",
+        include_str!("../../../web/art/ref-primitive-lotus.svg"),
+    ),
+    (
+        "sol-provenance-shield.svg",
+        include_str!("../../../web/art/sol-provenance-shield.svg"),
+    ),
 ];
 const INDEXNOW_KEY: &str = include_str!("../../../web/indexnow.txt");
 const GALLERY_HTML: &str = include_str!("../../../web/gallery.html");

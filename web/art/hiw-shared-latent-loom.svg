@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<title>Madhubani weaving loom: many coloured warp-threads — each an Earth-observation modality — cross through a kohbar lattice and converge into one central woven vermilion knot, the shared latent embedding where meaning travels, not pixels.</title>
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
+
+<!-- ============ RECESSED LOOM-BEAM BLOCKS (paper-2 behind the frame uprights) ============ -->
+<rect x="120" y="60" width="40" height="340" fill="#ebe4d3"/>
+<rect x="1040" y="60" width="40" height="340" fill="#ebe4d3"/>
+
+<!-- ============ BACKGROUND HORROR-VACUI ============ -->
+<!-- diagonal hatch field, upper corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 44 L72 76 M62 44 L94 76 M84 44 L116 76 M106 44 L138 76 M1062 44 L1094 76 M1084 44 L1116 76 M1106 44 L1138 76 M1128 44 L1160 76"/>
+</g>
+<!-- background dot grid (thinned toward centre) -->
+<g fill="#5c5346">
+<circle cx="56" cy="120" r="2.1"/><circle cx="96" cy="120" r="2.1"/><circle cx="1104" cy="120" r="2.1"/><circle cx="1144" cy="120" r="2.1"/>
+<circle cx="56" cy="170" r="2.1"/><circle cx="96" cy="170" r="2.1"/><circle cx="1104" cy="170" r="2.1"/><circle cx="1144" cy="170" r="2.1"/>
+<circle cx="56" cy="230" r="2.1"/><circle cx="1144" cy="230" r="2.1"/>
+<circle cx="56" cy="290" r="2.1"/><circle cx="96" cy="290" r="2.1"/><circle cx="1104" cy="290" r="2.1"/><circle cx="1144" cy="290" r="2.1"/>
+<circle cx="56" cy="340" r="2.1"/><circle cx="96" cy="340" r="2.1"/><circle cx="1104" cy="340" r="2.1"/><circle cx="1144" cy="340" r="2.1"/>
+</g>
+<!-- faint fish-scale arc fields parked in lower corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 410 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0"/>
+<path d="M40 426 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0"/>
+<path d="M1048 410 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0"/>
+<path d="M1048 426 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0"/>
+</g>
+
+<!-- ============ LOOM FRAME: two indigo upright beams (the loom posts) ============ -->
+<rect x="128" y="64" width="22" height="332" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<rect x="1050" y="64" width="22" height="332" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<!-- beam inner echo lines + paper notches (peg holes where warps tie off) -->
+<g fill="none" stroke="#f3eee2" stroke-width="1.6"><path d="M139 70 v320"/><path d="M1061 70 v320"/></g>
+<g fill="#f3eee2"><circle cx="139" cy="120" r="3"/><circle cx="139" cy="170" r="3"/><circle cx="139" cy="230" r="3"/><circle cx="139" cy="290" r="3"/><circle cx="139" cy="340" r="3"/><circle cx="1061" cy="120" r="3"/><circle cx="1061" cy="170" r="3"/><circle cx="1061" cy="230" r="3"/><circle cx="1061" cy="290" r="3"/><circle cx="1061" cy="340" r="3"/></g>
+<!-- top & bottom loom cross-beams (heddle bars), leaf-green with hatch -->
+<rect x="128" y="64" width="944" height="18" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<rect x="128" y="378" width="944" height="18" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<g stroke="#2b2620" stroke-width="1.4" fill="none"><path d="M150 64 v18 M174 64 v18 M198 64 v18 M222 64 v18 M246 64 v18 M270 64 v18 M294 64 v18 M318 64 v18 M342 64 v18 M366 64 v18 M390 64 v18 M414 64 v18 M438 64 v18 M462 64 v18 M486 64 v18 M510 64 v18 M534 64 v18 M558 64 v18 M582 64 v18 M606 64 v18 M630 64 v18 M654 64 v18 M678 64 v18 M702 64 v18 M726 64 v18 M750 64 v18 M774 64 v18 M798 64 v18 M822 64 v18 M846 64 v18 M870 64 v18 M894 64 v18 M918 64 v18 M942 64 v18 M966 64 v18 M990 64 v18 M1014 64 v18 M1038 64 v18"/></g>
+<g stroke="#2b2620" stroke-width="1.4" fill="none"><path d="M150 378 v18 M174 378 v18 M198 378 v18 M222 378 v18 M246 378 v18 M270 378 v18 M294 378 v18 M318 378 v18 M342 378 v18 M366 378 v18 M390 378 v18 M414 378 v18 M438 378 v18 M462 378 v18 M486 378 v18 M510 378 v18 M534 378 v18 M558 378 v18 M582 378 v18 M606 378 v18 M630 378 v18 M654 378 v18 M678 378 v18 M702 378 v18 M726 378 v18 M750 378 v18 M774 378 v18 M798 378 v18 M822 378 v18 M846 378 v18 M870 378 v18 M894 378 v18 M918 378 v18 M942 378 v18 M966 378 v18 M990 378 v18 M1014 378 v18 M1038 378 v18"/></g>
+
+<!-- ============ THE WARP THREADS: many coloured modalities crossing toward the centre ============ -->
+<!-- each thread is a labelled-colour strand starting at a top/bottom peg and converging on the central knot at (600,230) -->
+<!-- LEFT-TOP bundle (descending into knot) -->
+<g fill="none" stroke="#4f8a3d" stroke-width="3" stroke-linecap="round"><path d="M150 92 Q330 110 470 200 Q540 220 580 230"/></g>
+<g fill="none" stroke="#2e8c84" stroke-width="3" stroke-linecap="round"><path d="M150 130 Q340 150 480 210 Q545 224 580 232"/></g>
+<g fill="none" stroke="#d59a2a" stroke-width="3" stroke-linecap="round"><path d="M150 170 Q350 188 488 216 Q548 226 580 230"/></g>
+<g fill="none" stroke="#344a8c" stroke-width="3" stroke-linecap="round"><path d="M150 210 Q360 218 490 224 Q550 228 580 230"/></g>
+<!-- LEFT-BOTTOM bundle (ascending into knot) -->
+<g fill="none" stroke="#4f8a3d" stroke-width="3" stroke-linecap="round"><path d="M150 368 Q330 350 470 260 Q540 240 580 230"/></g>
+<g fill="none" stroke="#2e8c84" stroke-width="3" stroke-linecap="round"><path d="M150 330 Q340 310 480 250 Q545 236 580 228"/></g>
+<g fill="none" stroke="#d59a2a" stroke-width="3" stroke-linecap="round"><path d="M150 290 Q350 272 488 244 Q548 234 580 230"/></g>
+<!-- RIGHT-TOP bundle -->
+<g fill="none" stroke="#2e8c84" stroke-width="3" stroke-linecap="round"><path d="M1050 92 Q870 110 730 200 Q660 220 620 230"/></g>
+<g fill="none" stroke="#4f8a3d" stroke-width="3" stroke-linecap="round"><path d="M1050 130 Q860 150 720 210 Q655 224 620 232"/></g>
+<g fill="none" stroke="#d59a2a" stroke-width="3" stroke-linecap="round"><path d="M1050 170 Q850 188 712 216 Q652 226 620 230"/></g>
+<g fill="none" stroke="#344a8c" stroke-width="3" stroke-linecap="round"><path d="M1050 210 Q840 218 710 224 Q650 228 620 230"/></g>
+<!-- RIGHT-BOTTOM bundle -->
+<g fill="none" stroke="#2e8c84" stroke-width="3" stroke-linecap="round"><path d="M1050 368 Q870 350 730 260 Q660 240 620 230"/></g>
+<g fill="none" stroke="#4f8a3d" stroke-width="3" stroke-linecap="round"><path d="M1050 330 Q860 310 720 250 Q655 236 620 228"/></g>
+<g fill="none" stroke="#d59a2a" stroke-width="3" stroke-linecap="round"><path d="M1050 290 Q850 272 712 244 Q652 234 620 230"/></g>
+
+<!-- modality thread-bead markers near each peg (small discs identifying each strand) -->
+<g stroke="#2b2620" stroke-width="1.6">
+<circle cx="150" cy="92" r="5" fill="#4f8a3d"/><circle cx="150" cy="130" r="5" fill="#2e8c84"/><circle cx="150" cy="170" r="5" fill="#d59a2a"/><circle cx="150" cy="210" r="5" fill="#344a8c"/>
+<circle cx="150" cy="290" r="5" fill="#d59a2a"/><circle cx="150" cy="330" r="5" fill="#2e8c84"/><circle cx="150" cy="368" r="5" fill="#4f8a3d"/>
+<circle cx="1050" cy="92" r="5" fill="#2e8c84"/><circle cx="1050" cy="130" r="5" fill="#4f8a3d"/><circle cx="1050" cy="170" r="5" fill="#d59a2a"/><circle cx="1050" cy="210" r="5" fill="#344a8c"/>
+<circle cx="1050" cy="290" r="5" fill="#d59a2a"/><circle cx="1050" cy="330" r="5" fill="#2e8c84"/><circle cx="1050" cy="368" r="5" fill="#4f8a3d"/>
+</g>
+
+<!-- ============ CENTRAL KOBHAR LATTICE PANEL (woven weft cloth behind the knot) ============ -->
+<rect x="486" y="146" width="228" height="168" fill="#ebe4d3" stroke="#2b2620" stroke-width="3"/>
+<rect x="494" y="154" width="212" height="152" fill="none" stroke="#2b2620" stroke-width="1.6"/>
+<!-- aripana/kohbar woven lattice: ochre warp+weft ruled grid -->
+<g stroke="#d59a2a" stroke-width="1.8" fill="none">
+<path d="M486 170 h228 M486 194 h228 M486 218 h228 M486 242 h228 M486 266 h228 M486 290 h228"/>
+<path d="M510 146 v168 M534 146 v168 M558 146 v168 M582 146 v168 M606 146 v168 M630 146 v168 M654 146 v168 M678 146 v168 M702 146 v168"/>
+</g>
+<!-- dot intersections of the lattice -->
+<g fill="#d59a2a">
+<circle cx="510" cy="170" r="1.8"/><circle cx="558" cy="170" r="1.8"/><circle cx="606" cy="170" r="1.8"/><circle cx="654" cy="170" r="1.8"/><circle cx="702" cy="170" r="1.8"/>
+<circle cx="534" cy="194" r="1.8"/><circle cx="582" cy="194" r="1.8"/><circle cx="630" cy="194" r="1.8"/><circle cx="678" cy="194" r="1.8"/>
+<circle cx="510" cy="266" r="1.8"/><circle cx="558" cy="266" r="1.8"/><circle cx="654" cy="266" r="1.8"/><circle cx="702" cy="266" r="1.8"/>
+<circle cx="534" cy="290" r="1.8"/><circle cx="582" cy="290" r="1.8"/><circle cx="630" cy="290" r="1.8"/><circle cx="678" cy="290" r="1.8"/>
+</g>
+
+<!-- ============ THE SHARED-LATENT KNOT (the single vermilion focal element) ============ -->
+<!-- radiant woven rosette around the knot: alternating ochre/indigo pointed rays -->
+<g stroke="#2b2620" stroke-width="1.5">
+<path d="M600 162 l7 -22 l7 22z" fill="#d59a2a" transform="rotate(0 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#344a8c" transform="rotate(30 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#d59a2a" transform="rotate(60 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#344a8c" transform="rotate(90 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#d59a2a" transform="rotate(120 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#344a8c" transform="rotate(150 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#d59a2a" transform="rotate(180 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#344a8c" transform="rotate(210 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#d59a2a" transform="rotate(240 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#344a8c" transform="rotate(270 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#d59a2a" transform="rotate(300 607 230)"/>
+<path d="M600 162 l7 -22 l7 22z" fill="#344a8c" transform="rotate(330 607 230)"/>
+</g>
+<!-- short connecting rays between the points -->
+<g stroke="#2b2620" stroke-width="2">
+<path d="M607 168 l4 -11" transform="rotate(15 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(45 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(75 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(105 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(135 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(165 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(195 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(225 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(255 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(285 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(315 607 230)"/>
+<path d="M607 168 l4 -11" transform="rotate(345 607 230)"/>
+</g>
+<!-- the woven knot disc: vermilion, double-outlined -->
+<circle cx="607" cy="230" r="46" fill="#bb3b2c" stroke="#2b2620" stroke-width="3.5"/>
+<circle cx="607" cy="230" r="39" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<!-- interlaced over-under weave inside the knot (the threads woven into one) -->
+<g fill="none" stroke="#f3eee2" stroke-width="2">
+<path d="M575 212 q32 -10 64 0 M571 226 q36 -10 72 0 M571 240 q36 10 72 0 M575 254 q32 10 64 0"/>
+<path d="M589 198 q-10 32 0 64 M603 194 q-10 36 0 72 M617 194 q10 36 0 72 M631 198 q10 32 0 64"/>
+</g>
+<!-- the seed: a single framed paper square at the very centre, the latent vector cell -->
+<rect x="597" y="220" width="20" height="20" fill="#f3eee2" stroke="#2b2620" stroke-width="2.5"/>
+<rect x="601" y="224" width="12" height="12" fill="none" stroke="#bb3b2c" stroke-width="2"/>
+<circle cx="607" cy="230" r="2.4" fill="#2b2620"/>
+<!-- inner paper petal-dot ring around the knot -->
+<g fill="#f3eee2"><circle cx="607" cy="196" r="2.2"/><circle cx="630" cy="207" r="2.2"/><circle cx="641" cy="230" r="2.2"/><circle cx="630" cy="253" r="2.2"/><circle cx="607" cy="264" r="2.2"/><circle cx="584" cy="253" r="2.2"/><circle cx="573" cy="230" r="2.2"/><circle cx="584" cy="207" r="2.2"/></g>
+
+<!-- ============ FLANKING WEAVER'S SHUTTLES (symmetric kalash-topped spindles carrying the thread to the loom) ============ -->
+<!-- left shuttle -->
+<g>
+<path d="M250 200 q26 -8 52 0 q8 18 0 36 q-26 8 -52 0 q-8 -18 0 -36z" fill="#ebe4d3" stroke="#2b2620" stroke-width="3"/>
+<g stroke="#2b2620" stroke-width="1.5" fill="none"><path d="M262 202 v32 M276 200 v36 M290 202 v32"/></g>
+<g fill="#2e8c84"><circle cx="276" cy="218" r="5"/></g>
+<!-- spindle kalash finial on top -->
+<path d="M270 200 q6 -16 12 0 z" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M274 184 q2 -10 4 0z" fill="#4f8a3d" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+<!-- right shuttle (mirror) -->
+<g>
+<path d="M898 200 q26 -8 52 0 q8 18 0 36 q-26 8 -52 0 q-8 -18 0 -36z" fill="#ebe4d3" stroke="#2b2620" stroke-width="3"/>
+<g stroke="#2b2620" stroke-width="1.5" fill="none"><path d="M910 202 v32 M924 200 v36 M938 202 v32"/></g>
+<g fill="#2e8c84"><circle cx="924" cy="218" r="5"/></g>
+<path d="M918 200 q6 -16 12 0 z" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+<path d="M922 184 q2 -10 4 0z" fill="#4f8a3d" stroke="#2b2620" stroke-width="1.5"/>
+</g>
+
+<!-- ============ TINY SUNS & LEAF-BUDS IN THE GAPS (horror vacui) ============ -->
+<g>
+<g><circle cx="320" cy="232" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M320 220 v6 M320 238 v6 M308 232 h6 M326 232 h6 M312 224 l4 4 M328 224 l-4 4 M312 240 l4 -4 M328 240 l-4 -4"/></g></g>
+<g><circle cx="880" cy="232" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M880 220 v6 M880 238 v6 M868 232 h6 M886 232 h6 M872 224 l4 4 M888 224 l-4 4 M872 240 l4 -4 M888 240 l-4 -4"/></g></g>
+<g><circle cx="420" cy="120" r="5" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/><g stroke="#2b2620" stroke-width="1.4"><path d="M420 110 v5 M420 125 v5 M410 120 h5 M425 120 h5"/></g></g>
+<g><circle cx="780" cy="120" r="5" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/><g stroke="#2b2620" stroke-width="1.4"><path d="M780 110 v5 M780 125 v5 M770 120 h5 M785 120 h5"/></g></g>
+<g><circle cx="420" cy="340" r="5" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/><g stroke="#2b2620" stroke-width="1.4"><path d="M420 330 v5 M420 345 v5 M410 340 h5 M425 340 h5"/></g></g>
+<g><circle cx="780" cy="340" r="5" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/><g stroke="#2b2620" stroke-width="1.4"><path d="M780 330 v5 M780 345 v5 M770 340 h5 M785 340 h5"/></g></g>
+</g>
+<!-- leaf pairs along the loom edges -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1">
+<path d="M360 100 q-12 -8 -22 2 q14 6 22 -2z"/><path d="M840 100 q12 -8 22 2 q-14 6 -22 -2z"/>
+<path d="M360 360 q-12 8 -22 -2 q14 -6 22 2z"/><path d="M840 360 q12 8 22 -2 q-14 -6 -22 2z"/>
+</g>
+<g fill="#2e8c84" stroke="#2b2620" stroke-width="1">
+<path d="M480 100 q-12 -8 -22 2 q14 6 22 -2z"/><path d="M720 100 q12 -8 22 2 q-14 6 -22 -2z"/>
+<path d="M480 360 q-12 8 -22 -2 q14 -6 22 2z"/><path d="M720 360 q12 8 22 -2 q-14 -6 -22 2z"/>
+</g>
+
+<!-- ============ DOUBLE-LINE BORDER WITH DOTTED CHANNEL ============ -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- channel dots: top and bottom -->
+<g fill="#2b2620">
+<circle cx="35" cy="19.5" r="1.6"/><circle cx="59" cy="19.5" r="1.6"/><circle cx="83" cy="19.5" r="1.6"/><circle cx="107" cy="19.5" r="1.6"/><circle cx="131" cy="19.5" r="1.6"/><circle cx="155" cy="19.5" r="1.6"/><circle cx="179" cy="19.5" r="1.6"/><circle cx="203" cy="19.5" r="1.6"/><circle cx="227" cy="19.5" r="1.6"/><circle cx="251" cy="19.5" r="1.6"/><circle cx="275" cy="19.5" r="1.6"/><circle cx="299" cy="19.5" r="1.6"/><circle cx="323" cy="19.5" r="1.6"/><circle cx="347" cy="19.5" r="1.6"/><circle cx="371" cy="19.5" r="1.6"/><circle cx="395" cy="19.5" r="1.6"/><circle cx="419" cy="19.5" r="1.6"/><circle cx="443" cy="19.5" r="1.6"/><circle cx="467" cy="19.5" r="1.6"/><circle cx="491" cy="19.5" r="1.6"/><circle cx="515" cy="19.5" r="1.6"/><circle cx="539" cy="19.5" r="1.6"/><circle cx="563" cy="19.5" r="1.6"/><circle cx="587" cy="19.5" r="1.6"/><circle cx="611" cy="19.5" r="1.6"/><circle cx="635" cy="19.5" r="1.6"/><circle cx="659" cy="19.5" r="1.6"/><circle cx="683" cy="19.5" r="1.6"/><circle cx="707" cy="19.5" r="1.6"/><circle cx="731" cy="19.5" r="1.6"/><circle cx="755" cy="19.5" r="1.6"/><circle cx="779" cy="19.5" r="1.6"/><circle cx="803" cy="19.5" r="1.6"/><circle cx="827" cy="19.5" r="1.6"/><circle cx="851" cy="19.5" r="1.6"/><circle cx="875" cy="19.5" r="1.6"/><circle cx="899" cy="19.5" r="1.6"/><circle cx="923" cy="19.5" r="1.6"/><circle cx="947" cy="19.5" r="1.6"/><circle cx="971" cy="19.5" r="1.6"/><circle cx="995" cy="19.5" r="1.6"/><circle cx="1019" cy="19.5" r="1.6"/><circle cx="1043" cy="19.5" r="1.6"/><circle cx="1067" cy="19.5" r="1.6"/><circle cx="1091" cy="19.5" r="1.6"/><circle cx="1115" cy="19.5" r="1.6"/><circle cx="1139" cy="19.5" r="1.6"/><circle cx="1163" cy="19.5" r="1.6"/>
+<circle cx="35" cy="440.5" r="1.6"/><circle cx="59" cy="440.5" r="1.6"/><circle cx="83" cy="440.5" r="1.6"/><circle cx="107" cy="440.5" r="1.6"/><circle cx="131" cy="440.5" r="1.6"/><circle cx="155" cy="440.5" r="1.6"/><circle cx="179" cy="440.5" r="1.6"/><circle cx="203" cy="440.5" r="1.6"/><circle cx="227" cy="440.5" r="1.6"/><circle cx="251" cy="440.5" r="1.6"/><circle cx="275" cy="440.5" r="1.6"/><circle cx="299" cy="440.5" r="1.6"/><circle cx="323" cy="440.5" r="1.6"/><circle cx="347" cy="440.5" r="1.6"/><circle cx="371" cy="440.5" r="1.6"/><circle cx="395" cy="440.5" r="1.6"/><circle cx="419" cy="440.5" r="1.6"/><circle cx="443" cy="440.5" r="1.6"/><circle cx="467" cy="440.5" r="1.6"/><circle cx="491" cy="440.5" r="1.6"/><circle cx="515" cy="440.5" r="1.6"/><circle cx="539" cy="440.5" r="1.6"/><circle cx="563" cy="440.5" r="1.6"/><circle cx="587" cy="440.5" r="1.6"/><circle cx="611" cy="440.5" r="1.6"/><circle cx="635" cy="440.5" r="1.6"/><circle cx="659" cy="440.5" r="1.6"/><circle cx="683" cy="440.5" r="1.6"/><circle cx="707" cy="440.5" r="1.6"/><circle cx="731" cy="440.5" r="1.6"/><circle cx="755" cy="440.5" r="1.6"/><circle cx="779" cy="440.5" r="1.6"/><circle cx="803" cy="440.5" r="1.6"/><circle cx="827" cy="440.5" r="1.6"/><circle cx="851" cy="440.5" r="1.6"/><circle cx="875" cy="440.5" r="1.6"/><circle cx="899" cy="440.5" r="1.6"/><circle cx="923" cy="440.5" r="1.6"/><circle cx="947" cy="440.5" r="1.6"/><circle cx="971" cy="440.5" r="1.6"/><circle cx="995" cy="440.5" r="1.6"/><circle cx="1019" cy="440.5" r="1.6"/><circle cx="1043" cy="440.5" r="1.6"/><circle cx="1067" cy="440.5" r="1.6"/><circle cx="1091" cy="440.5" r="1.6"/><circle cx="1115" cy="440.5" r="1.6"/><circle cx="1139" cy="440.5" r="1.6"/><circle cx="1163" cy="440.5" r="1.6"/>
+</g>
+<!-- channel dots: left and right -->
+<g fill="#2b2620">
+<circle cx="19.5" cy="47" r="1.6"/><circle cx="19.5" cy="71" r="1.6"/><circle cx="19.5" cy="95" r="1.6"/><circle cx="19.5" cy="119" r="1.6"/><circle cx="19.5" cy="143" r="1.6"/><circle cx="19.5" cy="167" r="1.6"/><circle cx="19.5" cy="191" r="1.6"/><circle cx="19.5" cy="215" r="1.6"/><circle cx="19.5" cy="239" r="1.6"/><circle cx="19.5" cy="263" r="1.6"/><circle cx="19.5" cy="287" r="1.6"/><circle cx="19.5" cy="311" r="1.6"/><circle cx="19.5" cy="335" r="1.6"/><circle cx="19.5" cy="359" r="1.6"/><circle cx="19.5" cy="383" r="1.6"/><circle cx="19.5" cy="407" r="1.6"/>
+<circle cx="1180.5" cy="47" r="1.6"/><circle cx="1180.5" cy="71" r="1.6"/><circle cx="1180.5" cy="95" r="1.6"/><circle cx="1180.5" cy="119" r="1.6"/><circle cx="1180.5" cy="143" r="1.6"/><circle cx="1180.5" cy="167" r="1.6"/><circle cx="1180.5" cy="191" r="1.6"/><circle cx="1180.5" cy="215" r="1.6"/><circle cx="1180.5" cy="239" r="1.6"/><circle cx="1180.5" cy="263" r="1.6"/><circle cx="1180.5" cy="287" r="1.6"/><circle cx="1180.5" cy="311" r="1.6"/><circle cx="1180.5" cy="335" r="1.6"/><circle cx="1180.5" cy="359" r="1.6"/><circle cx="1180.5" cy="383" r="1.6"/><circle cx="1180.5" cy="407" r="1.6"/>
+</g>
+
+<!-- ============ CORNER ROSETTES (sun-tick discs) ============ -->
+<g stroke="#2b2620" stroke-width="2.5" fill="#d59a2a"><circle cx="44" cy="44" r="9"/></g>
+<circle cx="44" cy="44" r="3.5" fill="#bb3b2c"/>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M44 31 v-6 M44 57 v6 M31 44 h-6 M57 44 h6 M35 35 l-4 -4 M53 35 l4 -4 M35 53 l-4 4 M53 53 l4 4"/></g>
+<g stroke="#2b2620" stroke-width="2.5" fill="#4f8a3d"><circle cx="1156" cy="44" r="9"/></g>
+<circle cx="1156" cy="44" r="3.5" fill="#f3eee2"/>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M1156 31 v-6 M1156 57 v6 M1143 44 h-6 M1169 44 h6 M1147 35 l-4 -4 M1165 35 l4 -4 M1147 53 l-4 4 M1165 53 l4 4"/></g>
+<g stroke="#2b2620" stroke-width="2.5" fill="#2e8c84"><circle cx="44" cy="416" r="9"/></g>
+<circle cx="44" cy="416" r="3.5" fill="#f3eee2"/>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M44 403 v-6 M44 429 v6 M31 416 h-6 M57 416 h6 M35 407 l-4 -4 M53 407 l4 -4 M35 425 l-4 4 M53 425 l4 4"/></g>
+<g stroke="#2b2620" stroke-width="2.5" fill="#344a8c"><circle cx="1156" cy="416" r="9"/></g>
+<circle cx="1156" cy="416" r="3.5" fill="#f3eee2"/>
+<g stroke="#2b2620" stroke-width="2" fill="none"><path d="M1156 403 v-6 M1156 429 v6 M1143 416 h-6 M1169 416 h6 M1147 407 l-4 -4 M1165 407 l4 -4 M1147 425 l-4 4 M1165 425 l4 4"/></g>
+</svg>

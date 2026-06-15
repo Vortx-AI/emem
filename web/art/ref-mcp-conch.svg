@@ -1,0 +1,264 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<title>Madhubani reference panel: a ceremonial shankha (conch) sounding the connection — its spiral whorl packed with fish-scale arcs and a single vermilion sound-seed at the aperture, flanked by ochre aripana welcome-lattices and lotus-bud corners, the one endpoint every host may speak.</title>
+
+<!-- ===== PAPER GROUND ===== -->
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
+
+<!-- recessed paper-2 blocks behind the flanking lattices -->
+<rect x="40" y="120" width="210" height="220" fill="#ebe4d3"/>
+<rect x="950" y="120" width="210" height="220" fill="#ebe4d3"/>
+
+<!-- ============ BACKGROUND HORROR-VACUI (faint brown) ============ -->
+<!-- diagonal hatch field, upper band -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M300 44 L336 80 M330 44 L366 80 M360 44 L396 80 M390 44 L426 80 M420 44 L456 80 M450 44 L486 80 M480 44 L516 80 M510 44 L546 80 M540 44 L576 80 M570 44 L606 80 M600 44 L636 80 M630 44 L666 80 M660 44 L696 80 M690 44 L726 80 M720 44 L756 80 M750 44 L786 80 M780 44 L816 80 M810 44 L846 80 M840 44 L876 80 M870 44 L906 80"/>
+</g>
+<!-- full-panel dot grid, thinned toward centre -->
+<g fill="#5c5346">
+<circle cx="300" cy="120" r="2"/><circle cx="345" cy="120" r="2"/><circle cx="390" cy="120" r="2"/><circle cx="855" cy="120" r="2"/><circle cx="900" cy="120" r="2"/>
+<circle cx="320" cy="160" r="2"/><circle cx="365" cy="160" r="2"/><circle cx="835" cy="160" r="2"/><circle cx="880" cy="160" r="2"/>
+<circle cx="300" cy="300" r="2"/><circle cx="345" cy="300" r="2"/><circle cx="855" cy="300" r="2"/><circle cx="900" cy="300" r="2"/>
+<circle cx="320" cy="340" r="2"/><circle cx="365" cy="340" r="2"/><circle cx="410" cy="340" r="2"/><circle cx="790" cy="340" r="2"/><circle cx="835" cy="340" r="2"/><circle cx="880" cy="340" r="2"/>
+<circle cx="300" cy="385" r="2"/><circle cx="350" cy="385" r="2"/><circle cx="400" cy="385" r="2"/><circle cx="800" cy="385" r="2"/><circle cx="850" cy="385" r="2"/><circle cx="900" cy="385" r="2"/>
+</g>
+<!-- fish-scale arc fields parked in the two top corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M44 96 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0"/>
+<path d="M64 112 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0"/>
+<path d="M960 96 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0"/>
+<path d="M980 112 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0"/>
+</g>
+<!-- fish-scale arc field along the very bottom -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M300 422 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0 q20 -16 40 0"/>
+</g>
+
+<!-- ============ RUNNING VINE (bel) DOWN BOTH SIDES — green stem + indigo companion ============ -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.4"><path d="M280 96 q16 28 0 56 q-16 28 0 56 q16 28 0 56 q-16 28 0 56 q16 28 0 56"/></g>
+<g fill="none" stroke="#344a8c" stroke-width="1.6"><path d="M288 96 q16 28 0 56 q-16 28 0 56 q16 28 0 56 q-16 28 0 56 q16 28 0 56"/></g>
+<g fill="#4f8a3d"><path d="M280 124 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M280 180 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M280 236 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M280 292 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M280 348 q22 -6 30 8 q-18 6 -30 -8z"/></g>
+<g fill="#2e8c84"><path d="M280 152 q20 -4 26 8 q-16 6 -26 -8z"/><path d="M280 208 q-20 -4 -26 8 q16 6 26 -8z"/><path d="M280 264 q20 -4 26 8 q-16 6 -26 -8z"/><path d="M280 320 q-20 -4 -26 8 q16 6 26 -8z"/></g>
+
+<g fill="none" stroke="#4f8a3d" stroke-width="2.4"><path d="M920 96 q-16 28 0 56 q16 28 0 56 q-16 28 0 56 q16 28 0 56 q-16 28 0 56"/></g>
+<g fill="none" stroke="#344a8c" stroke-width="1.6"><path d="M912 96 q-16 28 0 56 q16 28 0 56 q-16 28 0 56 q16 28 0 56 q-16 28 0 56"/></g>
+<g fill="#4f8a3d"><path d="M920 124 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M920 180 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M920 236 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M920 292 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M920 348 q-22 -6 -30 8 q18 6 30 -8z"/></g>
+<g fill="#2e8c84"><path d="M920 152 q-20 -4 -26 8 q16 6 26 -8z"/><path d="M920 208 q20 -4 26 8 q-16 6 -26 -8z"/><path d="M920 264 q-20 -4 -26 8 q16 6 26 -8z"/><path d="M920 320 q20 -4 26 8 q-16 6 -26 -8z"/></g>
+
+<!-- ============ FLANKING ARIPANA WELCOME-LATTICE (ochre) — LEFT ============ -->
+<g stroke="#d59a2a" stroke-width="2.4" fill="none">
+<path d="M60 140 h170 M60 168 h170 M60 196 h170 M60 224 h170 M60 252 h170 M60 280 h170 M60 308 h170"/>
+<path d="M60 140 v168 M88 140 v168 M116 140 v168 M144 140 v168 M172 140 v168 M200 140 v168 M230 140 v168"/>
+</g>
+<!-- aripana dot intersections (ochre) -->
+<g fill="#d59a2a">
+<circle cx="74" cy="154" r="2"/><circle cx="130" cy="154" r="2"/><circle cx="186" cy="154" r="2"/>
+<circle cx="102" cy="182" r="2"/><circle cx="158" cy="182" r="2"/><circle cx="214" cy="182" r="2"/>
+<circle cx="74" cy="210" r="2"/><circle cx="130" cy="210" r="2"/><circle cx="186" cy="210" r="2"/>
+<circle cx="102" cy="238" r="2"/><circle cx="158" cy="238" r="2"/><circle cx="214" cy="238" r="2"/>
+<circle cx="74" cy="266" r="2"/><circle cx="130" cy="266" r="2"/><circle cx="186" cy="266" r="2"/>
+<circle cx="102" cy="294" r="2"/><circle cx="158" cy="294" r="2"/><circle cx="214" cy="294" r="2"/>
+</g>
+
+<!-- ============ FLANKING ARIPANA WELCOME-LATTICE (ochre) — RIGHT ============ -->
+<g stroke="#d59a2a" stroke-width="2.4" fill="none">
+<path d="M970 140 h170 M970 168 h170 M970 196 h170 M970 224 h170 M970 252 h170 M970 280 h170 M970 308 h170"/>
+<path d="M970 140 v168 M998 140 v168 M1026 140 v168 M1054 140 v168 M1082 140 v168 M1110 140 v168 M1140 140 v168"/>
+</g>
+<g fill="#d59a2a">
+<circle cx="984" cy="154" r="2"/><circle cx="1040" cy="154" r="2"/><circle cx="1096" cy="154" r="2"/>
+<circle cx="1012" cy="182" r="2"/><circle cx="1068" cy="182" r="2"/><circle cx="1124" cy="182" r="2"/>
+<circle cx="984" cy="210" r="2"/><circle cx="1040" cy="210" r="2"/><circle cx="1096" cy="210" r="2"/>
+<circle cx="1012" cy="238" r="2"/><circle cx="1068" cy="238" r="2"/><circle cx="1124" cy="238" r="2"/>
+<circle cx="984" cy="266" r="2"/><circle cx="1040" cy="266" r="2"/><circle cx="1096" cy="266" r="2"/>
+<circle cx="1012" cy="294" r="2"/><circle cx="1068" cy="294" r="2"/><circle cx="1124" cy="294" r="2"/>
+</g>
+
+<!-- ============ SOUND-WAVES — the conch sounding the connection (teal arcs radiating from the mouth) ============ -->
+<g fill="none" stroke="#2e8c84" stroke-width="2.4">
+<path d="M770 196 q40 34 0 68"/>
+<path d="M788 184 q56 46 0 92"/>
+<path d="M806 172 q72 58 0 116"/>
+</g>
+<!-- companion indigo wave echo (the "same JSON everywhere" carried outward) -->
+<g fill="none" stroke="#344a8c" stroke-width="1.8">
+<path d="M779 190 q48 40 0 80"/>
+<path d="M797 178 q64 52 0 104"/>
+</g>
+
+<!-- ============ THE CENTRAL SHANKHA (CONCH) ============ -->
+<!-- conch outer body: double outline, flat paper fill -->
+<path d="M470 320
+         C420 300 410 250 446 214
+         C470 190 510 178 552 178
+         C520 196 506 224 514 252
+         C520 274 540 288 566 290
+         C610 294 660 268 700 234
+         C736 204 760 196 772 210
+         C782 222 778 240 760 250
+         C724 270 686 296 648 318
+         C606 342 560 356 522 354
+         C500 352 484 340 470 320 Z"
+      fill="#f3eee2" stroke="#2b2620" stroke-width="3.5"/>
+<!-- inner echo line -->
+<path d="M474 314
+         C432 296 424 252 456 220
+         C478 198 514 188 546 188
+         C522 204 512 228 520 254
+         C528 280 552 296 580 298
+         C624 302 668 274 706 240"
+      fill="none" stroke="#2b2620" stroke-width="1.8"/>
+
+<!-- conch tail/siphon spire pointing up-left -->
+<path d="M470 320 C448 300 432 268 446 236 C456 254 470 268 486 276 C476 292 472 306 470 320 Z"
+      fill="#2e8c84" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.6"><path d="M452 244 q14 18 30 26 M448 262 q16 14 30 18 M450 280 q12 10 22 12"/></g>
+
+<!-- the long aperture/lip of the conch (flat ochre band along the body opening) -->
+<path d="M514 252 C520 274 540 288 566 290 C610 294 660 268 700 234 C720 218 738 210 752 214
+         C740 226 720 240 700 252 C664 274 626 298 590 314 C560 326 534 322 518 304
+         C508 292 508 270 514 252 Z"
+      fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/>
+<!-- aperture line-fill: ridged furrow lines following the lip -->
+<g fill="none" stroke="#2b2620" stroke-width="1.4">
+<path d="M528 268 q60 30 150 -28"/>
+<path d="M524 284 q70 30 168 -22"/>
+<path d="M534 300 q60 22 138 -20"/>
+</g>
+
+<!-- ===== SPIRAL WHORL packed with fish-scale arcs (the inner turning of the shell) ===== -->
+<!-- whorl base disc -->
+<path d="M512 256 C500 224 518 190 552 184 C516 200 512 230 528 254 C540 272 560 280 580 280 C552 286 524 280 512 256 Z"
+      fill="#2e8c84" stroke="#2b2620" stroke-width="2.5"/>
+<!-- nested spiral lines -->
+<g fill="none" stroke="#2b2620" stroke-width="2">
+<path d="M548 254 q-26 -8 -28 -34 q2 -22 26 -28 q20 -4 28 14"/>
+<path d="M548 246 q-18 -6 -20 -24 q2 -14 18 -18"/>
+</g>
+<!-- fish-scale arc packing inside the whorl (teal over the base) -->
+<g fill="none" stroke="#2b2620" stroke-width="1.6">
+<path d="M520 230 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0"/>
+<path d="M516 244 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0"/>
+<path d="M524 258 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0 a7 7 0 0 1 14 0"/>
+</g>
+<!-- ochre scale-dots between the arcs -->
+<g fill="#d59a2a">
+<circle cx="534" cy="230" r="2"/><circle cx="548" cy="230" r="2"/><circle cx="562" cy="230" r="2"/>
+<circle cx="530" cy="244" r="2"/><circle cx="544" cy="244" r="2"/><circle cx="558" cy="244" r="2"/>
+<circle cx="538" cy="258" r="2"/><circle cx="552" cy="258" r="2"/>
+</g>
+
+<!-- fish-scale arc packing across the conch body (paper-toned, light) -->
+<g fill="none" stroke="#2b2620" stroke-width="1.4">
+<path d="M600 250 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M592 264 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M600 278 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+</g>
+<!-- ochre furrow-dot rows over the body -->
+<g fill="#d59a2a">
+<circle cx="616" cy="256" r="2"/><circle cx="648" cy="256" r="2"/><circle cx="680" cy="256" r="2"/><circle cx="712" cy="256" r="2"/>
+<circle cx="624" cy="272" r="2"/><circle cx="656" cy="272" r="2"/><circle cx="688" cy="272" r="2"/>
+</g>
+
+<!-- ===== THE VERMILION SOUND-SEED (the one focal red — the single endpoint the eye lands on) ===== -->
+<!-- it sits at the mouth of the conch, where the sound is born -->
+<circle cx="546" cy="222" r="11" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.5"/>
+<circle cx="546" cy="222" r="4.5" fill="#f3eee2"/>
+<g stroke="#bb3b2c" stroke-width="2" fill="none">
+<path d="M546 207 v-8 M546 237 v8 M531 222 h-8 M561 222 h8 M536 212 l-5 -5 M556 212 l5 -5 M536 232 l-5 5 M556 232 l5 5"/>
+</g>
+
+<!-- ============ LOTUS BUD TRIADS flanking the conch (leaf-green, inward) ============ -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.5">
+<path d="M392 360 q-8 -20 0 -34 q8 14 0 34 M392 360 q-15 -11 -17 -27 q15 7 17 27 M392 360 q15 -11 17 -27 q-15 7 -17 27"/>
+<path d="M808 360 q-8 -20 0 -34 q8 14 0 34 M808 360 q-15 -11 -17 -27 q15 7 17 27 M808 360 q15 -11 17 -27 q-15 7 -17 27"/>
+</g>
+<!-- lotus 8-petal ring around a seed, centre-bottom between the buds -->
+<g fill="none" stroke="#2e8c84" stroke-width="2">
+<path d="M600 376 q-10 -14 0 -26 q10 12 0 26z"/>
+<path d="M600 376 q14 -10 26 0 q-12 10 -26 0z" transform="rotate(45 600 376)"/>
+<path d="M600 376 q-10 -14 0 -26 q10 12 0 26z" transform="rotate(90 600 376)"/>
+<path d="M600 376 q14 -10 26 0 q-12 10 -26 0z" transform="rotate(135 600 376)"/>
+<path d="M600 376 q-10 -14 0 -26 q10 12 0 26z" transform="rotate(180 600 376)"/>
+<path d="M600 376 q14 -10 26 0 q-12 10 -26 0z" transform="rotate(225 600 376)"/>
+<path d="M600 376 q-10 -14 0 -26 q10 12 0 26z" transform="rotate(270 600 376)"/>
+<path d="M600 376 q14 -10 26 0 q-12 10 -26 0z" transform="rotate(315 600 376)"/>
+</g>
+<circle cx="600" cy="376" r="5" fill="#d59a2a" stroke="#2b2620" stroke-width="1.5"/>
+
+<!-- ============ TINY SUNS scattered in the gaps (ochre) ============ -->
+<g stroke="#d59a2a" stroke-width="2" fill="#d59a2a">
+<g><circle cx="360" cy="200" r="4"/><path d="M360 189 v-6 M360 211 v6 M349 200 h-6 M371 200 h6 M352 192 l-5 -5 M368 192 l5 -5 M352 208 l-5 5 M368 208 l5 5"/></g>
+<g><circle cx="840" cy="200" r="4"/><path d="M840 189 v-6 M840 211 v6 M829 200 h-6 M851 200 h6 M832 192 l-5 -5 M848 192 l5 -5 M832 208 l-5 5 M848 208 l5 5"/></g>
+</g>
+<!-- small teal 8-tick suns -->
+<g>
+<g><circle cx="420" cy="118" r="5" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M420 107 v6 M420 123 v6 M409 118 h6 M425 118 h6 M412 110 l4 4 M428 110 l-4 4 M412 126 l4 -4 M428 126 l-4 -4"/></g></g>
+<g><circle cx="780" cy="118" r="5" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M780 107 v6 M780 123 v6 M769 118 h6 M785 118 h6 M772 110 l4 4 M788 110 l-4 4 M772 126 l4 -4 M788 126 l-4 -4"/></g></g>
+</g>
+
+<!-- tiny leaf pairs filling residual gaps near the conch -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1">
+<path d="M430 200 q-12 -8 -22 2 q14 6 22 -2z"/>
+<path d="M770 320 q12 8 22 -2 q-14 -6 -22 2z"/>
+<path d="M430 330 q-12 6 -10 20 q12 -8 10 -20z"/>
+</g>
+<g fill="#2e8c84" stroke="#2b2620" stroke-width="1">
+<path d="M780 290 q12 -8 22 2 q-14 6 -22 -2z"/>
+<path d="M410 300 q-12 -8 -22 2 q14 6 22 -2z"/>
+</g>
+
+<!-- residual ink dot rows close to the sound-waves -->
+<g fill="#2b2620">
+<circle cx="700" cy="180" r="2"/><circle cx="722" cy="172" r="2"/><circle cx="744" cy="186" r="2"/>
+<circle cx="690" cy="330" r="2"/><circle cx="714" cy="336" r="2"/>
+<circle cx="470" cy="180" r="2"/><circle cx="452" cy="194" r="2"/>
+</g>
+
+<!-- ============ DOUBLE-LINE BORDER WITH DOTTED CHANNEL ============ -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- top + bottom channel dots -->
+<g fill="#2b2620">
+<circle cx="35" cy="19.5" r="1.6"/><circle cx="59" cy="19.5" r="1.6"/><circle cx="83" cy="19.5" r="1.6"/><circle cx="107" cy="19.5" r="1.6"/><circle cx="131" cy="19.5" r="1.6"/><circle cx="155" cy="19.5" r="1.6"/><circle cx="179" cy="19.5" r="1.6"/><circle cx="203" cy="19.5" r="1.6"/><circle cx="227" cy="19.5" r="1.6"/><circle cx="251" cy="19.5" r="1.6"/><circle cx="275" cy="19.5" r="1.6"/><circle cx="299" cy="19.5" r="1.6"/><circle cx="323" cy="19.5" r="1.6"/><circle cx="347" cy="19.5" r="1.6"/><circle cx="371" cy="19.5" r="1.6"/><circle cx="395" cy="19.5" r="1.6"/><circle cx="419" cy="19.5" r="1.6"/><circle cx="443" cy="19.5" r="1.6"/><circle cx="467" cy="19.5" r="1.6"/><circle cx="491" cy="19.5" r="1.6"/><circle cx="515" cy="19.5" r="1.6"/><circle cx="539" cy="19.5" r="1.6"/><circle cx="563" cy="19.5" r="1.6"/><circle cx="587" cy="19.5" r="1.6"/><circle cx="611" cy="19.5" r="1.6"/><circle cx="635" cy="19.5" r="1.6"/><circle cx="659" cy="19.5" r="1.6"/><circle cx="683" cy="19.5" r="1.6"/><circle cx="707" cy="19.5" r="1.6"/><circle cx="731" cy="19.5" r="1.6"/><circle cx="755" cy="19.5" r="1.6"/><circle cx="779" cy="19.5" r="1.6"/><circle cx="803" cy="19.5" r="1.6"/><circle cx="827" cy="19.5" r="1.6"/><circle cx="851" cy="19.5" r="1.6"/><circle cx="875" cy="19.5" r="1.6"/><circle cx="899" cy="19.5" r="1.6"/><circle cx="923" cy="19.5" r="1.6"/><circle cx="947" cy="19.5" r="1.6"/><circle cx="971" cy="19.5" r="1.6"/><circle cx="995" cy="19.5" r="1.6"/><circle cx="1019" cy="19.5" r="1.6"/><circle cx="1043" cy="19.5" r="1.6"/><circle cx="1067" cy="19.5" r="1.6"/><circle cx="1091" cy="19.5" r="1.6"/><circle cx="1115" cy="19.5" r="1.6"/><circle cx="1139" cy="19.5" r="1.6"/><circle cx="1163" cy="19.5" r="1.6"/>
+<circle cx="35" cy="440.5" r="1.6"/><circle cx="59" cy="440.5" r="1.6"/><circle cx="83" cy="440.5" r="1.6"/><circle cx="107" cy="440.5" r="1.6"/><circle cx="131" cy="440.5" r="1.6"/><circle cx="155" cy="440.5" r="1.6"/><circle cx="179" cy="440.5" r="1.6"/><circle cx="203" cy="440.5" r="1.6"/><circle cx="227" cy="440.5" r="1.6"/><circle cx="251" cy="440.5" r="1.6"/><circle cx="275" cy="440.5" r="1.6"/><circle cx="299" cy="440.5" r="1.6"/><circle cx="323" cy="440.5" r="1.6"/><circle cx="347" cy="440.5" r="1.6"/><circle cx="371" cy="440.5" r="1.6"/><circle cx="395" cy="440.5" r="1.6"/><circle cx="419" cy="440.5" r="1.6"/><circle cx="443" cy="440.5" r="1.6"/><circle cx="467" cy="440.5" r="1.6"/><circle cx="491" cy="440.5" r="1.6"/><circle cx="515" cy="440.5" r="1.6"/><circle cx="539" cy="440.5" r="1.6"/><circle cx="563" cy="440.5" r="1.6"/><circle cx="587" cy="440.5" r="1.6"/><circle cx="611" cy="440.5" r="1.6"/><circle cx="635" cy="440.5" r="1.6"/><circle cx="659" cy="440.5" r="1.6"/><circle cx="683" cy="440.5" r="1.6"/><circle cx="707" cy="440.5" r="1.6"/><circle cx="731" cy="440.5" r="1.6"/><circle cx="755" cy="440.5" r="1.6"/><circle cx="779" cy="440.5" r="1.6"/><circle cx="803" cy="440.5" r="1.6"/><circle cx="827" cy="440.5" r="1.6"/><circle cx="851" cy="440.5" r="1.6"/><circle cx="875" cy="440.5" r="1.6"/><circle cx="899" cy="440.5" r="1.6"/><circle cx="923" cy="440.5" r="1.6"/><circle cx="947" cy="440.5" r="1.6"/><circle cx="971" cy="440.5" r="1.6"/><circle cx="995" cy="440.5" r="1.6"/><circle cx="1019" cy="440.5" r="1.6"/><circle cx="1043" cy="440.5" r="1.6"/><circle cx="1067" cy="440.5" r="1.6"/><circle cx="1091" cy="440.5" r="1.6"/><circle cx="1115" cy="440.5" r="1.6"/><circle cx="1139" cy="440.5" r="1.6"/><circle cx="1163" cy="440.5" r="1.6"/>
+</g>
+<!-- side channel vertical dot rows -->
+<g fill="#2b2620">
+<circle cx="19.5" cy="47" r="1.6"/><circle cx="19.5" cy="71" r="1.6"/><circle cx="19.5" cy="95" r="1.6"/><circle cx="19.5" cy="119" r="1.6"/><circle cx="19.5" cy="143" r="1.6"/><circle cx="19.5" cy="167" r="1.6"/><circle cx="19.5" cy="191" r="1.6"/><circle cx="19.5" cy="215" r="1.6"/><circle cx="19.5" cy="239" r="1.6"/><circle cx="19.5" cy="263" r="1.6"/><circle cx="19.5" cy="287" r="1.6"/><circle cx="19.5" cy="311" r="1.6"/><circle cx="19.5" cy="335" r="1.6"/><circle cx="19.5" cy="359" r="1.6"/><circle cx="19.5" cy="383" r="1.6"/><circle cx="19.5" cy="407" r="1.6"/>
+<circle cx="1180.5" cy="47" r="1.6"/><circle cx="1180.5" cy="71" r="1.6"/><circle cx="1180.5" cy="95" r="1.6"/><circle cx="1180.5" cy="119" r="1.6"/><circle cx="1180.5" cy="143" r="1.6"/><circle cx="1180.5" cy="167" r="1.6"/><circle cx="1180.5" cy="191" r="1.6"/><circle cx="1180.5" cy="215" r="1.6"/><circle cx="1180.5" cy="239" r="1.6"/><circle cx="1180.5" cy="263" r="1.6"/><circle cx="1180.5" cy="287" r="1.6"/><circle cx="1180.5" cy="311" r="1.6"/><circle cx="1180.5" cy="335" r="1.6"/><circle cx="1180.5" cy="359" r="1.6"/><circle cx="1180.5" cy="383" r="1.6"/><circle cx="1180.5" cy="407" r="1.6"/>
+</g>
+
+<!-- ============ CORNER LOTUS-BUD ROSETTES (4-petal cluster + vermilion centre dot) ============ -->
+<!-- TL -->
+<g stroke="#2b2620" stroke-width="2" fill="#d59a2a">
+<path d="M44 44 q-9 -12 0 -22 q9 10 0 22z"/>
+<path d="M44 44 q12 -9 22 0 q-10 9 -22 0z"/>
+<path d="M44 44 q9 12 0 22 q-9 -10 0 -22z"/>
+<path d="M44 44 q-12 9 -22 0 q10 -9 22 0z"/>
+</g>
+<circle cx="44" cy="44" r="3.5" fill="#bb3b2c"/>
+<!-- TR -->
+<g stroke="#2b2620" stroke-width="2" fill="#4f8a3d">
+<path d="M1156 44 q-9 -12 0 -22 q9 10 0 22z"/>
+<path d="M1156 44 q12 -9 22 0 q-10 9 -22 0z"/>
+<path d="M1156 44 q9 12 0 22 q-9 -10 0 -22z"/>
+<path d="M1156 44 q-12 9 -22 0 q10 -9 22 0z"/>
+</g>
+<circle cx="1156" cy="44" r="3.5" fill="#bb3b2c"/>
+<!-- BL -->
+<g stroke="#2b2620" stroke-width="2" fill="#2e8c84">
+<path d="M44 416 q-9 -12 0 -22 q9 10 0 22z"/>
+<path d="M44 416 q12 -9 22 0 q-10 9 -22 0z"/>
+<path d="M44 416 q9 12 0 22 q-9 -10 0 -22z"/>
+<path d="M44 416 q-12 9 -22 0 q10 -9 22 0z"/>
+</g>
+<circle cx="44" cy="416" r="3.5" fill="#bb3b2c"/>
+<!-- BR -->
+<g stroke="#2b2620" stroke-width="2" fill="#d59a2a">
+<path d="M1156 416 q-9 -12 0 -22 q9 10 0 22z"/>
+<path d="M1156 416 q12 -9 22 0 q-10 9 -22 0z"/>
+<path d="M1156 416 q9 12 0 22 q-9 -10 0 -22z"/>
+<path d="M1156 416 q-12 9 -22 0 q10 -9 22 0z"/>
+</g>
+<circle cx="1156" cy="416" r="3.5" fill="#bb3b2c"/>
+</svg>

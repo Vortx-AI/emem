@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<title>Madhubani peacock with a fanned eye-spotted tail — one labelled rosette plume per read endpoint radiating from a single handler body (the high-traffic read surface)</title>
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
+
+<!-- ===== RECESSED GROUND BLOCKS (paper-2 behind the fan and the body) ===== -->
+<rect x="120" y="40" width="960" height="300" rx="10" fill="#ebe4d3"/>
+<rect x="520" y="300" width="160" height="120" fill="#ebe4d3"/>
+
+<!-- ===== HORROR-VACUI BACKGROUND: faint brown dot grid (thinned toward centre) ===== -->
+<g fill="#5c5346">
+<circle cx="60" cy="70" r="2.1"/><circle cx="110" cy="70" r="2.1"/><circle cx="160" cy="70" r="2.1"/><circle cx="1040" cy="70" r="2.1"/><circle cx="1090" cy="70" r="2.1"/><circle cx="1140" cy="70" r="2.1"/>
+<circle cx="60" cy="120" r="2.1"/><circle cx="110" cy="120" r="2.1"/><circle cx="1090" cy="120" r="2.1"/><circle cx="1140" cy="120" r="2.1"/>
+<circle cx="60" cy="170" r="2.1"/><circle cx="110" cy="170" r="2.1"/><circle cx="1090" cy="170" r="2.1"/><circle cx="1140" cy="170" r="2.1"/>
+<circle cx="60" cy="220" r="2.1"/><circle cx="110" cy="220" r="2.1"/><circle cx="1090" cy="220" r="2.1"/><circle cx="1140" cy="220" r="2.1"/>
+<circle cx="60" cy="270" r="2.1"/><circle cx="110" cy="270" r="2.1"/><circle cx="1090" cy="270" r="2.1"/><circle cx="1140" cy="270" r="2.1"/>
+<circle cx="60" cy="390" r="2.1"/><circle cx="110" cy="390" r="2.1"/><circle cx="160" cy="390" r="2.1"/><circle cx="210" cy="390" r="2.1"/><circle cx="990" cy="390" r="2.1"/><circle cx="1040" cy="390" r="2.1"/><circle cx="1090" cy="390" r="2.1"/><circle cx="1140" cy="390" r="2.1"/>
+</g>
+<!-- faint diagonal hatch field in the two top corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 40 L70 70 M55 40 L85 70 M70 40 L100 70 M85 40 L115 70 M100 40 L130 70 M115 40 L145 70"/>
+<path d="M1085 40 L1115 70 M1100 40 L1130 70 M1115 40 L1145 70 M1130 40 L1160 70 M1145 40 L1175 70"/>
+</g>
+<!-- faint fish-scale arc fields parked in the bottom corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 430 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0"/>
+<path d="M1004 430 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0 q14 -12 28 0"/>
+</g>
+
+<!-- ===== RUNNING BEL VINES down the left and right inner margins ===== -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.2"><path d="M44 110 q14 22 0 44 q-14 22 0 44 q14 22 0 44 q-14 22 0 44 q14 22 0 44"/></g>
+<g fill="#4f8a3d"><path d="M44 132 q20 -6 28 7 q-16 6 -28 -7z"/><path d="M44 176 q-20 -6 -28 7 q16 6 28 -7z"/><path d="M44 220 q20 -6 28 7 q-16 6 -28 -7z"/><path d="M44 264 q-20 -6 -28 7 q16 6 28 -7z"/><path d="M44 308 q20 -6 28 7 q-16 6 -28 -7z"/></g>
+<g fill="none" stroke="#344a8c" stroke-width="2.2"><path d="M1156 110 q-14 22 0 44 q14 22 0 44 q-14 22 0 44 q14 22 0 44 q-14 22 0 44"/></g>
+<g fill="#4f8a3d"><path d="M1156 132 q-20 -6 -28 7 q16 6 28 -7z"/><path d="M1156 176 q20 -6 28 7 q-16 6 -28 -7z"/><path d="M1156 220 q-20 -6 -28 7 q16 6 28 -7z"/><path d="M1156 264 q20 -6 28 7 q-16 6 -28 -7z"/><path d="M1156 308 q-20 -6 -28 7 q16 6 28 -7z"/></g>
+
+<!-- ===== THE PEACOCK FAN: 9 plumes radiating from one body at (600,372) ===== -->
+<!-- shaft + eye-spot rosette per plume. Pivot is the single body; each plume = one endpoint. -->
+<!-- Plume shafts (alternating leaf-green / teal stems) -->
+<g fill="none" stroke="#4f8a3d" stroke-width="3" stroke-linecap="round">
+<path d="M600 372 Q352 300 232 92"/>
+<path d="M600 372 Q420 232 372 60"/>
+<path d="M600 372 Q560 196 552 52"/>
+<path d="M600 372 Q696 200 700 56"/>
+<path d="M600 372 Q828 240 932 84"/>
+</g>
+<g fill="none" stroke="#2e8c84" stroke-width="3" stroke-linecap="round">
+<path d="M600 372 Q300 360 116 244"/>
+<path d="M600 372 Q480 252 456 50"/>
+<path d="M600 372 Q636 196 640 50"/>
+<path d="M600 372 Q900 312 1084 244"/>
+</g>
+<!-- barbs along each shaft (feather-hatch) -->
+<g stroke="#2b2620" stroke-width="1.3" fill="none">
+<path d="M300 280 l-14 -7 M340 240 l-14 -7 M390 195 l-13 -8 M260 320 l-15 -4 M232 340 l-15 -2"/>
+<path d="M430 210 l-13 -10 M400 270 l-15 -6 M450 150 l-12 -10 M412 320 l-15 -2"/>
+<path d="M558 130 l-12 -2 M560 200 l-13 -2 M562 270 l-13 -2 M558 330 l-12 -1"/>
+<path d="M698 130 l12 -2 M698 200 l13 -2 M698 270 l13 -2 M700 330 l12 -1"/>
+<path d="M780 270 l13 -8 M820 230 l13 -8 M870 180 l12 -9 M740 320 l14 -4"/>
+</g>
+
+<!-- ===== EYE-SPOT ROSETTE at the tip of each plume (one labelled endpoint each) ===== -->
+<!-- Each: outer ochre disc + indigo iris ring + paper centre + 8 sun-ticks + a tiny label-tablet bar beneath -->
+<!-- Tip 1 (far left low) -->
+<g><circle cx="232" cy="92" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="232" cy="92" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="232" cy="92" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M232 70 v-7 M232 114 v7 M210 92 h-7 M254 92 h7 M216 76 l-5 -5 M248 76 l5 -5 M216 108 l-5 5 M248 108 l5 5"/></g><rect x="214" y="118" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M219 122 h26"/></g></g>
+<!-- Tip 2 -->
+<g><circle cx="372" cy="60" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="372" cy="60" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="372" cy="60" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M372 38 v-7 M372 82 v7 M350 60 h-7 M394 60 h7 M356 44 l-5 -5 M388 44 l5 -5 M356 76 l-5 5 M388 76 l5 5"/></g><rect x="354" y="86" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M359 90 h26"/></g></g>
+<!-- Tip 3 -->
+<g><circle cx="456" cy="50" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="456" cy="50" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="456" cy="50" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M456 28 v-7 M456 72 v7 M434 50 h-7 M478 50 h7 M440 34 l-5 -5 M472 34 l5 -5 M440 66 l-5 5 M472 66 l5 5"/></g><rect x="438" y="76" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M443 80 h26"/></g></g>
+<!-- Tip 4 -->
+<g><circle cx="552" cy="52" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="552" cy="52" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="552" cy="52" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M552 30 v-7 M552 74 v7 M530 52 h-7 M574 52 h7 M536 36 l-5 -5 M568 36 l5 -5 M536 68 l-5 5 M568 68 l5 5"/></g><rect x="534" y="78" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M539 82 h26"/></g></g>
+<!-- Tip 5 (apex) -->
+<g><circle cx="640" cy="50" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="640" cy="50" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="640" cy="50" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M640 28 v-7 M640 72 v7 M618 50 h-7 M662 50 h7 M624 34 l-5 -5 M656 34 l5 -5 M624 66 l-5 5 M656 66 l5 5"/></g><rect x="622" y="76" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M627 80 h26"/></g></g>
+<!-- Tip 6 -->
+<g><circle cx="700" cy="56" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="700" cy="56" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="700" cy="56" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M700 34 v-7 M700 78 v7 M678 56 h-7 M722 56 h7 M684 40 l-5 -5 M716 40 l5 -5 M684 72 l-5 5 M716 72 l5 5"/></g><rect x="682" y="82" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M687 86 h26"/></g></g>
+<!-- Tip 7 -->
+<g><circle cx="932" cy="84" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="932" cy="84" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="932" cy="84" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M932 62 v-7 M932 106 v7 M910 84 h-7 M954 84 h7 M916 68 l-5 -5 M948 68 l5 -5 M916 100 l-5 5 M948 100 l5 5"/></g><rect x="914" y="110" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M919 114 h26"/></g></g>
+<!-- Tip 8 (far right low) -->
+<g><circle cx="1084" cy="244" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="1084" cy="244" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="1084" cy="244" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M1084 222 v-7 M1084 266 v7 M1062 244 h-7 M1106 244 h7 M1068 228 l-5 -5 M1100 228 l5 -5 M1068 260 l-5 5 M1100 260 l5 5"/></g><rect x="1066" y="270" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M1071 274 h26"/></g></g>
+<!-- Tip 9 (far left low, teal shaft) -->
+<g><circle cx="116" cy="244" r="16" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="116" cy="244" r="9" fill="#344a8c" stroke="#2b2620" stroke-width="1.6"/><circle cx="116" cy="244" r="3.5" fill="#f3eee2"/><g stroke="#2b2620" stroke-width="1.5"><path d="M116 222 v-7 M116 266 v7 M94 244 h-7 M138 244 h7 M100 228 l-5 -5 M132 228 l5 -5 M100 260 l-5 5 M132 260 l5 5"/></g><rect x="98" y="270" width="36" height="9" rx="2" fill="#f3eee2" stroke="#2b2620" stroke-width="1.4"/><g stroke="#5c5346" stroke-width="1.3"><path d="M103 274 h26"/></g></g>
+
+<!-- ===== THE PEACOCK BODY (the single set of handlers all plumes fan from) ===== -->
+<!-- breast / body double-outline -->
+<path d="M600 372 q-50 -6 -64 -54 q-8 -34 14 -64 q24 -32 50 -32 q26 0 50 32 q22 30 14 64 q-14 48 -64 54z" fill="#344a8c" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M600 362 q-42 -6 -54 -46 q-7 -28 12 -54" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<!-- breast scale-arc packing -->
+<g stroke="#2e8c84" stroke-width="1.6" fill="none">
+<path d="M566 300 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M560 320 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M564 340 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+</g>
+<!-- ochre dot rows between breast scales -->
+<g fill="#d59a2a"><circle cx="578" cy="294" r="2"/><circle cx="610" cy="294" r="2"/><circle cx="568" cy="314" r="2"/><circle cx="600" cy="314" r="2"/><circle cx="632" cy="314" r="2"/><circle cx="580" cy="334" r="2"/><circle cx="612" cy="334" r="2"/></g>
+
+<!-- neck + side-profile head facing inward (left), the classic peacock crest -->
+<path d="M572 268 q-18 -34 -2 -68 q10 -22 32 -26 q-6 18 -2 36 q4 22 -6 44 q-8 16 -22 14z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M576 250 q-10 -26 0 -50 M586 256 q-8 -22 0 -44"/></g>
+<!-- head -->
+<path d="M572 200 q-22 -6 -28 -28 q-4 -18 10 -30 q16 -12 34 -4 q16 8 14 28 q-2 22 -22 32 q-4 2 -8 2z" fill="#344a8c" stroke="#2b2620" stroke-width="3"/>
+<!-- crest: three filaments with tiny disc tips -->
+<g fill="none" stroke="#2b2620" stroke-width="2"><path d="M566 142 q-2 -16 4 -26 M580 140 q2 -18 10 -26 M594 144 q8 -16 18 -22"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"><circle cx="568" cy="112" r="4"/><circle cx="590" cy="110" r="4"/><circle cx="612" cy="118" r="4"/></g>
+<!-- almond fish-eye (one) -->
+<path d="M548 168 q12 -8 24 0 q-12 8 -24 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="558" cy="168" r="3.5" fill="#2b2620"/>
+<path d="M548 160 q12 -4 24 0" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<!-- ochre beak pointing inward/left -->
+<path d="M544 180 q-22 4 -32 18 q14 4 26 2 q10 -4 6 -20z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/>
+<path d="M538 184 q-14 4 -22 12" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<!-- the single VERMILION cheek-rosette: the one red the eye lands on (the shared handler core) -->
+<circle cx="576" cy="184" r="6" fill="#bb3b2c" stroke="#2b2620" stroke-width="2"/>
+<circle cx="576" cy="184" r="2" fill="#f3eee2"/>
+
+<!-- stick legs onto a small ground patch -->
+<g fill="none" stroke="#2b2620" stroke-width="2.5"><path d="M588 372 l-6 26 m-7 0 l7 0 m-2 0 l6 7 m-6 -7 l-8 7 M612 372 l6 26 m-7 0 l7 0 m-2 0 l6 7 m-6 -7 l-8 7"/></g>
+
+<!-- ground patch beneath the bird (furrowed field with sprouts) -->
+<path d="M520 404 q80 -22 160 0 q-8 18 0 24 q-80 14 -160 0 q8 -14 0 -24z" fill="#4f8a3d" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.2"><path d="M548 406 v18 M572 403 v22 M596 402 v24 M620 403 v22 M644 406 v18"/></g>
+<g fill="#d59a2a" stroke="#2b2620" stroke-width="1"><path d="M572 402 q-5 -10 0 -16 q5 6 0 16z"/><path d="M620 402 q-5 -10 0 -16 q5 6 0 16z"/></g>
+<g fill="#5c5346"><circle cx="536" cy="414" r="2"/><circle cx="664" cy="414" r="2"/></g>
+
+<!-- ===== SMALL FLANKING SUNS scattered in the fan gaps (horror vacui) ===== -->
+<g>
+<g><circle cx="300" cy="160" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M300 148 v6 M300 166 v6 M288 160 h6 M306 160 h6 M292 152 l4 4 M308 152 l-4 4 M292 168 l4 -4 M308 168 l-4 -4"/></g></g>
+<g><circle cx="900" cy="160" r="6" fill="#2e8c84" stroke="#2b2620" stroke-width="1.5"/><g stroke="#2b2620" stroke-width="1.5"><path d="M900 148 v6 M900 166 v6 M888 160 h6 M906 160 h6 M892 152 l4 4 M908 152 l-4 4 M892 168 l4 -4 M908 168 l-4 -4"/></g></g>
+<g><circle cx="430" cy="120" r="5" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/><g stroke="#2b2620" stroke-width="1.3"><path d="M430 110 v5 M430 125 v5 M420 120 h5 M435 120 h5"/></g></g>
+<g><circle cx="770" cy="120" r="5" fill="#d59a2a" stroke="#2b2620" stroke-width="1.4"/><g stroke="#2b2620" stroke-width="1.3"><path d="M770 110 v5 M770 125 v5 M760 120 h5 M775 120 h5"/></g></g>
+</g>
+<!-- tiny leaf pairs in residual gaps -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1">
+<path d="M360 300 q-12 -8 -22 2 q14 6 22 -2z"/><path d="M840 300 q12 -8 22 2 q-14 6 -22 -2z"/>
+<path d="M470 330 q-12 6 -10 20 q12 -8 10 -20z"/><path d="M730 330 q12 6 10 20 q-12 -8 -10 -20z"/>
+</g>
+<!-- residual brown dot rows close to the body -->
+<g fill="#5c5346"><circle cx="500" cy="300" r="2"/><circle cx="700" cy="300" r="2"/><circle cx="480" cy="340" r="2"/><circle cx="720" cy="340" r="2"/></g>
+
+<!-- ===== DOUBLE-LINE BORDER WITH DOTTED CHANNEL ===== -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<g fill="#2b2620">
+<circle cx="35" cy="19.5" r="1.6"/><circle cx="59" cy="19.5" r="1.6"/><circle cx="83" cy="19.5" r="1.6"/><circle cx="107" cy="19.5" r="1.6"/><circle cx="131" cy="19.5" r="1.6"/><circle cx="155" cy="19.5" r="1.6"/><circle cx="179" cy="19.5" r="1.6"/><circle cx="203" cy="19.5" r="1.6"/><circle cx="227" cy="19.5" r="1.6"/><circle cx="251" cy="19.5" r="1.6"/><circle cx="275" cy="19.5" r="1.6"/><circle cx="299" cy="19.5" r="1.6"/><circle cx="323" cy="19.5" r="1.6"/><circle cx="347" cy="19.5" r="1.6"/><circle cx="371" cy="19.5" r="1.6"/><circle cx="395" cy="19.5" r="1.6"/><circle cx="419" cy="19.5" r="1.6"/><circle cx="443" cy="19.5" r="1.6"/><circle cx="467" cy="19.5" r="1.6"/><circle cx="491" cy="19.5" r="1.6"/><circle cx="515" cy="19.5" r="1.6"/><circle cx="539" cy="19.5" r="1.6"/><circle cx="563" cy="19.5" r="1.6"/><circle cx="587" cy="19.5" r="1.6"/><circle cx="611" cy="19.5" r="1.6"/><circle cx="635" cy="19.5" r="1.6"/><circle cx="659" cy="19.5" r="1.6"/><circle cx="683" cy="19.5" r="1.6"/><circle cx="707" cy="19.5" r="1.6"/><circle cx="731" cy="19.5" r="1.6"/><circle cx="755" cy="19.5" r="1.6"/><circle cx="779" cy="19.5" r="1.6"/><circle cx="803" cy="19.5" r="1.6"/><circle cx="827" cy="19.5" r="1.6"/><circle cx="851" cy="19.5" r="1.6"/><circle cx="875" cy="19.5" r="1.6"/><circle cx="899" cy="19.5" r="1.6"/><circle cx="923" cy="19.5" r="1.6"/><circle cx="947" cy="19.5" r="1.6"/><circle cx="971" cy="19.5" r="1.6"/><circle cx="995" cy="19.5" r="1.6"/><circle cx="1019" cy="19.5" r="1.6"/><circle cx="1043" cy="19.5" r="1.6"/><circle cx="1067" cy="19.5" r="1.6"/><circle cx="1091" cy="19.5" r="1.6"/><circle cx="1115" cy="19.5" r="1.6"/><circle cx="1139" cy="19.5" r="1.6"/><circle cx="1163" cy="19.5" r="1.6"/>
+<circle cx="35" cy="440.5" r="1.6"/><circle cx="59" cy="440.5" r="1.6"/><circle cx="83" cy="440.5" r="1.6"/><circle cx="107" cy="440.5" r="1.6"/><circle cx="131" cy="440.5" r="1.6"/><circle cx="155" cy="440.5" r="1.6"/><circle cx="179" cy="440.5" r="1.6"/><circle cx="203" cy="440.5" r="1.6"/><circle cx="227" cy="440.5" r="1.6"/><circle cx="251" cy="440.5" r="1.6"/><circle cx="275" cy="440.5" r="1.6"/><circle cx="299" cy="440.5" r="1.6"/><circle cx="323" cy="440.5" r="1.6"/><circle cx="347" cy="440.5" r="1.6"/><circle cx="371" cy="440.5" r="1.6"/><circle cx="395" cy="440.5" r="1.6"/><circle cx="419" cy="440.5" r="1.6"/><circle cx="443" cy="440.5" r="1.6"/><circle cx="467" cy="440.5" r="1.6"/><circle cx="491" cy="440.5" r="1.6"/><circle cx="515" cy="440.5" r="1.6"/><circle cx="539" cy="440.5" r="1.6"/><circle cx="563" cy="440.5" r="1.6"/><circle cx="587" cy="440.5" r="1.6"/><circle cx="611" cy="440.5" r="1.6"/><circle cx="635" cy="440.5" r="1.6"/><circle cx="659" cy="440.5" r="1.6"/><circle cx="683" cy="440.5" r="1.6"/><circle cx="707" cy="440.5" r="1.6"/><circle cx="731" cy="440.5" r="1.6"/><circle cx="755" cy="440.5" r="1.6"/><circle cx="779" cy="440.5" r="1.6"/><circle cx="803" cy="440.5" r="1.6"/><circle cx="827" cy="440.5" r="1.6"/><circle cx="851" cy="440.5" r="1.6"/><circle cx="875" cy="440.5" r="1.6"/><circle cx="899" cy="440.5" r="1.6"/><circle cx="923" cy="440.5" r="1.6"/><circle cx="947" cy="440.5" r="1.6"/><circle cx="971" cy="440.5" r="1.6"/><circle cx="995" cy="440.5" r="1.6"/><circle cx="1019" cy="440.5" r="1.6"/><circle cx="1043" cy="440.5" r="1.6"/><circle cx="1067" cy="440.5" r="1.6"/><circle cx="1091" cy="440.5" r="1.6"/><circle cx="1115" cy="440.5" r="1.6"/><circle cx="1139" cy="440.5" r="1.6"/><circle cx="1163" cy="440.5" r="1.6"/>
+</g>
+<g fill="#2b2620">
+<circle cx="19.5" cy="47" r="1.6"/><circle cx="19.5" cy="71" r="1.6"/><circle cx="19.5" cy="95" r="1.6"/><circle cx="19.5" cy="119" r="1.6"/><circle cx="19.5" cy="143" r="1.6"/><circle cx="19.5" cy="167" r="1.6"/><circle cx="19.5" cy="191" r="1.6"/><circle cx="19.5" cy="215" r="1.6"/><circle cx="19.5" cy="239" r="1.6"/><circle cx="19.5" cy="263" r="1.6"/><circle cx="19.5" cy="287" r="1.6"/><circle cx="19.5" cy="311" r="1.6"/><circle cx="19.5" cy="335" r="1.6"/><circle cx="19.5" cy="359" r="1.6"/><circle cx="19.5" cy="383" r="1.6"/><circle cx="19.5" cy="407" r="1.6"/>
+<circle cx="1180.5" cy="47" r="1.6"/><circle cx="1180.5" cy="71" r="1.6"/><circle cx="1180.5" cy="95" r="1.6"/><circle cx="1180.5" cy="119" r="1.6"/><circle cx="1180.5" cy="143" r="1.6"/><circle cx="1180.5" cy="167" r="1.6"/><circle cx="1180.5" cy="191" r="1.6"/><circle cx="1180.5" cy="215" r="1.6"/><circle cx="1180.5" cy="239" r="1.6"/><circle cx="1180.5" cy="263" r="1.6"/><circle cx="1180.5" cy="287" r="1.6"/><circle cx="1180.5" cy="311" r="1.6"/><circle cx="1180.5" cy="335" r="1.6"/><circle cx="1180.5" cy="359" r="1.6"/><circle cx="1180.5" cy="383" r="1.6"/><circle cx="1180.5" cy="407" r="1.6"/>
+</g>
+
+<!-- ===== CORNER ROSETTES ===== -->
+<g><circle cx="44" cy="44" r="10" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/><circle cx="44" cy="44" r="3.5" fill="#bb3b2c"/><g fill="none" stroke="#2b2620" stroke-width="2"><path d="M44 31 v-6 M44 57 v6 M31 44 h-6 M57 44 h6 M35 35 l-4 -4 M53 35 l4 -4 M35 53 l-4 4 M53 53 l4 4"/></g></g>
+<g><circle cx="1156" cy="44" r="10" fill="#4f8a3d" stroke="#2b2620" stroke-width="2.5"/><circle cx="1156" cy="44" r="3.5" fill="#f3eee2"/><g fill="none" stroke="#2b2620" stroke-width="2"><path d="M1156 31 v-6 M1156 57 v6 M1143 44 h-6 M1169 44 h6 M1147 35 l-4 -4 M1165 35 l4 -4 M1147 53 l-4 4 M1165 53 l4 4"/></g></g>
+<g><circle cx="44" cy="416" r="10" fill="#2e8c84" stroke="#2b2620" stroke-width="2.5"/><circle cx="44" cy="416" r="3.5" fill="#f3eee2"/><g fill="none" stroke="#2b2620" stroke-width="2"><path d="M44 403 v-6 M44 429 v6 M31 416 h-6 M57 416 h6 M35 407 l-4 -4 M53 407 l4 -4 M35 425 l-4 4 M53 425 l4 4"/></g></g>
+<g><circle cx="1156" cy="416" r="10" fill="#344a8c" stroke="#2b2620" stroke-width="2.5"/><circle cx="1156" cy="416" r="3.5" fill="#f3eee2"/><g fill="none" stroke="#2b2620" stroke-width="2"><path d="M1156 403 v-6 M1156 429 v6 M1143 416 h-6 M1169 416 h6 M1147 407 l-4 -4 M1165 407 l4 -4 M1147 425 l-4 4 M1165 425 l4 4"/></g></g>
+</svg>

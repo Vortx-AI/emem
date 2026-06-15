@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
+<title>Madhubani panel: a kalash-crowned orbital payload at the source pours a slim stream of dotted latent-glyph beads down to a paper-2 ground station, framed by aripana descent-lines — the meaning travels, not the pixels.</title>
+<rect x="0" y="0" width="1200" height="460" fill="#f3eee2"/>
+
+<!-- ============ RECESSED PAPER-2 BLOCKS (sky band top, ground station base) ============ -->
+<rect x="16" y="16" width="1168" height="150" fill="#ebe4d3"/>
+<rect x="16" y="356" width="1168" height="88" fill="#ebe4d3"/>
+
+<!-- ============ HORROR-VACUI BACKGROUND (faint brown) ============ -->
+<!-- full-panel dot grid, thinned toward the central stream -->
+<g fill="#5c5346">
+<circle cx="60" cy="60" r="2.2"/><circle cx="110" cy="60" r="2.2"/><circle cx="160" cy="60" r="2.2"/><circle cx="210" cy="60" r="2.2"/><circle cx="990" cy="60" r="2.2"/><circle cx="1040" cy="60" r="2.2"/><circle cx="1090" cy="60" r="2.2"/><circle cx="1140" cy="60" r="2.2"/>
+<circle cx="60" cy="110" r="2.2"/><circle cx="110" cy="110" r="2.2"/><circle cx="160" cy="110" r="2.2"/><circle cx="1040" cy="110" r="2.2"/><circle cx="1090" cy="110" r="2.2"/><circle cx="1140" cy="110" r="2.2"/>
+<circle cx="60" cy="200" r="2.2"/><circle cx="110" cy="200" r="2.2"/><circle cx="160" cy="200" r="2.2"/><circle cx="210" cy="200" r="2.2"/><circle cx="990" cy="200" r="2.2"/><circle cx="1040" cy="200" r="2.2"/><circle cx="1090" cy="200" r="2.2"/><circle cx="1140" cy="200" r="2.2"/>
+<circle cx="60" cy="250" r="2.2"/><circle cx="110" cy="250" r="2.2"/><circle cx="160" cy="250" r="2.2"/><circle cx="1040" cy="250" r="2.2"/><circle cx="1090" cy="250" r="2.2"/><circle cx="1140" cy="250" r="2.2"/>
+<circle cx="60" cy="300" r="2.2"/><circle cx="110" cy="300" r="2.2"/><circle cx="160" cy="300" r="2.2"/><circle cx="210" cy="300" r="2.2"/><circle cx="990" cy="300" r="2.2"/><circle cx="1040" cy="300" r="2.2"/><circle cx="1090" cy="300" r="2.2"/><circle cx="1140" cy="300" r="2.2"/>
+<circle cx="60" cy="395" r="2.2"/><circle cx="120" cy="395" r="2.2"/><circle cx="180" cy="395" r="2.2"/><circle cx="1020" cy="395" r="2.2"/><circle cx="1080" cy="395" r="2.2"/><circle cx="1140" cy="395" r="2.2"/>
+</g>
+<!-- diagonal hatch fields parked in the upper corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 40 L72 72 M64 40 L96 72 M88 40 L120 72 M112 40 L144 72 M136 40 L168 72 M160 40 L192 72 M184 40 L216 72"/>
+<path d="M984 40 L1016 72 M1008 40 L1040 72 M1032 40 L1064 72 M1056 40 L1088 72 M1080 40 L1112 72 M1104 40 L1136 72 M1128 40 L1160 72"/>
+</g>
+<!-- fish-scale arc fields parked in lower corners -->
+<g fill="none" stroke="#5c5346" stroke-width="1.2">
+<path d="M40 410 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0"/>
+<path d="M40 426 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0"/>
+<path d="M816 410 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0"/>
+<path d="M816 426 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0 q16 -14 32 0"/>
+</g>
+
+<!-- ============ ARIPANA DESCENT-LINES (ochre ruled lattice, fanning down the stream) ============ -->
+<g stroke="#d59a2a" stroke-width="2.2" fill="none">
+<!-- left fan of descent rails -->
+<path d="M520 150 L470 360 M548 150 L520 360 M576 150 L570 360"/>
+<!-- right fan of descent rails -->
+<path d="M680 150 L730 360 M652 150 L680 360 M624 150 L630 360"/>
+<!-- ruled cross-rungs of the ladder of descent -->
+<path d="M512 190 h176 M508 230 h184 M502 270 h196 M496 310 h208 M490 350 h220"/>
+</g>
+<!-- aripana dot intersections at the rungs -->
+<g fill="#d59a2a">
+<circle cx="540" cy="190" r="2.2"/><circle cx="600" cy="190" r="2.2"/><circle cx="660" cy="190" r="2.2"/>
+<circle cx="534" cy="230" r="2.2"/><circle cx="600" cy="230" r="2.2"/><circle cx="666" cy="230" r="2.2"/>
+<circle cx="528" cy="270" r="2.2"/><circle cx="600" cy="270" r="2.2"/><circle cx="672" cy="270" r="2.2"/>
+<circle cx="522" cy="310" r="2.2"/><circle cx="600" cy="310" r="2.2"/><circle cx="678" cy="310" r="2.2"/>
+</g>
+
+<!-- ============ RUNNING BEL VINES (left & right edges) ============ -->
+<g fill="none" stroke="#4f8a3d" stroke-width="2.4" stroke-linecap="round">
+<path d="M44 96 q14 26 0 52 q-14 26 0 52 q14 26 0 52 q-14 26 0 52 q14 24 0 44"/>
+<path d="M1156 96 q-14 26 0 52 q14 26 0 52 q-14 26 0 52 q14 26 0 52 q-14 24 0 44"/>
+</g>
+<g fill="#4f8a3d">
+<path d="M44 122 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M44 174 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M44 226 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M44 278 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M44 330 q22 -6 30 8 q-18 6 -30 -8z"/>
+<path d="M1156 122 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M1156 174 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M1156 226 q-22 -6 -30 8 q18 6 30 -8z"/><path d="M1156 278 q22 -6 30 8 q-18 6 -30 -8z"/><path d="M1156 330 q-22 -6 -30 8 q18 6 30 -8z"/>
+</g>
+<!-- teal alternating buds on the vines -->
+<g fill="#2e8c84">
+<path d="M44 148 q18 -10 26 2 q-14 8 -26 -2z"/><path d="M44 252 q18 -10 26 2 q-14 8 -26 -2z"/>
+<path d="M1156 148 q-18 -10 -26 2 q14 8 26 -2z"/><path d="M1156 252 q-18 -10 -26 2 q14 8 26 -2z"/>
+</g>
+
+<!-- ============ FLANKING PROFILE BIRDS (teal, facing inward toward the stream) ============ -->
+<!-- LEFT BIRD -->
+<g>
+<path d="M150 250 q70 -16 104 26 q18 26 -2 54 q-22 30 -60 26 q-38 -4 -54 -36 q-14 -38 12 -64z" fill="#2e8c84" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M156 262 q56 -10 84 28 q14 22 -2 46" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<!-- wing feather-hatch -->
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M168 270 q44 -4 66 24 M164 290 q48 -2 70 26 M168 312 q40 8 60 30"/></g>
+<g fill="#d59a2a"><circle cx="186" cy="284" r="3"/><circle cx="210" cy="296" r="3"/><circle cx="232" cy="310" r="3"/><circle cx="196" cy="312" r="3"/></g>
+<!-- head profile facing inward (right) toward stream -->
+<path d="M254 276 q34 -8 48 18 q8 18 -8 34 q-18 16 -40 10 q-20 -6 -22 -28 q0 -22 22 -34z" fill="#2e8c84" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="2"><path d="M272 262 l2 -16 M284 266 l8 -14 M294 274 l14 -8"/></g>
+<g fill="#d59a2a"><circle cx="274" cy="244" r="3"/><circle cx="292" cy="248" r="3"/><circle cx="308" cy="262" r="3"/></g>
+<path d="M278 290 q12 -7 24 0 q-12 7 -24 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="290" cy="290" r="3.5" fill="#2b2620"/>
+<path d="M276 282 q12 -4 26 0" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<!-- ochre beak toward stream -->
+<path d="M300 300 q22 -6 36 6 q-14 6 -24 8 q-12 -2 -12 -14z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/>
+<!-- stick legs -->
+<g fill="none" stroke="#2b2620" stroke-width="2.5"><path d="M168 330 l-6 26 m-8 0 l8 0 m-2 0 l6 8 m-6 -8 l-8 8 M196 332 l4 26 m-6 0 l8 0 m-2 0 l6 8 m-6 -8 l-8 8"/></g>
+</g>
+<!-- RIGHT BIRD (mirror) -->
+<g>
+<path d="M1050 250 q-70 -16 -104 26 q-18 26 2 54 q22 30 60 26 q38 -4 54 -36 q14 -38 -12 -64z" fill="#2e8c84" stroke="#2b2620" stroke-width="3.5"/>
+<path d="M1044 262 q-56 -10 -84 28 q-14 22 2 46" fill="none" stroke="#f3eee2" stroke-width="2"/>
+<g fill="none" stroke="#f3eee2" stroke-width="1.5"><path d="M1032 270 q-44 -4 -66 24 M1036 290 q-48 -2 -70 26 M1032 312 q-40 8 -60 30"/></g>
+<g fill="#d59a2a"><circle cx="1014" cy="284" r="3"/><circle cx="990" cy="296" r="3"/><circle cx="968" cy="310" r="3"/><circle cx="1004" cy="312" r="3"/></g>
+<path d="M946 276 q-34 -8 -48 18 q-8 18 8 34 q18 16 40 10 q20 -6 22 -28 q0 -22 -22 -34z" fill="#2e8c84" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="2"><path d="M928 262 l-2 -16 M916 266 l-8 -14 M906 274 l-14 -8"/></g>
+<g fill="#d59a2a"><circle cx="926" cy="244" r="3"/><circle cx="908" cy="248" r="3"/><circle cx="892" cy="262" r="3"/></g>
+<path d="M922 290 q-12 -7 -24 0 q12 7 24 0z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
+<circle cx="910" cy="290" r="3.5" fill="#2b2620"/>
+<path d="M924 282 q-12 -4 -26 0" fill="none" stroke="#2b2620" stroke-width="1.5"/>
+<path d="M900 300 q-22 -6 -36 6 q14 6 24 8 q12 -2 12 -14z" fill="#d59a2a" stroke="#2b2620" stroke-width="2.5"/>
+<g fill="none" stroke="#2b2620" stroke-width="2.5"><path d="M1032 330 l6 26 m8 0 l-8 0 m2 0 l-6 8 m6 -8 l8 8 M1004 332 l-4 26 m6 0 l-8 0 m2 0 l-6 8 m6 -8 l8 8"/></g>
+</g>
+
+<!-- ============ THE ORBITAL PAYLOAD (top centre, kalash-crowned) ============ -->
+<!-- radiant ray ring behind the orbit disc (alternating ochre / indigo pointed rays) -->
+<g stroke="#2b2620" stroke-width="1.4">
+<polygon points="600,40 593,70 607,70" fill="#d59a2a"/>
+<polygon points="643,49 627,76 643,82" fill="#344a8c"/>
+<polygon points="675,80 648,96 654,82" fill="#d59a2a"/>
+<polygon points="525,49 541,76 525,82" fill="#344a8c"/>
+<polygon points="555,80 582,96 576,82" fill="#d59a2a"/>
+</g>
+<g stroke="#344a8c" stroke-width="2" fill="none">
+<path d="M600 56 v-10 M634 64 l6 -9 M666 88 l9 -6 M566 64 l-6 -9 M534 88 l-9 -6"/>
+</g>
+<!-- orbit disc: double-outline, packed with scale-arc rows -->
+<circle cx="600" cy="96" r="44" fill="#ebe4d3" stroke="#2b2620" stroke-width="3.5"/>
+<circle cx="600" cy="96" r="37" fill="none" stroke="#2b2620" stroke-width="1.6"/>
+<!-- fish-scale arc packing inside the orbit disc -->
+<g stroke="#2e8c84" stroke-width="1.6" fill="none">
+<path d="M566 86 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M570 102 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+<path d="M574 118 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0 a8 8 0 0 1 16 0"/>
+</g>
+<!-- ochre dot ring inside disc -->
+<g fill="#d59a2a">
+<circle cx="600" cy="66" r="2"/><circle cx="621" cy="72" r="2"/><circle cx="630" cy="96" r="2"/><circle cx="621" cy="120" r="2"/><circle cx="600" cy="126" r="2"/><circle cx="579" cy="120" r="2"/><circle cx="570" cy="96" r="2"/><circle cx="579" cy="72" r="2"/>
+</g>
+<!-- KALASH FINIAL crowning the payload -->
+<path d="M588 52 q12 -10 24 0 q-2 14 -12 16 q-10 -2 -12 -16z" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.5"/>
+<rect x="592" y="44" width="16" height="9" fill="#ebe4d3" stroke="#2b2620" stroke-width="2.2"/>
+<!-- kalash sprout leaves -->
+<g fill="#4f8a3d" stroke="#2b2620" stroke-width="1.5">
+<path d="M600 44 q-12 -10 -18 -26 q14 6 18 26z"/><path d="M600 44 q12 -10 18 -26 q-14 6 -18 26z"/><path d="M600 44 q0 -16 0 -30 q4 16 0 30z"/>
+</g>
+<!-- THE VERMILION SEED at the payload's heart (the single focal red) -->
+<circle cx="600" cy="96" r="11" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.5"/>
+<circle cx="600" cy="96" r="16" fill="none" stroke="#bb3b2c" stroke-width="1.8"/>
+<g stroke="#bb3b2c" stroke-width="2"><path d="M600 74 v-6 M600 118 v6 M578 96 h-6 M622 96 h6"/></g>
+
+<!-- ============ THE SLIM STREAM of dotted latent-glyph beads (payload -> ground) ============ -->
+<!-- twin ink rails of the link, narrowing as they descend -->
+<g fill="none" stroke="#2b2620" stroke-width="2.2">
+<path d="M590 142 q-8 100 6 208"/>
+<path d="M610 142 q8 100 -6 208"/>
+</g>
+<!-- the latent beads: indigo glyph-discs threaded down the centre, each ink-outlined -->
+<g stroke="#2b2620" stroke-width="1.8">
+<circle cx="600" cy="160" r="7" fill="#344a8c"/>
+<circle cx="601" cy="186" r="6.4" fill="#344a8c"/>
+<circle cx="599" cy="212" r="6" fill="#344a8c"/>
+<circle cx="601" cy="238" r="5.6" fill="#344a8c"/>
+<circle cx="599" cy="264" r="5.2" fill="#344a8c"/>
+<circle cx="601" cy="290" r="4.8" fill="#344a8c"/>
+<circle cx="600" cy="316" r="4.4" fill="#344a8c"/>
+<circle cx="600" cy="340" r="4" fill="#344a8c"/>
+</g>
+<!-- ochre glyph-ticks on each bead (the encoded meaning) -->
+<g stroke="#d59a2a" stroke-width="1.4" fill="none">
+<path d="M597 160 h6 M600 157 v6"/>
+<path d="M598 186 h6 M601 183 v6"/>
+<path d="M596 212 h6 M599 209 v6"/>
+<path d="M599 238 h5 M601 236 v5"/>
+</g>
+<!-- faint paper bead-trail dots between the glyphs -->
+<g fill="#f3eee2">
+<circle cx="600" cy="173" r="1.8"/><circle cx="600" cy="199" r="1.8"/><circle cx="600" cy="225" r="1.8"/><circle cx="600" cy="251" r="1.8"/><circle cx="600" cy="277" r="1.8"/><circle cx="600" cy="303" r="1.8"/><circle cx="600" cy="328" r="1.8"/>
+</g>
+
+<!-- ============ THE PAPER-2 GROUND STATION (bottom centre, kohbar-style node) ============ -->
+<!-- recessed station wall -->
+<rect x="540" y="352" width="120" height="56" fill="#ebe4d3" stroke="#2b2620" stroke-width="3"/>
+<rect x="548" y="360" width="104" height="40" fill="none" stroke="#2b2620" stroke-width="1.4"/>
+<!-- gabled roof with hatch -->
+<path d="M528 352 L600 322 L672 352 Z" fill="#ebe4d3" stroke="#2b2620" stroke-width="3"/>
+<g fill="none" stroke="#2b2620" stroke-width="1.3"><path d="M548 348 l8 -10 M566 344 l10 -12 M586 340 l10 -12 M614 340 l-10 -12 M634 344 l-10 -12 M652 348 l-8 -10"/></g>
+<!-- kalash finial atop the station roof (the received payload, re-grounded) -->
+<rect x="595" y="312" width="10" height="8" fill="#ebe4d3" stroke="#2b2620" stroke-width="2"/>
+<path d="M593 320 h14 q-2 8 -7 9 q-5 -1 -7 -9z" fill="#ebe4d3" stroke="#2b2620" stroke-width="2"/>
+<!-- indigo door of the station, the link arrives here -->
+<path d="M584 408 v-34 q16 -14 32 0 v34 z" fill="#344a8c" stroke="#2b2620" stroke-width="2.5"/>
+<path d="M600 374 v34" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+<circle cx="606" cy="392" r="2" fill="#d59a2a"/>
+<!-- station wall dot-rows -->
+<g fill="#d59a2a"><circle cx="560" cy="368" r="2"/><circle cx="640" cy="368" r="2"/><circle cx="560" cy="392" r="2"/><circle cx="640" cy="392" r="2"/></g>
+<!-- aripana apron flowing out from the station base -->
+<g stroke="#d59a2a" stroke-width="2" fill="none"><path d="M500 414 h200 M520 426 h160"/></g>
+<g fill="#d59a2a"><circle cx="540" cy="414" r="2"/><circle cx="600" cy="414" r="2"/><circle cx="660" cy="414" r="2"/></g>
+
+<!-- ============ DOUBLE-LINE BORDER WITH DOTTED CHANNEL ============ -->
+<rect x="16" y="16" width="1168" height="428" fill="none" stroke="#2b2620" stroke-width="3"/>
+<rect x="23" y="23" width="1154" height="414" fill="none" stroke="#2b2620" stroke-width="3"/>
+<!-- top & bottom channel dot rows -->
+<g fill="#2b2620">
+<circle cx="35" cy="19.5" r="1.6"/><circle cx="59" cy="19.5" r="1.6"/><circle cx="83" cy="19.5" r="1.6"/><circle cx="107" cy="19.5" r="1.6"/><circle cx="131" cy="19.5" r="1.6"/><circle cx="155" cy="19.5" r="1.6"/><circle cx="179" cy="19.5" r="1.6"/><circle cx="203" cy="19.5" r="1.6"/><circle cx="227" cy="19.5" r="1.6"/><circle cx="251" cy="19.5" r="1.6"/><circle cx="275" cy="19.5" r="1.6"/><circle cx="299" cy="19.5" r="1.6"/><circle cx="323" cy="19.5" r="1.6"/><circle cx="347" cy="19.5" r="1.6"/><circle cx="371" cy="19.5" r="1.6"/><circle cx="395" cy="19.5" r="1.6"/><circle cx="419" cy="19.5" r="1.6"/><circle cx="443" cy="19.5" r="1.6"/><circle cx="467" cy="19.5" r="1.6"/><circle cx="491" cy="19.5" r="1.6"/><circle cx="515" cy="19.5" r="1.6"/><circle cx="539" cy="19.5" r="1.6"/><circle cx="563" cy="19.5" r="1.6"/><circle cx="587" cy="19.5" r="1.6"/><circle cx="611" cy="19.5" r="1.6"/><circle cx="635" cy="19.5" r="1.6"/><circle cx="659" cy="19.5" r="1.6"/><circle cx="683" cy="19.5" r="1.6"/><circle cx="707" cy="19.5" r="1.6"/><circle cx="731" cy="19.5" r="1.6"/><circle cx="755" cy="19.5" r="1.6"/><circle cx="779" cy="19.5" r="1.6"/><circle cx="803" cy="19.5" r="1.6"/><circle cx="827" cy="19.5" r="1.6"/><circle cx="851" cy="19.5" r="1.6"/><circle cx="875" cy="19.5" r="1.6"/><circle cx="899" cy="19.5" r="1.6"/><circle cx="923" cy="19.5" r="1.6"/><circle cx="947" cy="19.5" r="1.6"/><circle cx="971" cy="19.5" r="1.6"/><circle cx="995" cy="19.5" r="1.6"/><circle cx="1019" cy="19.5" r="1.6"/><circle cx="1043" cy="19.5" r="1.6"/><circle cx="1067" cy="19.5" r="1.6"/><circle cx="1091" cy="19.5" r="1.6"/><circle cx="1115" cy="19.5" r="1.6"/><circle cx="1139" cy="19.5" r="1.6"/><circle cx="1163" cy="19.5" r="1.6"/>
+<circle cx="35" cy="440.5" r="1.6"/><circle cx="59" cy="440.5" r="1.6"/><circle cx="83" cy="440.5" r="1.6"/><circle cx="107" cy="440.5" r="1.6"/><circle cx="131" cy="440.5" r="1.6"/><circle cx="155" cy="440.5" r="1.6"/><circle cx="179" cy="440.5" r="1.6"/><circle cx="203" cy="440.5" r="1.6"/><circle cx="227" cy="440.5" r="1.6"/><circle cx="251" cy="440.5" r="1.6"/><circle cx="275" cy="440.5" r="1.6"/><circle cx="299" cy="440.5" r="1.6"/><circle cx="323" cy="440.5" r="1.6"/><circle cx="347" cy="440.5" r="1.6"/><circle cx="371" cy="440.5" r="1.6"/><circle cx="395" cy="440.5" r="1.6"/><circle cx="419" cy="440.5" r="1.6"/><circle cx="443" cy="440.5" r="1.6"/><circle cx="467" cy="440.5" r="1.6"/><circle cx="491" cy="440.5" r="1.6"/><circle cx="515" cy="440.5" r="1.6"/><circle cx="539" cy="440.5" r="1.6"/><circle cx="563" cy="440.5" r="1.6"/><circle cx="587" cy="440.5" r="1.6"/><circle cx="611" cy="440.5" r="1.6"/><circle cx="635" cy="440.5" r="1.6"/><circle cx="659" cy="440.5" r="1.6"/><circle cx="683" cy="440.5" r="1.6"/><circle cx="707" cy="440.5" r="1.6"/><circle cx="731" cy="440.5" r="1.6"/><circle cx="755" cy="440.5" r="1.6"/><circle cx="779" cy="440.5" r="1.6"/><circle cx="803" cy="440.5" r="1.6"/><circle cx="827" cy="440.5" r="1.6"/><circle cx="851" cy="440.5" r="1.6"/><circle cx="875" cy="440.5" r="1.6"/><circle cx="899" cy="440.5" r="1.6"/><circle cx="923" cy="440.5" r="1.6"/><circle cx="947" cy="440.5" r="1.6"/><circle cx="971" cy="440.5" r="1.6"/><circle cx="995" cy="440.5" r="1.6"/><circle cx="1019" cy="440.5" r="1.6"/><circle cx="1043" cy="440.5" r="1.6"/><circle cx="1067" cy="440.5" r="1.6"/><circle cx="1091" cy="440.5" r="1.6"/><circle cx="1115" cy="440.5" r="1.6"/><circle cx="1139" cy="440.5" r="1.6"/><circle cx="1163" cy="440.5" r="1.6"/>
+</g>
+<!-- side channel vertical dot rows -->
+<g fill="#2b2620">
+<circle cx="19.5" cy="47" r="1.6"/><circle cx="19.5" cy="71" r="1.6"/><circle cx="19.5" cy="95" r="1.6"/><circle cx="19.5" cy="119" r="1.6"/><circle cx="19.5" cy="143" r="1.6"/><circle cx="19.5" cy="167" r="1.6"/><circle cx="19.5" cy="191" r="1.6"/><circle cx="19.5" cy="215" r="1.6"/><circle cx="19.5" cy="239" r="1.6"/><circle cx="19.5" cy="263" r="1.6"/><circle cx="19.5" cy="287" r="1.6"/><circle cx="19.5" cy="311" r="1.6"/><circle cx="19.5" cy="335" r="1.6"/><circle cx="19.5" cy="359" r="1.6"/><circle cx="19.5" cy="383" r="1.6"/><circle cx="19.5" cy="407" r="1.6"/>
+<circle cx="1180.5" cy="47" r="1.6"/><circle cx="1180.5" cy="71" r="1.6"/><circle cx="1180.5" cy="95" r="1.6"/><circle cx="1180.5" cy="119" r="1.6"/><circle cx="1180.5" cy="143" r="1.6"/><circle cx="1180.5" cy="167" r="1.6"/><circle cx="1180.5" cy="191" r="1.6"/><circle cx="1180.5" cy="215" r="1.6"/><circle cx="1180.5" cy="239" r="1.6"/><circle cx="1180.5" cy="263" r="1.6"/><circle cx="1180.5" cy="287" r="1.6"/><circle cx="1180.5" cy="311" r="1.6"/><circle cx="1180.5" cy="335" r="1.6"/><circle cx="1180.5" cy="359" r="1.6"/><circle cx="1180.5" cy="383" r="1.6"/><circle cx="1180.5" cy="407" r="1.6"/>
+</g>
+
+<!-- ============ CORNER ROSETTES (alternating ochre / leaf / teal) ============ -->
+<g stroke="#2b2620" stroke-width="2.5">
+<circle cx="44" cy="44" r="10" fill="#d59a2a"/><circle cx="44" cy="44" r="3.5" fill="#f3eee2"/>
+<circle cx="1156" cy="44" r="10" fill="#2e8c84"/><circle cx="1156" cy="44" r="3.5" fill="#f3eee2"/>
+<circle cx="44" cy="416" r="10" fill="#4f8a3d"/><circle cx="44" cy="416" r="3.5" fill="#f3eee2"/>
+<circle cx="1156" cy="416" r="10" fill="#d59a2a"/><circle cx="1156" cy="416" r="3.5" fill="#f3eee2"/>
+</g>
+<g stroke="#2b2620" stroke-width="2" fill="none">
+<path d="M44 31 v-6 M44 57 v6 M31 44 h-6 M57 44 h6 M35 35 l-4 -4 M53 35 l4 -4 M35 53 l-4 4 M53 53 l4 4"/>
+<path d="M1156 31 v-6 M1156 57 v6 M1143 44 h-6 M1169 44 h6 M1147 35 l-4 -4 M1165 35 l4 -4 M1147 53 l-4 4 M1165 53 l4 4"/>
+<path d="M44 403 v-6 M44 429 v6 M31 416 h-6 M57 416 h6 M35 407 l-4 -4 M53 407 l4 -4 M35 425 l-4 4 M53 425 l4 4"/>
+<path d="M1156 403 v-6 M1156 429 v6 M1143 416 h-6 M1169 416 h6 M1147 407 l-4 -4 M1165 407 l4 -4 M1147 425 l-4 4 M1165 425 l4 4"/>
+</g>
+</svg>

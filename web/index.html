@@ -858,6 +858,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .latent-band .lb-lead{font-size:var(--t-lg);color:var(--ink);line-height:1.4;margin:0 auto;max-width:28em;font-weight:600}
 .latent-band .latent-cards{margin-top:1.5rem;text-align:left}
 @media (max-width:680px){.latent-band{padding:2.4rem 0 .8rem}}
+.chapter .latent-band{grid-column:1/-1;max-width:860px;margin:1.6rem auto 0;padding-top:1.9rem;border-top:1px solid var(--rule)}
 .latent-cards{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-top:1.1rem}
 @media (max-width:680px){.latent-cards{grid-template-columns:1fr}}
 .latent-cards .lcard{display:flex;flex-direction:column;gap:.35rem;text-decoration:none;padding:.7rem .8rem;
@@ -1233,21 +1234,6 @@ input::placeholder{color:var(--mute,#7a7363)}
 </section>
 
 <main class="scroll">
-<section class="latent-band" aria-label="where the latent comes from">
-  <p class="lb-lead">What reaches emem is a latent, not an image. Then a 2026 model agreed with the design.</p>
-  <div class="latent-cards">
-    <a class="lcard" href="/how-it-works#latent-origin">
-      <span class="lc-k">where the latent comes from</span>
-      <span class="lc-t">The encoder runs at the source and emits a vector. emem is the open, signed decoder for that vector, not another place to push pixels.</span>
-      <span class="lc-go">the split &rarr;</span>
-    </a>
-    <a class="lcard" href="/how-it-works#embedding-first">
-      <span class="lc-k">why the timing</span>
-      <span class="lc-t">Gemma&nbsp;4 shipped encoder-free in 2026, reading the embedding directly. The field landed where emem already stood: meaning travels, pixels stay home.</span>
-      <span class="lc-go">embedding-first &rarr;</span>
-    </a>
-  </div>
-</section>
 <div class="mith-div"><span class="gem"></span></div>
 <section class="chapter" id="address">
   <figure class="art"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" role="img" preserveAspectRatio="xMidYMid meet">
@@ -2054,6 +2040,21 @@ input::placeholder{color:var(--mute,#7a7363)}
     <h2>Four models read the same ground</h2>
     <p class="cap">Tessera, Clay, Prithvi, and Galileo each read the same cell, and a consensus pass scores whether they corroborate or disagree.</p>
     <div class="go"><a href="#map">try it on the map above &uarr;</a><a href="/how-it-works">how consensus is scored &rarr;</a></div>
+  </div>
+  <div class="latent-band" aria-label="where the latent comes from">
+    <p class="lb-lead">What reaches emem is a latent, not an image. Then a 2026 model agreed with the design.</p>
+    <div class="latent-cards">
+      <a class="lcard" href="/how-it-works#latent-origin">
+        <span class="lc-k">where the latent comes from</span>
+        <span class="lc-t">The encoder runs at the source and emits a vector. emem is the open, signed decoder for that vector, not another place to push pixels.</span>
+        <span class="lc-go">the split &rarr;</span>
+      </a>
+      <a class="lcard" href="/how-it-works#embedding-first">
+        <span class="lc-k">why the timing</span>
+        <span class="lc-t">Gemma&nbsp;4 shipped encoder-free in 2026, reading the embedding directly. The field landed where emem already stood: meaning travels, pixels stay home.</span>
+        <span class="lc-go">embedding-first &rarr;</span>
+      </a>
+    </div>
   </div>
 </section>
 <div class="mith-div"><span class="gem"></span></div>
@@ -3720,6 +3721,9 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // of animating. `flyTo` arcs (zoom out → pan → in) give spatial context on
   // long jumps; `goTo` centralises the duration + essential flag.
   var PREFERS_REDUCED = (window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches) || false;
+  // expose the live map for in-browser debugging and external verification
+  // (a read handle; nothing here mutates through it)
+  try { window.map = map; } catch (e) {}
   function goTo(opts){
     var o = {essential:true, duration: PREFERS_REDUCED ? 0 : 900};
     for (var k in opts) o[k] = opts[k];
@@ -4414,7 +4418,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       } else { setVis(['tessfield-img'], false); setLeg(elTessN, (d.reason)||'unavailable'); }
     }, function(){ tessBusy=false; setLeg(elTessN, 'error'); });
   }
-  if (tTess) tTess.addEventListener('change', function(){ tessOn=tTess.checked; if(tessOn){ loadTesseraField(); } else { setVis(['tessfield-img'], false); setLeg(elTessN, ''); } });
+  // The embedding field and land archetypes are two renderings of the SAME
+  // Tessera field; stacking both is two rasters fighting at the same z, so they
+  // are mutually exclusive — turning one on turns the other off.
+  if (tTess) tTess.addEventListener('change', function(){ tessOn=tTess.checked; if(tessOn){ if(tArch&&tArch.checked){ tArch.checked=false; archOn=false; setVis(['arch-img'], false); setLeg(elArchN, ''); } loadTesseraField(); } else { setVis(['tessfield-img'], false); setLeg(elTessN, ''); } });
 
   // Land archetypes: cluster that same embedding field into k land-cover classes
   // (deterministic k-means over the Tessera vectors) and overlay the categorical
@@ -4445,7 +4452,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       } else { setVis(['arch-img'], false); setLeg(elArchN, (d.reason)||'unavailable'); }
     }, function(){ archBusy=false; setLeg(elArchN, 'error'); });
   }
-  if (tArch) tArch.addEventListener('change', function(){ archOn=tArch.checked; if(archOn){ loadArchetypes(); } else { setVis(['arch-img'], false); setLeg(elArchN, ''); } });
+  if (tArch) tArch.addEventListener('change', function(){ archOn=tArch.checked; if(archOn){ if(tTess&&tTess.checked){ tTess.checked=false; tessOn=false; setVis(['tessfield-img'], false); setLeg(elTessN, ''); } loadArchetypes(); } else { setVis(['arch-img'], false); setLeg(elArchN, ''); } });
 
   // basemap switcher: Mithila (self-hosted Natural Earth) / OSM streets / Esri satellite
   function setBasemap(bm){
