@@ -157,17 +157,17 @@ pub struct Neighbor {
     pub cell: String,
     /// Cosine similarity score in [-1, 1].
     pub score: f32,
-    /// Centroid latitude in degrees, decoded from `cell`. Optional only
-    /// for forward-compat with older clients that may construct
-    /// `Neighbor` literals; the primitive always populates it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Centroid latitude in degrees, decoded from `cell`. Always serialized
+    /// (as JSON `null` for `inline:` literals or undecodable cells that have
+    /// no honest centroid) so every neighbor carries the same key-set — a
+    /// stable schema, never a fabricated coordinate.
     pub lat: Option<f64>,
-    /// Centroid longitude in degrees, decoded from `cell`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Centroid longitude in degrees, decoded from `cell`. Always serialized
+    /// (`null` when the centroid is genuinely unknown — see `lat`).
     pub lng: Option<f64>,
     /// Best-effort reverse-geocode label from the embedded gazetteer
-    /// (~25 km gate). `None` when the cell isn't near a known anchor.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// (~25 km gate). Always serialized; `null` when the cell isn't near a
+    /// known anchor, so the key-set stays invariant across land/ocean/inline.
     pub place_label_cached: Option<String>,
 }
 
@@ -1646,6 +1646,25 @@ mod tests {
         );
         assert_eq!(kept[1].cell, "b");
         assert_eq!(kept_cids[1], cid_b);
+    }
+
+    /// Schema-stability guard (TerraGround field-feedback #2): every neighbor
+    /// must serialize a fixed key-set. A decodable cell yields numeric
+    /// lat/lng; an `inline:`/undecodable cell yields explicit JSON `null`
+    /// (never an absent key, never a fabricated coordinate). `score` and the
+    /// `place_label_cached` key are always present.
+    #[test]
+    fn neighbor_json_shape_is_stable_with_explicit_null() {
+        // Undecodable / inline cell → null centroid, key still present.
+        let inline = make_neighbor("inline:[0.1,0.2]".into(), 0.42);
+        let v = serde_json::to_value(&inline).unwrap();
+        let obj = v.as_object().unwrap();
+        for key in ["cell", "score", "lat", "lng", "place_label_cached"] {
+            assert!(obj.contains_key(key), "neighbor must always carry `{key}`");
+        }
+        assert!(obj["lat"].is_null(), "inline cell has no honest centroid");
+        assert!(obj["lng"].is_null(), "inline cell has no honest centroid");
+        assert_eq!(obj["score"].as_f64().unwrap(), 0.42_f32 as f64);
     }
 
     /// `geotessera.multi_year` NaN-masks 404 vintages. A candidate whose

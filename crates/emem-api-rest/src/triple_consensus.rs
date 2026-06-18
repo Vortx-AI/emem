@@ -114,6 +114,62 @@ pub struct TripleConsensusReq {
     pub consensus_threshold: Option<f64>,
 }
 
+/// Machine-readable, closed set of reasons an encoder (or a deforestation
+/// half) is absent from a consensus. Each variant maps 1:1 to a real code
+/// path so a caller can gate on `code()` instead of string-parsing the human
+/// `reason` prose. Surfaced as `reason_code` on every `encoders_absent[]`
+/// entry and rolled up into the response-level `degraded_reason`
+/// (TerraGround field feedback #3 — no silently-degraded vote).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AbsenceReason {
+    /// A GPU-gated encoder produced no embedding — sidecar down, or the cell
+    /// is cold and nothing could be materialized.
+    GpuSidecarUnavailable,
+    /// Only one distinct vintage exists (and a prior one could not be
+    /// obtained); year-over-year change needs two.
+    SingleVintage,
+    /// The cell is outside the product's spatial coverage.
+    OutsideCoverage,
+    /// Two vintages exist but share no finite dimensions (empty NaN overlap).
+    NoFiniteOverlap,
+    /// The underlying recall itself failed.
+    RecallFailed,
+}
+
+impl AbsenceReason {
+    /// Stable wire string. This set is a public API contract — append only.
+    fn code(self) -> &'static str {
+        match self {
+            AbsenceReason::GpuSidecarUnavailable => "gpu_sidecar_unavailable",
+            AbsenceReason::SingleVintage => "single_vintage",
+            AbsenceReason::OutsideCoverage => "outside_coverage",
+            AbsenceReason::NoFiniteOverlap => "no_finite_overlap",
+            AbsenceReason::RecallFailed => "recall_failed",
+        }
+    }
+}
+
+/// Roll the per-encoder `reason_code`s up into one dominant response-level
+/// `degraded_reason`. Priority orders the *most actionable* cause first: a
+/// downed sidecar (fix infra) outranks a single-vintage cell (await coverage)
+/// which outranks an out-of-coverage cell, etc. Returns `None` only when no
+/// absent entry carried a code (caller substitutes the terminal
+/// `insufficient_encoders`).
+fn dominant_absence_code(absent: &[JsonValue]) -> Option<&'static str> {
+    const PRIORITY: [&str; 5] = [
+        "gpu_sidecar_unavailable",
+        "single_vintage",
+        "outside_coverage",
+        "no_finite_overlap",
+        "recall_failed",
+    ];
+    let codes: Vec<&str> = absent
+        .iter()
+        .filter_map(|a| a.get("reason_code").and_then(|c| c.as_str()))
+        .collect();
+    PRIORITY.into_iter().find(|p| codes.contains(p))
+}
+
 /// Collect the distinct-tslot Primary vectors for `band` at `cell`,
 /// most-recent first. Recalls (auto-materializing the latest if cold) and
 /// dedups by tslot.
@@ -121,7 +177,7 @@ async fn distinct_vintages(
     cell: &str,
     band: &str,
     s: &AppState,
-) -> Result<Vec<(u64, Vec<f32>, String)>, String> {
+) -> Result<Vec<(u64, Vec<f32>, String)>, (AbsenceReason, String)> {
     let req = RecallReq {
         cell: cell.to_string(),
         bands: Some(vec![band.to_string()]),
@@ -130,9 +186,12 @@ async fn distinct_vintages(
         tslot: None,
         ..Default::default()
     };
-    let (resp, _notes) = recall_with_auto_materialize(&req, s)
-        .await
-        .map_err(|e| format!("recall failed: {}", e.1.message))?;
+    let (resp, _notes) = recall_with_auto_materialize(&req, s).await.map_err(|e| {
+        (
+            AbsenceReason::RecallFailed,
+            format!("recall failed: {}", e.1.message),
+        )
+    })?;
 
     // Collect (tslot, vector, cid) for every Primary fact for this band.
     let mut rows: Vec<(u64, Vec<f32>, String)> = Vec::new();
@@ -153,8 +212,11 @@ async fn distinct_vintages(
         }
     }
     if resp.facts.iter().all(|f| !matches!(f, Fact::Primary(_))) || rows.is_empty() {
-        return Err(format!(
-            "no embedding vector for `{band}` at this cell (GPU encoder absent / sidecar down, or cell cold)"
+        return Err((
+            AbsenceReason::GpuSidecarUnavailable,
+            format!(
+                "no embedding vector for `{band}` at this cell (GPU encoder absent / sidecar down, or cell cold)"
+            ),
         ));
     }
     // Most-recent first, dedup by tslot.
@@ -204,7 +266,7 @@ async fn two_vintages(
     cell: &str,
     band: &str,
     s: &AppState,
-) -> Result<(Vec<f32>, Vec<f32>, Vec<String>), String> {
+) -> Result<(Vec<f32>, Vec<f32>, Vec<String>), (AbsenceReason, String)> {
     let mut rows = distinct_vintages(cell, band, s).await?;
     if rows.len() < 2 {
         // Only the latest vintage exists. Materialize a prior one (~1 yr
@@ -216,15 +278,21 @@ async fn two_vintages(
                 rows = distinct_vintages(cell, band, s).await?;
             }
             Err(e) => {
-                return Err(format!(
-                    "only one vintage of `{band}` at this cell and a prior vintage could not be materialized ({e}); year-over-year change needs two distinct vintages"
+                return Err((
+                    AbsenceReason::SingleVintage,
+                    format!(
+                        "only one vintage of `{band}` at this cell and a prior vintage could not be materialized ({e}); year-over-year change needs two distinct vintages"
+                    ),
                 ));
             }
         }
     }
     if rows.len() < 2 {
-        return Err(format!(
-            "only one distinct vintage of `{band}` is obtainable at this cell (the prior-vintage scene resolved to the same annual tslot); year-over-year change needs two"
+        return Err((
+            AbsenceReason::SingleVintage,
+            format!(
+                "only one distinct vintage of `{band}` is obtainable at this cell (the prior-vintage scene resolved to the same annual tslot); year-over-year change needs two"
+            ),
         ));
     }
     let now = rows[0].clone();
@@ -334,24 +402,28 @@ pub async fn triple_consensus(
                                 None => absent.push(json!({
                                     "encoder": "geotessera.multi_year",
                                     "reason": "two covered vintages share no finite dimensions",
+                                    "reason_code": AbsenceReason::NoFiniteOverlap.code(),
                                 })),
                             }
                         } else {
                             absent.push(json!({
                                 "encoder": "geotessera.multi_year",
                                 "reason": format!("only {} covered Tessera vintage(s) at this cell; year-over-year change needs two", vintages.len()),
+                                "reason_code": AbsenceReason::SingleVintage.code(),
                             }));
                         }
                     }
                     None => absent.push(json!({
                         "encoder": "geotessera.multi_year",
                         "reason": "no multi-year embedding at this cell (outside Tessera coverage)",
+                        "reason_code": AbsenceReason::OutsideCoverage.code(),
                     })),
                 }
             }
             Err(e) => absent.push(json!({
                 "encoder": "geotessera.multi_year",
                 "reason": format!("recall failed: {}", e.1.message),
+                "reason_code": AbsenceReason::RecallFailed.code(),
             })),
         }
     }
@@ -394,9 +466,14 @@ pub async fn triple_consensus(
                 None => absent.push(json!({
                     "encoder": band,
                     "reason": "the two vintages share no finite dimensions",
+                    "reason_code": AbsenceReason::NoFiniteOverlap.code(),
                 })),
             },
-            Err(reason) => absent.push(json!({ "encoder": band, "reason": reason })),
+            Err((code, reason)) => absent.push(json!({
+                "encoder": band,
+                "reason": reason,
+                "reason_code": code.code(),
+            })),
         }
     }
 
@@ -433,6 +510,14 @@ pub async fn triple_consensus(
     // Honest degradation: fewer than consensus_min_models available →
     // inconclusive verdict with NO fabricated ensemble number.
     if !fuse_available {
+        let honest_note = format!(
+            "Year-over-year consensus needs at least {min_models} encoders with two vintages; only {n_used} available here. Most often this means the GPU sidecar is down (clay_v1/prithvi_eo2 sign Absence) and only Tessera multi-year is computable. No ensemble value is reported — that would be a fabricated number."
+        );
+        // Inconclusive is a degraded outcome. Surface a single machine-readable
+        // reason (dominant over encoders_absent[]) so a caller never treats the
+        // null ensemble as signal. `insufficient_encoders` is the terminal case
+        // when no encoder reported a specific absence code.
+        let degraded_reason = dominant_absence_code(&absent).unwrap_or("insufficient_encoders");
         return Ok(json!({
             "schema": "emem.triple_consensus.v1",
             "algorithm_key": "clay_prithvi_tessera_triple_consensus@1",
@@ -440,6 +525,9 @@ pub async fn triple_consensus(
             "resolved_from": resolved_env,
             "verdict": "inconclusive",
             "available": false,
+            "degraded": true,
+            "degraded_reason": degraded_reason,
+            "degraded_message": honest_note.clone(),
             "ensemble": JsonValue::Null,
             "agreement": "insufficient_encoders",
             "encoders_used": per_encoder,
@@ -447,9 +535,7 @@ pub async fn triple_consensus(
             "n_encoders_used": n_used,
             "consensus_min_models": min_models,
             "consensus_threshold": gate,
-            "honest_note": format!(
-                "Year-over-year consensus needs at least {min_models} encoders with two vintages; only {n_used} available here. Most often this means the GPU sidecar is down (clay_v1/prithvi_eo2 sign Absence) and only Tessera multi-year is computable. No ensemble value is reported — that would be a fabricated number."
-            ),
+            "honest_note": honest_note,
             "responder_pubkey_b32": pubkey,
             "receipt": receipt,
         }));
@@ -459,6 +545,26 @@ pub async fn triple_consensus(
     // documented `sqrt((dc^2 + dp^2 + dt^2)/3)` generalised to N<=3.
     let ensemble = ensemble_opt.expect("fuse returned available with no ensemble");
 
+    // A 2-of-3 result is real but DEGRADED: surface degraded:true + a reason so
+    // a caller doesn't treat a partial consensus as a full triple. A complete
+    // 3-encoder result is not degraded (degraded_reason is explicit null).
+    let degraded = n_used < 3;
+    let honest_note = if degraded {
+        format!("Consensus computed over {n_used} of 3 encoders; {} unavailable (see encoders_absent). Treat as lower-confidence than a full triple.", 3 - n_used)
+    } else {
+        "All three encoders contributed.".to_string()
+    };
+    let degraded_reason = if degraded {
+        json!(format!("partial_consensus_{n_used}_of_3"))
+    } else {
+        JsonValue::Null
+    };
+    let degraded_message = if degraded {
+        json!(honest_note.clone())
+    } else {
+        JsonValue::Null
+    };
+
     Ok(json!({
         "schema": "emem.triple_consensus.v1",
         "algorithm_key": "clay_prithvi_tessera_triple_consensus@1",
@@ -466,6 +572,9 @@ pub async fn triple_consensus(
         "resolved_from": resolved_env,
         "verdict": "computed",
         "available": true,
+        "degraded": degraded,
+        "degraded_reason": degraded_reason,
+        "degraded_message": degraded_message,
         "ensemble": ensemble,
         "agreement": agreement,
         "encoders_used": per_encoder,
@@ -475,11 +584,7 @@ pub async fn triple_consensus(
         "consensus_threshold": gate,
         "formula": "d_e = clamp(1 - cos(v_now, v_prev), 0, 1) per encoder; ensemble = sqrt(mean(d_e^2)) over available encoders; agreement gates on consensus_threshold",
         "citation": alg.map(|a| a.citation.clone()).unwrap_or_default(),
-        "honest_note": if n_used < 3 {
-            format!("Consensus computed over {n_used} of 3 encoders; {} unavailable (see encoders_absent). Treat as lower-confidence than a full triple.", 3 - n_used)
-        } else {
-            "All three encoders contributed.".to_string()
-        },
+        "honest_note": honest_note,
         "input_fact_cids": all_cids,
         "responder_pubkey_b32": pubkey,
         "receipt": receipt,
@@ -643,13 +748,48 @@ pub async fn deforestation_alert(
     // Compose. The documented composite is a 0.5/0.5 blend. If only one
     // half is available we report THAT half under a distinct key so it is
     // never mistaken for the full composite. If neither — inconclusive.
-    let (alert_score, output_key, available): (Option<f64>, &str, bool) =
-        match (ndvi_term, embed_term) {
-            (Some(a), Some(b)) => (Some(0.5 * a + 0.5 * b), "alert_score", true),
-            (Some(a), None) => (Some(a), "ndvi_drop_half_only", true),
-            (None, Some(b)) => (Some(b), "embedding_change_half_only", true),
-            (None, None) => (None, "inconclusive", false),
-        };
+    // A half-only score is real but DEGRADED (do not threshold against the
+    // 0.6 alert gate); a neither-half result is degraded-to-inconclusive.
+    // `degraded` + a machine-readable `degraded_reason` make this explicit so
+    // a caller never mistakes a half-score (or a null) for a full composite.
+    let (alert_score, output_key, available, degraded, degraded_reason): (
+        Option<f64>,
+        &str,
+        bool,
+        bool,
+        Option<&str>,
+    ) = match (ndvi_term, embed_term) {
+        (Some(a), Some(b)) => (Some(0.5 * a + 0.5 * b), "alert_score", true, false, None),
+        (Some(a), None) => (
+            Some(a),
+            "ndvi_drop_half_only",
+            true,
+            true,
+            Some("embedding_half_unavailable"),
+        ),
+        (None, Some(b)) => (
+            Some(b),
+            "embedding_change_half_only",
+            true,
+            true,
+            Some("ndvi_half_unavailable"),
+        ),
+        (None, None) => (None, "inconclusive", false, true, Some("no_inputs")),
+    };
+
+    let honest_note = if alert_score.is_some() && output_key != "alert_score" {
+        "Only one of the two composite halves was computable; reported half-score under its own key, NOT as the full alert_score. Do not threshold this against the 0.6 alert gate.".to_string()
+    } else if !available {
+        "Neither composite half was computable at this cell. No number reported.".to_string()
+    } else {
+        "Both halves computed; scout-only triage signal — confirm with Hansen GFC / RADD before crediting decisions.".to_string()
+    };
+    // When degraded, degraded_message echoes the human note; otherwise explicit null.
+    let degraded_message = if degraded {
+        json!(honest_note.clone())
+    } else {
+        JsonValue::Null
+    };
 
     Ok(json!({
         "schema": "emem.deforestation_alert.v1",
@@ -657,6 +797,9 @@ pub async fn deforestation_alert(
         "cell": cell,
         "resolved_from": resolved_env,
         "available": available,
+        "degraded": degraded,
+        "degraded_reason": degraded_reason,
+        "degraded_message": degraded_message,
         "verdict": if available { "computed" } else { "inconclusive" },
         "output_key": output_key,
         "value": alert_score,
@@ -669,13 +812,7 @@ pub async fn deforestation_alert(
             .lookup("carbon.deforestation_alert_proxy@1")
             .map(|a| a.citation.clone())
             .unwrap_or_default(),
-        "honest_note": if alert_score.is_some() && output_key != "alert_score" {
-            "Only one of the two composite halves was computable; reported half-score under its own key, NOT as the full alert_score. Do not threshold this against the 0.6 alert gate.".to_string()
-        } else if !available {
-            "Neither composite half was computable at this cell. No number reported.".to_string()
-        } else {
-            "Both halves computed; scout-only triage signal — confirm with Hansen GFC / RADD before crediting decisions.".to_string()
-        },
+        "honest_note": honest_note,
         "degradation_notes": notes,
         "input_fact_cids": cids,
         "responder_pubkey_b32": pubkey,
@@ -701,6 +838,36 @@ mod tests {
 
     fn vintage(seed: f32, dim: usize) -> Vec<f32> {
         (0..dim).map(|i| ((i as f32) * 0.01 + seed).sin()).collect()
+    }
+
+    #[test]
+    fn dominant_absence_code_prefers_most_actionable_cause() {
+        // A downed sidecar outranks a single-vintage cell in the same response.
+        let absent = vec![
+            json!({ "encoder": "geotessera.multi_year", "reason_code": "single_vintage" }),
+            json!({ "encoder": "clay_v1", "reason_code": "gpu_sidecar_unavailable" }),
+        ];
+        assert_eq!(dominant_absence_code(&absent), Some("gpu_sidecar_unavailable"));
+
+        // With no GPU cause, single_vintage wins over outside_coverage.
+        let absent = vec![
+            json!({ "encoder": "geotessera.multi_year", "reason_code": "outside_coverage" }),
+            json!({ "encoder": "clay_v1", "reason_code": "single_vintage" }),
+        ];
+        assert_eq!(dominant_absence_code(&absent), Some("single_vintage"));
+
+        // No coded entries → None (caller substitutes insufficient_encoders).
+        assert_eq!(dominant_absence_code(&[]), None);
+    }
+
+    #[test]
+    fn absence_reason_codes_are_stable_strings() {
+        // The wire set is a public contract; lock the exact strings.
+        assert_eq!(AbsenceReason::GpuSidecarUnavailable.code(), "gpu_sidecar_unavailable");
+        assert_eq!(AbsenceReason::SingleVintage.code(), "single_vintage");
+        assert_eq!(AbsenceReason::OutsideCoverage.code(), "outside_coverage");
+        assert_eq!(AbsenceReason::NoFiniteOverlap.code(), "no_finite_overlap");
+        assert_eq!(AbsenceReason::RecallFailed.code(), "recall_failed");
     }
 
     #[test]

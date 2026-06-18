@@ -70,6 +70,51 @@ fn bad_request(msg: impl Into<String>) -> ApiError {
     )
 }
 
+/// Structured 400 for a single out-of-range / invalid request field.
+///
+/// Mirrors `land_locked_profile_error`'s use of the `details` channel so a
+/// caller gets a machine-readable `{error, field, allowed, got}` body instead
+/// of a bare 400 with the valid range buried in prose (TerraGround field
+/// feedback #4). `allowed` carries `min`/`max`/`enum` as applicable — the same
+/// bounds the MCP JSON-Schema already advertises — and `got` is the rejected
+/// value verbatim. The request is still rejected; only the body is enriched.
+fn invalid_field(
+    field: &str,
+    message: impl Into<String>,
+    allowed: JsonValue,
+    got: JsonValue,
+) -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: message.into(),
+            details: Some(json!({
+                "error": "invalid_field",
+                "field": field,
+                "allowed": allowed,
+                "got": got,
+            })),
+        },
+    )
+}
+
+// ── Validated request-field bounds ────────────────────────────────────────
+// Each bound lives in exactly one named const, referenced by BOTH the
+// comparison and the `allowed` payload of `invalid_field`, so the wire range
+// can never drift from the enforced range. These mirror the ranges the MCP
+// tool schemas in emem-mcp advertise.
+const JEPA_LOOKBACK_MIN_MONTHS: u32 = 1;
+const JEPA_LOOKBACK_MAX_MONTHS: u32 = 24;
+const JEPA_FORECAST_HORIZON_MONTHS: u32 = 1;
+const JEPA_SUPPORTED_BAND: &str = "indices.ndvi";
+const WAVE_OFFSHORE_HEIGHT_MAX_M: f64 = 30.0;
+const WAVE_PERIOD_MIN_S: f64 = 2.0;
+const WAVE_PERIOD_MAX_S: f64 = 30.0;
+const WAVE_N_OFFSHORE_MIN: u32 = 1;
+const WAVE_N_OFFSHORE_MAX: u32 = 64;
+const HEAT_HOURS_AHEAD_MAX: f64 = 168.0;
+
 /// Unprocessable-entity envelope for "the math could not run because the
 /// inputs were missing or non-finite". Distinct from 400 because the
 /// caller's request was syntactically fine; the responder couldn't
@@ -412,14 +457,30 @@ fn heat_choose_timestep(alpha: f64, hours_ahead: f64) -> Result<(usize, f64), St
 /// the MCP dispatch arm.
 pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
-    if req.hours_ahead > 168.0 {
-        return Err(bad_request(format!(
-            "hours_ahead capped at 168 (one week); got {}. \
-             MODIS LST 8-day composite stops being a representative initial \
-             condition past a week — for longer horizons run the solver \
-             stepwise from refreshed initial conditions.",
-            req.hours_ahead
-        )));
+    if !req.diffusivity_m2_per_s.is_finite() || req.diffusivity_m2_per_s <= 0.0 {
+        return Err(invalid_field(
+            "diffusivity_m2_per_s",
+            format!(
+                "diffusivity_m2_per_s must be positive and finite; got {}",
+                req.diffusivity_m2_per_s
+            ),
+            json!({ "min": 0.0, "min_exclusive": true }),
+            json!(req.diffusivity_m2_per_s),
+        ));
+    }
+    if !req.hours_ahead.is_finite() || req.hours_ahead <= 0.0 || req.hours_ahead > HEAT_HOURS_AHEAD_MAX {
+        return Err(invalid_field(
+            "hours_ahead",
+            format!(
+                "hours_ahead must be in (0, {HEAT_HOURS_AHEAD_MAX}] (one week); got {}. \
+                 MODIS LST 8-day composite stops being a representative initial \
+                 condition past a week — for longer horizons run the solver \
+                 stepwise from refreshed initial conditions.",
+                req.hours_ahead
+            ),
+            json!({ "min": 0.0, "min_exclusive": true, "max": HEAT_HOURS_AHEAD_MAX }),
+            json!(req.hours_ahead),
+        ));
     }
     let (n_steps, dt_s) =
         heat_choose_timestep(req.diffusivity_m2_per_s, req.hours_ahead).map_err(bad_request)?;
@@ -898,15 +959,23 @@ async fn walk_seaward_profile(
     n_offshore: usize,
     state: &AppState,
 ) -> Result<(Vec<String>, Vec<f64>, Vec<String>), ApiError> {
-    if n_offshore == 0 {
-        return Err(bad_request(
-            "n_offshore_cells must be at least 1 to define a seaward profile",
+    if n_offshore < WAVE_N_OFFSHORE_MIN as usize {
+        return Err(invalid_field(
+            "n_offshore_cells",
+            format!(
+                "n_offshore_cells must be at least {WAVE_N_OFFSHORE_MIN} to define a seaward profile; got {n_offshore}"
+            ),
+            json!({ "min": WAVE_N_OFFSHORE_MIN, "max": WAVE_N_OFFSHORE_MAX }),
+            json!(n_offshore),
         ));
     }
-    if n_offshore > 64 {
-        return Err(bad_request(format!(
-            "n_offshore_cells capped at 64; got {n_offshore}"
-        )));
+    if n_offshore > WAVE_N_OFFSHORE_MAX as usize {
+        return Err(invalid_field(
+            "n_offshore_cells",
+            format!("n_offshore_cells capped at {WAVE_N_OFFSHORE_MAX}; got {n_offshore}"),
+            json!({ "min": WAVE_N_OFFSHORE_MIN, "max": WAVE_N_OFFSHORE_MAX }),
+            json!(n_offshore),
+        ));
     }
     let band = "gmrt.topobathy_mean";
     // The four cardinal directions. We walk seaward by picking the
@@ -1019,17 +1088,29 @@ pub async fn wave_solve(mut req: WaveSolveReq, state: &AppState) -> Result<JsonV
     // so locate must succeed before any of the FD sanity checks below.
     let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.coastal_cell).await?;
     req.coastal_cell = resolved_cell;
-    if !(0.0..=30.0).contains(&req.offshore_height_m) || !req.offshore_height_m.is_finite() {
-        return Err(bad_request(format!(
-            "offshore_height_m must be in (0, 30] m; got {}",
-            req.offshore_height_m
-        )));
+    if !(0.0..=WAVE_OFFSHORE_HEIGHT_MAX_M).contains(&req.offshore_height_m)
+        || !req.offshore_height_m.is_finite()
+    {
+        return Err(invalid_field(
+            "offshore_height_m",
+            format!(
+                "offshore_height_m must be in (0, {WAVE_OFFSHORE_HEIGHT_MAX_M}] m; got {}",
+                req.offshore_height_m
+            ),
+            json!({ "min": 0.0, "max": WAVE_OFFSHORE_HEIGHT_MAX_M, "min_exclusive": true }),
+            json!(req.offshore_height_m),
+        ));
     }
-    if !(2.0..=30.0).contains(&req.period_s) || !req.period_s.is_finite() {
-        return Err(bad_request(format!(
-            "period_s must be in [2, 30] s (typical wind-wave + swell envelope); got {}",
-            req.period_s
-        )));
+    if !(WAVE_PERIOD_MIN_S..=WAVE_PERIOD_MAX_S).contains(&req.period_s) || !req.period_s.is_finite() {
+        return Err(invalid_field(
+            "period_s",
+            format!(
+                "period_s must be in [{WAVE_PERIOD_MIN_S}, {WAVE_PERIOD_MAX_S}] s (typical wind-wave + swell envelope); got {}",
+                req.period_s
+            ),
+            json!({ "min": WAVE_PERIOD_MIN_S, "max": WAVE_PERIOD_MAX_S }),
+            json!(req.period_s),
+        ));
     }
     let n_offshore = req.n_offshore_cells.max(1) as usize;
 
@@ -1255,23 +1336,40 @@ pub async fn jepa_predict(
     // Resolve a place name to cell64 if needed before the recall fan-out.
     let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
     req.cell = resolved_cell;
-    if req.lookback_months == 0 || req.lookback_months > 24 {
-        return Err(bad_request(format!(
-            "lookback_months must be in 1..=24; got {}",
-            req.lookback_months
-        )));
+    if req.lookback_months < JEPA_LOOKBACK_MIN_MONTHS
+        || req.lookback_months > JEPA_LOOKBACK_MAX_MONTHS
+    {
+        return Err(invalid_field(
+            "lookback_months",
+            format!(
+                "lookback_months must be in {JEPA_LOOKBACK_MIN_MONTHS}..={JEPA_LOOKBACK_MAX_MONTHS}; got {}",
+                req.lookback_months
+            ),
+            json!({ "min": JEPA_LOOKBACK_MIN_MONTHS, "max": JEPA_LOOKBACK_MAX_MONTHS }),
+            json!(req.lookback_months),
+        ));
     }
-    if req.forecast_horizon_months != 1 {
-        return Err(bad_request(format!(
-            "forecast_horizon_months must be 1 in v1 (multi-step rollout lands in @2); got {}",
-            req.forecast_horizon_months
-        )));
+    if req.forecast_horizon_months != JEPA_FORECAST_HORIZON_MONTHS {
+        return Err(invalid_field(
+            "forecast_horizon_months",
+            format!(
+                "forecast_horizon_months must be {JEPA_FORECAST_HORIZON_MONTHS} in v1 (multi-step rollout lands in @2); got {}",
+                req.forecast_horizon_months
+            ),
+            json!({ "min": JEPA_FORECAST_HORIZON_MONTHS, "max": JEPA_FORECAST_HORIZON_MONTHS }),
+            json!(req.forecast_horizon_months),
+        ));
     }
-    if req.band != "indices.ndvi" {
-        return Err(bad_request(format!(
-            "v1 supports band='indices.ndvi' only (closed-form coefficients are agriculture-NDVI calibrated); got '{}'",
-            req.band
-        )));
+    if req.band != JEPA_SUPPORTED_BAND {
+        return Err(invalid_field(
+            "band",
+            format!(
+                "v1 supports band='{JEPA_SUPPORTED_BAND}' only (closed-form coefficients are agriculture-NDVI calibrated); got '{}'",
+                req.band
+            ),
+            json!({ "enum": [JEPA_SUPPORTED_BAND] }),
+            json!(req.band),
+        ));
     }
 
     // 1) Recall every monthly NDVI fact already attested at this cell.

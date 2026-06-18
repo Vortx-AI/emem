@@ -529,11 +529,40 @@ fn spawn_capability_cache_poller() {
     });
 }
 
-/// `GET /v1/capabilities` — exposes the cached `CapabilityState` so
+/// Per-endpoint discovery flags that a sidecar-extension list cannot express.
+///
+/// Today this surfaces the *trained* state of the local JEPA-v2 dynamics model:
+/// `/v1/jepa_predict_v2` short-circuits to a zero-confidence climatological
+/// baseline whenever its on-disk artifact is the untrained sentinel
+/// (`jepa_v2::is_trained() == false`). The flag is driven live from
+/// `is_trained()` — never hardcoded — so it self-corrects the moment a trained
+/// `dynamics_v2.metadata.json` ships, and can never advertise `trained:true`
+/// while the handler is silently returning a baseline.
+fn capability_endpoints() -> JsonValue {
+    let jepa_v2_trained = crate::jepa_v2::is_trained();
+    let note = if jepa_v2_trained {
+        "Learned dynamics head loaded; /v1/jepa_predict_v2 serves model inference."
+    } else {
+        "Untrained zero-init sentinel: /v1/jepa_predict_v2 short-circuits to band \
+         climatological means at confidence 0.0 (via=short_circuit_untrained), not a \
+         learned forecast. Treat as experimental until `trained` flips to true."
+    };
+    json!({
+        "jepa_predict_v2": {
+            "trained":      jepa_v2_trained,
+            "experimental": !jepa_v2_trained,
+            "note":         note,
+        }
+    })
+}
+
+/// `GET`/`POST /v1/capabilities` — exposes the cached `CapabilityState` so
 /// agents can tell which extensions are live without each making
 /// their own sidecar /health call. Receipts elsewhere carry
 /// `served_via.tier`; this endpoint is the negotiated discovery
-/// surface that complements the per-fact provenance.
+/// surface that complements the per-fact provenance. Bound to both GET
+/// and POST: it is a parameterless, idempotent read, and most sibling
+/// `/v1/*` routes are POST — accepting both avoids a 405 papercut.
 async fn get_capabilities() -> Json<JsonValue> {
     let c = cached_capabilities();
     Json(json!({
@@ -543,11 +572,14 @@ async fn get_capabilities() -> Json<JsonValue> {
         "cuda_available":  c.cuda_available,
         "healthy":         c.healthy,
         "last_polled_unix_s": c.last_polled_unix_s,
+        "endpoints":       capability_endpoints(),
         "agent_hint": "Cached capability snapshot from the GPU sidecar, refreshed every 30 s. \
                        Agents that want a strict 'will this algorithm run?' check should look up \
                        its `inference.required_extension` in /v1/explain_algorithm and confirm \
                        the value is present in `extensions[]` here. When `extensions[]` is empty \
-                       the sidecar is unreachable; only CPU / scalar / cached tiers are live.",
+                       the sidecar is unreachable; only CPU / scalar / cached tiers are live. \
+                       `endpoints[].experimental` flags handlers (e.g. jepa_predict_v2) that are \
+                       advertised but not yet serving learned inference.",
         "next": [
             "GET /v1/topics — algorithm list per topic (each algorithm now carries `available_now`)",
             "GET /v1/explain_algorithm/{key} — full inference-tier metadata",
@@ -991,7 +1023,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/memory_search/stats", get(get_memory_search_stats))
         // Introspection
         .route("/v1/manifests", get(manifests))
-        .route("/v1/capabilities", get(get_capabilities))
+        .route("/v1/capabilities", get(get_capabilities).post(get_capabilities))
         .route("/v1/bands", get(bands))
         .route("/v1/materializers", get(materializers))
         .route("/v1/data_availability", get(data_availability))
@@ -6119,12 +6151,15 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "runtime": {
             "language":       "Rust",
             "no_python_at_request_path": true,
-            "cog_reader":     "pure-Rust HTTPS-range TIFF/IFD parser + Deflate + Predictor 2 (no GDAL, no rasterio)",
+            "cog_reader":     "pure-Rust HTTPS-range TIFF/IFD parser + Deflate/LZW + Predictor 1/2/3 (no GDAL, no rasterio); tile decode runs on the blocking pool, off the async reactor",
             "weather_source": "MET Norway api.met.no (no API key, no per-IP rate limit)",
             "stac_search":    "Element84 earth-search (anonymous; AWS Open Data backed)",
             "gateway_timeout_secs":      timeout_seconds(),
             "materializer_timeout_secs": materializer_timeout_secs(),
+            "max_inflight":              max_inflight(),
+            "cog_decode_concurrency":    emem_fetch::cog::decode_concurrency_limit(),
             "client_timeout_advice":     "Set your HTTP client read timeout to gateway_timeout_secs + 5 s. /v1/ask on a cold cell can fan out 8–24 parallel materialisations whose worst-case is bounded by materializer_timeout_secs; /v1/recall and /v1/locate complete in <2 s when warm. If you need a hard upper bound, request `cell` + a single concrete `band` to skip the temporal_recipe expansion.",
+            "concurrency_advice":        "Concurrent recalls are bounded by max_inflight (global) and cog_decode_concurrency (CPU tile decode). Cold COG decode now runs off the async reactor, so a burst no longer starves the runtime into socket resets/504s; if you exceed max_inflight you get a clean 503 + Retry-After to honour, not a dropped connection.",
         },
         // How to make an answer portable across sessions, agents, and
         // audits. A fact CID is content-addressed and a receipt is signed,
@@ -6280,8 +6315,10 @@ async fn find_similar_with_auto_materialize(
     {
         if !req.key.starts_with("inline:") && auto_materialize_enabled() {
             let band_owned = band_used.to_string();
+            // find_similar has no temporal-pinning argument — vector-band
+            // similarity is over the latest vintage — so no bound is passed.
             let outcomes =
-                try_materialize_bands(&req.key, std::slice::from_ref(&band_owned), s).await;
+                try_materialize_bands(&req.key, std::slice::from_ref(&band_owned), None, s).await;
             let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
             for o in &outcomes {
                 if let Some(cid) = &o.fact_cid {
@@ -6406,8 +6443,15 @@ async fn recall_with_auto_materialize_capped(
         }
     }
 
+    // Temporal intent for date-addressable cold materialization (TerraGround
+    // feedback #1): prefer the exact valid-time bucket (`tslot`), else the
+    // as-of upper bound (`as_of_tslot`). `as_of_signed_at` is transaction-time
+    // — what emem *knew* as of a system date — NOT an acquisition epoch, so it
+    // is deliberately never mapped to a scene date.
+    let bound_tslot: Option<u64> = req.tslot.or(req.as_of_tslot);
+
     if !candidates.is_empty() {
-        let outcomes = try_materialize_bands(&req.cell, &candidates, s).await;
+        let outcomes = try_materialize_bands(&req.cell, &candidates, bound_tslot, s).await;
         let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
         for o in &outcomes {
             if let Some(reason) = &o.skip_reason {
@@ -6940,6 +6984,13 @@ impl LatLngQ {
                 || !(-90.0..=90.0).contains(&la)
                 || !(-180.0..=180.0).contains(&lo)
             {
+                // Name the offending coordinate so callers can branch on it,
+                // mirroring physics.rs `invalid_field` (TerraGround feedback #4).
+                let field = if !la.is_finite() || !(-90.0..=90.0).contains(&la) {
+                    "lat"
+                } else {
+                    "lng"
+                };
                 return Err(ApiError(
                     StatusCode::BAD_REQUEST,
                     ErrorBody {
@@ -6947,7 +6998,15 @@ impl LatLngQ {
                         message: format!(
                             "coordinates out of range: lat in [-90,90], lng in [-180,180], got lat={la}, lng={lo}"
                         ),
-                        details: None,
+                        details: Some(json!({
+                            "error": "invalid_field",
+                            "field": field,
+                            "allowed": {
+                                "lat": { "min": -90.0, "max": 90.0 },
+                                "lng": { "min": -180.0, "max": 180.0 },
+                            },
+                            "got": { "lat": la, "lng": lo },
+                        })),
                     },
                 ));
             }
@@ -11370,11 +11429,27 @@ fn enrich_find_similar_response(body: &mut JsonValue, mode_str: &str, band_used:
         };
         let cell = obj.get("cell").and_then(|v| v.as_str()).map(String::from);
         if let Some(c) = cell {
-            if let Ok(info) = emem_codec::latlng_from_cell64(&c) {
-                obj.insert("lat".into(), json!(info.lat_deg));
-                obj.insert("lng".into(), json!(info.lng_deg));
-                if let Some(label) = embedded_gazetteer_reverse_lookup(info.lat_deg, info.lng_deg) {
-                    obj.insert("place_label_cached".into(), json!(label));
+            // Guarantee a stable neighbor key-set: cell/score/lat/lng/place_label_cached
+            // are ALWAYS present. When the cell64 has no honest centroid (inline
+            // literal or undecodable), lat/lng are explicit JSON null — never absent,
+            // never a fabricated coordinate. This keeps the REST and MCP envelopes
+            // byte-identical and shape-stable regardless of geocode outcome.
+            match emem_codec::latlng_from_cell64(&c) {
+                Ok(info) => {
+                    obj.insert("lat".into(), json!(info.lat_deg));
+                    obj.insert("lng".into(), json!(info.lng_deg));
+                    obj.insert(
+                        "place_label_cached".into(),
+                        match embedded_gazetteer_reverse_lookup(info.lat_deg, info.lng_deg) {
+                            Some(label) => json!(label),
+                            None => JsonValue::Null,
+                        },
+                    );
+                }
+                Err(_) => {
+                    obj.insert("lat".into(), JsonValue::Null);
+                    obj.insert("lng".into(), JsonValue::Null);
+                    obj.entry("place_label_cached").or_insert(JsonValue::Null);
                 }
             }
             obj.insert("similarity_method".into(), json!(mode_str));
@@ -15583,6 +15658,7 @@ async fn mcp_tool_call(
                 "cuda_available":     c.cuda_available,
                 "healthy":            c.healthy,
                 "last_polled_unix_s": c.last_polled_unix_s,
+                "endpoints":          capability_endpoints(),
             }))
         }
         "emem_errors" => Ok(errors_payload()),
@@ -15982,7 +16058,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
             "/v1/quickstart":        {"get":{"summary":"6-step playbook","operationId":"emem_quickstart","responses":{"200":json_ok}}},
             "/v1/manifests":         {"get":{"summary":"active manifest CIDs","operationId":"emem_manifests","responses":{"200":json_ok}}},
-            "/v1/capabilities":      {"get":{"summary":"cached upstream capability snapshot (extensions[], cuda_available, models_loaded). 30 s background poll; agents read this to filter algorithms whose inference.required_extension is missing instead of hitting /health per request.","operationId":"emem_capabilities","responses":{"200":json_ok}}},
+            "/v1/capabilities":      {"get":{"summary":"cached upstream capability snapshot (extensions[], cuda_available, models_loaded, endpoints[].trained/experimental). 30 s background poll; agents read this to filter algorithms whose inference.required_extension is missing instead of hitting /health per request.","operationId":"emem_capabilities","responses":{"200":json_ok}},"post":{"summary":"identical idempotent capability snapshot (accepts POST so callers that POST every /v1/* endpoint don't 405)","operationId":"emem_capabilities_post","responses":{"200":json_ok}}},
             "/v1/bands":             {"get":{"summary":"band ontology","operationId":"emem_bands","responses":{"200":json_ok}}},
             "/v1/materializers":     {"get":{"summary":"per-band auto-fetch registry (which bands the responder will materialize on a recall miss)","operationId":"emem_materializers","responses":{"200":json_ok}}},
             "/v1/data_availability": {"get":{"summary":"per-band temporal coverage catalog (window + tempo + kind + upstream wire path)","operationId":"emem_data_availability","responses":{"200":json_ok}}},
@@ -16191,7 +16267,7 @@ async fn openapi() -> Json<JsonValue> {
                 "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. `ok` means a Primary fact was minted and persisted; `absence` means a typed Absence was signed.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string"},"reason":{"type":"string"},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request — empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon — pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
-                "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid) — never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareResp":     {"type":"object","description":"Response of /v1/compare. Single cosine similarity score (vector bands) or scalar delta (scalar bands) plus per-band breakdown.","required":["score","receipt"],"properties":{"score":{"type":"number"},"deltas":{"type":"object","additionalProperties":{"type":"number"},"description":"Per-band scalar delta for scalar comparisons; absent for vector cosine."},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareBandsResp":{"type":"object","description":"Response of /v1/compare_bands. Numeric delta + percent change for scalar pairs; cosine + L2 for vector pairs. `predicate_verdict` is present when a consistency predicate was passed.","required":["delta","receipt"],"properties":{"delta":{"type":"number"},"percent_change":{"type":"number"},"cosine":{"type":"number"},"l2":{"type":"number"},"predicate_verdict":{"type":"object","properties":{"kind":{"type":"string"},"threshold":{"type":"number"},"holds":{"type":"boolean"}}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "VerifyResp":      {"type":"object","description":"Response of /v1/verify. `holds` is the boolean verdict; `evidence_cids` are the fact CIDs the verifier walked to reach the verdict.","required":["holds","receipt"],"properties":{"holds":{"type":"boolean"},"evidence_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"explanation":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -33226,6 +33302,7 @@ async fn visual_materialize_permit() -> tokio::sync::OwnedSemaphorePermit {
 async fn try_materialize_bands(
     cell64: &str,
     bands: &[String],
+    bound_tslot: Option<u64>,
     s: &AppState,
 ) -> Vec<MaterializeOutcome> {
     if !auto_materialize_enabled() {
@@ -33415,7 +33492,18 @@ async fn try_materialize_bands(
                 }
             }
             b_name if s2_band_plan(b_name).is_some() => {
-                match materialize_sentinel2_band(cell64, s, b, None).await {
+                // Honour the recall's temporal bound on the S2/indices
+                // materialization path (TerraGround field feedback #1): convert
+                // the bound tslot to a target unix in THIS band's tempo and pin
+                // the scene at/just-before it — the same date-aware path
+                // scene.png and /v1/backfill use — instead of silently signing
+                // the LATEST scene under a past-dated query. With no bound
+                // (`None`), behaviour is byte-identical to before (latest scene).
+                let target_unix = bound_tslot.and_then(|t| {
+                    band_tempo_for_key(b)
+                        .map(|tempo| emem_core::tslot::Tslot(t).to_unix_start(tempo))
+                });
+                match materialize_sentinel2_band(cell64, s, b, target_unix).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",

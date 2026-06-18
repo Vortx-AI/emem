@@ -988,6 +988,251 @@ fn finish_profile(
     })
 }
 
+/// The `Copy` subset of [`CogProfile`] the tile decoder needs. Lets the
+/// CPU-bound decompress+predictor work move onto a blocking thread via
+/// `spawn_blocking` without borrowing the (non-`Copy`, `Vec`-bearing)
+/// profile — the closure owns these scalars outright.
+#[derive(Clone, Copy)]
+struct TileCodec {
+    compression: u16,
+    predictor: u16,
+    bits_per_sample: u16,
+    tile_w: u32,
+    tile_h: u32,
+    samples_per_pixel: u16,
+}
+
+impl TileCodec {
+    fn from_profile(p: &CogProfile) -> Self {
+        Self {
+            compression: p.compression,
+            predictor: p.predictor,
+            bits_per_sample: p.bits_per_sample,
+            tile_w: p.tile_w,
+            tile_h: p.tile_h,
+            samples_per_pixel: p.samples_per_pixel,
+        }
+    }
+}
+
+/// Bounds how many tile decodes run concurrently on the blocking pool, so a
+/// burst of cold recalls can't oversubscribe the cores against the default
+/// 512-thread blocking pool. Default = available parallelism; override with
+/// `EMEM_COG_DECODE_CONCURRENCY`. This is the honest, documented concurrency
+/// ceiling that replaces the old runtime-starving 504/socket-reset failure
+/// mode (TerraGround field feedback #6) — once decode is off the reactor the
+/// accept loop and gateway timer keep being polled, so the gateway's
+/// `503 + Retry-After` backpressure becomes the binding limit instead.
+/// The configured tile-decode concurrency limit: `EMEM_COG_DECODE_CONCURRENCY`
+/// when set to a positive integer, else the machine's available parallelism
+/// (fallback 4). Exposed so the agent-card / OpenAPI runtime block can quote
+/// the honest ceiling under `runtime.cog_decode_concurrency`.
+pub fn decode_concurrency_limit() -> usize {
+    std::env::var("EMEM_COG_DECODE_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|p| p.get())
+                .unwrap_or(4)
+        })
+}
+
+static DECODE_SEMAPHORE: LazyLock<tokio::sync::Semaphore> =
+    LazyLock::new(|| tokio::sync::Semaphore::new(decode_concurrency_limit()));
+
+/// Run a synchronous tile decode on the blocking pool under the decode
+/// semaphore, keeping the CPU-bound inflate + predictor-undiff work off the
+/// async reactor. `compressed` is moved into the closure (`Bytes` is
+/// Arc-backed, so this is a cheap refcount bump). Decode output is
+/// bit-identical to the previous inline path — only the executing thread
+/// changes.
+async fn run_tile_decode(
+    compressed: Bytes,
+    codec: TileCodec,
+    decode: fn(&[u8], TileCodec) -> Result<Vec<u8>, CogError>,
+) -> Result<Vec<u8>, CogError> {
+    let _permit = DECODE_SEMAPHORE
+        .acquire()
+        .await
+        .expect("decode semaphore is never closed");
+    tokio::task::spawn_blocking(move || decode(&compressed, codec))
+        .await
+        .map_err(|e| CogError::Inflate(format!("tile decode task panicked: {e}")))?
+}
+
+/// Decompress + undo the predictor for a SINGLE-band tile (Sentinel-2 / -1
+/// grayscale rasters, `samples_per_pixel = 1`). Pure CPU; byte-identical to
+/// the logic that previously ran inline in [`sample_pixel`] / [`sample_window`].
+fn decode_tile_singleband(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8>, CogError> {
+    let bps = (codec.bits_per_sample / 8) as usize;
+    let mut tile_bytes = Vec::with_capacity(
+        (codec.tile_w as usize)
+            * (codec.tile_h as usize)
+            * (codec.samples_per_pixel as usize)
+            * bps,
+    );
+    match codec.compression {
+        8 => {
+            let mut decoder = ZlibDecoder::new(compressed);
+            decoder
+                .read_to_end(&mut tile_bytes)
+                .map_err(|e| CogError::Inflate(e.to_string()))?;
+        }
+        5 => {
+            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
+            tile_bytes = dec
+                .decode(compressed)
+                .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
+        }
+        _ => unreachable!("compression already validated above"),
+    }
+
+    if codec.predictor == 2 {
+        let row_bytes = (codec.tile_w as usize) * bps;
+        match codec.bits_per_sample {
+            16 => {
+                for r in 0..codec.tile_h as usize {
+                    let base = r * row_bytes;
+                    let mut prev: u16 =
+                        u16::from_le_bytes(tile_bytes[base..base + 2].try_into().unwrap());
+                    for c in 1..codec.tile_w as usize {
+                        let p = base + c * 2;
+                        let cur_diff = u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap());
+                        let v = prev.wrapping_add(cur_diff);
+                        tile_bytes[p..p + 2].copy_from_slice(&v.to_le_bytes());
+                        prev = v;
+                    }
+                }
+            }
+            8 => {
+                for r in 0..codec.tile_h as usize {
+                    let base = r * row_bytes;
+                    let mut prev: u8 = tile_bytes[base];
+                    for c in 1..codec.tile_w as usize {
+                        let p = base + c;
+                        let v = prev.wrapping_add(tile_bytes[p]);
+                        tile_bytes[p] = v;
+                        prev = v;
+                    }
+                }
+            }
+            32 => {
+                for r in 0..codec.tile_h as usize {
+                    let base = r * row_bytes;
+                    let mut prev: u32 =
+                        u32::from_le_bytes(tile_bytes[base..base + 4].try_into().unwrap());
+                    for c in 1..codec.tile_w as usize {
+                        let p = base + c * 4;
+                        let cur_diff = u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap());
+                        let v = prev.wrapping_add(cur_diff);
+                        tile_bytes[p..p + 4].copy_from_slice(&v.to_le_bytes());
+                        prev = v;
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+    } else if codec.predictor == 3 {
+        let bps = (codec.bits_per_sample / 8) as usize;
+        if bps != 4 {
+            return Err(CogError::Unsupported(format!(
+                "predictor=3 only supported for 32-bit float (got bits_per_sample={})",
+                codec.bits_per_sample
+            )));
+        }
+        let tw = codec.tile_w as usize;
+        let row_bytes = tw * bps;
+        for r in 0..codec.tile_h as usize {
+            let base = r * row_bytes;
+            for i in 1..row_bytes {
+                tile_bytes[base + i] = tile_bytes[base + i].wrapping_add(tile_bytes[base + i - 1]);
+            }
+            let row: Vec<u8> = tile_bytes[base..base + row_bytes].to_vec();
+            for i in 0..tw {
+                for b in 0..bps {
+                    tile_bytes[base + i * bps + b] = row[(bps - 1 - b) * tw + i];
+                }
+            }
+        }
+    } else if codec.predictor != 1 {
+        return Err(CogError::Unsupported(format!(
+            "predictor={} (1/2/3 supported)",
+            codec.predictor
+        )));
+    }
+    Ok(tile_bytes)
+}
+
+/// Decompress + undo the predictor for a MULTI-sample tile (chunky
+/// `samples_per_pixel > 1`, e.g. per-pixel embedding stacks). Pure CPU;
+/// byte-identical to the logic that previously ran inline in
+/// [`sample_pixel_multi`] (predictor 2 applied per-sample within a row).
+fn decode_tile_multisample(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8>, CogError> {
+    let bps = (codec.bits_per_sample / 8) as usize;
+    let spp = codec.samples_per_pixel as usize;
+    let stride = spp * bps;
+    let mut tile_bytes =
+        Vec::with_capacity((codec.tile_w as usize) * (codec.tile_h as usize) * stride);
+    match codec.compression {
+        8 => {
+            let mut decoder = ZlibDecoder::new(compressed);
+            decoder
+                .read_to_end(&mut tile_bytes)
+                .map_err(|e| CogError::Inflate(e.to_string()))?;
+        }
+        5 => {
+            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
+            tile_bytes = dec
+                .decode(compressed)
+                .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
+        }
+        _ => unreachable!("compression already gated to 5 or 8 above"),
+    }
+
+    if codec.predictor == 2 {
+        let row_bytes = (codec.tile_w as usize) * stride;
+        for r in 0..codec.tile_h as usize {
+            for c_idx in 1..codec.tile_w as usize {
+                for sample in 0..spp {
+                    let p_prev = r * row_bytes + (c_idx - 1) * stride + sample * bps;
+                    let p_cur = r * row_bytes + c_idx * stride + sample * bps;
+                    match bps {
+                        1 => {
+                            let v = tile_bytes[p_prev].wrapping_add(tile_bytes[p_cur]);
+                            tile_bytes[p_cur] = v;
+                        }
+                        2 => {
+                            let prev =
+                                u16::from_le_bytes(tile_bytes[p_prev..p_prev + 2].try_into().unwrap());
+                            let cur =
+                                u16::from_le_bytes(tile_bytes[p_cur..p_cur + 2].try_into().unwrap());
+                            let v = prev.wrapping_add(cur);
+                            tile_bytes[p_cur..p_cur + 2].copy_from_slice(&v.to_le_bytes());
+                        }
+                        4 => {
+                            let prev =
+                                u32::from_le_bytes(tile_bytes[p_prev..p_prev + 4].try_into().unwrap());
+                            let cur =
+                                u32::from_le_bytes(tile_bytes[p_cur..p_cur + 4].try_into().unwrap());
+                            let v = prev.wrapping_add(cur);
+                            tile_bytes[p_cur..p_cur + 4].copy_from_slice(&v.to_le_bytes());
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        }
+    } else if codec.predictor != 1 {
+        return Err(CogError::Unsupported(format!(
+            "predictor={} (1/2 supported)",
+            codec.predictor
+        )));
+    }
+    Ok(tile_bytes)
+}
+
 /// Sample one pixel. `world_x` / `world_y` must be in the COG's CRS already
 /// — for Sentinel-2 / -1 that's the per-tile UTM zone (use `crate::proj`).
 /// Returns the raw value (post-decompress + post-predictor) as f64. Caller
@@ -1054,117 +1299,10 @@ pub async fn sample_pixel(
     //       in-stream Clear (256) and EOI (257) codes. weezl::BitOrder::Msb
     //       matches the TIFF spec; standard TIFF readers (libtiff, image-rs)
     //       use the same configuration.
-    let mut tile_bytes = Vec::with_capacity(
-        (profile.tile_w as usize)
-            * (profile.tile_h as usize)
-            * (profile.samples_per_pixel as usize)
-            * (profile.bits_per_sample as usize / 8),
-    );
-    match profile.compression {
-        8 => {
-            let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
-            decoder
-                .read_to_end(&mut tile_bytes)
-                .map_err(|e| CogError::Inflate(e.to_string()))?;
-        }
-        5 => {
-            // TIFF's LZW variant bumps code-size one entry earlier than the
-            // standard GIF-style algorithm — without this the decoder
-            // emits "invalid code" the moment the stream crosses a code
-            // boundary. weezl::decode::Decoder::with_tiff_size_switch is
-            // the libtiff-compatible mode every TIFF reader uses.
-            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-            tile_bytes = dec
-                .decode(&tile_compressed[..])
-                .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
-        }
-        _ => unreachable!("compression already validated above"),
-    }
-
-    // Undo Predictor 2 (horizontal differencing) row by row.
-    if profile.predictor == 2 {
-        let bps = (profile.bits_per_sample / 8) as usize;
-        let row_bytes = (profile.tile_w as usize) * bps;
-        match profile.bits_per_sample {
-            16 => {
-                for r in 0..profile.tile_h as usize {
-                    let base = r * row_bytes;
-                    let mut prev: u16 =
-                        u16::from_le_bytes(tile_bytes[base..base + 2].try_into().unwrap());
-                    for c in 1..profile.tile_w as usize {
-                        let p = base + c * 2;
-                        let cur_diff = u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap());
-                        let v = prev.wrapping_add(cur_diff);
-                        tile_bytes[p..p + 2].copy_from_slice(&v.to_le_bytes());
-                        prev = v;
-                    }
-                }
-            }
-            8 => {
-                for r in 0..profile.tile_h as usize {
-                    let base = r * row_bytes;
-                    let mut prev: u8 = tile_bytes[base];
-                    for c in 1..profile.tile_w as usize {
-                        let p = base + c;
-                        let v = prev.wrapping_add(tile_bytes[p]);
-                        tile_bytes[p] = v;
-                        prev = v;
-                    }
-                }
-            }
-            32 => {
-                for r in 0..profile.tile_h as usize {
-                    let base = r * row_bytes;
-                    let mut prev: u32 =
-                        u32::from_le_bytes(tile_bytes[base..base + 4].try_into().unwrap());
-                    for c in 1..profile.tile_w as usize {
-                        let p = base + c * 4;
-                        let cur_diff = u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap());
-                        let v = prev.wrapping_add(cur_diff);
-                        tile_bytes[p..p + 4].copy_from_slice(&v.to_le_bytes());
-                        prev = v;
-                    }
-                }
-            }
-            _ => unreachable!(),
-        }
-    } else if profile.predictor == 3 {
-        // Floating-point predictor (TIFF spec §14, libtiff `fpAcc`). Per
-        // row: (1) undo horizontal byte-differencing across the full row,
-        // then (2) reverse the MSB-first byte-plane shuffle. For an LE
-        // f32 source value, the encoded byte planes are stored
-        // [MSB-plane, …, LSB-plane], so for output pixel i and byte b
-        // (b=0 LSB, b=bps-1 MSB):
-        //   out[i*bps + b] = row[(bps - 1 - b) * tile_w + i]
-        let bps = (profile.bits_per_sample / 8) as usize;
-        if bps != 4 {
-            return Err(CogError::Unsupported(format!(
-                "predictor=3 only supported for 32-bit float (got bits_per_sample={})",
-                profile.bits_per_sample
-            )));
-        }
-        let tw = profile.tile_w as usize;
-        let row_bytes = tw * bps;
-        for r in 0..profile.tile_h as usize {
-            let base = r * row_bytes;
-            // 1) Undo horizontal byte-differencing across the whole row.
-            for i in 1..row_bytes {
-                tile_bytes[base + i] = tile_bytes[base + i].wrapping_add(tile_bytes[base + i - 1]);
-            }
-            // 2) Reverse the MSB-first byte-plane shuffle into LE-f32 bytes.
-            let row: Vec<u8> = tile_bytes[base..base + row_bytes].to_vec();
-            for i in 0..tw {
-                for b in 0..bps {
-                    tile_bytes[base + i * bps + b] = row[(bps - 1 - b) * tw + i];
-                }
-            }
-        }
-    } else if profile.predictor != 1 {
-        return Err(CogError::Unsupported(format!(
-            "predictor={} (1/2/3 supported)",
-            profile.predictor
-        )));
-    }
+    let codec = TileCodec::from_profile(profile);
+    // Decompress + undo the predictor off the async reactor (spawn_blocking
+    // under the decode semaphore — see run_tile_decode). Bit-identical output.
+    let tile_bytes = run_tile_decode(tile_compressed, codec, decode_tile_singleband).await?;
 
     let bps = (profile.bits_per_sample / 8) as usize;
     let pixel_off =
@@ -1345,102 +1483,9 @@ pub async fn sample_window(
             } else {
                 http_range(client, url, off, off + len - 1).await?
             };
-            let mut tile_bytes =
-                Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * bps);
-            match profile.compression {
-                8 => {
-                    let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
-                    decoder
-                        .read_to_end(&mut tile_bytes)
-                        .map_err(|e| CogError::Inflate(e.to_string()))?;
-                }
-                5 => {
-                    let mut dec =
-                        weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-                    tile_bytes = dec
-                        .decode(&tile_compressed[..])
-                        .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
-                }
-                _ => unreachable!(),
-            }
-            // Predictors 1/2/3 — same logic as sample_pixel. Kept
-            // duplicated rather than refactored so sample_pixel's hot
-            // path stays unchanged.
-            if profile.predictor == 2 {
-                let row_bytes = (profile.tile_w as usize) * bps;
-                match profile.bits_per_sample {
-                    16 => {
-                        for r in 0..profile.tile_h as usize {
-                            let base = r * row_bytes;
-                            let mut prev: u16 =
-                                u16::from_le_bytes(tile_bytes[base..base + 2].try_into().unwrap());
-                            for c in 1..profile.tile_w as usize {
-                                let p = base + c * 2;
-                                let cur_diff =
-                                    u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap());
-                                let v = prev.wrapping_add(cur_diff);
-                                tile_bytes[p..p + 2].copy_from_slice(&v.to_le_bytes());
-                                prev = v;
-                            }
-                        }
-                    }
-                    8 => {
-                        for r in 0..profile.tile_h as usize {
-                            let base = r * row_bytes;
-                            let mut prev: u8 = tile_bytes[base];
-                            for c in 1..profile.tile_w as usize {
-                                let p = base + c;
-                                let v = prev.wrapping_add(tile_bytes[p]);
-                                tile_bytes[p] = v;
-                                prev = v;
-                            }
-                        }
-                    }
-                    32 => {
-                        for r in 0..profile.tile_h as usize {
-                            let base = r * row_bytes;
-                            let mut prev: u32 =
-                                u32::from_le_bytes(tile_bytes[base..base + 4].try_into().unwrap());
-                            for c in 1..profile.tile_w as usize {
-                                let p = base + c * 4;
-                                let cur_diff =
-                                    u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap());
-                                let v = prev.wrapping_add(cur_diff);
-                                tile_bytes[p..p + 4].copy_from_slice(&v.to_le_bytes());
-                                prev = v;
-                            }
-                        }
-                    }
-                    _ => unreachable!(),
-                }
-            } else if profile.predictor == 3 {
-                if bps != 4 {
-                    return Err(CogError::Unsupported(format!(
-                        "predictor=3 only supported for 32-bit float (got bits_per_sample={})",
-                        profile.bits_per_sample
-                    )));
-                }
-                let tw = profile.tile_w as usize;
-                let row_bytes = tw * bps;
-                for r in 0..profile.tile_h as usize {
-                    let base = r * row_bytes;
-                    for i in 1..row_bytes {
-                        tile_bytes[base + i] =
-                            tile_bytes[base + i].wrapping_add(tile_bytes[base + i - 1]);
-                    }
-                    let row: Vec<u8> = tile_bytes[base..base + row_bytes].to_vec();
-                    for i in 0..tw {
-                        for b in 0..bps {
-                            tile_bytes[base + i * bps + b] = row[(bps - 1 - b) * tw + i];
-                        }
-                    }
-                }
-            } else if profile.predictor != 1 {
-                return Err(CogError::Unsupported(format!(
-                    "predictor={} (1/2/3 supported)",
-                    profile.predictor
-                )));
-            }
+            let codec = TileCodec::from_profile(profile);
+            let tile_bytes =
+                run_tile_decode(tile_compressed, codec, decode_tile_singleband).await?;
 
             // Memcpy the intersection of [tile bbox] ∩ [window bbox]
             // into the output buffer. Output is row-major, indexed
@@ -1560,72 +1605,8 @@ pub async fn sample_pixel_multi(
     // polygon recall where N cells fall in the same physical COG tile.
     let tile_compressed: Bytes = get_or_fetch_tile(client, url, tile_idx, off, len).await?;
 
-    let mut tile_bytes =
-        Vec::with_capacity((profile.tile_w as usize) * (profile.tile_h as usize) * stride);
-    match profile.compression {
-        8 => {
-            // Deflate.
-            let mut decoder = ZlibDecoder::new(&tile_compressed[..]);
-            decoder
-                .read_to_end(&mut tile_bytes)
-                .map_err(|e| CogError::Inflate(e.to_string()))?;
-        }
-        5 => {
-            // LZW. TIFF spec dictates the MSB-first bit order with a
-            // size-switch on the dictionary clear code — same as the
-            // single-band sampler. weezl handles both.
-            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-            tile_bytes = dec
-                .decode(&tile_compressed[..])
-                .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
-        }
-        _ => unreachable!("compression already gated to 5 or 8 above"),
-    }
-
-    if profile.predictor == 2 {
-        // Horizontal differencing applies per-sample within a row.
-        let row_bytes = (profile.tile_w as usize) * stride;
-        for r in 0..profile.tile_h as usize {
-            for c_idx in 1..profile.tile_w as usize {
-                for sample in 0..spp {
-                    let p_prev = r * row_bytes + (c_idx - 1) * stride + sample * bps;
-                    let p_cur = r * row_bytes + c_idx * stride + sample * bps;
-                    match bps {
-                        1 => {
-                            let v = tile_bytes[p_prev].wrapping_add(tile_bytes[p_cur]);
-                            tile_bytes[p_cur] = v;
-                        }
-                        2 => {
-                            let prev = u16::from_le_bytes(
-                                tile_bytes[p_prev..p_prev + 2].try_into().unwrap(),
-                            );
-                            let cur = u16::from_le_bytes(
-                                tile_bytes[p_cur..p_cur + 2].try_into().unwrap(),
-                            );
-                            let v = prev.wrapping_add(cur);
-                            tile_bytes[p_cur..p_cur + 2].copy_from_slice(&v.to_le_bytes());
-                        }
-                        4 => {
-                            let prev = u32::from_le_bytes(
-                                tile_bytes[p_prev..p_prev + 4].try_into().unwrap(),
-                            );
-                            let cur = u32::from_le_bytes(
-                                tile_bytes[p_cur..p_cur + 4].try_into().unwrap(),
-                            );
-                            let v = prev.wrapping_add(cur);
-                            tile_bytes[p_cur..p_cur + 4].copy_from_slice(&v.to_le_bytes());
-                        }
-                        _ => unreachable!(),
-                    }
-                }
-            }
-        }
-    } else if profile.predictor != 1 {
-        return Err(CogError::Unsupported(format!(
-            "predictor={} (1/2 supported)",
-            profile.predictor
-        )));
-    }
+    let codec = TileCodec::from_profile(profile);
+    let tile_bytes = run_tile_decode(tile_compressed, codec, decode_tile_multisample).await?;
 
     let pixel_off =
         (intra_row as usize) * (profile.tile_w as usize) * stride + (intra_col as usize) * stride;
