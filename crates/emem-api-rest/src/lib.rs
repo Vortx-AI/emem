@@ -27164,6 +27164,7 @@ async fn s2_pick_clear_scene(
     lat: f64,
     target_unix: Option<i64>,
     now_unix: i64,
+    at_or_before: bool,
 ) -> Result<S2ChosenScene, String> {
     let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
         .ok()
@@ -27192,6 +27193,19 @@ async fn s2_pick_clear_scene(
     let mut last_err: Option<String> = None;
     for (cloud, days) in tiers {
         let (lo_unix, hi_unix) = match target_unix {
+            // `at_or_before` (recall date-pinning, TerraGround #1): treat the
+            // target as an "as of" UPPER BOUND — never return a scene acquired
+            // AFTER it under a past-dated query. The forward half of the window
+            // is dropped and the backward half doubled to keep cloudy-region
+            // resilience, so the picked scene's tslot is guaranteed <= the
+            // requested bound and satisfies the recall `as_of_tslot` filter.
+            Some(t) if at_or_before => {
+                let hi = t.min(now_unix);
+                let lo = (t - days * 2 * 86400).max(0);
+                (lo, hi.max(lo + 86400))
+            }
+            // Default (backfill / temporal_diff / general materialization):
+            // symmetric "nearest clear scene to this date" — unchanged.
             Some(t) => {
                 let lo = (t - days * 86400).max(0);
                 let hi = (t + days * 86400).min(now_unix);
@@ -27284,6 +27298,7 @@ async fn materialize_sentinel2_band(
     s: &AppState,
     band: &str,
     target_unix: Option<i64>,
+    at_or_before: bool,
 ) -> Result<emem_fact::FactCid, String> {
     let plan = s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
     let (asset_lists, kind, formula_note) = plan;
@@ -27312,7 +27327,7 @@ async fn materialize_sentinel2_band(
     // Values used are surfaced in the fact's derivation args + materialize
     // notes. Override base via EMEM_S2_MAX_CLOUD / EMEM_S2_LOOKBACK_DAYS /
     // EMEM_S2_MAX_SCENES.
-    let chosen = s2_pick_clear_scene(&cli, lng, lat, target_unix, now_unix).await?;
+    let chosen = s2_pick_clear_scene(&cli, lng, lat, target_unix, now_unix, at_or_before).await?;
     let item = chosen.item.clone();
     let used_cloud = chosen.used_cloud;
     let used_days = chosen.used_days;
@@ -32843,7 +32858,9 @@ async fn materialize_band_at(
 
     // Sentinel-2 reflectance bands and derived spectral indices.
     if s2_band_plan(band).is_some() {
-        return materialize_sentinel2_band(cell64, s, band, Some(target_unix)).await;
+        // Backfill / temporal_diff / general "as of this date" materialization
+        // keeps the symmetric nearest-clear-scene selection (at_or_before=false).
+        return materialize_sentinel2_band(cell64, s, band, Some(target_unix), false).await;
     }
 
     // Per-year Tessera vintages: `geotessera.YYYY` → fixed year, ignoring
@@ -33493,17 +33510,21 @@ async fn try_materialize_bands(
             }
             b_name if s2_band_plan(b_name).is_some() => {
                 // Honour the recall's temporal bound on the S2/indices
-                // materialization path (TerraGround field feedback #1): convert
-                // the bound tslot to a target unix in THIS band's tempo and pin
-                // the scene at/just-before it — the same date-aware path
-                // scene.png and /v1/backfill use — instead of silently signing
-                // the LATEST scene under a past-dated query. With no bound
-                // (`None`), behaviour is byte-identical to before (latest scene).
+                // materialization path (TerraGround field feedback #1): pin the
+                // scene to the requested instant instead of silently signing the
+                // LATEST scene under a past-dated query. We target the END of the
+                // bound's tempo bucket (the as_of bucket is inclusive — a fact
+                // with tslot == bound satisfies the recall `tslot <= as_of_tslot`
+                // filter) and select at-or-before it, so the materialized scene
+                // never overshoots the bound. With no bound (`None`), behaviour
+                // is byte-identical to before (latest scene).
                 let target_unix = bound_tslot.and_then(|t| {
-                    band_tempo_for_key(b)
-                        .map(|tempo| emem_core::tslot::Tslot(t).to_unix_start(tempo))
+                    band_tempo_for_key(b).map(|tempo| {
+                        let slot = (tempo.slot_seconds() as i64).max(1);
+                        emem_core::tslot::Tslot(t).to_unix_start(tempo) + slot - 1
+                    })
                 });
-                match materialize_sentinel2_band(cell64, s, b, target_unix).await {
+                match materialize_sentinel2_band(cell64, s, b, target_unix, true).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
@@ -38609,7 +38630,7 @@ async fn build_plot_visual_evidence(
                     // EMEM_EUDR_VISUAL_CONCURRENCY S2/S1 materialisations
                     // run at once across all plots/years/cells/bands.
                     let _vp = visual_materialize_permit().await;
-                    materialize_sentinel2_band(&c, &s_c, "indices.ndvi", Some(anchor)).await
+                    materialize_sentinel2_band(&c, &s_c, "indices.ndvi", Some(anchor), false).await
                 }
             })
             .await;
