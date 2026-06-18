@@ -468,7 +468,10 @@ pub async fn heat_solve(mut req: HeatSolveReq, state: &AppState) -> Result<JsonV
             json!(req.diffusivity_m2_per_s),
         ));
     }
-    if !req.hours_ahead.is_finite() || req.hours_ahead <= 0.0 || req.hours_ahead > HEAT_HOURS_AHEAD_MAX {
+    if !req.hours_ahead.is_finite()
+        || req.hours_ahead <= 0.0
+        || req.hours_ahead > HEAT_HOURS_AHEAD_MAX
+    {
         return Err(invalid_field(
             "hours_ahead",
             format!(
@@ -1101,7 +1104,8 @@ pub async fn wave_solve(mut req: WaveSolveReq, state: &AppState) -> Result<JsonV
             json!(req.offshore_height_m),
         ));
     }
-    if !(WAVE_PERIOD_MIN_S..=WAVE_PERIOD_MAX_S).contains(&req.period_s) || !req.period_s.is_finite() {
+    if !(WAVE_PERIOD_MIN_S..=WAVE_PERIOD_MAX_S).contains(&req.period_s) || !req.period_s.is_finite()
+    {
         return Err(invalid_field(
             "period_s",
             format!(

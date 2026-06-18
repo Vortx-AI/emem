@@ -1204,18 +1204,22 @@ fn decode_tile_multisample(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8
                             tile_bytes[p_cur] = v;
                         }
                         2 => {
-                            let prev =
-                                u16::from_le_bytes(tile_bytes[p_prev..p_prev + 2].try_into().unwrap());
-                            let cur =
-                                u16::from_le_bytes(tile_bytes[p_cur..p_cur + 2].try_into().unwrap());
+                            let prev = u16::from_le_bytes(
+                                tile_bytes[p_prev..p_prev + 2].try_into().unwrap(),
+                            );
+                            let cur = u16::from_le_bytes(
+                                tile_bytes[p_cur..p_cur + 2].try_into().unwrap(),
+                            );
                             let v = prev.wrapping_add(cur);
                             tile_bytes[p_cur..p_cur + 2].copy_from_slice(&v.to_le_bytes());
                         }
                         4 => {
-                            let prev =
-                                u32::from_le_bytes(tile_bytes[p_prev..p_prev + 4].try_into().unwrap());
-                            let cur =
-                                u32::from_le_bytes(tile_bytes[p_cur..p_cur + 4].try_into().unwrap());
+                            let prev = u32::from_le_bytes(
+                                tile_bytes[p_prev..p_prev + 4].try_into().unwrap(),
+                            );
+                            let cur = u32::from_le_bytes(
+                                tile_bytes[p_cur..p_cur + 4].try_into().unwrap(),
+                            );
                             let v = prev.wrapping_add(cur);
                             tile_bytes[p_cur..p_cur + 4].copy_from_slice(&v.to_le_bytes());
                         }

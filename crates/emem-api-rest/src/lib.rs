@@ -1023,7 +1023,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/memory_search/stats", get(get_memory_search_stats))
         // Introspection
         .route("/v1/manifests", get(manifests))
-        .route("/v1/capabilities", get(get_capabilities).post(get_capabilities))
+        .route(
+            "/v1/capabilities",
+            get(get_capabilities).post(get_capabilities),
+        )
         .route("/v1/bands", get(bands))
         .route("/v1/materializers", get(materializers))
         .route("/v1/data_availability", get(data_availability))

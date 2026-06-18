@@ -847,7 +847,10 @@ mod tests {
             json!({ "encoder": "geotessera.multi_year", "reason_code": "single_vintage" }),
             json!({ "encoder": "clay_v1", "reason_code": "gpu_sidecar_unavailable" }),
         ];
-        assert_eq!(dominant_absence_code(&absent), Some("gpu_sidecar_unavailable"));
+        assert_eq!(
+            dominant_absence_code(&absent),
+            Some("gpu_sidecar_unavailable")
+        );
 
         // With no GPU cause, single_vintage wins over outside_coverage.
         let absent = vec![
@@ -863,7 +866,10 @@ mod tests {
     #[test]
     fn absence_reason_codes_are_stable_strings() {
         // The wire set is a public contract; lock the exact strings.
-        assert_eq!(AbsenceReason::GpuSidecarUnavailable.code(), "gpu_sidecar_unavailable");
+        assert_eq!(
+            AbsenceReason::GpuSidecarUnavailable.code(),
+            "gpu_sidecar_unavailable"
+        );
         assert_eq!(AbsenceReason::SingleVintage.code(), "single_vintage");
         assert_eq!(AbsenceReason::OutsideCoverage.code(), "outside_coverage");
         assert_eq!(AbsenceReason::NoFiniteOverlap.code(), "no_finite_overlap");
