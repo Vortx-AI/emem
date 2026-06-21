@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # ── Hard VRAM budget ──────────────────────────────────────────────────────
 # Operator instruction: keep this sidecar under 20 GB on the shared
-# A100 so geoqa-models and intruder don't get OOM'd. Each model
+# A100 so the other co-located GPU services don't get OOM'd. Each model
 # allocates a slice and clamps via set_per_process_memory_fraction.
 TOTAL_BUDGET_GB = float(os.environ.get("EMEM_SIDECAR_VRAM_BUDGET_GB", "20"))
 DYNAMICS_BUDGET_GB = 0.1                    # tiny MLP
