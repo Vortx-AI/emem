@@ -28,7 +28,7 @@ Hard ceiling: **10 GB** (per operator's instruction; the A100 has
 40 GB total but is shared with other workloads). Each model session
 declares `torch.cuda.set_per_process_memory_fraction()` proportional
 to its budget so an over-allocating bug fails fast instead of
-clobbering geoqa-models / intruder.
+clobbering the other co-located GPU services.
 
 | Model | Budget | Notes |
 |---|---|---|
