@@ -338,6 +338,45 @@ async fn lance_ann_finds_seeded_vector_and_brute_force_agrees() {
         resp_brute.neighbors[0].score
     );
 
+    // ── Filtered / bi-temporal path: ANN candidate pool + EXACT rerank ──
+    // A bi-temporal bound (as_of_tslot) used to force the exhaustive
+    // brute-force scan. It now routes through ANN retrieval + an exact
+    // cosine rerank of the predicate-passing survivors: the score is exact
+    // (unlike the lossy raw-Lance PQ score asserted above), and the
+    // response discloses the approximate-recall method honestly.
+    let req_bounded = FindSimilarReq {
+        key: query_cell.into(),
+        k: Some(5),
+        band: Some("geotessera".into()),
+        as_of_tslot: Some(0), // every seeded fact is at tslot 0 → all pass
+        mode: FindSimilarMode::Cosine,
+        ..Default::default()
+    };
+    let resp_rerank = find_similar(&req_bounded, &srv)
+        .await
+        .expect("ANN + exact rerank path");
+    assert_eq!(
+        resp_rerank.neighbors[0].cell, twin_cell,
+        "ANN-rerank top-1 must be the twin cell, same as brute force"
+    );
+    // The rerank recomputes EXACT cosine on the survivors, so the twin's
+    // score is the true ~1.0 — NOT the lossy PQ score the raw Lance path
+    // reported (> 0.5 above). This is the whole point of the exact rerank.
+    assert!(
+        resp_rerank.neighbors[0].score > 0.99,
+        "ANN-rerank score for twin must be exact (> 0.99), got {}",
+        resp_rerank.neighbors[0].score
+    );
+    let rm = resp_rerank
+        .ranking_method
+        .as_ref()
+        .expect("filtered query must disclose ranking_method");
+    assert_eq!(rm.method, "ann_oversampled_then_exact");
+    assert!(
+        rm.candidate_pool.unwrap_or(0) > 0,
+        "candidate_pool (recall ceiling) must be reported"
+    );
+
     // Make sure the seeded query's fact_cid is the one Lance also
     // knows about — i.e. hydration didn't lose any of the row metadata.
     drop(query_cid);

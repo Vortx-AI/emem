@@ -304,10 +304,37 @@ pub struct FindSimilarResp {
     /// climate / biome semantics onto a surface-texture embedding.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interpretation: Option<InterpretationHint>,
+    /// How the ranking was produced. Absent for the default EXHAUSTIVE
+    /// paths (brute-force scan / unfiltered ANN — complete recall).
+    /// Populated only when a filtered / scoped / bi-temporal query was
+    /// served via ANN candidate retrieval + exact rerank, where recall is
+    /// approximate. See [`RankingMethod`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ranking_method: Option<RankingMethod>,
     /// Signed receipt. `receipt.fact_cids` carries every Fact whose
     /// vector contributed to the final ranking — one per kept neighbour
     /// (the highest-scoring fact per cell after dedupe).
     pub receipt: Receipt,
+}
+
+/// Disclosure of how a `find_similar` ranking was produced, set only when
+/// the answer is NOT exhaustive. The ANN-rerank path returns EXACT cosine
+/// scores for the cells it ranks, but its recall is approximate: a cell
+/// that satisfies the filter yet ranks below the vector-nearest candidate
+/// pool can be missed. This block makes that explicit so an agent never
+/// mistakes an ANN-pruned result for an exhaustive one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RankingMethod {
+    /// `"ann_oversampled_then_exact"` — a Lance ANN candidate pool, then
+    /// exact-cosine rerank of the predicate-passing survivors.
+    pub method: String,
+    /// Number of vector-nearest candidates the ANN pool considered before
+    /// filtering — the recall ceiling for this query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_pool: Option<u32>,
+    /// Human-readable recall caveat + how to force the exhaustive scan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Band-family-typed interpretation. Returned alongside every
@@ -458,6 +485,34 @@ pub async fn find_similar(
         });
     }
 
+    // Filtered / scoped / bi-temporal cosine via ANN + exact rerank.
+    // Retrieve an over-fetched vector-nearest pool from Lance, apply the
+    // same predicate(s) the brute-force scan would, then re-score the
+    // survivors with EXACT cosine. Scores are exact; recall is approximate
+    // (a filter-passing cell ranked below the pool cut-off can be missed),
+    // disclosed via `ranking_method`. Falls through to the exhaustive scan
+    // below when Lance is absent or the pool yields no survivor — so the
+    // exact answer is always reachable (EMEM_DISABLE_LANCE=1 forces it).
+    if !query_vec.is_empty()
+        && req.mode == FindSimilarMode::Cosine
+        && (req.filter.is_some() || scope_filter.is_some() || !bound.is_unbounded())
+    {
+        if let Some(resp) = try_lance_filtered_rerank(
+            &query_vec,
+            req,
+            srv,
+            started,
+            k,
+            &band,
+            &bound,
+            scope_filter,
+        )
+        .await?
+        {
+            return Ok(resp);
+        }
+    }
+
     let entries = storage.iter_index(None).await?;
     // Score every (cell, band, tslot) candidate, keeping the FactCid
     // alongside so the receipt can cite the exact Fact that contributed
@@ -606,6 +661,7 @@ pub async fn find_similar(
         requested_k: k as u32,
         returned_k,
         interpretation,
+        ranking_method: None,
         receipt,
     })
 }
@@ -700,6 +756,182 @@ async fn try_lance_with_query(
         requested_k: k as u32,
         returned_k,
         interpretation,
+        ranking_method: None,
+        receipt,
+    }))
+}
+
+/// Filtered / scoped / bi-temporal cosine served via ANN retrieval + an
+/// exact-cosine rerank of the predicate-passing survivors. Returns
+/// `Ok(None)` (→ exhaustive brute-force fallback) when Lance is absent,
+/// knn fails, or no candidate survives the predicate — so the exact
+/// answer is always reachable. Scores returned are EXACT; recall is
+/// approximate and disclosed in [`RankingMethod`].
+#[allow(clippy::too_many_arguments)]
+async fn try_lance_filtered_rerank(
+    query_vec: &[f32],
+    req: &FindSimilarReq,
+    srv: &Server,
+    started: Instant,
+    k: usize,
+    band: &str,
+    bound: &AsOfBound,
+    scope_filter: Option<&emem_fact::Scope>,
+) -> Result<Option<FindSimilarResp>, StorageError> {
+    let Some(lance) = lance_handle() else {
+        return Ok(None);
+    };
+    let storage = srv.storage.as_ref();
+    // Generous over-fetch: the predicate prunes the pool, so pull a wide
+    // vector-nearest set and exact-score whatever passes. This factor is
+    // the recall ceiling for a filtered query.
+    let oversample =
+        crate::memory_consolidation::env_usize("EMEM_FIND_SIMILAR_RERANK_OVERSAMPLE", 32, 4, 512);
+    let triples = match lance.knn(query_vec, k, Some(band), oversample).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::debug!(
+                target: "emem::lance",
+                band = %band,
+                error = %e,
+                "Lance knn (filtered rerank) failed; falling back to brute force"
+            );
+            return Ok(None);
+        }
+    };
+    if triples.is_empty() {
+        return Ok(None);
+    }
+    let candidate_pool = triples.len() as u32;
+    let self_match: Option<&str> = if req.key.starts_with("inline:") {
+        None
+    } else {
+        Some(req.key.as_str())
+    };
+    let multi_year = band.starts_with("geotessera.multi_year");
+    // Per-cell predicate memos — same contract as the brute-force scan.
+    let mut scope_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut as_of_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut filter_memo: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut scored: Vec<(Neighbor, FactCid)> = Vec::with_capacity(triples.len());
+    for (cell, _pq_score, cid_str) in triples {
+        if Some(cell.as_str()) == self_match {
+            continue;
+        }
+        // Scope predicate (identical to the brute-force pre-filter).
+        if scope_filter.is_some() {
+            let pass = match scope_memo.get(&cell) {
+                Some(v) => *v,
+                None => {
+                    let scoped = storage
+                        .scan_cell_in_scope(&cell, None, scope_filter)
+                        .await?;
+                    let v = scoped.iter().any(|(k, _)| k.band == band);
+                    scope_memo.insert(cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
+        }
+        // Bi-temporal predicate.
+        if !bound.is_unbounded() {
+            let pass = match as_of_memo.get(&cell) {
+                Some(v) => *v,
+                None => {
+                    let v = cell_has_fact_within_bound(storage, &cell, band, bound).await?;
+                    as_of_memo.insert(cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
+        }
+        // Structured `filter:` claim predicate.
+        if let Some(claim) = req.filter.as_ref() {
+            let pass = match filter_memo.get(&cell) {
+                Some(v) => *v,
+                None => {
+                    let v = cell_satisfies_claim(storage, &cell, claim).await?;
+                    filter_memo.insert(cell.clone(), v);
+                    v
+                }
+            };
+            if !pass {
+                continue;
+            }
+        }
+        // Exact rerank: the Lance score is PQ-approximate, so recompute
+        // cosine on the candidate's real vector.
+        let cid = FactCid::new(&cid_str);
+        let facts = storage.get_facts_many(std::slice::from_ref(&cid)).await?;
+        let Some(Some(fact)) = facts.into_iter().next() else {
+            continue;
+        };
+        if !bound.is_unbounded() && !bound.fact_passes(&fact) {
+            continue;
+        }
+        if let Fact::Primary(p) = fact {
+            // Valid-time: drop vintages newer than the as_of bound, so a
+            // cell scores on its latest fact at-or-before the bound — the
+            // same per-entry rule the brute-force scan applies.
+            if let Some(vt) = bound.valid_time {
+                if p.tslot > vt {
+                    continue;
+                }
+            }
+            if let Some(vec) = as_vec_f32(&p.value) {
+                let score = if multi_year {
+                    match cosine_finite(query_vec, &vec) {
+                        Some(s) => s,
+                        None => continue,
+                    }
+                } else {
+                    cosine(query_vec, &vec)
+                };
+                scored.push((make_neighbor(cell, score), cid));
+            }
+        }
+    }
+    scored.retain(|(n, _)| !n.score.is_nan());
+    if scored.is_empty() {
+        // Nothing in the vector-nearest pool satisfied the predicate —
+        // a selective filter still deserves the correct (slower) answer.
+        return Ok(None);
+    }
+    let (kept, kept_cids) = dedupe_top_k_by_cell(scored, k);
+    let kept_n = kept.len();
+    let cells: Vec<String> = kept.iter().map(|n| n.cell.clone()).collect();
+    let returned_k = kept.len() as u32;
+    let interpretation = interpretation_for_band(band);
+    let receipt = srv.sign_receipt_full(
+        "emem.find_similar",
+        cells,
+        kept_cids,
+        true,
+        started,
+        None,
+        req.scope.clone(),
+        bound,
+    );
+    Ok(Some(FindSimilarResp {
+        neighbors: kept,
+        requested_k: k as u32,
+        returned_k,
+        interpretation,
+        ranking_method: Some(RankingMethod {
+            method: "ann_oversampled_then_exact".into(),
+            candidate_pool: Some(candidate_pool),
+            note: Some(format!(
+                "Filtered query served via Lance ANN retrieval ({candidate_pool} vector-nearest \
+                 candidates) then exact-cosine rerank of the {kept_n} that passed the predicate. \
+                 Scores are exact; recall is approximate — a cell that satisfies the filter but \
+                 ranks below the candidate cut-off by raw vector similarity can be missed. For an \
+                 exhaustive filtered ranking, set EMEM_DISABLE_LANCE=1."
+            )),
+        }),
         receipt,
     }))
 }
@@ -1042,6 +1274,7 @@ async fn find_similar_binary(
         requested_k: k as u32,
         returned_k,
         interpretation,
+        ranking_method: None,
         receipt,
     })
 }
