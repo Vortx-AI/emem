@@ -46324,8 +46324,12 @@ struct AgentStatsState {
     status_3xx: AtomicU64,
     status_4xx: AtomicU64,
     status_5xx: AtomicU64,
-    /// Cumulative-LE histogram. `latency[i]` counts requests with
-    /// `duration_ms <= LATENCY_BUCKETS_MS[i]`. Last bucket is +Inf.
+    /// Disjoint per-bucket request-latency counts. Each request
+    /// increments exactly one slot (the first `i` with
+    /// `duration_ms <= LATENCY_BUCKETS_MS[i]`, else slot 12 = the
+    /// `> 5000 ms` overflow). `latency_percentile` and both readers
+    /// (`/v1/agent_stats`, `/metrics`) run the cumulative sum at read
+    /// time, so any `le`-labelled output is truthfully cumulative.
     latency: [AtomicU64; 13],
 }
 
@@ -47593,18 +47597,22 @@ async fn agent_stats_endpoint() -> Json<JsonValue> {
         }
         Err(_) => vec![],
     };
-    let buckets: Vec<JsonValue> = LATENCY_BUCKETS_MS
+    // `le_ms` is a less-than-or-equal bound, so the counts must be
+    // cumulative. Storage is disjoint per-bucket (see AgentStatsState);
+    // sum as we go so the wire form matches its own label.
+    let raw_latency: Vec<u64> = st
+        .latency
         .iter()
-        .enumerate()
-        .map(|(i, b)| {
-            json!({
-                "le_ms": b, "count": st.latency[i].load(Ordering::Relaxed),
-            })
-        })
-        .chain(std::iter::once(json!({
-            "le_ms": "+Inf", "count": st.latency[12].load(Ordering::Relaxed),
-        })))
+        .map(|a| a.load(Ordering::Relaxed))
         .collect();
+    let mut cum = 0u64;
+    let mut buckets: Vec<JsonValue> = Vec::with_capacity(13);
+    for (i, b) in LATENCY_BUCKETS_MS.iter().enumerate() {
+        cum += raw_latency[i];
+        buckets.push(json!({ "le_ms": b, "count": cum }));
+    }
+    cum += raw_latency[12];
+    buckets.push(json!({ "le_ms": "+Inf", "count": cum }));
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -47645,6 +47653,42 @@ async fn metrics(State(s): State<AppState>) -> Response {
     let pubkey = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
+    // Live request-latency histogram (cumulative-LE Prometheus form) plus
+    // coarse quantile estimates, from the same disjoint per-bucket store
+    // /v1/agent_stats reads. Surfaced here so scrapers see latency, not
+    // just the request/attest/recall counters.
+    let lat = agent_stats();
+    let lat_counts: Vec<u64> = lat
+        .latency
+        .iter()
+        .map(|a| a.load(Ordering::Relaxed))
+        .collect();
+    let lat_total: u64 = lat_counts.iter().sum();
+    let mut latency_section = String::from(
+        "# HELP emem_request_duration_ms Request latency, cumulative-LE buckets.\n# TYPE emem_request_duration_ms histogram\n",
+    );
+    let mut lat_cum = 0u64;
+    for (i, le) in LATENCY_BUCKETS_MS.iter().enumerate() {
+        lat_cum += lat_counts[i];
+        latency_section.push_str(&format!(
+            "emem_request_duration_ms_bucket{{le=\"{le}\"}} {lat_cum}\n"
+        ));
+    }
+    lat_cum += lat_counts[12];
+    latency_section.push_str(&format!(
+        "emem_request_duration_ms_bucket{{le=\"+Inf\"}} {lat_cum}\n"
+    ));
+    latency_section.push_str(&format!("emem_request_duration_ms_count {lat_total}\n"));
+    latency_section.push_str(
+        "# HELP emem_request_latency_quantile_ms Coarse latency quantile (bucket-boundary estimate).\n# TYPE emem_request_latency_quantile_ms gauge\n",
+    );
+    for q in [0.5_f64, 0.95, 0.99] {
+        if let Some(v) = latency_percentile(q) {
+            latency_section.push_str(&format!(
+                "emem_request_latency_quantile_ms{{quantile=\"{q}\"}} {v}\n"
+            ));
+        }
+    }
     let body = format!(
         "# HELP emem_uptime_seconds Process uptime in seconds.
 # TYPE emem_uptime_seconds counter
@@ -47681,6 +47725,7 @@ emem_responder_pubkey{{pubkey_b32=\"{pubkey}\"}} 1
         rec = RECALL_TOTAL.load(Ordering::Relaxed),
         mcp = MCP_TOTAL.load(Ordering::Relaxed),
     );
+    let body = format!("{body}{latency_section}");
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")

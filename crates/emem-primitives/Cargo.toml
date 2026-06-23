@@ -57,3 +57,12 @@ rand         = { workspace = true }
 tokio        = { workspace = true, features = ["macros", "rt-multi-thread"] }
 emem-attest  = { workspace = true }
 ed25519-dalek = { workspace = true }
+criterion    = { version = "0.5", features = ["html_reports"] }
+
+# Phase-0 latency baseline. Measures the vector-op inner loop
+# (cosine / cosine_finite / CBOR decode) and the find_similar
+# brute-force O(N) scaling curve — the numbers Phase 1/2 must beat.
+# Run with: cargo bench -p emem-primitives --bench hot_paths
+[[bench]]
+name = "hot_paths"
+harness = false

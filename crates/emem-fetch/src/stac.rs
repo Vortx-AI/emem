@@ -82,6 +82,8 @@ pub async fn search_one_at(
     datetime: &str,
     max_cloud: Option<f64>,
 ) -> Result<Option<StacItem>, String> {
+    let _stage =
+        crate::latency::StageTimer::new("stac.search", format!("{collection} @ {lng:.3},{lat:.3}"));
     let mut body = json!({
         "intersects": {"type": "Point", "coordinates": [lng, lat]},
         "limit": 1,

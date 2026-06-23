@@ -295,6 +295,7 @@ pub async fn prewarm_profile(client: &Client, url: &str) -> Result<(), CogError>
 /// expanding the buffer to cover whatever offset parse_profile is stuck
 /// on, up to a hard cap of 8 iterations to avoid pathological cases.
 async fn open_profile_uncached(client: &Client, url: &str) -> Result<CogProfile, CogError> {
+    let _stage = crate::latency::StageTimer::new("cog.open_profile", url);
     let mut buf = http_range(client, url, 0, 65535).await?;
     for _ in 0..8 {
         match parse_profile(&buf) {
@@ -1053,6 +1054,9 @@ async fn run_tile_decode(
     codec: TileCodec,
     decode: fn(&[u8], TileCodec) -> Result<Vec<u8>, CogError>,
 ) -> Result<Vec<u8>, CogError> {
+    // Times the semaphore wait too, so decode-queue contention is visible.
+    let _stage =
+        crate::latency::StageTimer::new("cog.decode", format!("{} bytes", compressed.len()));
     let _permit = DECODE_SEMAPHORE
         .acquire()
         .await
@@ -1649,6 +1653,10 @@ async fn http_range(
     start: u64,
     end_inclusive: u64,
 ) -> Result<Bytes, CogError> {
+    let _stage = crate::latency::StageTimer::new(
+        "cog.http_range",
+        format!("{url} [{start}-{end_inclusive}]"),
+    );
     // `file://<absolute-path>` short-circuits to a direct seek+read of
     // the local filesystem. Used by connectors that pull a one-time
     // bulk download (e.g. WRI GDM v1.2 single global COG, Zenodo no-Range)

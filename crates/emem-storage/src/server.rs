@@ -5,8 +5,8 @@
 //! Lives in `emem-storage` because it is the natural home for "the live
 //! state of an emem responder process": cache + log + fetch + identity.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use ed25519_dalek::{Signer, SigningKey};
@@ -17,6 +17,66 @@ use emem_core::{AttesterKey, KeyEpoch, Signature};
 use emem_fact::{AsOfReceipt, Cost, EdgeCid, FactCid, Receipt, RegistryCid, SchemaCid};
 
 use crate::{AsOfBound, Storage};
+
+// ── Per-primitive receipt latency ────────────────────────────────────
+//
+// Every signed receipt carries `cost.latency_p50_ms` / `p99_ms`, which
+// the spec documents as "observed latency for this primitive class". To
+// make that true — rather than echoing one request's elapsed time twice
+// — the responder keeps a disjoint-bucket latency histogram per primitive
+// `&'static str` and reads back real percentiles on each sign. The bucket
+// ladder matches the API-layer request histogram (`LATENCY_BUCKETS_MS` in
+// emem-api-rest) so a receipt and `/metrics` read on the same scale. This
+// is process-wide and advisory: it never enters a fact CID or the signed
+// receipt preimage.
+
+/// Twelve log-spaced upper bounds (ms); slot 12 is the `> 5000 ms`
+/// overflow. Each request increments exactly one slot.
+const RECEIPT_LATENCY_BUCKETS_MS: [u32; 12] =
+    [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+
+static PRIMITIVE_LATENCY: OnceLock<Mutex<HashMap<&'static str, [u64; 13]>>> = OnceLock::new();
+
+fn primitive_latency() -> &'static Mutex<HashMap<&'static str, [u64; 13]>> {
+    PRIMITIVE_LATENCY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Record one observation for `primitive` and return `(p50, p99)` over
+/// every observation for that primitive class so far. Percentiles are at
+/// bucket-boundary resolution (the bucket upper bound) — coarse by
+/// construction, honest, and cheap. Advisory metadata, so a poisoned
+/// lock is recovered rather than panicking on the signing path.
+fn observe_primitive_latency(primitive: &'static str, elapsed_ms: u32) -> (u32, u32) {
+    let bucket = RECEIPT_LATENCY_BUCKETS_MS
+        .iter()
+        .position(|b| elapsed_ms <= *b)
+        .unwrap_or(12);
+    let mut map = match primitive_latency().lock() {
+        Ok(m) => m,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let hist = map.entry(primitive).or_insert([0u64; 13]);
+    hist[bucket] = hist[bucket].saturating_add(1);
+    let total: u64 = hist.iter().sum();
+    let percentile = |p: f64| -> u32 {
+        if total == 0 {
+            return 0;
+        }
+        let target = ((total as f64) * p).ceil() as u64;
+        let mut cum = 0u64;
+        for (i, c) in hist.iter().enumerate() {
+            cum += *c;
+            if cum >= target {
+                return RECEIPT_LATENCY_BUCKETS_MS
+                    .get(i)
+                    .copied()
+                    .unwrap_or_else(|| RECEIPT_LATENCY_BUCKETS_MS[11].saturating_mul(2));
+            }
+        }
+        0
+    };
+    (percentile(0.50), percentile(0.99))
+}
 
 /// A live emem responder. Owned by the HTTP server and lent to each
 /// primitive call.
@@ -216,6 +276,8 @@ impl Server {
         let request_id = ulid::Ulid::new().to_string();
         let served_at = iso8601_now();
         let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+        // Real per-primitive-class percentiles, not this one sample twice.
+        let (latency_p50_ms, latency_p99_ms) = observe_primitive_latency(primitive, elapsed_ms);
 
         let scope = scope.filter(|s| !s.is_empty());
         let scope_hex = scope.as_ref().map(|s| s.blake3_hex());
@@ -273,8 +335,8 @@ impl Server {
             registry_cid: self.manifests.registry_cid.clone(),
             cost: Cost {
                 credits: 0,
-                latency_p50_ms: elapsed_ms,
-                latency_p99_ms: elapsed_ms,
+                latency_p50_ms,
+                latency_p99_ms,
                 source_freshness_s: 0,
                 was_cached,
             },

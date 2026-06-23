@@ -75,9 +75,29 @@ impl AttestationLog {
             seal_segment(&self.root, &mut s)?;
         }
         let path = self.root.join(format!("merkle.log.{}", s.segment_index));
-        let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
-        f.write_all(&record)?;
-        f.sync_all()?;
+        // The open + write + fsync is the one blocking syscall on the write
+        // hot path, and receipts depend on it completing before we return.
+        // Run it on the blocking pool rather than the async worker: the
+        // `state` lock is held across the await, so total append order and
+        // the segment hash-chain stay byte-identical — only the syscall moves
+        // off the runtime thread, so an fsync no longer parks a worker (the
+        // failure mode when many cold writes land at once). The record is
+        // moved into the closure and handed back, so the in-memory hasher
+        // still advances only after a durable write (preserving the original
+        // ordering: durable bytes first, then hasher).
+        let record = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
+            let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
+            f.write_all(&record)?;
+            f.sync_all()?;
+            Ok(record)
+        })
+        .await
+        .map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("merkle log append task panicked: {e}"),
+            )
+        })??;
         s.segment_hasher.update(&record);
         s.bytes_in_segment += record.len() as u64;
         s.record_count += 1;

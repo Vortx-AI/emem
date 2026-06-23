@@ -668,6 +668,15 @@ impl Storage for MaterializingStorage {
                     tracing::warn!(error=%e, "scope index append error (ignored)");
                 }
             }
+            // One fsync makes the proof + multi-attester + scope rows above
+            // durable. sled flushes the whole Db, so the per-helper flushes
+            // were three redundant fsyncs per cold write; this single async
+            // flush replaces them off the runtime thread. Best-effort, like
+            // the index writes it backs — the facts themselves are already
+            // durable via the cache + merkle log above.
+            if let Err(e) = hot.db().flush_async().await {
+                tracing::warn!(error=%e, "index flush error (ignored)");
+            }
         }
         if let Some(reg) = &self.attesters {
             if let Err(e) = reg.record_attestation(&att.attester.0, &att.facts) {
@@ -1219,8 +1228,9 @@ fn append_multi_attester(
         tree.insert(&key_bytes, buf)
             .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
     }
-    tree.flush()
-        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    // Durability is forced once by `put_attestation` (this fn's only
+    // caller) after all index writes — sled fsyncs the whole Db, so a
+    // flush here too was a redundant fsync on every write.
     Ok(())
 }
 
@@ -1271,8 +1281,9 @@ fn append_scope_index(
         tree.insert(key, cid.as_str().as_bytes())
             .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
     }
-    tree.flush()
-        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    // Durability is forced once by `put_attestation` (this fn's only
+    // caller) after all index writes — sled fsyncs the whole Db, so a
+    // flush here too was a redundant fsync on every write.
     Ok(())
 }
 
@@ -1463,8 +1474,9 @@ fn persist_fact_proofs(
         tree.insert(cid.as_str().as_bytes(), buf)
             .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
     }
-    tree.flush()
-        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    // Durability is forced once by `put_attestation` (this fn's only
+    // caller) after all index writes — sled fsyncs the whole Db, so a
+    // flush here too was a redundant fsync on every write.
     Ok(())
 }
 

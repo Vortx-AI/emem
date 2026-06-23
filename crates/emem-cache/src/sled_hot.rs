@@ -302,10 +302,11 @@ impl Cache for SledHotCache {
             }
             out.push(cid);
         }
-        self.idx
-            .flush_async()
-            .await
-            .map_err(|e| CacheError::Cbor(e.to_string()))?;
+        // sled flushes at the Db level: one fsync of the shared log
+        // persists writes to every tree. Both insert loops above have
+        // already committed to `facts` and `idx`, so a single flush here
+        // makes all of them durable — flushing both trees separately just
+        // paid for the fsync twice on every write batch.
         self.facts
             .flush_async()
             .await
