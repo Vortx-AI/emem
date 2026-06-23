@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="[https://vortx.ai/assets/vortx-logo-200.gif](https://geo.qa/vortxgola.gif)" width="128" alt="emem" />
+  <img src="https://geo.qa/vortxgola.gif" width="128" alt="emem" />
 
   <h1>emem</h1>
 
