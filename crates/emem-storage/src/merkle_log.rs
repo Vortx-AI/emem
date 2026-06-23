@@ -92,12 +92,7 @@ impl AttestationLog {
             Ok(record)
         })
         .await
-        .map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("merkle log append task panicked: {e}"),
-            )
-        })??;
+        .map_err(|e| std::io::Error::other(format!("merkle log append task panicked: {e}")))??;
         s.segment_hasher.update(&record);
         s.bytes_in_segment += record.len() as u64;
         s.record_count += 1;
