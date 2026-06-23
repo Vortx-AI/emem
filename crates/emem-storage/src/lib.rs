@@ -1017,12 +1017,12 @@ fn add_edges_tree(db: &sled::Db, edges: &[EdgeFact]) -> Result<Vec<EdgeCid>, Sto
         ops.insert(rkey, e.subj.as_str().as_bytes())
             .map_err(|err| StorageError::Io(std::io::Error::other(err.to_string())))?;
     }
+    // One flush persists all three edge trees: sled fsyncs the whole Db,
+    // so the separate spo/ops flushes were two redundant fsyncs on every
+    // edge write. add_edges still returns only after a durable write, so
+    // its contract (callers rely on it) is unchanged.
     bodies
         .flush()
-        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
-    spo.flush()
-        .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
-    ops.flush()
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
     Ok(out)
 }

@@ -10163,12 +10163,16 @@ async fn post_recall_many(
     metrics_inc(&RECALL_TOTAL);
 
     // Recall fan-out runs concurrently under the same semaphore budget.
-    // Without the cap, an attacker passing 256 cold cells could trigger
-    // 256 parallel materializer fetches at once.
+    // Each cell auto-materializes on a cold miss — the documented contract
+    // (`open_world_hint: true`, "same contract as emem_recall"). The cap
+    // matters precisely because of that: without it a 256-cell call could
+    // fire 256 parallel materializer fetches at once. 16 concurrent keeps
+    // the fan-out predictable; the per-materializer timeout + the gateway
+    // timeout bound a genuinely-cold batch.
     type RecallManyOut = (
         usize,
         String,
-        Result<emem_primitives::recall::RecallResp, emem_storage::StorageError>,
+        Result<emem_primitives::recall::RecallResp, ApiError>,
     );
     let mut recall_set: tokio::task::JoinSet<RecallManyOut> = tokio::task::JoinSet::new();
     for (idx, cell) in req.cells.iter().enumerate() {
@@ -10185,7 +10189,13 @@ async fn post_recall_many(
                 tslot,
                 ..Default::default()
             };
-            (idx, cell, recall(&r, &s_clone).await)
+            // Auto-materialize cold cells to honour the contract; drop the
+            // per-band notes (the per-cell signed receipt under
+            // by_cell.<cell>.receipt is the citation surface for a bulk call).
+            let out = recall_with_auto_materialize(&r, &s_clone)
+                .await
+                .map(|(resp, _notes)| resp);
+            (idx, cell, out)
         });
     }
     let mut indexed_recall: Vec<RecallManyOut> = Vec::with_capacity(req.cells.len());
@@ -10206,12 +10216,11 @@ async fn post_recall_many(
                 enrich_facts_with_cid(&mut cell_json);
                 by_cell.insert(cell, cell_json);
             }
-            Err(e) => {
+            Err(ApiError(_status, body)) => {
                 by_cell.insert(
                     cell,
-                    json!({
-                        "error": e.to_string(),
-                        "code": e.wire_code(),
+                    serde_json::to_value(&body).unwrap_or_else(|_| {
+                        json!({"code": "internal", "message": "error body failed to serialize"})
                     }),
                 );
             }
