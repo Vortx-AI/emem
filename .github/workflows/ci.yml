@@ -51,7 +51,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macos-14 pinned (was macos-latest): the macos-latest image's
+        # migration to macOS 26 (started 2026-06-15) left the runner
+        # toolchain unable to link `ort`/clang_rt (ld: 'clang_rt.osx' not
+        # found), failing every ort-linked test binary. macos-14 is the
+        # last stable image where ort links cleanly. Revert to
+        # macos-latest once the newer image's toolchain stabilises.
+        os: [ubuntu-latest, macos-14]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -60,7 +66,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: install protoc (lance build scripts, macos)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14'
         run: brew install protobuf
       - uses: peaceiris/actions-mdbook@v2
         with:
