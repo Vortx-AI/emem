@@ -49,9 +49,32 @@ any interactive budget. This is the wall the ANN fast-path (cover the
 `filter`/`as_of`/`scope` bypass cases) and the per-candidate decode/SIMD
 work in Phase 2 must break.
 
+## 3. `find_similar` ANN pool + exact rerank (Phase 2, filtered queries)
+
+A filtered / scoped / bi-temporal query used to fall through to the
+exhaustive scan above. It now retrieves a bounded vector-nearest pool from
+the Lance index and exact-cosine-reranks the predicate-passing survivors
+(`ranking_method: ann_oversampled_then_exact`).
+
+| 100k corpus, filtered query | time | vs brute-force |
+|---|---|---|
+| brute-force (exact, O(N)) | 233 ms | 1× |
+| **ANN pool + exact rerank** | **23.3 ms** | **~10× faster** |
+
+**Read:** the predicate-bypass wall is broken — sub-linear instead of
+O(N), exact scores, with approximate recall disclosed in the receipt. The
+23 ms is *conservative*: the bench's `MemStorage::scan_cell` is O(N), so
+the per-candidate `as_of` check rescans all 100k; production sled does a
+prefix scan, so the real gap is wider. Scales with the over-fetch factor
+(`EMEM_FIND_SIMILAR_RERANK_OVERSAMPLE`, default 32), not corpus size.
+
 ## What this gates
 
-- Phase 2 SIMD + fp16-resident vectors → target: `decode_then_score`
-  collapses toward `cosine`, `cosine` itself drops 4–8×.
-- Phase 2 ANN coverage → target: `find_similar` goes sub-linear on the
-  query shapes that currently fall back to brute force.
+- ✅ **Phase 2 ANN coverage** (done): `find_similar` is sub-linear on the
+  filtered/scoped/`as_of` shapes that used to brute-force — 233 ms → 23 ms.
+- Phase 2 vector inner loop: SIMD on the *canonical* `cosine` is ruled out
+  (it feeds signed, reproducible `triple_consensus` — bit-identical
+  required). Remaining lever is fp16-resident vectors in the *derived*
+  index / a ranking-only scorer, not the content-addressed path.
+- Open: a Hamming/bin128 ANN partition so `mode=Hamming` stops
+  linear-scanning.

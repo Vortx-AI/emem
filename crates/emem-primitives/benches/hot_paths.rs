@@ -34,9 +34,13 @@ use emem_cache::CanonicalKey;
 use emem_core::AttesterKey;
 use emem_fact::{Derivation, Fact, FactCid, PrimaryFact, RegistryCid, SchemaCid, Source};
 use emem_primitives::cbor_ops::{as_vec_f32, cosine, cosine_finite};
-use emem_primitives::find_similar::{find_similar, FindSimilarMode, FindSimilarReq};
+use emem_primitives::find_similar::{
+    find_similar, set_lance_index, FindSimilarMode, FindSimilarReq,
+};
+use emem_primitives::LanceIndex;
 use emem_storage::server::{ManifestCids, ResponderIdentity};
 use emem_storage::{Server, Storage, StorageError};
+use tempfile::TempDir;
 
 // ── in-memory storage harness ──────────────────────────────────────
 
@@ -285,5 +289,75 @@ fn bench_find_similar_scaling(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, bench_vector_ops, bench_find_similar_scaling);
+// ── 3. find_similar ANN candidate pool + exact rerank (filtered) ───
+//
+// The Phase-2 win: a filtered/bounded query that used to take the O(N)
+// brute scan in group 2 now retrieves a bounded ANN candidate pool from
+// the Lance index and exact-reranks the survivors. Benched at the same
+// 100k corpus so the number reads directly against
+// `find_similar_brute_force_cosine_128d/100000`.
+
+fn bench_find_similar_ann_rerank(c: &mut Criterion) {
+    // This path uses the installed Lance index, so clear the brute-force
+    // group's kill-switch (set earlier in the run and never unset).
+    std::env::remove_var("EMEM_DISABLE_LANCE");
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let dim = 128;
+    let n = 100_000;
+    let (storage, query_cell) = seed_corpus(n, dim);
+
+    // Hydrate + install a Lance index over the corpus. One-time setup,
+    // OUTSIDE the timed loop. `set_lance_index` is write-once per process;
+    // this bench is the only installer (the brute-force group forces the
+    // index off via EMEM_DISABLE_LANCE).
+    let tmp = TempDir::new().unwrap();
+    let idx = Arc::new(LanceIndex::open(tmp.path()).unwrap());
+    let storage_dyn: Arc<dyn Storage + Send + Sync> = storage.clone();
+    rt.block_on(idx.hydrate_from_storage(storage_dyn.as_ref()))
+        .unwrap();
+    set_lance_index(idx);
+
+    let srv = bench_server(storage);
+    // The as_of bound routes through the filtered ANN + exact-rerank path;
+    // every seeded fact is at tslot 0, so the bound (tslot <= 1) keeps all.
+    let req = FindSimilarReq {
+        key: query_cell,
+        k: Some(10),
+        band: Some("geotessera".into()),
+        as_of_tslot: Some(1),
+        mode: FindSimilarMode::Cosine,
+        ..Default::default()
+    };
+    // Guard: confirm we measure the ANN-rerank path, not a silent
+    // brute-force fallback (which would make this number meaningless).
+    let probe = rt.block_on(find_similar(&req, &srv)).unwrap();
+    assert!(
+        probe.ranking_method.is_some(),
+        "bench must exercise the ANN-rerank path (got brute-force fallback)"
+    );
+
+    let mut g = c.benchmark_group("find_similar_ann_rerank_cosine_128d");
+    g.sample_size(20);
+    g.throughput(Throughput::Elements(n as u64));
+    g.bench_with_input(BenchmarkId::from_parameter(n), &req, |bn, req| {
+        bn.iter(|| {
+            let resp = rt.block_on(find_similar(black_box(req), &srv)).unwrap();
+            black_box(resp.neighbors.len())
+        })
+    });
+    g.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_vector_ops,
+    bench_find_similar_scaling,
+    bench_find_similar_ann_rerank
+);
 criterion_main!(benches);
