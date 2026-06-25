@@ -348,14 +348,24 @@ pub async fn triple_consensus(
     let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
 
     let alg = emem_core::algorithms::DEFAULT.lookup("clay_prithvi_tessera_triple_consensus@1");
+    // Fallbacks used only when the algorithm registry doesn't carry the
+    // knob. Named (not bare literals) so the provenance is explicit:
+    // - consensus_threshold mirrors the registry's cited value, Healey et
+    //   al. 2018 (RSE 204:717-728), the LandTrendr-style change-agreement
+    //   gate referenced in this module's header.
+    // - consensus_min_models is an operational default (need >=2 of 3
+    //   encoders to agree before a verdict), NOT a literature-derived
+    //   number — labelled honestly rather than dressed up as one.
+    const DEFAULT_CONSENSUS_THRESHOLD: f64 = 0.15;
+    const DEFAULT_CONSENSUS_MIN_MODELS: f64 = 2.0;
     let gate = req
         .consensus_threshold
         .or_else(|| alg.and_then(|a| a.param_f64("consensus_threshold")))
-        .unwrap_or(0.15)
+        .unwrap_or(DEFAULT_CONSENSUS_THRESHOLD)
         .clamp(f64::MIN_POSITIVE, 1.0);
     let min_models = alg
         .and_then(|a| a.param_f64("consensus_min_models"))
-        .unwrap_or(2.0) as usize;
+        .unwrap_or(DEFAULT_CONSENSUS_MIN_MODELS) as usize;
 
     let mut components: Vec<Component> = Vec::new();
     let mut absent: Vec<JsonValue> = Vec::new();

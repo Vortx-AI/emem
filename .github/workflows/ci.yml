@@ -72,6 +72,25 @@ jobs:
       - name: install protoc (lance build scripts, macos)
         if: matrix.os == 'macos-latest'
         run: brew install protobuf
+      - name: macOS clang_rt link path (ort link fix)
+        if: matrix.os == 'macos-latest'
+        # A GitHub macOS image / Xcode update left the linker unable to
+        # find libclang_rt.osx.a (the `ort` ONNX-Runtime prebuilt links the
+        # clang runtime; ld: library 'clang_rt.osx' not found). Locate it
+        # under the active toolchain and add its directory to the linker
+        # search path so the ort-linked test binaries link. Best-effort: if
+        # it isn't found we leave RUSTFLAGS unchanged and the job (which is
+        # non-blocking, see continue-on-error above) still surfaces the
+        # failure rather than masking it.
+        run: |
+          RT=$(find "$(xcode-select -p)" /Library/Developer/CommandLineTools \
+                 -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
+          if [ -n "$RT" ]; then
+            echo "RUSTFLAGS=${RUSTFLAGS} -L $(dirname "$RT")" >> "$GITHUB_ENV"
+            echo "added clang_rt search path: $(dirname "$RT")"
+          else
+            echo "libclang_rt.osx.a not found under the active toolchain"
+          fi
       - uses: peaceiris/actions-mdbook@v2
         with:
           mdbook-version: '0.5.2'
