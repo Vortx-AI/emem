@@ -31,6 +31,8 @@ import torch.nn.functional as F
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from microbatch import MicroBatcher
+
 # ── Hard VRAM budget ──────────────────────────────────────────────────────
 # Operator instruction: keep this sidecar under 20 GB on the shared
 # A100 so the other co-located GPU services don't get OOM'd. Each model
@@ -859,6 +861,57 @@ class _Registry:
 _REG = _Registry()
 
 
+# ── Dynamic micro-batching ───────────────────────────────────────────────
+#
+# The embed endpoints run one chip per forward pass. When several recalls
+# land concurrently (triple_consensus fires clay+prithvi together; hunter
+# mode embeds many cells) they serialize at the single CUDA context. A
+# micro-batcher coalesces concurrent single-chip requests into one batched
+# forward, amortising kernel-launch + dispatch.
+#
+# OFF by default (EMEM_SIDECAR_MAX_BATCH=1): each handler keeps its original
+# inline forward, BIT-IDENTICAL to pre-batching output. This gate matters
+# because clay/prithvi embeddings become content-addressed signed facts, and
+# batched GEMM can differ in the last bits from single-item inference — so
+# batching (>1) makes a chip's embedding depend on its batch composition.
+# That is acceptable only because GPU embeddings are ALREADY
+# hardware-non-deterministic (the receipt pins the model's blake2b hash and
+# contradiction scoring is cosine-tolerant), but it is a real semantic
+# change and must be opt-in. Enable with EMEM_SIDECAR_MAX_BATCH=N (+ optional
+# EMEM_SIDECAR_BATCH_WINDOW_MS, default 8); confirm VRAM headroom first —
+# batched activations need free GPU memory the single-item path does not.
+
+_MAX_BATCH = max(1, int(os.environ.get("EMEM_SIDECAR_MAX_BATCH", "1")))
+_BATCH_WINDOW_MS = float(os.environ.get("EMEM_SIDECAR_BATCH_WINDOW_MS", "8"))
+
+# `MicroBatcher` lives in microbatch.py (torch-free, unit-tested).
+
+_CLAY_BATCHER = None
+_PRITHVI_BATCHER = None
+
+
+def _clay_batcher():
+    """Lazily built clay batcher, or None when batching is disabled."""
+    global _CLAY_BATCHER
+    if _MAX_BATCH <= 1:
+        return None
+    if _CLAY_BATCHER is None:
+        _CLAY_BATCHER = MicroBatcher("clay", _run_clay_batch, _MAX_BATCH, _BATCH_WINDOW_MS)
+    return _CLAY_BATCHER
+
+
+def _prithvi_batcher():
+    """Lazily built prithvi batcher, or None when batching is disabled."""
+    global _PRITHVI_BATCHER
+    if _MAX_BATCH <= 1:
+        return None
+    if _PRITHVI_BATCHER is None:
+        _PRITHVI_BATCHER = MicroBatcher(
+            "prithvi", _run_prithvi_batch, _MAX_BATCH, _BATCH_WINDOW_MS
+        )
+    return _PRITHVI_BATCHER
+
+
 # ── Schemas ──────────────────────────────────────────────────────────────
 class DynamicsRequest(BaseModel):
     """Multi-band scalar dynamics request (v0.0.1, 2026-05-28).
@@ -1456,6 +1509,23 @@ def predict_dynamics(req: DynamicsRequest) -> DynamicsResponse:
     )
 
 
+def _run_prithvi_batch(payloads: list[dict]) -> list[list[float]]:
+    """Batched Prithvi-EO-2.0 encoder forward. Each payload carries the
+    prepared, normalized per-chip tensors already on device — ``x``
+    [1,6,1,224,224], ``temporal`` [1,1,2], ``location`` [1,2]. Only
+    requests with BOTH temporal + location coords are routed here (the
+    handler keeps the None/degraded case on the inline path), so every
+    payload stacks cleanly. Returns the last-block CLS row per input."""
+    model, _meta = _REG.load_prithvi()
+    x = torch.cat([p["x"] for p in payloads], dim=0)  # [N,6,1,224,224]
+    temporal = torch.cat([p["temporal"] for p in payloads], dim=0)  # [N,1,2]
+    location = torch.cat([p["location"] for p in payloads], dim=0)  # [N,2]
+    with torch.inference_mode():
+        feats = model.forward_features(x, temporal, location)
+    cls = feats[-1][:, 0, :].detach().cpu()  # [N, 1024]
+    return [cls[i].tolist() for i in range(cls.shape[0])]
+
+
 @app.post("/predict/prithvi_eo2_embed")
 def predict_prithvi_eo2_embed(req: PrithviRequest) -> PrithviResponse:
     """Compute the per-cell Prithvi-EO-2.0-300M-TL embedding.
@@ -1492,15 +1562,27 @@ def predict_prithvi_eo2_embed(req: PrithviRequest) -> PrithviResponse:
             [[float(req.lng), float(req.lat)]], device=_REG.device
         )  # [B=1, 2]
 
+    # Only coalesce requests that carry BOTH coords — they stack cleanly
+    # and match the live Rust caller. None/degraded callers keep the inline
+    # path (can't stack a None coord tensor with a present one).
+    batcher = (
+        _prithvi_batcher()
+        if (temporal_coords is not None and location_coords is not None)
+        else None
+    )
     t0 = time.perf_counter_ns()
-    with torch.inference_mode():
-        # forward_features returns one tensor per encoder block, post-norm
-        # on the last entry. Shape: [B, num_patches+1, embed_dim].
-        feats = model.forward_features(x, temporal_coords, location_coords)
+    if batcher is not None:
+        embedding = batcher.submit(
+            {"x": x, "temporal": temporal_coords, "location": location_coords}
+        )
+    else:
+        with torch.inference_mode():
+            # forward_features returns one tensor per encoder block,
+            # post-norm on the last entry: [B, num_patches+1, embed_dim].
+            feats = model.forward_features(x, temporal_coords, location_coords)
+        # CLS token of the last block IS the per-image foundation embedding.
+        embedding = feats[-1][:, 0, :].squeeze(0).cpu().tolist()
     dt_us = max(1, (time.perf_counter_ns() - t0) // 1000)
-
-    # CLS token of the last block IS the per-image foundation embedding.
-    embedding = feats[-1][:, 0, :].squeeze(0).cpu().tolist()
 
     return PrithviResponse(
         embedding=embedding,
@@ -1792,6 +1874,36 @@ def _galileo_honesty_warnings(
     return warns
 
 
+def _run_clay_batch(payloads: list[dict]) -> list[list[float]]:
+    """Batched Clay encoder forward. Each payload carries the prepared
+    per-chip tensors already on device — ``pixels`` [1,10,256,256]
+    (normalized), ``time`` [1,4], ``latlon`` [1,4] — over the shared
+    platform/gsd/waves conditioning. Stacks along the batch dim, runs one
+    encoder pass, and returns the CLS row per input (order preserved). A
+    single-payload call is the same forward the inline path runs."""
+    model, meta = _REG.load_clay()
+    pixels = torch.cat([p["pixels"] for p in payloads], dim=0)
+    time_vec = torch.cat([p["time"] for p in payloads], dim=0)
+    latlon_vec = torch.cat([p["latlon"] for p in payloads], dim=0)
+    waves = torch.tensor(
+        meta["config"]["wavelength_um_per_band"],
+        dtype=torch.float32,
+        device=_REG.device,
+    )
+    datacube = {
+        "platform": "sentinel-2-l2a",
+        "time": time_vec,
+        "latlon": latlon_vec,
+        "pixels": pixels,
+        "gsd": torch.tensor(CLAY_CHIP_GSD_M, device=_REG.device),
+        "waves": waves,
+    }
+    with torch.inference_mode():
+        unmsk_patch, _ui, _mi, _mm = model.model.encoder(datacube)
+    cls = unmsk_patch[:, 0, :].detach().cpu()  # [N, 1024]
+    return [cls[i].tolist() for i in range(cls.shape[0])]
+
+
 @app.post("/predict/clay_embed")
 def predict_clay_embed(req: ClayRequest) -> ClayResponse:
     """Compute the per-cell Clay Foundation Model v1.5 embedding.
@@ -1898,15 +2010,24 @@ def predict_clay_embed(req: ClayRequest) -> ClayResponse:
         "waves": waves,
     }
 
+    batcher = _clay_batcher()
     t0 = time.perf_counter_ns()
-    with torch.inference_mode():
-        unmsk_patch, _unmsk_idx, _msk_idx, _msk_matrix = model.model.encoder(
-            datacube
+    if batcher is not None:
+        # Coalesce with other concurrent clay chips into one forward. The
+        # per-chip tensors (already normalized + on device) stack along the
+        # batch dim inside _run_clay_batch.
+        embedding = batcher.submit(
+            {"pixels": pixels, "time": time_vec, "latlon": latlon_vec}
         )
+    else:
+        # Inline single-chip path — bit-identical to pre-batching output.
+        with torch.inference_mode():
+            unmsk_patch, _unmsk_idx, _msk_idx, _msk_matrix = model.model.encoder(
+                datacube
+            )
+        # CLS token at position 0 — the per-chip foundation embedding.
+        embedding = unmsk_patch[:, 0, :].squeeze(0).detach().cpu().tolist()
     dt_us = max(1, (time.perf_counter_ns() - t0) // 1000)
-
-    # CLS token at position 0 — the per-chip foundation embedding.
-    embedding = unmsk_patch[:, 0, :].squeeze(0).detach().cpu().tolist()
 
     return ClayResponse(
         embedding=embedding,
