@@ -48,16 +48,16 @@ jobs:
   test:
     name: cargo test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # macOS test is currently NON-BLOCKING (still runs, for signal). A
-    # GitHub macOS image/Xcode update broke linking of the `ort` (ONNX
+    # macOS test is BLOCKING again (was temporarily non-blocking). A GitHub
+    # macOS image/Xcode update had broken linking of the `ort` (ONNX
     # Runtime) prebuilt static lib against the clang runtime — `ld: library
-    # 'clang_rt.osx' not found`, with a missing `clang/<v>/lib/darwin` (and
-    # `ort.pyke.io` dfbin) search path — on BOTH macos-latest and macos-14.
-    # It fails every ort-linked binary at LINK time (emem-server,
-    # emem-api-rest, lance_find_similar, bi_temporal), independent of the
-    # source. Flip this back to blocking once the runner toolchain / `ort`
-    # resolve the clang_rt link path (tracked separately).
-    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
+    # 'clang_rt.osx' not found` — failing every ort-linked binary at LINK
+    # time regardless of source. The "macOS clang_rt link path" step below
+    # locates libclang_rt.osx.a under the active toolchain and adds it to
+    # the linker search path; with that in place the macOS suite links and
+    # passes (verified green on eff7754), so the gate is restored. If a
+    # future runner image moves the lib, that step logs "not found" and the
+    # link failure surfaces here loudly rather than being masked.
     strategy:
       fail-fast: false
       matrix:
@@ -79,9 +79,8 @@ jobs:
         # clang runtime; ld: library 'clang_rt.osx' not found). Locate it
         # under the active toolchain and add its directory to the linker
         # search path so the ort-linked test binaries link. Best-effort: if
-        # it isn't found we leave RUSTFLAGS unchanged and the job (which is
-        # non-blocking, see continue-on-error above) still surfaces the
-        # failure rather than masking it.
+        # it isn't found we leave RUSTFLAGS unchanged and the link failure
+        # surfaces in the (now blocking) test step rather than being masked.
         run: |
           RT=$(find "$(xcode-select -p)" /Library/Developer/CommandLineTools \
                  -name 'libclang_rt.osx.a' 2>/dev/null | head -1)
