@@ -3,7 +3,7 @@
 
   <h1>emem</h1>
 
-  <p>Earth as memory, for real-world agents.</p>
+  <p>Earth as memory, built leveraging satellites for real-world agents.</p>
 
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License"></a>
