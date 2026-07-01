@@ -28,8 +28,6 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
 
 <div align="center">
 
-### [▶ Try the hosted node](https://emem.dev) &nbsp;&nbsp;·&nbsp;&nbsp; [⧉ Run it yourself](#run-your-own-node)
-
 </div>
 
 ## Try it (no install, no key)
