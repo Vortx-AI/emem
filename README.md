@@ -6,6 +6,8 @@
 
 **Earth as memory for real-world agents.** Every fact signed, content-addressed, and re-checkable offline — by anyone, without trusting the server that served it.
 
+*Give your AI agent verifiable, citable facts about any place on Earth — one MCP endpoint, no key.*
+
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![Rust 1.91](https://img.shields.io/badge/Rust-1.91-orange.svg)](https://www.rust-lang.org)
 [![MCP: Streamable HTTP](https://img.shields.io/badge/MCP-Streamable%20HTTP-black)](https://emem.dev/mcp)
@@ -20,9 +22,9 @@
 
 ---
 
-Ask an AI agent what's on the ground at 19.07°N, 72.87°E and it guesses. It has no fixed handle for that patch of Earth, and no way to prove what it hands back. **emem is the handle:** a shared memory of the planet an agent can read, write, and cite. The first request for any place fetches the real satellite value, signs it with an ed25519 key, and stores it in the same response. Anyone can re-check that answer offline — no account, no trust in the server that gave it to you.
+Ask an AI agent what's on the ground at 19.07°N, 72.87°E (WGS84) and it guesses. It has no fixed handle for that patch of Earth, and no way to prove what it hands back. **emem is the handle:** a shared memory of the planet an agent can read, write, and cite. The first request for any place fetches the real satellite value, signs it with an ed25519 key, and stores it in the same response. Anyone can re-check that answer offline — no account, no trust in the server that gave it to you.
 
-It is a working protocol with a hosted node, a written spec, an open [whitepaper](https://doi.org/10.5281/zenodo.20706893), and a companion open model. Read on for what it actually does, not a fraction of it.
+It is a working protocol with a hosted node, a written spec, an open [whitepaper](https://doi.org/10.5281/zenodo.20706893), and a companion open model.
 
 <div align="center">
 
@@ -35,18 +37,20 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
 Three requests, straight against the live node at `https://emem.dev`.
 
 ```bash
-# 1. Geocode a place to a cell64 (a stable id for one ~9.55 m square of ground).
-curl -s -X POST https://emem.dev/v1/locate \
+# 1. Geocode a place to a cell64 — a stable id for one ~9.55 m square of ground (WGS84).
+CELL=$(curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru"}' | jq .cell64
+  -d '{"q":"Bengaluru"}' | jq -r .cell64)
+echo "$CELL"          # -> defi.zb493.xuqA.zcb5f
 ```
 
 ```bash
-# 2. Recall a band at that cell. Auto-fetched if it's the first ask, signed on return.
+# 2. Recall a band — one measurement layer, like temperature or elevation — at that cell.
+#    The first ask fetches it from satellite data and signs it; repeats are instant.
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["weather.temperature_2m"]}' \
-  | jq '.facts[0]'
+  -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" \
+  | jq '.facts[0].value'   # -> 27.3
 ```
 
 ```bash
@@ -68,7 +72,7 @@ Explore the live console at [emem.dev](https://emem.dev), or spin the planet in 
 
 ## What emem is
 
-The planet is cut into fixed cells about 9.55 m across, the way a page is cut into words. A cell addresses a place the way a token addresses text in an LLM: a stable, reusable unit you can point at, pass around, and build on. One measurement at one cell is a **fact** — an elevation, a rainfall number, this year's forest loss, a satellite embedding. Every fact is signed.
+The planet is cut into fixed WGS84 cells, ~9.55 m across at the equator (a little narrower toward the poles), the way a page is cut into words. A cell addresses a place the way a token addresses text in an LLM: a stable, reusable unit you can point at, pass around, and build on. One measurement at one cell is a **fact** — one **band** (a single measurement layer, like elevation, rainfall, or this year's forest loss) at that spot. A satellite embedding — a vector fingerprint of what the ground looks like — is a fact too. Every fact is signed.
 
 Nothing is stored in advance. The first time anyone asks about a place, emem fetches the real satellite value, signs it, saves it, and returns it in the same response. Every cell on Earth answers from the first request.
 
@@ -80,17 +84,19 @@ A cache hands back a tile. A memory remembers what it saw, links it to what it s
 
 ## Everything emem gives an agent
 
-Most of what's here is invisible in a one-line pitch. Here is the whole surface, in plain terms. Each row is a live tool over both MCP and REST.
+Most of what's here is invisible in a one-line pitch. Here is the whole surface, in plain terms — each row is a live tool over both MCP and REST. (*A **band** is one named measurement layer: temperature, elevation, forest loss, and so on.*)
+
+**New to this?** The only rows any agent needs are `locate`, `recall`, `ask`, `verify`, and the `memory_*` tools. The rest are Earth-data tools you reach for when you need them.
 
 | You want to… | Use | What comes back |
 |---|---|---|
 | Turn a place name or lat/lng into a stable id | `locate`, `emem_at` | a `cell64` for one ~9.55 m square |
 | Read any Earth measurement at a place | `recall`, `recall_many`, `recall_polygon` | a signed value from a named source, auto-fetched on first ask |
-| Read by topic, by place name | `emem_ndvi` · `emem_water` · `emem_forest` · `emem_soil` · `emem_air` · `emem_lst` · `emem_weather` | the right band(s), located and aggregated for you |
+| Read by topic, by place name | `emem_ndvi` (vegetation) · `emem_water` · `emem_forest` · `emem_soil` · `emem_air` · `emem_lst` (land-surface temp) · `emem_weather` | the right band(s), located and aggregated for you |
 | Find places that look like this one | `find_similar` | nearest matches over any vector band (k-NN) |
 | See how one place changed over time | `compare`, `diff`, `trajectory`, `state_diff` | pairwise deltas and time series |
 | Get a place's full "state vector" | `state`, `state_multi` | a signed embedding from satellite foundation models |
-| Cross-check with three satellite AI models | `triple_consensus` | agreement score; disagreement flagged, not hidden |
+| Cross-check with three satellite AI models | `triple_consensus` | how much Clay + Prithvi + Tessera agree — or a signed absence when an encoder isn't loaded on the hosted node |
 | Ask a free-text question | `ask` | routed to the right data, answered with a citation |
 | Discover events over a region | `hunt` | hotspots for 12 event types (floods, wildfire, deforestation, methane…) |
 | Keep and search the agent's own notes | `memory_create/insert/str_replace/view/delete/rename`, `memory_search` | signed, capability-bound files; meaning-based search |
@@ -104,9 +110,11 @@ Most of what's here is invisible in a one-line pitch. Here is the whole surface,
 | See a place or the whole corpus | `coverage_map.svg`, `scene_overlay.svg` | rendered maps you can drop straight into a report |
 | Watch the memory grow live | `GET /v1/stream` | a signed heartbeat of corpus state |
 
-Full tool reference: **81 MCP tools** (10 core + 71 extended) and **93 REST paths**, listed at [`/v1/tools`](https://emem.dev/v1/tools) and [`/openapi.json`](https://emem.dev/openapi.json).
+Full tool reference: **81 MCP tools** (10 core + 71 extended) and **93 REST paths**, listed at [`/v1/tools`](https://emem.dev/v1/tools) and [`/openapi.json`](https://emem.dev/openapi.json). Worried about tool sprawl? Ask your MCP client for the `core` tier and it loads just the 10 essentials; the other 71 stay available when you need them.
 
 ## Why agent developers should care
+
+If your agent ever reasons about a physical place — a farm, a warehouse address, a wildfire, a delivery route — emem hands it a fact it can cite instead of a guess.
 
 An agent that answers with no source, no measurement, and no byte you can pull up tomorrow is an agent you can't audit. That gap is where long runs drift, and where you can't tell a good run from a bad one. emem closes it.
 
@@ -116,19 +124,19 @@ An agent that answers with no source, no measurement, and no byte you can pull u
 
 - **Grounding, not a guess.** `locate` turns a name or lat/lng into a `cell64`. `recall` returns the band you asked for with a named source and a fingerprint of the exact bytes. No value at that band returns a signed "no data here, and why," so your agent never fills the hole with a guess.
 - **An external anchor for long runs.** Context gets summarized and re-summarized until, by step 200, an agent is reasoning over its own earlier guesses. A `fact_cid` names one exact set of bytes; ask for it this year or in five and you get the same value back, or a signed reason it's unavailable. The anchor doesn't move under the agent.
-- **Shared ground truth across agents.** `memory_bundle` folds many facts into one signed citation; `memory_token` composes a checkable pointer. One agent hands another the evidence, not a paraphrase — useful for multi-agent systems, robots, and ISR/observation fleets that must agree on what's real.
-- **Disagreement is kept, not averaged away.** When two sources sign different values at the same place, time, and band, emem keeps both and scores the gap. A guess from one model and a consensus of three look identical in most systems. Here the difference is a number your agent can branch on.
+- **Shared ground truth across agents.** `memory_bundle` folds many facts into one signed citation; `memory_token` composes a checkable pointer. One agent hands another the evidence, not a paraphrase — useful for multi-agent systems, robots, and observation fleets that must agree on what's real.
+- **Disagreement is kept, not averaged away.** When two sources sign different values for the same place, emem keeps both and scores the gap instead of silently averaging — a number your agent can branch on (more in [The memory links facts](#the-memory-links-facts-and-improves)).
 - **Reproducible audits.** Two independent time axes — what the world looked like on a date, and what the system knew on a date — so a review months later replays the exact answer the agent acted on.
 
 ## The model layer: TerraGround
 
-emem is the memory. **[TerraGround](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA)** is an open model that reads it. It is a LoRA adapter on Gemma (`google/gemma-4-12b-it`) that turns a general model into an Earth-observation analyst: it answers grounded questions about any place — dominant land cover, how green or moist the vegetation is, whether there's surface water — and plans the tool calls an EO agent needs. It is trained to say "not enough data" when the evidence doesn't support an answer, the same honesty as a signed absence.
+You don't need TerraGround to use emem — it's an optional companion model. emem is the memory; **[TerraGround](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA)** is an open model that reads it. It's a LoRA adapter on Google's Gemma (12B instruction-tuned, `google/gemma-4-12b-it`) that turns a general model into an Earth-observation analyst: it answers grounded questions about any place — dominant land cover, how green or moist the vegetation is, whether there's surface water — and plans the tool calls an EO agent needs. It's trained to say "not enough data" when the evidence doesn't support an answer, the same honesty as a signed absence.
 
 <p align="center">
   <img src="docs/diagrams/png/31-encoders-in-orbit-decoders-on-ground.png" width="820" alt="Encoders in orbit, decoders on the ground: Sentinel, MODIS, and DEM sensors feed four foundation encoders (Clay v1.5, Prithvi-EO-2, Galileo, Tessera); the responder decodes, fuses, and signs their embeddings. Different models read the same place differently, so disagreement is informative.">
 </p>
 
-It was trained on 4,164 examples across 1,286 geographically diverse places, using ESA WorldCover land-cover labels and spectral indices drawn from Tessera embeddings — the same foundation embeddings emem serves. That makes the full stack verifiable end to end:
+It was trained on 4,164 examples across 1,286 geographically diverse places, pairing ESA WorldCover land-cover labels with Tessera embeddings — the same foundation embeddings emem serves. That makes the full stack verifiable end to end:
 
 **satellites → foundation encoders (Tessera · Clay v1.5 · Prithvi-EO-2 · Galileo) → emem (signed, addressable memory) → TerraGround (grounded, abstaining answers) → your agent.**
 
@@ -136,15 +144,19 @@ The adapter is under Gemma terms; the surrounding code is Apache-2.0. It builds 
 
 ## For EO / geospatial teams
 
-You already know the drill. STAC search, COG windowing, reprojection, mosaicking, then glue code to keep the coordinate bookkeeping straight. emem collapses that into one address space: `locate` a place, `recall` a band. A first-time read fetches the upstream tile, signs it, saves it, and returns it — about 180 ms cold, under 10 ms once it's warm. Out of coverage or upstream down, you get a signed "no data, and why," not a silent gap.
+*Not doing geospatial work? Skip to [APIs & primitives](#apis--primitives).*
+
+You already know the drill. STAC search, COG windowing, reprojection, mosaicking, then glue code to keep the coordinate bookkeeping straight. emem collapses that into one address space: `locate` a place, `recall` a band. A first-time read fetches the upstream tile, signs it, saves it, and returns it in the same response (timing in [How a fact is made](#how-a-fact-is-made-and-proven)). Out of coverage or upstream down, you get a signed "no data, and why," not a silent gap.
+
+**How a value maps to a cell.** Every cell is WGS84 (plain lat/lng). A band is read from the source pixel at the cell's location — no reprojection, and a 9.55 m cell laid over 10 m Sentinel-2 doesn't invent resolution it doesn't have. Units and vertical datums are whatever the named source publishes (Copernicus DEM elevations, for instance, are orthometric on the EGM2008 geoid).
 
 <p align="center">
   <img src="docs/diagrams/png/06-memory-vs-stac.png" width="820" alt="Memory versus catalog: the classic STAC pipeline (search, window COGs, reproject, mosaic, cache tiles) versus emem's locate-then-recall over one signed address space.">
 </p>
 
 - **46 declared upstream sources, one API.** Sentinel-2, Landsat/HLS, Copernicus DEM, JRC Global Surface Water, Hansen forest change, ESA WorldCover, Overture Maps, Fields of The World, CHIRPS rainfall, FIRMS active fire, WorldPop, TerraClimate, and more — all keyed to the same `cell64`. **124 bands** are wired and auto-fetch on demand; five declared-but-unwired schemes return a typed "not available here" rather than pretending.
-- **Foundation embeddings on tap.** `state` / `state_multi` / `state_diff` return a signed per-place vector fanned across Tessera, Clay v1.5, Prithvi-EO-2, and Galileo — the encoder view (128 numbers) or the full 1792-number cube. `find_similar` runs nearest-neighbour search over any vector band. No GPU inference stack to stand up.
-- **Three models, cross-checked.** Because each foundation model "sees" a place at its own footprint, `triple_consensus` runs several and reports where they agree and where they don't — so a disagreement becomes a signal you can act on instead of an average that hides it.
+- **Foundation embeddings on tap.** Tessera, Clay v1.5, Prithvi-EO-2, and Galileo are open AI models that turn raw satellite pixels into vectors — like text embeddings, but for a patch of ground. `state` / `state_multi` / `state_diff` return a signed per-place vector fanned across them (the encoder view of 128 numbers, or the full 1792-number cube), and `find_similar` runs nearest-neighbour search over any vector band. No GPU inference stack to stand up.
+- **Three models, cross-checked.** Because each foundation model "sees" a place at its own footprint, `triple_consensus` runs Clay + Prithvi + Tessera and reports where they agree and where they don't — a disagreement becomes a signal you can act on instead of an average that hides it. These encoders run on a GPU sidecar, so on the hosted node today a cold cell returns a signed absence for Clay and Prithvi while Tessera fetches on demand (see [Honest limits](#honest-limits)).
 - **Field boundaries and rendered maps.** `field_boundaries` serves polygons from Fields of The World (~3.17 B fields, 241 countries, 10 m). `coverage_map.svg` and `scene_overlay.svg` return finished figures — a value-painted grid over a place, legend and scale bar included — you can paste into a report.
 
 Every value is packed the same way and fingerprinted, so identical readings match byte-for-byte on any node, and four manifest ids pin exactly what produced an answer. An EO output becomes evidence you can attach to a compliance filing, an MRV claim, an insurance payout, or an intel product.
@@ -153,10 +165,10 @@ Every value is packed the same way and fingerprinted, so identical readings matc
 
 The first request for a place is a **cold** read; every request after is **warm**.
 
-| Read | What happens on the wire | Latency |
+| Request | What happens on the wire | Latency |
 |------|--------------------------|--------:|
-| Cold | fetch upstream tile → sign → save → return | ~180 ms |
-| Warm | serve the stored, signed fact | <10 ms |
+| First (cold) | fetch upstream tile → sign → save → return | ~180 ms |
+| Repeat (warm) | serve the stored, signed fact | <10 ms |
 
 When a band genuinely has no value — out of coverage, upstream unreachable, or a source that isn't wired here — you still get a signed **absence** carrying a reason a machine can read, not a `404` and not an empty body. An empty answer is a citable receipt. The catalog never promises more than it can sign.
 
@@ -170,8 +182,8 @@ Every answer emem returns is signed, and you verify it yourself, offline, with n
 
 1. A **fact** is one measurement keyed by place, band, and time.
 2. emem packs it in a fixed byte order, so the same reading serializes to the same bytes on every machine.
-3. It hashes those bytes with **BLAKE3**. That hash is the `fact_cid`. Change one byte and the id changes — the id proves the bytes.
-4. The responder signs the result with an **ed25519** key, the family that secures SSH and HTTPS. The signed envelope is the **receipt**, and it checks out against the responder's public key alone. No call back to the server.
+3. It hashes those bytes with **BLAKE3**. That hash is the `fact_cid` — the fact's address is its own fingerprint, which is what "content-addressed" means. Change one byte and the id changes, so the id proves the bytes.
+4. The responder signs the result with an **ed25519** key — the same kind of key people use to log into servers over SSH. The signed envelope is the **receipt**, and it checks out against the responder's public key alone. No call back to the server.
 
 <p align="center">
   <img src="docs/diagrams/png/10-trust-plane.png" width="820" alt="The trust plane: the exact fields a responder signs (domain tag, request id, served-at time, primitive, cells, fact_cids) hashed with BLAKE3 and signed with ed25519 into a receipt, verifiable offline against the responder's public key from /.well-known/emem.json.">
@@ -194,7 +206,7 @@ Denver sits a mile high. Ask for its elevation and you get `1609.0 m`, plus a re
 }
 ```
 
-Paste that `fact_cid` into [emem.dev/verify](https://emem.dev/verify), or open `https://emem.dev/verify/<fact_cid>` directly. Your browser pulls the bytes, re-derives the hash, and checks the signature locally. Nothing leaves the page.
+(That elevation is orthometric, referenced to the EGM2008 geoid — the datum Copernicus DEM publishes.) Paste that `fact_cid` into [emem.dev/verify](https://emem.dev/verify), or open `https://emem.dev/verify/<fact_cid>` directly. Your browser pulls the bytes, re-derives the hash, and checks the signature locally. Nothing leaves the page.
 
 <details>
 <summary>Verify a receipt in 4 curl commands</summary>
@@ -228,11 +240,11 @@ The `operator_attestation` in `/.well-known/emem.json` binds the running binary'
 
 ## The memory links facts and improves
 
-A plain vector store saves a note and searches it later. emem does that too, and three things a plain store does not.
+A plain vector database — the kind agents use for memory — saves a note and searches it later. emem does that too, and three things a plain store does not.
 
-- **It flags disagreement, with a score.** When several sources sign different values at the same place, band, and time, `memory_contradictions` keeps them all and scores the spread — how far apart the numbers are, how different two vectors are, or how split a category vote is. Your agent gets one number to threshold on: ignore a hairline gap, escalate a real one.
+- **It flags disagreement, with a score.** When several sources sign different values at the same place, band, and time, `memory_contradictions` keeps them all and scores the spread — how far apart the numbers are, how different two vectors are, or how split a category vote is. Your agent gets one number to threshold on: ignore a hairline gap, escalate a real one. Two sources reporting 12% versus 31% forest loss at one cell score a disagreement around 0.44; branch on anything above, say, 0.3.
 - **Facts carry typed links.** `edges_recall` reads a fact's signed connections — `relates_to`, `supersedes`, `disagrees_with` — bounded by time. A newer, better reading doesn't silently overwrite the old one; it supersedes it, and the trail stays.
-- **It gets better on its own.** An offline refinement loop re-derives a fact when a newer attestation or a `disagrees_with` link lands, so the shared memory sharpens as more agents read and write against it.
+- **It re-derives a fact when better evidence arrives.** When a newer reading or a `disagrees_with` link lands, emem re-derives that one fact — nothing rewrites silently — so the shared memory sharpens as more agents read and write against it.
 
 Writes to an agent's own notes are locked to one key: a path under `/memories/by_attester/<pubkey>/` only accepts writes signed by that key, so a reader can confirm both who wrote a note and that nobody changed it since. The same signature that proves a satellite reading proves the agent's private memory.
 
@@ -245,7 +257,7 @@ One binary, one core. The same handlers answer MCP tool calls and plain REST, so
 | **MCP** | `https://emem.dev/mcp` | JSON-RPC 2.0 over Streamable HTTP. 81 tools: 10 core + 71 extended. |
 | **REST** | `/v1/*` | 93 documented paths, described by `/openapi.json` (OpenAPI 3.1). |
 
-Every MCP tool ships a `when_to_use` line and four hint flags (read-only, destructive, idempotent, open-world), so a planner picks the right tool without guessing. `tools/list` returns all 81; pass `{"tier":"core"}` for the 10 you need most.
+Every MCP tool ships a `when_to_use` line and four hint flags (read-only, destructive, idempotent, and open-world — the last meaning "may fetch new data"), so a planner picks the right tool without guessing. `tools/list` returns all 81; pass `{"tier":"core"}` for the 10 you need most.
 
 <details>
 <summary><b>160 named algorithm recipes</b> — a formula an agent can read, with its source and honest accuracy</summary>
@@ -255,7 +267,7 @@ Recipes like `flood_risk@2`, `heat_index@2`, `carbon_sink_score@1`, and `eudr_co
 - `formula` — plain math the agent can read and apply.
 - `inputs` — the bands it needs, with roles.
 - `when_to_use` — when to reach for it.
-- `citation` — the peer-reviewed source.
+- `citation` — the primary source (peer-reviewed where one exists).
 - `accuracy_band` — an honest precision estimate, not marketing.
 - `learned_from` — provenance for every tuned number, traceable to a referee.
 
@@ -289,7 +301,7 @@ Recipes with an evaluation tree also run in-process against the recalled facts a
 
 ### Connect your AI assistant
 
-Point your client at `https://emem.dev/mcp` and it gets all 81 tools. Here's the Claude Code shape — the same endpoint drops into every client below (`"type": "http"` is MCP's Streamable-HTTP identifier, not a plaintext URL):
+Point your client at `https://emem.dev/mcp` and it gets all 81 tools. Here's the Claude Code shape — the same endpoint drops into every client below (here `"http"` is MCP's transport type, not the URL scheme; copy it exactly):
 
 ```jsonc
 // .mcp.json at your project root.
@@ -314,7 +326,7 @@ Point your client at `https://emem.dev/mcp` and it gets all 81 tools. Here's the
 | CrewAI | `examples/crewai/` |
 | Mastra | `examples/mastra/` |
 
-Native SDKs: Python `ememdev` and TypeScript `@emem/client` live under `sdks/`. PyPI and npm publication is pending; install from the repo today.
+Native SDKs: Python `ememdev` (`sdks/emem-py/`) and TypeScript `@emem/client` (`sdks/emem-ts/`). PyPI and npm publication is pending; install from the repo today, e.g. `pip install ./sdks/emem-py`.
 </details>
 
 ## See it in the wild
@@ -362,16 +374,16 @@ Full set: [32 protocol and industry diagrams](https://emem.dev/docs/diagrams).
 The hosted node at [emem.dev](https://emem.dev) runs the exact binary in this repo. Self-hosting isn't a fork or a cut-down build — you run the same thing, and it names the planet the same way.
 
 ```bash
-# needs Rust 1.91+; serves MCP + REST on 0.0.0.0:5051
-cargo run --release --bin emem-server
-```
-
-```bash
-# multi-arch image, anonymously pullable
+# multi-arch image, anonymously pullable — the fastest way to a local node
 docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest
 ```
 
-No required env vars. It boots empty and fetches on the first request, same as the hosted node. Point a client at `http://localhost:5051/mcp` and reads work with no auth.
+```bash
+# or build from source (needs Rust 1.91+; the first release build takes a few minutes)
+cargo run --release --bin emem-server
+```
+
+No required env vars. It boots empty and fetches on the first request, same as the hosted node. Point a client at `http://localhost:5051/mcp` and reads work with no auth. Foundation-embedding bands (Clay, Prithvi, Galileo, and the `triple_consensus` tool) need a GPU sidecar; without it those bands return a signed absence and everything else runs CPU-only.
 
 | Env var | Default | Effect |
 | --- | --- | --- |
@@ -391,7 +403,7 @@ Four handles address everything emem stores. All four are deterministic: the sam
 
 | Handle | What it names | Wire form |
 | --- | --- | --- |
-| `cell64` | one ground cell, ≈ 9.54 m × 9.55 m at the equator; ordered so string-near ids are physically near | four dot-separated bigrams — `defi.zb493.xuqA.zcb5f` |
+| `cell64` | one ground cell, ≈ 9.54 m × 9.55 m at the equator; ordered so string-near ids are physically near | four dot-separated groups — `defi.zb493.xuqA.zcb5f` |
 | `tslot` | a 64-bit time slot | `t.`-prefixed base32 |
 | `cid` | fingerprint of a fact's bytes (32-byte BLAKE3); change one byte, the id changes | lowercase base32 — `72wdchiyurfrjxz7zat6kor7gjnvsn564fbrzjkmlhagoy4rrh4a` |
 | `vec` | a place's 1792-number state vector | 12-byte prefix in receipts; full vector via `recall` |
@@ -405,11 +417,12 @@ Going deeper: [`AGENTS.md`](AGENTS.md) for the agent loop, [`spec/`](spec/) for 
 
 emem is version 0.1.0. What it does not do yet, so you can plan around it:
 
-- **No sub-meter imagery.** The default build sees Sentinel-2 (10 m) and Landsat/HLS (30 m). No Planet or Maxar without your own connector.
+- **No sub-meter imagery.** The default build sees Sentinel-2 (10 m) and Landsat/HLS (30 m). No Planet or Maxar (commercial high-res providers) without your own connector.
+- **It grounds facts about physical places,** not arbitrary text — it isn't a general-purpose citation store for any document.
 - **Single host.** No federation, no global routing, no SOC 2. One responder, one signing key.
 - **No edge/onboard inference.** The GPU sidecar runs on one host.
 - **`jepa_predict_v2` is an honest baseline.** It returns the last known vintage until its dynamics head is trained.
-- **Clay and Prithvi embeddings are seed-only on the hosted node** today; a cold cell returns a signed absence for those bands. Tessera fetches on demand.
+- **Clay, Prithvi, and Galileo embeddings are sidecar-gated on the hosted node** today; a cold cell returns a signed absence for those bands (so `triple_consensus` runs partial when cold). Tessera fetches on demand.
 - **Upstream rate limits.** Tessera is rate-limited at the source; MODIS land-surface temperature is slow to fetch (~30 s per cell).
 - **No notebook UI.** Drive it from a notebook against REST or MCP.
 
@@ -424,7 +437,7 @@ emem is a protocol, not a single service. The end state is a federation of indep
 The protocol is written up in an open whitepaper:
 
 > **emem: A Content-Addressed, Verifiable Earth-Memory Protocol for AI Agents over Foundation-Model Embeddings.**
-> Jaya Kumari, Avijeet Singh — Vortx AI, 2026. CC-BY-4.0.
+> Jaya Kumari, Avijeet Singh — Vortx AI, 2026. Open preprint (Zenodo, CC-BY-4.0; not yet peer-reviewed).
 > [doi.org/10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893)
 
 ```bibtex
