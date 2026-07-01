@@ -4,7 +4,7 @@
 
 # emem
 
-**Earth as memory for real-world agents.** Every fact signed, content-addressed, and re-checkable offline — by anyone, without trusting the server that served it.
+**Earth as memory for real-world agents.** Every fact is signed and content-addressed — its id is a hash of its own bytes — so anyone can re-check it offline, without trusting the server that served it.
 
 *Give your AI agent verifiable, citable facts about any place on Earth — one MCP endpoint, no key.*
 
@@ -22,7 +22,7 @@
 
 ---
 
-Ask an AI agent what's on the ground at 19.07°N, 72.87°E (WGS84) and it guesses. It has no fixed handle for that patch of Earth, and no way to prove what it hands back. **emem is the handle:** a shared memory of the planet an agent can read, write, and cite. The first request for any place fetches the real satellite value, signs it with an ed25519 key, and stores it in the same response. Anyone can re-check that answer offline — no account, no trust in the server that gave it to you.
+Ask an AI agent what's on the ground at 19.07°N, 72.87°E (WGS84) and it guesses. It has no fixed handle for that patch of Earth, and no way to prove what it hands back. **emem is the handle:** a shared memory of the planet an agent can read, write, and cite. The first request for any place fetches the real value from a named satellite or Earth-observation source, signs it with an ed25519 key, and stores it in the same response. Anyone can re-check that answer offline — no account, no trust in the server that gave it to you.
 
 It is a working protocol with a hosted node, a written spec, an open [whitepaper](https://doi.org/10.5281/zenodo.20706893), and a companion open model.
 
@@ -34,7 +34,7 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
 
 ## Try it — no install, no key
 
-Three requests, straight against the live node at `https://emem.dev`.
+Three requests, straight against the live node at `https://emem.dev` (you need `curl` and `jq`).
 
 ```bash
 # 1. Geocode a place to a cell64 — a stable id for one ~9.55 m square of ground (WGS84).
@@ -50,7 +50,7 @@ echo "$CELL"          # -> defi.zb493.xuqA.zcb5f
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" \
-  | jq '.facts[0].value'   # -> 27.3
+  | jq '.facts[0].value'   # -> 27.3  (°C)
 ```
 
 ```bash
@@ -58,14 +58,14 @@ curl -s -X POST https://emem.dev/v1/recall \
 curl -s -X POST https://emem.dev/v1/ask \
   -H 'content-type: application/json' \
   -d '{"q":"find places like Yellowstone","place":"Yellowstone National Park"}' \
-  | jq '.answer'
+  | jq -r '.answer'   # -> "Places with a similar climate and terrain profile: …"
 ```
 
 The `recall` response carries a `fact_cid`: a fingerprint of the exact signed bytes. Paste it to a colleague and any node returns the same bytes; the signature checks in their browser. Same id, same value, in any year.
 
 <p align="center">
   <img src="docs/screenshots/console.png" width="820"
-    alt="The emem.dev console titled 'Location memory for people and agents', with a Human/Agent toggle and the native emem copilot resolving a place into a word-triple address and a signed agent memory object">
+    alt="The emem.dev console titled 'Location memory for people and agents', with a Human/Agent toggle and the native emem copilot resolving a place into an address and a signed agent memory object">
 </p>
 
 Explore the live console at [emem.dev](https://emem.dev), or spin the planet in the [geo.qa](https://geo.qa) globe demo.
@@ -74,7 +74,7 @@ Explore the live console at [emem.dev](https://emem.dev), or spin the planet in 
 
 The planet is cut into fixed WGS84 cells, ~9.55 m across at the equator (a little narrower toward the poles), the way a page is cut into words. A cell addresses a place the way a token addresses text in an LLM: a stable, reusable unit you can point at, pass around, and build on. One measurement at one cell is a **fact** — one **band** (a single measurement layer, like elevation, rainfall, or this year's forest loss) at that spot. A satellite embedding — a vector fingerprint of what the ground looks like — is a fact too. Every fact is signed.
 
-Nothing is stored in advance. The first time anyone asks about a place, emem fetches the real satellite value, signs it, saves it, and returns it in the same response. Every cell on Earth answers from the first request.
+Nothing is stored in advance. The first time anyone asks about a place, emem fetches the real value from the named source, signs it, saves it, and returns it in the same response. Every cell on Earth answers from the first request.
 
 A cache hands back a tile. A memory remembers what it saw, links it to what it saw before, and says so when two sources disagree. emem is the second one.
 
@@ -82,9 +82,25 @@ A cache hands back a tile. A memory remembers what it saw, links it to what it s
   <img src="docs/diagrams/memory-engram.png" width="640" alt="emem's Earth-as-memory engram: ground cells drawn as nodes and the temporal links between them drawn as synapses, forming a signed graph of the planet.">
 </p>
 
+## Why agent developers should care
+
+If your agent ever reasons about a physical place — a farm, a warehouse address, a wildfire, a delivery route — emem hands it a fact it can cite instead of a guess.
+
+An agent that answers with no source, no measurement, and no byte you can pull up tomorrow is an agent you can't audit. That gap is where long runs drift, and where you can't tell a good run from a bad one. emem closes it.
+
+<p align="center">
+  <img src="docs/diagrams/png/05-fact-to-reasoning.png" width="820" alt="Grounding in the context window: a signed fact (Denver elevation 1609 m, with its cell and fact_cid) flows into the model's context, and the assistant answers with a citation the reader can pull and re-check.">
+</p>
+
+- **Grounding, not a guess.** `locate` turns a name or lat/lng into a `cell64`. `recall` returns the band you asked for with a named source and a fingerprint of the exact bytes. No value at that band returns a signed "no data here, and why," so your agent never fills the hole with a guess.
+- **An external anchor for long runs.** Context gets summarized and re-summarized until, after many passes, an agent is reasoning over its own earlier guesses. A `fact_cid` names one exact set of bytes; ask for it this year or in five and you get the same value back, or a signed reason it's unavailable. The anchor doesn't move under the agent.
+- **Shared ground truth across agents.** `memory_bundle` folds many facts into one signed citation; `memory_token` composes a checkable pointer. One agent hands another the evidence, not a paraphrase — useful for multi-agent systems, robots, and observation fleets that must agree on what's real.
+- **Disagreement is kept, not averaged away.** When two sources sign different values for the same place, emem keeps both and scores the gap instead of silently averaging — a number your agent can branch on (more in [The memory links facts](#the-memory-links-facts-and-improves)).
+- **Reproducible audits.** Two independent time axes — what the world looked like on a date, and what the system knew on a date — so a review months later replays the exact answer the agent acted on.
+
 ## Everything emem gives an agent
 
-Most of what's here is invisible in a one-line pitch. Here is the whole surface, in plain terms — each row is a live tool over both MCP and REST. (*A **band** is one named measurement layer: temperature, elevation, forest loss, and so on.*)
+Most of what's here is invisible in a one-line pitch. Here is the whole surface, in plain terms — each row is a live tool over both MCP and REST. (*A **band** is one named measurement layer: temperature, elevation, forest loss, and so on. A **signed absence** is a signed "no data here, and why," never a bare 404. **Tessera, Clay, Prithvi, Galileo** are open AI models that turn satellite pixels into vectors.*)
 
 **New to this?** The only rows any agent needs are `locate`, `recall`, `ask`, `verify`, and the `memory_*` tools. The rest are Earth-data tools you reach for when you need them.
 
@@ -96,7 +112,7 @@ Most of what's here is invisible in a one-line pitch. Here is the whole surface,
 | Find places that look like this one | `find_similar` | nearest matches over any vector band (k-NN) |
 | See how one place changed over time | `compare`, `diff`, `trajectory`, `state_diff` | pairwise deltas and time series |
 | Get a place's full "state vector" | `state`, `state_multi` | a signed embedding from satellite foundation models |
-| Cross-check with three satellite AI models | `triple_consensus` | how much Clay + Prithvi + Tessera agree — or a signed absence when an encoder isn't loaded on the hosted node |
+| Cross-check across satellite AI models | `triple_consensus` | how much Clay + Prithvi + Tessera agree — or a signed absence when an encoder isn't loaded on the hosted node |
 | Ask a free-text question | `ask` | routed to the right data, answered with a citation |
 | Discover events over a region | `hunt` | hotspots for 12 event types (floods, wildfire, deforestation, methane…) |
 | Keep and search the agent's own notes | `memory_create/insert/str_replace/view/delete/rename`, `memory_search` | signed, capability-bound files; meaning-based search |
@@ -112,25 +128,9 @@ Most of what's here is invisible in a one-line pitch. Here is the whole surface,
 
 Full tool reference: **81 MCP tools** (10 core + 71 extended) and **93 REST paths**, listed at [`/v1/tools`](https://emem.dev/v1/tools) and [`/openapi.json`](https://emem.dev/openapi.json). Worried about tool sprawl? Ask your MCP client for the `core` tier and it loads just the 10 essentials; the other 71 stay available when you need them.
 
-## Why agent developers should care
-
-If your agent ever reasons about a physical place — a farm, a warehouse address, a wildfire, a delivery route — emem hands it a fact it can cite instead of a guess.
-
-An agent that answers with no source, no measurement, and no byte you can pull up tomorrow is an agent you can't audit. That gap is where long runs drift, and where you can't tell a good run from a bad one. emem closes it.
-
-<p align="center">
-  <img src="docs/diagrams/png/05-fact-to-reasoning.png" width="820" alt="Grounding in the context window: a signed fact (Denver elevation 1609 m, with its cell and fact_cid) flows into the model's context, and the assistant answers with a citation the reader can pull and re-check.">
-</p>
-
-- **Grounding, not a guess.** `locate` turns a name or lat/lng into a `cell64`. `recall` returns the band you asked for with a named source and a fingerprint of the exact bytes. No value at that band returns a signed "no data here, and why," so your agent never fills the hole with a guess.
-- **An external anchor for long runs.** Context gets summarized and re-summarized until, by step 200, an agent is reasoning over its own earlier guesses. A `fact_cid` names one exact set of bytes; ask for it this year or in five and you get the same value back, or a signed reason it's unavailable. The anchor doesn't move under the agent.
-- **Shared ground truth across agents.** `memory_bundle` folds many facts into one signed citation; `memory_token` composes a checkable pointer. One agent hands another the evidence, not a paraphrase — useful for multi-agent systems, robots, and observation fleets that must agree on what's real.
-- **Disagreement is kept, not averaged away.** When two sources sign different values for the same place, emem keeps both and scores the gap instead of silently averaging — a number your agent can branch on (more in [The memory links facts](#the-memory-links-facts-and-improves)).
-- **Reproducible audits.** Two independent time axes — what the world looked like on a date, and what the system knew on a date — so a review months later replays the exact answer the agent acted on.
-
 ## The model layer: TerraGround
 
-You don't need TerraGround to use emem — it's an optional companion model. emem is the memory; **[TerraGround](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA)** is an open model that reads it. It's a LoRA adapter on Google's Gemma (12B instruction-tuned, `google/gemma-4-12b-it`) that turns a general model into an Earth-observation analyst: it answers grounded questions about any place — dominant land cover, how green or moist the vegetation is, whether there's surface water — and plans the tool calls an EO agent needs. It's trained to say "not enough data" when the evidence doesn't support an answer, the same honesty as a signed absence.
+You don't need TerraGround to use emem — it's an optional companion model. emem is the memory; **[TerraGround](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA)** is an open model that reads it. It's a LoRA adapter — a small fine-tuning layer — on Google's [Gemma 4 12B](https://huggingface.co/google/gemma-4-12B-it) (instruction-tuned) that turns a general model into an Earth-observation analyst. Within the regime it was trained on, it answers grounded questions about a place — dominant land cover, vegetation vigour, surface water — and plans the tool calls an EO agent needs. It's trained to say "not enough data" when the evidence doesn't support an answer, the same honesty as a signed absence.
 
 <p align="center">
   <img src="docs/diagrams/png/31-encoders-in-orbit-decoders-on-ground.png" width="820" alt="Encoders in orbit, decoders on the ground: Sentinel, MODIS, and DEM sensors feed four foundation encoders (Clay v1.5, Prithvi-EO-2, Galileo, Tessera); the responder decodes, fuses, and signs their embeddings. Different models read the same place differently, so disagreement is informative.">
@@ -148,7 +148,7 @@ The adapter is under Gemma terms; the surrounding code is Apache-2.0. It builds 
 
 You already know the drill. STAC search, COG windowing, reprojection, mosaicking, then glue code to keep the coordinate bookkeeping straight. emem collapses that into one address space: `locate` a place, `recall` a band. A first-time read fetches the upstream tile, signs it, saves it, and returns it in the same response (timing in [How a fact is made](#how-a-fact-is-made-and-proven)). Out of coverage or upstream down, you get a signed "no data, and why," not a silent gap.
 
-**How a value maps to a cell.** Every cell is WGS84 (plain lat/lng). A band is read from the source pixel at the cell's location — no reprojection, and a 9.55 m cell laid over 10 m Sentinel-2 doesn't invent resolution it doesn't have. Units and vertical datums are whatever the named source publishes (Copernicus DEM elevations, for instance, are orthometric on the EGM2008 geoid).
+**How a value maps to a cell.** Every cell is WGS84 (plain lat/lng). A single-cell `recall` is a point sample: emem transforms the cell's lat/lng into the source's own coordinate system and reads the pixel there — it never resamples data onto a new grid, and a 9.55 m cell over 10 m Sentinel-2 doesn't invent resolution it doesn't have. (`recall_polygon` and the by-place shortcuts aggregate over an area instead; a band named like `copdem30m.elevation_mean` gets the `_mean` from the upstream product, not from emem averaging.) By default a recall returns the most recent value available for that band; pin any moment with `as_of_tslot` / `as_of_signed_at`. Units and vertical datums are whatever the named source publishes (Copernicus DEM elevations, for instance, are orthometric on the EGM2008 geoid).
 
 <p align="center">
   <img src="docs/diagrams/png/06-memory-vs-stac.png" width="820" alt="Memory versus catalog: the classic STAC pipeline (search, window COGs, reproject, mosaic, cache tiles) versus emem's locate-then-recall over one signed address space.">
@@ -169,6 +169,8 @@ The first request for a place is a **cold** read; every request after is **warm*
 |------|--------------------------|--------:|
 | First (cold) | fetch upstream tile → sign → save → return | ~180 ms |
 | Repeat (warm) | serve the stored, signed fact | <10 ms |
+
+*Cold time is source-dependent: ~180 ms is typical, but slow upstreams like MODIS land-surface temperature and Tessera can take seconds — see [Honest limits](#honest-limits).*
 
 When a band genuinely has no value — out of coverage, upstream unreachable, or a source that isn't wired here — you still get a signed **absence** carrying a reason a machine can read, not a `404` and not an empty body. An empty answer is a citable receipt. The catalog never promises more than it can sign.
 
@@ -242,7 +244,7 @@ The `operator_attestation` in `/.well-known/emem.json` binds the running binary'
 
 A plain vector database — the kind agents use for memory — saves a note and searches it later. emem does that too, and three things a plain store does not.
 
-- **It flags disagreement, with a score.** When several sources sign different values at the same place, band, and time, `memory_contradictions` keeps them all and scores the spread — how far apart the numbers are, how different two vectors are, or how split a category vote is. Your agent gets one number to threshold on: ignore a hairline gap, escalate a real one. Two sources reporting 12% versus 31% forest loss at one cell score a disagreement around 0.44; branch on anything above, say, 0.3.
+- **It flags disagreement, with a score.** When several sources sign different values at the same place, band, and time, `memory_contradictions` keeps them all and scores the spread — how far apart the numbers are, how different two vectors are, or how split a category vote is. Your agent gets one number to threshold on: ignore a hairline gap, escalate a real one. Two sources reporting 12% versus 31% forest loss at one cell surface as a scored gap the agent can branch on, instead of an average that quietly splits the difference.
 - **Facts carry typed links.** `edges_recall` reads a fact's signed connections — `relates_to`, `supersedes`, `disagrees_with` — bounded by time. A newer, better reading doesn't silently overwrite the old one; it supersedes it, and the trail stays.
 - **It re-derives a fact when better evidence arrives.** When a newer reading or a `disagrees_with` link lands, emem re-derives that one fact — nothing rewrites silently — so the shared memory sharpens as more agents read and write against it.
 
