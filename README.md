@@ -136,18 +136,6 @@ Six operations. Each maps to real tools.
 
 You do not have to pick. Call `emem_ask` with a plain-language question and it routes to the right operation, then returns a signed answer.
 
-```mermaid
-flowchart LR
-    A[AI agent] -->|1. recall a place| M{fact in memory?}
-    M -->|hit, under 10ms| R[signed fact + receipt]
-    M -->|miss| F[materialize: fetch, sign, store]
-    F --> R
-    R -->|2. compare, predict, self-check| W[model operations]
-    R -->|3. memory token memt:| B[another agent, another company]
-    B -->|4. verify on its own| V[valid: true]
-    R -.enriches.-> C[(shared memory)]
-    C -.next agent hits cache.-> M
-```
 
 ## Memory that survives the handoff
 
