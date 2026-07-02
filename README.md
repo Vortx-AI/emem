@@ -136,6 +136,18 @@ Six operations. Each maps to real tools.
 
 You do not have to pick. Call `emem_ask` with a plain-language question and it routes to the right operation, then returns a signed answer.
 
+```mermaid
+flowchart LR
+    A[AI agent] -->|1. recall a place| M{fact in memory?}
+    M -->|hit, under 10ms| R[signed fact + receipt]
+    M -->|miss| F[materialize: fetch, sign, store]
+    F --> R
+    R -->|2. compare, predict, self-check| W[model operations]
+    R -->|3. memory token memt:| B[another agent, another company]
+    B -->|4. verify on its own| V[valid: true]
+    R -.enriches.-> C[(shared memory)]
+    C -.next agent hits cache.-> M
+```
 
 ## Memory that survives the handoff
 
@@ -167,6 +179,10 @@ The first request for a place is a **cold** read. Every request after is **warm*
 Cold time depends on the source. About 180 ms is typical, but slow upstreams can take seconds (see [Honest limits](#honest-limits)).
 
 When a value genuinely does not exist, whether it is out of coverage, upstream unreachable, or a source that is not wired here, you still get a signed **absence** carrying a reason a machine can read. Not a `404`, not an empty body. An empty answer is a citable receipt. The memory never promises more than it can sign.
+
+<p align="center">
+  <img src="docs/diagrams/png/03-anatomy-of-a-request.png" width="820" alt="Anatomy of a recall: a request resolves to a place, checks the signed store, fetches upstream on a cold miss, signs the result, and returns a fact plus a receipt." />
+</p>
 
 Every answer is signed, and you verify it yourself, offline, with no account and no key to manage. The chain, in order:
 
@@ -226,6 +242,10 @@ A plain vector store, the kind agents use for memory, saves a note and searches 
 You do not need it to use emem. **[TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA)** is an optional open model that turns the memory into plain answers. It is a small fine-tuning layer on Google's [Gemma 4 12B](https://huggingface.co/google/gemma-4-12B-it) that reads a place's signed record and answers grounded questions about it, and plans the tool calls an agent needs. It is trained to say "not enough data" when the evidence does not support an answer, the same honesty as a signed absence.
 
 It was trained on 4,164 examples across 1,286 varied places, and it builds on the Tessera foundation model ([arXiv:2506.20380](https://arxiv.org/abs/2506.20380)). The adapter is under Gemma terms; the surrounding code is Apache-2.0.
+
+<p align="center">
+  <img src="docs/diagrams/png/31-encoders-in-orbit-decoders-on-ground.png" width="820" alt="Encoders in orbit, decoders on the ground: sensors feed four foundation models whose signed fingerprints emem stores; a companion model decodes them into grounded answers. Different models read the same place differently, so disagreement is informative." />
+</p>
 
 ## Connect your assistant
 
@@ -308,6 +328,8 @@ Three surfaces, three jobs. Pick by what you are trying to do.
 
 **eudr.dev is the flagship proof.** It is an independent compliance agent built on emem for the EU Deforestation Regulation. Every paragraph it quotes resolves to a signed `fact_cid` served from the emem responder: the forest baseline, the clearing history for a plot, the coverage check. Its output is a signed, Annex II-shaped Due Diligence Statement, and that statement is what clears customs. A customs officer, an auditor, or a rival lab can pull the exact bytes behind any claim from any node and re-check the signature offline. This is the whole idea, working in a setting where being wrong has a cost.
 
+<p align="center"><img src="docs/diagrams/eudr.png" alt="EUDR end to end on emem: a plot geometry resolves to a forest baseline and clearing history, packaged as a signed Due Diligence Statement handle that clears customs." /></p>
+
 <details>
 <summary>Where a shared, signed memory earns its keep</summary>
 
@@ -320,6 +342,17 @@ The mechanism is the same every time: a stable handle for a real place, a finger
 - **Insurance**: a signed receipt for the state of a location on a date settles what a policy covered.
 - **Supply-chain compliance**: the eudr.dev workflow generalized, proving where a commodity came from with citations a regulator can verify.
 
+<table>
+  <tr>
+    <td><img src="docs/diagrams/15-defense-geoint.svg" alt="Defense and intelligence: many agents sharing one signed address space and recording where they disagree" /></td>
+    <td><img src="docs/diagrams/16-disaster-response.svg" alt="Disaster response: signed, time-stamped flood, burn, and landslide facts for field teams" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/diagrams/27-precision-agriculture.svg" alt="Agriculture: signed field boundaries, vegetation trends, and crop-stress signals per place" /></td>
+    <td><img src="docs/diagrams/29-eudr-supply-chain.svg" alt="Supply-chain compliance: commodity provenance backed by signed, verifiable facts" /></td>
+  </tr>
+</table>
+
 Full set: [32 protocol and industry diagrams](https://emem.dev/docs/diagrams).
 </details>
 
@@ -330,6 +363,10 @@ This is the layer that fills memory on a miss. It sits below everything above, o
 The raw material is the public record of the physical world: open satellite and earth-observation data from agencies like ESA, NASA, USGS, and the EU's Joint Research Centre, plus open reference datasets for land cover, water, terrain, weather, and rainfall. **46 declared sources** feed the memory, including Sentinel-2, Landsat/HLS, Copernicus DEM, JRC Global Surface Water, Hansen forest change, ESA WorldCover, Overture Maps, Fields of The World, CHIRPS rainfall, and more. **124 measurements are wired and fetch on demand**; a handful that are declared but not wired here return a typed "not available" rather than pretending.
 
 Four open foundation models (Tessera, Clay v1.5, Prithvi-EO-2, Galileo) turn raw readings into the numeric fingerprints used in the Compare operation. emem runs them for you and signs what they produce, so there is no inference stack to stand up. `emem_state` and `emem_state_multi` return the signed fingerprints; `emem_triple_consensus` runs three of them together and reports where they agree and where they disagree, so a disagreement is a signal rather than an average that hides it.
+
+<p align="center">
+  <img src="docs/diagrams/png/06-memory-vs-stac.png" width="820" alt="Memory versus catalog: the classic search, window, reproject, mosaic, cache pipeline versus emem's locate-then-recall over one signed address space." />
+</p>
 
 emem's own job is the last step: sign the result, store it, and give it a stable address so it can be recalled and checked forever. The default build reads only open sources. No API keys, no operator credentials.
 
@@ -373,6 +410,10 @@ No required env vars. It boots empty and fetches on the first request, same as t
 
 What makes your node and emem.dev the same memory is not a network link. It is the addressing math. Both derive the same id for a place and the same id for a reading, so a receipt minted on one verifies against the other, offline. Paste a `fact_cid` from emem.dev into your local node and you pull the identical bytes.
 
+<p align="center">
+  <img src="docs/diagrams/architecture.png" width="760" alt="emem one-binary architecture: MCP and REST handlers over a single core, fronting the upstream sources, writing to an append-only signed log, pinning four content-addressed manifests per answer." />
+</p>
+
 ## Honest limits
 
 emem is version 0.1.0. What it does not do yet, so you can plan around it:
@@ -388,6 +429,8 @@ emem is version 0.1.0. What it does not do yet, so you can plan around it:
 ## Where it is going
 
 emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. **None of the multi-host federation routing ships in 0.1.0.** What ships today is the machinery it stands on: content addressing, signed receipts, typed temporal links, cross-source disagreement scoring, and an offline refinement loop. Federate later; the fact ids will not move. Near-term work is tracked in [issues](https://github.com/Vortx-AI/emem/issues).
+
+<p align="center"><img src="docs/diagrams/federation.png" width="720" alt="Roadmap: many independent emem responders sharing one address space, resolving the same content ids byte-for-byte and recording where they disagree." /></p>
 
 ## Research and citation
 
