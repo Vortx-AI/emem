@@ -1,14 +1,17 @@
-# 3D worlds from live emem
+# 3D gaussian splat worlds from live emem
 
-Two self-contained templates that turn any area of the shared memory into a
+Four self-contained templates that turn an area of the shared memory into a
 rotating 3D gaussian splat world, in a browser, with no build step. Every
-splat is one signed fact recalled from an emem responder; its `fact_cid`
-re-checks at [`/verify`](https://emem.dev/verify) like any other answer.
+splat is one cell of signed facts recalled from an emem responder, and every
+gaussian parameter is a measurement with a `fact_cid` that re-checks at
+[`/verify`](https://emem.dev/verify) like any other answer.
 
 | Template | What it shows |
 | --- | --- |
 | [`single-band-world.html`](single-band-world.html) | one band drives height and colour (ships configured for Copernicus DEM over the Grand Canyon) |
-| [`multi-band-world.html`](multi-band-world.html) | three bands fused per splat: elevation for height, Sentinel-2 NDVI for vegetation colour, JRC water recurrence for lakes (ships configured for Interlaken) |
+| [`multi-band-world.html`](multi-band-world.html) | three bands fused per splat: elevation for height, Sentinel-2 NDVI for vegetation colour, JRC water recurrence for lakes (Interlaken) |
+| [`semantic-world.html`](semantic-world.html) | colour from the 128-D GeoTessera foundation embedding, PCA to RGB: the memory's own notion of what kind of place each cell is (Cairo and Giza) |
+| [`carbon-world.html`](carbon-world.html) | height is ESA CCI above-ground biomass, thickness its published standard error, colour the Hansen loss year (Rondônia deforestation frontier) |
 
 ## Run one
 
@@ -18,16 +21,51 @@ config block over plain `fetch`.
 
 ```bash
 python3 -m http.server -d examples/3d-worlds 8080
-# then open http://localhost:8080/single-band-world.html
+# then open http://localhost:8080/carbon-world.html
 ```
 
 The first run over a cold area materializes and signs every sampled cell, so
 it can take a few minutes; repeats are warm. The loader reports progress in
-the HUD.
+the HUD, splits batches that hit the gateway timeout, and retries.
+
+## The gaussians are measurements
+
+Earlier versions of these templates drew additive point sprites. They now do
+standard 3D Gaussian Splatting, and every parameter of every gaussian comes
+from a signed fact rather than a heuristic:
+
+| Parameter | Source |
+| --- | --- |
+| centre | the fact's cell (lat/lng in `derivation.args`) and its height band |
+| ground footprint | half the median nearest-neighbour spacing of the sampled grid |
+| tilt | the local tangent plane: slope and aspect by finite differences over the neighbouring cells' signed height facts (the same neighbourhood computation as `/v1/terrain`), or per-cell slope/aspect bands where a responder wires them; vertical exaggeration `zx` shears space, so the tilted plane uses `theta' = atan(zx * tan(theta))` |
+| thickness | the RMS residual after removing that gradient plane from the neighbours (detrended roughness), a band's own standard error (the carbon world uses the biomass SE band), or per-cell relief bands as `sigma_z = (p90 - p10) / 2.5631` (that constant is the width of the 10th-90th percentile interval in sigma of a normal) |
+| opacity | the fact's attested `confidence` |
+
+Each covariance is `Sigma = R S^2 R^T` with `R = [t1 t2 n]` the tangent
+frame and `S = diag(sigma_ground, sigma_ground, sigma_z)`. The renderer
+projects it with the EWA Jacobian (Zwicker et al. 2001; Kerbl et al. 2023),
+`Sigma' = J W Sigma W^T J^T`, adds the 0.3 px^2 low-pass, draws an instanced
+quad over the 3-sigma screen ellipse with `alpha = opacity * exp(-r^2/2)`,
+and composites back-to-front with premultiplied alpha after a CPU depth
+sort. Where a shape fact is missing the gaussian falls back to isotropic;
+where a cell has no fact for the height band, there is no splat. Nothing is
+interpolated or invented.
+
+The construction lives in [`splat-math.js`](splat-math.js) and is pinned by
+[`test/golden-scene.json`](test/golden-scene.json), a fixture with
+hand-derived sigmas and quaternions that both the JS and the Python exporter
+must reproduce to 1e-6:
+
+```bash
+node -e "console.log(require('./splat-math.js').selftest('./test/golden-scene.json'), 'checks')"
+python3 make_splats.py --selftest
+node test/render-checks.mjs     # pixel checks: gaussian profile, sort order
+```
 
 ## Make it yours
 
-Edit the `window.EMEM_WORLD` block at the top of either template:
+Edit the `window.EMEM_WORLD` block at the top of any template:
 
 - `responder`: any emem node, including `http://localhost:5051` from
   `docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest`.
@@ -35,26 +73,76 @@ Edit the `window.EMEM_WORLD` block at the top of either template:
 - `maxCells`: up to 1,024 sampled cells (the responder picks the grid).
 - `bands`: any of the 124 wired bands (`GET /v1/bands`); `heightBand` picks
   which one extrudes.
+- `shape`: which signed measurements shape the gaussians —
+  `gridNormals`/`gridRelief` derive tilt and thickness from the sampled
+  grid's own height facts and need nothing beyond the height band;
+  `sigmaBand` (a std-error band, in height-band units) or
+  `reliefBands: [p10, p90]` set thickness per cell, `slopeBand` +
+  `aspectBands: [sin, cos]` set tilt, where a responder wires those bands.
+  Plus `sigmaFloorM`, `footprintScale`, `opacity`. Delete the block for
+  isotropic splats; old configs without it still work.
 - `colorize(row, color, ctx)`: your mapping from a cell's fact values to a
   colour. `row` holds one value per band; `ctx.hMin`/`ctx.hMax` give the
   height range.
+- `prepare(rows, ctx)`: optional whole-scene pass before colorize —
+  `semantic-world.html` runs its PCA here.
 
 ## How it fetches
 
 `POST /v1/query_region` with the bbox returns a sampled cell list in its
 receipt without touching upstream sources. The template then recalls those
 cells in batches with `POST /v1/recall_many`, which materializes misses,
-signs everything, and returns a receipt per batch. Positions come from each
-fact's own `derivation.args` (lat/lng), heights and colours from the fact
-values. Nothing in the scene is interpolated or invented: if a cell has no
-fact for a band, it simply has no splat.
+signs everything, and returns a receipt per cell. Positions come from each
+fact's own `derivation.args` (lat/lng), heights, shapes, and colours from
+the fact values. Batches are kept small (256 cells max per call, 128 when
+more than two bands are in play) because a fully cold batch must finish
+materializing inside the gateway timeout; a batch that still times out is
+split in half and retried.
 
-Batches are kept small (256 cells max per call; the loader uses less) because
-a fully cold batch must finish materializing inside the gateway timeout.
+## Export signed splats
 
-## Headless capture
+[`make_splats.py`](make_splats.py) (stdlib only) runs the same fetch and the
+same gaussian math, then writes portable artifacts:
 
-The GIFs in the main README come from these exact templates rendered in
-headless Chromium: set `window.EMEM_CAPTURE = {}` plus `window.EMEM_DATA` to
-a pre-fetched scene, and the engine exposes `window.__renderFrame(i, total)`
-for deterministic orbit frames instead of the free-running animation loop.
+```bash
+python3 make_splats.py --preset carbon --out out/rondonia --verify
+```
+
+- `out/rondonia.ply` — standard 3D Gaussian Splatting PLY: positions,
+  `f_dc_* = (rgb - 0.5) / 0.28209479` (the degree-0 spherical-harmonic
+  coefficient), `opacity` as a logit, `scale_*` as log sigmas, `rot_*` a
+  normalized `(w, x, y, z)` quaternion. Opens in SuperSplat, gsplat,
+  antimatter15/splat, PlayCanvas. Exported in the y-down COLMAP-style frame
+  those viewers expect; the exact flip is recorded in the sidecar.
+- `out/rondonia.splat` — antimatter15 32-byte-per-splat format, sorted by
+  volume x opacity for progressive loading.
+- `out/rondonia.provenance.json` — `emem.splat_provenance.v1`: the responder
+  pubkey, per-splat `fact_cid`s for every band, the verbatim signed receipts,
+  sha256 of both artifacts, the scene transform, and the re-check recipe.
+- `out/rondonia.scene.json` — the fetched scene; serve it as
+  `window.EMEM_DATA` for offline rendering, or hand it to `capture.mjs`.
+
+`--verify` round-trips every stored receipt through `POST /v1/verify_receipt`
+and fails if any signature does not check out. Any individual splat's
+`fact_cid` re-checks at `/verify/<cid>` in a browser. The splat file itself
+is bound to the receipts by the sha256 in the sidecar: change a gaussian and
+the hash breaks; change a fact and its signature breaks.
+
+## Capture the GIFs
+
+The orbit GIFs in the main README come from these exact templates rendered
+deterministically in headless Chromium by [`capture.mjs`](capture.mjs)
+(no dependencies, Node >= 22):
+
+```bash
+python3 make_splats.py --preset carbon --out out/rondonia
+node capture.mjs --template carbon-world.html --scene out/rondonia.scene.json \
+     --frames 240 --size 1200x900 --gif ../../docs/media/world-rondonia.gif
+```
+
+With `--scene` no network is touched: the engine sees `window.EMEM_DATA` and
+`window.EMEM_CAPTURE` and exposes `window.__renderFrame(i, total)` for
+deterministic orbit frames. Without `--scene` the capture is live; the page's
+requests are relayed through node's fetch, which also survives sandboxes
+whose egress policies reset Chromium's own TLS. `CHROME` and `FFMPEG`
+override the binary paths.

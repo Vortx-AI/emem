@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>emem · semantic 3D world</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a08; }
+  #hud { position: fixed; left: 20px; top: 16px; color: #f3eee2;
+         font: 13px/1.5 "DejaVu Sans Mono", ui-monospace, monospace; }
+  #hud b { font-size: 15px; letter-spacing: .02em; }
+  #hud-n, #hud-sub { color: #b8ad97; }
+  #mark { position: fixed; right: 20px; bottom: 14px; color: #b8ad97;
+          font: 12px "DejaVu Sans Mono", ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b id="hud-title">Cairo and Giza · what the foundation model sees</b><br />
+  <span id="hud-n">loading…</span><br />
+  <span id="hud-sub"></span>
+</div>
+<div id="mark">emem · one splat = one cell of signed facts</div>
+
+<script>
+// ---- edit this block to make it yours --------------------------------
+// Colour comes from the memory's own 128-D GeoTessera foundation embedding:
+// the scene's vectors are projected onto their first three principal
+// components, one colour channel per component. No land-cover labels are
+// invented; two cells share a colour because the model puts them near each
+// other in embedding space. Height is still measured elevation.
+window.EMEM_WORLD = {
+  responder: "https://emem.dev",
+  bbox: [31.00, 29.85, 31.45, 30.15],        // Nile valley, Giza plateau, Cairo
+  maxCells: 900,
+  bands: ["copdem30m.elevation_mean", "geotessera"],
+  heightBand: "copdem30m.elevation_mean",
+  heightExaggeration: 3.0,
+  cameraDistance: 0.62,
+  shape: { gridNormals: true, gridRelief: true },
+  subtitle: "GeoTessera 128-D embedding, PCA to RGB · every vector is a signed fact",
+
+  // whole-scene pass before colorize: PCA of the embedding vectors.
+  // Power iteration with deflation; deterministic start vector.
+  prepare: function (rows, ctx) {
+    var vecs = [], idx = [];
+    rows.forEach(function (r, i) {
+      var v = r["geotessera"];
+      if (Array.isArray(v) && v.length >= 8) { vecs.push(v); idx.push(i); }
+    });
+    if (!vecs.length) return;
+    var D = vecs[0].length, N = vecs.length, i, j, k;
+    var mean = new Float64Array(D);
+    for (i = 0; i < N; i++) for (j = 0; j < D; j++) mean[j] += vecs[i][j] / N;
+    var X = vecs.map(function (v) {
+      var x = new Float64Array(D);
+      for (j = 0; j < D; j++) x[j] = v[j] - mean[j];
+      return x;
+    });
+    var scores = [];
+    for (k = 0; k < 3; k++) {
+      var pc = new Float64Array(D);
+      for (j = 0; j < D; j++) pc[j] = 1 / Math.sqrt(D);
+      for (var it = 0; it < 60; it++) {
+        var nv = new Float64Array(D);
+        for (i = 0; i < N; i++) {
+          var dot = 0;
+          for (j = 0; j < D; j++) dot += X[i][j] * pc[j];
+          for (j = 0; j < D; j++) nv[j] += X[i][j] * dot;
+        }
+        var l = 0;
+        for (j = 0; j < D; j++) l += nv[j] * nv[j];
+        l = Math.sqrt(l) || 1;
+        for (j = 0; j < D; j++) pc[j] = nv[j] / l;
+      }
+      var s = new Float64Array(N);
+      for (i = 0; i < N; i++) {
+        var d2 = 0;
+        for (j = 0; j < D; j++) d2 += X[i][j] * pc[j];
+        s[i] = d2;
+        for (j = 0; j < D; j++) X[i][j] -= d2 * pc[j];   // deflate
+      }
+      scores.push(s);
+    }
+    // robust per-component scaling: 2nd..98th percentile to [0, 1]
+    for (k = 0; k < 3; k++) {
+      var sorted = Array.prototype.slice.call(scores[k]).sort(function (a, b) { return a - b; });
+      var lo = sorted[Math.floor(0.02 * (N - 1))], hi = sorted[Math.ceil(0.98 * (N - 1))];
+      var span = hi - lo || 1;
+      for (i = 0; i < N; i++) {
+        var t = Math.max(0, Math.min(1, (scores[k][i] - lo) / span));
+        var row = rows[idx[i]];
+        (row._sem || (row._sem = [0, 0, 0]))[k] = t;
+      }
+    }
+  },
+
+  colorize: function (row, c) {
+    var s = row._sem;
+    if (!s) { c.setRGB(0.25, 0.24, 0.22); return; }   // no embedding fact: dim grey
+    c.setRGB(0.12 + 0.85 * s[0], 0.12 + 0.85 * s[1], 0.12 + 0.85 * s[2]);
+  },
+};
+</script>
+<script src="./three.min.js"></script>
+<script src="./splat-math.js"></script>
+<script src="./emem-world.js"></script>
+</body>
+</html>
