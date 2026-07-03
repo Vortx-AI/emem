@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>emem · multi-band 3D world</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a08; }
+  #hud { position: fixed; left: 20px; top: 16px; color: #f3eee2;
+         font: 13px/1.5 "DejaVu Sans Mono", ui-monospace, monospace; }
+  #hud b { font-size: 15px; letter-spacing: .02em; }
+  #hud-n, #hud-sub { color: #b8ad97; }
+  #mark { position: fixed; right: 20px; bottom: 14px; color: #b8ad97;
+          font: 12px "DejaVu Sans Mono", ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b id="hud-title">Interlaken · elevation + vegetation + water</b><br />
+  <span id="hud-n">loading…</span><br />
+  <span id="hud-sub"></span>
+</div>
+<div id="mark">emem · one splat = one signed fact</div>
+
+<script>
+// ---- edit this block to make it yours --------------------------------
+// Three bands fused per splat: one for height, two for colour. Water
+// recurrence (JRC) overrides to lake blue; NDVI (Sentinel-2) drives the
+// green; elevation shades rock and snow above the treeline.
+window.EMEM_WORLD = {
+  responder: "https://emem.dev",
+  bbox: [7.62, 46.55, 7.98, 46.76],          // Thun + Brienz lakes, Jungfrau
+  maxCells: 900,
+  bands: ["copdem30m.elevation_mean", "indices.ndvi", "surface_water.recurrence"],
+  heightBand: "copdem30m.elevation_mean",
+  heightExaggeration: 1.9,
+  splatSize: 46,
+  cameraDistance: 0.68,
+  subtitle: "Cop-DEM + Sentinel-2 NDVI + JRC water, fused per cell · emem.dev/verify",
+  colorize: function (row, c, ctx) {
+    const water = row["surface_water.recurrence"] || 0;
+    if (water > 40) { c.setRGB(0.18, 0.52, 0.95); return; }   // lakes
+    const h = (row["copdem30m.elevation_mean"] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
+    const v = Math.max(0, Math.min(1, (row["indices.ndvi"] ?? 0.15)));
+    if (h > 0.72) { const s = (h - 0.72) / 0.28;              // snow and rock
+      c.setRGB(0.62 + 0.38 * s, 0.62 + 0.38 * s, 0.66 + 0.34 * s); return; }
+    c.setRGB(0.34 - 0.14 * v + 0.28 * h, 0.42 + 0.55 * v, 0.20 + 0.12 * h);
+  },
+};
+</script>
+<script src="./three.min.js"></script>
+<script src="./emem-world.js"></script>
+</body>
+</html>

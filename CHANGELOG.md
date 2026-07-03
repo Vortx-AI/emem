@@ -28,6 +28,13 @@ to verify.
   `36-memory-outlives-the-context-window` (compaction survival), SVG plus
   1600px PNG twins. New README section on surviving context compaction,
   surfacing the refinement pass and the sleep-time consolidation agent.
+- 3D worlds from live memory: two browser templates under `examples/3d-worlds/`
+  (`single-band-world.html`, `multi-band-world.html`, vendored three.js, no
+  build step) render any bbox as a gaussian splat world, one splat column per
+  signed fact, fetched via `query_region` + `recall_many`. README embeds two
+  orbit GIFs rendered from the live responder (Grand Canyon, 736 elevation
+  facts; Interlaken, 2,202 facts across elevation + NDVI + water) under
+  `docs/media/`.
 - `docs/ARCHITECTURE_NOTES.md`: file-level map of canonical serialization, CID
   derivation, receipt signing, keys, storage trees, the append-only
   AttestationLog, tslot logic, and attester write auth.

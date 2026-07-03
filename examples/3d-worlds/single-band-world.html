@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>emem · single-band 3D world</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a08; }
+  #hud { position: fixed; left: 20px; top: 16px; color: #f3eee2;
+         font: 13px/1.5 "DejaVu Sans Mono", ui-monospace, monospace; }
+  #hud b { font-size: 15px; letter-spacing: .02em; }
+  #hud-n, #hud-sub { color: #b8ad97; }
+  #mark { position: fixed; right: 20px; bottom: 14px; color: #b8ad97;
+          font: 12px "DejaVu Sans Mono", ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b id="hud-title">Grand Canyon · elevation</b><br />
+  <span id="hud-n">loading…</span><br />
+  <span id="hud-sub"></span>
+</div>
+<div id="mark">emem · one splat = one signed fact</div>
+
+<script>
+// ---- edit this block to make it yours --------------------------------
+// One band drives both height and colour. Try your own bbox and any of
+// the 124 wired bands (GET /v1/bands). First run over a cold area
+// materializes and signs every cell; repeats are warm.
+window.EMEM_WORLD = {
+  responder: "https://emem.dev",
+  bbox: [-112.18, 36.03, -112.02, 36.14],   // [west, south, east, north]
+  maxCells: 1024,                            // up to 1024 sampled cells
+  bands: ["copdem30m.elevation_mean"],
+  heightBand: "copdem30m.elevation_mean",
+  heightExaggeration: 1.7,
+  splatSize: 40,
+  cameraDistance: 0.74,
+  subtitle: "Copernicus DEM over the Grand Canyon · re-check any splat at emem.dev/verify",
+  // colour ramp over the height range: gorge ember -> canyon red -> rim gold
+  colorize: function (row, c, ctx) {
+    const t = (row[this.heightBand] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
+    if (t < 0.45) { const u = t / 0.45;
+      c.setRGB(0.30 + 0.55 * u, 0.07 + 0.20 * u, 0.05 + 0.06 * u); }
+    else { const u = (t - 0.45) / 0.55;
+      c.setRGB(0.85 + 0.15 * u, 0.27 + 0.58 * u, 0.11 + 0.45 * u); }
+  },
+};
+</script>
+<script src="./three.min.js"></script>
+<script src="./emem-world.js"></script>
+</body>
+</html>

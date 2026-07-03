@@ -101,6 +101,20 @@ Agent B did not have to trust Agent A. It recomputed the content ID and checked 
   <img src="docs/diagrams/png/35-two-agents-one-memory.png" width="820" alt="Two agents, one memory: agent A recalls a signed fact, hands agent B a 79-character memt token, agent B resolves the same bytes from the shared memory and verifies the signature offline." />
 </p>
 
+## An area of the memory, in 3D
+
+The memory is not an abstraction; you can look at a piece of it. Both worlds below are rendered by the two templates under [`examples/3d-worlds/`](examples/3d-worlds/), straight from the live responder: the loader samples a bounding box into cells, recalls them in batches (first touch materializes and signs each cell), and draws one gaussian splat column per signed fact. Nothing is interpolated. Where the memory has no fact, there is no splat, and any splat's `fact_cid` re-checks at [`/verify`](https://emem.dev/verify).
+
+<p align="center">
+  <img src="docs/media/world-grand-canyon.gif" width="800" alt="A rotating 3D gaussian splat world of the Grand Canyon: 736 signed Copernicus DEM elevation facts recalled live from emem.dev, gold rim to ember gorge, one glowing splat column per fact." />
+</p>
+
+<p align="center">
+  <img src="docs/media/world-interlaken.gif" width="800" alt="A rotating 3D gaussian splat world of Interlaken: elevation, Sentinel-2 NDVI, and JRC water recurrence fused per cell, lakes in blue, forested slopes in green, snowline in white, one splat column per signed fact." />
+</p>
+
+The first is a single band doing everything: 736 Copernicus DEM elevation facts over the Grand Canyon, height and colour from one measurement. The second fuses three bands per splat over Interlaken: 2,202 facts across elevation, Sentinel-2 NDVI, and JRC surface-water recurrence, so the relief, the forests, and the lakes each come from their own signed source. Open either template in a browser, change the bbox and bands in the config block at the top, and the same machinery renders any area of Earth your agents care about, against emem.dev or your own node.
+
 ## What a fact costs to hand over
 
 Agents pay for context in tokens, so the unit of exchange matters. In emem, agents exchange addresses instead of payloads, and resolve them only when they need the bytes. Measured with `tiktoken` (cl100k_base and o200k_base) against the live responder:
