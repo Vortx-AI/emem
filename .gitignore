@@ -81,3 +81,6 @@ scripts/eval/results/q*.json
 # repo every docs edit (hashed asset filenames) and add ~5 MB; build it
 # fresh on each CI run instead.
 docs/book/
+
+# 3d-worlds exporter output (samples live under examples/3d-worlds/scenes/)
+examples/3d-worlds/out/
