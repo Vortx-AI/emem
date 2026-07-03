@@ -304,8 +304,8 @@ def recall_batch(base, scene, receipts, cells, band):
     try:
         d = http_post(base, "/v1/recall_many", {"cells": cells, "bands": [band]},
                       retries=2, timeout=120)
-    except SystemExit:
-        if len(cells) > 16:
+    except (SystemExit, Exception):
+        if len(cells) > 8:
             mid = len(cells) // 2
             recall_batch(base, scene, receipts, cells[:mid], band)
             recall_batch(base, scene, receipts, cells[mid:], band)
