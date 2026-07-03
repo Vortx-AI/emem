@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>emem · carbon 3D world</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a08; }
+  #hud { position: fixed; left: 20px; top: 16px; color: #f3eee2;
+         font: 13px/1.5 "DejaVu Sans Mono", ui-monospace, monospace; }
+  #hud b { font-size: 15px; letter-spacing: .02em; }
+  #hud-n, #hud-sub { color: #b8ad97; }
+  #mark { position: fixed; right: 20px; bottom: 14px; color: #b8ad97;
+          font: 12px "DejaVu Sans Mono", ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <b id="hud-title">Rondônia · standing carbon and the year it fell</b><br />
+  <span id="hud-n">loading…</span><br />
+  <span id="hud-sub"></span>
+</div>
+<div id="mark">emem · one splat = one cell of signed facts</div>
+
+<script>
+// ---- edit this block to make it yours --------------------------------
+// Height is not terrain here: it is ESA CCI above-ground biomass (t/ha),
+// so standing forest rises and cleared land sits flat. Each splat's
+// thickness is that estimate's own published standard error. Colour is
+// the Hansen loss year: intact canopy green, cleared cells on an ember
+// ramp where brighter means more recent. The BR-364 fishbone pattern is
+// the deforestation frontier itself.
+window.EMEM_WORLD = {
+  responder: "https://emem.dev",
+  bbox: [-63.50, -9.50, -63.00, -9.10],      // BR-364 corridor, Rondônia
+  maxCells: 1024,
+  bands: ["esa_cci_biomass.agb_t_per_ha_2022",
+          "forest_change.lossyear",
+          "forest_change.treecover2000"],
+  heightBand: "esa_cci_biomass.agb_t_per_ha_2022",
+  heightExaggeration: 15,                     // t/ha into relief
+  cameraDistance: 0.62,
+  shape: {
+    // vertical sigma = the biomass estimate's own standard error (t/ha)
+    sigmaBand: "esa_cci_biomass.agb_se_t_per_ha_2022",
+    sigmaFloorM: 4,
+  },
+  subtitle: "ESA CCI biomass + Hansen loss year · every value is a signed fact",
+  colorize: function (row, c) {
+    var loss = row["forest_change.lossyear"] || 0;   // 0 = no loss, N = 2000 + N
+    var tc = row["forest_change.treecover2000"] || 0;
+    var agb = row["esa_cci_biomass.agb_t_per_ha_2022"] || 0;
+    if (loss >= 1) {                                 // ember ramp, recent = bright
+      var u = Math.max(0, Math.min(1, (loss - 1) / 23));
+      c.setRGB(0.45 + 0.55 * u, 0.10 + 0.30 * u, 0.03 + 0.07 * u);
+    } else if (tc < 30) {                            // open land before 2000
+      c.setRGB(0.52, 0.44, 0.28);
+    } else {                                         // standing forest, deeper with carbon
+      var v = Math.max(0, Math.min(1, agb / 300));
+      c.setRGB(0.05, 0.30 + 0.45 * v, 0.10 + 0.10 * v);
+    }
+  },
+};
+</script>
+<script src="./three.min.js"></script>
+<script src="./splat-math.js"></script>
+<script src="./emem-world.js"></script>
+</body>
+</html>

@@ -34,8 +34,14 @@ window.EMEM_WORLD = {
   bands: ["copdem30m.elevation_mean", "indices.ndvi", "surface_water.recurrence"],
   heightBand: "copdem30m.elevation_mean",
   heightExaggeration: 1.9,
-  splatSize: 46,
   cameraDistance: 0.68,
+  // gaussian shape from more signed measurements: sub-cell relief sets the
+  // thickness, measured slope + aspect set the tilt (see splat-math.js)
+  shape: {
+    reliefBands: ["copdem30m.elevation_p10", "copdem30m.elevation_p90"],
+    slopeBand: "copdem30m.slope_mean",
+    aspectBands: ["copdem30m.aspect_sin", "copdem30m.aspect_cos"],
+  },
   subtitle: "Cop-DEM + Sentinel-2 NDVI + JRC water, fused per cell · emem.dev/verify",
   colorize: function (row, c, ctx) {
     const water = row["surface_water.recurrence"] || 0;
@@ -49,6 +55,7 @@ window.EMEM_WORLD = {
 };
 </script>
 <script src="./three.min.js"></script>
+<script src="./splat-math.js"></script>
 <script src="./emem-world.js"></script>
 </body>
 </html>

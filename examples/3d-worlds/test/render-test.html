@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>emem · renderer test harness</title>
+<style> html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a08; } </style>
+</head>
+<body>
+<div id="hud" style="display:none"><span id="hud-n"></span><span id="hud-sub"></span></div>
+
+<script>
+// Synthetic-scene harness for render-checks.mjs. The scene arrives as
+// window.EMEM_DATA (injected by capture.mjs --scene); rows carry a "tag"
+// band so the colorize below is deterministic: 1 = red, 2 = blue,
+// anything else = white. No shape block: isotropic gaussians.
+window.EMEM_WORLD = {
+  responder: "https://emem.dev",
+  bbox: [0, 0, 0, 0],
+  maxCells: 4,
+  bands: ["h"],
+  heightBand: "h",
+  heightExaggeration: 1,
+  cameraDistance: 2,
+  // "se" carries the vertical sigma in metres so a row can request a true
+  // sphere (se = sigma_ground in metres); the default no-shape fallback is
+  // an oblate spheroid, which would rightly fail the circularity check
+  shape: { sigmaBand: "se", sigmaFloorM: 0 },
+  colorize: function (row, c) {
+    if (row.tag === 1) c.setRGB(1, 0, 0);
+    else if (row.tag === 2) c.setRGB(0, 0, 1);
+    else c.setRGB(1, 1, 1);
+  },
+};
+</script>
+<script src="../three.min.js"></script>
+<script src="../splat-math.js"></script>
+<script src="../emem-world.js"></script>
+</body>
+</html>
