@@ -1,0 +1,19 @@
+# cargo-audit configuration. CI runs plain `cargo audit` from the repo
+# root, which reads this file.
+
+[advisories]
+# quick-xml 0.38.4 is transitive-only, pulled in by object_store (and by
+# lance through object_store). Both advisories are denial-of-service
+# class: quadratic time on duplicate start-tag attributes and unbounded
+# namespace-declaration allocation in NsReader. The XML that object_store
+# parses with quick-xml is list/multipart responses from the configured
+# S3-compatible endpoint, not caller-supplied input, so an attacker would
+# already have to control the bucket endpoint. The fix needs quick-xml
+# >=0.41, and no released object_store admits that yet (0.12.5 pins
+# ^0.38, 0.14.0 pins ^0.40.1), so there is no dependency bump that
+# resolves this today. Drop these two entries once object_store releases
+# against quick-xml 0.41 and the workspace picks it up.
+ignore = [
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]
