@@ -96,7 +96,15 @@ clap     = { version = "4", features = ["derive"] }
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-strip = "symbols"
+# Keep symbols + line tables in release binaries. The responder wedged
+# five times between 2026-05-31 and 2026-07-03 (tokio runtime stall: all
+# workers blocked in condvar waits, /health dead, process alive) and the
+# 2026-07-03 gdb snapshots of the live wedge were unreadable because the
+# binary was stripped. A few MB of symtab is the price of attributable
+# backtraces from the watchdog's wedge snapshots (ops/systemd/
+# emem-watchdog.sh).
+strip = "none"
+debug = "line-tables-only"
 
 [profile.bench]
 debug = true
