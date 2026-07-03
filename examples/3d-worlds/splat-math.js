@@ -99,6 +99,89 @@
     return q;
   }
 
+  // sorted representatives of a set of near-equal values (the sampled grid's
+  // distinct latitudes / longitudes, which can drift by ~1% of the pitch)
+  function uniqueSorted(values) {
+    var s = values.slice().sort(function (a, b) { return a - b; });
+    var eps = (s[s.length - 1] - s[0]) * 1e-6 + 1e-12;
+    var reps = [s[0]];
+    for (var i = 1; i < s.length; i++) {
+      if (s[i] - reps[reps.length - 1] > eps) reps.push(s[i]);
+    }
+    return reps;
+  }
+
+  function rankOf(reps, v) {
+    var lo = 0, hi = reps.length - 1;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (reps[mid] < v) lo = mid + 1; else hi = mid;
+    }
+    if (lo > 0 && Math.abs(reps[lo - 1] - v) < Math.abs(reps[lo] - v)) lo--;
+    return lo;
+  }
+
+  /* Terrain shape derived from the sampled grid itself: slope and aspect by
+   * finite differences over the neighbouring cells' signed height facts
+   * (central where both sides exist, one-sided at edges — the same
+   * neighbourhood computation as the responder's /v1/terrain), and the
+   * residual roughness after removing that gradient plane as the vertical
+   * sigma (RMS residual over >= 2 of the 8 neighbours). Distances use the
+   * neighbours' actual coordinates, so irregular grid pitch cancels out.
+   * Every input is a signed fact already in the scene.
+   */
+  function gridShape(rows, hb, mLng) {
+    var lats = uniqueSorted(rows.map(function (r) { return r.lat; }));
+    var lngs = uniqueSorted(rows.map(function (r) { return r.lng; }));
+    var byCell = {};
+    rows.forEach(function (r, i) {
+      byCell[rankOf(lngs, r.lng) + "," + rankOf(lats, r.lat)] = i;
+    });
+    return rows.map(function (r, i) {
+      var gx = rankOf(lngs, r.lng), gz = rankOf(lats, r.lat);
+      var zc = r[hb];
+      function nb(dx, dz) {
+        var j = byCell[(gx + dx) + "," + (gz + dz)];
+        if (j === undefined) return null;
+        var n = rows[j];
+        return n[hb] === undefined || n[hb] === null ? null : n;
+      }
+      var E = nb(1, 0), W = nb(-1, 0), N = nb(0, 1), S = nb(0, -1);
+      var gE = null, gN = null;
+      if (E && W) gE = (E[hb] - W[hb]) / ((E.lng - W.lng) * mLng);
+      else if (E) gE = (E[hb] - zc) / ((E.lng - r.lng) * mLng);
+      else if (W) gE = (zc - W[hb]) / ((r.lng - W.lng) * mLng);
+      if (N && S) gN = (N[hb] - S[hb]) / ((N.lat - S.lat) * M_PER_DEG_LAT);
+      else if (N) gN = (N[hb] - zc) / ((N.lat - r.lat) * M_PER_DEG_LAT);
+      else if (S) gN = (zc - S[hb]) / ((r.lat - S.lat) * M_PER_DEG_LAT);
+      var ge = gE || 0, gn = gN || 0;
+      var h = Math.hypot(ge, gn);
+      var out = { hasFrame: false, hasRelief: false };
+      if ((gE !== null || gN !== null) && h > 1e-12) {
+        out.hasFrame = true;
+        out.slopeDeg = Math.atan(h) * 180 / Math.PI;
+        out.aspSin = -ge / h;                  // downhill azimuth components
+        out.aspCos = -gn / h;
+      }
+      var sum2 = 0, cnt = 0;
+      for (var dz = -1; dz <= 1; dz++) {
+        for (var dx = -1; dx <= 1; dx++) {
+          if (!dx && !dz) continue;
+          var n = nb(dx, dz);
+          if (!n) continue;
+          var res = n[hb] - (zc + ge * (n.lng - r.lng) * mLng
+                                + gn * (n.lat - r.lat) * M_PER_DEG_LAT);
+          sum2 += res * res; cnt++;
+        }
+      }
+      if (cnt >= 2) {
+        out.hasRelief = true;
+        out.sigmaZm = Math.sqrt(sum2 / cnt);
+      }
+      return out;
+    });
+  }
+
   // upper triangle of Sigma = R diag(s^2) R^T as [S00, S01, S02, S11, S12, S22]
   function covUpper(cols, s1, s2, s3) {
     if (!cols) cols = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -117,9 +200,14 @@
 
   /* scene: { cells: { cell64: {lat, lng, "<band>": value, _conf?, ...} } }
    * cfg:   { heightBand, heightExaggeration?, shape?: {
+   *            gridNormals?: true,            // tilt from finite differences over the sampled grid
+   *            gridRelief?: true,             // thickness from the detrended neighbour residual RMS
    *            reliefBands?: [p10Band, p90Band], slopeBand?, aspectBands?: [sinBand, cosBand],
    *            sigmaBand?,                    // std error in height-band units, alternative to reliefBands
    *            sigmaFloorM?: 8, footprintScale?: 1, opacity?: 0.85 } }
+   * Band-driven shape (reliefBands / slopeBand / aspectBands) applies where a
+   * responder wires those bands; grid-driven shape needs nothing beyond the
+   * height band. Grid wins when both are enabled and computable.
    * Returns typed arrays, one gaussian per cell that has a position and a height fact.
    */
   function buildGaussians(scene, cfg) {
@@ -153,6 +241,7 @@
     var mLng = M_PER_DEG_LAT * Math.cos(lat0 * Math.PI / 180);
     var spacingM = estimateSpacingM(rows, mLng);
     var sg = fps * spacingM / 2 * UNITS_PER_M;
+    var grid = (shape.gridNormals || shape.gridRelief) ? gridShape(rows, hb, mLng) : null;
 
     var positions = new Float32Array(3 * n);
     var sigmas = new Float32Array(3 * n);
@@ -168,7 +257,9 @@
 
       // thickness along the surface normal, from measured spread
       var s3;
-      if (shape.sigmaBand !== undefined && shape.sigmaBand !== null &&
+      if (shape.gridRelief && grid && grid[i].hasRelief) {
+        s3 = Math.max(floorS3, grid[i].sigmaZm * zx * UNITS_PER_M);
+      } else if (shape.sigmaBand !== undefined && shape.sigmaBand !== null &&
           row[shape.sigmaBand] !== undefined && row[shape.sigmaBand] !== null) {
         s3 = Math.max(floorS3, row[shape.sigmaBand] * zx * UNITS_PER_M);
       } else if (shape.reliefBands &&
@@ -184,7 +275,9 @@
 
       // orientation from measured slope + aspect; identity when absent
       var cols = null;
-      if (shape.slopeBand && shape.aspectBands) {
+      if (shape.gridNormals && grid && grid[i].hasFrame) {
+        cols = tangentFrame(grid[i].slopeDeg, grid[i].aspSin, grid[i].aspCos, zx);
+      } else if (shape.slopeBand && shape.aspectBands) {
         cols = tangentFrame(row[shape.slopeBand],
                             row[shape.aspectBands[0]], row[shape.aspectBands[1]], zx);
       }
@@ -216,7 +309,7 @@
       checks++;
     }
     fix.cases.forEach(function (c) {
-      var g = buildGaussians(fix.scene, c.cfg);
+      var g = buildGaussians(c.scene || fix.scene, c.cfg);
       close(g.spacingM, c.expected.spacing_m, c.name + " spacing");
       close(g.hMin, c.expected.hMin, c.name + " hMin");
       close(g.hMax, c.expected.hMax, c.name + " hMax");
@@ -250,6 +343,7 @@
     UNITS_PER_M: UNITS_PER_M,
     P90P10_IN_SIGMA: P90P10_IN_SIGMA,
     estimateSpacingM: estimateSpacingM,
+    gridShape: gridShape,
     tangentFrame: tangentFrame,
     quatFromCols: quatFromCols,
     covUpper: covUpper,

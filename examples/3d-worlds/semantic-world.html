@@ -37,11 +37,7 @@ window.EMEM_WORLD = {
   heightBand: "copdem30m.elevation_mean",
   heightExaggeration: 3.0,
   cameraDistance: 0.62,
-  shape: {
-    reliefBands: ["copdem30m.elevation_p10", "copdem30m.elevation_p90"],
-    slopeBand: "copdem30m.slope_mean",
-    aspectBands: ["copdem30m.aspect_sin", "copdem30m.aspect_cos"],
-  },
+  shape: { gridNormals: true, gridRelief: true },
   subtitle: "GeoTessera 128-D embedding, PCA to RGB · every vector is a signed fact",
 
   // whole-scene pass before colorize: PCA of the embedding vectors.

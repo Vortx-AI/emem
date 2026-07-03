@@ -33,6 +33,7 @@ import base64
 import hashlib
 import json
 import math
+import http.client
 import struct
 import sys
 import time
@@ -110,6 +111,85 @@ def quat_from_cols(cols):
     return [-v for v in q] if q[0] < 0 else q
 
 
+def unique_sorted(values):
+    s = sorted(values)
+    eps = (s[-1] - s[0]) * 1e-6 + 1e-12
+    reps = [s[0]]
+    for v in s[1:]:
+        if v - reps[-1] > eps:
+            reps.append(v)
+    return reps
+
+
+def rank_of(reps, v):
+    import bisect
+    i = bisect.bisect_left(reps, v)
+    if i >= len(reps):
+        i = len(reps) - 1
+    if i > 0 and abs(reps[i - 1] - v) < abs(reps[i] - v):
+        i -= 1
+    return i
+
+
+def grid_shape(rows, hb, m_lng):
+    """Slope/aspect by finite differences over the sampled grid's signed
+    height facts, plus the detrended neighbour residual RMS as vertical
+    sigma — mirrors gridShape() in splat-math.js."""
+    lats = unique_sorted([r["lat"] for r in rows])
+    lngs = unique_sorted([r["lng"] for r in rows])
+    by_cell = {}
+    for i, r in enumerate(rows):
+        by_cell[(rank_of(lngs, r["lng"]), rank_of(lats, r["lat"]))] = i
+    out = []
+    for r in rows:
+        gx, gz = rank_of(lngs, r["lng"]), rank_of(lats, r["lat"])
+        zc = r[hb]
+
+        def nb(dx, dz):
+            j = by_cell.get((gx + dx, gz + dz))
+            if j is None:
+                return None
+            n = rows[j]
+            return None if n.get(hb) is None else n
+
+        E, W, N, S = nb(1, 0), nb(-1, 0), nb(0, 1), nb(0, -1)
+        gE = gN = None
+        if E and W:
+            gE = (E[hb] - W[hb]) / ((E["lng"] - W["lng"]) * m_lng)
+        elif E:
+            gE = (E[hb] - zc) / ((E["lng"] - r["lng"]) * m_lng)
+        elif W:
+            gE = (zc - W[hb]) / ((r["lng"] - W["lng"]) * m_lng)
+        if N and S:
+            gN = (N[hb] - S[hb]) / ((N["lat"] - S["lat"]) * M_PER_DEG_LAT)
+        elif N:
+            gN = (N[hb] - zc) / ((N["lat"] - r["lat"]) * M_PER_DEG_LAT)
+        elif S:
+            gN = (zc - S[hb]) / ((r["lat"] - S["lat"]) * M_PER_DEG_LAT)
+        ge, gn = gE or 0.0, gN or 0.0
+        h = math.hypot(ge, gn)
+        rec = {"hasFrame": False, "hasRelief": False}
+        if (gE is not None or gN is not None) and h > 1e-12:
+            rec.update(hasFrame=True, slopeDeg=math.degrees(math.atan(h)),
+                       aspSin=-ge / h, aspCos=-gn / h)
+        sum2 = cnt = 0
+        for dz in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if not dx and not dz:
+                    continue
+                n = nb(dx, dz)
+                if not n:
+                    continue
+                res = n[hb] - (zc + ge * (n["lng"] - r["lng"]) * m_lng
+                                  + gn * (n["lat"] - r["lat"]) * M_PER_DEG_LAT)
+                sum2 += res * res
+                cnt += 1
+        if cnt >= 2:
+            rec.update(hasRelief=True, sigmaZm=math.sqrt(sum2 / cnt))
+        out.append(rec)
+    return out
+
+
 def cov_upper(cols, s1, s2, s3):
     if cols is None:
         cols = [(1, 0, 0), (0, 1, 0), (0, 0, 1)]
@@ -146,16 +226,20 @@ def build_gaussians(scene, cfg):
     m_lng = M_PER_DEG_LAT * math.cos(math.radians(lat0))
     spacing = estimate_spacing_m(rows, m_lng)
     sg = fps * spacing / 2.0 * UNITS_PER_M
+    grid = (grid_shape(rows, hb, m_lng)
+            if shape.get("gridNormals") or shape.get("gridRelief") else None)
 
     out = []
-    for r in rows:
+    for i, r in enumerate(rows):
         p = [(r["lng"] - lng0) * m_lng * UNITS_PER_M,
              (r[hb] - h_min) * zx * UNITS_PER_M,
              -(r["lat"] - lat0) * M_PER_DEG_LAT * UNITS_PER_M]
 
         sb = shape.get("sigmaBand")
         rb = shape.get("reliefBands")
-        if sb is not None and r.get(sb) is not None:
+        if shape.get("gridRelief") and grid and grid[i]["hasRelief"]:
+            s3 = max(floor_s3, grid[i]["sigmaZm"] * zx * UNITS_PER_M)
+        elif sb is not None and r.get(sb) is not None:
             s3 = max(floor_s3, r[sb] * zx * UNITS_PER_M)
         elif rb and r.get(rb[0]) is not None and r.get(rb[1]) is not None:
             span = r[rb[1]] - r[rb[0]]
@@ -164,7 +248,10 @@ def build_gaussians(scene, cfg):
             s3 = 0.5 * sg
 
         cols = None
-        if shape.get("slopeBand") and shape.get("aspectBands"):
+        if shape.get("gridNormals") and grid and grid[i]["hasFrame"]:
+            g = grid[i]
+            cols = tangent_frame(g["slopeDeg"], g["aspSin"], g["aspCos"], zx)
+        elif shape.get("slopeBand") and shape.get("aspectBands"):
             ab = shape["aspectBands"]
             cols = tangent_frame(r.get(shape["slopeBand"]), r.get(ab[0]), r.get(ab[1]), zx)
 
@@ -202,7 +289,8 @@ def http_post(base, path, body, retries=5, timeout=90):
                 delay = min(delay * 2, 30)
                 continue
             raise SystemExit("%s -> HTTP %s: %s" % (path, e.code, e.read()[:200]))
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError,
+                http.client.HTTPException, OSError):
             if attempt < retries:
                 time.sleep(delay)
                 delay = min(delay * 2, 30)
@@ -345,11 +433,7 @@ def colorize_semantic(row, ctx):
     return (0.12 + 0.85 * s[0], 0.12 + 0.85 * s[1], 0.12 + 0.85 * s[2])
 
 
-TERRAIN_SHAPE = {
-    "reliefBands": ["copdem30m.elevation_p10", "copdem30m.elevation_p90"],
-    "slopeBand": "copdem30m.slope_mean",
-    "aspectBands": ["copdem30m.aspect_sin", "copdem30m.aspect_cos"],
-}
+TERRAIN_SHAPE = {"gridNormals": True, "gridRelief": True}
 
 PRESETS = {
     "canyon": {
@@ -470,7 +554,7 @@ def selftest(fixture_path):
         checks += 1
 
     for case in fix["cases"]:
-        g = build_gaussians(fix["scene"], case["cfg"])
+        g = build_gaussians(case.get("scene") or fix["scene"], case["cfg"])
         exp = case["expected"]
         close(g["spacing_m"], exp["spacing_m"], case["name"] + " spacing")
         close(g["h_min"], exp["hMin"], case["name"] + " hMin")

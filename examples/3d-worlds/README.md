@@ -38,8 +38,8 @@ from a signed fact rather than a heuristic:
 | --- | --- |
 | centre | the fact's cell (lat/lng in `derivation.args`) and its height band |
 | ground footprint | half the median nearest-neighbour spacing of the sampled grid |
-| thickness | the cell's measured sub-cell relief, `sigma_z = (p90 - p10) / 2.5631` (that constant is the width of the 10th-90th percentile interval in sigma of a normal), or a band's own standard error |
-| tilt | the local tangent plane from measured slope and aspect; vertical exaggeration `zx` shears space, so the tilted plane uses `theta' = atan(zx * tan(theta))` |
+| tilt | the local tangent plane: slope and aspect by finite differences over the neighbouring cells' signed height facts (the same neighbourhood computation as `/v1/terrain`), or per-cell slope/aspect bands where a responder wires them; vertical exaggeration `zx` shears space, so the tilted plane uses `theta' = atan(zx * tan(theta))` |
+| thickness | the RMS residual after removing that gradient plane from the neighbours (detrended roughness), a band's own standard error (the carbon world uses the biomass SE band), or per-cell relief bands as `sigma_z = (p90 - p10) / 2.5631` (that constant is the width of the 10th-90th percentile interval in sigma of a normal) |
 | opacity | the fact's attested `confidence` |
 
 Each covariance is `Sigma = R S^2 R^T` with `R = [t1 t2 n]` the tangent
@@ -74,9 +74,12 @@ Edit the `window.EMEM_WORLD` block at the top of any template:
 - `bands`: any of the 124 wired bands (`GET /v1/bands`); `heightBand` picks
   which one extrudes.
 - `shape`: which signed measurements shape the gaussians —
-  `reliefBands: [p10, p90]` or `sigmaBand` (a std-error band, in height-band
-  units) for thickness, `slopeBand` + `aspectBands: [sin, cos]` for tilt,
-  plus `sigmaFloorM`, `footprintScale`, `opacity`. Delete the block for
+  `gridNormals`/`gridRelief` derive tilt and thickness from the sampled
+  grid's own height facts and need nothing beyond the height band;
+  `sigmaBand` (a std-error band, in height-band units) or
+  `reliefBands: [p10, p90]` set thickness per cell, `slopeBand` +
+  `aspectBands: [sin, cos]` set tilt, where a responder wires those bands.
+  Plus `sigmaFloorM`, `footprintScale`, `opacity`. Delete the block for
   isotropic splats; old configs without it still work.
 - `colorize(row, color, ctx)`: your mapping from a cell's fact values to a
   colour. `row` holds one value per band; `ctx.hMin`/`ctx.hMax` give the

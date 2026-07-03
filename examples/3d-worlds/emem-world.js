@@ -278,6 +278,7 @@
     }
 
     const R = Math.max(world.span, 2) * (CFG.cameraDistance || 0.62);
+    const camH = CFG.cameraHeight !== undefined ? CFG.cameraHeight : 0.42;
     const lastFwd = new THREE.Vector3(0, 0, 0);
     const fwd = new THREE.Vector3();
     const target = new THREE.Vector3(0, R * 0.14, 0);
@@ -294,7 +295,7 @@
       window.__renderFrame = function (i, total) {
         const a = (2 * Math.PI * i) / total;
         cam.position.set(Math.sin(a) * R,
-                         R * 0.42 + Math.sin((i / total) * 2 * Math.PI) * R * 0.03,
+                         R * camH + Math.sin((i / total) * 2 * Math.PI) * R * 0.03,
                          Math.cos(a) * R);
         cam.lookAt(target);
         sortIfNeeded(true);          // sort every frame: deterministic output
@@ -310,7 +311,7 @@
       if (t0 === null) t0 = t;
       const s = (t - t0) / 1000;
       const a = s * (CFG.orbitSpeed || 0.12);
-      cam.position.set(Math.sin(a) * R, R * 0.42 + Math.sin(s * 0.3) * R * 0.03,
+      cam.position.set(Math.sin(a) * R, R * camH + Math.sin(s * 0.3) * R * 0.03,
                        Math.cos(a) * R);
       cam.lookAt(target);
       sortIfNeeded(false);

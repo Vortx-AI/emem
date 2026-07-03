@@ -34,15 +34,13 @@ window.EMEM_WORLD = {
   bands: ["copdem30m.elevation_mean"],
   heightBand: "copdem30m.elevation_mean",
   heightExaggeration: 1.7,
-  cameraDistance: 0.74,
-  // each splat is a 3-D gaussian shaped by more signed measurements:
-  // thickness from the cell's own sub-cell relief (p90 - p10), tilt from
-  // its measured slope and aspect. Delete this block for isotropic splats.
-  shape: {
-    reliefBands: ["copdem30m.elevation_p10", "copdem30m.elevation_p90"],
-    slopeBand: "copdem30m.slope_mean",
-    aspectBands: ["copdem30m.aspect_sin", "copdem30m.aspect_cos"],
-  },
+  cameraDistance: 0.95,
+  cameraHeight: 0.62,
+  // each splat is a 3-D gaussian shaped by the signed facts around it:
+  // tilt from finite differences over the neighbouring cells' elevations,
+  // thickness from the detrended neighbour residual (the same neighbourhood
+  // computation as /v1/terrain). Delete this block for isotropic splats.
+  shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
   subtitle: "Copernicus DEM over the Grand Canyon · re-check any splat at emem.dev/verify",
   // colour ramp over the height range: gorge ember -> canyon red -> rim gold
   colorize: function (row, c, ctx) {
