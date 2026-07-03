@@ -34,19 +34,20 @@ window.EMEM_WORLD = {
   bands: ["copdem30m.elevation_mean", "indices.ndvi", "surface_water.recurrence"],
   heightBand: "copdem30m.elevation_mean",
   heightExaggeration: 1.9,
-  cameraDistance: 0.68,
+  cameraDistance: 1.0,
+  cameraHeight: 0.62,
   // gaussian shape from the signed facts around each cell: neighbour
   // elevations set the tilt and the residual thickness (see splat-math.js)
-  shape: { gridNormals: true, gridRelief: true },
+  shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
   subtitle: "Cop-DEM + Sentinel-2 NDVI + JRC water, fused per cell · emem.dev/verify",
   colorize: function (row, c, ctx) {
     const water = row["surface_water.recurrence"] || 0;
-    if (water > 40) { c.setRGB(0.18, 0.52, 0.95); return; }   // lakes
+    if (water > 40) { c.setRGB(0.16, 0.44, 0.85); return; }   // lakes
     const h = (row["copdem30m.elevation_mean"] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
     const v = Math.max(0, Math.min(1, (row["indices.ndvi"] ?? 0.15)));
     if (h > 0.72) { const s = (h - 0.72) / 0.28;              // snow and rock
-      c.setRGB(0.62 + 0.38 * s, 0.62 + 0.38 * s, 0.66 + 0.34 * s); return; }
-    c.setRGB(0.34 - 0.14 * v + 0.28 * h, 0.42 + 0.55 * v, 0.20 + 0.12 * h);
+      c.setRGB(0.60 + 0.36 * s, 0.60 + 0.36 * s, 0.64 + 0.33 * s); return; }
+    c.setRGB(0.30 - 0.10 * v + 0.22 * h, 0.35 + 0.36 * v, 0.17 + 0.11 * h);
   },
 };
 </script>
