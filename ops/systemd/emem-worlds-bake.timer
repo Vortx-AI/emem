@@ -1,0 +1,14 @@
+# Weekly re-bake of the /worlds splat scenes, off-peak. Most bands are
+# monthly-or-slower vintages, so weekly keeps the worlds fresh without
+# meaningful load; a re-bake over warm cells is a couple of minutes.
+
+[Unit]
+Description=emem — weekly re-bake of the /worlds splat artifacts
+
+[Timer]
+OnCalendar=Sun 03:30 UTC
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

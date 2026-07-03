@@ -1,0 +1,70 @@
+name: worlds gifs
+
+# Re-capture the README's rotating world GIFs from the baked scenes the
+# responder already serves at /v1/worlds. Capture is deterministic and
+# offline once the scene is downloaded (capture.mjs feeds the scene in as
+# window.EMEM_DATA and steps the orbit frame by frame), so this workflow
+# puts zero materialization load on emem.dev beyond four small file
+# downloads. Runs on demand; the commit carries [skip ci] because a
+# media-only change needs neither the test matrix nor a container build.
+#
+# The runner's stock Google Chrome + ffmpeg are exactly what capture.mjs
+# looks for; Node >= 22 is its only other requirement.
+
+on:
+  workflow_dispatch:
+    inputs:
+      worlds:
+        description: "space-separated preset:gif pairs to capture"
+        default: "canyon:world-grand-canyon interlaken:world-interlaken semantic:world-cairo carbon:world-rondonia"
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: capture each baked world
+        working-directory: examples/3d-worlds
+        env:
+          CHROME: /usr/bin/google-chrome
+        run: |
+          # preset -> template file, as wired in the templates themselves
+          template() {
+            case "$1" in
+              canyon)     echo single-band-world.html ;;
+              interlaken) echo multi-band-world.html ;;
+              semantic)   echo semantic-world.html ;;
+              carbon)     echo carbon-world.html ;;
+              *)          return 1 ;;
+            esac
+          }
+          mkdir -p out
+          for pair in ${{ inputs.worlds }}; do
+            preset="${pair%%:*}"; gif="${pair##*:}"
+            tpl="$(template "$preset")" || { echo "unknown preset $preset"; exit 1; }
+            echo "==> $preset -> docs/media/$gif.gif"
+            curl -fsS "https://emem.dev/v1/worlds/$preset/world.scene.json" \
+                 -o "out/$preset.scene.json"
+            node capture.mjs --template "$tpl" --scene "out/$preset.scene.json" \
+                 --frames 240 --size 1200x900 --gif "../../docs/media/$gif.gif"
+          done
+
+      - name: commit refreshed gifs
+        run: |
+          git add docs/media/*.gif
+          if git diff --cached --quiet; then
+            echo "gifs unchanged; nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs(media): re-capture world gifs from baked scenes [skip ci]"
+          git push

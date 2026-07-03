@@ -123,6 +123,20 @@ const DEMOS_ASK_THE_EARTH_HTML: &str = include_str!("../../../web/demos-ask-the-
 const DEMOS_FIND_SIMILAR_HTML: &str = include_str!("../../../web/demos-find-similar.html");
 const DEMOS_TRAJECTORY_HTML: &str = include_str!("../../../web/demos-trajectory.html");
 const DEMOS_RECALL_POLYGON_HTML: &str = include_str!("../../../web/demos-recall-polygon.html");
+
+/// `/worlds` — pre-baked 3-D gaussian splat worlds, rendered from signed
+/// facts. The page is compiled in like every other demo surface; the
+/// scenes it loads are baked to disk by `scripts/bake_worlds.sh` and
+/// served from `EMEM_WORLDS_DIR` (see the worlds handlers), so a browser
+/// never triggers the minutes-long materialize+sign build itself.
+const WORLDS_HTML: &str = include_str!("../../../web/worlds.html");
+/// The renderer stack is vendored once in `examples/3d-worlds/` and
+/// compiled in from there, so the live page and the repo templates run
+/// byte-identical math (`splat-math.js` is pinned by the golden-scene
+/// fixture in `examples/3d-worlds/test/`).
+const WORLDS_THREE_JS: &str = include_str!("../../../examples/3d-worlds/three.min.js");
+const WORLDS_SPLAT_MATH_JS: &str = include_str!("../../../examples/3d-worlds/splat-math.js");
+const WORLDS_ENGINE_JS: &str = include_str!("../../../examples/3d-worlds/emem-world.js");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
     include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
@@ -728,6 +742,13 @@ pub fn router(state: AppState) -> Router {
         .route("/demos/find-similar", get(serve_demos_find_similar))
         .route("/demos/trajectory", get(serve_demos_trajectory))
         .route("/demos/recall-polygon", get(serve_demos_recall_polygon))
+        // 3-D splat worlds: the page + its vendored renderer stack. The
+        // scenes themselves are served from disk under /v1/worlds.
+        .route("/worlds", get(serve_worlds_html))
+        .route("/worlds/", get(serve_worlds_html))
+        .route("/worlds/three.min.js", get(serve_worlds_three_js))
+        .route("/worlds/splat-math.js", get(serve_worlds_splat_math_js))
+        .route("/worlds/emem-world.js", get(serve_worlds_engine_js))
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -1180,6 +1201,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/demos", get(list_demos))
         .route("/v1/demos/:run", get(get_demo_index))
         .route("/v1/demos/:run/:file", get(get_demo_file))
+        .route("/v1/worlds", get(list_worlds))
+        .route("/v1/worlds/:preset/:file", get(get_world_file))
         .route("/v1/contributors", get(list_contributors))
         .route("/v1/contributors/:pubkey_b32", get(get_contributor))
         .route("/v1/agent_stats", get(agent_stats_endpoint))
@@ -3113,6 +3136,26 @@ async fn serve_demos_trajectory() -> Response {
 /// `/demos/recall-polygon` — interactive polygon recall + per-cell heatmap.
 async fn serve_demos_recall_polygon() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_RECALL_POLYGON_HTML)
+}
+
+/// `/worlds` — rotating 3-D gaussian splat worlds rendered from pre-baked,
+/// signed scenes (see `list_worlds` / `get_world_file` for the artifact
+/// side). The page hashes the fetched scene against its provenance
+/// sidecar before drawing a single splat.
+async fn serve_worlds_html() -> Response {
+    text_response("text/html; charset=utf-8", WORLDS_HTML)
+}
+
+async fn serve_worlds_three_js() -> Response {
+    text_response("text/javascript; charset=utf-8", WORLDS_THREE_JS)
+}
+
+async fn serve_worlds_splat_math_js() -> Response {
+    text_response("text/javascript; charset=utf-8", WORLDS_SPLAT_MATH_JS)
+}
+
+async fn serve_worlds_engine_js() -> Response {
+    text_response("text/javascript; charset=utf-8", WORLDS_ENGINE_JS)
 }
 
 /// `/skills.md` — composed-recipe cookbook for agents.
@@ -16213,6 +16256,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/contributors/{pubkey_b32}": {"get":{"summary":"contributor profile by pubkey","operationId":"emem_contributor_one","parameters":[{"name":"pubkey_b32","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/agent_stats":       {"get":{"summary":"per-tool MCP latency + error counts","operationId":"emem_agent_stats","responses":{"200":json_ok}}},
             "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","operationId":"emem_demos","responses":{"200":json_ok}}},
+            "/v1/worlds":            {"get":{"summary":"baked 3-D gaussian splat worlds: per-preset counts, artifact sizes + sha256; artifacts at /v1/worlds/{preset}/{file} (world.ply, world.splat, world.scene.json, world.provenance.json, meta.json); viewer at /worlds","operationId":"emem_worlds","responses":{"200":json_ok}}},
             "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2, galileo)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2, galileo). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
@@ -16578,6 +16622,122 @@ fn serve_demo_path(p: std::path::PathBuf, mime: &'static str) -> Response {
             .status(StatusCode::OK)
             .header("content-type", mime)
             .header("cache-control", "public, max-age=300")
+            .body(axum::body::Body::from(bytes))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        Err(_) => not_found("file not found"),
+    }
+}
+
+// ── Baked splat worlds (var/worlds/) ─────────────────────────────────────
+//
+// Building a splat world is minutes of materialize+sign work; serving one
+// is a disk read. `scripts/bake_worlds.sh` does the building (staged,
+// receipt-verified, atomically swapped in), these handlers do the serving,
+// and the /worlds page renders the result instantly. Browsers therefore
+// never drive the cold-materialization storms that stalled the responder
+// on 2026-07-03.
+
+fn worlds_root() -> std::path::PathBuf {
+    std::env::var("EMEM_WORLDS_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("var/worlds"))
+}
+
+/// The exact files a bake produces. Serving from an allowlist (rather
+/// than any name that passes `is_safe_id`) keeps strays out and pins the
+/// mime per artifact.
+fn world_file_mime(file: &str) -> Option<&'static str> {
+    match file {
+        "meta.json" | "world.scene.json" | "world.provenance.json" => {
+            Some("application/json; charset=utf-8")
+        }
+        "world.ply" | "world.splat" => Some("application/octet-stream"),
+        _ => None,
+    }
+}
+
+/// List every baked world under `EMEM_WORLDS_DIR` (default `var/worlds`)
+/// from the per-preset `meta.json` the bake writes — enough for a card
+/// (title, counts, artifact sizes + hashes) without touching the scene
+/// or the receipts.
+async fn list_worlds() -> Json<JsonValue> {
+    let root = worlds_root();
+    let mut worlds: Vec<JsonValue> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(&root) {
+        for ent in rd.flatten() {
+            let name = ent.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || !ent.path().is_dir() {
+                continue;
+            }
+            let Ok(meta_bytes) = std::fs::read(ent.path().join("meta.json")) else {
+                continue; // mid-bake or foreign directory: not listable yet
+            };
+            let Ok(mut meta) = serde_json::from_slice::<JsonValue>(&meta_bytes) else {
+                continue;
+            };
+            if let Some(o) = meta.as_object_mut() {
+                o.insert("url".into(), json!(format!("/v1/worlds/{name}")));
+                o.insert("view".into(), json!(format!("/worlds?world={name}")));
+            }
+            worlds.push(meta);
+        }
+    }
+    worlds.sort_by(|a, b| {
+        a["preset"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["preset"].as_str().unwrap_or(""))
+    });
+    Json(json!({
+        "root": root.to_string_lossy(),
+        "count": worlds.len(),
+        "worlds": worlds,
+    }))
+}
+
+/// Serve one baked artifact. Scenes only change when a re-bake swaps the
+/// directory, so an hour of caching plus an mtime+length ETag keeps
+/// repeat visits free while a fresh bake still shows up on revalidation.
+async fn get_world_file(
+    Path((preset, file)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    if !is_safe_id(&preset) {
+        return not_found("invalid preset id");
+    }
+    let Some(mime) = world_file_mime(&file) else {
+        return not_found("unknown world artifact");
+    };
+    let p = worlds_root().join(&preset).join(&file);
+    let etag = match std::fs::metadata(&p) {
+        Ok(md) => {
+            let mtime = md
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            format!("\"{:x}-{:x}\"", md.len(), mtime)
+        }
+        Err(_) => return not_found("file not found"),
+    };
+    if headers
+        .get("if-none-match")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == etag)
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header("etag", etag)
+            .body(axum::body::Body::empty())
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    match std::fs::read(&p) {
+        Ok(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", mime)
+            .header("cache-control", "public, max-age=3600")
+            .header("etag", etag)
             .body(axum::body::Body::from(bytes))
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
         Err(_) => not_found("file not found"),

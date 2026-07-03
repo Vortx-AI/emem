@@ -48,4 +48,5 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [whitepaper](https://emem.dev/whitepaper.md): architecture and math (cell64, CID, receipt preimage, memory tokens).
 - [gallery](https://emem.dev/docs/gallery): live coverage map, per-place scenes, and the protocol diagrams.
 - [demos](https://emem.dev/demos): runnable end-to-end demos (ask-the-earth, find-similar, recall-polygon, signed-answer).
+- [worlds](https://emem.dev/worlds): 3-D gaussian splat worlds baked from signed facts; artifacts (.ply/.splat + provenance) listed at /v1/worlds.
 - [humans](https://emem.dev/humans): interactive console where every /v1/* call prints in a live log pane.

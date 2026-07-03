@@ -32,8 +32,52 @@ fails=$((fails + 1))
 echo "$fails" >"$STATE"
 echo "emem-watchdog: /health did not respond within ${TIMEOUT}s (${fails}/${THRESHOLD})"
 
+# Snapshot the wedged process before restarting it. Every restart so far
+# has destroyed the evidence, which is why the stall root cause is still
+# unknown after five incidents. No gdb on this box, but /proc alone says
+# a lot: per-thread state + wchan + syscall shows whether the tokio
+# workers are parked in a futex (lock cycle), stuck in disk I/O, or
+# genuinely idle while the accept loop starves, and the socket-state
+# summary quantifies the CLOSE-WAIT pileup seen in earlier incidents.
+snapshot_wedge() {
+  pid=$(systemctl --user show -p MainPID --value emem-server.service 2>/dev/null)
+  [ -n "$pid" ] && [ "$pid" != 0 ] && [ -d "/proc/$pid" ] || return 0
+  dir="${EMEM_WEDGE_DIR:-/home/ubuntu/emem/var/wedge}"
+  mkdir -p "$dir"
+  out="$dir/wedge-$(date -u +%Y%m%dT%H%M%SZ).txt"
+  {
+    echo "== emem-watchdog wedge snapshot $(date -u '+%Y-%m-%d %H:%M:%S UTC') pid=$pid =="
+    echo "-- process --"
+    grep -E 'State|Threads|VmRSS' "/proc/$pid/status" 2>/dev/null
+    echo "-- sockets --"
+    ss -tan 2>/dev/null | awk 'NR>1{c[$1]++} END{for (s in c) print s, c[s]}'
+    echo "-- threads (tid comm state wchan syscall) --"
+    for t in "/proc/$pid/task"/*; do
+      tid=${t##*/}
+      printf '%s %s state=%s wchan=%s syscall=%s\n' \
+        "$tid" \
+        "$(cat "$t/comm" 2>/dev/null)" \
+        "$(awk '/^State/{print $2}' "$t/status" 2>/dev/null)" \
+        "$(cat "$t/wchan" 2>/dev/null)" \
+        "$(cut -d' ' -f1 "$t/syscall" 2>/dev/null)"
+    done
+    # The 2026-07-03 19:25 snapshot showed every thread parked (state S,
+    # wchan 0) across TWO tokio runtimes — thread states alone cannot say
+    # where they parked, only backtraces can. gdb attach on an
+    # already-wedged process costs nothing the restart wasn't about to
+    # destroy anyway.
+    if command -v gdb >/dev/null 2>&1; then
+      echo "-- gdb thread backtraces --"
+      timeout 60 gdb -p "$pid" -batch -ex "set pagination off" \
+        -ex "thread apply all bt 30" 2>&1
+    fi
+  } >"$out" 2>&1
+  echo "emem-watchdog: wedge snapshot written to $out"
+}
+
 if [ "$fails" -ge "$THRESHOLD" ]; then
   echo "emem-watchdog: runtime appears stalled; restarting emem-server.service"
+  snapshot_wedge
   systemctl --user restart emem-server.service
   echo 0 >"$STATE"
 fi

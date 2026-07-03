@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>3-D worlds from signed facts — emem</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Rotating 3-D gaussian splat worlds where every splat is one cell of signed, verifiable Earth facts. Pre-baked from the live memory, hash-checked in your browser before a single splat is drawn.">
+<link rel="canonical" href="https://emem.dev/worlds">
+<link rel="icon" type="image/gif" href="/vortxgola.gif">
+<meta property="og:title" content="3-D worlds from signed facts — emem">
+<meta property="og:description" content="Every splat is one cell of signed Earth facts. Scenes are baked once from the live memory, then served instantly and hash-checked in the browser.">
+<meta property="og:url" content="https://emem.dev/worlds">
+<style>
+:root{
+  --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+  --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);--ink-3:oklch(0.62 0.005 85);
+  --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+  --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+  --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --t-xs:.75rem;--t-sm:.8125rem;--t-base:1rem;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%;overflow:hidden}
+body{background:#0b0a08;color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--rule)}
+a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
+canvas{position:fixed;inset:0;z-index:0}
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:relative;z-index:50}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 1.5rem;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{opacity:1;color:var(--ink);background:var(--paper-3)}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem;opacity:1}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+@media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+#hud{position:fixed;left:20px;top:56px;z-index:10;max-width:min(46ch,calc(100vw - 40px));pointer-events:none}
+#hud b{font-size:15px;letter-spacing:.02em}
+#hud-n,#hud-sub{color:var(--ink-3);font-size:13px;display:block}
+#panel{position:fixed;left:20px;bottom:16px;z-index:10;display:flex;flex-direction:column;gap:.6rem;font-size:var(--t-xs)}
+.chips{display:flex;gap:.4rem;flex-wrap:wrap}
+.chip{background:var(--paper-2);border:1px solid var(--rule);border-radius:2px;color:var(--ink-2);padding:.3em .7em;cursor:pointer;font-family:var(--mono);font-size:var(--t-xs)}
+.chip:hover{border-color:var(--accent);color:var(--ink)}
+.chip.on{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
+.links{display:flex;gap:.9rem;flex-wrap:wrap;color:var(--ink-3)}
+.links a{color:var(--ink-2)}
+#integrity{position:fixed;right:20px;bottom:16px;z-index:10;text-align:right;font-size:var(--t-xs);color:var(--ink-3)}
+#integrity .badge{display:inline-block;border:1px solid var(--rule);border-radius:2px;padding:.25em .6em;background:var(--paper-2);color:var(--ink-3)}
+#integrity .badge.ok{color:var(--accent);border-color:currentColor}
+#integrity .badge.bad{color:oklch(0.7 0.19 25);border-color:currentColor}
+#empty{position:fixed;inset:0;z-index:5;display:none;align-items:center;justify-content:center;padding:2rem}
+#empty .box{max-width:56ch;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.4rem 1.6rem;font-size:var(--t-sm);color:var(--ink-2);line-height:1.6}
+#empty code{background:var(--paper);border:1px solid var(--rule);border-radius:2px;padding:.06em .35em}
+</style>
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+    <a href="/how-it-works" class="nav-sec">how it works</a>
+    <a href="/solutions" class="nav-sec">solutions</a>
+    <a href="/reference" class="nav-sec">reference</a>
+    <a href="/demos" class="nav-sec on">demos</a>
+    <a href="/verify" class="nav-sec">verify</a>
+    <span class="spacer"></span>
+    <a href="/docs">docs</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  </div>
+</header>
+
+<div id="hud">
+  <b id="hud-title">loading…</b>
+  <span id="hud-n"></span>
+  <span id="hud-sub"></span>
+</div>
+
+<div id="panel">
+  <div class="chips" id="chips"></div>
+  <div class="links" id="links" hidden>
+    <a id="dl-ply" download>world.ply</a>
+    <a id="dl-splat" download>world.splat</a>
+    <a id="dl-prov" download>provenance</a>
+    <a id="open-supersplat" rel="noopener" target="_blank"
+       title="opens the signed .ply in the SuperSplat editor (needs this page to be on a public host)">open in SuperSplat</a>
+    <a id="verify-fact" rel="noopener" target="_blank"
+       title="re-check one of this scene's fact CIDs against the responder">verify a splat</a>
+  </div>
+</div>
+
+<div id="integrity"><span class="badge" id="badge">fetching scene…</span><br>
+  <span id="baked"></span></div>
+
+<div id="empty"><div class="box" id="empty-box"></div></div>
+
+<script>
+// The four baked worlds. Camera, shape, and colorize are the same values
+// as the editable templates in examples/3d-worlds/ — this page only
+// changes WHERE the scene comes from: a pre-baked, hash-checked artifact
+// under /v1/worlds instead of a live fetch, so it renders instantly and
+// puts zero materialization load on the responder.
+var WORLDS = {
+  canyon: {
+    title: "Grand Canyon · elevation",
+    bands: ["copdem30m.elevation_mean"],
+    heightBand: "copdem30m.elevation_mean",
+    heightExaggeration: 1.7, cameraDistance: 0.95, cameraHeight: 0.62,
+    shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
+    subtitle: "Copernicus DEM · baked from signed facts · re-check any splat at /verify",
+    colorize: function (row, c, ctx) {
+      var t = (row[this.heightBand] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
+      if (t < 0.45) { var u = t / 0.45;
+        c.setRGB(0.30 + 0.55 * u, 0.07 + 0.20 * u, 0.05 + 0.06 * u); }
+      else { var v = (t - 0.45) / 0.55;
+        c.setRGB(0.85 + 0.15 * v, 0.27 + 0.58 * v, 0.11 + 0.45 * v); }
+    },
+  },
+  interlaken: {
+    title: "Interlaken · elevation + vegetation + water",
+    bands: ["copdem30m.elevation_mean", "indices.ndvi", "surface_water.recurrence"],
+    heightBand: "copdem30m.elevation_mean",
+    heightExaggeration: 1.9, cameraDistance: 1.0, cameraHeight: 0.62,
+    shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
+    subtitle: "Cop-DEM + Sentinel-2 NDVI + JRC water, fused per cell",
+    colorize: function (row, c, ctx) {
+      var water = row["surface_water.recurrence"] || 0;
+      if (water > 40) { c.setRGB(0.16, 0.44, 0.85); return; }
+      var h = (row["copdem30m.elevation_mean"] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
+      var v = Math.max(0, Math.min(1, (row["indices.ndvi"] != null ? row["indices.ndvi"] : 0.15)));
+      if (h > 0.72) { var s = (h - 0.72) / 0.28;
+        c.setRGB(0.60 + 0.36 * s, 0.60 + 0.36 * s, 0.64 + 0.33 * s); return; }
+      c.setRGB(0.30 - 0.10 * v + 0.22 * h, 0.35 + 0.36 * v, 0.17 + 0.11 * h);
+    },
+  },
+  semantic: {
+    title: "Cairo and Giza · what the foundation model sees",
+    bands: ["copdem30m.elevation_mean", "geotessera"],
+    heightBand: "copdem30m.elevation_mean",
+    heightExaggeration: 10, cameraDistance: 0.8, cameraHeight: 1.0,
+    shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
+    subtitle: "GeoTessera 128-D embedding, PCA to RGB · every vector is a signed fact",
+    prepare: function (rows) {
+      var vecs = [], idx = [];
+      rows.forEach(function (r, i) {
+        var v = r["geotessera"];
+        if (Array.isArray(v) && v.length >= 8) { vecs.push(v); idx.push(i); }
+      });
+      if (!vecs.length) return;
+      var D = vecs[0].length, N = vecs.length, i, j, k;
+      var mean = new Float64Array(D);
+      for (i = 0; i < N; i++) for (j = 0; j < D; j++) mean[j] += vecs[i][j] / N;
+      var X = vecs.map(function (v) {
+        var x = new Float64Array(D);
+        for (j = 0; j < D; j++) x[j] = v[j] - mean[j];
+        return x;
+      });
+      var scores = [];
+      for (k = 0; k < 3; k++) {
+        var pc = new Float64Array(D);
+        for (j = 0; j < D; j++) pc[j] = 1 / Math.sqrt(D);
+        for (var it = 0; it < 60; it++) {
+          var nv = new Float64Array(D);
+          for (i = 0; i < N; i++) {
+            var dot = 0;
+            for (j = 0; j < D; j++) dot += X[i][j] * pc[j];
+            for (j = 0; j < D; j++) nv[j] += X[i][j] * dot;
+          }
+          var l = 0;
+          for (j = 0; j < D; j++) l += nv[j] * nv[j];
+          l = Math.sqrt(l) || 1;
+          for (j = 0; j < D; j++) pc[j] = nv[j] / l;
+        }
+        var s = new Float64Array(N);
+        for (i = 0; i < N; i++) {
+          var d2 = 0;
+          for (j = 0; j < D; j++) d2 += X[i][j] * pc[j];
+          s[i] = d2;
+          for (j = 0; j < D; j++) X[i][j] -= d2 * pc[j];
+        }
+        scores.push(s);
+      }
+      for (k = 0; k < 3; k++) {
+        var sorted = Array.prototype.slice.call(scores[k]).sort(function (a, b) { return a - b; });
+        var lo = sorted[Math.floor(0.02 * (N - 1))], hi = sorted[Math.ceil(0.98 * (N - 1))];
+        var span = hi - lo || 1;
+        for (i = 0; i < N; i++) {
+          var t = Math.max(0, Math.min(1, (scores[k][i] - lo) / span));
+          var row = rows[idx[i]];
+          (row._sem || (row._sem = [0, 0, 0]))[k] = t;
+        }
+      }
+    },
+    colorize: function (row, c) {
+      var s = row._sem;
+      if (!s) { c.setRGB(0.25, 0.24, 0.22); return; }
+      c.setRGB(0.15 + 0.68 * s[0], 0.15 + 0.68 * s[1], 0.15 + 0.68 * s[2]);
+    },
+  },
+  carbon: {
+    title: "Rondônia · standing carbon and the year it fell",
+    bands: ["esa_cci_biomass.agb_t_per_ha_2022",
+            "forest_change.lossyear", "forest_change.treecover2000"],
+    heightBand: "esa_cci_biomass.agb_t_per_ha_2022",
+    heightExaggeration: 15, cameraDistance: 0.62,
+    shape: { sigmaBand: "esa_cci_biomass.agb_se_t_per_ha_2022", sigmaFloorM: 4 },
+    subtitle: "ESA CCI biomass + Hansen loss year · splat thickness is the published standard error",
+    colorize: function (row, c) {
+      var loss = row["forest_change.lossyear"] || 0;
+      var tc = row["forest_change.treecover2000"] || 0;
+      var agb = row["esa_cci_biomass.agb_t_per_ha_2022"] || 0;
+      if (loss >= 1) {
+        var u = Math.max(0, Math.min(1, (loss - 1) / 23));
+        c.setRGB(0.45 + 0.55 * u, 0.10 + 0.30 * u, 0.03 + 0.07 * u);
+      } else if (tc < 30) {
+        c.setRGB(0.52, 0.44, 0.28);
+      } else {
+        var v = Math.max(0, Math.min(1, agb / 300));
+        c.setRGB(0.05, 0.30 + 0.45 * v, 0.10 + 0.10 * v);
+      }
+    },
+  },
+};
+
+(function () {
+  "use strict";
+  var params = new URLSearchParams(location.search);
+  var preset = params.get("world");
+  if (!WORLDS[preset]) preset = "canyon";
+  var base = "/v1/worlds/" + preset + "/";
+
+  // world switcher: full navigation per world — the renderer is not
+  // re-entrant and a fresh document is cheaper than making it so
+  var chips = document.getElementById("chips");
+  Object.keys(WORLDS).forEach(function (p) {
+    var a = document.createElement("a");
+    a.className = "chip" + (p === preset ? " on" : "");
+    a.textContent = p;
+    a.href = "/worlds?world=" + p;
+    chips.appendChild(a);
+  });
+
+  document.getElementById("hud-title").textContent = WORLDS[preset].title;
+
+  function showEmpty(html) {
+    document.getElementById("empty").style.display = "flex";
+    document.getElementById("empty-box").innerHTML = html;
+    document.getElementById("badge").textContent = "no baked scene";
+  }
+
+  function hex(buf) {
+    return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+      return b.toString(16).padStart(2, "0");
+    }).join("");
+  }
+
+  function setBadge(cls, text) {
+    var b = document.getElementById("badge");
+    b.className = "badge" + (cls ? " " + cls : "");
+    b.textContent = text;
+  }
+
+  async function boot() {
+    var metaResp = await fetch(base + "meta.json");
+    if (!metaResp.ok) {
+      showEmpty(
+        "<b>" + WORLDS[preset].title + "</b> has not been baked on this " +
+        "responder yet. An operator runs <code>scripts/bake_worlds.sh</code> " +
+        "once (or enables <code>emem-worlds-bake.timer</code>) and this page " +
+        "serves the finished world from disk from then on. The editable " +
+        "live-fetch templates remain in <code>examples/3d-worlds/</code>.");
+      return;
+    }
+    var meta = await metaResp.json();
+    document.getElementById("baked").textContent =
+      "baked " + (meta.baked_at || "?") + " · " +
+      Math.round((meta.artifacts.scene.bytes || 0) / 1024) + " KB scene";
+
+    var links = document.getElementById("links");
+    links.hidden = false;
+    document.getElementById("dl-ply").href = base + "world.ply";
+    document.getElementById("dl-splat").href = base + "world.splat";
+    document.getElementById("dl-prov").href = base + "world.provenance.json";
+    document.getElementById("open-supersplat").href =
+      "https://superspl.at/editor?load=" +
+      encodeURIComponent(location.origin + base + "world.ply");
+
+    var sceneResp = await fetch(base + "world.scene.json");
+    if (!sceneResp.ok) { showEmpty("scene fetch failed: HTTP " + sceneResp.status); return; }
+    var bytes = await sceneResp.arrayBuffer();
+
+    // Bind the bytes about to be rendered to the bake's receipts: the
+    // sha256 in meta.json is copied verbatim from the provenance sidecar
+    // the exporter wrote next to the receipts it verified.
+    var want = meta.artifacts && meta.artifacts.scene && meta.artifacts.scene.sha256;
+    if (window.crypto && crypto.subtle && want) {
+      var got = hex(await crypto.subtle.digest("SHA-256", bytes));
+      if (got === want) setBadge("ok", "scene sha256 verified");
+      else setBadge("bad", "scene hash MISMATCH");
+    } else {
+      setBadge("", want ? "hash unchecked (no WebCrypto)" : "hash unchecked");
+    }
+
+    var scene = JSON.parse(new TextDecoder().decode(bytes));
+
+    // one representative fact CID for the verify link; any splat's CID
+    // re-checks the same way
+    var cid = null;
+    for (var cell in scene.cells) {
+      var cids = scene.cells[cell]._cids || {};
+      for (var band in cids) { if (cids[band]) { cid = cids[band]; break; } }
+      if (cid) break;
+    }
+    var vf = document.getElementById("verify-fact");
+    if (cid) vf.href = "/verify/" + cid; else vf.hidden = true;
+
+    var cfg = Object.assign({ responder: location.origin, maxCells: 1024 }, WORLDS[preset]);
+    window.EMEM_WORLD = cfg;
+    window.EMEM_DATA = scene;
+
+    // the engine renders window.EMEM_DATA on load; scripts are classic
+    // (non-module), so order is enforced by chained injection
+    load("/worlds/three.min.js", function () {
+      load("/worlds/splat-math.js", function () {
+        load("/worlds/emem-world.js", function () {});
+      });
+    });
+  }
+
+  function load(src, onload) {
+    var s = document.createElement("script");
+    s.src = src; s.onload = onload;
+    s.onerror = function () { showEmpty("failed to load " + src); };
+    document.body.appendChild(s);
+  }
+
+  boot().catch(function (e) {
+    showEmpty("error: " + (e && e.message ? e.message : e));
+  });
+})();
+</script>
+</body>
+</html>

@@ -142,6 +142,8 @@ raw and processed, so nothing requires a live responder:
   receipts, and the artifact hashes; any receipt re-checks via
   `POST /v1/verify_receipt`, any fact at `/verify/<cid>`.
 
+## Serve baked worlds
+
 ## Capture the GIFs
 
 The orbit GIFs in the main README come from these exact templates rendered

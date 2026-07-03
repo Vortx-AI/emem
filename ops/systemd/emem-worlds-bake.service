@@ -1,0 +1,24 @@
+# Bake the /worlds splat scenes from the local responder. Building a
+# world is minutes of materialize+sign work; serving one is a disk read.
+# This unit does the former on a schedule so the website only ever does
+# the latter. Triggered by emem-worlds-bake.timer; run once manually with
+#   systemctl --user start emem-worlds-bake.service
+#
+# Install:
+#   cp ops/systemd/emem-worlds-bake.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now emem-worlds-bake.timer
+
+[Unit]
+Description=emem — bake 3-D world splat artifacts into var/worlds
+# Bakes against the local responder, so it needs the server up.
+After=emem-server.service
+Wants=emem-server.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/emem
+ExecStart=/home/ubuntu/emem/scripts/bake_worlds.sh
+# A fully cold four-preset bake can run long; give it room but do not
+# let a hung bake linger forever.
+TimeoutStartSec=2h

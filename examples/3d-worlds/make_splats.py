@@ -333,7 +333,7 @@ def recall_batch(base, scene, receipts, cells, band):
             receipts.append({"cell": cell, "band": band, "receipt": entry["receipt"]})
 
 
-def fetch_scene(base, bbox, bands, max_cells, batch=None):
+def fetch_scene(base, bbox, bands, max_cells, batch=None, pause=0.0):
     print("query_region over", bbox, file=sys.stderr)
     qr = http_post(base, "/v1/query_region",
                    {"bbox": bbox, "bands": [bands[0]], "max_cells": max_cells})
@@ -346,6 +346,11 @@ def fetch_scene(base, bbox, bands, max_cells, batch=None):
             print("recall %s %d-%d of %d" % (band, i, min(i + batch, len(cells)),
                                              len(cells)), file=sys.stderr)
             recall_batch(base, scene, receipts, cells[i:i + batch], band)
+            # a cold bake against a shared responder is a materialization
+            # storm; --sleep spaces the batches so interactive traffic
+            # keeps getting scheduled between them
+            if pause > 0 and i + batch < len(cells):
+                time.sleep(pause)
     return scene, receipts
 
 # ---------------------------------------------------------------------------
@@ -604,6 +609,9 @@ def main():
     ap.add_argument("--bbox", help="west,south,east,north (overrides the preset)")
     ap.add_argument("--max-cells", type=int, default=1024)
     ap.add_argument("--batch", type=int, help="recall_many batch size")
+    ap.add_argument("--sleep", type=float, default=0.0,
+                    help="seconds to pause between recall batches (gentle mode "
+                         "for cold bakes against a shared responder)")
     ap.add_argument("--out", help="output prefix, e.g. out/rondonia")
     ap.add_argument("--verify", action="store_true",
                     help="round-trip every stored receipt through /v1/verify_receipt")
@@ -631,7 +639,7 @@ def main():
     bands = list(dict.fromkeys(cfg["bands"] + extra))
 
     scene, receipts = fetch_scene(args.responder, cfg["bbox"], bands,
-                                  args.max_cells, args.batch)
+                                  args.max_cells, args.batch, args.sleep)
     print("fetched %d cells, %d signed facts" %
           (len(scene["cells"]), scene["fact_count"]), file=sys.stderr)
 
@@ -650,7 +658,8 @@ def main():
 
     # scene.json: drop in as window.EMEM_DATA (the _cids keys ride along
     # harmlessly; splat-math.js only reads lat/lng/band values/_conf)
-    with open(args.out + ".scene.json", "w") as f:
+    scene_path = args.out + ".scene.json"
+    with open(scene_path, "w") as f:
         json.dump({"cells": scene["cells"], "fact_count": scene["fact_count"]}, f)
 
     responder_b32 = None
@@ -680,6 +689,12 @@ def main():
             "splat": {"file": os.path.basename(splat_path),
                       "sha256": sha256_file(splat_path),
                       "bytes": os.path.getsize(splat_path)},
+            # scene.json is what a browser actually renders from, so it is
+            # bound to the receipts the same way the splat files are: a
+            # viewer can hash the fetched bytes and compare before drawing
+            "scene": {"file": os.path.basename(scene_path),
+                      "sha256": sha256_file(scene_path),
+                      "bytes": os.path.getsize(scene_path)},
         },
         "splats": [{"i": i, "cell": built["cell_ids"][i],
                     "fact_cids": built["rows"][i].get("_cids", {})}
