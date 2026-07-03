@@ -34,7 +34,7 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
 
 > **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 10 tools load instead of 81. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `memt:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later without trusting the transcript.
 
-## Why this exists
+## Why to add Earth Memory in your long horizon tasks.
 
 Three problems show up the moment you ship an agent that runs longer than one session.
 
