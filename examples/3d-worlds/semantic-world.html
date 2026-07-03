@@ -32,12 +32,13 @@
 window.EMEM_WORLD = {
   responder: "https://emem.dev",
   bbox: [31.00, 29.85, 31.45, 30.15],        // Nile valley, Giza plateau, Cairo
-  maxCells: 900,
+  maxCells: 1024,
   bands: ["copdem30m.elevation_mean", "geotessera"],
   heightBand: "copdem30m.elevation_mean",
-  heightExaggeration: 3.0,
-  cameraDistance: 0.62,
-  shape: { gridNormals: true, gridRelief: true },
+  heightExaggeration: 10,
+  cameraDistance: 0.8,
+  cameraHeight: 1.0,
+  shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
   subtitle: "GeoTessera 128-D embedding, PCA to RGB · every vector is a signed fact",
 
   // whole-scene pass before colorize: PCA of the embedding vectors.
@@ -98,7 +99,7 @@ window.EMEM_WORLD = {
   colorize: function (row, c) {
     var s = row._sem;
     if (!s) { c.setRGB(0.25, 0.24, 0.22); return; }   // no embedding fact: dim grey
-    c.setRGB(0.12 + 0.85 * s[0], 0.12 + 0.85 * s[1], 0.12 + 0.85 * s[2]);
+    c.setRGB(0.15 + 0.68 * s[0], 0.15 + 0.68 * s[1], 0.15 + 0.68 * s[2]);
   },
 };
 </script>
