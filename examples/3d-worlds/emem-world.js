@@ -51,13 +51,13 @@
   }
 
   // a fully cold batch must materialize inside the gateway timeout; on a
-  // timeout the batch splits in half and retries, down to 16 cells
+  // timeout the batch splits in half and retries, down to 8 cells
   async function recallBatch(scene, cells, band, depth) {
     let d;
     try {
       d = await post("/v1/recall_many", { cells: cells, bands: [band] });
     } catch (e) {
-      if (cells.length > 16) {
+      if (cells.length > 8) {
         const mid = cells.length >> 1;
         await recallBatch(scene, cells.slice(0, mid), band, (depth || 0) + 1);
         await recallBatch(scene, cells.slice(mid), band, (depth || 0) + 1);
