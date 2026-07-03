@@ -45,7 +45,12 @@ to verify.
   loading splits timed-out `recall_many` batches down to 8 cells and skips
   what still cannot materialize instead of dying.
 - README: all four worlds embedded as fresh orbit GIFs rendered from the
-  live responder through this pipeline.
+  live responder through this pipeline; the two first-generation
+  splat-column DEM GIFs stay for comparison. The raw and processed data
+  behind every world is committed under `examples/3d-worlds/scenes/`
+  (scene JSON, .ply, .splat, provenance receipts), so the worlds render
+  offline and the PLYs open in external 3DGS viewers without touching a
+  responder.
 
 ### Docs
 

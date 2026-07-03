@@ -125,7 +125,19 @@ The first is a single band doing everything: 1,024 Copernicus DEM elevation fact
 
 The third world colours Cairo and Giza by the memory's own 128-D GeoTessera foundation embedding, projected onto its three principal components: desert, Nile-valley farmland, and urban fabric separate on their own, with no land-cover labels anywhere in the loop (2,017 facts). The fourth is the Rondônia deforestation frontier with no terrain at all: height is ESA CCI above-ground biomass, each splat's thickness is that estimate's published standard error, and colour is the Hansen loss year (3,733 facts) — standing carbon rises, cleared land sits flat, and the BR-364 fishbone pattern is the frontier itself. Open any template in a browser, change the bbox and bands in the config block at the top, and the same machinery renders any area of Earth your agents care about, against emem.dev or your own node.
 
-The worlds also leave as artifacts. `python3 examples/3d-worlds/make_splats.py --preset carbon --out out/rondonia --verify` runs the same fetch and the same math, then writes a standard 3D Gaussian Splatting `.ply` (opens in SuperSplat, gsplat, or any 3DGS viewer), the compact `.splat` binary, and a provenance sidecar carrying the per-splat `fact_cid`s, the verbatim signed receipts, and the sha256 of the artifact bytes — splats you can hand to someone who can then re-check every input against the responder's public key (`--verify` round-trips each receipt through `/v1/verify_receipt`; 1,025 of 1,025 valid on the Grand Canyon export). The gaussian construction itself is pinned by a hand-derived fixture that the browser math and the exporter must both reproduce to 1e-6, and the renderer by pixel checks: a projected gaussian's radial profile fits exp(-r²/2σ²) with R² > 0.99, and the compositing order flips correctly across a half orbit. See [`examples/3d-worlds/README.md`](examples/3d-worlds/README.md) for the formulas.
+The worlds also leave as artifacts. `python3 examples/3d-worlds/make_splats.py --preset carbon --out out/rondonia --verify` runs the same fetch and the same math, then writes a standard 3D Gaussian Splatting `.ply` (opens in SuperSplat, gsplat, or any 3DGS viewer), the compact `.splat` binary, and a provenance sidecar carrying the per-splat `fact_cid`s, the verbatim signed receipts, and the sha256 of the artifact bytes — splats you can hand to someone who can then re-check every input against the responder's public key (`--verify` round-trips each receipt through `/v1/verify_receipt`; 1,025 of 1,025 valid on the Grand Canyon export). Both the raw and the processed data ship in the repo: [`examples/3d-worlds/scenes/`](examples/3d-worlds/scenes/) holds each world's fetched scene (`*.scene.json`, the signed fact values exactly as recalled), the exported `.ply` and `.splat`, and the `*.provenance.json` receipts — render any world offline by serving a scene as `window.EMEM_DATA`, or open a `.ply` straight in a 3DGS viewer.
+
+The original point-sprite renderer drew each fact as a glowing vertical column; the two first-generation DEM worlds stay for comparison:
+
+<p align="center">
+  <img src="docs/media/world-grand-canyon-columns.gif" width="800" alt="The first-generation Grand Canyon world: 736 signed elevation facts drawn as additive splat columns." />
+</p>
+
+<p align="center">
+  <img src="docs/media/world-interlaken-columns.gif" width="800" alt="The first-generation Interlaken world: elevation, NDVI, and water recurrence drawn as additive splat columns." />
+</p>
+
+The gaussian construction itself is pinned by a hand-derived fixture that the browser math and the exporter must both reproduce to 1e-6, and the renderer by pixel checks: a projected gaussian's radial profile fits exp(-r²/2σ²) with R² > 0.99, and the compositing order flips correctly across a half orbit. See [`examples/3d-worlds/README.md`](examples/3d-worlds/README.md) for the formulas.
 
 ## What a fact costs to hand over
 

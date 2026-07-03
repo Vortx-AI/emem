@@ -128,6 +128,20 @@ and fails if any signature does not check out. Any individual splat's
 is bound to the receipts by the sha256 in the sidecar: change a gaussian and
 the hash breaks; change a fact and its signature breaks.
 
+## The data ships with the repo
+
+[`scenes/`](scenes/) holds the exact data behind the four README worlds,
+raw and processed, so nothing requires a live responder:
+
+- `<preset>.scene.json` — the fetched scene: one record per cell with the
+  signed fact values exactly as recalled. Serve it as `window.EMEM_DATA`
+  (or pass it to `capture.mjs --scene`) to render offline.
+- `<preset>.ply`, `<preset>.splat` — the exported gaussians; the PLY opens
+  directly in SuperSplat, gsplat, or any 3DGS viewer.
+- `<preset>.provenance.json` — per-splat `fact_cid`s, the verbatim signed
+  receipts, and the artifact hashes; any receipt re-checks via
+  `POST /v1/verify_receipt`, any fact at `/verify/<cid>`.
+
 ## Capture the GIFs
 
 The orbit GIFs in the main README come from these exact templates rendered
