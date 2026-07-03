@@ -7,6 +7,46 @@ to verify.
 
 ## [Unreleased]
 
+### 3D worlds: real gaussian splatting, signed splat export
+
+- The `examples/3d-worlds/` renderer is now standard 3D Gaussian Splatting
+  instead of additive point sprites: per-cell anisotropic covariance
+  `Sigma = R S^2 R^T`, EWA screen-space projection `Sigma' = J W Sigma W^T J^T`
+  (Zwicker 2001; Kerbl 2023) in an instanced-quad shader, back-to-front
+  premultiplied-alpha compositing with a CPU depth sort. Every gaussian
+  parameter is a measurement: footprint from the sampled grid pitch, tilt
+  from slope/aspect finite-differenced over the neighbouring cells' signed
+  elevation facts (the `/v1/terrain` neighbourhood computation, run
+  client-side over facts already in the scene), thickness from the detrended
+  neighbour residual RMS or a band's published standard error, opacity from
+  the fact's attested confidence. Missing shape facts degrade to isotropic;
+  old `EMEM_WORLD` configs without a `shape` block still render.
+- Two new templates: `semantic-world.html` (Cairo/Giza coloured by the
+  128-D GeoTessera foundation embedding, in-browser PCA to RGB — desert,
+  Nile farmland, and urban fabric separate with no land-cover labels) and
+  `carbon-world.html` (Rondônia: height = ESA CCI above-ground biomass,
+  thickness = its standard-error band, colour = Hansen loss year).
+- `make_splats.py` (stdlib only) exports any preset as portable signed
+  splats: a standard 3DGS `.ply` (loads in SuperSplat / gsplat /
+  antimatter15 viewers), the 32-byte `.splat` binary, a
+  `emem.splat_provenance.v1` sidecar binding artifact sha256 to per-splat
+  fact CIDs and the verbatim signed receipts, and a `scene.json` for
+  offline rendering. `--verify` round-trips every receipt through
+  `/v1/verify_receipt` (1,025/1,025 valid on the Grand Canyon export).
+- `capture.mjs`: the previously prose-only GIF pipeline, committed — raw-CDP
+  headless Chromium (no dependencies), deterministic `__renderFrame`
+  stepping, a node-fetch relay for sandboxes whose egress resets Chromium's
+  TLS, ffmpeg two-pass palette assembly.
+- Correctness is pinned twice: `test/golden-scene.json` (hand-derived
+  sigmas/quaternions asserted to 1e-6 by both the JS and the Python math)
+  and `test/render-checks.mjs` (a rendered gaussian's radial profile fits
+  `exp(-r^2/2s^2)` with R^2 > 0.99, isotropic covariance projects to a
+  circle, compositing order flips across a half orbit). Cold-region
+  loading splits timed-out `recall_many` batches down to 8 cells and skips
+  what still cannot materialize instead of dying.
+- README: all four worlds embedded as fresh orbit GIFs rendered from the
+  live responder through this pipeline.
+
 ### Docs
 
 - README repositioned around shared memory for long-horizon and multi-agent

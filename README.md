@@ -103,17 +103,29 @@ Agent B did not have to trust Agent A. It recomputed the content ID and checked 
 
 ## An area of the memory, in 3D
 
-The memory is not an abstraction; you can look at a piece of it. Both worlds below are rendered by the two templates under [`examples/3d-worlds/`](examples/3d-worlds/), straight from the live responder: the loader samples a bounding box into cells, recalls them in batches (first touch materializes and signs each cell), and draws one gaussian splat column per signed fact. Nothing is interpolated. Where the memory has no fact, there is no splat, and any splat's `fact_cid` re-checks at [`/verify`](https://emem.dev/verify).
+The memory is not an abstraction; you can look at a piece of it. The four worlds below are rendered by the templates under [`examples/3d-worlds/`](examples/3d-worlds/), straight from the live responder: the loader samples a bounding box into cells, recalls them in batches (first touch materializes and signs each cell), and builds one 3-D gaussian per cell of signed facts. The rendering is standard 3D Gaussian Splatting — anisotropic covariances, EWA screen-space projection, depth-sorted alpha compositing — and every gaussian parameter is a measurement: centre from the fact's own lat/lng and height band, footprint from the sampled grid pitch, tilt from the slope and aspect computed over the neighbouring cells' signed elevations, thickness from the residual roughness left after removing that slope (or a band's published standard error), opacity from the fact's attested confidence. Nothing is interpolated. Where the memory has no fact, there is no splat, and any splat's `fact_cid` re-checks at [`/verify`](https://emem.dev/verify).
 
 <p align="center">
-  <img src="docs/media/world-grand-canyon.gif" width="800" alt="A rotating 3D gaussian splat world of the Grand Canyon: 736 signed Copernicus DEM elevation facts recalled live from emem.dev, gold rim to ember gorge, one glowing splat column per fact." />
+  <img src="docs/media/world-grand-canyon.gif" width="800" alt="A rotating 3D gaussian splat world of the Grand Canyon: 1,024 signed Copernicus DEM elevation facts recalled live from emem.dev, gold rim to ember gorge, each gaussian tilted along the measured slope." />
 </p>
 
 <p align="center">
-  <img src="docs/media/world-interlaken.gif" width="800" alt="A rotating 3D gaussian splat world of Interlaken: elevation, Sentinel-2 NDVI, and JRC water recurrence fused per cell, lakes in blue, forested slopes in green, snowline in white, one splat column per signed fact." />
+  <img src="docs/media/world-interlaken.gif" width="800" alt="A rotating 3D gaussian splat world of Interlaken: elevation, Sentinel-2 NDVI, and JRC water recurrence fused per cell, lakes in blue, forested slopes in green, snowline in white." />
 </p>
 
-The first is a single band doing everything: 736 Copernicus DEM elevation facts over the Grand Canyon, height and colour from one measurement. The second fuses three bands per splat over Interlaken: 2,202 facts across elevation, Sentinel-2 NDVI, and JRC surface-water recurrence, so the relief, the forests, and the lakes each come from their own signed source. Open either template in a browser, change the bbox and bands in the config block at the top, and the same machinery renders any area of Earth your agents care about, against emem.dev or your own node.
+The first is a single band doing everything: 1,024 Copernicus DEM elevation facts over the Grand Canyon, height and colour from one measurement, each gaussian lying in the tangent plane of the terrain around it. The second fuses three bands per splat over Interlaken: 3,026 facts across elevation, Sentinel-2 NDVI, and JRC surface-water recurrence, so the relief, the forests, and the lakes each come from their own signed source.
+
+<p align="center">
+  <img src="docs/media/world-semantic-cairo.gif" width="800" alt="A rotating semantic splat world of Cairo and Giza: each cell coloured by its 128-D GeoTessera foundation embedding projected onto three principal components — desert, Nile-valley farmland, and urban fabric separate without any land-cover labels." />
+</p>
+
+<p align="center">
+  <img src="docs/media/world-rondonia.gif" width="800" alt="A rotating splat world of the Rondonia deforestation frontier: height is ESA CCI above-ground biomass, thickness its published standard error, colour the Hansen loss year — intact canopy green, cleared land flat, recent clearing bright ember. The fishbone pattern along BR-364 is the frontier itself." />
+</p>
+
+The third world colours Cairo and Giza by the memory's own 128-D GeoTessera foundation embedding, projected onto its three principal components: desert, Nile-valley farmland, and urban fabric separate on their own, with no land-cover labels anywhere in the loop (2,017 facts). The fourth is the Rondônia deforestation frontier with no terrain at all: height is ESA CCI above-ground biomass, each splat's thickness is that estimate's published standard error, and colour is the Hansen loss year (3,733 facts) — standing carbon rises, cleared land sits flat, and the BR-364 fishbone pattern is the frontier itself. Open any template in a browser, change the bbox and bands in the config block at the top, and the same machinery renders any area of Earth your agents care about, against emem.dev or your own node.
+
+The worlds also leave as artifacts. `python3 examples/3d-worlds/make_splats.py --preset carbon --out out/rondonia --verify` runs the same fetch and the same math, then writes a standard 3D Gaussian Splatting `.ply` (opens in SuperSplat, gsplat, or any 3DGS viewer), the compact `.splat` binary, and a provenance sidecar carrying the per-splat `fact_cid`s, the verbatim signed receipts, and the sha256 of the artifact bytes — splats you can hand to someone who can then re-check every input against the responder's public key (`--verify` round-trips each receipt through `/v1/verify_receipt`; 1,025 of 1,025 valid on the Grand Canyon export). The gaussian construction itself is pinned by a hand-derived fixture that the browser math and the exporter must both reproduce to 1e-6, and the renderer by pixel checks: a projected gaussian's radial profile fits exp(-r²/2σ²) with R² > 0.99, and the compositing order flips correctly across a half orbit. See [`examples/3d-worlds/README.md`](examples/3d-worlds/README.md) for the formulas.
 
 ## What a fact costs to hand over
 

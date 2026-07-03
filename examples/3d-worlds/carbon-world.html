@@ -38,12 +38,14 @@ window.EMEM_WORLD = {
           "forest_change.lossyear",
           "forest_change.treecover2000"],
   heightBand: "esa_cci_biomass.agb_t_per_ha_2022",
-  heightExaggeration: 15,                     // t/ha into relief
-  cameraDistance: 0.62,
+  heightExaggeration: 10,                     // t/ha into relief
+  cameraDistance: 0.82,
+  cameraHeight: 1.05,
   shape: {
     // vertical sigma = the biomass estimate's own standard error (t/ha)
     sigmaBand: "esa_cci_biomass.agb_se_t_per_ha_2022",
     sigmaFloorM: 4,
+    opacity: 0.92,
   },
   subtitle: "ESA CCI biomass + Hansen loss year · every value is a signed fact",
   colorize: function (row, c) {
