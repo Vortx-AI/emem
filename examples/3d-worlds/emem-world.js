@@ -67,7 +67,11 @@
         await new Promise((r) => setTimeout(r, 3000));
         return recallBatch(scene, cells, band, (depth || 0) + 1);
       }
-      throw e;
+      // still failing after splits and retries: skip — those cells simply
+      // have no fact and no splat this run; a warm reload fills them
+      console.warn("emem-world: skipped", cells.length, "cells for", band, e);
+      scene._skipped = (scene._skipped || 0) + cells.length;
+      return;
     }
     for (const [cell, entry] of Object.entries(d.by_cell || {})) {
       for (const f of entry.facts || []) {

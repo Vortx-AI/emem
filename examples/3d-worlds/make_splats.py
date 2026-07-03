@@ -303,14 +303,18 @@ def recall_batch(base, scene, receipts, cells, band):
     """recall_many with split-on-timeout, mirroring emem-world.js."""
     try:
         d = http_post(base, "/v1/recall_many", {"cells": cells, "bands": [band]},
-                      retries=2, timeout=120)
-    except (SystemExit, Exception):
+                      retries=3, timeout=120)
+    except (SystemExit, Exception) as e:
         if len(cells) > 8:
             mid = len(cells) // 2
             recall_batch(base, scene, receipts, cells[:mid], band)
             recall_batch(base, scene, receipts, cells[mid:], band)
             return
-        raise
+        # a cold floor-size batch that still cannot materialize is skipped:
+        # those cells get no fact and so no splat; a warm rerun fills them
+        print("skipping %d cells for %s (%s)" % (len(cells), band, e),
+              file=sys.stderr)
+        return
     for cell, entry in (d.get("by_cell") or {}).items():
         rec = scene["cells"].setdefault(cell, {})
         cids = rec.setdefault("_cids", {})
