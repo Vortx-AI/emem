@@ -1,0 +1,214 @@
+# Architecture notes: where the load-bearing pieces live
+
+Phase 0 orientation map for the shared-memory upgrade. This file answers one
+question per section: for each mechanism the upgrade plan hangs off, which
+crate, file, and function is canonical today. Line numbers are as of the
+commit that introduced this file; treat them as anchors, not gospel.
+
+Crate layering, bottom to top:
+
+```
+emem-core        Tslot, key types (AttesterKey, KeyEpoch, Signature), registries, error codes
+emem-codec       token-economical text codecs: cell64, tslot text, cid64, vec64
+emem-attest      pure hashing: preimages, merkle v0/v1 (no I/O, no deps beyond core)
+emem-fact        wire structs (Fact, Attestation, Receipt, EdgeFact, Scope) + canonical CBOR
+emem-claim       structural claim algebra (band+op+value+tslot) and evaluator
+emem-cache       sled hot cache, fact CID derivation
+emem-fetch       upstream connectors (bundled GeoNames/POI data via include_bytes!)
+emem-cubes       loaders for the AgriSynth 1792-D bootstrap cubes
+emem-storage     MaterializingStorage facade, sled tree schemas, AttestationLog,
+                 AttesterRegistry, and receipt signing (Server / ResponderIdentity)
+emem-primitives  recall/diff/verify/memory_* handlers, memory ACL, contradictions
+emem-intent      typed Intent grammar + heuristic planner
+emem-mcp         static MCP tool catalog (81 descriptors; no transport)
+emem-api-rest    axum router: REST routes, /mcp JSON-RPC dispatch, well-known, write gate
+emem-cli         emem-server binary (key load/persist) + receipt-verify CLI
+emem-membench    MemoryAgentBench-style scorecard harness (leaf)
+emem-sleep-agent opt-in sleep-time rewrite/merge agent (leaf)
+```
+
+Everything hashes with BLAKE3, serializes with deterministic CBOR (ciborium,
+RFC 8949), renders CIDs as base32-nopad-lowercase, and signs with ed25519.
+Version discriminators: `Attestation.preimage_version` and
+`Receipt.preimage_version` (serde default 0 = legacy) select v0 or v1 rules,
+so old envelopes keep verifying.
+
+## Canonical payload serialization
+
+- `to_canonical_cbor<T: Serialize>` in `crates/emem-fact/src/cbor.rs:21`
+  encodes any value to deterministic CBOR. Struct fields serialize in
+  declaration order; freeform maps must be pre-sorted by the caller.
+- `blake3_32` (`cbor.rs:30`) and `base32_prefix` (`cbor.rs:38`) sit beside it.
+- Custom CBOR tags include `TAG_EMEM_CELL=65000`, `TAG_EMEM_TSLOT=65001`,
+  `TAG_EMEM_VEC64=65002`, and `TAG_IPLD_CID=42` (`cbor.rs:7-13`).
+
+Any new payload kind (transparency-log STH, absence proof, DerivativeFact,
+signed latent) should go through `to_canonical_cbor` and get its own schema
+version; never change the encoding of an existing kind.
+
+## CID computation
+
+- Fact CIDs: `fact_cid_of(fact)` in `crates/emem-cache/src/sled_hot.rs:190-199`
+  = base32-nopad-lowercase of `blake3(canonical_cbor(fact))`, always 52 chars
+  (full 256 bits). `SledHotCache::put_many` re-derives the same CID inline on
+  write (`sled_hot.rs:290-303`).
+- Typed CID newtypes (FactCid, RegistryCid, SchemaCid, ReasonCid, BatchCid,
+  CoverageCid, EdgeCid) are string wrappers in `crates/emem-fact/src/cid.rs:25-34`.
+- Edge CIDs: `EdgeFact::cid()` in `crates/emem-fact/src/edge.rs:70-90`.
+- `cid64` (13-char base32 of the first 8 bytes) in
+  `crates/emem-codec/src/cid64.rs:8-25` is inline-text-only; it never appears
+  in canonical CBOR. Bundle CIDs are truncated to 16 bytes in
+  `crates/emem-primitives/src/memory_bundle.rs:139`; fact CIDs are full-width.
+
+## Receipt signing path
+
+- All public signers (`sign_receipt`, `sign_receipt_with_scope`,
+  `sign_receipt_with_as_of`, `sign_receipt_full`, `sign_receipt_with_edges`)
+  funnel into the one private `sign_receipt_v1_inner` in
+  `crates/emem-storage/src/server.rs:236-348`.
+- Preimage: `receipt_preimage_v1` in `crates/emem-attest/src/lib.rs:228`.
+  `PreimageV1::new(domain)` hashes `"emem.preimage.v1\x00" || u32-LE(len) ||
+  domain`, then each segment is `tag || u32-LE(len) || bytes`
+  (`lib.rs:157-226`). Receipt tags 0x01..0x09: REQUEST_ID, SERVED_AT, SCOPE,
+  AS_OF, EDGES, MANIFEST, PRIMITIVE, CELLS, FACT_CIDS.
+- Merkle over `fact_cids`: v1 is RFC 6962-style, `blake3(0x00 || leaf)` /
+  `blake3(0x01 || l || r)` in `crates/emem-attest/src/lib.rs:284-385`; legacy
+  v0 at `lib.rs:11-121`. Callers sort leaves and reject duplicates
+  (CVE-2012-2459 pattern) via `has_adjacent_duplicate` (`lib.rs:383`) before
+  calling `merkle_root_v1`. At signing time (`server.rs:~318`) a pre-persisted
+  inclusion proof for the first cited fact is looked up via `proof_for_cid`
+  (built earlier by `persist_fact_proofs`); a receipt carries at most one.
+- Envelope: `emem_fact::Receipt` in `crates/emem-fact/src/receipt.rs:12-79`
+  (`preimage_version` at :77-78, `MerkleProof {leaf_index, path, root,
+  version}` at :176-189). Cost fields (latency, cache hit) at
+  `receipt.rs:162-173`.
+- Verification surfaces: REST `POST /v1/verify_receipt`
+  (`crates/emem-api-rest/src/lib.rs:12282-12310`, handles v0 and v1); a CLI
+  verifier in `crates/emem-cli/src/main.rs:190-233` (pubkey resolution:
+  explicit > well-known > embedded) which today implements only the legacy v0
+  preimage, so it cannot verify the v1 receipts the current server signs; and
+  the in-browser verifier (`web/verify.html`) which mirrors the v1 byte rules.
+  AGENTS.md pins three places that must always agree: `sign_receipt`, the
+  byte-by-byte preimage example in `docs/protocol.md`, and the browser
+  verifier in `web/humans.html`.
+
+## Signing keys
+
+- `ResponderIdentity` (SigningKey + AttesterKey + KeyEpoch) in
+  `crates/emem-storage/src/server.rs:98-134`: `fresh()` (OsRng),
+  `from_secret(secret, epoch)`, `export_secret_b32()`.
+- The binary loads via `load_or_create_identity` in
+  `crates/emem-cli/src/bin/emem-server.rs:338-392`: env `EMEM_SECRET_B32`
+  (base32-nopad 32-byte secret) > `<EMEM_DATA>/identity.secret.b32` file >
+  fresh key persisted atomically. A container without a volume or the env var
+  therefore mints a new signing key on every restart.
+- Public exposure: `/.well-known/emem.json` served by `well_known()` in
+  `crates/emem-api-rest/src/lib.rs:4025-4108` (route at :818). The responder
+  key lives at `responder.pubkey_b32` (not top-level). `operator_attestation`
+  signs the string preimage
+  `emem.operator_attestation|v{n}|epoch{n}|{attested_at}|git:{commit}|build:{ts}|binary:{hash}|bands:{cid}|registry:{cid}`
+  (:4052-4062), binding the running binary hash to its git commit.
+
+## Fact storage
+
+- Engine: sled. `SledHotCache` (`crates/emem-cache/src/sled_hot.rs`) holds the
+  canonical index (key = `cell \0 band \0 tslot_be8` -> fact_cid,
+  `encode_key` at :211) and a facts tree (fact_cid -> canonical CBOR body).
+- `MaterializingStorage` (`crates/emem-storage/src/lib.rs:243`) composes
+  cache + fetch dispatcher + AttestationLog + AttesterRegistry; `rooted()`
+  opens `<root>/cache.sled` and the log directory (:581-604).
+- Write path: `put_attestation` (`lib.rs:639-698`): `verify_attestation` ->
+  `cache.put_many` -> `log.append` -> best-effort `persist_fact_proofs` +
+  `append_multi_attester` + `append_scope_index` -> one `flush_async` ->
+  attester reputation rollup -> `add_edges`.
+- Edges: content-addressed in sled tree `emem.edges` with SPO/OPS range-scan
+  indexes (`edge_index_key` at `lib.rs:928`, `scan_edges_anchored` at :1095).
+
+## Existing transparency-log substrate (Phase 1 starting point)
+
+Phase 1 does not start from zero. Already shipped:
+
+- `AttestationLog` in `crates/emem-storage/src/merkle_log.rs`: append-only
+  segment files `merkle.log.<u64>` rotating at 1 GiB; each record is
+  `[u32-LE len][attestation CBOR][32-byte blake3]`; sealed segments carry a
+  trailing whole-segment hash; `append` fsyncs before returning (:58);
+  `verify` walks a segment (:117).
+- Per-fact inclusion proofs: `persist_fact_proofs`
+  (`crates/emem-storage/src/lib.rs:1426-1481`) precomputes merkle paths per
+  attestation batch into sled tree `emem.fact_proofs`, read back via
+  `proof_for_cid` (:808-813) and embedded in receipts as
+  `receipt.merkle_proof`.
+
+What Phase 1 adds on top: one global tree across batches, Signed Tree Heads,
+consistency proofs between tree sizes, and public proof endpoints. The
+per-batch trees and the fsynced log are the natural leaf source.
+
+## tslot logic
+
+- `Tslot(pub u64)` in `crates/emem-core/src/tslot.rs:21`;
+  `from_unix(unix_seconds, tempo) = floor(unix / tempo.slot_seconds())`
+  (`slot_seconds` at :51-63), anchored at the 1970 Unix epoch
+  (`EMEM_EPOCH_UNIX = 1_767_225_600` at :45-47 is metadata-only).
+- Tempo variants (:26-43): Static(0s), Slow(365d), Composite16Day,
+  Composite8Day, Medium(30d), Fast(1d), UltraFast(1h).
+- Text form (`t.` prefix, base32-nopad leb128) in
+  `crates/emem-codec/src/tslot_text.rs:9-23`.
+
+## Attester auth for L2 writes
+
+Two write paths exist today, both authenticated by in-envelope ed25519
+signatures rather than transport auth:
+
+- Facts: `POST /v1/attest` and `/v1/attest_cbor` (routes
+  `crates/emem-api-rest/src/lib.rs:1175-1176`, handlers :12237-12280). The
+  envelope is `emem_fact::Attestation`
+  (`crates/emem-fact/src/attest.rs:13-64`); the canonical signer is
+  `Attestation::build_and_sign_v1` (:93-143): per-fact leaves =
+  `blake3(canonical_cbor(fact))` plus edge digests, sorted bytewise,
+  duplicates rejected, merkle root computed, then ed25519 over
+  `attestation_preimage_v1`. Ingest-side check is `verify_attestation` in
+  `crates/emem-storage/src/lib.rs:1498-1560` (recompute root, branch on
+  `preimage_version`, `verify_strict`). Write tools are deliberately not
+  exposed over MCP (`crates/emem-mcp/src/lib.rs:1229-1238`); signing happens
+  client-side.
+- Memory files: `crates/emem-primitives/src/memory_acl.rs` write-locks
+  `/memories/by_attester/<pubkey8>/` to the keyholder; signature = ed25519
+  over `blake3("emem.memory_write|" || verb || "|" || path || "|" ||
+  body_hash)` (:59-68); enforced from the REST layer
+  (`crates/emem-api-rest/src/lib.rs:19125-19170`).
+- Multi-attester disagreement is preserved, not overwritten: every distinct
+  CID per `(cell, band, tslot)` is appended to sled tree
+  `emem.multi_attester_index` at `put_attestation`
+  (`crates/emem-storage/src/lib.rs:1196-1228, 1379-1416`), which is what
+  `emem_memory_contradictions` reads across attesters.
+- L0/L1/L2 are conformance levels on `ToolDescriptor.level`
+  (`crates/emem-mcp/src/lib.rs:46-47`); the current catalog ships 79 L0 + 2 L1
+  tools and zero L2 tools.
+
+Phase 3's job is therefore spec and hardening (ATTESTERS.md, registration,
+rate/abuse policy, recall-time multiplicity surfacing), not building the
+write path from scratch.
+
+## MCP tool registry
+
+- Canonical catalog: `pub const TOOLS: &[ToolDescriptor]` in
+  `crates/emem-mcp/src/lib.rs:664`; `ToolDescriptor` struct at :31-68 (name,
+  title, description, when_to_use, input_schema, level, category, four MCP
+  hint flags, tier). 81 tools: 10 core, 71 extended. Helpers: `lookup`
+  (:1593), `tools_at_level` (:1598), `tools_at_tier` (:1647).
+- JSON-RPC dispatch and the REST mirror live in emem-api-rest
+  (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:13780`, `mcp_tool_call`
+  at :14870).
+- Handlers referenced by the upgrade plan: `emem_memory_contradictions` ->
+  `crates/emem-primitives/src/memory_contradictions.rs:132` (severity :335);
+  `emem_diff` -> `crates/emem-primitives/src/diff.rs:43`; memt compose/parse
+  in `crates/emem-api-rest/src/lib.rs:17226, 18560-18568`; memb in
+  `crates/emem-primitives/src/memory_bundle.rs` (strict `memb:` parser at
+  :177-183).
+
+## Counts that CI does not guard
+
+`scripts/sync_counts.py --check` verifies the canonical counts (81 tools,
+93 /v1 paths, 46 sources, 43 slots, 124 wired bands, 160 algorithms, 27
+topics, 16 crates) against the registries and the live responder, but no CI
+workflow runs it. Run it manually after editing any doc that quotes a count.

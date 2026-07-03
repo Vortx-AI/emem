@@ -7,7 +7,32 @@ to verify.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Docs
+
+- README repositioned around shared memory for long-horizon and multi-agent
+  systems: measured token economics for `memt` handoffs (79 chars, 46-49 BPE
+  tokens, standing in for a ~1,600-token signed response), a positioning
+  table against vector DBs / RAG / tile APIs, a "More than one writer" section
+  documenting the live `/v1/attest` multi-writer path, memory kinds with TTLs
+  (episodic / semantic / procedural / resource), a signing-key persistence
+  warning for self-hosters, and a staged roadmap (transparency log, absence
+  proofs, attester spec, quorum reads). Restored content lost in recent README
+  churn: hunt / memory_search / physics solvers / eudr_dds / `as_of` time
+  travel, the EO point-sample and EGM2008 datum notes, Fields of The World
+  figures, the 27-topic count, and the gallery link. Citation now matches the
+  Zenodo record title. Fixed the well-known jq path in the verify walkthrough
+  (`.responder.pubkey_b32`).
+- Three new in-theme diagrams from a new generator (`scripts/gen_shared_memory.py`):
+  `34-shared-memory` (one memory, many agents), `35-two-agents-one-memory`
+  (the memt handoff, with measured sizes), and
+  `36-memory-outlives-the-context-window` (compaction survival), SVG plus
+  1600px PNG twins. New README section on surviving context compaction,
+  surfacing the refinement pass and the sleep-time consolidation agent.
+- `docs/ARCHITECTURE_NOTES.md`: file-level map of canonical serialization, CID
+  derivation, receipt signing, keys, storage trees, the append-only
+  AttestationLog, tslot logic, and attester write auth.
+- Removed the committed `:memory:/geocoder.sled` runtime artifact (already
+  gitignored). Corrected stale route counts in `sdks/emem-ts/README.md`.
 
 ## [0.1.0] — 2026-06-14
 
