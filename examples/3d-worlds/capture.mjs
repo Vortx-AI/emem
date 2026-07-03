@@ -41,10 +41,10 @@ const CHROME = findBin("CHROME", [
   "/usr/bin/chromium-browser",
   "/usr/bin/google-chrome",
 ], "chromium");
-const FFMPEG = findBin("FFMPEG", [
-  "/opt/pw-browsers/ffmpeg-1011/ffmpeg-linux",
-  "/usr/bin/ffmpeg",
-], "ffmpeg");
+// needs a full ffmpeg (png decode + gif mux) — the ffmpeg playwright ships
+// is a webm-only screencast build; `pip install imageio-ffmpeg` provides a
+// static one, then point FFMPEG at it
+const FFMPEG = findBin("FFMPEG", ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"], "ffmpeg");
 
 // ---- minimal CDP client over the global WebSocket ------------------------
 class Cdp {
@@ -230,7 +230,7 @@ async function main() {
       const vf = "fps=" + fps + ",scale=" + widthOut + ":-1:flags=lanczos";
       execFileSync(FFMPEG, ["-y", "-framerate", String(fps),
         "-i", join(work, "f_%04d.png"),
-        "-vf", vf + ",palettegen=stat_mode=diff", palette], { stdio: "inherit" });
+        "-vf", vf + ",palettegen=stats_mode=diff", palette], { stdio: "inherit" });
       execFileSync(FFMPEG, ["-y", "-framerate", String(fps),
         "-i", join(work, "f_%04d.png"), "-i", palette,
         "-lavfi", vf + "[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4",
