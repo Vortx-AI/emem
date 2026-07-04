@@ -74,6 +74,19 @@ to verify.
 - `.github/workflows/worlds-gifs.yml` (manual dispatch) re-captures the
   README orbit GIFs from the baked scenes served at `/v1/worlds`, with
   zero materialization load on the responder.
+- The `/worlds` viewer is now interactive and self-explaining. It
+  orbit/zoom/pan drags; a per-world legend states what height, thickness,
+  and colour mean (so the carbon world reads as a deforestation frontier,
+  not an abstract blob); **clicking a splat** opens the cell's measured
+  band values, a `/verify/<fact_cid>` link, and a copy-`memt:`-token
+  button; you can recolour by any other signed band in the scene, adjust
+  vertical exaggeration and splat size live, and drape real Esri World
+  Imagery (fetched for the scene's own bbox) under the signed geometry as
+  clearly-labelled reference. The interaction is exposed on
+  `window.__ememWorld` / `EMEM_WORLD.onReady(api)` (`pick`, `recolor`,
+  `rebuild`, `setBasemap`, `setSplatScale`, `focus`); the deterministic
+  `EMEM_CAPTURE` path and the golden/pixel checks are unchanged, so the
+  README GIFs stay byte-for-byte reproducible.
 
 ### Ops
 

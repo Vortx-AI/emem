@@ -4,57 +4,111 @@
 <meta charset="utf-8">
 <title>3-D worlds from signed facts — emem</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Rotating 3-D gaussian splat worlds where every splat is one cell of signed, verifiable Earth facts. Pre-baked from the live memory, hash-checked in your browser before a single splat is drawn.">
+<meta name="description" content="Interactive 3-D gaussian splat worlds where every splat is one cell of signed, verifiable Earth facts. Orbit them, click any splat to read its measured values and re-check its signature, drape real satellite imagery underneath, recolour by any signed band.">
 <link rel="canonical" href="https://emem.dev/worlds">
 <link rel="icon" type="image/gif" href="/vortxgola.gif">
 <meta property="og:title" content="3-D worlds from signed facts — emem">
-<meta property="og:description" content="Every splat is one cell of signed Earth facts. Scenes are baked once from the live memory, then served instantly and hash-checked in the browser.">
+<meta property="og:description" content="Orbit a world built entirely from signed Earth facts. Click any splat to read its measured values and verify its signature. Real satellite imagery drapes underneath as reference.">
 <meta property="og:url" content="https://emem.dev/worlds">
 <style>
 :root{
   --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
-  --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);--ink-3:oklch(0.62 0.005 85);
-  --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
-  --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
-  --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+  --ink:oklch(0.94 0.005 85);--ink-2:oklch(0.82 0.005 85);--ink-3:oklch(0.64 0.005 85);
+  --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.46 0.005 85);
+  --rule:oklch(0.30 0.008 85);--rule-strong:oklch(0.42 0.010 85);
+  --accent:oklch(0.80 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+  --warn:oklch(0.72 0.19 25);
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
-  --t-xs:.75rem;--t-sm:.8125rem;--t-base:1rem;
+  --t-xs:.72rem;--t-sm:.8125rem;--t-base:.9375rem;
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%;overflow:hidden}
-body{background:#0b0a08;color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased}
+body{background:#0b0a08;color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.5;-webkit-font-smoothing:antialiased}
 a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--rule)}
 a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+button{font-family:var(--mono);cursor:pointer}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
-canvas{position:fixed;inset:0;z-index:0}
-.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:relative;z-index:50}
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 1.5rem;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
-.statusbar a{color:var(--ink-2);border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
-.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+canvas{position:fixed;inset:0;z-index:0;touch-action:none}
+.statusbar{border-bottom:1px solid var(--rule);background:color-mix(in oklch, var(--paper-2) 82%, transparent);position:relative;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1400px;margin:0 auto;padding:0 1.2rem;display:flex;align-items:center;gap:.7rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);opacity:.55;transition:opacity .18s,color .18s}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.4rem}
 .statusbar a:hover{opacity:1;color:var(--ink);background:var(--paper-3)}
 .statusbar a.on{opacity:1;color:var(--accent)}
-.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
-.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem;opacity:1}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:.9rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.4rem;opacity:1}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
-@media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
-#hud{position:fixed;left:20px;top:56px;z-index:10;max-width:min(46ch,calc(100vw - 40px));pointer-events:none}
-#hud b{font-size:15px;letter-spacing:.02em}
-#hud-n,#hud-sub{color:var(--ink-3);font-size:13px;display:block}
-#panel{position:fixed;left:20px;bottom:16px;z-index:10;display:flex;flex-direction:column;gap:.6rem;font-size:var(--t-xs)}
-.chips{display:flex;gap:.4rem;flex-wrap:wrap}
-.chip{background:var(--paper-2);border:1px solid var(--rule);border-radius:2px;color:var(--ink-2);padding:.3em .7em;cursor:pointer;font-family:var(--mono);font-size:var(--t-xs)}
+@media (max-width:760px){.statusbar a.nav-sec{display:none}}
+
+.panel{position:fixed;background:color-mix(in oklch, var(--paper-2) 90%, transparent);border:1px solid var(--rule);border-radius:6px;backdrop-filter:blur(9px);box-shadow:0 6px 24px rgba(0,0,0,.35)}
+#hud{left:16px;top:52px;z-index:12;max-width:min(42ch,calc(100vw - 32px));padding:.7rem .85rem}
+#hud .title{font-size:1rem;font-weight:600;letter-spacing:.01em;color:var(--ink)}
+#hud .n{color:var(--ink-3);font-size:var(--t-xs);margin-top:.15rem}
+#hud .story{color:var(--ink-2);font-size:var(--t-sm);margin-top:.5rem;line-height:1.5}
+#hud .axis{color:var(--ink-3);font-size:var(--t-xs);margin-top:.5rem;border-top:1px solid var(--rule);padding-top:.5rem}
+#hud .axis b{color:var(--ink-2);font-weight:600}
+
+/* legend swatches / gradient */
+.legend{margin-top:.5rem;display:flex;flex-direction:column;gap:.25rem}
+.legend .row{display:flex;align-items:center;gap:.5rem;font-size:var(--t-xs);color:var(--ink-2)}
+.legend .sw{width:14px;height:14px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(255,255,255,.15)}
+.legend .ramp{height:10px;border-radius:3px;border:1px solid rgba(255,255,255,.15)}
+.legend .ends{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3);margin-top:1px}
+
+/* left-bottom: world switcher + lenses */
+#dock{left:16px;bottom:16px;z-index:12;padding:.6rem .7rem;display:flex;flex-direction:column;gap:.55rem;max-width:min(46ch,calc(100vw - 32px))}
+.chips{display:flex;gap:.35rem;flex-wrap:wrap}
+.chip{background:var(--paper-3);border:1px solid var(--rule);border-radius:4px;color:var(--ink-2);padding:.28em .6em;font-size:var(--t-xs);border-bottom:1px solid var(--rule)}
 .chip:hover{border-color:var(--accent);color:var(--ink)}
 .chip.on{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
-.links{display:flex;gap:.9rem;flex-wrap:wrap;color:var(--ink-3)}
-.links a{color:var(--ink-2)}
-#integrity{position:fixed;right:20px;bottom:16px;z-index:10;text-align:right;font-size:var(--t-xs);color:var(--ink-3)}
-#integrity .badge{display:inline-block;border:1px solid var(--rule);border-radius:2px;padding:.25em .6em;background:var(--paper-2);color:var(--ink-3)}
+.sect{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--mute-2);margin:.1rem 0 -.1rem}
+.links{display:flex;gap:.8rem;flex-wrap:wrap;font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--rule);padding-top:.5rem}
+.links a,.links button{color:var(--ink-2);background:none;border:none;border-bottom:1px dotted var(--rule);padding:0;font-size:var(--t-xs)}
+.links a:hover,.links button:hover{color:var(--accent)}
+
+/* right-bottom: controls */
+#ctl{right:16px;bottom:16px;z-index:12;padding:.55rem .7rem;width:230px;font-size:var(--t-xs)}
+#ctl .head{display:flex;justify-content:space-between;align-items:center;color:var(--ink-3);cursor:pointer;user-select:none}
+#ctl .body{margin-top:.5rem;display:flex;flex-direction:column;gap:.55rem}
+#ctl.collapsed .body{display:none}
+.ctlrow{display:flex;flex-direction:column;gap:.2rem}
+.ctlrow label{display:flex;justify-content:space-between;color:var(--ink-2)}
+.ctlrow label span{color:var(--ink-3)}
+input[type=range]{width:100%;accent-color:var(--accent);height:16px}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:.5rem;color:var(--ink-2)}
+.sw-btn{width:34px;height:18px;border-radius:9px;background:var(--paper-3);border:1px solid var(--rule);position:relative;flex:0 0 auto;transition:background .15s}
+.sw-btn::after{content:"";position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;background:var(--ink-3);transition:transform .15s,background .15s}
+.sw-btn.on{background:var(--accent-bg);border-color:var(--accent)}
+.sw-btn.on::after{transform:translateX(16px);background:var(--accent)}
+
+#integrity{right:16px;top:52px;z-index:12;text-align:right;font-size:var(--t-xs);color:var(--ink-3);padding:.45rem .6rem}
+#integrity .badge{display:inline-block;border:1px solid var(--rule);border-radius:4px;padding:.2em .55em;color:var(--ink-3)}
 #integrity .badge.ok{color:var(--accent);border-color:currentColor}
-#integrity .badge.bad{color:oklch(0.7 0.19 25);border-color:currentColor}
-#empty{position:fixed;inset:0;z-index:5;display:none;align-items:center;justify-content:center;padding:2rem}
-#empty .box{max-width:56ch;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.4rem 1.6rem;font-size:var(--t-sm);color:var(--ink-2);line-height:1.6}
-#empty code{background:var(--paper);border:1px solid var(--rule);border-radius:2px;padding:.06em .35em}
+#integrity .badge.bad{color:var(--warn);border-color:currentColor}
+#integrity .baked{margin-top:.3rem;color:var(--mute-2);font-size:10px}
+
+/* pick popup */
+#pick{position:fixed;z-index:20;max-width:320px;padding:.7rem .8rem;font-size:var(--t-xs);display:none}
+#pick h4{margin:0 0 .35rem;font-size:var(--t-sm);color:var(--ink);font-weight:600}
+#pick .cell{color:var(--ink-3);font-size:10px;word-break:break-all;margin-bottom:.45rem}
+#pick table{width:100%;border-collapse:collapse}
+#pick td{padding:.12rem 0;vertical-align:top}
+#pick td.b{color:var(--ink-3)}
+#pick td.v{color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+#pick .cid{display:flex;gap:.5rem;margin-top:.5rem;border-top:1px solid var(--rule);padding-top:.45rem;flex-wrap:wrap}
+#pick .cid a,#pick .cid button{font-size:10px;color:var(--ink-2);background:none;border:none;border-bottom:1px dotted var(--rule);padding:0}
+#pick .cid a:hover,#pick .cid button:hover{color:var(--accent)}
+#pick .x{position:absolute;top:.4rem;right:.5rem;color:var(--ink-3);background:none;border:none;font-size:1rem;line-height:1}
+#pick .x:hover{color:var(--ink)}
+
+/* first-run hint + empty */
+#hint{position:fixed;left:50%;top:calc(52px + 12px);transform:translateX(-50%);z-index:14;background:color-mix(in oklch,var(--paper-2) 90%,transparent);border:1px solid var(--rule);border-radius:20px;padding:.35rem 1rem;font-size:var(--t-xs);color:var(--ink-2);backdrop-filter:blur(8px);transition:opacity .5s;pointer-events:none}
+#empty{position:fixed;inset:0;z-index:15;display:none;align-items:center;justify-content:center;padding:2rem}
+#empty .box{max-width:56ch;background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.4rem 1.6rem;font-size:var(--t-sm);color:var(--ink-2);line-height:1.6}
+#empty code{background:var(--paper);border:1px solid var(--rule);border-radius:3px;padding:.06em .35em}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:30;background:var(--accent-bg);border:1px solid var(--accent);color:var(--ink);border-radius:6px;padding:.4rem .8rem;font-size:var(--t-xs);opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}
+@media (max-width:760px){#ctl{width:190px}#hud{max-width:calc(100vw - 32px)}}
 </style>
 </head>
 <body>
@@ -73,274 +127,426 @@ canvas{position:fixed;inset:0;z-index:0}
   </div>
 </header>
 
-<div id="hud">
-  <b id="hud-title">loading…</b>
-  <span id="hud-n"></span>
-  <span id="hud-sub"></span>
+<div id="hud" class="panel">
+  <div class="title" id="w-title">loading…</div>
+  <div class="n" id="hud-n"></div>
+  <div class="story" id="w-story"></div>
+  <div class="axis" id="w-axis"></div>
+  <div class="legend" id="w-legend"></div>
 </div>
 
-<div id="panel">
+<div id="integrity" class="panel">
+  <span class="badge" id="badge">fetching scene…</span>
+  <div class="baked" id="baked"></div>
+</div>
+
+<div id="dock" class="panel">
+  <div class="sect">world</div>
   <div class="chips" id="chips"></div>
+  <div class="sect" id="lens-sect" style="display:none">colour by (signed band)</div>
+  <div class="chips" id="lenses"></div>
   <div class="links" id="links" hidden>
-    <a id="dl-ply" download>world.ply</a>
-    <a id="dl-splat" download>world.splat</a>
+    <a id="dl-ply" download>.ply</a>
+    <a id="dl-splat" download>.splat</a>
     <a id="dl-prov" download>provenance</a>
-    <a id="open-supersplat" rel="noopener" target="_blank"
-       title="opens the signed .ply in the SuperSplat editor (needs this page to be on a public host)">open in SuperSplat</a>
-    <a id="verify-fact" rel="noopener" target="_blank"
-       title="re-check one of this scene's fact CIDs against the responder">verify a splat</a>
+    <a id="open-supersplat" rel="noopener" target="_blank" title="open the signed .ply in the SuperSplat editor">SuperSplat</a>
   </div>
 </div>
 
-<div id="integrity"><span class="badge" id="badge">fetching scene…</span><br>
-  <span id="baked"></span></div>
+<div id="ctl" class="panel collapsed">
+  <div class="head" id="ctl-head"><span>controls</span><span id="ctl-caret">▸</span></div>
+  <div class="body">
+    <div class="toggle"><span>satellite basemap</span><div class="sw-btn" id="t-base"></div></div>
+    <div class="ctlrow" id="base-op-row" style="display:none">
+      <label>imagery opacity <span id="v-baseop">90%</span></label>
+      <input type="range" id="s-baseop" min="0" max="100" value="90">
+    </div>
+    <div class="ctlrow">
+      <label>vertical exaggeration <span id="v-exag">1.0×</span></label>
+      <input type="range" id="s-exag" min="30" max="300" value="100">
+    </div>
+    <div class="ctlrow">
+      <label>splat size <span id="v-size">1.0×</span></label>
+      <input type="range" id="s-size" min="40" max="220" value="100">
+    </div>
+    <div class="ctlrow">
+      <label>opacity <span id="v-op">100%</span></label>
+      <input type="range" id="s-op" min="20" max="130" value="100">
+    </div>
+    <div class="links" style="border:none;padding:0">
+      <button id="b-reset">reset view</button>
+      <button id="b-spin">stop spin</button>
+    </div>
+  </div>
+</div>
 
+<div id="pick" class="panel">
+  <button class="x" id="pick-x" aria-label="close">×</button>
+  <h4 id="pick-title">cell</h4>
+  <div class="cell" id="pick-cell"></div>
+  <table id="pick-tbl"></table>
+  <div class="cid" id="pick-cid"></div>
+</div>
+
+<div id="attrib" style="position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:11;font-size:10px;color:var(--mute);background:color-mix(in oklch,var(--paper) 70%,transparent);padding:.2rem .6rem;border-radius:10px;display:none">satellite: Esri World Imagery · reference only, not signed data</div>
+<div id="hint">drag to orbit · scroll to zoom · click a splat to read it</div>
 <div id="empty"><div class="box" id="empty-box"></div></div>
+<div class="toast" id="toast"></div>
 
 <script>
-// The four baked worlds. Camera, shape, and colorize are the same values
-// as the editable templates in examples/3d-worlds/ — this page only
-// changes WHERE the scene comes from: a pre-baked, hash-checked artifact
-// under /v1/worlds instead of a live fetch, so it renders instantly and
-// puts zero materialization load on the responder.
+// Human-readable metadata for every band any world uses: name, unit, and
+// how to print a raw value. Drives the pick popup and legends. Nothing
+// here changes the data — it only labels the signed numbers.
+var BAND = {
+  "copdem30m.elevation_mean": { name: "elevation", unit: "m", dec: 0 },
+  "indices.ndvi": { name: "NDVI (greenness)", unit: "", dec: 2 },
+  "surface_water.recurrence": { name: "water recurrence", unit: "%", dec: 0 },
+  "esa_cci_biomass.agb_t_per_ha_2022": { name: "above-ground biomass", unit: "t/ha", dec: 0 },
+  "esa_cci_biomass.agb_se_t_per_ha_2022": { name: "biomass std error", unit: "t/ha", dec: 0 },
+  "forest_change.lossyear": { name: "forest loss year", unit: "", fmt: function (v) { return v >= 1 ? String(2000 + v) : "no loss"; } },
+  "forest_change.treecover2000": { name: "tree cover (2000)", unit: "%", dec: 0 },
+  "geotessera": { name: "GeoTessera embedding", unit: "128-D", fmt: function () { return "128-D vector"; } },
+};
+function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function ramp(stops) { // stops: [[t, "#rgb"], ...] -> css linear-gradient
+  return "linear-gradient(90deg," + stops.map(function (s) {
+    return s[1] + " " + Math.round(s[0] * 100) + "%"; }).join(",") + ")";
+}
+
+// Per-world: the story, what the axes mean, and the signed-band lenses you
+// can recolour by. Each lens's colorize() is the same math the exporter
+// used; the legend explains it in plain language.
 var WORLDS = {
   canyon: {
     title: "Grand Canyon · elevation",
+    story: "One band does everything here: Copernicus DEM elevation. Height is the measured elevation, and colour runs the same ramp so the gorge glows ember and the rim burns gold. Each gaussian lies in the tangent plane of the terrain around it, tilted by the slope finite-differenced over its neighbours.",
+    axis: "<b>height</b> = elevation (m) · <b>tilt</b> = local slope · <b>colour</b> = elevation",
     bands: ["copdem30m.elevation_mean"],
     heightBand: "copdem30m.elevation_mean",
     heightExaggeration: 1.7, cameraDistance: 0.95, cameraHeight: 0.62,
     shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
-    subtitle: "Copernicus DEM · baked from signed facts · re-check any splat at /verify",
-    colorize: function (row, c, ctx) {
-      var t = (row[this.heightBand] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
-      if (t < 0.45) { var u = t / 0.45;
-        c.setRGB(0.30 + 0.55 * u, 0.07 + 0.20 * u, 0.05 + 0.06 * u); }
-      else { var v = (t - 0.45) / 0.55;
-        c.setRGB(0.85 + 0.15 * v, 0.27 + 0.58 * v, 0.11 + 0.45 * v); }
-    },
+    lenses: [
+      { key: "elevation", label: "elevation", band: "copdem30m.elevation_mean",
+        legend: { grad: [[0, "#4d120d"], [0.45, "#d94523"], [1, "#f5d76e"]], lo: "gorge", hi: "rim" },
+        colorize: function (row, c, ctx) {
+          var t = (row["copdem30m.elevation_mean"] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
+          if (t < 0.45) { var u = t / 0.45; c.setRGB(0.30 + 0.55 * u, 0.07 + 0.20 * u, 0.05 + 0.06 * u); }
+          else { var v = (t - 0.45) / 0.55; c.setRGB(0.85 + 0.15 * v, 0.27 + 0.58 * v, 0.11 + 0.45 * v); }
+        } },
+    ],
   },
   interlaken: {
     title: "Interlaken · elevation + vegetation + water",
+    story: "Three signed bands fused per cell over the Bernese Oberland. Height is elevation; colour blends Sentinel-2 greenness with a snowline above the treeline, and any cell the JRC water layer marks recurrent turns lake blue. Relief and forests and lakes each come from their own source.",
+    axis: "<b>height</b> = elevation (m) · <b>colour</b> = NDVI + snowline, water overrides blue",
     bands: ["copdem30m.elevation_mean", "indices.ndvi", "surface_water.recurrence"],
     heightBand: "copdem30m.elevation_mean",
     heightExaggeration: 1.9, cameraDistance: 1.0, cameraHeight: 0.62,
     shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
-    subtitle: "Cop-DEM + Sentinel-2 NDVI + JRC water, fused per cell",
-    colorize: function (row, c, ctx) {
-      var water = row["surface_water.recurrence"] || 0;
-      if (water > 40) { c.setRGB(0.16, 0.44, 0.85); return; }
-      var h = (row["copdem30m.elevation_mean"] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
-      var v = Math.max(0, Math.min(1, (row["indices.ndvi"] != null ? row["indices.ndvi"] : 0.15)));
-      if (h > 0.72) { var s = (h - 0.72) / 0.28;
-        c.setRGB(0.60 + 0.36 * s, 0.60 + 0.36 * s, 0.64 + 0.33 * s); return; }
-      c.setRGB(0.30 - 0.10 * v + 0.22 * h, 0.35 + 0.36 * v, 0.17 + 0.11 * h);
-    },
+    lenses: [
+      { key: "fused", label: "fused", legend: { rows: [["#2970d9", "lake (JRC water)"], ["#4a9a4a", "forest (NDVI)"], ["#9a9aa6", "rock / snow"]] },
+        colorize: function (row, c, ctx) {
+          var water = row["surface_water.recurrence"] || 0;
+          if (water > 40) { c.setRGB(0.16, 0.44, 0.85); return; }
+          var h = (row["copdem30m.elevation_mean"] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9);
+          var v = clamp01(row["indices.ndvi"] != null ? row["indices.ndvi"] : 0.15);
+          if (h > 0.72) { var s = (h - 0.72) / 0.28; c.setRGB(0.60 + 0.36 * s, 0.60 + 0.36 * s, 0.64 + 0.33 * s); return; }
+          c.setRGB(0.30 - 0.10 * v + 0.22 * h, 0.35 + 0.36 * v, 0.17 + 0.11 * h);
+        } },
+      { key: "ndvi", label: "NDVI", band: "indices.ndvi",
+        legend: { grad: [[0, "#6b5330"], [0.5, "#9ab24a"], [1, "#1f7a2e"]], lo: "bare", hi: "dense veg" },
+        colorize: function (row, c) {
+          var v = clamp01(((row["indices.ndvi"] != null ? row["indices.ndvi"] : 0) + 0.1) / 0.9);
+          c.setRGB(lerp(0.42, 0.12, v), lerp(0.33, 0.48, v), lerp(0.19, 0.18, v));
+        } },
+      { key: "water", label: "water", band: "surface_water.recurrence",
+        legend: { grad: [[0, "#20201c"], [0.5, "#2f6fbf"], [1, "#63c6ff"]], lo: "dry", hi: "always wet" },
+        colorize: function (row, c) {
+          var w = clamp01((row["surface_water.recurrence"] || 0) / 100);
+          c.setRGB(lerp(0.13, 0.20, w), lerp(0.13, 0.62, w), lerp(0.11, 1.0, w));
+        } },
+    ],
   },
   semantic: {
     title: "Cairo and Giza · what the foundation model sees",
+    story: "Colour is not a measurement you can name — it is the memory's own 128-D GeoTessera embedding of each cell, projected to its first three principal components (one per colour channel). Desert, Nile-valley farmland, and urban fabric separate on their own, with no land-cover labels anywhere in the loop. Height is measured elevation.",
+    axis: "<b>height</b> = elevation (m) · <b>colour</b> = 128-D embedding → PCA → RGB",
     bands: ["copdem30m.elevation_mean", "geotessera"],
     heightBand: "copdem30m.elevation_mean",
     heightExaggeration: 10, cameraDistance: 0.8, cameraHeight: 1.0,
     shape: { gridNormals: true, gridRelief: true, opacity: 0.92 },
-    subtitle: "GeoTessera 128-D embedding, PCA to RGB · every vector is a signed fact",
-    prepare: function (rows) {
-      var vecs = [], idx = [];
-      rows.forEach(function (r, i) {
-        var v = r["geotessera"];
-        if (Array.isArray(v) && v.length >= 8) { vecs.push(v); idx.push(i); }
-      });
-      if (!vecs.length) return;
-      var D = vecs[0].length, N = vecs.length, i, j, k;
-      var mean = new Float64Array(D);
-      for (i = 0; i < N; i++) for (j = 0; j < D; j++) mean[j] += vecs[i][j] / N;
-      var X = vecs.map(function (v) {
-        var x = new Float64Array(D);
-        for (j = 0; j < D; j++) x[j] = v[j] - mean[j];
-        return x;
-      });
-      var scores = [];
-      for (k = 0; k < 3; k++) {
-        var pc = new Float64Array(D);
-        for (j = 0; j < D; j++) pc[j] = 1 / Math.sqrt(D);
-        for (var it = 0; it < 60; it++) {
-          var nv = new Float64Array(D);
-          for (i = 0; i < N; i++) {
-            var dot = 0;
-            for (j = 0; j < D; j++) dot += X[i][j] * pc[j];
-            for (j = 0; j < D; j++) nv[j] += X[i][j] * dot;
-          }
-          var l = 0;
-          for (j = 0; j < D; j++) l += nv[j] * nv[j];
-          l = Math.sqrt(l) || 1;
-          for (j = 0; j < D; j++) pc[j] = nv[j] / l;
-        }
-        var s = new Float64Array(N);
-        for (i = 0; i < N; i++) {
-          var d2 = 0;
-          for (j = 0; j < D; j++) d2 += X[i][j] * pc[j];
-          s[i] = d2;
-          for (j = 0; j < D; j++) X[i][j] -= d2 * pc[j];
-        }
-        scores.push(s);
-      }
-      for (k = 0; k < 3; k++) {
-        var sorted = Array.prototype.slice.call(scores[k]).sort(function (a, b) { return a - b; });
-        var lo = sorted[Math.floor(0.02 * (N - 1))], hi = sorted[Math.ceil(0.98 * (N - 1))];
-        var span = hi - lo || 1;
-        for (i = 0; i < N; i++) {
-          var t = Math.max(0, Math.min(1, (scores[k][i] - lo) / span));
-          var row = rows[idx[i]];
-          (row._sem || (row._sem = [0, 0, 0]))[k] = t;
-        }
-      }
-    },
-    colorize: function (row, c) {
-      var s = row._sem;
-      if (!s) { c.setRGB(0.25, 0.24, 0.22); return; }
-      c.setRGB(0.15 + 0.68 * s[0], 0.15 + 0.68 * s[1], 0.15 + 0.68 * s[2]);
-    },
+    prepare: semanticPCA,
+    lenses: [
+      { key: "embedding", label: "embedding (PCA)", legend: { note: "colour = nearness in the model's 128-D space; two cells share a hue because the model puts them near each other, not because of any label." },
+        colorize: function (row, c) {
+          var s = row._sem; if (!s) { c.setRGB(0.25, 0.24, 0.22); return; }
+          c.setRGB(0.15 + 0.68 * s[0], 0.15 + 0.68 * s[1], 0.15 + 0.68 * s[2]);
+        } },
+      { key: "elevation", label: "elevation", band: "copdem30m.elevation_mean",
+        legend: { grad: [[0, "#2b2f4d"], [0.5, "#c8a24a"], [1, "#f0e3b0"]], lo: "valley", hi: "plateau" },
+        colorize: function (row, c, ctx) {
+          var t = clamp01((row["copdem30m.elevation_mean"] - ctx.hMin) / (ctx.hMax - ctx.hMin + 1e-9));
+          c.setRGB(lerp(0.17, 0.94, t), lerp(0.18, 0.89, t), lerp(0.30, 0.69, t));
+        } },
+    ],
   },
   carbon: {
     title: "Rondônia · standing carbon and the year it fell",
-    bands: ["esa_cci_biomass.agb_t_per_ha_2022",
-            "forest_change.lossyear", "forest_change.treecover2000"],
+    story: "The BR-364 deforestation frontier, with no terrain at all. Height is ESA CCI above-ground biomass, so standing forest rises and cleared land sits flat. Each splat's thickness is that biomass estimate's own published standard error. Colour is the Hansen loss year: intact canopy stays green, cleared cells burn on an ember ramp that brightens the more recent the clearing. The fishbone along the highway is the frontier itself.",
+    axis: "<b>height</b> = biomass (t/ha) · <b>thickness</b> = its std error · <b>colour</b> = loss year",
+    bands: ["esa_cci_biomass.agb_t_per_ha_2022", "forest_change.lossyear", "forest_change.treecover2000"],
     heightBand: "esa_cci_biomass.agb_t_per_ha_2022",
-    heightExaggeration: 15, cameraDistance: 0.62,
+    heightExaggeration: 15, cameraDistance: 0.62, cameraHeight: 0.5,
     shape: { sigmaBand: "esa_cci_biomass.agb_se_t_per_ha_2022", sigmaFloorM: 4 },
-    subtitle: "ESA CCI biomass + Hansen loss year · splat thickness is the published standard error",
-    colorize: function (row, c) {
-      var loss = row["forest_change.lossyear"] || 0;
-      var tc = row["forest_change.treecover2000"] || 0;
-      var agb = row["esa_cci_biomass.agb_t_per_ha_2022"] || 0;
-      if (loss >= 1) {
-        var u = Math.max(0, Math.min(1, (loss - 1) / 23));
-        c.setRGB(0.45 + 0.55 * u, 0.10 + 0.30 * u, 0.03 + 0.07 * u);
-      } else if (tc < 30) {
-        c.setRGB(0.52, 0.44, 0.28);
-      } else {
-        var v = Math.max(0, Math.min(1, agb / 300));
-        c.setRGB(0.05, 0.30 + 0.45 * v, 0.10 + 0.10 * v);
-      }
-    },
+    lenses: [
+      { key: "story", label: "forest & loss", legend: { rows: [["#1f8a3a", "standing forest (deeper = more carbon)"], ["#e86a1a", "cleared (brighter = more recent)"], ["#856f47", "open before 2000"]] },
+        colorize: function (row, c) {
+          var loss = row["forest_change.lossyear"] || 0;
+          var tc = row["forest_change.treecover2000"] || 0;
+          var agb = row["esa_cci_biomass.agb_t_per_ha_2022"] || 0;
+          if (loss >= 1) { var u = clamp01((loss - 1) / 23); c.setRGB(0.45 + 0.55 * u, 0.10 + 0.30 * u, 0.03 + 0.07 * u); }
+          else if (tc < 30) { c.setRGB(0.52, 0.44, 0.28); }
+          else { var v = clamp01(agb / 300); c.setRGB(0.05, 0.30 + 0.45 * v, 0.10 + 0.10 * v); }
+        } },
+      { key: "biomass", label: "biomass", band: "esa_cci_biomass.agb_t_per_ha_2022",
+        legend: { grad: [[0, "#20201c"], [0.5, "#3f8f3a"], [1, "#0b3d1a"]], lo: "0 t/ha", hi: "300+ t/ha" },
+        colorize: function (row, c) {
+          var v = clamp01((row["esa_cci_biomass.agb_t_per_ha_2022"] || 0) / 300);
+          c.setRGB(lerp(0.32, 0.03, v), lerp(0.30, 0.55, v), lerp(0.18, 0.16, v));
+        } },
+      { key: "loss", label: "loss year", band: "forest_change.lossyear",
+        legend: { grad: [[0, "#243024"], [0.5, "#e0641a"], [1, "#ffd25a"]], lo: "intact / old", hi: "recent" },
+        colorize: function (row, c) {
+          var loss = row["forest_change.lossyear"] || 0;
+          if (loss < 1) { c.setRGB(0.14, 0.19, 0.14); return; }
+          var u = clamp01((loss - 1) / 23); c.setRGB(0.55 + 0.45 * u, 0.25 + 0.55 * u, 0.05 + 0.30 * u);
+        } },
+    ],
   },
 };
+
+// semantic world: PCA of the 128-D embedding to three colour channels.
+// Power iteration with deflation, deterministic start vector. (Same math
+// the exporter and the original template used.)
+function semanticPCA(rows) {
+  var vecs = [], idx = [];
+  rows.forEach(function (r, i) { var v = r["geotessera"]; if (Array.isArray(v) && v.length >= 8) { vecs.push(v); idx.push(i); } });
+  if (!vecs.length) return;
+  var D = vecs[0].length, N = vecs.length, i, j, k;
+  var mean = new Float64Array(D);
+  for (i = 0; i < N; i++) for (j = 0; j < D; j++) mean[j] += vecs[i][j] / N;
+  var X = vecs.map(function (v) { var x = new Float64Array(D); for (j = 0; j < D; j++) x[j] = v[j] - mean[j]; return x; });
+  var scores = [];
+  for (k = 0; k < 3; k++) {
+    var pc = new Float64Array(D); for (j = 0; j < D; j++) pc[j] = 1 / Math.sqrt(D);
+    for (var it = 0; it < 60; it++) {
+      var nv = new Float64Array(D);
+      for (i = 0; i < N; i++) { var dot = 0; for (j = 0; j < D; j++) dot += X[i][j] * pc[j]; for (j = 0; j < D; j++) nv[j] += X[i][j] * dot; }
+      var l = 0; for (j = 0; j < D; j++) l += nv[j] * nv[j]; l = Math.sqrt(l) || 1; for (j = 0; j < D; j++) pc[j] = nv[j] / l;
+    }
+    var s = new Float64Array(N);
+    for (i = 0; i < N; i++) { var d2 = 0; for (j = 0; j < D; j++) d2 += X[i][j] * pc[j]; s[i] = d2; for (j = 0; j < D; j++) X[i][j] -= d2 * pc[j]; }
+    scores.push(s);
+  }
+  for (k = 0; k < 3; k++) {
+    var sorted = Array.prototype.slice.call(scores[k]).sort(function (a, b) { return a - b; });
+    var lo = sorted[Math.floor(0.02 * (N - 1))], hi = sorted[Math.ceil(0.98 * (N - 1))], span = hi - lo || 1;
+    for (i = 0; i < N; i++) { var t = clamp01((scores[k][i] - lo) / span); var row = rows[idx[i]]; (row._sem || (row._sem = [0, 0, 0]))[k] = t; }
+  }
+}
 
 (function () {
   "use strict";
   var params = new URLSearchParams(location.search);
   var preset = params.get("world");
   if (!WORLDS[preset]) preset = "canyon";
+  var W = WORLDS[preset];
   var base = "/v1/worlds/" + preset + "/";
+  var $ = function (id) { return document.getElementById(id); };
 
-  // world switcher: full navigation per world — the renderer is not
-  // re-entrant and a fresh document is cheaper than making it so
-  var chips = document.getElementById("chips");
+  // world switcher
+  var chips = $("chips");
   Object.keys(WORLDS).forEach(function (p) {
-    var a = document.createElement("a");
-    a.className = "chip" + (p === preset ? " on" : "");
-    a.textContent = p;
-    a.href = "/worlds?world=" + p;
+    var a = document.createElement("a"); a.className = "chip" + (p === preset ? " on" : "");
+    a.textContent = p.replace("semantic", "cairo").replace("carbon", "rondônia");
+    a.href = "/worlds?world=" + p; a.style.borderBottom = "1px solid transparent";
     chips.appendChild(a);
   });
 
-  document.getElementById("hud-title").textContent = WORLDS[preset].title;
+  $("w-title").textContent = W.title;
+  $("w-story").textContent = W.story;
+  $("w-axis").innerHTML = W.axis;
 
-  function showEmpty(html) {
-    document.getElementById("empty").style.display = "flex";
-    document.getElementById("empty-box").innerHTML = html;
-    document.getElementById("badge").textContent = "no baked scene";
+  function toast(msg) { var t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(function () { t.classList.remove("show"); }, 1400); }
+  function showEmpty(html) { $("empty").style.display = "flex"; $("empty-box").innerHTML = html; $("badge").textContent = "no baked scene"; }
+  function setBadge(cls, text) { var b = $("badge"); b.className = "badge" + (cls ? " " + cls : ""); b.textContent = text; }
+  function hex(buf) { return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, "0"); }).join(""); }
+
+  function renderLegend(lens) {
+    var el = $("w-legend"); el.innerHTML = "";
+    var lg = lens.legend || {};
+    if (lg.grad) {
+      var d = document.createElement("div"); d.className = "ramp"; d.style.background = ramp(lg.grad); el.appendChild(d);
+      var ends = document.createElement("div"); ends.className = "ends";
+      ends.innerHTML = "<span>" + (lg.lo || "") + "</span><span>" + (lg.hi || "") + "</span>"; el.appendChild(ends);
+    } else if (lg.rows) {
+      lg.rows.forEach(function (r) {
+        var row = document.createElement("div"); row.className = "row";
+        row.innerHTML = "<span class=sw style='background:" + r[0] + "'></span><span>" + r[1] + "</span>"; el.appendChild(row);
+      });
+    } else if (lg.note) {
+      var n = document.createElement("div"); n.className = "row"; n.style.color = "var(--ink-3)"; n.textContent = lg.note; el.appendChild(n);
+    }
   }
 
-  function hex(buf) {
-    return Array.prototype.map.call(new Uint8Array(buf), function (b) {
-      return b.toString(16).padStart(2, "0");
-    }).join("");
+  var api = null, curLens = W.lenses[0];
+  function renderLenses() {
+    var wrap = $("lenses"); wrap.innerHTML = "";
+    if (W.lenses.length < 2) { $("lens-sect").style.display = "none"; renderLegend(curLens); return; }
+    $("lens-sect").style.display = "";
+    W.lenses.forEach(function (L) {
+      var b = document.createElement("button"); b.className = "chip" + (L === curLens ? " on" : ""); b.textContent = L.label;
+      b.onclick = function () {
+        curLens = L; renderLenses(); renderLegend(L);
+        if (api) api.recolor(L.colorize);
+      };
+      wrap.appendChild(b);
+    });
+    renderLegend(curLens);
   }
 
-  function setBadge(cls, text) {
-    var b = document.getElementById("badge");
-    b.className = "badge" + (cls ? " " + cls : "");
-    b.textContent = text;
+  // ---- pick popup ----
+  function fmtVal(band, v) {
+    var m = BAND[band]; if (!m) return String(v);
+    if (m.fmt) return m.fmt(v);
+    var s = (m.dec != null) ? Number(v).toFixed(m.dec) : String(v);
+    return s + (m.unit ? " " + m.unit : "");
+  }
+  function showPick(hit) {
+    var row = hit.row, cids = row._cids || {};
+    $("pick-title").textContent = (BAND[W.heightBand] ? BAND[W.heightBand].name : "cell") + " here";
+    $("pick-cell").textContent = hit.cellId;
+    var tbl = $("pick-tbl"); tbl.innerHTML = "";
+    W.bands.forEach(function (band) {
+      if (row[band] == null) return;
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td class=b>" + (BAND[band] ? BAND[band].name : band) + "</td><td class=v>" + fmtVal(band, row[band]) + "</td>";
+      tbl.appendChild(tr);
+    });
+    if (row._conf != null) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td class=b>attested confidence</td><td class=v>" + Number(row._conf).toFixed(2) + "</td>";
+      tbl.appendChild(tr);
+    }
+    var cidWrap = $("pick-cid"); cidWrap.innerHTML = "";
+    var anyCid = Object.keys(cids)[0];
+    if (anyCid && cids[anyCid]) {
+      var a = document.createElement("a"); a.href = "/verify/" + cids[anyCid]; a.target = "_blank"; a.rel = "noopener"; a.textContent = "verify signature ↗"; cidWrap.appendChild(a);
+      var tok = "memt:" + hit.cellId + ":" + cids[anyCid];
+      var cp = document.createElement("button"); cp.textContent = "copy memt token";
+      cp.onclick = function () { navigator.clipboard && navigator.clipboard.writeText(tok); toast("copied " + tok.slice(0, 22) + "…"); };
+      cidWrap.appendChild(cp);
+    }
+    var pk = $("pick");
+    pk.style.display = "block";
+    var px = Math.min(hit.screenX + 14, window.innerWidth - pk.offsetWidth - 12);
+    var py = Math.min(Math.max(hit.screenY - 20, 52), window.innerHeight - pk.offsetHeight - 12);
+    pk.style.left = px + "px"; pk.style.top = py + "px";
+  }
+  $("pick-x").onclick = function () { $("pick").style.display = "none"; };
+
+  // ---- controls ----
+  $("ctl-head").onclick = function () { var c = $("ctl"); c.classList.toggle("collapsed"); $("ctl-caret").textContent = c.classList.contains("collapsed") ? "▸" : "▾"; };
+  function wireControls() {
+    var baseOn = false;
+    $("t-base").onclick = function () {
+      baseOn = !baseOn; this.classList.toggle("on", baseOn); $("base-op-row").style.display = baseOn ? "" : "none";
+      $("attrib").style.display = baseOn ? "" : "none";
+      if (baseOn) {
+        setBadge("", "loading imagery…");
+        var ext = api.basemapExtent(); var bb = ext.bbox;
+        var aspect = ext.w / ext.h; var iw = 1024, ih = Math.max(64, Math.round(iw / aspect));
+        if (ih > 1024) { ih = 1024; iw = Math.max(64, Math.round(ih * aspect)); }
+        var url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=" +
+          bb.join(",") + "&bboxSR=4326&imageSR=4326&size=" + iw + "," + ih + "&format=jpg&f=image";
+        api.setBasemap(url, { opacity: $("s-baseop").value / 100 }).then(function (ok) {
+          setBadge(sceneVerified ? "ok" : "", sceneVerified ? "scene sha256 verified" : "hash unchecked");
+          if (!ok) toast("imagery unavailable");
+          else toast("Esri World Imagery · reference only, not signed");
+        });
+      } else { api.setBasemap(null); }
+    };
+    $("s-baseop").oninput = function () {
+      $("v-baseop").textContent = this.value + "%";
+      if (api.__lastBase) api.__lastBase.material.opacity = this.value / 100;
+    };
+    $("s-exag").oninput = function () { $("v-exag").textContent = (this.value / 100).toFixed(2) + "×"; };
+    $("s-exag").onchange = function () { api.rebuild({ heightExaggeration: W.heightExaggeration * (this.value / 100) }); };
+    $("s-size").oninput = function () { var s = this.value / 100; $("v-size").textContent = s.toFixed(2).replace(/0$/, "") + "×"; api.setSplatScale(s); };
+    $("s-op").oninput = function () { var o = this.value / 100; $("v-op").textContent = Math.round(o * 100) + "%"; api.setOpacityScale(o); };
+    $("b-reset").onclick = function () { api.resetView(); };
+    var spinning = true;
+    $("b-spin").onclick = function () { spinning = !spinning; api.spin(spinning); this.textContent = spinning ? "stop spin" : "start spin"; };
   }
 
+  var sceneVerified = false;
   async function boot() {
     var metaResp = await fetch(base + "meta.json");
     if (!metaResp.ok) {
-      showEmpty(
-        "<b>" + WORLDS[preset].title + "</b> has not been baked on this " +
-        "responder yet. An operator runs <code>scripts/bake_worlds.sh</code> " +
-        "once (or enables <code>emem-worlds-bake.timer</code>) and this page " +
-        "serves the finished world from disk from then on. The editable " +
-        "live-fetch templates remain in <code>examples/3d-worlds/</code>.");
+      showEmpty("<b>" + W.title + "</b> has not been baked on this responder yet. An operator runs " +
+        "<code>scripts/bake_worlds.sh</code> (or <code>scripts/stage_worlds.py</code>) once and this page serves the finished, " +
+        "signed world from disk from then on. The editable live-fetch templates are in <code>examples/3d-worlds/</code>.");
       return;
     }
     var meta = await metaResp.json();
     var sceneMeta = (meta.artifacts && meta.artifacts.scene) || {};
-    document.getElementById("baked").textContent =
-      "baked " + (meta.baked_at || "?") + " · " +
-      Math.round((sceneMeta.bytes || 0) / 1024) + " KB scene";
-
-    var links = document.getElementById("links");
-    links.hidden = false;
-    document.getElementById("dl-ply").href = base + "world.ply";
-    document.getElementById("dl-splat").href = base + "world.splat";
-    document.getElementById("dl-prov").href = base + "world.provenance.json";
-    document.getElementById("open-supersplat").href =
-      "https://superspl.at/editor?load=" +
-      encodeURIComponent(location.origin + base + "world.ply");
+    $("baked").textContent = "baked " + (meta.baked_at || "?") + " · " + Math.round((sceneMeta.bytes || 0) / 1024) + " KB";
+    $("links").hidden = false;
+    $("dl-ply").href = base + "world.ply"; $("dl-splat").href = base + "world.splat"; $("dl-prov").href = base + "world.provenance.json";
+    $("open-supersplat").href = "https://superspl.at/editor?load=" + encodeURIComponent(location.origin + base + "world.ply");
 
     var sceneResp = await fetch(base + "world.scene.json");
     if (!sceneResp.ok) { showEmpty("scene fetch failed: HTTP " + sceneResp.status); return; }
     var bytes = await sceneResp.arrayBuffer();
-
-    // Bind the bytes about to be rendered to the bake's receipts: the
-    // sha256 in meta.json is copied verbatim from the provenance sidecar
-    // the exporter wrote next to the receipts it verified.
     var want = sceneMeta.sha256;
     if (window.crypto && crypto.subtle && want) {
       var got = hex(await crypto.subtle.digest("SHA-256", bytes));
-      if (got === want) setBadge("ok", "scene sha256 verified");
-      else setBadge("bad", "scene hash MISMATCH");
-    } else {
-      setBadge("", want ? "hash unchecked (no WebCrypto)" : "hash unchecked");
-    }
-
+      sceneVerified = (got === want);
+      setBadge(sceneVerified ? "ok" : "bad", sceneVerified ? "scene sha256 verified" : "scene hash MISMATCH");
+    } else { setBadge("", want ? "hash unchecked (no WebCrypto)" : "hash unchecked"); }
     var scene = JSON.parse(new TextDecoder().decode(bytes));
 
-    // one representative fact CID for the verify link; any splat's CID
-    // re-checks the same way
-    var cid = null;
-    for (var cell in scene.cells) {
-      var cids = scene.cells[cell]._cids || {};
-      for (var band in cids) { if (cids[band]) { cid = cids[band]; break; } }
-      if (cid) break;
-    }
-    var vf = document.getElementById("verify-fact");
-    if (cid) vf.href = "/verify/" + cid; else vf.hidden = true;
+    renderLenses();
 
-    var cfg = Object.assign({ responder: location.origin, maxCells: 1024 }, WORLDS[preset]);
+    var cfg = {
+      responder: location.origin, maxCells: 1024,
+      bands: W.bands, heightBand: W.heightBand,
+      heightExaggeration: W.heightExaggeration, cameraDistance: W.cameraDistance, cameraHeight: W.cameraHeight,
+      shape: W.shape, prepare: W.prepare, colorize: curLens.colorize,
+      onReady: function (a) {
+        api = a;
+        a.__lastBase = null;
+        var origSet = a.setBasemap;
+        a.setBasemap = function (u, o) { return origSet(u, o).then(function (ok) { a.__lastBase = a.scene.children.filter(function (m) { return m.renderOrder === -1; })[0] || null; return ok; }); };
+        wireControls();
+        // click / tap to pick a splat
+        a.renderer.domElement.addEventListener("click", function (e) {
+          var hit = a.pick(e.clientX, e.clientY, 18);
+          if (hit) { showPick(hit); } else { $("pick").style.display = "none"; }
+        });
+        // fade the hint after first interaction
+        var fade = function () { var h = $("hint"); if (h) { h.style.opacity = "0"; setTimeout(function () { h.remove(); }, 600); } window.removeEventListener("pointerdown", fade); };
+        window.addEventListener("pointerdown", fade);
+        setTimeout(fade, 6000);
+      },
+    };
     window.EMEM_WORLD = cfg;
     window.EMEM_DATA = scene;
-
-    // the engine renders window.EMEM_DATA on load; scripts are classic
-    // (non-module), so order is enforced by chained injection
-    load("/worlds/three.min.js", function () {
-      load("/worlds/splat-math.js", function () {
-        load("/worlds/emem-world.js", function () {});
-      });
-    });
+    load("/worlds/three.min.js", function () { load("/worlds/splat-math.js", function () { load("/worlds/emem-world.js", function () {}); }); });
   }
-
-  function load(src, onload) {
-    var s = document.createElement("script");
-    s.src = src; s.onload = onload;
-    s.onerror = function () { showEmpty("failed to load " + src); };
-    document.body.appendChild(s);
-  }
-
-  boot().catch(function (e) {
-    showEmpty("error: " + (e && e.message ? e.message : e));
-  });
+  function load(src, cb) { var s = document.createElement("script"); s.src = src; s.onload = cb; s.onerror = function () { showEmpty("failed to load " + src); }; document.body.appendChild(s); }
+  boot().catch(function (e) { showEmpty("error: " + (e && e.message ? e.message : e)); });
 })();
 </script>
 </body>

@@ -144,6 +144,39 @@ raw and processed, so nothing requires a live responder:
 
 ## Serve baked worlds
 
+Building a world is minutes of materialize-and-sign work; serving one is a
+disk read. [`scripts/bake_worlds.sh`](../../scripts/bake_worlds.sh) runs this
+exporter for every preset against the local responder in gentle mode (small
+batches, `--sleep` spacing so interactive traffic keeps flowing), verifies
+every receipt, and atomically swaps the finished artifacts into
+`EMEM_WORLDS_DIR` (default `var/worlds`);
+[`scripts/stage_worlds.py`](../../scripts/stage_worlds.py) instead lays the
+committed [`scenes/`](scenes/) artifacts out there, so a fresh clone serves
+worlds without a single upstream fetch. From there the responder serves them
+instantly:
+
+- `GET /worlds` — the interactive viewer; it hash-checks the fetched scene
+  against the provenance sidecar before drawing the first splat.
+- `GET /v1/worlds` — every baked world with counts, hashes, and sizes.
+- `GET /v1/worlds/<preset>/<file>` — `world.ply`, `world.splat`,
+  `world.scene.json`, `world.provenance.json`, `meta.json`.
+
+`ops/systemd/emem-worlds-bake.timer` re-bakes weekly to pick up fresh
+vintages. Browsers never trigger the build themselves.
+
+The viewer is orbit/zoom/pan draggable and self-explaining: a per-world
+legend says what height, thickness, and colour mean; **click any splat** to
+read that cell's measured band values, follow its `fact_cid` to `/verify`,
+or copy its `memt:` token. You can recolour by any other signed band in the
+scene, change the vertical exaggeration and splat size live, and drape
+**real satellite imagery** (Esri World Imagery, fetched for the scene's own
+bounding box) under the signed geometry as reference — labelled
+reference-only, never confused with the facts. The same interaction ships in
+the editable templates via `window.__ememWorld` (and `EMEM_WORLD.onReady`):
+`api.pick`, `api.recolor`, `api.rebuild`, `api.setBasemap`. The deterministic
+capture path (`EMEM_CAPTURE`) is untouched, so the README GIFs stay
+byte-for-byte reproducible.
+
 ## Capture the GIFs
 
 The orbit GIFs in the main README come from these exact templates rendered
