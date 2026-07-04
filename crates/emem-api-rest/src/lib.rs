@@ -2580,6 +2580,7 @@ fn served_html_pages() -> Vec<&'static str> {
         DEMOS_FIND_SIMILAR_HTML,
         DEMOS_TRAJECTORY_HTML,
         DEMOS_RECALL_POLYGON_HTML,
+        WORLDS_HTML,
         GALLERY_HTML,
         API_REDOC_HTML,
         DOCS_DIAGRAMS_INDEX_HTML,

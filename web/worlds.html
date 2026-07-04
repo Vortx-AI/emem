@@ -275,9 +275,10 @@ var WORLDS = {
       return;
     }
     var meta = await metaResp.json();
+    var sceneMeta = (meta.artifacts && meta.artifacts.scene) || {};
     document.getElementById("baked").textContent =
       "baked " + (meta.baked_at || "?") + " · " +
-      Math.round((meta.artifacts.scene.bytes || 0) / 1024) + " KB scene";
+      Math.round((sceneMeta.bytes || 0) / 1024) + " KB scene";
 
     var links = document.getElementById("links");
     links.hidden = false;
@@ -295,7 +296,7 @@ var WORLDS = {
     // Bind the bytes about to be rendered to the bake's receipts: the
     // sha256 in meta.json is copied verbatim from the provenance sidecar
     // the exporter wrote next to the receipts it verified.
-    var want = meta.artifacts && meta.artifacts.scene && meta.artifacts.scene.sha256;
+    var want = sceneMeta.sha256;
     if (window.crypto && crypto.subtle && want) {
       var got = hex(await crypto.subtle.digest("SHA-256", bytes));
       if (got === want) setBadge("ok", "scene sha256 verified");

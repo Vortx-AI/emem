@@ -51,6 +51,37 @@ to verify.
   (scene JSON, .ply, .splat, provenance receipts), so the worlds render
   offline and the PLYs open in external 3DGS viewers without touching a
   responder.
+- The responder now serves the worlds itself, pre-baked. `GET /worlds`
+  renders any preset from artifacts on disk (`EMEM_WORLDS_DIR`, default
+  `var/worlds`) with the same vendored renderer as the templates, and
+  hash-checks the fetched scene against its provenance sha256 in the
+  browser before drawing the first splat; `GET /v1/worlds` lists every
+  baked world (counts, hashes, sizes) and `GET /v1/worlds/:preset/:file`
+  serves `world.ply` / `world.splat` / `world.scene.json` /
+  `world.provenance.json` / `meta.json` with ETag + an hour of caching.
+  `scripts/bake_worlds.sh` builds every preset against the local
+  responder in gentle mode (small batches, `--sleep` spacing), verifies
+  every receipt, and swaps the finished directory in atomically;
+  `scripts/stage_worlds.py` stages the committed
+  `examples/3d-worlds/scenes/` artifacts instead, so a fresh clone gets a
+  working `/worlds` without a single upstream fetch;
+  `ops/systemd/emem-worlds-bake.timer` re-bakes weekly. Browsers never
+  trigger the minutes-long materialize-and-sign build — building and
+  serving are now different machines' problems by construction.
+- `make_splats.py` provenance now also binds `scene.json` by sha256 (it
+  is what a browser actually renders), and `--sleep` spaces recall
+  batches for cold bakes against a shared responder.
+- `.github/workflows/worlds-gifs.yml` (manual dispatch) re-captures the
+  README orbit GIFs from the baked scenes served at `/v1/worlds`, with
+  zero materialization load on the responder.
+
+### Ops
+
+- `emem-watchdog.sh` now snapshots a wedged responder before restarting
+  it (per-thread state/wchan, socket-state summary, gdb backtraces when
+  available) into `var/wedge/`, and release binaries keep symbols + line
+  tables (`strip = "none"`, `debug = "line-tables-only"`), so the
+  recurring tokio-runtime stall finally leaves usable evidence behind.
 
 ### Docs
 
