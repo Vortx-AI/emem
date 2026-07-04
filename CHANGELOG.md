@@ -82,7 +82,9 @@ to verify.
   button; you can recolour by any other signed band in the scene, adjust
   vertical exaggeration and splat size live, and drape real Esri World
   Imagery (fetched for the scene's own bbox) under the signed geometry as
-  clearly-labelled reference. The interaction is exposed on
+  clearly-labelled reference. Every panel minimises (and defaults to
+  minimised on a narrow screen) so the render can fill the viewport. The
+  interaction is exposed on
   `window.__ememWorld` / `EMEM_WORLD.onReady(api)` (`pick`, `recolor`,
   `rebuild`, `setBasemap`, `setSplatScale`, `focus`); the deterministic
   `EMEM_CAPTURE` path and the golden/pixel checks are unchanged, so the
@@ -90,6 +92,21 @@ to verify.
 
 ### Ops
 
+- The recurring tokio-runtime stall is fixed at the root. sled is a
+  blocking store, and the recall and materialize paths ran its reads and
+  writes directly on the async workers; under a cold recall storm or a
+  materialize burst, enough workers blocked inside sled that the runtime
+  stopped serving `/health` and the watchdog SIGKILLed a live-but-wedged
+  process (five incidents, 2026-05-31 to -07-03). All hot sled I/O now
+  runs on the blocking pool behind a bounded semaphore
+  (`EMEM_SLED_BLOCKING_CONCURRENCY`, default 2x cores clamped to [4,64]):
+  `Cache::{lookup_many,get_many,put_many,tier_of}`, the `scan_cell`,
+  as-of, and `iter_index` index scans, and `put_attestation`'s
+  best-effort proof / multi-attester / scope index writes. Reproduced
+  with four concurrent cold bakes (~3,900 cells materialized and signed,
+  batch 64, no spacing): `/health` held at 200 across 92 samples over two
+  and a half minutes with no restart, where the same load previously
+  wedged the server; receipts still verify 65/65.
 - `emem-watchdog.sh` now snapshots a wedged responder before restarting
   it (per-thread state/wchan, socket-state summary, gdb backtraces when
   available) into `var/wedge/`, and release binaries keep symbols + line

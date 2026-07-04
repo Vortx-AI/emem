@@ -66,6 +66,18 @@ canvas{position:fixed;inset:0;z-index:0;touch-action:none}
 .links a,.links button{color:var(--ink-2);background:none;border:none;border-bottom:1px dotted var(--rule);padding:0;font-size:var(--t-xs)}
 .links a:hover,.links button:hover{color:var(--accent)}
 
+/* minimize / restore for the info + dock panels, so the render fills the
+   viewport when you want it to (default-minimized on narrow screens) */
+.min-btn{position:absolute;top:.28rem;right:.34rem;z-index:3;background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:1rem;line-height:1;padding:.02rem .32rem;border-radius:4px}
+.min-btn:hover{color:var(--ink);background:var(--paper-3)}
+#hud,#dock{padding-right:1.7rem}
+#hud.min,#dock.min{cursor:pointer}
+#hud.min .n,#hud.min .story,#hud.min .axis,#hud.min .legend{display:none}
+#hud.min .title{margin:0;font-size:var(--t-sm);max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#dock.min{gap:0}
+#dock.min .chips,#dock.min .links,#dock.min .sect{display:none}
+#dock.min::after{content:"layers";font-size:var(--t-xs);color:var(--ink-3)}
+
 /* right-bottom: controls */
 #ctl{right:16px;bottom:16px;z-index:12;padding:.55rem .7rem;width:230px;font-size:var(--t-xs)}
 #ctl .head{display:flex;justify-content:space-between;align-items:center;color:var(--ink-3);cursor:pointer;user-select:none}
@@ -128,6 +140,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 </header>
 
 <div id="hud" class="panel">
+  <button class="min-btn" id="hud-min" aria-label="minimize" title="minimize">–</button>
   <div class="title" id="w-title">loading…</div>
   <div class="n" id="hud-n"></div>
   <div class="story" id="w-story"></div>
@@ -141,6 +154,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 </div>
 
 <div id="dock" class="panel">
+  <button class="min-btn" id="dock-min" aria-label="minimize" title="minimize">–</button>
   <div class="sect">world</div>
   <div class="chips" id="chips"></div>
   <div class="sect" id="lens-sect" style="display:none">colour by (signed band)</div>
@@ -455,6 +469,22 @@ function semanticPCA(rows) {
     pk.style.left = px + "px"; pk.style.top = py + "px";
   }
   $("pick-x").onclick = function () { $("pick").style.display = "none"; };
+
+  // ---- minimize / restore the info + dock panels ----
+  // Default-minimized on narrow screens so the render is unobstructed;
+  // the choice persists per panel. When minimized, clicking anywhere on
+  // the panel (not just the button) restores it.
+  function wireMin(panelId, btnId, key) {
+    var p = $(panelId), b = $(btnId);
+    function apply(min) { p.classList.toggle("min", min); b.textContent = min ? "+" : "–"; b.title = min ? "expand" : "minimize"; }
+    var stored = null; try { stored = localStorage.getItem(key); } catch (e) { }
+    apply(stored === null ? window.innerWidth <= 760 : stored === "1");
+    function set(min) { apply(min); try { localStorage.setItem(key, min ? "1" : "0"); } catch (e) { } }
+    b.onclick = function (e) { e.stopPropagation(); set(!p.classList.contains("min")); };
+    p.addEventListener("click", function (e) { if (p.classList.contains("min") && e.target !== b) set(false); });
+  }
+  wireMin("hud", "hud-min", "emem.worlds.hud.min");
+  wireMin("dock", "dock-min", "emem.worlds.dock.min");
 
   // ---- controls ----
   $("ctl-head").onclick = function () { var c = $("ctl"); c.classList.toggle("collapsed"); $("ctl-caret").textContent = c.classList.contains("collapsed") ? "▸" : "▾"; };

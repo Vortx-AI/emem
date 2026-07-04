@@ -129,6 +129,8 @@ The worlds also leave as artifacts. `python3 examples/3d-worlds/make_splats.py -
 
 Looking at a world should never cost the minutes it takes to build one. The hosted node bakes each preset once ([`scripts/bake_worlds.sh`](scripts/bake_worlds.sh)), verifies every receipt, and serves the finished artifacts from disk: [emem.dev/worlds](https://emem.dev/worlds) hash-checks the fetched scene against its provenance sha256 in your browser before drawing the first splat, and [`/v1/worlds`](https://emem.dev/v1/worlds) lists every artifact for download, with an open-in-SuperSplat link on the page. Browsers never trigger the materialize-and-sign build themselves.
 
+[emem.dev/worlds](https://emem.dev/worlds) is an instrument, not a video. Drag to orbit, scroll to zoom, and pan; a per-world legend says what height, thickness, and colour each stand for. Click any splat to read that cell's measured band values, follow its `fact_cid` to [`/verify`](https://emem.dev/verify), or copy its `memt:` token for an agent to recall. Recolour the whole world by any other signed band in the scene, change the vertical exaggeration and splat size live, and drape real satellite imagery (Esri World Imagery, fetched for the scene's own bounding box) beneath the signed geometry as reference, labelled reference-only and never folded into the facts. Every panel minimises so the render fills the screen. The same interaction ships in the editable [`examples/3d-worlds/`](examples/3d-worlds/) templates through `window.__ememWorld`, and the deterministic capture path that produces the GIFs above is untouched.
+
 The original point-sprite renderer drew each fact as a glowing vertical column; the two first-generation DEM worlds stay for comparison:
 
 <p align="center">

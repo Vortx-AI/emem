@@ -171,7 +171,9 @@ or copy its `memt:` token. You can recolour by any other signed band in the
 scene, change the vertical exaggeration and splat size live, and drape
 **real satellite imagery** (Esri World Imagery, fetched for the scene's own
 bounding box) under the signed geometry as reference — labelled
-reference-only, never confused with the facts. The same interaction ships in
+reference-only, never confused with the facts. Every panel minimises (and
+defaults to minimised on a narrow screen) so the render can fill the view.
+The same interaction ships in
 the editable templates via `window.__ememWorld` (and `EMEM_WORLD.onReady`):
 `api.pick`, `api.recolor`, `api.rebuild`, `api.setBasemap`. The deterministic
 capture path (`EMEM_CAPTURE`) is untouched, so the README GIFs stay
