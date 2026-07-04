@@ -644,29 +644,44 @@ impl Storage for MaterializingStorage {
         // any of these CIDs can ship a verifier-ready proof. Best-effort:
         // a tree-write error never fails the attestation itself.
         if let Some(hot) = &self.hot {
-            if let Err(e) = persist_fact_proofs(hot.db(), &att.facts, &cids, att.preimage_version) {
-                tracing::warn!(error=%e, "fact proof persistence error (ignored)");
-            }
-            // Append every keyable fact's CID to the multi-attester
-            // index. The canonical index above is last-write-wins;
-            // this parallel index preserves every distinct CID
-            // attested at a (cell, band, tslot) key so the
-            // contradictions primitive can surface disagreement.
-            // Best-effort: errors here never fail the attestation.
-            if let Err(e) = append_multi_attester(hot.db(), &att.facts, &cids) {
-                tracing::warn!(error=%e, "multi-attester index append error (ignored)");
-            }
-            // Scope index (v0.0.8): when the attestation carries a
-            // non-empty multi-tenant scope, write one scope-index row per
-            // keyable fact so a later scoped recall can range-scan exactly
-            // this tenant's facts. Without a scope (or an empty one) NO
-            // rows are written and recall falls back to the global
-            // canonical index — the pre-v0.0.8 path is byte-identical.
-            // Best-effort: an index-write error never fails the write.
-            if let Some(scope) = att.scope.as_ref().filter(|sc| !sc.is_empty()) {
-                if let Err(e) = append_scope_index(hot.db(), scope, &att.facts, &cids) {
-                    tracing::warn!(error=%e, "scope index append error (ignored)");
+            // The three best-effort index writes below (proof, multi-
+            // attester, scope) are blocking sled operations. During a cold
+            // materialize storm they run on every attestation, so — like
+            // the reads and the cache writes — they must go on the blocking
+            // pool rather than the async workers, or they starve the
+            // runtime (the recurring wedge). sled `Db` clones cheaply; the
+            // facts/cids/scope are copied into the task. The durability
+            // fsync stays the async `flush_async` that follows.
+            //
+            // The multi-attester index preserves every distinct CID
+            // attested at a (cell, band, tslot) key (the canonical index is
+            // last-write-wins) so the contradictions primitive can surface
+            // disagreement. The scope index (v0.0.8) writes one row per
+            // keyable fact only when the attestation carries a non-empty
+            // multi-tenant scope; without one, recall falls back to the
+            // global canonical index and stays byte-identical to the
+            // pre-v0.0.8 path.
+            let db = hot.db().clone();
+            let facts = att.facts.clone();
+            let cids_c = cids.clone();
+            let pv = att.preimage_version;
+            let scope = att.scope.clone();
+            let idx_writes = tokio::task::spawn_blocking(move || {
+                if let Err(e) = persist_fact_proofs(&db, &facts, &cids_c, pv) {
+                    tracing::warn!(error=%e, "fact proof persistence error (ignored)");
                 }
+                if let Err(e) = append_multi_attester(&db, &facts, &cids_c) {
+                    tracing::warn!(error=%e, "multi-attester index append error (ignored)");
+                }
+                if let Some(scope) = scope.as_ref().filter(|sc| !sc.is_empty()) {
+                    if let Err(e) = append_scope_index(&db, scope, &facts, &cids_c) {
+                        tracing::warn!(error=%e, "scope index append error (ignored)");
+                    }
+                }
+            })
+            .await;
+            if let Err(e) = idx_writes {
+                tracing::warn!(error=%e, "index-write task join error (ignored)");
             }
             // One fsync makes the proof + multi-attester + scope rows above
             // durable. sled flushes the whole Db, so the per-helper flushes
@@ -722,7 +737,9 @@ impl Storage for MaterializingStorage {
             code: ErrorCode::Internal,
             message: "scan_cell requires a SledHotCache handle".into(),
         })?;
-        Ok(hot.scan_cell(cell, tslot)?)
+        // Off the reactor: this index scan is a blocking sled operation and
+        // was a prime mover of the runtime-wedge under recall storms.
+        Ok(hot.scan_cell_off(cell, tslot).await?)
     }
 
     async fn scan_cell_in_scope(
@@ -758,7 +775,9 @@ impl Storage for MaterializingStorage {
             code: ErrorCode::Internal,
             message: "scan_cell_as_of requires a SledHotCache handle".into(),
         })?;
-        let pairs = hot.scan_cell_with_tslot_bound(cell, tslot, bound.valid_time)?;
+        let pairs = hot
+            .scan_cell_with_tslot_bound_off(cell, tslot, bound.valid_time)
+            .await?;
         if bound.transaction_time.is_none() {
             return Ok(pairs);
         }
@@ -785,16 +804,9 @@ impl Storage for MaterializingStorage {
             code: ErrorCode::Internal,
             message: "iter_index requires a SledHotCache handle".into(),
         })?;
-        let mut out = Vec::new();
-        for entry in hot.iter_index() {
-            out.push(entry?);
-            if let Some(n) = limit {
-                if out.len() >= n {
-                    break;
-                }
-            }
-        }
-        Ok(out)
+        // A corpus-wide index scan is a heavy blocking sled operation; run
+        // it on the blocking pool rather than the async workers.
+        Ok(hot.collect_index_off(limit).await?)
     }
 
     fn attesters(&self) -> Option<&AttesterRegistry> {

@@ -12,6 +12,7 @@
 use async_trait::async_trait;
 use blake3::Hasher;
 use data_encoding::BASE32_NOPAD;
+use std::sync::OnceLock;
 
 use crate::{Cache, CacheError, CanonicalKey, Tier};
 use emem_fact::{Fact, FactCid};
@@ -20,6 +21,153 @@ const TREE_INDEX: &str = "emem.canonical_index";
 const TREE_FACTS: &str = "emem.facts";
 
 const SEP: u8 = 0u8;
+
+/// Global bound on how many sled operations run on the blocking pool at
+/// once, across the whole process.
+///
+/// sled is a synchronous, blocking store. Every read and write below is a
+/// blocking syscall-heavy operation, and sled additionally spawns its own
+/// I/O threadpool internally. Running those directly on the tokio async
+/// workers (as this cache did before) means that under a burst of cold
+/// recalls or a materialize storm, enough workers block inside sled that
+/// the runtime stops making progress: /health times out, the accept loop
+/// starves, and the watchdog SIGKILLs a process that is "alive" but wedged
+/// (2026-05-31, -06-12, -06-15, and four times on 2026-07-03; the
+/// symbolised backtrace showed all 30 workers parked in parking_lot
+/// condvars beneath `sled::pagecache` / `sled::threadpool`). Moving the
+/// blocking work to `spawn_blocking` keeps the async workers free to poll
+/// the accept loop and the gateway timer; the semaphore then bounds how
+/// many run at once so a storm can neither exhaust the 512-thread blocking
+/// pool nor drive sled's own threadpool to spawn without limit.
+///
+/// Default = 2x available parallelism, clamped to [4, 64]; override with
+/// `EMEM_SLED_BLOCKING_CONCURRENCY` (clamped 1..=512).
+fn sled_blocking_sem() -> &'static tokio::sync::Semaphore {
+    static S: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    S.get_or_init(|| {
+        let n = std::env::var("EMEM_SLED_BLOCKING_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or_else(|| {
+                let cores = std::thread::available_parallelism()
+                    .map(|p| p.get())
+                    .unwrap_or(4);
+                (cores * 2).clamp(4, 64)
+            })
+            .clamp(1, 512);
+        tokio::sync::Semaphore::new(n)
+    })
+}
+
+/// Run a blocking sled closure on the blocking pool under the concurrency
+/// bound above, off the async reactor. `f` owns everything it touches
+/// (sled `Db`/`Tree` handles are cheap `Arc`-backed clones), so it is
+/// `'static` and cannot borrow an async stack frame.
+async fn off_thread<T, F>(f: F) -> Result<T, CacheError>
+where
+    F: FnOnce() -> Result<T, CacheError> + Send + 'static,
+    T: Send + 'static,
+{
+    let _permit = sled_blocking_sem()
+        .acquire()
+        .await
+        .expect("sled blocking semaphore is never closed");
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| CacheError::Cbor(format!("sled blocking task panicked: {e}")))?
+}
+
+/// Prefix-scan the canonical index for one cell, decoding keys inline.
+/// Shared by the synchronous [`SledHotCache::scan_cell`] and its
+/// off-thread async sibling so both stay byte-identical.
+fn scan_cell_tree(
+    idx: &sled::Tree,
+    cell: &str,
+    tslot: Option<u64>,
+) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+    let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000);
+    let mut prefix = Vec::with_capacity(cell.len() + 1);
+    prefix.extend_from_slice(cell.as_bytes());
+    prefix.push(SEP);
+    let mut out = Vec::new();
+    let mut seen = 0usize;
+    for kv in idx.scan_prefix(&prefix) {
+        seen += 1;
+        if out.len() >= limit {
+            tracing::warn!(
+                target: "emem::storage",
+                scan_cell = %cell,
+                scan_limit = limit,
+                scan_seen = seen,
+                "scan_cell_limit_hit",
+            );
+            break;
+        }
+        let (k, v) = kv?;
+        let key = decode_key(&k).map_err(CacheError::Cbor)?;
+        if let Some(t) = tslot {
+            if key.tslot != t {
+                continue;
+            }
+        }
+        let cid_s = std::str::from_utf8(&v)
+            .map_err(|e| CacheError::Cbor(e.to_string()))?
+            .to_string();
+        out.push((key, FactCid::new(cid_s)));
+    }
+    Ok(out)
+}
+
+/// Shared body of [`SledHotCache::scan_cell_with_tslot_bound`].
+fn scan_cell_bound_tree(
+    idx: &sled::Tree,
+    cell: &str,
+    tslot_eq: Option<u64>,
+    tslot_le: Option<u64>,
+) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+    let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000);
+    let mut prefix = Vec::with_capacity(cell.len() + 1);
+    prefix.extend_from_slice(cell.as_bytes());
+    prefix.push(SEP);
+    let mut out = Vec::new();
+    let mut seen = 0usize;
+    for kv in idx.scan_prefix(&prefix) {
+        seen += 1;
+        if out.len() >= limit {
+            tracing::warn!(
+                target: "emem::storage",
+                scan_cell = %cell,
+                scan_limit = limit,
+                scan_seen = seen,
+                "scan_cell_limit_hit",
+            );
+            break;
+        }
+        let (k, v) = kv?;
+        let key = decode_key(&k).map_err(CacheError::Cbor)?;
+        if let Some(t) = tslot_eq {
+            if key.tslot != t {
+                continue;
+            }
+        }
+        if let Some(t) = tslot_le {
+            if key.tslot > t {
+                continue;
+            }
+        }
+        let cid_s = std::str::from_utf8(&v)
+            .map_err(|e| CacheError::Cbor(e.to_string()))?
+            .to_string();
+        out.push((key, FactCid::new(cid_s)));
+    }
+    Ok(out)
+}
 
 /// Hot tier on top of sled.
 pub struct SledHotCache {
@@ -72,40 +220,21 @@ impl SledHotCache {
         cell: &str,
         tslot: Option<u64>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-        let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(10_000);
-        let mut prefix = Vec::with_capacity(cell.len() + 1);
-        prefix.extend_from_slice(cell.as_bytes());
-        prefix.push(SEP);
-        let mut out = Vec::new();
-        let mut seen = 0usize;
-        for kv in self.idx.scan_prefix(&prefix) {
-            seen += 1;
-            if out.len() >= limit {
-                tracing::warn!(
-                    target: "emem::storage",
-                    scan_cell = %cell,
-                    scan_limit = limit,
-                    scan_seen = seen,
-                    "scan_cell_limit_hit",
-                );
-                break;
-            }
-            let (k, v) = kv?;
-            let key = decode_key(&k).map_err(CacheError::Cbor)?;
-            if let Some(t) = tslot {
-                if key.tslot != t {
-                    continue;
-                }
-            }
-            let cid_s = std::str::from_utf8(&v)
-                .map_err(|e| CacheError::Cbor(e.to_string()))?
-                .to_string();
-            out.push((key, FactCid::new(cid_s)));
-        }
-        Ok(out)
+        scan_cell_tree(&self.idx, cell, tslot)
+    }
+
+    /// [`SledHotCache::scan_cell`] run on the blocking pool, bounded by the
+    /// global sled concurrency limit. This is the form the async recall
+    /// path must use: the scan is a blocking sled operation and belongs off
+    /// the reactor. Byte-identical result to the synchronous method.
+    pub async fn scan_cell_off(
+        &self,
+        cell: &str,
+        tslot: Option<u64>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+        let idx = self.idx.clone();
+        let cell = cell.to_string();
+        off_thread(move || scan_cell_tree(&idx, &cell, tslot)).await
     }
 
     /// Bi-temporal sibling of [`SledHotCache::scan_cell`]. Pre-filters
@@ -125,45 +254,50 @@ impl SledHotCache {
         tslot_eq: Option<u64>,
         tslot_le: Option<u64>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-        let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(10_000);
-        let mut prefix = Vec::with_capacity(cell.len() + 1);
-        prefix.extend_from_slice(cell.as_bytes());
-        prefix.push(SEP);
-        let mut out = Vec::new();
-        let mut seen = 0usize;
-        for kv in self.idx.scan_prefix(&prefix) {
-            seen += 1;
-            if out.len() >= limit {
-                tracing::warn!(
-                    target: "emem::storage",
-                    scan_cell = %cell,
-                    scan_limit = limit,
-                    scan_seen = seen,
-                    "scan_cell_limit_hit",
-                );
-                break;
-            }
-            let (k, v) = kv?;
-            let key = decode_key(&k).map_err(CacheError::Cbor)?;
-            if let Some(t) = tslot_eq {
-                if key.tslot != t {
-                    continue;
+        scan_cell_bound_tree(&self.idx, cell, tslot_eq, tslot_le)
+    }
+
+    /// [`SledHotCache::scan_cell_with_tslot_bound`] on the blocking pool,
+    /// bounded by the global sled concurrency limit — the form the async
+    /// as-of recall path must use.
+    pub async fn scan_cell_with_tslot_bound_off(
+        &self,
+        cell: &str,
+        tslot_eq: Option<u64>,
+        tslot_le: Option<u64>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+        let idx = self.idx.clone();
+        let cell = cell.to_string();
+        off_thread(move || scan_cell_bound_tree(&idx, &cell, tslot_eq, tslot_le)).await
+    }
+
+    /// Collect up to `limit` index entries on the blocking pool, bounded by
+    /// the global sled concurrency limit. A full-corpus `iter_index` is a
+    /// heavy blocking scan (find_similar, lance hydration); this keeps it
+    /// off the async reactor. Same decoding as [`SledHotCache::iter_index`].
+    pub async fn collect_index_off(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+        let idx = self.idx.clone();
+        off_thread(move || {
+            let mut out = Vec::new();
+            for kv in idx.iter() {
+                let (k, v) = kv?;
+                let key = decode_key(&k).map_err(CacheError::Cbor)?;
+                let cid_s = std::str::from_utf8(&v)
+                    .map_err(|e| CacheError::Cbor(e.to_string()))?
+                    .to_string();
+                out.push((key, FactCid::new(cid_s)));
+                if let Some(n) = limit {
+                    if out.len() >= n {
+                        break;
+                    }
                 }
             }
-            if let Some(t) = tslot_le {
-                if key.tslot > t {
-                    continue;
-                }
-            }
-            let cid_s = std::str::from_utf8(&v)
-                .map_err(|e| CacheError::Cbor(e.to_string()))?
-                .to_string();
-            out.push((key, FactCid::new(cid_s)));
-        }
-        Ok(out)
+            Ok(out)
+        })
+        .await
     }
 
     /// Approximate item count across the index tree.
@@ -259,54 +393,79 @@ fn fact_canonical_key(fact: &Fact) -> Option<CanonicalKey> {
 
 #[async_trait]
 impl Cache for SledHotCache {
+    // Every method below runs its sled work through `off_thread`: the sled
+    // reads/writes are blocking and must not execute on the async workers
+    // (see `sled_blocking_sem`). The sled `Tree` handles clone cheaply
+    // (Arc-backed) and the inputs are copied into the closure so it owns
+    // everything and stays `'static`.
     async fn lookup_many(&self, keys: &[CanonicalKey]) -> Result<Vec<Option<FactCid>>, CacheError> {
-        let mut out = Vec::with_capacity(keys.len());
-        for k in keys {
-            let kb = encode_key(k);
-            match self.idx.get(&kb)? {
-                Some(v) => {
-                    let s = std::str::from_utf8(&v)
-                        .map_err(|e| CacheError::Cbor(e.to_string()))?
-                        .to_string();
-                    out.push(Some(FactCid::new(s)));
+        let idx = self.idx.clone();
+        let keys = keys.to_vec();
+        off_thread(move || {
+            let mut out = Vec::with_capacity(keys.len());
+            for k in &keys {
+                let kb = encode_key(k);
+                match idx.get(&kb)? {
+                    Some(v) => {
+                        let s = std::str::from_utf8(&v)
+                            .map_err(|e| CacheError::Cbor(e.to_string()))?
+                            .to_string();
+                        out.push(Some(FactCid::new(s)));
+                    }
+                    None => out.push(None),
                 }
-                None => out.push(None),
             }
-        }
-        Ok(out)
+            Ok(out)
+        })
+        .await
     }
 
     async fn get_many(&self, cids: &[FactCid]) -> Result<Vec<Option<Fact>>, CacheError> {
-        let mut out = Vec::with_capacity(cids.len());
-        for cid in cids {
-            match self.facts.get(cid.as_str().as_bytes())? {
-                Some(b) => out.push(Some(cbor_to_fact(&b)?)),
-                None => out.push(None),
+        let facts = self.facts.clone();
+        let cids = cids.to_vec();
+        off_thread(move || {
+            let mut out = Vec::with_capacity(cids.len());
+            for cid in &cids {
+                match facts.get(cid.as_str().as_bytes())? {
+                    Some(b) => out.push(Some(cbor_to_fact(&b)?)),
+                    None => out.push(None),
+                }
             }
-        }
-        Ok(out)
+            Ok(out)
+        })
+        .await
     }
 
     async fn put_many(&self, facts: &[Fact]) -> Result<Vec<FactCid>, CacheError> {
-        let mut out = Vec::with_capacity(facts.len());
-        for f in facts {
-            let cbor = fact_to_cbor(f)?;
-            let mut h = Hasher::new();
-            h.update(&cbor);
-            let hash = h.finalize();
-            let cid_s = BASE32_NOPAD.encode(hash.as_bytes()).to_lowercase();
-            let cid = FactCid::new(cid_s);
-            self.facts.insert(cid.as_str().as_bytes(), cbor)?;
-            if let Some(k) = fact_canonical_key(f) {
-                self.idx.insert(encode_key(&k), cid.as_str().as_bytes())?;
+        let facts_tree = self.facts.clone();
+        let idx = self.idx.clone();
+        let facts_in = facts.to_vec();
+        // The inserts are blocking sled writes → off the reactor. sled
+        // buffers them in its log; the durability fsync is the async
+        // `flush_async` below, which already yields.
+        let out = off_thread(move || {
+            let mut out = Vec::with_capacity(facts_in.len());
+            for f in &facts_in {
+                let cbor = fact_to_cbor(f)?;
+                let mut h = Hasher::new();
+                h.update(&cbor);
+                let hash = h.finalize();
+                let cid_s = BASE32_NOPAD.encode(hash.as_bytes()).to_lowercase();
+                let cid = FactCid::new(cid_s);
+                facts_tree.insert(cid.as_str().as_bytes(), cbor)?;
+                if let Some(k) = fact_canonical_key(f) {
+                    idx.insert(encode_key(&k), cid.as_str().as_bytes())?;
+                }
+                out.push(cid);
             }
-            out.push(cid);
-        }
+            Ok(out)
+        })
+        .await?;
         // sled flushes at the Db level: one fsync of the shared log
-        // persists writes to every tree. Both insert loops above have
-        // already committed to `facts` and `idx`, so a single flush here
-        // makes all of them durable — flushing both trees separately just
-        // paid for the fsync twice on every write batch.
+        // persists writes to every tree. The insert loop above has already
+        // committed to `facts` and `idx`, so a single flush here makes all
+        // of them durable — flushing both trees separately just paid for
+        // the fsync twice on every write batch.
         self.facts
             .flush_async()
             .await
@@ -315,11 +474,16 @@ impl Cache for SledHotCache {
     }
 
     async fn tier_of(&self, cid: &FactCid) -> Result<Option<Tier>, CacheError> {
-        Ok(if self.facts.contains_key(cid.as_str().as_bytes())? {
-            Some(Tier::Hot)
-        } else {
-            None
+        let facts = self.facts.clone();
+        let cid = cid.clone();
+        off_thread(move || {
+            Ok(if facts.contains_key(cid.as_str().as_bytes())? {
+                Some(Tier::Hot)
+            } else {
+                None
+            })
         })
+        .await
     }
 }
 
