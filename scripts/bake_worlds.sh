@@ -21,6 +21,11 @@ REPO=/home/ubuntu/emem
 EXPORTER="$REPO/examples/3d-worlds/make_splats.py"
 WORLDS_DIR="${EMEM_WORLDS_DIR:-$REPO/var/worlds}"
 RESPONDER="${EMEM_BAKE_RESPONDER:-http://127.0.0.1:5051}"
+# The bake fetches from the fast local node ($RESPONDER) but the artifacts are
+# served publicly, so the provenance sidecar and its re-check recipe must point
+# at the public URL, not 127.0.0.1. The signed responder pubkey is the same
+# either way, so receipts still verify against the same key.
+PUBLIC_RESPONDER="${EMEM_PUBLIC_RESPONDER:-https://emem.dev}"
 # Small batches + a pause between them keep a cold bake from starving
 # interactive traffic on a shared responder (recall_many holds 16
 # concurrent cell recalls per call; 32-cell batches finish fast enough
@@ -41,7 +46,8 @@ for preset in "${PRESETS[@]}"; do
   echo "==> baking $preset ($RESPONDER, batch=$BATCH, sleep=${SLEEP}s)"
   stage="$(mktemp -d "$WORLDS_DIR/.bake-$preset-XXXXXX")"
   if ! python3 "$EXPORTER" --preset "$preset" --out "$stage/world" \
-       --responder "$RESPONDER" --batch "$BATCH" --sleep "$SLEEP" --verify; then
+       --responder "$RESPONDER" --public-responder "$PUBLIC_RESPONDER" \
+       --batch "$BATCH" --sleep "$SLEEP" --verify; then
     echo "FAIL: $preset bake or receipt verification failed; keeping previous bake" >&2
     rm -rf "$stage"
     fail=1

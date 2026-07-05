@@ -551,6 +551,30 @@ Federate later; the fact ids will not move. Near-term work is tracked in [issues
 
 <p align="center"><img src="docs/diagrams/federation.png" width="720" alt="Roadmap: many independent emem responders sharing one address space, resolving the same content ids byte-for-byte and recording where they disagree." /></p>
 
+## Open research
+
+emem works end to end today, but the questions worth funding are the ones it does not answer yet. This is the honest list, kept in one place so a collaborator or an agent can see where the edges are and pick one up. Two threads run through all of it. The first is the substrate: memory an agent can trust, carry between vendors, and verify without a callback. The second is the worlds at [`/worlds`](https://emem.dev/worlds), which are not the product but the proof, the most direct way to show a memory can be both generated and checkable at the same time. Each item says what already ships and what is still open, so nothing here is a promise dressed up as a feature.
+
+The test we hold every item to: does it make emem's memories more trusted, portable, and verifiable? If yes, it belongs here. If it only makes them more numerous or better recalled, someone larger is already doing that and we cannot win there. Recall makes an agent convenient. Verifiable memory makes it accountable, and accountability is the part that is missing between today's demos and agents a regulated business will let run on their own.
+
+### The substrate: trusted, portable, verifiable memory
+
+- **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `memt:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo) reported next to the column none of those frameworks have.
+- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `memb:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors, the portability nobody upstream has an incentive to build.
+- **Signed state for agent-to-agent work.** Ships today: emem answers the A2A task surface at `/a2a/tasks` and serves a signed card at [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json). Open: an attestation that rides an agent card so two agents from two companies verify each other's claimed memory offline before acting on it, closing the trust gap the A2A spec leaves to implementers.
+- **An audit trail for regulated work.** Ships today: bi-temporal recall (`as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew) and a signed absence for what was never there. Open: the profile that turns those into a procurement-grade record of what an agent knew and when, aimed at the data-provenance gap that content-only provenance standards do not cover.
+
+### The worlds: making the proof denser, live, and portable
+
+- **The responder URL in baked provenance.** Done. A bake fetches from a fast local node but the sidecar now records the public responder the artifacts are served from, so the re-check recipe points somewhere a reader can actually reach. The signing key is unchanged, so every receipt still verifies. See `--public-responder` in [`make_splats.py`](examples/3d-worlds/make_splats.py), wired through [`scripts/bake_worlds.sh`](scripts/bake_worlds.sh).
+- **Provenance-preserving densification.** Open, and the next one up. The worlds are one gaussian per sampled cell, quantized to the grid. Densifying between cells makes relief read as terrain, but only stays honest if each derived gaussian carries the `fact_cids` of the measured corners it came from and the weights it interpolated with, so the value is re-derivable and every underlying fact is still signature-checkable. That rule is the whole content of a proposed `emem.splat_provenance.v2`.
+- **A world that rolls forward.** Open. `emem_jepa_predict_v2` predicts a cell's next step from its attested history. Applied across a whole baked world it becomes a sequence of scene frames, each one a signed forecast that says it is a forecast, carrying the model id and the lags it read. A generated frame nobody has to take on faith.
+- **Riding the splat standard.** Open. The worlds emit a bespoke 32-byte splat plus a PLY. As gaussian splatting consolidates on glTF and compressed transport formats, emem's provenance should ride inside the standard as a custom block, so any viewer renders the geometry and only emem-aware clients light up the click-to-verify layer.
+- **Planet scale.** Open. The cell ids are already hierarchical, so a world can become a tile pyramid: coarse gaussians far out, finer tiles baked on demand as a camera or an agent drills in, cached the way recalls already are.
+- **Generative where the memory is empty.** Open, and the furthest out. Where no fact exists, generate a plausible value from the embedding field and its neighbours, but stamp it with its own class of id, its model, its conditioning cells, and a confidence, so an agent can ask for measured cells only, or measured plus inferred, and always know which is which. Grounded where grounded, generative where not, and labelled either way.
+
+Near-term protocol work is tracked in [issues](https://github.com/Vortx-AI/emem/issues); the reasoning behind the sequencing is in the [whitepaper](https://doi.org/10.5281/zenodo.20706893).
+
 ## Research and citation
 
 The protocol is written up in an open whitepaper:

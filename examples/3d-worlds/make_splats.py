@@ -605,7 +605,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--preset", choices=sorted(PRESETS))
-    ap.add_argument("--responder", default="https://emem.dev")
+    ap.add_argument("--responder", default="https://emem.dev",
+                    help="node to fetch and verify against")
+    ap.add_argument("--public-responder",
+                    help="URL to record in the provenance sidecar and the re-check "
+                         "recipe instead of --responder; use it when the fetch node is a "
+                         "private address (e.g. a local bake against 127.0.0.1) but the "
+                         "artifacts are served publicly. The signed responder pubkey is "
+                         "unchanged, so receipts still verify against the same key.")
     ap.add_argument("--bbox", help="west,south,east,north (overrides the preset)")
     ap.add_argument("--max-cells", type=int, default=1024)
     ap.add_argument("--batch", type=int, help="recall_many batch size")
@@ -669,9 +676,15 @@ def main():
             responder_b32 = b32(r["responder"])
             break
 
+    # The sidecar records where a reader can re-check the facts, which is not
+    # necessarily where we fetched them. A bake fetches from a fast local node
+    # but serves the artifacts publicly, so --public-responder overrides the
+    # recorded URL. The signed responder pubkey is unchanged either way.
+    public_responder = args.public_responder or args.responder
+
     provenance = {
         "schema": "emem.splat_provenance.v1",
-        "responder": args.responder,
+        "responder": public_responder,
         "responder_pubkey_b32": responder_b32,
         "preset": args.preset,
         "bbox": cfg["bbox"],
@@ -704,8 +717,8 @@ def main():
             "receipt": "POST %s/v1/verify_receipt with {\"receipt\": <any entry of "
                        "receipts[].receipt>} -> {valid: true}; pubkey/signature byte "
                        "arrays may be passed as responder_pubkey_b32/signature_b32 "
-                       "(lowercase unpadded RFC 4648 base32)" % args.responder,
-            "fact": "any fact_cid re-checks at %s/verify/<cid>" % args.responder,
+                       "(lowercase unpadded RFC 4648 base32)" % public_responder,
+            "fact": "any fact_cid re-checks at %s/verify/<cid>" % public_responder,
         },
     }
     with open(args.out + ".provenance.json", "w") as f:
