@@ -10,7 +10,7 @@
 //! no API key, public AWS Open Data backed.
 
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -223,13 +223,45 @@ pub async fn search_many_at(
 
 /// Process-wide cache of MPC SAS tokens, keyed by collection. Microsoft
 /// Planetary Computer issues anonymous read-only SAS tokens for any
-/// public-data collection; tokens last ~1 hour. We refresh proactively
-/// at 50 minutes so we don't race the expiry on a long materialize call.
+/// public-data collection. The token's authoritative expiry is the
+/// `msft:expiry` field of the sign response (mirrored in the SAS `se=`
+/// param). Observed lifetimes are ~45 min, not the hour they once were,
+/// and MPC has changed them before — so we key the cache off that
+/// timestamp per token rather than assuming a fixed lifetime. A hardcoded
+/// "assume 60 min, refresh at 50" TTL served the token for the 5 min
+/// between its real 45-min expiry and our 50-min refresh, during which
+/// Azure rejects every signed URL with `403 AuthenticationFailed`
+/// ("Signature not valid in the specified time frame"). See issue #8.
 struct CachedSas {
     token: String,
     fetched_at: Instant,
+    /// How long *this* token is safe to serve from cache: its remaining
+    /// lifetime at fetch time minus [`SAS_REFRESH_MARGIN`], clamped to
+    /// `[SAS_MIN_TTL, SAS_MAX_TTL]`. Derived per token from `msft:expiry`,
+    /// never a constant.
+    valid_for: Duration,
 }
 static SAS_CACHE: Mutex<Option<(String, CachedSas)>> = Mutex::new(None);
+
+/// Refresh a cached SAS token this long before its true expiry, so a
+/// long materialize call never races the expiry and we never hand Azure a
+/// signature that has expired (or is about to) mid-fetch.
+const SAS_REFRESH_MARGIN: Duration = Duration::from_secs(5 * 60);
+/// Never cache a token for less than this. Guards against a refetch storm
+/// if MPC ever returns a token already within [`SAS_REFRESH_MARGIN`] of
+/// its expiry — the token is still valid for this floor, so serving it
+/// briefly is safe and cheaper than hammering the sign endpoint.
+const SAS_MIN_TTL: Duration = Duration::from_secs(60);
+/// Never cache a token for longer than this, even if `msft:expiry` claims
+/// a far-future expiry (clock skew, or a schema surprise). Over-caching is
+/// the failure mode we're fixing, so we bound it; a legitimately longer
+/// token just costs one extra sign call per hour, well inside rate limits.
+const SAS_MAX_TTL: Duration = Duration::from_secs(55 * 60);
+/// Conservative fallback TTL, used only when `msft:expiry` is missing or
+/// unparseable. Short enough to stay well inside any historical MPC token
+/// lifetime, so an upstream schema change degrades to "refresh often",
+/// never "serve expired".
+const SAS_FALLBACK_TTL: Duration = Duration::from_secs(30 * 60);
 
 /// Fetch (or return cached) anonymous SAS token for an MPC collection.
 /// Sign Azure asset URLs as `<href>?<token>` — token is the entire query
@@ -240,7 +272,7 @@ static SAS_CACHE: Mutex<Option<(String, CachedSas)>> = Mutex::new(None);
 /// refresh the same collection's token. The cache (`SAS_CACHE`) is the
 /// first line of defence — once one caller wins and stores a fresh
 /// token, every other caller hits the cache. But on a cold cache or at
-/// the 50-minute expiry boundary, the lock is process-wide non-async
+/// the per-token refresh boundary, the lock is process-wide non-async
 /// so concurrent tasks can all bypass the cache and stampede the
 /// upstream. This retry loop absorbs the resulting 429 burst with an
 /// exponential backoff (200 ms → 400 ms → 800 ms → 1.6 s, capped at 5
@@ -253,9 +285,7 @@ static SAS_CACHE: Mutex<Option<(String, CachedSas)>> = Mutex::new(None);
 pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, String> {
     if let Ok(guard) = SAS_CACHE.lock() {
         if let Some((cached_collection, cached)) = guard.as_ref() {
-            if cached_collection == collection
-                && cached.fetched_at.elapsed() < Duration::from_secs(50 * 60)
-            {
+            if cached_collection == collection && cached.fetched_at.elapsed() < cached.valid_for {
                 return Ok(cached.token.clone());
             }
         }
@@ -300,12 +330,33 @@ pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, 
                 .and_then(|t| t.as_str())
                 .ok_or_else(|| "mpc sas response missing `token` field".to_string())?
                 .to_string();
+            // Key the cache off the token's real expiry, not a fixed
+            // lifetime. `msft:expiry` is RFC 3339 UTC; if it's absent or
+            // unparseable we fall back to a short conservative TTL so we
+            // degrade to "refresh often", never "serve expired".
+            let valid_for = v
+                .get("msft:expiry")
+                .and_then(|e| e.as_str())
+                .and_then(parse_rfc3339_utc_to_unix)
+                .and_then(|expiry_unix| {
+                    let now_unix =
+                        SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
+                    let remaining = expiry_unix - now_unix;
+                    (remaining > 0).then(|| Duration::from_secs(remaining as u64))
+                })
+                .map(|remaining| {
+                    remaining
+                        .saturating_sub(SAS_REFRESH_MARGIN)
+                        .clamp(SAS_MIN_TTL, SAS_MAX_TTL)
+                })
+                .unwrap_or(SAS_FALLBACK_TTL);
             if let Ok(mut guard) = SAS_CACHE.lock() {
                 *guard = Some((
                     collection.to_string(),
                     CachedSas {
                         token: token.clone(),
                         fetched_at: Instant::now(),
+                        valid_for,
                     },
                 ));
             }
@@ -351,4 +402,131 @@ fn parse_retry_after_header(resp: &reqwest::Response) -> Option<u64> {
         .get(reqwest::header::RETRY_AFTER)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.trim().parse::<u64>().ok())
+}
+
+/// Parse an RFC 3339 / ISO 8601 **UTC** timestamp
+/// (`YYYY-MM-DDThh:mm:ss[.frac][Z]`) to Unix epoch seconds. This is the
+/// exact shape of MPC's `msft:expiry` (e.g. `2026-07-05T14:37:25Z`).
+///
+/// Fractional seconds and a trailing `Z`/`z` are tolerated. Any explicit
+/// numeric offset (`+hh:mm` / `-hh:mm`) or malformed field yields `None`,
+/// so the caller falls back to a conservative TTL rather than silently
+/// mis-reading a zoned timestamp as UTC. Parsed by hand to keep `chrono`
+/// out of the fetch crate — same rationale as `firms::days_from_civil`.
+fn parse_rfc3339_utc_to_unix(s: &str) -> Option<i64> {
+    let (date, rest) = s.trim().split_once(['T', 't'])?;
+
+    let mut dp = date.split('-');
+    let y: i32 = dp.next()?.parse().ok()?;
+    let mo: u32 = dp.next()?.parse().ok()?;
+    let d: u32 = dp.next()?.parse().ok()?;
+    if dp.next().is_some() || !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
+        return None;
+    }
+
+    // Strip an optional trailing UTC designator, then reject any remaining
+    // sign: a bare `hh:mm:ss[.frac]` time never contains `+`/`-`, so their
+    // presence means a non-UTC offset we refuse to guess at.
+    let time = rest.strip_suffix(['Z', 'z']).unwrap_or(rest);
+    if time.contains('+') || time.contains('-') {
+        return None;
+    }
+    // Drop fractional seconds if present.
+    let time = time.split('.').next().unwrap_or(time);
+
+    let mut tp = time.split(':');
+    let h: u32 = tp.next()?.parse().ok()?;
+    let mi: u32 = tp.next()?.parse().ok()?;
+    // Seconds are optional in RFC 3339's `partial-time`; default to 0.
+    let se: u32 = tp.next().unwrap_or("0").parse().ok()?;
+    if tp.next().is_some() || h > 23 || mi > 59 || se > 60 {
+        return None; // se == 60 tolerates a leap second
+    }
+
+    Some(days_from_civil(y, mo, d) * 86_400 + h as i64 * 3600 + mi as i64 * 60 + se as i64)
+}
+
+/// Days since the Unix epoch (1970-01-01) for a proleptic-Gregorian date,
+/// via Howard Hinnant's `days_from_civil`. Duplicated from `firms.rs` /
+/// `opera_dist.rs` by design — the crate keeps this tiny helper local to
+/// each user rather than pulling in `chrono` for one date conversion.
+fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y / 400 } else { (y - 399) / 400 };
+    let yoe = (y - era * 400) as u32;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    (era as i64) * 146_097 + (doe as i64) - 719_468
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rfc3339_utc_parses_the_mpc_expiry_shape() {
+        // The exact `msft:expiry` string observed live from the sign
+        // endpoint. Epoch checked against days_from_civil so the test is
+        // self-contained (no chrono).
+        let unix = parse_rfc3339_utc_to_unix("2026-07-05T14:37:25Z").unwrap();
+        let expected = days_from_civil(2026, 7, 5) * 86_400 + 14 * 3600 + 37 * 60 + 25;
+        assert_eq!(unix, expected);
+    }
+
+    #[test]
+    fn rfc3339_epoch_and_fractional_and_lowercase_t_and_z() {
+        assert_eq!(parse_rfc3339_utc_to_unix("1970-01-01T00:00:00Z"), Some(0));
+        // Fractional seconds are dropped; lowercase 't'/'z' accepted.
+        assert_eq!(
+            parse_rfc3339_utc_to_unix("2026-07-05t14:37:25.512z"),
+            parse_rfc3339_utc_to_unix("2026-07-05T14:37:25Z"),
+        );
+        // Seconds are optional (RFC 3339 partial-time).
+        assert_eq!(
+            parse_rfc3339_utc_to_unix("2026-07-05T14:37Z"),
+            parse_rfc3339_utc_to_unix("2026-07-05T14:37:00Z"),
+        );
+    }
+
+    #[test]
+    fn rfc3339_rejects_zoned_and_malformed() {
+        // Non-UTC offsets must be refused, not silently read as UTC —
+        // otherwise the caller would cache against a wrong instant.
+        assert_eq!(parse_rfc3339_utc_to_unix("2026-07-05T14:37:25+05:30"), None);
+        assert_eq!(parse_rfc3339_utc_to_unix("2026-07-05T14:37:25-05:00"), None);
+        // Garbage / missing fields fall back (caller uses SAS_FALLBACK_TTL).
+        assert_eq!(parse_rfc3339_utc_to_unix(""), None);
+        assert_eq!(parse_rfc3339_utc_to_unix("2026-07-05"), None);
+        assert_eq!(parse_rfc3339_utc_to_unix("2026-13-05T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339_utc_to_unix("2026-07-05T24:00:00Z"), None);
+    }
+
+    /// The core of issue #8: a token with less real lifetime than the old
+    /// hardcoded 50-min TTL must yield a `valid_for` that refreshes *before*
+    /// the true expiry, never after. This exercises the same arithmetic the
+    /// success path runs, without a network round-trip.
+    #[test]
+    fn valid_for_refreshes_before_a_45min_token_expires() {
+        let derive = |remaining_secs: i64| -> Duration {
+            Duration::from_secs(remaining_secs as u64)
+                .saturating_sub(SAS_REFRESH_MARGIN)
+                .clamp(SAS_MIN_TTL, SAS_MAX_TTL)
+        };
+        // Live-observed ~45-min token: refresh at 40 min, 5 min before expiry.
+        assert_eq!(derive(45 * 60), Duration::from_secs(40 * 60));
+        // A token already inside the refresh margin is floored, not zero, so
+        // it's still served briefly instead of triggering a refetch storm.
+        assert_eq!(derive(3 * 60), SAS_MIN_TTL);
+        // A suspiciously long expiry is capped so over-caching can't recur.
+        assert_eq!(derive(6 * 3600), SAS_MAX_TTL);
+        // Crucially: the derived TTL is always strictly less than the token's
+        // real remaining lifetime for anything longer than the margin.
+        for mins in [10, 20, 30, 44, 45, 50] {
+            let remaining = Duration::from_secs(mins * 60);
+            assert!(
+                derive((mins * 60) as i64) < remaining,
+                "valid_for must be < real lifetime for a {mins}-min token"
+            );
+        }
+    }
 }
