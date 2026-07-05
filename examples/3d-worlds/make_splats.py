@@ -270,6 +270,221 @@ def build_gaussians(scene, cfg):
     }
 
 # ---------------------------------------------------------------------------
+# provenance-preserving densification (emem.splat_provenance.v2)
+#
+# The sampled cells form a grid; between two measured cells the true surface is
+# unknown to emem, but bilinear interpolation of the corner facts is the
+# standard, principled estimate of a continuous field from a regular grid. We
+# subdivide each grid quad F x F and emit one gaussian per fine node. A node
+# that lands on an original cell is `measured` and keeps that cell's own
+# fact_cid; every other node is `derived` and records the four corner cells,
+# their fact_cids, the bilinear weights (which sum to 1), and the corner values,
+# so its value is exactly re-derivable (value[b] == sum_i w_i * source_i[b]) and
+# every source fact stays individually signature-checkable. Densification adds
+# geometry, never an unverifiable number, and each splat is labelled which it
+# is. Anisotropy for a derived node comes from the analytic gradient of the same
+# bilinear patch, so the ellipsoid lies in the interpolated tangent plane.
+# ---------------------------------------------------------------------------
+
+def _grid_index(rows):
+    """Map each row to integer grid coords (gx, gz) via its rank among the
+    unique lngs/lats — the same ranking grid_shape() uses."""
+    lngs = unique_sorted([r["lng"] for r in rows])
+    lats = unique_sorted([r["lat"] for r in rows])
+    idx = {}
+    for i, r in enumerate(rows):
+        idx[(rank_of(lngs, r["lng"]), rank_of(lats, r["lat"]))] = i
+    return lngs, lats, idx
+
+
+def _data_bands(rows, cfg):
+    """The fetched value bands (exclude bookkeeping keys) present in the scene,
+    so derived nodes interpolate every band colorize() might read."""
+    skip = {"lat", "lng", "_cids", "_conf", "_sem"}
+    seen = []
+    for r in rows:
+        for k in r:
+            if k not in skip and k not in seen and isinstance(r.get(k), (int, float)):
+                seen.append(k)
+    return seen
+
+
+def densify_gaussians(scene, cfg, factor):
+    """Bilinear densification of the sampled grid into an F-times-finer node
+    grid. Returns dict with `gaussians`, `rows` (synthetic rows for colorize),
+    `prov_splats` (per-splat provenance for schema v2), plus the same transform
+    fields build_gaussians returns. Measured nodes reproduce the v1 gaussian."""
+    hb = cfg["heightBand"]
+    zx = cfg.get("heightExaggeration", 1.6)
+    shape = cfg.get("shape") or {}
+    floor_s3 = shape.get("sigmaFloorM", 8) * zx * UNITS_PER_M
+    fps = shape.get("footprintScale", 1)
+    base_opacity = shape.get("opacity", 0.85)
+
+    cell_ids, rows = [], []
+    for cid, r in scene["cells"].items():
+        if r.get("lat") is None or r.get(hb) is None:
+            continue
+        cell_ids.append(cid)
+        rows.append(r)
+    if not rows:
+        raise SystemExit("no facts with positions and a %s value" % hb)
+
+    n = len(rows)
+    lat0 = sum(r["lat"] for r in rows) / n
+    lng0 = sum(r["lng"] for r in rows) / n
+    hs = [r[hb] for r in rows]
+    h_min, h_max = min(hs), max(hs)
+    m_lng = M_PER_DEG_LAT * math.cos(math.radians(lat0))
+    spacing = estimate_spacing_m(rows, m_lng)
+    sg = fps * (spacing / factor) / 2.0 * UNITS_PER_M      # finer footprint
+
+    gsh = grid_shape(rows, hb, m_lng)                       # per measured cell
+    lngs, lats, gidx = _grid_index(rows)
+    W, H = len(lngs), len(lats)
+    bands = _data_bands(rows, cfg)
+    sem = cfg.get("prepare") is not None
+
+    def pos(lat, lng, h):
+        return [(lng - lng0) * m_lng * UNITS_PER_M,
+                (h - h_min) * zx * UNITS_PER_M,
+                -(lat - lat0) * M_PER_DEG_LAT * UNITS_PER_M]
+
+    def corner(gx, gz):
+        j = gidx.get((gx, gz))
+        return None if j is None else j
+
+    gaussians, srows, prov = [], [], []
+    OW, OH = (W - 1) * factor + 1, (H - 1) * factor + 1
+    measured_ct = derived_ct = 0
+    for I in range(OW):
+        for J in range(OH):
+            gx = min(I // factor, W - 2)
+            gz = min(J // factor, H - 2)
+            u = (I - gx * factor) / factor
+            v = (J - gz * factor) / factor
+            cs = [corner(gx, gz), corner(gx + 1, gz),
+                  corner(gx, gz + 1), corner(gx + 1, gz + 1)]
+            if any(c is None for c in cs):
+                continue                                    # incomplete quad: no splat
+            wt = [(1 - u) * (1 - v), u * (1 - v), (1 - u) * v, u * v]
+            R = [rows[c] for c in cs]
+            is_measured = (I % factor == 0 and J % factor == 0)
+
+            lat = sum(w * r["lat"] for w, r in zip(wt, R))
+            lng = sum(w * r["lng"] for w, r in zip(wt, R))
+            h = sum(w * r[hb] for w, r in zip(wt, R))
+            srow = {"lat": lat, "lng": lng}
+            for b in bands:
+                if all(r.get(b) is not None for r in R):
+                    srow[b] = sum(w * r[b] for w, r in zip(wt, R))
+            if sem:
+                sems = [r.get("_sem") for r in R]
+                if all(isinstance(s, list) and len(s) == 3 for s in sems):
+                    srow["_sem"] = [sum(w * s[k] for w, s in zip(wt, sems))
+                                    for k in range(3)]
+
+            if is_measured:
+                j = cs[0]
+                g = gsh[j]
+                s3 = (max(floor_s3, g["sigmaZm"] * zx * UNITS_PER_M)
+                      if g.get("hasRelief") else 0.5 * sg * factor)
+                cols = (tangent_frame(g["slopeDeg"], g["aspSin"], g["aspCos"], zx)
+                        if g.get("hasFrame") else None)
+                conf = rows[j].get("_conf", 1.0)
+                measured_ct += 1
+                prov.append({"i": len(gaussians), "kind": "measured",
+                             "cell": cell_ids[j]})
+            else:
+                # analytic gradient of the bilinear patch -> tangent plane
+                hSW, hSE, hNW, hNE = (R[0][hb], R[1][hb], R[2][hb], R[3][hb])
+                dh_du = (1 - v) * (hSE - hSW) + v * (hNE - hNW)
+                dh_dv = (1 - u) * (hNW - hSW) + u * (hNE - hSE)
+                dx_m = (((R[1]["lng"] - R[0]["lng"]) * (1 - v)
+                         + (R[3]["lng"] - R[2]["lng"]) * v) * m_lng) or 1e-9
+                dy_m = (((R[2]["lat"] - R[0]["lat"]) * (1 - u)
+                         + (R[3]["lat"] - R[1]["lat"]) * u) * M_PER_DEG_LAT) or 1e-9
+                ge, gn = dh_du / dx_m, dh_dv / dy_m
+                mag = math.hypot(ge, gn)
+                cols = (tangent_frame(math.degrees(math.atan(mag)),
+                                      -ge / mag, -gn / mag, zx)
+                        if mag > 1e-12 else None)
+                szs = [gsh[c].get("sigmaZm") for c in cs]
+                if all(s is not None for s in szs):
+                    s3 = max(floor_s3, sum(w * s for w, s in zip(wt, szs))
+                             * zx * UNITS_PER_M)
+                else:
+                    s3 = 0.5 * sg
+                conf = min(rows[c].get("_conf", 1.0) for c in cs)
+                derived_ct += 1
+                prov.append({
+                    "i": len(gaussians), "kind": "derived", "method": "bilinear",
+                    "at": {"lat": lat, "lng": lng},
+                    "sources": [{"cell": cell_ids[c], "weight": w}
+                                for c, w in zip(cs, wt)],
+                    "value": {b: srow[b] for b in bands if b in srow},
+                })
+
+            gaussians.append({
+                "p": pos(lat, lng, h),
+                "sigma": [sg, sg, s3],
+                "quat": quat_from_cols(cols),
+                "cov6": cov_upper(cols, sg, sg, s3),
+                "opacity": base_opacity * conf,
+                "row": srow,
+            })
+            srows.append(srow)
+
+    # Dedup table: each measured cell's signed fact_cids and values are stored
+    # once here and referenced by id from the splats, so a derived splat is just
+    # four (cell, weight) pairs. The table plus the splats is self-contained: a
+    # verifier needs nothing else to re-derive every value, and cids[b] still
+    # re-checks against the responder's key.
+    cells_table = {cell_ids[j]: {
+        "cids": rows[j].get("_cids", {}),
+        "vals": {b: rows[j][b] for b in bands if rows[j].get(b) is not None},
+    } for j in range(len(rows))}
+
+    return {
+        "gaussians": gaussians, "rows": srows, "prov_splats": prov,
+        "cells_table": cells_table,
+        "cell_ids": cell_ids, "measured_rows": rows,
+        "spacing_m": spacing, "h_min": h_min, "h_max": h_max,
+        "lat0": lat0, "lng0": lng0,
+        "grid": [W, H], "output_grid": [OW, OH],
+        "measured_count": measured_ct, "derived_count": derived_ct,
+    }
+
+
+def verify_derived(splats, cells, tol=1e-6):
+    """Assert every derived splat is exactly re-derivable from its signed
+    sources: weights sum to 1 and value[b] == sum_i weight_i * cells[src_i][b].
+    Source values come from the `cells` table (the signed measurements), so this
+    is the whole integrity claim of schema v2, checked with nothing but the
+    sidecar itself."""
+    checks = bad = 0
+    for s in splats:
+        if s.get("kind") != "derived":
+            continue
+        wsum = sum(src["weight"] for src in s["sources"])
+        if abs(wsum - 1.0) > 1e-9:
+            bad += 1
+            print("weights sum to %.12f != 1 at splat %d" % (wsum, s["i"]),
+                  file=sys.stderr)
+        for b, val in s["value"].items():
+            recomputed = 0.0
+            for src in s["sources"]:
+                cell = cells.get(src["cell"], {})
+                if b in cell.get("vals", {}):
+                    recomputed += src["weight"] * cell["vals"][b]
+            if abs(recomputed - val) > tol:
+                bad += 1
+                print("splat %d band %s: recorded %r != rederived %r"
+                      % (s["i"], b, val, recomputed), file=sys.stderr)
+            checks += 1
+    return checks, bad
+
+# ---------------------------------------------------------------------------
 # responder I/O
 # ---------------------------------------------------------------------------
 
@@ -620,10 +835,21 @@ def main():
                     help="seconds to pause between recall batches (gentle mode "
                          "for cold bakes against a shared responder)")
     ap.add_argument("--out", help="output prefix, e.g. out/rondonia")
+    ap.add_argument("--densify", type=int, default=1, metavar="F",
+                    help="provenance-preserving bilinear densification: subdivide "
+                         "each grid quad FxF (F>=2, e.g. 3 turns a 32x32 grid into "
+                         "94x94). Writes schema v2 in which every derived splat is "
+                         "anchored to its <=4 source cells' fact_cids and bilinear "
+                         "weights, so its value stays re-derivable and every source "
+                         "signature-checkable. F=1 (default) is the measured-only v1.")
     ap.add_argument("--verify", action="store_true",
                     help="round-trip every stored receipt through /v1/verify_receipt")
     ap.add_argument("--selftest", action="store_true",
                     help="assert the gaussian math against test/golden-scene.json")
+    ap.add_argument("--check-derived", metavar="PROVENANCE_JSON",
+                    help="load a schema-v2 sidecar and assert every derived splat "
+                         "is exactly re-derivable from its recorded source values "
+                         "and weights (offline; no responder needed)")
     args = ap.parse_args()
 
     if args.selftest:
@@ -631,6 +857,14 @@ def main():
         selftest(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "test", "golden-scene.json"))
         return
+    if args.check_derived:
+        prov = json.load(open(args.check_derived))
+        splats = prov.get("splats", [])
+        d = sum(1 for s in splats if s.get("kind") == "derived")
+        checks, bad = verify_derived(splats, prov.get("cells", {}))
+        print("%s: %d derived splats, %d band-checks, %d mismatched"
+              % (prov.get("schema", "?"), d, checks, bad))
+        raise SystemExit(1 if bad else 0)
     if not args.preset or not args.out:
         ap.error("--preset and --out are required (or --selftest)")
 
@@ -652,10 +886,20 @@ def main():
 
     built = build_gaussians(scene, cfg)
     if cfg.get("prepare"):
-        cfg["prepare"](built["rows"])
-    ctx = {"h_min": built["h_min"], "h_max": built["h_max"]}
-    colors = [tuple(clamp01(v) for v in cfg["colorize"](r, ctx)) for r in built["rows"]]
-    gaussians = built["gaussians"]
+        cfg["prepare"](built["rows"])       # sets _sem on the shared scene rows
+
+    densify = args.densify if args.densify and args.densify > 1 else 1
+    if densify > 1:
+        use = densify_gaussians(scene, cfg, densify)
+        print("densified %dx: %d measured + %d derived = %d splats"
+              % (densify, use["measured_count"], use["derived_count"],
+                 len(use["gaussians"])), file=sys.stderr)
+    else:
+        use = built
+
+    ctx = {"h_min": use["h_min"], "h_max": use["h_max"]}
+    colors = [tuple(clamp01(v) for v in cfg["colorize"](r, ctx)) for r in use["rows"]]
+    gaussians = use["gaussians"]
 
     import os
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -682,15 +926,26 @@ def main():
     # recorded URL. The signed responder pubkey is unchanged either way.
     public_responder = args.public_responder or args.responder
 
+    # v1 (measured only) stays byte-for-byte as before; v2 adds the densified
+    # `kind: derived` splats, each anchored to its signed source facts.
+    if densify > 1:
+        splats = use["prov_splats"]
+        schema = "emem.splat_provenance.v2"
+    else:
+        splats = [{"i": i, "cell": built["cell_ids"][i],
+                   "fact_cids": built["rows"][i].get("_cids", {})}
+                  for i in range(len(gaussians))]
+        schema = "emem.splat_provenance.v1"
+
     provenance = {
-        "schema": "emem.splat_provenance.v1",
+        "schema": schema,
         "responder": public_responder,
         "responder_pubkey_b32": responder_b32,
         "preset": args.preset,
         "bbox": cfg["bbox"],
         "bands": bands,
         "transform": {
-            "lat0": built["lat0"], "lng0": built["lng0"], "h_min": built["h_min"],
+            "lat0": use["lat0"], "lng0": use["lng0"], "h_min": use["h_min"],
             "meters_per_unit": 1 / UNITS_PER_M,
             "height_exaggeration": cfg.get("heightExaggeration", 1.6),
             "axis_flip": AXIS_FLIP,
@@ -709,9 +964,7 @@ def main():
                       "sha256": sha256_file(scene_path),
                       "bytes": os.path.getsize(scene_path)},
         },
-        "splats": [{"i": i, "cell": built["cell_ids"][i],
-                    "fact_cids": built["rows"][i].get("_cids", {})}
-                   for i in range(len(gaussians))],
+        "splats": splats,
         "receipts": receipts,
         "verify": {
             "receipt": "POST %s/v1/verify_receipt with {\"receipt\": <any entry of "
@@ -721,8 +974,29 @@ def main():
             "fact": "any fact_cid re-checks at %s/verify/<cid>" % public_responder,
         },
     }
+    if densify > 1:
+        provenance["densify"] = {
+            "method": "bilinear", "factor": densify,
+            "grid": use["grid"], "output_grid": use["output_grid"],
+            "measured_count": use["measured_count"],
+            "derived_count": use["derived_count"],
+        }
+        provenance["cells"] = use["cells_table"]
+        provenance["verify"]["derived"] = (
+            "each `kind: derived` splat's value[b] equals sum_i weight_i * "
+            "sources[i].values[b] with sum_i weight_i == 1, and every "
+            "sources[i].fact_cids[b] re-checks at %s/verify/<cid>; run "
+            "make_splats.py --check-derived <this file> to assert it locally"
+            % public_responder)
     with open(args.out + ".provenance.json", "w") as f:
         json.dump(provenance, f, indent=1)
+
+    if densify > 1:
+        checks, bad = verify_derived(use["prov_splats"], use["cells_table"])
+        print("derived re-derivation: %d band-checks, %d mismatched" % (checks, bad),
+              file=sys.stderr)
+        if bad:
+            raise SystemExit("derived splats are not re-derivable from their sources")
 
     print("wrote %s (.ply %.1f KB, .splat %.1f KB, %d splats)" %
           (args.out, os.path.getsize(ply_path) / 1024,

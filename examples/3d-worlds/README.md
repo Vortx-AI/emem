@@ -128,6 +128,45 @@ and fails if any signature does not check out. Any individual splat's
 is bound to the receipts by the sha256 in the sidecar: change a gaussian and
 the hash breaks; change a fact and its signature breaks.
 
+## Densify without breaking provenance
+
+The sampled worlds are one gaussian per cell, quantized to the grid. `--densify
+F` subdivides every grid quad `F x F` and emits a gaussian per fine node, so a
+32x32 world becomes 94x94 (`--densify 3` turns 1,024 cells into 8,836 splats)
+and the relief reads as continuous terrain. The point is that the extra
+geometry stays checkable:
+
+```bash
+python3 make_splats.py --preset canyon --densify 3 --out out/canyon_dense --verify
+```
+
+This writes `emem.splat_provenance.v2`, in which every splat is labelled. A node
+that lands on an original cell is `kind: "measured"` and resolves to that cell's
+own `fact_cid`. Every other node is `kind: "derived"`: it records its up to four
+source cells and the bilinear `weight` for each (the weights sum to 1), while the
+world's measured `cids` and `values` sit once in a `cells` table. So a derived
+splat's value is exactly re-derivable,
+
+```
+value[band] == sum_i weight_i * cells[source_i].vals[band]
+```
+
+and every source `fact_cid` still re-checks against the responder's key.
+Anisotropy for a derived splat comes from the analytic gradient of the same
+bilinear patch, so its ellipsoid lies in the interpolated tangent plane.
+Densification adds geometry, never an unverifiable number, and always says which
+splats are measured and which are inferred.
+
+Re-check any v2 sidecar offline, with no responder and nothing but the file:
+
+```bash
+python3 make_splats.py --check-derived out/canyon_dense.provenance.json
+# emem.splat_provenance.v2: 7812 derived splats, 7812 band-checks, 0 mismatched
+```
+
+The live `/worlds` viewer still builds the sparse, one-per-cell world from the
+scene; densifying it in lockstep with the exporter is tracked as open research.
+
 ## The data ships with the repo
 
 [`scenes/`](scenes/) holds the exact data behind the four README worlds,
