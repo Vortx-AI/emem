@@ -145,7 +145,7 @@ that lands on an original cell is `kind: "measured"` and resolves to that cell's
 own `fact_cid`. Every other node is `kind: "derived"`: it records its up to four
 source cells and the bilinear `weight` for each (the weights sum to 1), while the
 world's measured `cids` and `values` sit once in a `cells` table. So a derived
-splat's value is exactly re-derivable,
+splat's continuous bands are exactly re-derivable,
 
 ```
 value[band] == sum_i weight_i * cells[source_i].vals[band]
@@ -154,8 +154,16 @@ value[band] == sum_i weight_i * cells[source_i].vals[band]
 and every source `fact_cid` still re-checks against the responder's key.
 Anisotropy for a derived splat comes from the analytic gradient of the same
 bilinear patch, so its ellipsoid lies in the interpolated tangent plane.
-Densification adds geometry, never an unverifiable number, and always says which
-splats are measured and which are inferred.
+
+Two rules keep this honest. A **categorical** band (declared in
+`categoricalBands`: a Hansen loss *year*, a class code, anything a weighted
+average would turn into a value no cell ever reported) is not blended; the
+derived node inherits it from its nearest signed corner, and `--check-derived`
+accepts `value[band] == cells[nearest].vals[band]` for those. And a node that
+lands on an original cell **is** that signed cell, kept exact and emitted even
+at a ragged grid edge whose quad is incomplete, so densifying never drops or
+mislabels a measured fact. Densification adds geometry, never an unverifiable
+number, and always says which splats are measured and which are inferred.
 
 Re-check any v2 sidecar offline, with no responder and nothing but the file:
 
@@ -164,8 +172,10 @@ python3 make_splats.py --check-derived out/canyon_dense.provenance.json
 # emem.splat_provenance.v2: 7812 derived splats, 7812 band-checks, 0 mismatched
 ```
 
-The live `/worlds` viewer still builds the sparse, one-per-cell world from the
-scene; densifying it in lockstep with the exporter is tracked as open research.
+The live `/worlds` viewer densifies the same way, in lockstep: `splat-math.js`
+carries the identical bilinear/nearest math (the golden fixture pins both to
+1e-6), so the browser world can go dense on demand while its pick panel still
+resolves every splat to a measured `fact_cid` or its signed source cells.
 
 ## The data ships with the repo
 

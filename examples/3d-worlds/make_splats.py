@@ -279,11 +279,15 @@ def build_gaussians(scene, cfg):
 # that lands on an original cell is `measured` and keeps that cell's own
 # fact_cid; every other node is `derived` and records the four corner cells,
 # their fact_cids, the bilinear weights (which sum to 1), and the corner values,
-# so its value is exactly re-derivable (value[b] == sum_i w_i * source_i[b]) and
-# every source fact stays individually signature-checkable. Densification adds
-# geometry, never an unverifiable number, and each splat is labelled which it
-# is. Anisotropy for a derived node comes from the analytic gradient of the same
-# bilinear patch, so the ellipsoid lies in the interpolated tangent plane.
+# so a continuous value is exactly re-derivable (value[b] == sum_i w_i *
+# source_i[b]) and every source fact stays individually signature-checkable. A
+# categorical band (cfg["categoricalBands"], e.g. a loss year or a class code)
+# is inherited from the nearest signed corner instead of averaged, and a measured
+# node stays its exact signed cell even at a ragged grid edge, so densification
+# adds geometry, never an invented number or a dropped fact, and each splat is
+# labelled which it is. Anisotropy for a derived node comes from the analytic
+# gradient of the same bilinear patch, so the ellipsoid lies in the interpolated
+# tangent plane.
 # ---------------------------------------------------------------------------
 
 def _grid_index(rows):
@@ -343,6 +347,10 @@ def densify_gaussians(scene, cfg, factor):
     lngs, lats, gidx = _grid_index(rows)
     W, H = len(lngs), len(lats)
     bands = _data_bands(rows, cfg)
+    # categorical bands (e.g. a Hansen loss YEAR, or a discrete class code)
+    # cannot be bilinearly averaged without inventing values never observed, so
+    # a derived node inherits its nearest signed cell's value for these.
+    categorical = set(cfg.get("categoricalBands", []))
     sem = cfg.get("prepare") is not None
 
     def pos(lat, lng, h):
@@ -365,37 +373,52 @@ def densify_gaussians(scene, cfg, factor):
             v = (J - gz * factor) / factor
             cs = [corner(gx, gz), corner(gx + 1, gz),
                   corner(gx, gz + 1), corner(gx + 1, gz + 1)]
-            if any(c is None for c in cs):
-                continue                                    # incomplete quad: no splat
             wt = [(1 - u) * (1 - v), u * (1 - v), (1 - u) * v, u * v]
-            R = [rows[c] for c in cs]
+            near = max(range(4), key=lambda k: wt[k])   # dominant corner (ties -> lowest idx)
             is_measured = (I % factor == 0 and J % factor == 0)
 
-            lat = sum(w * r["lat"] for w, r in zip(wt, R))
-            lng = sum(w * r["lng"] for w, r in zip(wt, R))
-            h = sum(w * r[hb] for w, r in zip(wt, R))
-            srow = {"lat": lat, "lng": lng}
-            for b in bands:
-                if all(r.get(b) is not None for r in R):
-                    srow[b] = sum(w * r[b] for w, r in zip(wt, R))
-            if sem:
-                sems = [r.get("_sem") for r in R]
-                if all(isinstance(s, list) and len(s) == 3 for s in sems):
-                    srow["_sem"] = [sum(w * s[k] for w, s in zip(wt, sems))
-                                    for k in range(3)]
-
             if is_measured:
-                j = cs[0]
+                # a node on an original cell IS that signed cell: kept exact and
+                # emitted whenever the cell exists (even at a ragged grid edge
+                # whose quad is incomplete), so densifying never drops or
+                # mislabels a measured fact. `near` is the corner it sits on.
+                j = cs[near]
+                if j is None:
+                    continue
+                r = rows[j]
+                lat, lng, h = r["lat"], r["lng"], r[hb]
+                srow = {"lat": lat, "lng": lng}
+                for b in bands:
+                    if r.get(b) is not None:
+                        srow[b] = r[b]
+                if sem and isinstance(r.get("_sem"), list) and len(r["_sem"]) == 3:
+                    srow["_sem"] = list(r["_sem"])
                 g = gsh[j]
                 s3 = (max(floor_s3, g["sigmaZm"] * zx * UNITS_PER_M)
                       if g.get("hasRelief") else 0.5 * sg * factor)
                 cols = (tangent_frame(g["slopeDeg"], g["aspSin"], g["aspCos"], zx)
                         if g.get("hasFrame") else None)
-                conf = rows[j].get("_conf", 1.0)
+                conf = r.get("_conf", 1.0)
                 measured_ct += 1
                 prov.append({"i": len(gaussians), "kind": "measured",
                              "cell": cell_ids[j]})
             else:
+                if any(c is None for c in cs):
+                    continue                                # incomplete quad: no derived node
+                R = [rows[c] for c in cs]
+                lat = sum(w * rr["lat"] for w, rr in zip(wt, R))
+                lng = sum(w * rr["lng"] for w, rr in zip(wt, R))
+                h = sum(w * rr[hb] for w, rr in zip(wt, R))
+                srow = {"lat": lat, "lng": lng}
+                for b in bands:
+                    if all(rr.get(b) is not None for rr in R):
+                        srow[b] = (R[near][b] if b in categorical
+                                   else sum(w * rr[b] for w, rr in zip(wt, R)))
+                if sem:
+                    sems = [rr.get("_sem") for rr in R]
+                    if all(isinstance(s, list) and len(s) == 3 for s in sems):
+                        srow["_sem"] = [sum(w * s[k] for w, s in zip(wt, sems))
+                                        for k in range(3)]
                 # analytic gradient of the bilinear patch -> tangent plane
                 hSW, hSE, hNW, hNE = (R[0][hb], R[1][hb], R[2][hb], R[3][hb])
                 dh_du = (1 - v) * (hSE - hSW) + v * (hNE - hNW)
@@ -422,6 +445,7 @@ def densify_gaussians(scene, cfg, factor):
                     "at": {"lat": lat, "lng": lng},
                     "sources": [{"cell": cell_ids[c], "weight": w}
                                 for c, w in zip(cs, wt)],
+                    "nearest": cell_ids[cs[near]],   # dominant corner: source of any categorical band
                     "value": {b: srow[b] for b in bands if b in srow},
                 })
 
@@ -458,10 +482,11 @@ def densify_gaussians(scene, cfg, factor):
 
 def verify_derived(splats, cells, tol=1e-6):
     """Assert every derived splat is exactly re-derivable from its signed
-    sources: weights sum to 1 and value[b] == sum_i weight_i * cells[src_i][b].
-    Source values come from the `cells` table (the signed measurements), so this
-    is the whole integrity claim of schema v2, checked with nothing but the
-    sidecar itself."""
+    sources: weights sum to 1 and each value[b] is either the bilinear blend
+    sum_i weight_i * cells[src_i][b] (a continuous band) or the nearest signed
+    cell's value cells[nearest][b] (a categorical band, never averaged). Source
+    values come from the `cells` table (the signed measurements), so this is the
+    whole integrity claim of schema v2, checked with nothing but the sidecar."""
     checks = bad = 0
     for s in splats:
         if s.get("kind") != "derived":
@@ -471,16 +496,17 @@ def verify_derived(splats, cells, tol=1e-6):
             bad += 1
             print("weights sum to %.12f != 1 at splat %d" % (wsum, s["i"]),
                   file=sys.stderr)
+        near_vals = cells.get(s.get("nearest"), {}).get("vals", {})
         for b, val in s["value"].items():
-            recomputed = 0.0
-            for src in s["sources"]:
-                cell = cells.get(src["cell"], {})
-                if b in cell.get("vals", {}):
-                    recomputed += src["weight"] * cell["vals"][b]
-            if abs(recomputed - val) > tol:
+            blend = sum(src["weight"] * cells.get(src["cell"], {}).get("vals", {}).get(b, 0.0)
+                        for src in s["sources"]
+                        if b in cells.get(src["cell"], {}).get("vals", {}))
+            ok = abs(blend - val) <= tol or (b in near_vals and abs(near_vals[b] - val) <= tol)
+            if not ok:
                 bad += 1
-                print("splat %d band %s: recorded %r != rederived %r"
-                      % (s["i"], b, val, recomputed), file=sys.stderr)
+                print("splat %d band %s: recorded %r not re-derivable "
+                      "(blend %r, nearest %r)"
+                      % (s["i"], b, val, blend, near_vals.get(b)), file=sys.stderr)
             checks += 1
     return checks, bad
 
@@ -778,7 +804,10 @@ def selftest(fixture_path):
         checks += 1
 
     for case in fix["cases"]:
-        g = build_gaussians(case.get("scene") or fix["scene"], case["cfg"])
+        scene = case.get("scene") or fix["scene"]
+        cfg = case["cfg"]
+        g = (densify_gaussians(scene, cfg, cfg["densify"])
+             if cfg.get("densify", 1) > 1 else build_gaussians(scene, cfg))
         exp = case["expected"]
         close(g["spacing_m"], exp["spacing_m"], case["name"] + " spacing")
         close(g["h_min"], exp["hMin"], case["name"] + " hMin")
@@ -792,6 +821,9 @@ def selftest(fixture_path):
                 close(got["quat"][k], e["quat"][k], "%s g%d quat%d" % (case["name"], i, k))
             for k in range(6):
                 close(got["cov6"][k], e["cov6"][k], "%s g%d cov%d" % (case["name"], i, k))
+            # interpolated band values (continuous bilinear + categorical nearest)
+            for rb, rv in e.get("row", {}).items():
+                close(got["row"][rb], rv, "%s g%d row.%s" % (case["name"], i, rb))
     print("selftest ok: %d checks" % checks)
 
 

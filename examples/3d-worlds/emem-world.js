@@ -122,7 +122,12 @@
 
   // ---- splat cloud -------------------------------------------------------
   function buildCloud(scene, cfg) {
-    const g = SM.buildGaussians(scene, cfg);
+    // cfg.densify > 1 builds the provenance-preserving densified world (one
+    // gaussian per fine grid node, each measured or re-derivable from signed
+    // cells); otherwise the measured one-per-cell world. Same output shape.
+    const g = (cfg.densify && cfg.densify > 1)
+      ? SM.densifyGaussians(scene, cfg)
+      : SM.buildGaussians(scene, cfg);
     const n = g.count;
     const ctx = { hMin: g.hMin, hMax: g.hMax, spacingM: g.spacingM, rows: g.rows };
     if (cfg.prepare) cfg.prepare(g.rows, ctx);
@@ -356,12 +361,24 @@
     }
     setViewport();
 
-    if (hud) {
+    // HUD count line. Honest about densification: when derived splats exist it
+    // names measured (signed) vs derived (re-derivable) counts separately, so
+    // "cells · N signed facts" only reads as one-splat-one-fact when that is
+    // literally true. Re-run from rebuild() so the detail control stays honest.
+    function updateHudCount() {
+      if (!hud) return;
       const hn = hud.querySelector("#hud-n");
-      if (hn) hn.textContent =
-        world.n.toLocaleString() + " cells · " +
-        (data.fact_count || 0).toLocaleString() + " signed facts · " +
-        CFG.bands.join(" · ");
+      if (!hn) return;
+      const facts = (data.fact_count || 0).toLocaleString();
+      hn.textContent = (world.g.derivedCount > 0)
+        ? world.g.measuredCount.toLocaleString() + " measured + " +
+          world.g.derivedCount.toLocaleString() + " derived splats · " +
+          facts + " signed facts · " + CFG.bands.join(" · ")
+        : world.n.toLocaleString() + " cells · " + facts +
+          " signed facts · " + CFG.bands.join(" · ");
+    }
+    if (hud) {
+      updateHudCount();
       status(CFG.subtitle || "every splat re-checks at " + CFG.responder + "/verify");
     }
 
@@ -458,6 +475,10 @@
                world.g.positions[3 * best + 2]).project(cam);
       return {
         index: best, cellId: world.g.cellIds[best], row: world.g.rows[best],
+        // provenance for a densified world: {kind:"measured",cell} or
+        // {kind:"derived",sources:[{cell,weight}],value,at}. null when sparse.
+        prov: world.g.prov ? world.g.prov[best] : null,
+        cells: world.g.cells || null,
         screenX: (proj.x * 0.5 + 0.5) * rect2.width + rect2.left,
         screenY: (-proj.y * 0.5 + 0.5) * rect2.height + rect2.top,
       };
@@ -494,6 +515,7 @@
       THREE: THREE, scene: scene3, camera: cam, renderer: renderer,
       cfg: CFG, ctx: world.ctx, g: world.g,
       count: world.n, factCount: data.fact_count || 0,
+      measuredCount: world.g.measuredCount || 0, derivedCount: world.g.derivedCount || 0,
       pick: pick,
       recolor: function (fn) {
         curCfg.colorize = fn || curCfg.colorize;
@@ -510,6 +532,9 @@
         scene3.add(world.mesh);
         setViewport(); lastFwd.set(0, 0, 0);
         api.g = world.g; api.ctx = world.ctx; api.count = world.n;
+        api.measuredCount = world.g.measuredCount || 0;
+        api.derivedCount = world.g.derivedCount || 0;
+        updateHudCount();
       },
       setSplatScale: function (s) { world.mat.uniforms.uSplatScale.value = s; },
       setOpacityScale: function (o) { world.mat.uniforms.uOpacityScale.value = o; },

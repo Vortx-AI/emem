@@ -187,6 +187,11 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
       <label>opacity <span id="v-op">100%</span></label>
       <input type="range" id="s-op" min="20" max="130" value="100">
     </div>
+    <div class="ctlrow">
+      <label>detail <span id="v-dense">measured</span></label>
+      <input type="range" id="s-dense" min="1" max="3" step="1" value="1">
+      <div id="dense-note" style="font-size:var(--t-xs);color:var(--ink-3);margin-top:.25rem;line-height:1.4">every splat is one signed fact</div>
+    </div>
     <div class="links" style="border:none;padding:0">
       <button id="b-reset">reset view</button>
       <button id="b-spin">stop spin</button>
@@ -217,7 +222,10 @@ var BAND = {
   "surface_water.recurrence": { name: "water recurrence", unit: "%", dec: 0 },
   "esa_cci_biomass.agb_t_per_ha_2022": { name: "above-ground biomass", unit: "t/ha", dec: 0 },
   "esa_cci_biomass.agb_se_t_per_ha_2022": { name: "biomass std error", unit: "t/ha", dec: 0 },
-  "forest_change.lossyear": { name: "forest loss year", unit: "", fmt: function (v) { return v >= 1 ? String(2000 + v) : "no loss"; } },
+  // the signed band stores the full calendar year (0 = no loss, else 2001..2024
+  // straight from the Hansen raster via lossyear_byte_to_calendar_year), so it
+  // prints as-is — do not add 2000 again.
+  "forest_change.lossyear": { name: "forest loss year", unit: "", fmt: function (v) { return v >= 1 ? String(Math.round(v)) : "no loss"; } },
   "forest_change.treecover2000": { name: "tree cover (2000)", unit: "%", dec: 0 },
   "geotessera": { name: "GeoTessera embedding", unit: "128-D", fmt: function () { return "128-D vector"; } },
 };
@@ -310,6 +318,7 @@ var WORLDS = {
     story: "The BR-364 deforestation frontier, with no terrain at all. Height is ESA CCI above-ground biomass, so standing forest rises and cleared land sits flat. Each splat's thickness is that biomass estimate's own published standard error. Colour is the Hansen loss year: intact canopy stays green, cleared cells burn on an ember ramp that brightens the more recent the clearing. The fishbone along the highway is the frontier itself.",
     axis: "<b>height</b> = biomass (t/ha) · <b>thickness</b> = its std error · <b>colour</b> = loss year",
     bands: ["esa_cci_biomass.agb_t_per_ha_2022", "forest_change.lossyear", "forest_change.treecover2000"],
+    categoricalBands: ["forest_change.lossyear"],   // a year, not a quantity: never averaged when densified
     heightBand: "esa_cci_biomass.agb_t_per_ha_2022",
     heightExaggeration: 15, cameraDistance: 0.62, cameraHeight: 0.5,
     shape: { sigmaBand: "esa_cci_biomass.agb_se_t_per_ha_2022", sigmaFloorM: 4 },
@@ -319,7 +328,7 @@ var WORLDS = {
           var loss = row["forest_change.lossyear"] || 0;
           var tc = row["forest_change.treecover2000"] || 0;
           var agb = row["esa_cci_biomass.agb_t_per_ha_2022"] || 0;
-          if (loss >= 1) { var u = clamp01((loss - 1) / 23); c.setRGB(0.45 + 0.55 * u, 0.10 + 0.30 * u, 0.03 + 0.07 * u); }
+          if (loss >= 1) { var u = clamp01((loss - 2001) / 23); c.setRGB(0.45 + 0.55 * u, 0.10 + 0.30 * u, 0.03 + 0.07 * u); }
           else if (tc < 30) { c.setRGB(0.52, 0.44, 0.28); }
           else { var v = clamp01(agb / 300); c.setRGB(0.05, 0.30 + 0.45 * v, 0.10 + 0.10 * v); }
         } },
@@ -334,7 +343,7 @@ var WORLDS = {
         colorize: function (row, c) {
           var loss = row["forest_change.lossyear"] || 0;
           if (loss < 1) { c.setRGB(0.14, 0.19, 0.14); return; }
-          var u = clamp01((loss - 1) / 23); c.setRGB(0.55 + 0.45 * u, 0.25 + 0.55 * u, 0.05 + 0.30 * u);
+          var u = clamp01((loss - 2001) / 23); c.setRGB(0.55 + 0.45 * u, 0.25 + 0.55 * u, 0.05 + 0.30 * u);
         } },
     ],
   },
@@ -437,30 +446,71 @@ function semanticPCA(rows) {
     var s = (m.dec != null) ? Number(v).toFixed(m.dec) : String(v);
     return s + (m.unit ? " " + m.unit : "");
   }
+  function bandRow(tbl, band, v) {
+    if (v == null) return;
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td class=b>" + (BAND[band] ? BAND[band].name : band) + "</td><td class=v>" + fmtVal(band, v) + "</td>";
+    tbl.appendChild(tr);
+  }
+  // Provenance for a densified world lives in a deduped cells table on the
+  // hit; a synthetic (interpolated) row has no _cids of its own, so read the
+  // real signed values and cids for a cell id from there.
+  function cellEntry(hit, cellId) { return (hit.cells && hit.cells[cellId]) || null; }
+  function verifyLink(cid, label) {
+    var a = document.createElement("a");
+    a.href = "/verify/" + cid; a.target = "_blank"; a.rel = "noopener"; a.textContent = label;
+    return a;
+  }
   function showPick(hit) {
-    var row = hit.row, cids = row._cids || {};
-    $("pick-title").textContent = (BAND[W.heightBand] ? BAND[W.heightBand].name : "cell") + " here";
-    $("pick-cell").textContent = hit.cellId;
+    var prov = hit.prov, derived = prov && prov.kind === "derived";
     var tbl = $("pick-tbl"); tbl.innerHTML = "";
-    W.bands.forEach(function (band) {
-      if (row[band] == null) return;
-      var tr = document.createElement("tr");
-      tr.innerHTML = "<td class=b>" + (BAND[band] ? BAND[band].name : band) + "</td><td class=v>" + fmtVal(band, row[band]) + "</td>";
-      tbl.appendChild(tr);
-    });
-    if (row._conf != null) {
-      var tr = document.createElement("tr");
-      tr.innerHTML = "<td class=b>attested confidence</td><td class=v>" + Number(row._conf).toFixed(2) + "</td>";
-      tbl.appendChild(tr);
-    }
     var cidWrap = $("pick-cid"); cidWrap.innerHTML = "";
-    var anyCid = Object.keys(cids)[0];
-    if (anyCid && cids[anyCid]) {
-      var a = document.createElement("a"); a.href = "/verify/" + cids[anyCid]; a.target = "_blank"; a.rel = "noopener"; a.textContent = "verify signature ↗"; cidWrap.appendChild(a);
-      var tok = "memt:" + hit.cellId + ":" + cids[anyCid];
-      var cp = document.createElement("button"); cp.textContent = "copy memt token";
-      cp.onclick = function () { navigator.clipboard && navigator.clipboard.writeText(tok); toast("copied " + tok.slice(0, 22) + "…"); };
-      cidWrap.appendChild(cp);
+
+    if (derived) {
+      // an interpolated point: value = sum_i weight_i * signed cell_i
+      var nz = prov.sources.filter(function (s) { return s.weight > 1e-9; });
+      $("pick-title").textContent = "interpolated point";
+      $("pick-cell").textContent = "derived · bilinear blend of " + nz.length + " signed cell" + (nz.length === 1 ? "" : "s");
+      var val = prov.value || hit.row;
+      W.bands.forEach(function (band) { bandRow(tbl, band, val[band]); });
+      var note = document.createElement("div");
+      note.style.cssText = "font-size:var(--t-xs);color:var(--ink-3);margin:.1rem 0 .35rem;line-height:1.45";
+      note.textContent = "value = Σ wᵢ · signed cellᵢ (weights sum to 1). Every source stays signature-checkable:";
+      cidWrap.appendChild(note);
+      nz.sort(function (a, b) { return b.weight - a.weight; }).forEach(function (s) {
+        var ent = cellEntry(hit, s.cell), cids = (ent && ent.cids) || {}, anyCid = Object.keys(cids)[0];
+        var line = document.createElement("div");
+        line.style.cssText = "display:flex;gap:.5rem;align-items:baseline;font-size:var(--t-sm);margin:.12rem 0";
+        var w = document.createElement("span");
+        w.style.cssText = "color:var(--vermilion);min-width:2.8em;text-align:right;font-variant-numeric:tabular-nums";
+        w.textContent = (s.weight * 100).toFixed(0) + "%";
+        line.appendChild(w);
+        line.appendChild(anyCid && cids[anyCid] ? verifyLink(cids[anyCid], s.cell + " ↗")
+          : Object.assign(document.createElement("span"), { textContent: s.cell }));
+        cidWrap.appendChild(line);
+      });
+    } else {
+      // a measured node: exactly one signed fact
+      var cellId = hit.cellId, ent = cellEntry(hit, cellId);
+      var cids = (hit.row && hit.row._cids) || (ent && ent.cids) || {};
+      var vals = (ent && ent.vals) || hit.row || {};
+      $("pick-title").textContent = (BAND[W.heightBand] ? BAND[W.heightBand].name : "cell") + " here";
+      $("pick-cell").textContent = cellId;
+      W.bands.forEach(function (band) { bandRow(tbl, band, vals[band]); });
+      var conf = (hit.row && hit.row._conf != null) ? hit.row._conf : (ent && ent.conf);
+      if (conf != null) {
+        var tr = document.createElement("tr");
+        tr.innerHTML = "<td class=b>attested confidence</td><td class=v>" + Number(conf).toFixed(2) + "</td>";
+        tbl.appendChild(tr);
+      }
+      var anyCid = Object.keys(cids)[0];
+      if (anyCid && cids[anyCid]) {
+        cidWrap.appendChild(verifyLink(cids[anyCid], "verify signature ↗"));
+        var tok = "memt:" + cellId + ":" + cids[anyCid];
+        var cp = document.createElement("button"); cp.textContent = "copy memt token";
+        cp.onclick = function () { navigator.clipboard && navigator.clipboard.writeText(tok); toast("copied " + tok.slice(0, 22) + "…"); };
+        cidWrap.appendChild(cp);
+      }
     }
     var pk = $("pick");
     pk.style.display = "block";
@@ -515,6 +565,19 @@ function semanticPCA(rows) {
     $("s-exag").onchange = function () { api.rebuild({ heightExaggeration: W.heightExaggeration * (this.value / 100) }); };
     $("s-size").oninput = function () { var s = this.value / 100; $("v-size").textContent = s.toFixed(2).replace(/0$/, "") + "×"; api.setSplatScale(s); };
     $("s-op").oninput = function () { var o = this.value / 100; $("v-op").textContent = Math.round(o * 100) + "%"; api.setOpacityScale(o); };
+    // detail: 1 = measured (one splat = one signed fact), 2/3 = provenance-
+    // preserving bilinear densification. Each derived splat stays re-derivable
+    // from <=4 signed cells; onchange rebuilds, oninput only relabels.
+    function denseLabel(f) {
+      $("v-dense").textContent = f === 1 ? "measured" : f + "× denser";
+      $("dense-note").textContent = f === 1
+        ? "every splat is one signed fact"
+        : "measured cells kept exact; in-between splats bilinear-interpolated, each re-derivable from up to 4 signed cells — click one to see its sources";
+    }
+    $("s-dense").value = String((api.cfg && api.cfg.densify) || 1);
+    denseLabel(+$("s-dense").value);
+    $("s-dense").oninput = function () { denseLabel(+this.value); };
+    $("s-dense").onchange = function () { api.rebuild({ densify: +this.value }); };
     $("b-reset").onclick = function () { api.resetView(); };
     var spinning = true;
     $("b-spin").onclick = function () { spinning = !spinning; api.spin(spinning); this.textContent = spinning ? "stop spin" : "start spin"; };
@@ -549,9 +612,14 @@ function semanticPCA(rows) {
 
     renderLenses();
 
+    // Default detail: densify x2 on desktop (measured cells kept exact, the
+    // rest re-derivable and clearly labelled), but stay measured-only on small
+    // screens where the extra splats cost more than they show. One click in the
+    // controls changes it either way.
+    var startDensify = (window.matchMedia && window.matchMedia("(max-width:760px)").matches) ? 1 : 2;
     var cfg = {
-      responder: location.origin, maxCells: 1024,
-      bands: W.bands, heightBand: W.heightBand,
+      responder: location.origin, maxCells: 1024, densify: startDensify,
+      bands: W.bands, heightBand: W.heightBand, categoricalBands: W.categoricalBands,
       heightExaggeration: W.heightExaggeration, cameraDistance: W.cameraDistance, cameraHeight: W.cameraHeight,
       shape: W.shape, prepare: W.prepare, colorize: curLens.colorize,
       onReady: function (a) {
