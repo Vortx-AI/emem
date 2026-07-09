@@ -7,6 +7,53 @@ to verify.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-09
+
+First stable release. The wire format is settled: canonical CBOR, the ed25519
+receipt preimage, and the cell64 address space will not break under a 1.x, and
+every fact signed under a previous CID continues to verify. All 16 workspace
+crates, the MCP server descriptor (`server.json`), and the agent, plugin, and
+Gemini-extension manifests move to 1.0.0 together; the running responder reports
+it through `env!("CARGO_PKG_VERSION")` at `/v1/agent_card` and in the MCP
+`serverInfo`.
+
+### 3D worlds: dense navigable demo at /splats, provenance v2, damped camera
+
+- New `/splats` surface: a hosted, view-only demo of dense navigable worlds
+  served from `EMEM_SPLATS_DIR`. Where `/worlds` draws one gaussian per signed
+  cell, `/splats` pushes the same signed facts into a photoreal fly-through of
+  roughly 3.4 million oriented surfels: geometry from a measured USGS 3DEP
+  bare-earth DTM, colour from a Sentinel-2 L2A scene, and a signed Sentinel-2
+  time series (eight frames, 2018 to 2025, each carrying its own `fact_cid`)
+  behind a scrubber with a change-since-baseline mode. Density is added by
+  bicubic interpolation plus a diffusion super-resolution pass whose
+  low-frequency signal is locked to the measured Sentinel-2, and every splat is
+  tagged `measured`, `interpolated`, or `synthesized`; the manifest is
+  ed25519-signed over the whole pipeline and the invented layers peel back off
+  to leave only the measured trust root. The route serves the static bundle with
+  ETag + short caching and reverse-traversal guards, and proxies a single
+  `POST /splats/api/gemma` to a loopback Gemma bridge so the Ask-Gemma panel
+  works without exposing that service publicly. Three scenes today: the Grand
+  Canyon, and the Tungabhadra and Srisailam reservoirs.
+- `emem.splat_provenance.v2` densification in the exporter and the live
+  `/worlds` viewer. `make_splats.py --densify F` subdivides each grid quad and
+  labels every splat `measured` (its own `fact_cid`) or `derived` (up to four
+  source cells, their `fact_cids`, and bilinear weights that sum to 1), so a
+  derived continuous value re-derives exactly as `sum_i weight_i * source_i` and
+  every source stays signature-checkable. Categorical bands (a loss year, a
+  class code) inherit from the nearest signed cell instead of averaging, and a
+  node on an original cell stays that exact signed cell, so densifying never
+  invents a value or drops a measured fact. `--check-derived` re-verifies a whole
+  sidecar offline; the `splat-math.js` and Python paths are pinned to 1e-6 by a
+  golden fixture, and the viewer's pick panel resolves any derived splat to its
+  signed sources.
+- The `/worlds` camera is now fully damped and gimbal-free. Orbit, zoom, and pan
+  ease toward damped targets so there is no overshoot or leak; a meridian-tangent
+  camera up vector gives a full 360-degree vertical tumble with no gimbal lock;
+  and pan derives its screen-plane basis from the live view geometry rather than
+  a frame-stale matrix. `resetView` and `focus` set both the live and the target
+  state so the transition stays smooth.
+
 ### 3D worlds: real gaussian splatting, signed splat export
 
 - The `examples/3d-worlds/` renderer is now standard 3D Gaussian Splatting

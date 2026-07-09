@@ -310,14 +310,20 @@
       if (!dragging) return;
       const dx = e.clientX - px, dy = e.clientY - py; px = e.clientX; py = e.clientY;
       if (mode === 0) {
-        state.az -= dx * 0.005;
-        state.pol = Math.max(0.04, Math.min(Math.PI - 0.04, state.pol - dy * 0.005));
+        state.azT -= dx * 0.005;
+        state.polT -= dy * 0.005;                 // NO clamp -> full 360 vertical tumble (applyCam has no gimbal)
       } else {
-        const s = state.r * 0.0015;
-        const right = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 0);
-        const up = new THREE.Vector3().setFromMatrixColumn(cam.matrix, 1);
+        // pan: slide the pivot in the screen plane. Basis derived from the live view geometry
+        // (not cam.matrix, which can be a frame stale) so it's always correct.
+        const s = state.r * 0.0016;
+        const fwd = new THREE.Vector3().subVectors(state.target, cam.position).normalize();
+        let right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0));
+        if (right.lengthSq() < 1e-6) right.set(1, 0, 0);          // looking straight down/up: pick any horizontal right
+        right.normalize();
+        const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
         state.target.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
       }
+      state.idleAt = Infinity;
     }
     function onUp(e) {
       dragging = false; state.idleAt = state.now + 2500;
@@ -325,7 +331,7 @@
     }
     function onWheel(e) {
       e.preventDefault();
-      state.r = Math.max(state.rMin, Math.min(state.rMax, state.r * Math.exp(e.deltaY * 0.0012)));
+      state.rT = Math.max(state.rMin, Math.min(state.rMax, state.rT * Math.exp(e.deltaY * 0.0012)));  // damped zoom target
       state.idleAt = state.now + 2500;
     }
     dom.addEventListener("pointerdown", onDown);
@@ -414,19 +420,23 @@
     }
 
     // ---- interactive orbit ------------------------------------------------
+    const pol0 = Math.acos(Math.max(-1, Math.min(1, camH)));
     const st = {
-      az: 0, pol: Math.acos(Math.max(-1, Math.min(1, camH))), r: R,
+      az: 0, pol: pol0, r: R,
+      azT: 0, polT: pol0, rT: R,                 // damped targets — camera eases toward these
       rMin: R * 0.12, rMax: R * 4, target: target.clone(),
       now: 0, idleAt: 2500, autoSpeed: CFG.orbitSpeed || 0.12,
     };
     makeControls(renderer.domElement, cam, st);
 
     function applyCam() {
-      const sp = Math.sin(st.pol), cp = Math.cos(st.pol);
+      const sp = Math.sin(st.pol), cp = Math.cos(st.pol), sa = Math.sin(st.az), ca = Math.cos(st.az);
       cam.position.set(
-        st.target.x + st.r * sp * Math.sin(st.az),
+        st.target.x + st.r * sp * sa,
         st.target.y + st.r * cp,
-        st.target.z + st.r * sp * Math.cos(st.az));
+        st.target.z + st.r * sp * ca);
+      // meridian-tangent up (unit & ⟂ to the view dir at every pol) => full 360° tumble, no gimbal lock
+      cam.up.set(-cp * sa, sp, -cp * ca);
       cam.lookAt(st.target);
     }
 
@@ -434,7 +444,9 @@
     function frame(t) {
       if (t0 === null) t0 = t;
       st.now = t;
-      if (t > st.idleAt) st.az += st.autoSpeed * 0.016;   // idle auto-rotate
+      if (t > st.idleAt) st.azT += st.autoSpeed * 0.016;   // idle auto-rotate nudges the target
+      const k = 0.35;                                       // damped easing -> smooth, predictable, no overshoot/leak
+      st.az += (st.azT - st.az) * k; st.pol += (st.polT - st.pol) * k; st.r += (st.rT - st.r) * k;
       applyCam();
       fwd.copy(st.target).sub(cam.position).normalize();
       if (lastFwd.dot(fwd) < 0.9995) { world.sort(cam.position, fwd); lastFwd.copy(fwd); }
@@ -539,12 +551,12 @@
       setSplatScale: function (s) { world.mat.uniforms.uSplatScale.value = s; },
       setOpacityScale: function (o) { world.mat.uniforms.uOpacityScale.value = o; },
       setBasemap: setBasemap, basemapExtent: function () { return basemapExtent(world.g); },
-      resetView: function () { st.az = 0; st.pol = Math.acos(Math.max(-1, Math.min(1, camH)));
-        st.r = R; st.target.copy(target); st.idleAt = st.now + 2500; },
+      resetView: function () { st.az = st.azT = 0; st.pol = st.polT = Math.acos(Math.max(-1, Math.min(1, camH)));
+        st.r = st.rT = R; st.target.copy(target); st.idleAt = st.now + 2500; },
       focus: function (i) {
         st.target.set(world.g.positions[3 * i], world.g.positions[3 * i + 1],
                       world.g.positions[3 * i + 2]);
-        st.r = Math.max(st.rMin, R * 0.35); st.idleAt = st.now + 6000;
+        st.r = st.rT = Math.max(st.rMin, R * 0.35); st.idleAt = st.now + 6000;
       },
       spin: function (on) { st.idleAt = on ? 0 : Infinity; },
     };

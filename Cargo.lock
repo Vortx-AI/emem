@@ -2431,7 +2431,7 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "emem-api-rest"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -2475,7 +2475,7 @@ dependencies = [
 
 [[package]]
 name = "emem-attest"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2487,7 +2487,7 @@ dependencies = [
 
 [[package]]
 name = "emem-cache"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "blake3",
@@ -2504,7 +2504,7 @@ dependencies = [
 
 [[package]]
 name = "emem-claim"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ciborium",
  "emem-core",
@@ -2515,7 +2515,7 @@ dependencies = [
 
 [[package]]
 name = "emem-cli"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2554,7 +2554,7 @@ dependencies = [
 
 [[package]]
 name = "emem-codec"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "data-encoding",
@@ -2565,7 +2565,7 @@ dependencies = [
 
 [[package]]
 name = "emem-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "emem-cubes"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "emem-core",
  "thiserror 1.0.69",
@@ -2586,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "emem-fact"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "blake3",
  "ciborium",
@@ -2603,7 +2603,7 @@ dependencies = [
 
 [[package]]
 name = "emem-fetch"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "arrow 55.2.0",
  "async-trait",
@@ -2630,7 +2630,7 @@ dependencies = [
 
 [[package]]
 name = "emem-intent"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ciborium",
  "emem-claim",
@@ -2641,7 +2641,7 @@ dependencies = [
 
 [[package]]
 name = "emem-mcp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "ciborium",
  "emem-claim",
@@ -2658,7 +2658,7 @@ dependencies = [
 
 [[package]]
 name = "emem-membench"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -2670,7 +2670,7 @@ dependencies = [
 
 [[package]]
 name = "emem-primitives"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "arrow-array 58.3.0",
  "arrow-schema 58.3.0",
@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "emem-sleep-agent"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2722,7 +2722,7 @@ dependencies = [
 
 [[package]]
 name = "emem-storage"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "async-trait",
  "blake3",

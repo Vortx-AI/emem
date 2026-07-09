@@ -6,6 +6,13 @@ splat is one cell of signed facts recalled from an emem responder, and every
 gaussian parameter is a measurement with a `fact_cid` that re-checks at
 [`/verify`](https://emem.dev/verify) like any other answer.
 
+These are the *sparse* worlds: one splat per signed cell, nothing interpolated,
+reproducible end to end from this directory. For the *dense* counterpart, a
+navigable, photoreal world where the same signed facts are densified and every
+splat is labelled `measured`, `interpolated`, or `synthesized` over an
+ed25519-signed measured trust root, see the hosted demo at
+[emem.dev/splats](https://emem.dev/splats).
+
 | Template | What it shows |
 | --- | --- |
 | [`single-band-world.html`](single-band-world.html) | one band drives height and colour (ships configured for Copernicus DEM over the Grand Canyon) |

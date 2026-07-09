@@ -749,6 +749,11 @@ pub fn router(state: AppState) -> Router {
         .route("/worlds/three.min.js", get(serve_worlds_three_js))
         .route("/worlds/splat-math.js", get(serve_worlds_splat_math_js))
         .route("/worlds/emem-world.js", get(serve_worlds_engine_js))
+        // /splats — hosted navigatable-worlds temporal viewer: static bundle
+        // from EMEM_SPLATS_DIR, plus a POST proxy to the local Gemma bridge.
+        .route("/splats", get(splats_home))
+        .route("/splats/", get(splats_home))
+        .route("/splats/*path", get(serve_splats_file).post(splats_post))
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -16742,6 +16747,121 @@ async fn get_world_file(
             .body(axum::body::Body::from(bytes))
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
         Err(_) => not_found("file not found"),
+    }
+}
+
+// ── /splats — hosted navigatable-worlds temporal viewer ─────────────────
+//
+// Static bundle from EMEM_SPLATS_DIR (default /home/ubuntu/splats-site): the
+// viewer HTML + each world's runtime artifacts (.splat/.tsplat/.json/.u8/.png).
+// POST /splats/api/gemma is proxied to the local Gemma bridge on loopback so
+// the Ask-Gemma panel works without exposing that service publicly. No source
+// or build scripts live in the bundle.
+
+fn splats_root() -> std::path::PathBuf {
+    std::env::var("EMEM_SPLATS_DIR")
+        .unwrap_or_else(|_| "/home/ubuntu/splats-site".to_string())
+        .into()
+}
+
+fn splats_mime(path: &str) -> &'static str {
+    match path.rsplit('.').next().unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" => "application/json",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "svg" => "image/svg+xml",
+        _ => "application/octet-stream", // .splat .tsplat .u8 .ply …
+    }
+}
+
+async fn splats_home() -> Response {
+    // temporary (307), not permanent (308): browsers cache 308 indefinitely, which would
+    // pin the default world in clients even after we change it here.
+    Redirect::temporary("/splats/viewer/temporal.html?world=../world3d/").into_response()
+}
+
+async fn serve_splats_file(Path(path): Path<String>, headers: HeaderMap) -> Response {
+    // reject empty / traversal segments before touching the filesystem
+    if path
+        .split('/')
+        .any(|s| s.is_empty() || s == "." || s == "..")
+    {
+        return not_found("bad path");
+    }
+    let p = splats_root().join(&path);
+    let md = match std::fs::metadata(&p) {
+        Ok(md) if md.is_file() => md,
+        _ => return not_found("not found"),
+    };
+    let mtime = md
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let etag = format!("\"{:x}-{:x}\"", md.len(), mtime);
+    if headers
+        .get("if-none-match")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == etag)
+    {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header("etag", etag)
+            .body(axum::body::Body::empty())
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    match std::fs::read(&p) {
+        Ok(bytes) => Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", splats_mime(&path))
+            .header("cache-control", "public, max-age=300")
+            .header("etag", etag)
+            .body(axum::body::Body::from(bytes))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        Err(_) => not_found("read error"),
+    }
+}
+
+async fn splats_post(Path(path): Path<String>, body: Bytes) -> Response {
+    if path != "api/gemma" {
+        return not_found("not found");
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    match client
+        .post("http://127.0.0.1:8080/api/gemma")
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let ct = resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("application/json")
+                .to_string();
+            match resp.bytes().await {
+                Ok(b) => Response::builder()
+                    .status(status)
+                    .header("content-type", ct)
+                    .body(axum::body::Body::from(b))
+                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+                Err(_) => StatusCode::BAD_GATEWAY.into_response(),
+            }
+        }
+        Err(_) => StatusCode::BAD_GATEWAY.into_response(),
     }
 }
 

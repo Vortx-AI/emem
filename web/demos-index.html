@@ -151,14 +151,26 @@ input::placeholder{color:var(--mute,#7a7363)}
   <section class=grid aria-label="Demo cards">
 
     <article class="card status-live">
-      <a class=title href="/worlds">3-D worlds · gaussian splats from signed facts</a>
+      <a class=title href="/worlds">Sparse worlds · gaussian splats from signed facts</a>
       <span class=endpoint>GET /worlds</span>
-      <p class=desc>Four explorable splat worlds — the Grand Canyon, the Bernese Alps, Cairo through a foundation model's eyes, the Rondônia deforestation frontier. Every gaussian is one cell of signed facts. Orbit them, <b>click any splat</b> to read its measured values and verify its signature, recolour by any signed band, or drape real satellite imagery underneath as reference. Scenes are baked once, hash-checked in your browser, and downloadable as standard 3DGS <code>.ply</code>/<code>.splat</code> with a receipts sidecar.</p>
+      <p class=desc>Four explorable splat worlds: the Grand Canyon, the Bernese Alps, Cairo through a foundation model's eyes, the Rondônia deforestation frontier. Every gaussian is one cell of signed facts, nothing interpolated. Orbit them, <b>click any splat</b> to read its measured values and verify its signature, recolour by any signed band, or drape real satellite imagery underneath as reference. Scenes are baked once, hash-checked in your browser, and downloadable as standard 3DGS <code>.ply</code>/<code>.splat</code> with a receipts sidecar. Reproducible from <code>examples/3d-worlds/make_splats.py</code>, so an agent can build and sign its own.</p>
       <div class=meta>
         <span class="tag status">live</span>
         <span class=tag>/v1/worlds</span>
         <span class=tag>click to verify</span>
         <span class=tag>one splat = one cell</span>
+      </div>
+    </article>
+
+    <article class="card status-live">
+      <a class=title href="/splats">Dense worlds · navigable, provenance-tagged splats</a>
+      <span class=endpoint>GET /splats</span>
+      <p class=desc>A view-only demo of how far the signed substrate goes: three navigable worlds (the Grand Canyon, and the Tungabhadra and Srisailam reservoirs) of roughly 3.4 million surfels each. Geometry from a measured USGS 3DEP DTM, colour from Sentinel-2, and a signed Sentinel-2 time series you can scrub from 2018 to 2025. The same facts are densified with interpolation and diffusion super-resolution, but every splat is tagged <code>measured</code>, <code>interpolated</code>, or <code>synthesized</code> over an ed25519-signed measured trust root, and the invented layers peel back off. An Ask-Gemma panel reads the signed grid and cites facts without altering a splat.</p>
+      <div class=meta>
+        <span class="tag status">live</span>
+        <span class=tag>demo only</span>
+        <span class=tag>measured / interpolated / synthesized</span>
+        <span class=tag>signed trust root</span>
       </div>
     </article>
 

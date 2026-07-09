@@ -1,6 +1,6 @@
 # emem
 
-> emem is a signed, content-addressed spatial memory for AI agents — every place-time on Earth resolves to a verifiable fact, read over MCP or REST, no keys, every answer an ed25519 receipt verifiable offline.
+> emem is a signed, content-addressed spatial memory for AI agents: every place-time on Earth resolves to a verifiable fact, read over MCP or REST, no keys, every answer an ed25519 receipt verifiable offline.
 
 Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 81 MCP tools, 93 documented /v1 paths, 160 algorithms, 46 source schemes.
 
@@ -36,17 +36,18 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 
 - [agents.md](https://emem.dev/agents.md): integration guide and ontology for consumer agents.
 - [skills.md](https://emem.dev/skills.md): composed recipes (locate+recall, find_similar+verify, recall_polygon+solve) as a flat cookbook.
-- [reference](https://emem.dev/reference): the read surface — client setup, endpoint tables, primitives summary, the 12-event hunter table.
+- [reference](https://emem.dev/reference): the read surface: client setup, endpoint tables, primitives summary, the 12-event hunter table.
 - [topics](https://emem.dev/v1/topics): the 27 topic routes that ask uses to map a question to bands.
 - [algorithms](https://emem.dev/v1/algorithms): 160 composition recipes (flood_risk, walkability, eudr_compliance, …).
 - [errors](https://emem.dev/docs/errors.html): the structured error codes and their resolution hints.
 
 ## Optional
 
-- [llms-full.txt](https://emem.dev/llms-full.txt): the full machine-readable bundle (this file plus agents.md, spec, and skills) in one fetch — larger; prefer this file for a lean ingest.
+- [llms-full.txt](https://emem.dev/llms-full.txt): the full machine-readable bundle (this file plus agents.md, spec, and skills) in one fetch, larger; prefer this file for a lean ingest.
 - [registries](https://emem.dev/v1/manifests): manifest CIDs for the band, algorithm, source, and topic registries.
 - [whitepaper](https://emem.dev/whitepaper.md): architecture and math (cell64, CID, receipt preimage, memory tokens).
 - [gallery](https://emem.dev/docs/gallery): live coverage map, per-place scenes, and the protocol diagrams.
 - [demos](https://emem.dev/demos): runnable end-to-end demos (ask-the-earth, find-similar, recall-polygon, signed-answer).
-- [worlds](https://emem.dev/worlds): 3-D gaussian splat worlds baked from signed facts; artifacts (.ply/.splat + provenance) listed at /v1/worlds.
+- [worlds](https://emem.dev/worlds): sparse 3-D gaussian splat worlds, one splat per signed fact, baked from live recalls; downloadable artifacts (.ply/.splat + provenance) listed at /v1/worlds. Reproducible from examples/3d-worlds/make_splats.py, so an agent can build and sign its own.
+- [splats](https://emem.dev/splats): dense navigable worlds (view-only demo) where the same signed facts are pushed to a photoreal fly-through; every splat is tagged measured, interpolated, or synthesized over an ed25519-signed measured trust root, and the invented layers peel back off.
 - [humans](https://emem.dev/humans): interactive console where every /v1/* call prints in a live log pane.
