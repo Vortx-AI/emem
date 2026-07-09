@@ -134,12 +134,12 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 93 paths under
+port 5051. The live surface ships 94 paths under
 `/v1/*`, 81 MCP tools (10 core, 71 extended), 18 static MCP
 resources + 8 URI templates, 160 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 source schemes, and 16 data
 connectors + 13 utility modules.
-Version 0.1.0, MSRV Rust 1.91. No API keys; the MCP surface is read-only
+Version 1.0.0, MSRV Rust 1.91. No API keys; the MCP surface is read-only
 because writes need an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
@@ -163,7 +163,7 @@ log. See "Watching humans use the API" below.
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 96 documented, 93 under `/v1/*` |
+| REST paths (OpenAPI) | 97 documented, 94 under `/v1/*` |
 | MCP tools | 81 (10 core / 71 extended) |
 | Algorithms (composition recipes) | 160 |
 | Band-cube slots | 43 |
@@ -172,7 +172,7 @@ log. See "Watching humans use the API" below.
 | Source schemes | 46 |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
-| Version | 0.1.0 |
+| Version | 1.0.0 |
 
 ---
 

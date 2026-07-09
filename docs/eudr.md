@@ -21,12 +21,12 @@ pins a count; the ceiling is 51,200 cells. The verdict consensus runs
 
 | Band | Role |
 |---|---|
-| `jrc_gfc2020.forest_2020`        | EUDR forest baseline at the 2020-12-31 cut-off (Bourgoin et al. 2026 ESSD) — single-band uint8 `1`=forest |
+| `jrc_gfc2020.forest_2020`        | EUDR forest baseline at the 2020-12-31 cut-off (Bourgoin et al. 2026 ESSD); single-band uint8 `1`=forest |
 | `forest_change.treecover2000`    | Hansen GFC v1.12 canopy fraction (%) at year 2000 |
 | `forest_change.lossyear`         | Hansen GFC v1.12 first-loss year as a **calendar year** (`0`=no loss, else `2001..=2024`); loss strictly after the cut-off year is the failure signal |
 
 Both baselines are read with one `cog::sample_window` per band over the polygon bounding
-box and indexed per cell from the in-memory buffer — O(1) upstream reads, O(N) lookups —
+box and indexed per cell from the in-memory buffer (O(1) upstream reads, O(N) lookups),
 so a fully-sampled polygon completes a base verdict in a couple of seconds warm. JRC TMF
 v2025 deforestation, WRI-Sims driver attribution and RADD SAR alerts are not in the
 hot-path consensus (TMF carries no upstream HTTP Range and costs ~78 s cold; WRI/RADD are
@@ -43,15 +43,15 @@ treated as compliant in DDS aggregation. A cell cleared at or before the cut-off
 Every plot carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year
 across the plot's sampled cells, with `by_year` (calendar year → cell count),
 `after_cutoff_cells`, `no_loss_cells`, `unknown_cells`, and `total_sampled_cells`. It is
-emitted as its own signed `forest_change.lossyear_histogram` derivative — `op: "histogram"`,
-`parents` citing the per-cell `forest_change.lossyear` facts it aggregates — whose CID is
+emitted as its own signed `forest_change.lossyear_histogram` derivative (`op: "histogram"`,
+`parents` citing the per-cell `forest_change.lossyear` facts it aggregates), whose CID is
 folded into the response receipt. The breakdown is therefore a verifiable, reproducible
 figure rather than an unsigned summary: anyone re-aggregating the same cells signs the same
 bytes, and the receipt binds the result.
 
 Counts are over the cells actually sampled (`basis: "sampled_cells"`); weight by the plot's
 `sampled_polygon_fraction` to extrapolate to the whole polygon. On very large plots the
-`parents` list is bounded (with a `parents_capped` flag) so the derivative stays compact —
+`parents` list is bounded (with a `parents_capped` flag) so the derivative stays compact;
 `total_sampled_cells` remains authoritative regardless.
 
 ## Visual evidence (opt-in)
@@ -129,7 +129,7 @@ The `eudr_compliance@1` baseline (JRC GFC2020 + Hansen) is the Commission's expe
 defensibility today. The `visual_evidence` block is supplementary narrative evidence; it
 does not change the strict pass/fail verdict on its own.
 
-The verdict measures **deforestation** — conversion of forest to non-forest after the
+The verdict measures **deforestation**: conversion of forest to non-forest after the
 cut-off (Article 2(3)), via canopy loss. It does not measure **forest degradation**
 (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity,
 e.g. primary or naturally-regenerating forest converted to planted/plantation forest, or
@@ -137,7 +137,7 @@ selective loss that keeps canopy above the 10 % threshold). Because the standard
 statement-of-compliance wording asserts both limbs, the response carries a
 `degradation_disclaimer` so the operator routes the degradation limb to a dedicated layer
 (the JRC TMF `jrc_tmf.degradation_year` band is available on request). This sits alongside
-the `legality_disclaimer` for Article 9(1)(b) — both make the boundary of the
+the `legality_disclaimer` for Article 9(1)(b); both make the boundary of the
 Earth-observation verdict explicit rather than implied.
 
 ### Application timeline

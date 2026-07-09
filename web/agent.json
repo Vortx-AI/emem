@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "protocol": "emem-earth-memory",
   "tagline": "Verifiable Earth observation for AI agents. Four foundation encoders, one consensus, every answer cryptographically signed.",
-  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns \u2014 six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (memb:<bundle_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 81 MCP tools (10 core, 71 extended), 18 static MCP resources + 8 URI templates, 160 algorithms in a content-addressed registry, 124 materializer-wired band names across 43 cube slots, 46 source schemes, 4 GPU-pinned foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo) behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
+  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns \u2014 six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (memb:<bundle_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 81 MCP tools (10 core, 71 extended), 18 static MCP resources + 8 URI templates, 160 algorithms in a content-addressed registry, 124 materializer-wired band names across 43 cube slots, 46 source schemes, 4 foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo), three GPU-pinned and Tessera streamed from Cloud-Optimized GeoTIFF on CPU, behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",
@@ -126,8 +126,8 @@
   "algorithm_count": 160,
   "band_cube_slot_count": 43,
   "materializer_wired_band_names": 124,
-  "rest_paths_in_openapi": 96,
-  "rest_paths_v1_in_openapi": 93,
+  "rest_paths_in_openapi": 97,
+  "rest_paths_v1_in_openapi": 94,
   "source_scheme_count": 46,
   "topic_count_declared": 27,
   "address_algebra": {
@@ -143,7 +143,7 @@
     "verify_path": "in-browser via /verify or /verify/{fact_cid} using @noble/curves + @noble/hashes; no callback to issuer"
   },
   "foundation_encoders": {
-    "_purpose": "Four GPU encoders co-resident on a 20 GB VRAM budget; surfaced as their own bands AND woven into algorithm consensus voting.",
+    "_purpose": "Four foundation encoders: three GPU-pinned and co-resident on a 20 GB VRAM budget, Tessera streamed from Cloud-Optimized GeoTIFF on CPU. Surfaced as their own bands and woven into algorithm consensus voting.",
     "clay_v1.5": {
       "band": "clay_v1",
       "dim": 1024,
@@ -277,7 +277,7 @@
     "Single-host deployment \u2014 no federation, no global routing, no SOC 2.",
     "JEPA v2 dynamics is untrained; the endpoint short-circuits to the last attested vintage and signs the receipt with `untrained_baseline`.",
     "Tessera multi-vintage coverage is upstream-rate-limited; only 2024 reliably serves today.",
-    "12 wired data connectors; bands without a registered materializer appear under `declared_but_no_materializer_at_this_responder`."
+    "Some declared bands have no registered materializer at this responder and appear under `declared_but_no_materializer_at_this_responder`."
   ],
   "agent_first_design": {
     "discoverable_via": [
@@ -299,8 +299,8 @@
   },
   "mcp_tools": {
     "core": 10,
-    "extended": 60,
-    "total": 70
+    "extended": 71,
+    "total": 81
   },
   "mcp_resources": {
     "static": 18,

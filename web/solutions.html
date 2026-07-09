@@ -10,7 +10,7 @@
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/solutions">
 <meta property=og:title content="Built with emem">
-<meta property=og:description content="EUDR compliance, carbon MRV, flood pre-screen, supply-chain provenance — each names the bands and algorithm, every answer signed.">
+<meta property=og:description content="EUDR compliance, carbon MRV, flood pre-screen, supply-chain provenance; each names the bands and algorithm, and every answer is signed.">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
@@ -514,11 +514,11 @@ input::placeholder{color:var(--mute,#7a7363)}
 
     <p>The schema at <a href="/v1/schemas/eudr_dds.json">/v1/schemas/eudr_dds.json</a> maps each field to the EUR-Lex paragraph it satisfies. The cite-back surface is the one you can drive from your own MCP client: every finding paste-resolves at <a href="/verify">/verify</a>.</p>
 
-    <p><strong>Honest scope.</strong> <span class="band">/v1/eudr_dds</span> covers the geolocation and deforestation parts of Annex II only. The Article 9(1)(b) legality check &mdash; land tenure, FPIC, country-of-origin law &mdash; is structurally outside Earth-observation scope; pair a partner legality module before TRACES NT submission. The agent is operated independently and is <em>not affiliated with, endorsed by, or sponsored by</em> any EU institution.</p>
+    <p><strong>Honest scope.</strong> <span class="band">/v1/eudr_dds</span> covers the geolocation and deforestation parts of Annex II only. The Article 9(1)(b) legality check (land tenure, FPIC, country-of-origin law) is structurally outside Earth-observation scope; pair a partner legality module before TRACES NT submission. The agent is operated independently and is <em>not affiliated with, endorsed by, or sponsored by</em> any EU institution.</p>
 
     <p style="margin-top:1.5rem">
       <a class="btn" href="https://eudr.dev">Open eudr.dev &rarr;</a>
-      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/eudr_dds</code>
+      <code class="btn ghost" style="cursor:default" title="POST-only endpoint: call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/eudr_dds</code>
       <a class="btn ghost" href="/v1/schemas/eudr_dds.json">Annex II JSON Schema</a>
     </p>
   </div>
@@ -553,7 +553,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <a class="btn ghost" href="/v1/soil?place=Mato+Grosso">/v1/soil</a>
       <a class="btn ghost" href="/v1/ndvi?place=Mato+Grosso">/v1/ndvi</a>
     </p>
-    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.4rem">These open raw JSON in the browser &mdash; up to ~30&nbsp;s on a cold cell while the materialiser fetches upstream, then ~10&nbsp;ms warm.</p>
+    <p style="font-size:var(--t-xs);color:var(--mute);margin-top:.4rem">These open raw JSON in the browser: up to ~30&nbsp;s on a cold cell while the materialiser fetches upstream, then ~10&nbsp;ms warm.</p>
   </div>
 </section>
 
@@ -578,7 +578,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
     <p>The agent takes an address or lat/lng, calls <span class="band">/v1/elevation</span> for <span class="band">copdem30m.elevation_mean</span> (Copernicus DEM 30&nbsp;m, GMRT for bathymetry), <span class="band">/v1/water</span> for <span class="band">surface_water.recurrence</span> (JRC Global Surface Water, 1984&ndash;2021) plus <span class="band">sentinel1_raw</span> backscatter, and <span class="band">/v1/weather</span> for <span class="band">weather.precipitation_mm</span> (MET Norway nowcast). The <span class="band">flood_risk@2</span> algorithm fuses these into a single 0&ndash;1 risk score.</p>
 
-    <p>Every input band is a signed fact: the insurer cites <span class="band">fact_cid</span> values in the policy file and any auditor re-verifies offline via <span class="band">/v1/verify_receipt</span>. Surface-water recurrence is a 38-year JRC baseline (1984&ndash;2021); Sentinel-1 SAR cuts through cloud for flood-extent detection. The agent surfaces what the data says and what it does not &mdash; <span class="band">caveats[]</span> notes grid resolution and revisit cadence.</p>
+    <p>Every input band is a signed fact: the insurer cites <span class="band">fact_cid</span> values in the policy file and any auditor re-verifies offline via <span class="band">/v1/verify_receipt</span>. Surface-water recurrence is a 38-year JRC baseline (1984&ndash;2021); Sentinel-1 SAR cuts through cloud for flood-extent detection. The agent surfaces what the data says and what it does not; <span class="band">caveats[]</span> notes grid resolution and revisit cadence.</p>
 
     <p style="margin-top:1.5rem">
       <a class="btn" href="/v1/elevation?place=Ashok+Nagar+Ranchi">/v1/elevation &rarr;</a>
@@ -604,7 +604,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <div class="section-body">
     <h2><span class="num">04</span>Supply-chain location verifier</h2>
-    <p class="lede">A provenance agent that checks supply-chain origin claims &mdash; &ldquo;this coffee was grown at these coordinates&rdquo; &mdash; against signed satellite evidence of what is actually at that place.</p>
+    <p class="lede">A provenance agent that checks supply-chain origin claims (for example, &ldquo;this coffee was grown at these coordinates&rdquo;) against signed satellite evidence of what is actually at that place.</p>
 
     <p>The agent takes a claimed origin (coordinates or place name from a supplier declaration), calls <span class="band">/v1/locate</span> to resolve a cell64, then <span class="band">/v1/recall</span> to fetch signed land-cover (ESA WorldCover, the <span class="band">landcover.*</span> band family), vegetation (<span class="band">indices.ndvi</span>), and built-environment (<span class="band">overture.buildings.count</span>) facts. A coffee-farm claim at coordinates that recall as <span class="band">landcover.built</span> rather than <span class="band">landcover.crop</span> is flagged at ingest.</p>
 
@@ -612,7 +612,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
     <p style="margin-top:1.5rem">
       <a class="btn" href="/v1/locate?place=Chikmagalur+Karnataka">/v1/locate &rarr;</a>
-      <code class="btn ghost" style="cursor:default" title="POST-only endpoint — call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/recall</code>
+      <code class="btn ghost" style="cursor:default" title="POST-only endpoint: call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/recall</code>
       <a class="btn ghost" href="/verify">/verify</a>
     </p>
   </div>
@@ -652,7 +652,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     </div>
 
     <h3>Multi-attester provenance</h3>
-    <p>Four sourcing agents (forester, mill, customs, brand) each push location and biomass claims about the same plot; one is wrong. The substrate routes each writer through <span class="band">/memories/by_attester/&lt;pubkey&gt;/&hellip;</span>, so the multi-attester index keeps both CIDs at the same canonical key. <span class="band">/v1/memory_contradictions</span> scores the disagreement per band kind &mdash; scalar by normalised spread, vector by 1 minus mean cosine, categorical by 1 minus mode-share &mdash; and quotes both <span class="band">fact_cid</span>s, so the brand agent acts on signed evidence rather than last-writer-wins.</p>
+    <p>Four sourcing agents (forester, mill, customs, brand) each push location and biomass claims about the same plot; one is wrong. The substrate routes each writer through <span class="band">/memories/by_attester/&lt;pubkey&gt;/&hellip;</span>, so the multi-attester index keeps both CIDs at the same canonical key. <span class="band">/v1/memory_contradictions</span> scores the disagreement per band kind (scalar by normalised spread, vector by 1 minus mean cosine, categorical by 1 minus mode-share), and quotes both <span class="band">fact_cid</span>s, so the brand agent acts on signed evidence rather than last-writer-wins.</p>
     <div class="code">
       <div class="code-head"><span class="lang">SH</span><span class="tab">score disagreement across attesters</span><span class="spacer"></span><button class="copy" data-copy-target="#code-contra">copy</button></div>
 <pre id="code-contra"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/memory_contradictions</span> \

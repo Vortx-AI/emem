@@ -2,12 +2,12 @@
 
 Composed recipes for AI agents that need spatial memory. Each skill is
 a small workflow that combines two or three `/v1/*` calls into a
-useful primitive — locate-and-recall, find-similar-and-verify,
+useful primitive: locate-and-recall, find-similar-and-verify,
 recall-polygon-and-solve, and so on.
 
 This page is the cookbook view. The same skills also ship as an
 installable bundle at [claude-skills/](https://github.com/Vortx-AI/emem/tree/main/claude-skills)
-for Claude Code users — see § Installing as Claude Skills below.
+for Claude Code users; see § Installing as Claude Skills below.
 
 The endpoint is `https://emem.dev` (or your self-host URL). Reads need
 no auth. Every response carries an Ed25519 receipt signed over a
@@ -16,7 +16,7 @@ from `/.well-known/emem.json`.
 
 Every fact is content-addressed and signed, so any conformant responder
 returns byte-identical bytes for the same content id and any client
-verifies the receipt offline — emem is a protocol, not a single endpoint.
+verifies the receipt offline. emem is a protocol, not a single endpoint.
 
 ## Quick reference
 
@@ -33,7 +33,7 @@ verifies the receipt offline — emem is a protocol, not a single endpoint.
 
 ---
 
-## 1. `locate-and-recall` — name a place, get signed facts
+## 1. `locate-and-recall`: name a place, get signed facts
 
 The most common flow. Resolve a place name to a `cell64`, then recall
 one or more bands at that cell. The recall response carries a Receipt;
@@ -103,7 +103,7 @@ print("fact_cid:", rec["receipt"]["fact_cids"][0])
 
 ---
 
-## 2. `verify-receipt-offline` — BLAKE3 + Ed25519, no callback
+## 2. `verify-receipt-offline`: BLAKE3 + Ed25519, no callback
 
 Every receipt verifies without re-contacting the responder. Rebuild the
 canonical preimage, BLAKE3 it, then `ed25519.verify(signature, digest,
@@ -172,13 +172,13 @@ see the verifier run inline.
 
 ---
 
-## 3. `find-similar-places` — given a place, return neighbours by embedding
+## 3. `find-similar-places`: given a place, return neighbours by embedding
 
 `/v1/find_similar` runs cosine similarity over the 128-D Tessera
 embedding (`geotessera`, 2024 vintage by default) and returns top-K
 neighbours with their cell64s, lat/lng, place labels (cached), and
 scores in `[0, 1]`. Cells without an attested geotessera vector
-return a structured `cid_not_found` 404 — call `/v1/recall` with
+return a structured `cid_not_found` 404; call `/v1/recall` with
 `bands:["geotessera"]` first to materialise it on the responder.
 
 ### curl (with auto-materialise)
@@ -206,16 +206,16 @@ curl -sf -X POST $BASE/v1/find_similar -H 'content-type: application/json' \
 
 ### Pitfalls
 
-- Cosine over Tessera reflects *land-cover archetype* — vegetation
+- Cosine over Tessera reflects *land-cover archetype*: vegetation
   density, urban density, water proximity. It doesn't model
   socio-economic features. A "similar" place may be visually similar
   but socially different.
 - Default vintage is 2024. To query a specific year, use
-  `bands:["geotessera.2020"]` etc. — the responder ships 2017–2024.
+  `bands:["geotessera.2020"]` etc.; the responder ships 2017–2024.
 
 ---
 
-## 4. `scene-thumbnail` — visual preview for a cell
+## 4. `scene-thumbnail`: visual preview for a cell
 
 `GET /v1/cells/{cell64}/scene.png` returns a small RGB raster
 synthesised from Sentinel-2 bands at the cell. Useful for grounding
@@ -235,7 +235,7 @@ curl -sf "$BASE/v1/cells/$CELL/scene.png" -o scene.png
 
 ---
 
-## 5. `recall-many-cells` — batch a recall across N places
+## 5. `recall-many-cells`: batch a recall across N places
 
 `POST /v1/recall_many` takes a list of cell64s and a list of bands,
 returns per-cell facts + per-cell receipts. Cap is 256 cells per
@@ -260,7 +260,7 @@ curl -sf -X POST $BASE/v1/recall_many -H 'content-type: application/json' \
 
 ---
 
-## 6. `lasso-polygon-recall` — recall everything inside a polygon
+## 6. `lasso-polygon-recall`: recall everything inside a polygon
 
 Drag-select on the `/humans` constellation and the same payload that
 the page sends to `POST /v1/recall_polygon` works programmatically.
@@ -282,7 +282,7 @@ curl -sf -X POST $BASE/v1/recall_polygon -H 'content-type: application/json' \
 
 ---
 
-## 7. `trajectory-over-time` — time series at one cell
+## 7. `trajectory-over-time`: time series at one cell
 
 `POST /v1/trajectory` returns a per-tslot fact list at a single cell
 across a `[from, to]` window. Useful for plotting change over time.
@@ -304,7 +304,7 @@ curl -sf -X POST $BASE/v1/trajectory -H 'content-type: application/json' \
 
 ---
 
-## 8. `compose-flood-risk` — recall_polygon + heat_solve
+## 8. `compose-flood-risk`: recall_polygon + heat_solve
 
 Compose two primitives: pull the elevation + climate stack inside a
 polygon, then run the 2-D heat solver to estimate diffusion of a
@@ -347,14 +347,14 @@ verification, or similarity in a Claude Code session. See each
 
 ## Discovery surface
 
-- `https://emem.dev/llms.txt` — high-level summary + behavioural rules
-- `https://emem.dev/openapi.json` — full machine surface (92 documented REST paths under /v1/*)
-- `https://emem.dev/.well-known/emem.json` — manifest CIDs + responder pubkey
-- `https://emem.dev/v1/agent_card` — discover-first card with band taxonomy
-- `https://emem.dev/agents.md` — consumer-agent ontology + recipes
-- `https://emem.dev/humans` — interactive console where every `/v1/*`
+- `https://emem.dev/llms.txt`: high-level summary + behavioural rules
+- `https://emem.dev/openapi.json`: full machine surface (94 documented REST paths under /v1/*)
+- `https://emem.dev/.well-known/emem.json`: manifest CIDs + responder pubkey
+- `https://emem.dev/v1/agent_card`: discover-first card with band taxonomy
+- `https://emem.dev/agents.md`: consumer-agent ontology + recipes
+- `https://emem.dev/humans`: interactive console where every `/v1/*`
   call prints in a live log pane
-- `https://emem.dev/mcp` — JSON-RPC 2.0 MCP endpoint (81 tools — 10 core, 71 extended)
+- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint (81 tools: 10 core, 71 extended)
 
 ## License
 

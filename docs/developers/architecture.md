@@ -204,7 +204,7 @@ Gates:
 The signer of the materialised fact is the responder's own pubkey;
 `derivation.fn_key` declares exactly how it was produced.
 
-**20 live materializer registrations** answer recall today; **118
+**20 live materializer registrations** answer recall today; **124
 materializer-wired band names** flow through them (parametric
 prefixes — `s2.*`, `overture.*`, `weather.*`, `era5.*`, `cams.*`,
 `marine.*`, `power.*`, `terraclimate.*`, `modis.*`, `geotessera.*`,

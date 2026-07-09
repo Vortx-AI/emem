@@ -1,7 +1,7 @@
 # @emem/client — TypeScript client for emem.dev
 
 Thin, typed TypeScript client for the [emem.dev](https://emem.dev) Earth
-memory protocol. Wraps the public REST surface (96 documented paths, 93 under
+memory protocol. Wraps the public REST surface (97 documented paths, 94 under
 `/v1/*`) in a single `Client` class. Every call returns parsed JSON
 verbatim — every ed25519-signed receipt and content-addressed CID is
 preserved for citation and offline verification.

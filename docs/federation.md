@@ -1,13 +1,13 @@
 # Federation & scale-out (design)
 
-> Status: **design**. None of the multi-host routing below ships in 0.1.0.
-> What ships today is the substrate that makes it safe — content
+> Status: **design**. None of the multi-host routing below ships in 1.0.0.
+> What ships today is the substrate that makes it safe: content
 > addressing, signed receipts, multi-attester contradiction scoring, and a
 > deterministic refinement loop. This document is the plan for turning one
 > hosted responder + self-hosted nodes into a federation, and for breaking
 > the single-host write ceiling along the way.
 
-## 1. Why scale out — the single-host ceiling
+## 1. Why scale out: the single-host ceiling
 
 emem today is one process: an `emem-server` binary over a single embedded
 `sled` store plus an append-only merkle log. Two limits are already
@@ -28,13 +28,13 @@ visible in production:
   ~2-minute self-heal, but a single process is a single failure domain.
 
 Vertical tuning (done in Phases 0–1) lowered the constant factors. The
-ceiling itself — one writer, one failure domain, one machine's RAM/disk/GPU
-— is structural. Scale-out removes it.
+ceiling itself (one writer, one failure domain, one machine's RAM/disk/GPU)
+is structural. Scale-out removes it.
 
 ## 2. What already makes federation possible
 
-Federation is unusually cheap here because the hard part — *trust without a
-central authority* — is already solved by the data model:
+Federation is unusually cheap here because the hard part (*trust without a
+central authority*) is already solved by the data model:
 
 - **Content addressing.** A fact id is `blake3(canonical_cbor(fact))`. The
   same `(cell, band, tslot, value, derivation)` hashes to the same id on
@@ -47,7 +47,7 @@ central authority* — is already solved by the data model:
   trusts the *signature*, not the server.
 - **Registry CIDs pin provenance.** Every receipt carries `bands_cid`,
   `algorithms_cid`, `sources_cid`, `schema_cid`. A peer running drifted
-  registries returns a different `bands_cid` on `/health` — divergence is
+  registries returns a different `bands_cid` on `/health`; divergence is
   visible *before* any data flows.
 - **Read-resolution already exists.** `/v1/fetch` resolves a fact by id;
   `memory_token` / `memory_bundle` mint `fact_url`s explicitly meant to be
@@ -59,7 +59,7 @@ central authority* — is already solved by the data model:
   vector cosine / categorical mode-share). Federation makes "two attesters"
   mean "two nodes" without changing the scoring.
 - **Refinement is deterministic.** A fact is re-derived when a newer
-  attestation or a `disagrees_with` edge lands — the same loop works
+  attestation or a `disagrees_with` edge lands; the same loop works
   whether the trigger is local or from a peer.
 
 The model is effectively a **content-addressed CRDT**: facts merge by id,
@@ -81,27 +81,27 @@ Each phase is independently shippable and useful on its own. Read
 federation first (lowest risk, immediate value); write sharding second (the
 contention fix); cross-node disagreement third; automatic routing last.
 
-### 4a — Read federation (peer resolve)  ·  *the thin prototype*
+### 4a: Read federation (peer resolve)  ·  *the thin prototype*
 
 On a local id miss, fetch the id from configured peers and **verify before
 trusting**: re-derive `blake3(canonical_cbor(fact)) == requested_id` and
 check the responder signature against the peer's published pubkey. Cache
-the verified fact locally (it is now equally ours — the id proves it).
+the verified fact locally (it is now equally ours; the id proves it).
 
 - Config: `EMEM_PEERS=https://a.example,https://b.example` (static list).
 - Surface: extend `/v1/fetch` (and `memory_token/resolve`) so a 404
   becomes a peer fan-out → first verified hit wins.
 - Trust: a peer that returns bytes whose hash ≠ the requested id, or a bad
   signature, is ignored (and the mismatch logged). **No peer is trusted to
-  be honest — only to be checkable.**
+  be honest, only to be checkable.**
 - Risk: low. Read-only, verify-before-cache, no write-path change.
 
-This is the recommended first build — see §6.
+This is the recommended first build; see §6.
 
-### 4b — Write sharding (break the single-writer ceiling)
+### 4b: Write sharding (break the single-writer ceiling)
 
 Shard the write path by `cell64` prefix. The grid is **Hilbert-ordered**,
-so a contiguous `cell64` prefix range is a contiguous patch of Earth — a
+so a contiguous `cell64` prefix range is a contiguous patch of Earth: a
 node that owns a prefix range owns a spatially coherent region, and its
 sled write load + spatial locality are both bounded.
 
@@ -115,7 +115,7 @@ sled write load + spatial locality are both bounded.
 - Reads stay global via §4a: any node resolves any id from the owner (or a
   cached copy) and verifies offline.
 
-### 4c — Cross-node disagreement (federate the multi-attester index)
+### 4c: Cross-node disagreement (federate the multi-attester index)
 
 When a node resolves an id from a peer and already holds a *different*
 value at the same `(cell, band, tslot)`, append it to the multi-attester
@@ -123,7 +123,7 @@ index exactly as a second local attester would. `memory_contradictions`
 then scores cross-node disagreement with zero new machinery, and a
 `disagrees_with` edge triggers the existing refinement loop.
 
-### 4d — Routing / directory (which node owns a cell)
+### 4d: Routing / directory (which node owns a cell)
 
 Start static, evolve to gossip:
 
@@ -139,7 +139,7 @@ Start static, evolve to gossip:
 
 ## 5. Trust model
 
-No node trusts another node's *compute* — only verifies its *output*:
+No node trusts another node's *compute*; it only verifies its *output*:
 
 - **Bytes**: re-derive the blake3 id; reject on mismatch.
 - **Signature**: ed25519 verify offline against the peer's published
@@ -172,7 +172,7 @@ GET /v1/fetch/<fact_cid>:
 
 Properties: read-only, verify-before-cache, no write-path or schema
 change, no new distributed state. It exercises content addressing +
-offline verification across a process boundary — the whole trust model —
+offline verification across a process boundary (the whole trust model)
 without committing to sharding or routing. Everything in §4b–§4d builds on
 the verify primitive this establishes.
 
@@ -185,19 +185,19 @@ the verify primitive this establishes.
   cannot be unilaterally un-published from peers; deletion/redaction across
   a federation is an open policy question (see §8), not a v1 feature.
 - **No cross-node compute trust.** A node never runs another node's
-  algorithm and trusts the result — it re-derives or re-verifies.
+  algorithm and trusts the result; it re-derives or re-verifies.
 
 ## 8. Open questions
 
-- **Prefix-ownership rebalancing** when a node joins/leaves mid-write —
+- **Prefix-ownership rebalancing** when a node joins/leaves mid-write:
   hand-off protocol + the window where two nodes think they own a range.
-- **Pubkey distribution / rotation** — bootstrapping which pubkeys to trust
+- **Pubkey distribution / rotation**: bootstrapping which pubkeys to trust
   (the `key_epoch` field anticipates rotation; the distribution channel is
   undesigned).
-- **Per-shard merkle proofs** — the global inclusion story under §4b: a
+- **Per-shard merkle proofs.** The global inclusion story under §4b: a
   client verifying a fact needs the right shard's proof + a trustable shard
   directory.
-- **GDPR / redaction** across replicas (see §7 non-goal) — likely a
+- **GDPR / redaction** across replicas (see §7 non-goal); likely a
   signed-tombstone + refusal-to-serve convention rather than true deletion.
 
 ---

@@ -102,6 +102,6 @@ responders: nodes that resolve the same content ids byte-for-byte could
 cross-cite each other's attestations and record where they disagree
 across hosts, so the disagreement graph spans the network rather than one
 store. The multi-host routing that would make that automatic does not
-ship in 0.1.0. What ships today is the substrate it builds on: signed
+ship in 1.0.0. What ships today is the substrate it builds on: signed
 typed edges, multi-attester contradiction scoring, and the deterministic
 refinement loop, all on a single responder.

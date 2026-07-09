@@ -409,7 +409,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">02</span><span class="idx-label">Endpoints</span></div>
     <dl>
-      <dt>REST paths</dt><dd>93 documented under /v1/*</dd>
+      <dt>REST paths</dt><dd>94 documented under /v1/*</dd>
       <dt>MCP tools</dt><dd>81 (10 core / 71 extended)</dd>
       <dt>contract</dt><dd>OpenAPI 3.1</dd>
       <dt>mirror</dt><dd>MCP descriptors at /v1/tools</dd>
@@ -572,24 +572,24 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <div class="section-body">
     <h2><span class="num">04</span>Hunter: open-world discovery</h2>
-    <p class="lede"><span class="band">/v1/hunt</span> takes an event keyword plus a region, geocodes the region, fans out across up to 32 sampled cells, recalls each event's primary input band, and returns the top 8 hotspots ranked by that scalar &mdash; each with its cell64, lat/lng, recalled value, a fact_cid, and a scene.png URL.</p>
+    <p class="lede"><span class="band">/v1/hunt</span> takes an event keyword plus a region, geocodes the region, fans out across up to 32 sampled cells, recalls each event's primary input band, and returns the top 8 hotspots ranked by that scalar, each with its cell64, lat/lng, recalled value, a fact_cid, and a scene.png URL.</p>
 
     <p style="font-weight:700;color:var(--ink);margin-top:1rem">Twelve events ship today. The registry decides which algorithm runs.</p>
 
     <div class="scroll-x">
     <table class="absent-table">
       <tbody>
-        <tr><td>algal_bloom</td><td>chlorophyll proxy from NDCI with an NDWI water gate &mdash; algal_bloom_chlorophyll_ndci@1</td></tr>
-        <tr><td>deforestation</td><td>NDVI-drop alert against the recent baseline &mdash; deforestation_alert_ndvi_drop@1</td></tr>
-        <tr><td>flood_extent</td><td>Sentinel-1 SAR VV threshold under cloud &mdash; flood_extent_sar_threshold@1</td></tr>
-        <tr><td>wildfire</td><td>dNBR burn intensity, fine-tuned &mdash; wildfire_burn_intensity_dnbr_finetune@1</td></tr>
-        <tr><td>urban_heat_island</td><td>MODIS LST against canopy cover &mdash; urban_heat_island_lst_canopy@1</td></tr>
-        <tr><td>methane_plume</td><td>SWIR anomaly over baseline &mdash; methane_plume_swir_anomaly@1</td></tr>
-        <tr><td>landslide</td><td>post-event Sentinel-1 &Delta;VV with slope &mdash; landslide_post_event_sar_dnn@1</td></tr>
-        <tr><td>drought</td><td>SPI meteorological drought index &mdash; spi_meteorological_drought@1</td></tr>
-        <tr><td>soil_salinity</td><td>soil salinity index from optical bands &mdash; soil_salinity_index@1</td></tr>
-        <tr><td>crop_stress</td><td>crop stress score from NDVI / NDRE &mdash; crop_stress_score@1</td></tr>
-        <tr><td>water_turbidity</td><td>Sentinel-2 red-band reflectance, water-mask gated &mdash; water_turbidity_red_band@1</td></tr>
+        <tr><td>algal_bloom</td><td>chlorophyll proxy from NDCI with an NDWI water gate (algal_bloom_chlorophyll_ndci@1)</td></tr>
+        <tr><td>deforestation</td><td>NDVI-drop alert against the recent baseline (deforestation_alert_ndvi_drop@1)</td></tr>
+        <tr><td>flood_extent</td><td>Sentinel-1 SAR VV threshold under cloud (flood_extent_sar_threshold@1)</td></tr>
+        <tr><td>wildfire</td><td>dNBR burn intensity, fine-tuned (wildfire_burn_intensity_dnbr_finetune@1)</td></tr>
+        <tr><td>urban_heat_island</td><td>MODIS LST against canopy cover (urban_heat_island_lst_canopy@1)</td></tr>
+        <tr><td>methane_plume</td><td>SWIR anomaly over baseline (methane_plume_swir_anomaly@1)</td></tr>
+        <tr><td>landslide</td><td>post-event Sentinel-1 &Delta;VV with slope (landslide_post_event_sar_dnn@1)</td></tr>
+        <tr><td>drought</td><td>SPI meteorological drought index (spi_meteorological_drought@1)</td></tr>
+        <tr><td>soil_salinity</td><td>soil salinity index from optical bands (soil_salinity_index@1)</td></tr>
+        <tr><td>crop_stress</td><td>crop stress score from NDVI / NDRE (crop_stress_score@1)</td></tr>
+        <tr><td>water_turbidity</td><td>Sentinel-2 red-band reflectance, water-mask gated (water_turbidity_red_band@1)</td></tr>
         <tr><td>oil_slick</td><td>no algorithm in the registry yet: returns status not_yet_implemented with pointers at SAR-darkening + turbidity proxies</td></tr>
       </tbody>
     </table>
@@ -643,7 +643,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="idx"><span class="idx-num">06</span><span class="idx-label">Machine contract</span></div>
     <dl>
       <dt>OpenAPI</dt><dd>3.1</dd>
-      <dt>documented</dt><dd>93 paths under /v1/*</dd>
+      <dt>documented</dt><dd>94 paths under /v1/*</dd>
       <dt>algorithms</dt><dd>160 recipes</dd>
       <dt>bands</dt><dd>124 wired across 43 slots</dd>
       <dt>sources</dt><dd>46 schemes</dd>
@@ -653,7 +653,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <div class="section-body">
     <h2><span class="num">06</span>The full machine contract</h2>
-    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a> &mdash; 93 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
+    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 94 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
     <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The 160 algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the 124 materializer-wired band names across 43 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
     <div class="hero-cta" style="margin-top:1.6rem">
       <a class="btn" href="/openapi.json">openapi.json</a>

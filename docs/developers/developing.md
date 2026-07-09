@@ -12,7 +12,7 @@ not duplicate `docs/developers/architecture.md` (system topology) or
 |---|---|
 | Rust toolchain | 1.91 (workspace `rust-version` in `Cargo.toml`) |
 | Edition | 2021 |
-| Workspace version | 0.1.0 |
+| Workspace version | 1.0.0 |
 | OS for production | Linux, `debian:trixie-slim` (glibc 2.41 — required by `ort-sys` 2.0.0-rc.12) |
 | OS for dev | Linux or macOS; older glibc is fine if you skip the topic-router ONNX backend |
 | Repo | `github.com/Vortx-AI/emem`, branch `main` |

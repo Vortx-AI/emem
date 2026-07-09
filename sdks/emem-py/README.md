@@ -3,7 +3,7 @@
 <!-- mcp-name: io.github.Vortx-AI/emem -->
 
 Thin, typed Python client for the [emem.dev](https://emem.dev) Earth memory
-protocol. Wraps the public REST surface (96 documented paths, 93 under
+protocol. Wraps the public REST surface (97 documented paths, 94 under
 `/v1/*`) in a single `Client` class that returns parsed JSON verbatim. Every
 ed25519-signed receipt and content-addressed CID is preserved for
 citation and offline verification.

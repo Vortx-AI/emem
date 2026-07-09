@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>3-D worlds from signed facts — emem</title>
+<title>3-D worlds from signed facts: emem</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Interactive 3-D gaussian splat worlds where every splat is one cell of signed, verifiable Earth facts. Orbit them, click any splat to read its measured values and re-check its signature, drape real satellite imagery underneath, recolour by any signed band.">
 <link rel="canonical" href="https://emem.dev/worlds">
 <link rel="icon" type="image/gif" href="/vortxgola.gif">
-<meta property="og:title" content="3-D worlds from signed facts — emem">
+<meta property="og:title" content="3-D worlds from signed facts: emem">
 <meta property="og:description" content="Orbit a world built entirely from signed Earth facts. Click any splat to read its measured values and verify its signature. Real satellite imagery drapes underneath as reference.">
 <meta property="og:url" content="https://emem.dev/worlds">
 <style>
@@ -293,7 +293,7 @@ var WORLDS = {
   },
   semantic: {
     title: "Cairo and Giza · what the foundation model sees",
-    story: "Colour is not a measurement you can name — it is the memory's own 128-D GeoTessera embedding of each cell, projected to its first three principal components (one per colour channel). Desert, Nile-valley farmland, and urban fabric separate on their own, with no land-cover labels anywhere in the loop. Height is measured elevation.",
+    story: "Colour is not a measurement you can name: it is the memory's own 128-D GeoTessera embedding of each cell, projected to its first three principal components (one per colour channel). Desert, Nile-valley farmland, and urban fabric separate on their own, with no land-cover labels anywhere in the loop. Height is measured elevation.",
     axis: "<b>height</b> = elevation (m) · <b>colour</b> = 128-D embedding → PCA → RGB",
     bands: ["copdem30m.elevation_mean", "geotessera"],
     heightBand: "copdem30m.elevation_mean",
@@ -573,7 +573,7 @@ function semanticPCA(rows) {
       $("v-dense").textContent = f === 1 ? "measured" : f + "× denser";
       $("dense-note").textContent = f === 1
         ? "every splat is one signed fact"
-        : "measured cells kept exact; in-between splats bilinear-interpolated, each re-derivable from up to 4 signed cells — click one to see its sources";
+        : "measured cells kept exact; in-between splats bilinear-interpolated, each re-derivable from up to 4 signed cells; click one to see its sources";
     }
     $("s-dense").value = String((api.cfg && api.cfg.densify) || 1);
     denseLabel(+$("s-dense").value);

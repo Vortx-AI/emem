@@ -34,7 +34,7 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
 
 > **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 10 tools load instead of 81. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `memt:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later without trusting the transcript.
 
-## Why to add Earth Memory in your long horizon tasks.
+## Why add Earth memory to long-horizon tasks
 
 Three problems show up the moment you ship an agent that runs longer than one session.
 
@@ -202,7 +202,7 @@ echo "$CELL"          # -> defi.zb493.xuqA.zcb5f
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" \
-  | jq '.facts[0].value'   # -> 27.3
+  | jq '.facts[0].value'   # -> a live 2 m air temperature in °C, e.g. 24.0
 ```
 
 ```bash
@@ -299,7 +299,7 @@ The envelope format is in the wire spec at [`/spec.md`](https://emem.dev/spec.md
 
 emem is one shared memory, not a cache per agent. It grows because of what happens on a miss.
 
-When an agent asks about a place that has no fact yet, the responder fetches it, signs it, stores it, and returns it in the same call. The first caller pays the upstream cost once; every caller after that, anywhere, gets the same signed bytes on the warm path (timings in the next section). Today the store holds signed facts across roughly 6,400 places and dozens of kinds of measurement. The live count is always at [`GET /v1/corpus_state_stats`](https://emem.dev/v1/corpus_state_stats).
+When an agent asks about a place that has no fact yet, the responder fetches it, signs it, stores it, and returns it in the same call. The first caller pays the upstream cost once; every caller after that, anywhere, gets the same signed bytes on the warm path (timings in the next section). Today the store holds signed facts across roughly 6,500 places and dozens of kinds of measurement. The live count is always at [`GET /v1/corpus_state_stats`](https://emem.dev/v1/corpus_state_stats).
 
 Because every fact is addressed by its content, the same observation recorded by two independent responders lines up automatically. Two sources, one address, and you can see whether they agree.
 
@@ -392,7 +392,7 @@ One binary, one core. The same handlers answer MCP tool calls and plain REST, so
 | Surface | Endpoint | What you get |
 | --- | --- | --- |
 | **MCP** | `https://emem.dev/mcp` | JSON-RPC 2.0 over Streamable HTTP. 81 tools: 10 core plus 71 extended. |
-| **REST** | `/v1/*` | 93 documented paths, described by [`/openapi.json`](https://emem.dev/openapi.json) (OpenAPI 3.1). |
+| **REST** | `/v1/*` | 94 documented paths, described by [`/openapi.json`](https://emem.dev/openapi.json) (OpenAPI 3.1). |
 
 Every MCP tool ships a `when_to_use` line and four hint flags (read-only, destructive, idempotent, open-world), so a planner picks the right tool without guessing. `tools/list` returns all 81; pass `{"tier":"core"}` for the 10 you need most.
 
@@ -542,7 +542,7 @@ emem is version 1.0.0, its first stable release: the wire format, the receipt pr
 
 ## Where it is going
 
-emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. **None of the multi-host federation routing ships in 0.1.0.** What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
+emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. **The multi-host federation routing does not ship in 1.0.0.** What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
 
 The staged work from here, building on those pieces:
 
@@ -557,14 +557,14 @@ Federate later; the fact ids will not move. Near-term work is tracked in [issues
 
 ## Open research
 
-emem works end to end today, but the questions worth funding are the ones it does not answer yet. This is the honest list, kept in one place so a collaborator or an agent can see where the edges are and pick one up. Two threads run through all of it. The first is the substrate: memory an agent can trust, carry between vendors, and verify without a callback. The second is the worlds at [`/worlds`](https://emem.dev/worlds), which are not the product but the proof, the most direct way to show a memory can be both generated and checkable at the same time. Each item says what already ships and what is still open, so nothing here is a promise dressed up as a feature.
+emem works end to end today. This is the honest list of what it does not do yet, kept in one place so a contributor or an agent can see where the edges are and pick one up. Two threads run through all of it. The first is the substrate: memory an agent can trust, carry between vendors, and verify without a callback. The second is the worlds at [`/worlds`](https://emem.dev/worlds), which are not the product but the proof, the most direct way to show a memory can be both generated and checkable at the same time. Each item says what already ships and what is still open, so nothing here is a promise dressed up as a feature.
 
-The test we hold every item to: does it make emem's memories more trusted, portable, and verifiable? If yes, it belongs here. If it only makes them more numerous or better recalled, someone larger is already doing that and we cannot win there. Recall makes an agent convenient. Verifiable memory makes it accountable, and accountability is the part that is missing between today's demos and agents a regulated business will let run on their own.
+The test we hold every item to: does it make emem's memories more trusted, portable, and verifiable? If yes, it belongs here. Recall makes an agent convenient; verifiable memory makes it accountable, and accountability is the part still missing between today's demos and agents a regulated business will let run on their own.
 
 ### The substrate: trusted, portable, verifiable memory
 
-- **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `memt:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo) reported next to the column none of those frameworks have.
-- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `memb:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors, the portability nobody upstream has an incentive to build.
+- **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `memt:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo), reported alongside the offline verification those frameworks do not provide.
+- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `memb:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors.
 - **Signed state for agent-to-agent work.** Ships today: emem answers the A2A task surface at `/a2a/tasks` and serves a signed card at [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json). Open: an attestation that rides an agent card so two agents from two companies verify each other's claimed memory offline before acting on it, closing the trust gap the A2A spec leaves to implementers.
 - **An audit trail for regulated work.** Ships today: bi-temporal recall (`as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew) and a signed absence for what was never there. Open: the profile that turns those into a procurement-grade record of what an agent knew and when, aimed at the data-provenance gap that content-only provenance standards do not cover.
 
@@ -607,7 +607,7 @@ The protocol is written up in an open whitepaper:
 | Hugging Face Space | https://huggingface.co/spaces/vortx-ai/emem |
 | Agent loop · Wire spec | https://emem.dev/agents.md · https://emem.dev/spec.md |
 | LLM catalog (plaintext) | https://emem.dev/llms.txt · https://emem.dev/llms-full.txt |
-| OpenAPI 3.1 (96 paths, 93 under `/v1/*`) | https://emem.dev/openapi.json |
+| OpenAPI 3.1 (97 paths, 94 under `/v1/*`) | https://emem.dev/openapi.json |
 | MCP endpoint (81 tools) | https://emem.dev/mcp |
 | In-browser receipt verifier | https://emem.dev/verify |
 | Python SDK on PyPI | https://pypi.org/project/ememdev/ |
@@ -618,7 +618,7 @@ The protocol is written up in an open whitepaper:
 
 Issues and pull requests welcome. See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). Pure Rust.
 
-A shared memory is worth more the more agents read and write it. If yours use emem, starring the repo is the cheapest way to help the next builder find it before they build another private cache.
+A shared memory is worth more the more agents read and write it. If your agents use emem, a star helps other builders find it.
 
 ## License
 

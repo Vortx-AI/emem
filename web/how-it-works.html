@@ -430,21 +430,21 @@ input::placeholder{color:var(--mute,#7a7363)}
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">&#9670;</span><span class="idx-label">where the latent comes from</span></div>
     <dl>
-      <dt>the encoder</dt><dd>runs at the source &mdash; payload, drone, camera</dd>
+      <dt>the encoder</dt><dd>runs at the source: payload, drone, camera</dd>
       <dt>what travels</dt><dd>a compact latent vector, not the image</dd>
       <dt>emem</dt><dd>the open decoder for that latent</dd>
-      <dt>on the vector</dt><dd>k-NN search, consensus, clustering &mdash; never the pixels</dd>
+      <dt>on the vector</dt><dd>k-NN search, consensus, clustering, never the pixels</dd>
       <dt>today's encoders</dt><dd>Tessera &middot; Clay &middot; Prithvi &middot; Galileo</dd>
     </dl>
   </aside>
 
   <div class="section-body">
     <h2><span class="num">&#9670;</span>What reaches emem is a latent, not an image</h2>
-    <p class="lede">The bottleneck in Earth observation was never the lens &mdash; it is the link. A sensor sees far more than physics will let it send home.</p>
+    <p class="lede">The bottleneck in Earth observation was never the lens; it is the link. A sensor sees far more than physics will let it send home.</p>
 
-    <p>So the encoder runs at the source: on an orbital payload, a drone, a vehicle camera, a fixed CCTV. A scene becomes a compact <span class="band">latent vector</span> before it ever touches a ground station &mdash; orders of magnitude smaller than the raw imagery. <strong>emem is the open decoder for that latent.</strong> It resolves each one onto the cell64 lattice (section&nbsp;01) and turns it into a signed fact (section&nbsp;02). Today those latents come from four open Earth-observation foundation encoders &mdash; Tessera, Clay&nbsp;v1.5, Prithvi-EO-2.0, and Galileo &mdash; read side by side and scored for agreement (section&nbsp;03 onward).</p>
+    <p>So the encoder runs at the source: on an orbital payload, a drone, a vehicle camera, a fixed CCTV. A scene becomes a compact <span class="band">latent vector</span> before it ever touches a ground station, orders of magnitude smaller than the raw imagery. <strong>emem is the open decoder for that latent.</strong> It resolves each one onto the cell64 lattice (section&nbsp;01) and turns it into a signed fact (section&nbsp;02). Today those latents come from four open Earth-observation foundation encoders (Tessera, Clay&nbsp;v1.5, Prithvi-EO-2.0, and Galileo), read side by side and scored for agreement (section&nbsp;03 onward).</p>
 
-    <p>The encoder-physically-in-orbit thesis &mdash; downlink only the embedding, decode it on the ground &mdash; is <a href="https://vortx.ai" rel="noopener">Vortx</a>'s. emem is the part you can read, cite, and self-host: the open decoder and the signed memory. If the encoder kernels are deterministic, a latent emulated on the ground today is the same vector the payload would emit in orbit, so the decoder you run now is the one that flies.</p>
+    <p>The encoder-physically-in-orbit thesis (downlink only the embedding, decode it on the ground) is <a href="https://vortx.ai" rel="noopener">Vortx</a>'s. emem is the part you can read, cite, and self-host: the open decoder and the signed memory. If the encoder kernels are deterministic, a latent emulated on the ground today is the same vector the payload would emit in orbit, so the decoder you run now is the one that flies.</p>
     <p><a class="btn ghost" href="https://vortx.ai" rel="noopener">The orbital encoder &rarr; vortx.ai</a></p>
   </div>
 </section>
@@ -486,9 +486,9 @@ input::placeholder{color:var(--mute,#7a7363)}
     <h2><span class="num">01</span>Tokenising Earth: cell64</h2>
     <p class="lede">A language model tokenises text so its layers can reason over symbols instead of raw characters. emem tokenises Earth for the same reason: agents need a finite alphabet for places before they can reason, remember, or cite.</p>
 
-    <p>The cell64 grid is that alphabet &mdash; a 64-bit identifier per ~9.55 m square at the equator, content-addressed, deterministic, and the same on every responder. Antimeridian and pole canonicalisation are pinned in code, so two queries 1 m apart land in the same cell, every time. An LLM asked what is at a place will usually guess; cell64 is the missing handle it can anchor on instead.</p>
+    <p>The cell64 grid is that alphabet: a 64-bit identifier per ~9.55 m square at the equator, content-addressed, deterministic, and the same on every responder. Antimeridian and pole canonicalisation are pinned in code, so two queries 1 m apart land in the same cell, every time. An LLM asked what is at a place will usually guess; cell64 is the missing handle it can anchor on instead.</p>
 
-    <div class="memt-block" aria-label="LLM tokens versus Earth tokens — the conceptual analogy">
+    <div class="memt-block" aria-label="LLM tokens versus Earth tokens: the conceptual analogy">
       <div class="memt-head">
         <span class="label">tokenisation analogy</span>
         <span class="gloss">an LLM tokenises text; emem tokenises Earth</span>
@@ -510,7 +510,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       </div>
     </div>
 
-    <p>The right-hand column is what makes the answer durable. A receipt-bearing fact survives the session, survives the model, survives the responder. Quote the <span class="band">fact_cid</span> in a chat and your colleague can pull byte-identical bytes from any replica and verify the signature in their browser at <a href="/verify">/verify</a> &mdash; no callback to the issuer. The recall surface is keyed on three coordinates: <span class="band">Cell &times; Band &times; Tslot &rarr; Fact</span>, where Band names a measurement (elevation, NDVI, land cover, a foundation embedding) and Tslot names a Unix-epoch time window.</p>
+    <p>The right-hand column is what makes the answer durable. A receipt-bearing fact survives the session, survives the model, survives the responder. Quote the <span class="band">fact_cid</span> in a chat and your colleague can pull byte-identical bytes from any replica and verify the signature in their browser at <a href="/verify">/verify</a>, with no callback to the issuer. The recall surface is keyed on three coordinates: <span class="band">Cell &times; Band &times; Tslot &rarr; Fact</span>, where Band names a measurement (elevation, NDVI, land cover, a foundation embedding) and Tslot names a Unix-epoch time window.</p>
   </div>
 </section>
 
@@ -645,14 +645,14 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
   <div class="section-body">
     <h2><span class="num">03</span>Connect &amp; evolve: typed edges, contradiction scoring, the refinement loop</h2>
-    <p class="lede">emem stores facts and links them. When two sources disagree, it records the disagreement instead of silently picking one. A later attestation supersedes an earlier one on the transaction-time axis without erasing it &mdash; the old bytes stay replayable. Contradictions become signed, queryable evidence; nothing is overwritten in the dark.</p>
+    <p class="lede">emem stores facts and links them. When two sources disagree, it records the disagreement instead of silently picking one. A later attestation supersedes an earlier one on the transaction-time axis without erasing it; the old bytes stay replayable. Contradictions become signed, queryable evidence; nothing is overwritten in the dark.</p>
 
     <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
       <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
       <figure class="cev-art"><img src="/art/connect-evolve.svg" alt="Facts at one cell fold into a signed bundle; a disagreeing attestation is recorded as a scored contradiction; a refinement loop re-attests" loading="lazy"></figure>
       <div class="cev-legend">
         <div class="e"><b>connect</b><span><code>/v1/memory_bundle</code> groups N signed facts into one <code>memb:&lt;cid&gt;</code> envelope an agent cites as a unit.</span></div>
-        <div class="e"><b>disagree</b><span><code>/v1/memory_contradictions</code> scores per-band spread and keeps every conflicting <code>fact_cid</code> &mdash; no last-writer-wins.</span></div>
+        <div class="e"><b>disagree</b><span><code>/v1/memory_contradictions</code> scores per-band spread and keeps every conflicting <code>fact_cid</code>, with no last-writer-wins.</span></div>
         <div class="e"><b>edges</b><span>Typed connections are first-class: <code>(subj, pred, obj, valid_from)</code> with predicates <code>disagrees_with</code>, <code>supersedes</code>, <code>relates_to</code>, queried by <code>/v1/edges/recall</code> and attached to any read with <code>include:["edges"]</code>. The opt-in refinement loop records <code>disagrees_with</code> edges from contradictions automatically.</span></div>
         <div class="e"><b>evolve</b><span>A new attestation <code>supersedes</code> on <code>as_of_signed_at</code>; <code>/v1/reviews</code> records the task outcome. The earlier bytes never vanish.</span></div>
       </div>
@@ -724,13 +724,13 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
     <p>emem wires four foundation encoders: <strong>Clay v1.5</strong>, <strong>Prithvi-EO-2.0-300M-TL</strong>, <strong>Tessera</strong> (the default <span class="band">geotessera</span> 128-D embedding), and <strong>Galileo</strong>. Galileo is multimodal by design; on this responder only its Sentinel-2 modality is connected today, so the other modalities of the scaffold are present but not yet fed. The encoder map is honest about that: an unwired modality or encoder appears in <span class="band">missing[]</span> rather than being zero-filled.</p>
 
-    <p>Above the read surface sits a writable memory substrate the agent owns. <span class="band">/v1/memory_bundle</span> takes N (cell, band, tslot) triples and returns one signed envelope &mdash; the <span class="band">memb:&lt;bundle_cid&gt;</span> token is the multi-fact analogue of <span class="band">memt:</span>. The six file-op verbs (<span class="band">memory_view &middot; memory_create &middot; memory_str_replace &middot; memory_insert &middot; memory_delete &middot; memory_rename</span>) conform to Anthropic&rsquo;s memory tool spec (header <span class="band">context-management-2025-06-27</span>): the &ldquo;files&rdquo; are signed, content-addressed blobs under a path tree rooted at <span class="band">/memories/</span>. Each file carries a <span class="band">kind</span> from the CoALA / LangMem taxonomy &mdash; <span class="band">episodic</span> for observations of events, <span class="band">semantic</span> for durable learned facts, <span class="band">procedural</span> for playbooks, <span class="band">resource</span> for scratchpads &mdash; and <span class="band">memory_list_by_kind</span> returns only the slice the agent asked for.</p>
+    <p>Above the read surface sits a writable memory substrate the agent owns. <span class="band">/v1/memory_bundle</span> takes N (cell, band, tslot) triples and returns one signed envelope; the <span class="band">memb:&lt;bundle_cid&gt;</span> token is the multi-fact analogue of <span class="band">memt:</span>. The six file-op verbs (<span class="band">memory_view &middot; memory_create &middot; memory_str_replace &middot; memory_insert &middot; memory_delete &middot; memory_rename</span>) conform to Anthropic&rsquo;s memory tool spec (header <span class="band">context-management-2025-06-27</span>): the &ldquo;files&rdquo; are signed, content-addressed blobs under a path tree rooted at <span class="band">/memories/</span>. Each file carries a <span class="band">kind</span> from the CoALA / LangMem taxonomy (<span class="band">episodic</span> for observations of events, <span class="band">semantic</span> for durable learned facts, <span class="band">procedural</span> for playbooks, <span class="band">resource</span> for scratchpads), and <span class="band">memory_list_by_kind</span> returns only the slice the agent asked for.</p>
 
     <p>Writes can be capability-bound. Paths under <span class="band">/memories/by_attester/&lt;pubkey_short&gt;/&hellip;</span> are write-restricted to the holder of the corresponding ed25519 private key: every <span class="band">memory_create</span> in that namespace carries an <span class="band">attester: {pubkey_b32, sig_b32}</span> block where the signature is computed over <span class="band">blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)</span>. Wrong key &rarr; 401 <span class="band">memory_attestation_invalid</span>. Wrong namespace &rarr; 403. Bare <span class="band">/memories/&hellip;</span> stays anyone-writable and back-compat with the unsigned form.</p>
 
-    <p>Three primitives turn the substrate from storage into a queryable knowledge surface. <span class="band">/v1/memory/search</span> embeds the query through BGE-base-en-v1.5 (768-D) and runs cosine against a LanceDB IVF_PQ partition (<span class="band">memory_text_index_d768.lance</span>) over every memory file&rsquo;s contents &mdash; the agent paraphrases, the index finds. <span class="band">/v1/memory_contradictions</span> walks the parallel multi-attester index and scores disagreement per band kind. <span class="band">/v1/memory/sse</span> opens an event stream filtered by <span class="band">path_prefix &middot; kind &middot; attester</span> so a compliance subscriber or a downstream agent receives every write the moment its sled commit lands.</p>
+    <p>Three primitives turn the substrate from storage into a queryable knowledge surface. <span class="band">/v1/memory/search</span> embeds the query through BGE-base-en-v1.5 (768-D) and runs cosine against a LanceDB IVF_PQ partition (<span class="band">memory_text_index_d768.lance</span>) over every memory file&rsquo;s contents, so the agent paraphrases and the index finds. <span class="band">/v1/memory_contradictions</span> walks the parallel multi-attester index and scores disagreement per band kind. <span class="band">/v1/memory/sse</span> opens an event stream filtered by <span class="band">path_prefix &middot; kind &middot; attester</span> so a compliance subscriber or a downstream agent receives every write the moment its sled commit lands.</p>
 
-    <p>The substrate is intentionally typed at every boundary. Vector-only bands accept <span class="band">/v1/state</span>; scalar bands return a typed 422 pointing the agent at <span class="band">/v1/recall</span>. Empty cells return a typed 404 pointing at <span class="band">/v1/materializers</span>. Bi-temporal queries with an inverted bound return 400 <span class="band">invalid_temporal_bound</span>; a malformed timestamp returns 400 <span class="band">invalid_signed_at_format</span>. Memory file writes are append-only at the content-address layer &mdash; <span class="band">memory_delete</span> drops the path index but the blob lives on, addressable through <span class="band">memory_file_history</span>. No silent zero-fills, no last-writer-wins, no opaque mutation.</p>
+    <p>The substrate is intentionally typed at every boundary. Vector-only bands accept <span class="band">/v1/state</span>; scalar bands return a typed 422 pointing the agent at <span class="band">/v1/recall</span>. Empty cells return a typed 404 pointing at <span class="band">/v1/materializers</span>. Bi-temporal queries with an inverted bound return 400 <span class="band">invalid_temporal_bound</span>; a malformed timestamp returns 400 <span class="band">invalid_signed_at_format</span>. Memory file writes are append-only at the content-address layer: <span class="band">memory_delete</span> drops the path index, but the blob lives on, addressable through <span class="band">memory_file_history</span>. No silent zero-fills, no last-writer-wins, no opaque mutation.</p>
   </div>
 </section>
 
