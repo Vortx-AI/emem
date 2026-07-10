@@ -17,6 +17,41 @@ pub enum Fact {
     Absence(NegativeFact),
 }
 
+impl Fact {
+    /// Canonicalize every float embedded in this fact's value-bearing
+    /// fields in place (see [`crate::cbor::canonicalize_value`]): the
+    /// `value`, the `derivation.args`, and any `uncertainty.params`.
+    ///
+    /// The responder applies this to its own materialized facts *before*
+    /// signing so a fact's CID is a function of the numeric value, not a
+    /// transient float bit pattern (a NaN payload or negative zero would
+    /// otherwise yield a distinct CID for a semantically identical
+    /// observation — B8). Externally submitted attestations are never
+    /// mutated: doing so would invalidate the submitter's signature.
+    /// Idempotent; a fact with only canonical finite values is unchanged.
+    pub fn canonicalize_floats(&mut self) {
+        match self {
+            Fact::Primary(p) => {
+                crate::cbor::canonicalize_value(&mut p.value);
+                if let Some(args) = p.derivation.args.as_mut() {
+                    crate::cbor::canonicalize_value(args);
+                }
+                if let Some(u) = p.uncertainty.as_mut() {
+                    crate::cbor::canonicalize_value(&mut u.params);
+                }
+            }
+            Fact::Derivative(d) => {
+                crate::cbor::canonicalize_value(&mut d.value);
+                if let Some(args) = d.derivation.args.as_mut() {
+                    crate::cbor::canonicalize_value(args);
+                }
+            }
+            // Absence carries no float-valued fields.
+            Fact::Absence(_) => {}
+        }
+    }
+}
+
 /// String enum used for switching at the wire level.
 pub mod kind {
     pub const PRIMARY: &str = "primary";
@@ -204,4 +239,77 @@ pub struct Uncertainty {
     pub family: String,
     /// Family-specific parameters (CBOR map).
     pub params: ciborium::Value,
+}
+
+#[cfg(test)]
+mod canonicalize_tests {
+    use super::*;
+    use crate::cbor::to_canonical_cbor;
+    use emem_core::AttesterKey;
+
+    fn primary_with(value: ciborium::Value, uncertainty: Option<Uncertainty>) -> Fact {
+        Fact::Primary(PrimaryFact {
+            cell: "defi.zb4d9.pefa.zf619".into(),
+            band: "indices.ndvi".into(),
+            tslot: 0,
+            value,
+            unit: None,
+            confidence: 1.0,
+            uncertainty,
+            sources: vec![],
+            derivation: Derivation {
+                fn_key: "t@1".into(),
+                args: Some(ciborium::Value::Array(vec![ciborium::Value::Float(-0.0)])),
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new("s"),
+            signer: AttesterKey([1u8; 32]),
+            signed_at: "2026-01-01T00:00:00Z".into(),
+            served_via: None,
+        })
+    }
+
+    #[test]
+    fn canonicalize_floats_collapses_signed_zero_across_value_and_args() {
+        // Two facts identical but for +0.0 vs -0.0 in the value AND a NaN
+        // payload difference nested in derivation.args must produce
+        // byte-identical canonical CBOR (hence the same CID) once
+        // canonicalized — the content-address stops depending on the bit
+        // pattern (B8).
+        let mut a = primary_with(ciborium::Value::Float(0.0), None);
+        let mut b = primary_with(ciborium::Value::Float(-0.0), None);
+        assert_ne!(
+            to_canonical_cbor(&a).unwrap(),
+            to_canonical_cbor(&b).unwrap(),
+            "precondition: signed zero differs before canonicalization"
+        );
+        a.canonicalize_floats();
+        b.canonicalize_floats();
+        assert_eq!(
+            to_canonical_cbor(&a).unwrap(),
+            to_canonical_cbor(&b).unwrap()
+        );
+    }
+
+    #[test]
+    fn canonicalize_floats_reaches_uncertainty_params() {
+        let u = |bits: u64| {
+            Some(Uncertainty {
+                family: "gaussian".into(),
+                params: ciborium::Value::Map(vec![(
+                    ciborium::Value::Text("sigma".into()),
+                    ciborium::Value::Float(f64::from_bits(bits)),
+                )]),
+            })
+        };
+        let mut a = primary_with(ciborium::Value::Float(1.0), u(0x7ff8_0000_0000_0000));
+        let mut b = primary_with(ciborium::Value::Float(1.0), u(0x7ff8_0000_0000_0001));
+        a.canonicalize_floats();
+        b.canonicalize_floats();
+        assert_eq!(
+            to_canonical_cbor(&a).unwrap(),
+            to_canonical_cbor(&b).unwrap(),
+            "distinct NaN payloads inside uncertainty.params must canonicalize equal"
+        );
+    }
 }

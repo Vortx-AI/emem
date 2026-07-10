@@ -6372,21 +6372,7 @@ async fn find_similar_with_auto_materialize(
             let outcomes =
                 try_materialize_bands(&req.key, std::slice::from_ref(&band_owned), None, s).await;
             let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
-            for o in &outcomes {
-                if let Some(cid) = &o.fact_cid {
-                    materialize_notes.push(json!({
-                        "band":     o.band,
-                        "status":   "materialized",
-                        "fact_cid": cid,
-                    }));
-                } else if let Some(reason) = &o.skip_reason {
-                    materialize_notes.push(json!({
-                        "band":   o.band,
-                        "status": "skipped",
-                        "reason": reason,
-                    }));
-                }
-            }
+            materialize_notes.extend(outcomes.iter().filter_map(MaterializeOutcome::to_note));
             if materialized_any {
                 maybe_resp = find_similar(req, s).await;
             }
@@ -6505,21 +6491,7 @@ async fn recall_with_auto_materialize_capped(
     if !candidates.is_empty() {
         let outcomes = try_materialize_bands(&req.cell, &candidates, bound_tslot, s).await;
         let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
-        for o in &outcomes {
-            if let Some(reason) = &o.skip_reason {
-                materialize_notes.push(json!({
-                    "band":   o.band,
-                    "status": "skipped",
-                    "reason": reason,
-                }));
-            } else if o.fact_cid.is_some() {
-                materialize_notes.push(json!({
-                    "band":   o.band,
-                    "status": "materialized",
-                    "fact_cid": o.fact_cid.as_deref(),
-                }));
-            }
-        }
+        materialize_notes.extend(outcomes.iter().filter_map(MaterializeOutcome::to_note));
         if materialized_any {
             resp = recall(req, s).await?;
         }
@@ -12356,6 +12328,21 @@ struct VerifyReceiptReq {
     facts: Option<Vec<emem_fact::Fact>>,
 }
 
+/// The wire-form guidance surfaced when a `verify_receipt` request body
+/// fails to decode. Shared verbatim by the REST rejection branch and the
+/// MCP `tools/call` arm so an LLM sees the exact same self-correction hint
+/// on either transport (the MCP frontend previously leaked a bare serde
+/// error, `B5`). `detail` is the underlying decoder message.
+fn verify_receipt_shape_hint(detail: &str) -> String {
+    format!(
+        "verify_receipt: request body did not match the expected shape. \
+         Wire form is `{{\"receipt\": {{…full envelope…}}}}` — the receipt is the \
+         object returned under `.receipt` from /v1/recall, /v1/eudr_dds, /v1/hunt, \
+         etc. Required receipt fields: request_id, served_at, primitive, cells, \
+         fact_cids, responder, signature_b32. Decoder error: {detail}"
+    )
+}
+
 async fn post_verify_receipt(
     State(s): State<AppState>,
     body: Result<Json<VerifyReceiptReq>, axum::extract::rejection::JsonRejection>,
@@ -12372,13 +12359,7 @@ async fn post_verify_receipt(
             StatusCode::BAD_REQUEST,
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
-                message: format!(
-                    "verify_receipt: request body did not match the expected shape. \
-                     Wire form is `{{\"receipt\": {{…full envelope…}}}}` — the receipt is the \
-                     object returned under `.receipt` from /v1/recall, /v1/eudr_dds, /v1/hunt, \
-                     etc. Required receipt fields: request_id, served_at, primitive, cells, \
-                     fact_cids, responder, signature_b32. Decoder error: {detail}"
-                ),
+                message: verify_receipt_shape_hint(&detail),
                 details: Some(json!({
                     "expected": {
                         "receipt": {
@@ -15425,8 +15406,12 @@ async fn mcp_tool_call(
             }
         }
         "emem_verify_receipt" => {
-            let req: VerifyReceiptReq =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            // Mirror the REST handler's friendly shape hint (B5): the MCP
+            // frontend used to leak a bare serde error here while the same
+            // payload against POST /v1/verify_receipt returned the
+            // self-correcting wire-form guidance. Share the exact text.
+            let req: VerifyReceiptReq = serde_json::from_value(args)
+                .map_err(|e| (-32602, verify_receipt_shape_hint(&e.to_string())))?;
             match post_verify_receipt(State(s.clone()), Ok(Json(req))).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -19396,6 +19381,79 @@ fn validate_memory_path(path: &str, allow_directory: bool) -> Result<String, Api
     Ok(raw.to_string())
 }
 
+/// Operator policy for unattested writes to the *open* memory namespace
+/// (everything outside `/memories/by_attester/`). The `by_attester`
+/// sub-tree is always gated regardless of this policy (see
+/// [`emem_primitives::namespace_requires_attester`]).
+///
+/// The default is [`Open`](MemoryWritePolicy::Open) — the open namespace
+/// is globally writable, which is what the Anthropic memory-tool contract
+/// expects (its create/str_replace/insert/delete/rename verbs arrive
+/// unattested). Two env switches let an operator tighten this on a public
+/// deployment without a rebuild (B7):
+///
+/// - `EMEM_MEMORY_REQUIRE_ATTESTER=1` → [`RequireAll`]: every write, even
+///   to the open namespace, needs a valid `attester` block. Strongest
+///   isolation; breaks unattested memory-tool compatibility by design.
+/// - `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1` → [`HardenDestructive`]: unattested
+///   `create` / `str_replace` / `insert` stay open, but `delete` and
+///   `rename` require an attester. Blocks the anonymous-destruction /
+///   hijack vector on a shared namespace while keeping append-style writes
+///   frictionless. `REQUIRE_ATTESTER` wins if both are set.
+///
+/// [`RequireAll`]: MemoryWritePolicy::RequireAll
+/// [`HardenDestructive`]: MemoryWritePolicy::HardenDestructive
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemoryWritePolicy {
+    /// Open namespace is globally writable (default; memory-tool compatible).
+    Open,
+    /// Open namespace allows unattested append-style writes but gates
+    /// `delete` / `rename` behind an attester.
+    HardenDestructive,
+    /// Every write to any namespace requires a valid attester.
+    RequireAll,
+}
+
+/// Read the memory-write policy once from the environment. Cached for the
+/// process lifetime so the hot write path pays no env lookups; a policy
+/// change requires a restart (consistent with every other `EMEM_*` knob).
+fn memory_write_policy() -> MemoryWritePolicy {
+    static POLICY: std::sync::OnceLock<MemoryWritePolicy> = std::sync::OnceLock::new();
+    *POLICY.get_or_init(|| {
+        let on = |name: &str| {
+            std::env::var(name)
+                .map(|v| v != "0" && !v.eq_ignore_ascii_case("false") && !v.trim().is_empty())
+                .unwrap_or(false)
+        };
+        if on("EMEM_MEMORY_REQUIRE_ATTESTER") {
+            MemoryWritePolicy::RequireAll
+        } else if on("EMEM_MEMORY_HARDEN_DESTRUCTIVE") {
+            MemoryWritePolicy::HardenDestructive
+        } else {
+            MemoryWritePolicy::Open
+        }
+    })
+}
+
+/// Pure policy decision: does `policy` refuse an unattested `verb` on the
+/// open namespace? Split from the env read so it is unit-testable (the
+/// env-backed [`memory_write_policy`] caches for the process lifetime).
+fn policy_gates_verb(policy: MemoryWritePolicy, verb: &str) -> bool {
+    match policy {
+        MemoryWritePolicy::Open => false,
+        MemoryWritePolicy::HardenDestructive => matches!(verb, "delete" | "rename"),
+        MemoryWritePolicy::RequireAll => true,
+    }
+}
+
+/// Whether an unattested `verb` on the *open* namespace is refused under
+/// the current [`MemoryWritePolicy`]. The `by_attester` gate is handled
+/// separately by `namespace_requires_attester`, so this only decides the
+/// open-namespace policy overlay.
+fn open_namespace_requires_attester(verb: &str) -> bool {
+    policy_gates_verb(memory_write_policy(), verb)
+}
+
 /// Validate the W2 attester binding on a write verb. Returns `Ok(())`
 /// if the binding verifies (or is absent and the path doesn't require
 /// one); returns a typed 401 / 403 otherwise.
@@ -19411,18 +19469,29 @@ fn validate_attester_binding(
 ) -> Result<(), ApiError> {
     match attester {
         None => {
-            // Bare write: only the open namespace accepts unattested writes.
-            if emem_primitives::namespace_requires_attester(path) {
+            // Bare write: the `by_attester` sub-tree is always gated; the
+            // open namespace is gated only when the operator policy
+            // (EMEM_MEMORY_REQUIRE_ATTESTER / _HARDEN_DESTRUCTIVE) says so.
+            let namespace_gated = emem_primitives::namespace_requires_attester(path);
+            if namespace_gated || open_namespace_requires_attester(verb) {
+                let reason = if namespace_gated {
+                    format!(
+                        "write to attester-scoped path `{path}` requires `attester: {{pubkey_b32, sig_b32}}` block; the namespace `/memories/by_attester/<pubkey8>/...` is gated."
+                    )
+                } else {
+                    format!(
+                        "unattested `{verb}` is refused by this responder's memory-write policy; supply an `attester: {{pubkey_b32, sig_b32}}` block (see /memories/by_attester/<pubkey8>/...), or the operator can relax the policy."
+                    )
+                };
                 return Err(ApiError(
                     StatusCode::UNAUTHORIZED,
                     ErrorBody {
                         code: ErrorCode::InvalidArgument,
-                        message: format!(
-                            "write to attester-scoped path `{path}` requires `attester: {{pubkey_b32, sig_b32}}` block; the namespace `/memories/by_attester/<pubkey8>/...` is gated."
-                        ),
+                        message: reason,
                         details: Some(json!({
                             "code": "memory_attestation_required",
                             "path": path,
+                            "verb": verb,
                         })),
                     },
                 ));
@@ -31859,11 +31928,22 @@ async fn sign_and_persist(
 /// Empty input returns an empty Vec, not an error.
 async fn sign_and_persist_many(
     s: &AppState,
-    facts: Vec<Fact>,
+    mut facts: Vec<Fact>,
     signed_at: &str,
 ) -> Result<Vec<emem_fact::FactCid>, String> {
     if facts.is_empty() {
         return Ok(Vec::new());
+    }
+    // Float canonicalization (B8): normalize every NaN payload and negative
+    // zero in the facts this responder is about to sign, so a fact's CID is
+    // a function of the numeric value rather than a transient bit pattern.
+    // Applied here — the one choke point every materializer funnels through
+    // — and BEFORE the merkle leaves / signature / storage below, so all
+    // three see identical bytes. Externally submitted attestations reach
+    // `put_attestation` directly and are never mutated (that would break the
+    // submitter's signature). Idempotent and a no-op for finite values.
+    for f in facts.iter_mut() {
+        f.canonicalize_floats();
     }
     // Compute per-fact merkle leaves over their canonical CBOR.
     // CRITICAL: sort the leaves before computing the root — the
@@ -32183,6 +32263,33 @@ struct MaterializeOutcome {
     /// `Some(reason)` on skip/failure — surfaced to the agent so they
     /// know *why* this band is not available, not just that it isn't.
     skip_reason: Option<String>,
+}
+
+impl MaterializeOutcome {
+    /// Render this outcome as one agent-facing `materialize_note`, or
+    /// `None` when there is nothing to report. `fact_cid` and
+    /// `skip_reason` are mutually exclusive by construction in
+    /// `try_materialize_bands`, so a materialized fact takes precedence.
+    /// Shared by every auto-materialize wrapper (recall, polygon,
+    /// find_similar) so the note shape stays byte-identical across
+    /// surfaces (B3 — this logic used to be copy-pasted per wrapper).
+    fn to_note(&self) -> Option<JsonValue> {
+        if let Some(cid) = &self.fact_cid {
+            Some(json!({
+                "band":     self.band,
+                "status":   "materialized",
+                "fact_cid": cid,
+            }))
+        } else {
+            self.skip_reason.as_ref().map(|reason| {
+                json!({
+                    "band":   self.band,
+                    "status": "skipped",
+                    "reason": reason,
+                })
+            })
+        }
+    }
 }
 
 /// Resolve the tempo class for any band the responder knows about. Cube
@@ -50347,6 +50454,45 @@ mod tests {
         // Directory listing requires the trailing slash.
         assert!(validate_memory_path("/memories/", true).is_ok());
         assert!(validate_memory_path("/memories/", false).is_err());
+    }
+
+    #[test]
+    fn memory_write_policy_gates_the_right_verbs() {
+        use MemoryWritePolicy::*;
+        let verbs = ["create", "str_replace", "insert", "delete", "rename"];
+        // Open: nothing on the open namespace needs an attester (default;
+        // preserves Anthropic memory-tool compatibility).
+        for v in verbs {
+            assert!(!policy_gates_verb(Open, v), "Open must not gate `{v}`");
+        }
+        // HardenDestructive: only delete/rename are gated; append-style
+        // writes stay open.
+        assert!(!policy_gates_verb(HardenDestructive, "create"));
+        assert!(!policy_gates_verb(HardenDestructive, "str_replace"));
+        assert!(!policy_gates_verb(HardenDestructive, "insert"));
+        assert!(policy_gates_verb(HardenDestructive, "delete"));
+        assert!(policy_gates_verb(HardenDestructive, "rename"));
+        // RequireAll: every verb is gated.
+        for v in verbs {
+            assert!(
+                policy_gates_verb(RequireAll, v),
+                "RequireAll must gate `{v}`"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn open_namespace_write_default_allows_unattested() {
+        // Default policy (no env set in the test process) is Open, so an
+        // unattested create on the open namespace is accepted, while the
+        // by_attester sub-tree stays gated regardless of policy.
+        let bh = emem_primitives::body_hash(b"x");
+        assert!(validate_attester_binding("create", "/memories/notes.md", &bh, None).is_ok());
+        assert!(
+            validate_attester_binding("create", "/memories/by_attester/abc/x.md", &bh, None)
+                .is_err(),
+            "by_attester namespace must be gated even under the Open default"
+        );
     }
 
     #[tokio::test]
