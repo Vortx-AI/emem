@@ -979,17 +979,17 @@ input::placeholder{color:var(--mute,#7a7363)}
 <!-- ===================== HERO: the emem token ===================== -->
 <style>
 .th{padding:3.2rem var(--pad-x) 2.4rem;max-width:1180px;margin:0 auto;border-bottom:2.6px solid var(--ink)}
-.th-top{display:grid;grid-template-columns:1fr minmax(220px,300px);gap:2.4rem;align-items:center}
-.th-kicker{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:.9rem}
+.th-top{display:grid;grid-template-columns:1fr minmax(220px,300px);gap:2.4rem;align-items:start}
 .th h1{font-size:clamp(1.9rem,4.4vw,3.05rem);line-height:1.06;letter-spacing:-.015em;margin:0 0 1rem;max-width:16ch}
-.th-lede{font-size:1.06rem;line-height:1.62;color:var(--ink-2);max-width:56ch;margin:0 0 1.4rem}
+.th-lede{font-size:1.06rem;line-height:1.62;color:var(--ink-2);max-width:60ch;margin:0 0 1.1rem}
+.th-who{font-size:.95rem;line-height:1.6;color:var(--mute);max-width:60ch;margin:0 0 1.4rem}
 .th-cta{display:flex;gap:.7rem;flex-wrap:wrap}
 .th-cta a{font-family:var(--mono);font-size:.86rem;padding:.6rem 1.05rem;border:1.6px solid var(--ink);text-decoration:none;border-radius:0}
 .btn-primary{background:var(--accent);color:var(--paper)}
 .btn-ghost{background:var(--paper);color:var(--ink)}
 .th-cta a:hover{background:var(--ink);color:var(--paper)}
 /* the token core */
-.th-core{margin:0;display:flex;flex-direction:column;align-items:center;gap:.6rem}
+.th-core{margin:0;align-self:center;display:flex;flex-direction:column;align-items:center;gap:.6rem}
 .th-core svg{width:100%;max-width:280px;height:auto;display:block}
 .th-core figcaption{font-family:var(--mono);font-size:.72rem;color:var(--mute);text-align:center}
 .th-ring{transform-origin:120px 120px;animation:th-spin 34s linear infinite}
@@ -1038,9 +1038,9 @@ input::placeholder{color:var(--mute,#7a7363)}
 <section class="th" id="hero" aria-label="emem, verifiable memory for AI agents">
   <div class="th-top">
     <div class="th-copy">
-      <div class="th-kicker">Memory for AI agents, robots, and world models</div>
-      <h1>One memory every model can cite, carry, and check.</h1>
-      <p class="th-lede">emem turns a place, a fact, or an object into one short, signed token. Drop it into any model's context and it survives summarization and hands off cleanly between agents. Resolve it to get the exact signed bytes back, and see how the value was made: a direct satellite reading, a deterministic index, or a model in the loop. Grounded in Earth observation, checkable by anyone, no key.</p>
+      <h1>Give your AI a memory of the real world it can check.</h1>
+      <p class="th-lede">AI models forget. When a long session is summarized, or a task hands off to another agent, the facts they checked blur into paraphrases and the numbers quietly drift. emem is a shared memory that fixes that: every fact about a real place becomes one short, signed line an agent can keep. It survives summarization, moves cleanly between agents and sessions, and resolves back to the exact value, which anyone can re-check without trusting the source.</p>
+      <p class="th-who">Built for the agents, robots, and world models that need to reason from the same facts, and for the teams behind them. The facts are grounded in open Earth observation, checkable by anyone, with no account needed.</p>
       <div class="th-cta">
         <a class="btn-primary" href="#build">Connect an agent</a>
         <a class="btn-ghost" href="/reference">Read the reference</a>
