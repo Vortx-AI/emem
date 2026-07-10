@@ -168,7 +168,7 @@ pub const RESOURCE_TEMPLATES: &[ResourceTemplateDescriptor] = &[
     ResourceTemplateDescriptor {
         uri_template: "memory://emem/bundle/{bundle_token}",
         name: "memory.bundle",
-        description: "Full signed memory-bundle envelope for a `memb:<bundle_cid>` token. Resolves to the same JSON `GET /v1/memory_bundle/<token>` returns.",
+        description: "Full signed memory-bundle envelope for a `emem:bundle:<bundle_cid>` token. Resolves to the same JSON `GET /v1/memory_bundle/<token>` returns.",
         mime_type: "application/json",
     },
 ];
@@ -336,11 +336,11 @@ const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_c
 }}"#;
 
 const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
-"token":{"type":"string","description":"A `memt:<cell64>:<fact_cid>` citation handle to dereference."}
+"token":{"type":"string","description":"A `emem:fact:<cell64>:<fact_cid>` citation handle to dereference."}
 }}"#;
 
 // Multi-fact memory-bundle composer. N (cell, band, tslot?) triples in,
-// one signed envelope out. The composed `bundle_token` is `memb:<bundle_cid>`
+// one signed envelope out. The composed `bundle_token` is `emem:bundle:<bundle_cid>`
 // — a single rebindable string that cites the whole set.
 const SCHEMA_MEMORY_CONTRADICTIONS: &str = r#"{"type":"object","properties":{
 "cell_prefix":{"type":"string","description":"Bytewise prefix on cell64 (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap."},
@@ -369,7 +369,7 @@ const SCHEMA_MEMORY_BUNDLE: &str = r#"{"type":"object","required":["triples"],"p
 }}"#;
 
 const SCHEMA_MEMORY_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
-"token":{"type":"string","description":"A `memb:<bundle_cid>` rebindable handle to dereference."}
+"token":{"type":"string","description":"A `emem:bundle:<bundle_cid>` rebindable handle to dereference."}
 }}"#;
 
 // ── Entity registry (emem.entity.v1) ──
@@ -386,14 +386,14 @@ const SCHEMA_ENTITY: &str = r#"{"type":"object","required":["label"],"properties
 const SCHEMA_ENTITY_RESOLVE: &str = r#"{"type":"object","properties":{
 "text":{"type":"string","description":"Fuzzy phrasing to resolve to an existing canonical object (e.g. \"the damaged bridge near the river\")."},
 "label":{"type":"string","description":"Alias for `text`."},
-"token":{"type":"string","description":"A `meme:<entity_cid>` handle to dereference directly to its signed object (bypasses the text search)."},
+"token":{"type":"string","description":"A `emem:entity:<entity_cid>` handle to dereference directly to its signed object (bypasses the text search)."},
 "near":{"type":"string","description":"Optional place/cell to narrow to objects anchored nearby."},
 "k":{"type":"integer","description":"Max candidates (default 10)."}
 }}"#;
 
 const SCHEMA_ENTITY_LINK: &str = r#"{"type":"object","properties":{
 "entity_cid":{"type":"string","description":"The canonical object to attach an equivalence to. Provide entity_cid OR entity_token."},
-"entity_token":{"type":"string","description":"A `meme:<entity_cid>` handle for the same."},
+"entity_token":{"type":"string","description":"A `emem:entity:<entity_cid>` handle for the same."},
 "alias":{"type":"string","description":"An alternate label/phrasing that should resolve to this object."},
 "external_ids":{"type":"object","description":"Stable ids to bind to this object.","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}
 }}"#;
@@ -908,8 +908,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token",
         title: "Compose a memory_token citation handle",
-        description: "Mint a citation handle, `memt:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator.",
-        when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `meme:` token; for many facts at once use emem_memory_bundle.",
+        description: "Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator.",
+        when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `emem:entity:` token; for many facts at once use emem_memory_bundle.",
         input_schema: SCHEMA_MEMORY_TOKEN,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
@@ -919,10 +919,10 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token_resolve",
         title: "Dereference a memory_token in one round-trip",
-        description: "Parse a `memt:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually.",
+        description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually.",
         when_to_use: "Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the underlying signed bytes. The response carries the parsed cell + fact_cid, the full fact body, and the stable `fact_url` an agent can hand to any other peer. 404 with a typed code if the responder doesn't hold the cid; try /v1/fetch with the cid then, or paste the token at a mirror.",
         input_schema: SCHEMA_MEMORY_TOKEN_RESOLVE,
-        example_args: r#"{"token":"memt:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
+        example_args: r#"{"token":"emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
@@ -930,7 +930,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_bundle",
         title: "Compose a signed multi-fact memory bundle",
-        description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `memb:<bundle_cid>` — a single rebindable string that cites the whole set.",
+        description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set.",
         when_to_use: "Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt (the receipt covers all cited fact_cids and cells). Use this instead of N separate `emem_memory_token` composers when the citation is conceptually one thing (e.g. \"the EUDR-relevant baseline for these 8 plots at 2020-12-31\").",
         input_schema: SCHEMA_MEMORY_BUNDLE,
         example_args: r#"{"triples":[{"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},{"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi"}],"purpose":"audit baseline 2026"}"#,
@@ -941,10 +941,10 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_bundle_resolve",
         title: "Dereference a memory_bundle token",
-        description: "Parse a `memb:<bundle_cid>` token and return the signed bundle envelope: every citation (cell, band, resolved_tslot, fact_cid, memory_token), the receipt, the responder pubkey, and the deduped flat cells[] / fact_cids[] arrays. Returns 404 with a typed code when the responder does not hold the bundle.",
-        when_to_use: "Call when an agent receives a `memb:` token from another agent (or earlier turn) and wants the underlying signed citation set. The response is byte-identical to what `emem_memory_bundle` returned at the original responder.",
+        description: "Parse a `emem:bundle:<bundle_cid>` token and return the signed bundle envelope: every citation (cell, band, resolved_tslot, fact_cid, memory_token), the receipt, the responder pubkey, and the deduped flat cells[] / fact_cids[] arrays. Returns 404 with a typed code when the responder does not hold the bundle.",
+        when_to_use: "Call when an agent receives an `emem:bundle:` token from another agent (or earlier turn) and wants the underlying signed citation set. The response is byte-identical to what `emem_memory_bundle` returned at the original responder.",
         input_schema: SCHEMA_MEMORY_BUNDLE_RESOLVE,
-        example_args: r#"{"token":"memb:wbqyxljmeewr7z4cav7g"}"#,
+        example_args: r#"{"token":"emem:bundle:wbqyxljmeewr7z4cav7g"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
@@ -953,8 +953,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_entity",
         title: "Mint or get a canonical object identity",
-        description: "Give a real-world object (a bridge, a farm plot, a river, a named place) a single, shared, content-addressed identity that any agent resolves the same way. Returns an `entity_token` (`meme:<entity_cid>`) plus a signed receipt that attests how the reference resolved. Two agents that name the same object mint the SAME entity_cid; when a stable external id (Overture GERS / OSM) is known it dominates identity, so divergent labels for one real object still collapse to one id. This is the object-level antidote to referential drift: 'the damaged bridge near the river' becomes one canonical thing every model reasons about, not a phrase each model re-interprets.",
-        when_to_use: "Call when a conversation refers to a THING and you want a stable handle to it that survives summarization and travels between agents/turns/LLMs, before it drifts into 'that infrastructure issue'. Anchor it with `place`, a `cell`, or `lat`+`lng`. Hand the returned `meme:` token to any other agent; they dereference the identical object. Recall/ask at the entity's `cell64` for signed facts about it.",
+        description: "Give a real-world object (a bridge, a farm plot, a river, a named place) a single, shared, content-addressed identity that any agent resolves the same way. Returns an `entity_token` (`emem:entity:<entity_cid>`) plus a signed receipt that attests how the reference resolved. Two agents that name the same object mint the SAME entity_cid; when a stable external id (Overture GERS / OSM) is known it dominates identity, so divergent labels for one real object still collapse to one id. This is the object-level antidote to referential drift: 'the damaged bridge near the river' becomes one canonical thing every model reasons about, not a phrase each model re-interprets.",
+        when_to_use: "Call when a conversation refers to a THING and you want a stable handle to it that survives summarization and travels between agents/turns/LLMs, before it drifts into 'that infrastructure issue'. Anchor it with `place`, a `cell`, or `lat`+`lng`. Hand the returned `emem:entity:` token to any other agent; they dereference the identical object. Recall/ask at the entity's `cell64` for signed facts about it.",
         input_schema: SCHEMA_ENTITY,
         example_args: r#"{"label":"Golden Gate Bridge","kind":"bridge","place":"Golden Gate Bridge, San Francisco"}"#,
         level: "L0", category: ToolCategory::Read,
@@ -963,9 +963,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "emem_entity_resolve",
-        title: "Resolve a phrase (or meme: token) to a canonical object",
+        title: "Resolve a phrase (or emem:entity: token) to a canonical object",
         description: "Converge a fuzzy phrasing onto the canonical object other agents already minted, so everyone co-refers to the same identity instead of re-minting divergent ones. Pass `text` (e.g. \"the collapsed span at the ford\") to get ranked existing candidates; pass `near` to narrow to a place; or pass a `meme:` `token` to dereference it directly to the signed entity body. Read-only.",
-        when_to_use: "Call BEFORE minting when another agent may already have registered the object, or when you receive a `meme:` token and want the object behind it. This is how two agents avoid referential drift: resolve first, mint only if nothing matches.",
+        when_to_use: "Call BEFORE minting when another agent may already have registered the object, or when you receive a `emem:entity:` token and want the object behind it. This is how two agents avoid referential drift: resolve first, mint only if nothing matches.",
         input_schema: SCHEMA_ENTITY_RESOLVE,
         example_args: r#"{"text":"the golden gate bridge","near":"San Francisco"}"#,
         level: "L0", category: ToolCategory::Read,
@@ -978,7 +978,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         description: "Record a signed equivalence: bind an alternate label or a stable external id (GERS / OSM / Wikidata) to an existing canonical object so future `emem_entity_resolve` calls on that phrasing converge to the same entity_cid. Builds the shared reference graph that keeps different agents' vocabularies pointing at one identity.",
         when_to_use: "Call when you learn that two phrasings denote the same object ('the north dam' == an existing entity), or to attach an authoritative external id to an object minted from free text.",
         input_schema: SCHEMA_ENTITY_LINK,
-        example_args: r#"{"entity_token":"meme:0a1b2c3d4e5f60718293","alias":"the north dam"}"#,
+        example_args: r#"{"entity_token":"emem:entity:0a1b2c3d4e5f60718293","alias":"the north dam"}"#,
         level: "L0", category: ToolCategory::Write,
         read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",

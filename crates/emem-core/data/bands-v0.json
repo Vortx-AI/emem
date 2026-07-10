@@ -21,6 +21,7 @@
   "bands": [
     {
       "key": "geotessera",
+      "provenance_class": "model_output",
       "family": "foundation",
       "offset": 0,
       "dims": 128,
@@ -41,6 +42,7 @@
     },
     {
       "key": "overture",
+      "provenance_class": "human_curated",
       "family": "human",
       "offset": 128,
       "dims": 64,
@@ -156,6 +158,7 @@
     },
     {
       "key": "air_quality",
+      "provenance_class": "model_output",
       "family": "climate",
       "offset": 192,
       "dims": 7,
@@ -253,6 +256,7 @@
     },
     {
       "key": "clay_v1",
+      "provenance_class": "model_output",
       "family": "foundation",
       "offset": 199,
       "dims": 384,
@@ -268,6 +272,7 @@
     },
     {
       "key": "_reserved_128",
+      "provenance_class": "unclassified",
       "family": "foundation",
       "offset": 583,
       "dims": 121,
@@ -281,6 +286,7 @@
     },
     {
       "key": "sentinel2_raw",
+      "provenance_class": "direct_sensor",
       "family": "optical",
       "offset": 704,
       "dims": 10,
@@ -414,6 +420,7 @@
     },
     {
       "key": "sentinel1_raw",
+      "provenance_class": "direct_sensor",
       "family": "radar",
       "offset": 714,
       "dims": 2,
@@ -459,6 +466,7 @@
     },
     {
       "key": "dem",
+      "provenance_class": "direct_sensor",
       "family": "terrain",
       "offset": 716,
       "dims": 3,
@@ -477,6 +485,7 @@
     },
     {
       "key": "landcover",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 719,
       "dims": 8,
@@ -588,6 +597,7 @@
     },
     {
       "key": "climate",
+      "provenance_class": "model_output",
       "family": "climate",
       "offset": 727,
       "dims": 4,
@@ -652,6 +662,7 @@
     },
     {
       "key": "indices",
+      "provenance_class": "deterministic_index",
       "family": "optical",
       "offset": 731,
       "dims": 3,
@@ -717,6 +728,7 @@
     },
     {
       "key": "spatial_fourier",
+      "provenance_class": "deterministic_index",
       "family": "encoding",
       "offset": 734,
       "dims": 96,
@@ -734,6 +746,7 @@
     },
     {
       "key": "temporal_fourier",
+      "provenance_class": "deterministic_index",
       "family": "encoding",
       "offset": 830,
       "dims": 64,
@@ -751,6 +764,7 @@
     },
     {
       "key": "prithvi_eo2",
+      "provenance_class": "model_output",
       "family": "foundation",
       "offset": 894,
       "dims": 384,
@@ -766,6 +780,7 @@
     },
     {
       "key": "terrain_derived",
+      "provenance_class": "deterministic_index",
       "family": "terrain",
       "offset": 1278,
       "dims": 32,
@@ -780,6 +795,7 @@
     },
     {
       "key": "temporal_diff",
+      "provenance_class": "deterministic_index",
       "family": "vegetation",
       "offset": 1310,
       "dims": 64,
@@ -794,6 +810,7 @@
     },
     {
       "key": "phenology",
+      "provenance_class": "deterministic_index",
       "family": "vegetation",
       "offset": 1374,
       "dims": 32,
@@ -809,6 +826,7 @@
     },
     {
       "key": "topology",
+      "provenance_class": "human_curated",
       "family": "topology",
       "offset": 1406,
       "dims": 32,
@@ -822,6 +840,7 @@
     },
     {
       "key": "multiscale",
+      "provenance_class": "deterministic_index",
       "family": "vegetation",
       "offset": 1438,
       "dims": 64,
@@ -835,6 +854,7 @@
     },
     {
       "key": "nightlights",
+      "provenance_class": "direct_sensor",
       "family": "human",
       "offset": 1502,
       "dims": 8,
@@ -860,6 +880,7 @@
     },
     {
       "key": "ghsl",
+      "provenance_class": "model_output",
       "family": "human",
       "offset": 1510,
       "dims": 8,
@@ -881,6 +902,7 @@
     },
     {
       "key": "population",
+      "provenance_class": "model_output",
       "family": "human",
       "offset": 1518,
       "dims": 8,
@@ -906,6 +928,7 @@
     },
     {
       "key": "forest_change",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 1526,
       "dims": 12,
@@ -926,6 +949,7 @@
     },
     {
       "key": "mangrove",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 1538,
       "dims": 4,
@@ -940,6 +964,7 @@
     },
     {
       "key": "protected",
+      "provenance_class": "human_curated",
       "family": "human",
       "offset": 1542,
       "dims": 4,
@@ -957,6 +982,7 @@
     },
     {
       "key": "surface_water",
+      "provenance_class": "deterministic_index",
       "family": "water",
       "offset": 1546,
       "dims": 12,
@@ -982,6 +1008,7 @@
     },
     {
       "key": "ocean_chl",
+      "provenance_class": "model_output",
       "family": "water",
       "offset": 1558,
       "dims": 4,
@@ -1000,6 +1027,7 @@
     },
     {
       "key": "koppen",
+      "provenance_class": "model_output",
       "family": "climate",
       "offset": 1562,
       "dims": 32,
@@ -1014,6 +1042,7 @@
     },
     {
       "key": "terraclimate",
+      "provenance_class": "model_output",
       "family": "climate",
       "offset": 1594,
       "dims": 20,
@@ -1033,6 +1062,7 @@
     },
     {
       "key": "cop_dem",
+      "provenance_class": "direct_sensor",
       "family": "terrain",
       "offset": 1614,
       "dims": 8,
@@ -1056,6 +1086,7 @@
     },
     {
       "key": "soilgrids",
+      "provenance_class": "model_output",
       "family": "soil",
       "offset": 1622,
       "dims": 20,
@@ -1079,6 +1110,7 @@
     },
     {
       "key": "ecoregions",
+      "provenance_class": "human_curated",
       "family": "landcover",
       "offset": 1642,
       "dims": 20,
@@ -1093,6 +1125,7 @@
     },
     {
       "key": "admin",
+      "provenance_class": "human_curated",
       "family": "human",
       "offset": 1662,
       "dims": 10,
@@ -1107,6 +1140,7 @@
     },
     {
       "key": "chirps.precip_daily_mm",
+      "provenance_class": "model_output",
       "family": "climate",
       "offset": 1672,
       "dims": 1,
@@ -1121,6 +1155,7 @@
     },
     {
       "key": "jrc_gfc2020",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 1673,
       "dims": 4,
@@ -1139,6 +1174,7 @@
     },
     {
       "key": "jrc_tmf",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 1677,
       "dims": 8,
@@ -1160,6 +1196,7 @@
     },
     {
       "key": "radd",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 1685,
       "dims": 4,
@@ -1179,6 +1216,7 @@
     },
     {
       "key": "wri_gdm",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 1689,
       "dims": 4,
@@ -1197,6 +1235,7 @@
     },
     {
       "key": "esa_cci_biomass",
+      "provenance_class": "model_output",
       "family": "vegetation",
       "offset": 1693,
       "dims": 4,
@@ -1265,6 +1304,7 @@
     },
     {
       "key": "gmrt",
+      "provenance_class": "direct_sensor",
       "family": "terrain",
       "offset": 1697,
       "dims": 4,
@@ -1333,6 +1373,7 @@
     },
     {
       "key": "galileo",
+      "provenance_class": "model_output",
       "family": "foundation",
       "offset": 1701,
       "dims": 48,
@@ -1348,6 +1389,7 @@
     },
     {
       "key": "opera_dist",
+      "provenance_class": "model_output",
       "family": "landcover",
       "offset": 1749,
       "dims": 2,
@@ -1367,6 +1409,7 @@
     },
     {
       "key": "reserved",
+      "provenance_class": "unclassified",
       "family": "reserved",
       "offset": 1751,
       "dims": 41,

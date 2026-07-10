@@ -51,6 +51,103 @@ pub enum BandFamily {
     Reserved,
 }
 
+/// Tamper-provenance class: how the intelligence in a band's values is
+/// produced. This is the load-bearing distinction an agent needs to decide
+/// how far to trust a fact: a value it can independently recompute from raw
+/// satellite data (no human or model in the loop) versus one it can only
+/// trust through a signature over a learned model or a human edit.
+///
+/// Unlike [`BandFamily`] (editorial), this is load-bearing: it is declared
+/// per band in the content-addressed bands manifest, so it rides into every
+/// receipt through the pinned `bands_cid` and a verifier can reproduce the
+/// classification offline. See [`ProvenanceClass::is_deterministic`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProvenanceClass {
+    /// Direct instrument reading, no algorithm and no model in the path
+    /// (e.g. Copernicus DEM elevation, Sentinel-2 L2A reflectance,
+    /// Sentinel-1 RTC backscatter, DMSP/VIIRS nightlights). Tamper-evident:
+    /// the value is the sensor product itself.
+    DirectSensor,
+    /// A deterministic formula or fixed rule computed over raw satellite
+    /// pixels, cell coordinates, or a time series (e.g. NDVI/NDRE/NDMI,
+    /// Horn slope, Fourier position encodings, JRC surface-water rules).
+    /// Tamper-evident: any party holding the cited source recomputes the
+    /// identical value. No learned weights, no human edit.
+    DeterministicIndex,
+    /// Output of a trained model or a published ML / statistical product
+    /// (e.g. Tessera / Clay / Prithvi / Galileo embeddings, ESA WorldCover,
+    /// SoilGrids, WorldPop, GHSL, Hansen, CHIRPS, forecast blends). A model,
+    /// not a fixed formula, produced the value; trust rests on a signed
+    /// model checkpoint, not on recomputation from source.
+    ModelOutput,
+    /// Human-curated vector or authored boundary data, or a deterministic
+    /// derivation whose inputs are such data (e.g. OpenStreetMap, Overture,
+    /// WDPA, GADM admin boundaries, WWF ecoregions, road/river topology).
+    /// A human placed or drew the underlying geometry.
+    HumanCurated,
+    /// Not yet classified. Treated as the lowest trust and never claims
+    /// tamper-evidence. Fail-safe default for a band that omits the field
+    /// (e.g. a zero-padded reservation slot), so a forgotten tag can never
+    /// over-claim that a value is reproducible from raw satellite data.
+    Unclassified,
+}
+
+impl ProvenanceClass {
+    /// Whether any third party can recompute the identical value directly
+    /// from the cited raw satellite source (or fixed coordinates/time),
+    /// with no learned model and no human edit in the loop. This is the
+    /// core tamper-evidence property: `true` for [`Self::DirectSensor`] and
+    /// [`Self::DeterministicIndex`], `false` for the rest.
+    pub fn is_deterministic(self) -> bool {
+        matches!(self, Self::DirectSensor | Self::DeterministicIndex)
+    }
+
+    /// What a verifier leans on to trust the value:
+    /// `recomputable_from_source` (deterministic), `signed_model_checkpoint`
+    /// (model output, where the responder hashes the checkpoint into the
+    /// receipt), or `attester_only` (human-curated or unclassified: you
+    /// trust the signer and the cited source).
+    pub fn tamper_evidence(self) -> &'static str {
+        match self {
+            Self::DirectSensor | Self::DeterministicIndex => "recomputable_from_source",
+            Self::ModelOutput => "signed_model_checkpoint",
+            Self::HumanCurated | Self::Unclassified => "attester_only",
+        }
+    }
+
+    /// Monotonic rank for the "promote tamper-proof first" ordering. Higher
+    /// is more independently reproducible: direct sensor reads and
+    /// deterministic indices (tamper-evident) rank above model and human
+    /// products (with a model or human in the loop).
+    pub fn trust_rank(self) -> u8 {
+        match self {
+            Self::DirectSensor => 4,
+            Self::DeterministicIndex => 3,
+            Self::ModelOutput => 2,
+            Self::HumanCurated => 1,
+            Self::Unclassified => 0,
+        }
+    }
+
+    /// Stable wire string (matches the `snake_case` serde form).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DirectSensor => "direct_sensor",
+            Self::DeterministicIndex => "deterministic_index",
+            Self::ModelOutput => "model_output",
+            Self::HumanCurated => "human_curated",
+            Self::Unclassified => "unclassified",
+        }
+    }
+}
+
+/// Fail-safe default when a manifest band omits `provenance_class`: the
+/// lowest-trust class, so an unclassified band never claims tamper-evidence.
+fn default_provenance_class() -> ProvenanceClass {
+    ProvenanceClass::Unclassified
+}
+
 /// One named scalar slot inside a multi-dim band (e.g. `indices` carries
 /// NDVI, NDRE, NDMI as three named slots). Editorial — present only on
 /// bands where individual dimensions have distinct semantic meaning.
@@ -82,6 +179,15 @@ pub struct Band {
     pub key: String,
     /// Editorial family.
     pub family: BandFamily,
+    /// Tamper-provenance class: how this band's values are produced (direct
+    /// sensor read, deterministic index over raw pixels, trained-model
+    /// output, or human-curated). Load-bearing, unlike `family`: it rides
+    /// into every receipt via the content-addressed `bands_cid`, so a
+    /// verifier can filter tamper-evident facts (`direct_sensor`,
+    /// `deterministic_index`) from model / human ones offline. Defaults to
+    /// `unclassified` (lowest trust, never claims tamper-evidence).
+    #[serde(default = "default_provenance_class")]
+    pub provenance_class: ProvenanceClass,
     /// Offset within the 1792D layout.
     pub offset: u16,
     /// Number of dimensions this band occupies.

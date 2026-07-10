@@ -5,7 +5,7 @@
 //! reading. Two agents that resolve the same real object mint the SAME
 //! `entity_cid`, so they reason about one canonical object instead of two
 //! divergent textual descriptions. This is the left half of the anti-drift
-//! story that `memt:`/`memb:` complete on the value side.
+//! story that `emem:fact:`/`emem:bundle:` complete on the value side.
 //!
 //! Identity model:
 //! - `entity_cid = base32_nopad_lc(blake3(identity-preimage)[..16])`.
@@ -21,8 +21,8 @@
 //!   identity preimage, so floats from a geocoder cannot perturb the id. This
 //!   is also what lets an entity be finer or coarser than the cell grid.
 //!
-//! `meme:<entity_cid>` is the rebindable citation handle, resolvable like
-//! `memt:`/`memb:` back to the signed entity body on any responder that holds
+//! `emem:entity:<entity_cid>` is the rebindable citation handle, resolvable like
+//! `emem:fact:`/`emem:bundle:` back to the signed entity body on any responder that holds
 //! it. The mint is attested by a standard emem `Receipt` (primitive
 //! `"emem.entity"`), so the text -> canonical-id resolution decision is itself
 //! signed and citeable, closing the one drift boundary that a bare geocode
@@ -100,7 +100,7 @@ pub struct EntityGeometry {
 }
 
 /// The signed entity body. Content-addressed by `entity_cid`; the enclosing
-/// API response pairs it with a `Receipt` and the `meme:` token.
+/// API response pairs it with a `Receipt` and the `emem:entity:` token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entity {
     /// Schema discriminator. Always `"emem.entity.v1"`.
@@ -192,19 +192,24 @@ pub fn compute_entity_cid(kind: &str, label: &str, cell64: &str, ext: &ExternalI
         .to_lowercase()
 }
 
-/// Compose the `meme:<entity_cid>` citation handle.
+/// Compose the canonical `emem:entity:<entity_cid>` citation handle.
 pub fn entity_token(entity_cid: &str) -> String {
-    format!("meme:{entity_cid}")
+    format!("emem:entity:{entity_cid}")
 }
 
-/// Parse a `meme:<entity_cid>` handle, strict on shape. Mirrors
+/// Parse an entity token, strict on shape. Canonical form is
+/// `emem:entity:<entity_cid>`; the legacy `meme:<entity_cid>` prefix still
+/// resolves so handles minted before the rename keep working. Mirrors
 /// `parse_bundle_token` in [`crate::memory_bundle`].
 pub fn parse_entity_token(token: &str) -> Result<String, String> {
     let token = token.trim();
-    let cid = token.strip_prefix("meme:").ok_or_else(|| {
-        "entity token must start with `meme:` discriminator; expected `meme:<entity_cid>`"
-            .to_string()
-    })?;
+    let cid = token
+        .strip_prefix("emem:entity:")
+        .or_else(|| token.strip_prefix("meme:"))
+        .ok_or_else(|| {
+            "entity token must start with `emem:entity:` (legacy `meme:` also accepted); expected `emem:entity:<entity_cid>`"
+                .to_string()
+        })?;
     if cid.is_empty() {
         return Err("entity token has empty entity_cid component".into());
     }
@@ -331,16 +336,21 @@ mod tests {
     fn token_round_trip() {
         let cid = "abcd1234efgh5678".to_string();
         let tok = entity_token(&cid);
-        assert_eq!(tok, "meme:abcd1234efgh5678");
+        assert_eq!(tok, "emem:entity:abcd1234efgh5678");
         assert_eq!(parse_entity_token(&tok).unwrap(), cid);
+        // Legacy prefix still resolves.
+        assert_eq!(parse_entity_token(&format!("meme:{cid}")).unwrap(), cid);
     }
 
     #[test]
     fn token_rejects_bad_shape() {
+        // A fact-token prefix is not an entity token.
+        assert!(parse_entity_token("emem:fact:abc").is_err());
         assert!(parse_entity_token("memt:abc").is_err());
+        assert!(parse_entity_token("emem:entity:").is_err());
         assert!(parse_entity_token("meme:").is_err());
-        assert!(parse_entity_token("meme:!!!").is_err());
-        assert!(parse_entity_token("meme:short").is_err());
+        assert!(parse_entity_token("emem:entity:!!!").is_err());
+        assert!(parse_entity_token("emem:entity:short").is_err());
     }
 
     #[test]

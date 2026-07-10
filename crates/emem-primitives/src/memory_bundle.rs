@@ -1,7 +1,7 @@
 //! Memory bundles — N (cell, band, tslot) triples bundled into one
 //! signed envelope. The substrate primitive that lets an agent cite
 //! "the state of these places at these vintages" with a single
-//! `memb:<bundle_cid>` token instead of N memory tokens.
+//! `emem:bundle:<bundle_cid>` token instead of N memory tokens.
 //!
 //! Sign-and-persist model:
 //! - `Bundle.bundle_cid` is `base32_nopad_lc(blake3(canonical_cbor(bundle_body)))`
@@ -65,7 +65,7 @@ pub struct BundleCitation {
     /// Optional miss-reason when `fact_cid` is None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub miss_reason: Option<String>,
-    /// Composed `memt:<cell>:<fact_cid>` handle for this citation
+    /// Composed `emem:fact:<cell>:<fact_cid>` handle for this citation
     /// (only when `fact_cid` is Some).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_token: Option<String>,
@@ -93,7 +93,7 @@ pub struct BundleReq {
 /// Response body for `POST /v1/memory_bundle` (and the resolve path).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundleResp {
-    /// `memb:<bundle_cid>` rebindable handle. The full token an agent
+    /// `emem:bundle:<bundle_cid>` rebindable handle. The full token an agent
     /// drops into another LLM context to cite this set of facts.
     pub bundle_token: String,
     /// `base32_nopad_lc(blake3(canonical_cbor(bundle_body)))`. Self-
@@ -174,17 +174,24 @@ pub fn dedupe_first(cids: impl IntoIterator<Item = String>) -> Vec<String> {
     out
 }
 
-/// `memb:<bundle_cid>` parsing — strict on shape, mirrors the
+/// Compose the canonical `emem:bundle:<bundle_cid>` citation handle.
+pub fn bundle_token(bundle_cid: &str) -> String {
+    format!("emem:bundle:{bundle_cid}")
+}
+
+/// Parse a bundle token, strict on shape. Canonical form is
+/// `emem:bundle:<bundle_cid>`; the legacy `memb:<bundle_cid>` prefix still
+/// resolves so handles minted before the rename keep working. Mirrors the
 /// `parse_memory_token` helper in emem-api-rest.
 pub fn parse_bundle_token(token: &str) -> Result<String, String> {
     let token = token.trim();
-    if !token.starts_with("memb:") {
-        return Err(
-            "memory bundle token must start with `memb:` discriminator; expected `memb:<bundle_cid>`"
-                .into(),
-        );
-    }
-    let cid = &token[5..];
+    let cid = token
+        .strip_prefix("emem:bundle:")
+        .or_else(|| token.strip_prefix("memb:"))
+        .ok_or_else(|| {
+            "memory bundle token must start with `emem:bundle:` (legacy `memb:` also accepted); expected `emem:bundle:<bundle_cid>`"
+                .to_string()
+        })?;
     if cid.is_empty() {
         return Err("memory bundle token has empty bundle_cid component".into());
     }
@@ -241,14 +248,20 @@ mod tests {
     #[test]
     fn token_round_trip() {
         let cid = "abcd1234efgh5678".to_string();
-        let token = format!("memb:{cid}");
+        let token = bundle_token(&cid);
+        assert_eq!(token, "emem:bundle:abcd1234efgh5678");
         assert_eq!(parse_bundle_token(&token).unwrap(), cid);
+        // Legacy prefix still resolves.
+        assert_eq!(parse_bundle_token(&format!("memb:{cid}")).unwrap(), cid);
     }
 
     #[test]
     fn token_rejects_bad_prefix() {
+        // A fact-token prefix is not a bundle token.
+        assert!(parse_bundle_token("emem:fact:abc").is_err());
         assert!(parse_bundle_token("memt:abc").is_err());
+        assert!(parse_bundle_token("emem:bundle:").is_err());
         assert!(parse_bundle_token("memb:").is_err());
-        assert!(parse_bundle_token("memb:!!!").is_err());
+        assert!(parse_bundle_token("emem:bundle:!!!").is_err());
     }
 }
