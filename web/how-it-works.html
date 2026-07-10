@@ -2,7 +2,7 @@
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>How emem works</title>
-<meta name=description content="How emem works: cell64 tokenises Earth, every fact is ed25519-signed and content-addressed, facts link through typed edges and improve through contradiction scoring and a refinement loop, over a typed bi-temporal memory substrate. MCP + REST. No keys.">
+<meta name=description content="How emem works: cell64 tokenises Earth, every fact is ed25519-signed, content-addressed, and tagged with how it was produced (direct sensor, deterministic index, model, or human), facts link through typed edges and improve through contradiction scoring and a refinement loop, over a typed bi-temporal memory substrate. MCP + REST. No keys.">
 <link rel=canonical href="https://emem.dev/how-it-works">
 <link rel=alternate type=text/markdown href=/llms.txt>
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -13,12 +13,12 @@
 <meta property=og:type content=article>
 <meta property=og:url content="https://emem.dev/how-it-works">
 <meta property=og:title content="How emem works">
-<meta property=og:description content="cell64 tokenises Earth, every fact is ed25519-signed and content-addressed, facts link through typed edges and improve through contradiction scoring and a refinement loop.">
+<meta property=og:description content="cell64 tokenises Earth, every fact is ed25519-signed, content-addressed, and tagged with how it was produced, facts link through typed edges and improve through contradiction scoring and a refinement loop.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
 <meta name=twitter:title content="How emem works">
-<meta name=twitter:description content="cell64, signed receipts, typed edges, contradiction scoring, a bi-temporal memory substrate. MCP + REST. No keys.">
+<meta name=twitter:description content="cell64, signed receipts, per-band provenance, typed edges, contradiction scoring, a bi-temporal memory substrate. MCP + REST. No keys.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -417,7 +417,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <section class="hero page hero-lean">
   <div>
     <img class="mith-sun" src="/art/hero.svg" alt=""><h1>How emem works</h1>
-    <p class="sub">Every place on Earth resolves to a stable token. Every fact at that token is ed25519-signed and content-addressed. Facts link through typed edges and improve through contradiction scoring and a refinement loop, over a typed, bi-temporal memory substrate.</p>
+    <p class="sub">Every place on Earth resolves to a stable token. Every fact at that token is ed25519-signed, content-addressed, and tagged with how it was produced, so an agent can tell a raw sensor reading from a model&rsquo;s estimate. Facts link through typed edges and improve through contradiction scoring and a refinement loop, over a typed, bi-temporal memory substrate.</p>
     <div class="hero-cta">
       <a class="btn" href="/">Back to home</a>
       <a class="btn ghost" href="/whitepaper">Whitepaper &rarr;</a>
@@ -442,7 +442,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <h2><span class="num">&#9670;</span>What reaches emem is a latent, not an image</h2>
     <p class="lede">The bottleneck in Earth observation was never the lens; it is the link. A sensor sees far more than physics will let it send home.</p>
 
-    <p>So the encoder runs at the source: on an orbital payload, a drone, a vehicle camera, a fixed CCTV. A scene becomes a compact <span class="band">latent vector</span> before it ever touches a ground station, orders of magnitude smaller than the raw imagery. <strong>emem is the open decoder for that latent.</strong> It resolves each one onto the cell64 lattice (section&nbsp;01) and turns it into a signed fact (section&nbsp;02). Today those latents come from four open Earth-observation foundation encoders (Tessera, Clay&nbsp;v1.5, Prithvi-EO-2.0, and Galileo), read side by side and scored for agreement (section&nbsp;03 onward).</p>
+    <p>So the encoder runs at the source: on an orbital payload, a drone, a vehicle camera, a fixed CCTV. A scene becomes a compact <span class="band">latent vector</span> before it ever touches a ground station, orders of magnitude smaller than the raw imagery. <strong>emem is the open decoder for that latent.</strong> It resolves each one onto the cell64 lattice (section&nbsp;01) and turns it into a signed fact (section&nbsp;02). Today those latents come from four open Earth-observation foundation encoders (Tessera, Clay&nbsp;v1.5, Prithvi-EO-2.0, and Galileo), read side by side and scored for agreement (section&nbsp;04 onward).</p>
 
     <p>The encoder-physically-in-orbit thesis (downlink only the embedding, decode it on the ground) is <a href="https://vortx.ai" rel="noopener">Vortx</a>'s. emem is the part you can read, cite, and self-host: the open decoder and the signed memory. If the encoder kernels are deterministic, a latent emulated on the ground today is the same vector the payload would emit in orbit, so the decoder you run now is the one that flies.</p>
     <p><a class="btn ghost" href="https://vortx.ai" rel="noopener">The orbital encoder &rarr; vortx.ai</a></p>
@@ -630,9 +630,58 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
 <div class="mith-band"><figure><img src="/art/hiw-receipt-seal.svg" alt="Madhubani receipt seal motif" loading="lazy"></figure></div>
 
+<section class="section page" id="provenance">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">Provenance</span></div>
+    <dl>
+      <dt>the question</dt><dd>could a human or a model have touched this value?</dd>
+      <dt>four classes</dt><dd>direct_sensor &middot; deterministic_index &middot; model_output &middot; human_curated</dd>
+      <dt>recomputable</dt><dd>direct_sensor &middot; deterministic_index (14 of 43 bands)</dd>
+      <dt>attested by</dt><dd>bands_cid, already in the receipt preimage (section&nbsp;02)</dd>
+      <dt>on the wire</dt><dd>/v1/recall band_metadata &middot; /v1/memory_token/resolve &middot; /v1/bands</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">03</span>Provenance: could a human or a model have touched the value</h2>
+    <p class="lede">A signature proves who signed and that the bytes never changed. It does not, on its own, say whether a person could have edited the number before it was signed. So emem tags every band with how its value is produced, and an agent can tell a raw sensor reading from a model&rsquo;s estimate before it decides how far to trust either.</p>
+
+    <p>The tag is one of four classes, plus a fail-safe fifth. A <span class="band">direct_sensor</span> value is the instrument product itself, with no algorithm in the path. A <span class="band">deterministic_index</span> value is a fixed formula over raw pixels, cell coordinates, or a time series, so anyone holding the cited source recomputes the identical number with no learned weights and no human edit. A <span class="band">model_output</span> value came from a trained model or a published statistical product, so trust rests on a signed model checkpoint rather than on recomputation. A <span class="band">human_curated</span> value traces back to geometry a person drew or placed. A band that has not been tagged yet is <span class="band">unclassified</span>: treated as the lowest trust, and it never claims to be reproducible.</p>
+
+    <table class="absent-table">
+      <tbody>
+        <tr><td>direct_sensor</td><td>instrument reading, no algorithm in the path (Copernicus DEM, Sentinel-2 L2A, Sentinel-1 RTC, VIIRS nightlights)</td><td>recomputable_from_source</td></tr>
+        <tr><td>deterministic_index</td><td>fixed formula over raw pixels, coordinates, or time (NDVI, Horn slope, Fourier position encodings, JRC water rules)</td><td>recomputable_from_source</td></tr>
+        <tr><td>model_output</td><td>trained model or published ML product (Tessera, Clay, Prithvi, Galileo, ESA WorldCover, SoilGrids, WorldPop, Hansen)</td><td>signed_model_checkpoint</td></tr>
+        <tr><td>human_curated</td><td>a person drew or placed the geometry (OpenStreetMap, Overture, WDPA, GADM admin, WWF ecoregions)</td><td>attester_only</td></tr>
+        <tr><td>unclassified</td><td>not yet tagged; fail-safe lowest trust, never claims tamper-evidence</td><td>attester_only</td></tr>
+      </tbody>
+    </table>
+
+    <p>The split that matters is <span class="band">recomputable_from_source</span>: a direct sensor read or a deterministic index that any third party reproduces from the cited raw data, with no model and no human in the loop. Across the 43 bands in the v0 ontology today, 14 are recomputable this way (6 direct sensor, 8 deterministic index), 22 are model output, 5 are human curated, and 2 are still unclassified. An agent that only wants values it can check for itself reads the first two classes and treats the rest as claims it has to trust a signer for.</p>
+
+    <p>None of this is a new signed field on the fact, so no <span class="band">fact_cid</span> changed when the tag arrived. The class is declared per band in the content-addressed bands manifest, and that manifest&rsquo;s id (<span class="band">bands_cid</span>) is already folded into every receipt preimage from section&nbsp;02. The provenance tag therefore rides into the same ed25519 signature you already verify, and a verifier reproduces the classification offline from the pinned manifest. The signature that proves the number was not altered now also carries how the number was made.</p>
+
+    <div class="code">
+      <div class="code-head"><span class="lang">JSON</span><span class="tab">POST /v1/recall &rarr; facts[].band_metadata.provenance</span><span class="spacer"></span><button class="copy" data-copy-target="#code-provenance">copy</button></div>
+<pre id="code-provenance"><code><span class="tok-c"># one cell, three bands, three verdicts</span>
+copdem30m.elevation_mean  <span class="tok-p">=&gt;</span> <span class="tok-p">{</span><span class="tok-s">"class"</span>:<span class="tok-s">"direct_sensor"</span>,      <span class="tok-s">"deterministic"</span>:<span class="tok-k">true</span>,
+                              <span class="tok-s">"tamper_evidence"</span>:<span class="tok-s">"recomputable_from_source"</span>, <span class="tok-s">"trust_rank"</span>:<span class="tok-n">4</span><span class="tok-p">}</span>
+indices.ndvi              <span class="tok-p">=&gt;</span> <span class="tok-p">{</span><span class="tok-s">"class"</span>:<span class="tok-s">"deterministic_index"</span>, <span class="tok-s">"deterministic"</span>:<span class="tok-k">true</span>,
+                              <span class="tok-s">"tamper_evidence"</span>:<span class="tok-s">"recomputable_from_source"</span>, <span class="tok-s">"trust_rank"</span>:<span class="tok-n">3</span><span class="tok-p">}</span>
+geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{</span><span class="tok-s">"class"</span>:<span class="tok-s">"model_output"</span>,       <span class="tok-s">"deterministic"</span>:<span class="tok-k">false</span>,
+                              <span class="tok-s">"tamper_evidence"</span>:<span class="tok-s">"signed_model_checkpoint"</span>, <span class="tok-s">"trust_rank"</span>:<span class="tok-n">2</span><span class="tok-p">}</span></code></pre>
+    </div>
+
+    <p>Resolve a citation with <span class="band">POST /v1/memory_token/resolve</span> and the same block comes back at the top level, so a handle like <span class="band">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</span> resolves to its own trust verdict. <span class="band">POST /v1/bands</span> lists the class for every band in the ontology, so an agent can plan which bands it is willing to depend on before it ever makes a call.</p>
+  </div>
+</section>
+
+<div class="mith-band"><figure><img src="/art/sol-provenance-shield.svg" alt="Madhubani provenance shield motif" loading="lazy"></figure></div>
+
 <section class="section page" id="connect-evolve">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">03</span><span class="idx-label">Connect &amp; evolve</span></div>
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Connect &amp; evolve</span></div>
     <dl>
       <dt>connect</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">emem:bundle:&lt;cid&gt;</span></dd>
       <dt>edges</dt><dd>POST&nbsp;/v1/edges/recall &middot; emem_edges_recall</dd>
@@ -644,7 +693,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">03</span>Connect &amp; evolve: typed edges, contradiction scoring, the refinement loop</h2>
+    <h2><span class="num">04</span>Connect &amp; evolve: typed edges, contradiction scoring, the refinement loop</h2>
     <p class="lede">emem stores facts and links them. When two sources disagree, it records the disagreement instead of silently picking one. A later attestation supersedes an earlier one on the transaction-time axis without erasing it; the old bytes stay replayable. Contradictions become signed, queryable evidence; nothing is overwritten in the dark.</p>
 
     <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
@@ -666,7 +715,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
 <section class="section page" id="substrate">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Substrate</span></div>
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Substrate</span></div>
     <dl>
       <dt>read</dt><dd>POST&nbsp;/v1/state &middot; /v1/state_multi &middot; /v1/state_diff</dd>
       <dt>cite</dt><dd>POST&nbsp;/v1/memory_token &middot; /v1/memory_bundle</dd>
@@ -679,7 +728,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">04</span>The memory substrate</h2>
+    <h2><span class="num">05</span>The memory substrate</h2>
     <p class="lede">Below the recall surface sits a typed, signed, searchable memory substrate. State is the read motion (a per-place dense vector). The memory token is the cite motion (one string any pipeline can paste). Memory files give an agent a writable scratchpad whose every edit is ed25519-signed and content-addressed. Every read carries the same bi-temporal axis pair: <span class="band">as_of_tslot</span> for what the world looked like on a given date; <span class="band">as_of_signed_at</span> for what the system knew on a given date.</p>
 
     <div class="substrate-grid">
@@ -738,7 +787,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
 <section class="section page" id="absence">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Absence</span></div>
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Absence</span></div>
     <dl>
       <dt>contract</dt><dd>no silent fallbacks</dd>
       <dt>shape</dt><dd>signed Absence fact</dd>
@@ -748,7 +797,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">05</span>Absence is a signed answer, not a 404</h2>
+    <h2><span class="num">06</span>Absence is a signed answer, not a 404</h2>
     <p class="lede">When a band has no data at a cell, the responder does not return an empty array. It signs an Absence fact with a typed reason. An agent that cites <span class="band">evidence:&nbsp;["absence_cid_…"]</span> is making a verifiable claim that no data exists, rather than guessing from an HTTP code.</p>
 
     <p>This is what keeps an empty result honest: a signed Absence distinguishes a wrong query (you asked the wrong band) from an empty place (the band is genuinely unattested here). The reason code says which.</p>
@@ -770,7 +819,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
 <section class="section page" id="liveness">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Liveness</span></div>
+    <div class="idx"><span class="idx-num">07</span><span class="idx-label">Liveness</span></div>
     <dl>
       <dt>stream</dt><dd>GET&nbsp;/v1/stream (SSE)</dd>
       <dt>tick</dt><dd>5&ndash;300 s, query tunable</dd>
@@ -781,7 +830,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">06</span>Liveness: signed ticks, signed binary</h2>
+    <h2><span class="num">07</span>Liveness: signed ticks, signed binary</h2>
     <p class="lede">Two surfaces an operator does not get to fake. Every stream tick is an ed25519 signature over a deterministic preimage. The operator attestation binds the running binary&rsquo;s BLAKE3 hash to its git commit, signed by the same key.</p>
 
     <div class="live-grid">
