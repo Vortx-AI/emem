@@ -983,6 +983,11 @@ input::placeholder{color:var(--mute,#7a7363)}
 .th h1{font-size:clamp(1.9rem,4.4vw,3.05rem);line-height:1.06;letter-spacing:-.015em;margin:0 0 1rem;max-width:32ch}
 .th-lede{font-size:1.06rem;line-height:1.62;color:var(--ink-2);max-width:120ch;margin:0 0 1.1rem}
 .th-who{font-size:.95rem;line-height:1.6;color:var(--mute);max-width:120ch;margin:0 0 1.4rem}
+.th-verb{color:var(--accent);text-decoration:none;border-bottom:2px solid var(--accent);white-space:nowrap;transition:opacity .2s ease}
+.th-verb.th-swap{opacity:0}
+.th-verb-hint{font-family:var(--mono);font-size:.76rem;color:var(--mute);margin:.15rem 0 1.2rem}
+.th-verb-hint a{color:var(--mute);text-decoration:none;border-bottom:1px dotted var(--rule-strong)}
+.th-verb-hint code{color:var(--ink-2)}
 .th-cta{display:flex;gap:.7rem;flex-wrap:wrap}
 .th-cta a{font-family:var(--mono);font-size:.86rem;padding:.6rem 1.05rem;border:1.6px solid var(--ink);text-decoration:none;border-radius:0}
 .btn-primary{background:var(--accent);color:var(--paper)}
@@ -1038,7 +1043,8 @@ input::placeholder{color:var(--mute,#7a7363)}
 <section class="th" id="hero" aria-label="emem, verifiable memory for AI agents">
   <div class="th-top">
     <div class="th-copy">
-      <h1>Give your AI a memory of the real world it can check.</h1>
+      <h1>Give your AI a memory of the real world it can <a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check</a>.</h1>
+      <p class="th-verb-hint">the underlined verb is live: it opens <a id="tvh-ep" href="/verify"><code>/verify</code></a></p>
       <p class="th-lede">AI models forget. When a long session is summarized, or a task hands off to another agent, the facts they checked blur into paraphrases and the numbers quietly drift. emem is a shared memory that fixes that: every fact about a real place becomes one short, signed line an agent can keep. It survives summarization, moves cleanly between agents and sessions, and resolves back to the exact value, which anyone can re-check without trusting the source.</p>
       <p class="th-who">Built for the agents, robots, and world models that need to reason from the same facts, and for the teams behind them. The facts are grounded in open Earth observation, checkable by anyone, with no account needed.</p>
       <div class="th-cta">
@@ -1151,6 +1157,31 @@ input::placeholder{color:var(--mute,#7a7363)}
   }
   form.addEventListener('submit',function(e){e.preventDefault();var v=q.value.trim();if(v)run(v);});
   document.querySelectorAll('.th-eg').forEach(function(b){b.addEventListener('click',function(){q.value=b.textContent;run(b.textContent);});});
+})();
+(function(){
+  var verbs=[
+    {w:'check',    href:'/verify',           t:'verify any fact offline'},
+    {w:'cite',     href:'/reference#tokens', t:'cite it as one emem token'},
+    {w:'trust',    href:'/v1/bands',         t:'see how every fact is made'},
+    {w:'preserve', href:'/worlds',           t:'walk the signed substrate'}
+  ];
+  var el=document.getElementById('th-verb'), ep=document.getElementById('tvh-ep');
+  if(!el||!ep) return;
+  var code=ep.querySelector('code'), i=0, hover=false;
+  el.addEventListener('mouseenter',function(){hover=true;});
+  el.addEventListener('mouseleave',function(){hover=false;});
+  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  setInterval(function(){
+    if(hover) return;
+    i=(i+1)%verbs.length;
+    var v=verbs[i];
+    el.classList.add('th-swap');
+    setTimeout(function(){
+      el.textContent=v.w; el.setAttribute('href',v.href); el.setAttribute('title',v.t);
+      ep.setAttribute('href',v.href); if(code) code.textContent=v.href;
+      el.classList.remove('th-swap');
+    },220);
+  },2600);
 })();
 </script>
 
@@ -1960,7 +1991,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="kicker"><span class="n">03</span> Four readers</div>
     <h2>Four models read the same ground</h2>
     <p class="cap">Tessera, Clay, Prithvi, and Galileo each read the same cell, and a consensus pass scores whether they corroborate or disagree.</p>
-    <div class="go"><a href="#map">try it on the map above &uarr;</a><a href="/how-it-works">how consensus is scored &rarr;</a></div>
+    <div class="go"><a href="#hero">try a live recall above &uarr;</a><a href="/how-it-works">how consensus is scored &rarr;</a></div>
   </div>
   <div class="latent-band" aria-label="where the latent comes from">
     <p class="lb-lead">What reaches emem is a latent, not an image. In 2026, Gemma 4 shipped encoder-free, reading embeddings directly.</p>
