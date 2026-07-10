@@ -118,6 +118,12 @@ pub struct ContradictionsResp {
     /// the corpus has no multi-attester entries yet — that is honest
     /// "nothing to contradict" rather than "lookup failed".
     pub corpus_scanned: usize,
+    /// True when the hydration budget was spent before every scanned key
+    /// could be examined, so `contradictions` is a partial view. A whole-
+    /// corpus scan hydrates facts per key straight off sled; pass a `band`
+    /// filter (or a tighter `cell_prefix`) for complete, fast coverage.
+    #[serde(default)]
+    pub scan_truncated: bool,
     /// How long the primitive took to run, milliseconds.
     pub time_taken_ms: u64,
     /// One-paragraph agent-facing summary explaining what to do next.
@@ -143,6 +149,14 @@ pub async fn memory_contradictions(
         .min_severity
         .unwrap_or(DEFAULT_MIN_SEVERITY)
         .clamp(0.0, 1.0);
+    // Wall-clock budget for the per-key fact hydration below. Kept well
+    // under the HTTP dispatch cap so an unfiltered whole-corpus scan
+    // returns a partial-but-signed result instead of hanging the request.
+    let time_budget_ms: u128 = std::env::var("EMEM_CONTRADICTIONS_TIME_BUDGET_MS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(8_000);
+    let mut scan_truncated = false;
 
     let storage = srv.storage.as_ref();
     let multi = storage
@@ -161,6 +175,16 @@ pub async fn memory_contradictions(
         }
         if cids.len() < 2 {
             continue;
+        }
+        // Bounded hydration. `get_facts_many` reads sled per key, so an
+        // unfiltered whole-corpus scan can fan out to tens of thousands of
+        // reads and blow the dispatch cap (the origin of the broad-scan
+        // 500). Once the budget is spent, stop and report the result as
+        // partial rather than hanging. A `band` filter skips non-matching
+        // keys above, so filtered scans effectively never reach this.
+        if started.elapsed().as_millis() > time_budget_ms {
+            scan_truncated = true;
+            break;
         }
         // Hydrate facts. A multi-attester key might point at CIDs the
         // hot cache has since lost (eviction policy — Hot tier is 30
@@ -292,6 +316,7 @@ pub async fn memory_contradictions(
         scan_cap,
         req.cell_prefix.as_deref(),
         req.band.as_deref(),
+        scan_truncated,
     );
 
     let receipt = srv.sign_receipt(
@@ -306,6 +331,7 @@ pub async fn memory_contradictions(
     Ok(ContradictionsResp {
         contradictions,
         corpus_scanned,
+        scan_truncated,
         time_taken_ms: elapsed_ms,
         agent_hint,
         receipt,
@@ -570,7 +596,13 @@ fn build_agent_hint(
     scan_cap: usize,
     cell_prefix: Option<&str>,
     band: Option<&str>,
+    truncated: bool,
 ) -> String {
+    let trunc = if truncated {
+        " NOTE: the hydration budget was spent before every key was examined, so this is a PARTIAL view; pass a `band` filter (or a tighter `cell_prefix`) for complete, fast coverage."
+    } else {
+        ""
+    };
     let mut filter = String::new();
     if let Some(p) = cell_prefix {
         filter.push_str(&format!(" cell_prefix='{p}'"));
@@ -588,13 +620,13 @@ fn build_agent_hint(
             );
         }
         return format!(
-            "Scanned {corpus_scanned} multi-attester keys{filter} (cap {scan_cap}); zero met the severity threshold. Tune `min_severity` down (e.g. 0.0) to see borderline disagreements; raise it (e.g. 0.5) for flagrant only."
+            "Scanned {corpus_scanned} multi-attester keys{filter} (cap {scan_cap}); zero met the severity threshold. Tune `min_severity` down (e.g. 0.0) to see borderline disagreements; raise it (e.g. 0.5) for flagrant only.{trunc}"
         );
     }
     let n = contradictions.len();
     let top = &contradictions[0];
     format!(
-        "Found {n} contradiction(s) above the severity floor; scanned {corpus_scanned} multi-attester keys{filter} (cap {scan_cap}). Highest severity: {sev:.3} at cell={cell} band={band} tslot={tslot} kind={kind} with {att_n} disagreeing attester(s). Next steps: (a) call POST /v1/diff with two of these fact_cids to compare them numerically, (b) call POST /v1/verify_receipt on any cited fact_cid to confirm the signature offline, (c) call GET /v1/facts/<fact_cid> to fetch the full signed payload of any disputed observation.",
+        "Found {n} contradiction(s) above the severity floor; scanned {corpus_scanned} multi-attester keys{filter} (cap {scan_cap}). Highest severity: {sev:.3} at cell={cell} band={band} tslot={tslot} kind={kind} with {att_n} disagreeing attester(s). Next steps: (a) call POST /v1/diff with two of these fact_cids to compare them numerically, (b) call POST /v1/verify_receipt on any cited fact_cid to confirm the signature offline, (c) call GET /v1/facts/<fact_cid> to fetch the full signed payload of any disputed observation.{trunc}",
         n = n,
         corpus_scanned = corpus_scanned,
         scan_cap = scan_cap,
