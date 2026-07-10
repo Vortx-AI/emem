@@ -279,6 +279,14 @@ pub trait Storage: Send + Sync {
     /// signature before committing. Returns CIDs of stored facts.
     async fn put_attestation(&self, att: &Attestation) -> Result<Vec<FactCid>, StorageError>;
 
+    /// The durable append-only attestation log backing this storage, when
+    /// present. Used by the transparency-log surface to build signed tree
+    /// heads and inclusion / consistency proofs. Default `None` for
+    /// backends without a durable log (in-memory test mocks).
+    fn transparency_log(&self) -> Option<&AttestationLog> {
+        None
+    }
+
     /// Lazy materialization entry point: ensure facts exist for these keys,
     /// fetching + computing + attesting on miss. Returns the resolved CIDs
     /// in the same order as inputs.
@@ -613,6 +621,10 @@ fn tempdir_for_log() -> std::io::Result<std::path::PathBuf> {
 
 #[async_trait]
 impl Storage for MaterializingStorage {
+    fn transparency_log(&self) -> Option<&AttestationLog> {
+        Some(&self.log)
+    }
+
     async fn lookup_canonical_many(
         &self,
         keys: &[CanonicalKey],

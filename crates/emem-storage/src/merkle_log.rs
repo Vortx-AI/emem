@@ -111,6 +111,58 @@ impl AttestationLog {
         self.state.lock().await.record_count
     }
 
+    /// Collect every record's per-record hash (the trailing
+    /// `blake3(attestation_cbor)` on disk) in global append order:
+    /// segments in ascending index order, records in file order within
+    /// each. These are the leaves of the RFC 6962 transparency tree
+    /// ([`emem_attest::translog`]); the order is stable and append-only
+    /// (new records extend the current segment; new segments take a higher
+    /// index), which is what makes consistency proofs meaningful.
+    ///
+    /// `O(total_bytes)` — the caller (STH construction) caches the result
+    /// by the log's record count so a rebuild only happens when the log
+    /// has grown.
+    pub fn leaf_hashes(&self) -> std::io::Result<Vec<[u8; 32]>> {
+        let mut indices: Vec<u64> = Vec::new();
+        for entry in std::fs::read_dir(&self.root)? {
+            let entry = entry?;
+            if let Some(rest) = entry
+                .file_name()
+                .to_str()
+                .and_then(|n| n.strip_prefix("merkle.log.").map(|s| s.to_string()))
+            {
+                if let Ok(n) = rest.parse::<u64>() {
+                    indices.push(n);
+                }
+            }
+        }
+        indices.sort_unstable();
+        let mut leaves: Vec<[u8; 32]> = Vec::new();
+        for idx in indices {
+            let path = self.root.join(format!("merkle.log.{idx}"));
+            let mut bytes = Vec::new();
+            std::fs::File::open(&path)?.read_to_end(&mut bytes)?;
+            // Each record is [u32 LE len][len bytes cbor][32 bytes hash].
+            // A sealed segment has a trailing 32-byte segment hash after
+            // the last record; the length-driven walk below stops before
+            // it (the leftover < a full record is ignored).
+            let mut i = 0usize;
+            while i + 4 <= bytes.len() {
+                let len = u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]])
+                    as usize;
+                let needed = 4 + len + 32;
+                if i + needed > bytes.len() {
+                    break;
+                }
+                let mut leaf = [0u8; 32];
+                leaf.copy_from_slice(&bytes[i + 4 + len..i + needed]);
+                leaves.push(leaf);
+                i += needed;
+            }
+        }
+        Ok(leaves)
+    }
+
     /// Verify the on-disk integrity of every sealed segment. Open
     /// (current) segment is not verified because it has no trailing
     /// hash yet.
@@ -282,6 +334,13 @@ mod tests {
         }
     }
 
+    fn distinct_attestation(i: u64) -> Attestation {
+        let mut a = sample_attestation();
+        a.batch_root = [i as u8; 32];
+        a.attested_at = format!("2026-01-01T00:00:{i:02}Z");
+        a
+    }
+
     #[tokio::test]
     async fn append_then_count() {
         let tmp = tempfile::tempdir().unwrap();
@@ -292,5 +351,48 @@ mod tests {
         // process's records do not appear in this run's `record_count`,
         // but the existing-on-disk total is reflected through the scan.
         assert_eq!(log.record_count().await, 2);
+    }
+
+    #[tokio::test]
+    async fn leaf_hashes_match_appended_records_and_prove_out() {
+        use emem_attest::translog;
+        let tmp = tempfile::tempdir().unwrap();
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        // Append N distinct attestations; the per-record hash returned by
+        // append() must equal the corresponding leaf read back off disk,
+        // in the same append order.
+        let n = 6u64;
+        let mut appended: Vec<[u8; 32]> = Vec::new();
+        for i in 0..n {
+            let out = log.append(&distinct_attestation(i)).await.unwrap();
+            appended.push(out.record_hash);
+        }
+        let leaves = log.leaf_hashes().unwrap();
+        assert_eq!(leaves, appended, "leaf order/contents must match appends");
+
+        // Every leaf proves inclusion under the RFC 6962 root.
+        let root = translog::merkle_tree_hash(&leaves);
+        for (m, _) in leaves.iter().enumerate() {
+            let path = translog::inclusion_path(m, &leaves).unwrap();
+            assert!(translog::verify_inclusion(
+                &translog::leaf_hash(&leaves[m]),
+                m,
+                leaves.len(),
+                &path,
+                &root
+            ));
+        }
+
+        // A pinned earlier size is provably a prefix of the whole log.
+        let m = 4usize;
+        let old_root = translog::merkle_tree_hash(&leaves[..m]);
+        let proof = translog::consistency_proof(m, &leaves).unwrap();
+        assert!(translog::verify_consistency(
+            m,
+            &old_root,
+            leaves.len(),
+            &root,
+            &proof
+        ));
     }
 }

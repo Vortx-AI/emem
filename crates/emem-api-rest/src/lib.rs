@@ -1047,6 +1047,11 @@ pub fn router(state: AppState) -> Router {
         // scan when Lance is disabled (EMEM_DISABLE_LANCE=1) or empty.
         .route("/v1/memory/search", post(post_memory_search))
         .route("/v1/memory_search/stats", get(get_memory_search_stats))
+        // Transparency log (RFC 6962): signed tree head + inclusion /
+        // consistency proofs over the append-only attestation log. Read-only.
+        .route("/v1/log/sth", get(get_log_sth))
+        .route("/v1/log/inclusion", get(get_log_inclusion))
+        .route("/v1/log/consistency", get(get_log_consistency))
         // Introspection
         .route("/v1/manifests", get(manifests))
         .route(
@@ -12675,6 +12680,209 @@ async fn post_verify_receipt(
         "merkle_proof_error": merkle_proof_error,
         "key_epoch_seen": key_epoch_seen,
         "key_epoch_advisory": key_epoch_advisory,
+    })))
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Transparency log (RFC 6962) — signed tree head + inclusion / consistency
+// proofs over the append-only attestation log.
+//
+// Additive and strictly read-only: these endpoints never mutate state.
+// They let any auditor pin a Signed Tree Head (STH) and later prove
+//   (a) INCLUSION — a specific log entry is committed under that head, and
+//   (b) CONSISTENCY — the log only ever grew (append-only), catching a
+//       responder that tries to rewrite or fork history.
+// The tree is the genuine RFC 6962 construction (lone nodes promoted, not
+// duplicated), NOT the batch-root construction used for attestation
+// signing, so consistency proofs are sound. Every proof verifies offline
+// against the STH with `emem_attest::translog::{verify_inclusion,
+// verify_consistency}` — the responder is never trusted to self-certify.
+// ─────────────────────────────────────────────────────────────────────
+
+/// base32-nopad, lowercase — the CID/hash text convention used throughout.
+fn b32_lower(bytes: &[u8]) -> String {
+    data_encoding::BASE32_NOPAD.encode(bytes).to_lowercase()
+}
+
+/// Domain string signed into every STH preimage. Bump only on a breaking
+/// STH format change.
+const TRANSLOG_STH_DOMAIN: &str = "emem.translog.sth.v1";
+
+fn translog_bad_arg(msg: impl Into<String>) -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: msg.into(),
+            details: None,
+        },
+    )
+}
+
+/// Read every leaf hash of the durable transparency log in append order,
+/// or a typed error when this responder runs without one (ephemeral
+/// in-memory deploys) or the read fails.
+fn read_translog_leaves(s: &AppState) -> Result<Vec<[u8; 32]>, ApiError> {
+    let log = s.storage.transparency_log().ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_IMPLEMENTED,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "this responder runs without a durable transparency log; \
+                          STH and inclusion/consistency proofs are unavailable"
+                    .into(),
+                details: None,
+            },
+        )
+    })?;
+    log.leaf_hashes().map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("read transparency log leaves: {e}"),
+                details: None,
+            },
+        )
+    })
+}
+
+/// Build and sign a Signed Tree Head over `leaves` (the whole log). The
+/// signature covers a domain-separated preimage of (tree_size, root,
+/// signed_at, responder pubkey) so it verifies offline against the
+/// responder key without trusting this endpoint.
+fn sign_sth(s: &AppState, leaves: &[[u8; 32]]) -> JsonValue {
+    let tree_size = leaves.len() as u64;
+    let root = emem_attest::translog::merkle_tree_hash(leaves);
+    let signed_at = chrono_iso8601_utc();
+    let pk = s.identity.pubkey.0;
+    let mut pb = emem_attest::PreimageV1::new(TRANSLOG_STH_DOMAIN);
+    pb.seg(1, &tree_size.to_be_bytes());
+    pb.seg(2, &root);
+    pb.seg(3, signed_at.as_bytes());
+    pb.seg(4, &pk);
+    let preimage = pb.finalize();
+    let sig = s.identity.signing.sign(&preimage).to_bytes();
+    json!({
+        "log_id": b32_lower(&pk),
+        "tree_size": tree_size,
+        "root_b32": b32_lower(&root),
+        "signed_at": signed_at,
+        "responder_pubkey_b32": b32_lower(&pk),
+        "signature_b32": b32_lower(&sig),
+        "algorithm": {
+            "hash": "blake3-256",
+            "leaf": "blake3(0x00 || entry_hash)",
+            "node": "blake3(0x01 || left || right)",
+            "tree": "RFC 6962 Merkle tree (lone nodes promoted, not duplicated)",
+            "sth_preimage": "PreimageV1(\"emem.translog.sth.v1\"){1:u64_be tree_size, 2:root, 3:signed_at, 4:responder_pubkey}"
+        }
+    })
+}
+
+/// `GET /v1/log/sth` — the current Signed Tree Head over the whole log.
+async fn get_log_sth(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    let leaves = read_translog_leaves(&s)?;
+    let sth = sign_sth(&s, &leaves);
+    Ok(Json(json!({
+        "sth": sth,
+        "note": "Pin this STH. Later call /v1/log/consistency?first=<this tree_size>&second=<later tree_size> to prove the log only grew (append-only). Verify the signature offline against responder_pubkey_b32.",
+        "spec": "https://emem.dev/spec.md#transparency-log"
+    })))
+}
+
+/// `GET /v1/log/inclusion?leaf_index=<i>` or `?entry_hash=<base32>` — an
+/// RFC 6962 inclusion (audit) proof that the entry at that position is
+/// committed under the returned STH.
+async fn get_log_inclusion(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let leaves = read_translog_leaves(&s)?;
+    let n = leaves.len();
+    let m: usize = if let Some(li) = q.get("leaf_index") {
+        li.parse()
+            .map_err(|_| translog_bad_arg("leaf_index must be a non-negative integer"))?
+    } else if let Some(eh) = q.get("entry_hash") {
+        let raw = data_encoding::BASE32_NOPAD
+            .decode(eh.to_uppercase().as_bytes())
+            .map_err(|_| translog_bad_arg("entry_hash must be base32-nopad"))?;
+        if raw.len() != 32 {
+            return Err(translog_bad_arg("entry_hash must decode to 32 bytes"));
+        }
+        let mut want = [0u8; 32];
+        want.copy_from_slice(&raw);
+        leaves.iter().position(|l| *l == want).ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("no log entry with entry_hash={eh}"),
+                    details: None,
+                },
+            )
+        })?
+    } else {
+        return Err(translog_bad_arg(
+            "pass leaf_index=<i> or entry_hash=<base32 of the record's blake3>",
+        ));
+    };
+    let path = emem_attest::translog::inclusion_path(m, &leaves).ok_or_else(|| {
+        translog_bad_arg(format!("leaf_index {m} out of range for tree_size {n}"))
+    })?;
+    let leaf = emem_attest::translog::leaf_hash(&leaves[m]);
+    let sth = sign_sth(&s, &leaves);
+    Ok(Json(json!({
+        "leaf_index": m,
+        "tree_size": n,
+        "entry_hash_b32": b32_lower(&leaves[m]),
+        "leaf_hash_b32": b32_lower(&leaf),
+        "audit_path_b32": path.iter().map(|h| b32_lower(h)).collect::<Vec<_>>(),
+        "sth": sth,
+        "verify": "emem_attest::translog::verify_inclusion(leaf_hash, leaf_index, tree_size, audit_path, sth.root)"
+    })))
+}
+
+/// `GET /v1/log/consistency?first=<m>&second=<n>` — an RFC 6962
+/// consistency proof that the log of size `m` is a prefix of the log of
+/// size `n` (append-only). `second` defaults to the current tree size.
+async fn get_log_consistency(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let leaves = read_translog_leaves(&s)?;
+    let n = leaves.len();
+    let first: usize = q
+        .get("first")
+        .ok_or_else(|| translog_bad_arg("pass first=<earlier tree_size>"))?
+        .parse()
+        .map_err(|_| translog_bad_arg("first must be a non-negative integer"))?;
+    let second: usize = match q.get("second") {
+        Some(v) => v
+            .parse()
+            .map_err(|_| translog_bad_arg("second must be a non-negative integer"))?,
+        None => n,
+    };
+    if second > n {
+        return Err(translog_bad_arg(format!(
+            "second={second} exceeds current tree_size {n}"
+        )));
+    }
+    if first == 0 || first > second {
+        return Err(translog_bad_arg("require 0 < first <= second"));
+    }
+    let proof = emem_attest::translog::consistency_proof(first, &leaves[..second])
+        .ok_or_else(|| translog_bad_arg("invalid (first, second) for consistency proof"))?;
+    let first_root = emem_attest::translog::merkle_tree_hash(&leaves[..first]);
+    let second_root = emem_attest::translog::merkle_tree_hash(&leaves[..second]);
+    Ok(Json(json!({
+        "first_size": first,
+        "second_size": second,
+        "first_root_b32": b32_lower(&first_root),
+        "second_root_b32": b32_lower(&second_root),
+        "consistency_proof_b32": proof.iter().map(|h| b32_lower(h)).collect::<Vec<_>>(),
+        "verify": "emem_attest::translog::verify_consistency(first_size, YOUR_pinned_first_root, second_size, second_root, consistency_proof)",
+        "note": "Compare first_root_b32 against the root in the STH you pinned at first_size. If it differs, the log rewrote history."
     })))
 }
 

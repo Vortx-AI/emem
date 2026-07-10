@@ -143,6 +143,17 @@ What Phase 1 adds on top: one global tree across batches, Signed Tree Heads,
 consistency proofs between tree sizes, and public proof endpoints. The
 per-batch trees and the fsynced log are the natural leaf source.
 
+**Phase 1 shipped.** `crates/emem-attest/src/translog.rs` implements the
+RFC 6962 tree (Merkle-tree-hash, inclusion and consistency proofs, and
+their verifiers) — a genuine promote-lone-node construction, distinct from
+the batch-root tree in section 6.1, so consistency proofs are sound.
+`AttestationLog::leaf_hashes()` (`merkle_log.rs`) reads the append-ordered
+leaves; `GET /v1/log/{sth,inclusion,consistency}` serve a responder-signed
+STH and offline-verifiable proofs. Still open on this substrate: witness
+co-signing of STHs (P3), a sparse-merkle key->latest-value map (P4), and a
+`fact_cid -> leaf_index` index so an inclusion proof can be requested by
+fact rather than by log position.
+
 ## tslot logic
 
 - `Tslot(pub u64)` in `crates/emem-core/src/tslot.rs:21`;

@@ -954,6 +954,48 @@ implements to push sealed segments to S3, IPFS, etc., and to pull them
 back for replay-restore. The protocol does not mandate a backend; the
 segment file format and trailer hash are the wire contract.
 
+### 9.6 Transparency log {#transparency-log}
+
+The append-only log above proves *durability*; the transparency layer
+proves *append-only-ness to a third party*. It is an
+[RFC 6962](https://www.rfc-editor.org/rfc/rfc6962) Merkle tree over the
+log's per-record hashes (each record's trailing `blake3(attestation_cbor)`,
+in append order), implemented in `crates/emem-attest/src/translog.rs`.
+It is a **different tree from the batch-root construction** in section
+6.1: a lone node is *promoted* to its parent unchanged rather than paired
+with itself, so `mth([A,B,C]) != mth([A,B,C,C])` and the hash of the
+first `m` entries is a genuine prefix of the hash of the first `n >= m`.
+That prefix property is what makes consistency provable; the batch-root
+construction (which pairs the odd node with itself, the CVE-2012-2459
+shape it dedups to avoid) cannot answer consistency queries.
+
+- Leaf: `blake3(0x00 || entry_hash)`. Node: `blake3(0x01 || left || right)`.
+- Leaves come from `AttestationLog::leaf_hashes()` (`merkle_log.rs`), the
+  natural append-ordered source.
+
+Three read-only endpoints, all strictly additive (they never mutate state
+and the responder is never trusted to self-certify — every proof verifies
+offline):
+
+- `GET /v1/log/sth` returns a **Signed Tree Head**: `{tree_size, root_b32,
+  signed_at, responder_pubkey_b32, signature_b32}`. The signature is
+  ed25519 over `PreimageV1("emem.translog.sth.v1")` with segments
+  `1:u64_be(tree_size), 2:root, 3:signed_at, 4:responder_pubkey` (same
+  preimage discipline as receipts, section 7.1).
+- `GET /v1/log/inclusion?leaf_index=<i>` (or `?entry_hash=<base32>`)
+  returns an audit path proving entry `i` is committed under the STH.
+  Verify with `translog::verify_inclusion`.
+- `GET /v1/log/consistency?first=<m>&second=<n>` returns a proof that the
+  tree of size `m` is a prefix of the tree of size `n` (append-only).
+  Verify with `translog::verify_consistency` against the `first_root` in
+  the STH you pinned at size `m`; a mismatch means the log rewrote
+  history.
+
+Usage: pin an STH, then re-request `/v1/log/consistency` later to prove
+the log only grew. Witness co-signing of STHs (an external party
+counter-signs a head so split-view equivocation is detectable) and a
+`fact_cid -> leaf_index` index are the next increments on this substrate.
+
 ---
 
 ## 10. Privacy classes

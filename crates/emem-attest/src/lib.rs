@@ -2,6 +2,12 @@
 
 #![forbid(unsafe_code)]
 
+/// RFC 6962-style append-only transparency tree (inclusion + consistency
+/// proofs) over the attestation log. Distinct from the batch-root Merkle
+/// functions in this module, which are for sorted/deduplicated fixed
+/// batches and cannot answer append-only consistency queries.
+pub mod translog;
+
 use blake3::Hasher;
 
 /// Build a blake3 Merkle root over a list of fact CIDs.
