@@ -5,7 +5,7 @@
 > drift, so different models reason from the same world object instead of
 > divergent descriptions. Every place resolves to one canonical address
 > (cell64), every observation to one signed fact (fact_cid), every object to
-> one citeable identity (meme:), grounded in signed Earth observation. Every
+> one citeable identity (emem:entity:), grounded in signed Earth observation. Every
 > visible thing carries structured data attributes (cell64, band, fact_cid,
 > tslot) so a scraping LLM can extract everything from the rendered DOM.
 > Every /v1/* call the page makes is printed in a live console pane, read the
@@ -53,7 +53,7 @@
 - `POST /v1/state` — `{cell, encoder?, view?, tslot?}` → signed dense state vector. `view=encoder` (default, 128-D Tessera) or `view=cube` (full 1792-D voxel)
 - `POST /v1/state_multi` — `{cell, encoders?, tslot?}` → per-encoder map across `geotessera` + `clay_v1` + `prithvi_eo2` with typed `missing[]` for unwired encoders
 - `POST /v1/state_diff` — `{cell, encoder?, tslot_a, tslot_b}` → residual vector + L2 norm + cosine between two vintages at one cell, with both source `fact_cid`s
-- `POST /v1/memory_token` — `{cell, fact_cid}` → composed `memt:<cell64>:<fact_cid>` citation handle
+- `POST /v1/memory_token`: `{cell, fact_cid}` → composed `emem:fact:<cell64>:<fact_cid>` citation handle
 - `POST /v1/memory_token/resolve` — `{token}` → signed fact body the cid binds, plus offline-verify URL
 - `GET /v1/stream` — Server-Sent Events; signed `corpus.state` tick every `interval` seconds (default 15, clamped to [5, 300]); each tick carries ed25519 over deterministic preimage
 - `GET /v1/corpus_state_stats` — one-shot signed snapshot of corpus liveness (same payload that backs each `/v1/stream` tick)

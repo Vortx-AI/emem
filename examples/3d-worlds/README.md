@@ -223,7 +223,7 @@ vintages. Browsers never trigger the build themselves.
 The viewer is orbit/zoom/pan draggable and self-explaining: a per-world
 legend says what height, thickness, and colour mean; **click any splat** to
 read that cell's measured band values, follow its `fact_cid` to `/verify`,
-or copy its `memt:` token. You can recolour by any other signed band in the
+or copy its `emem:fact:` token. You can recolour by any other signed band in the
 scene, change the vertical exaggeration and splat size live, and drape
 **real satellite imagery** (Esri World Imagery, fetched for the scene's own
 bounding box) under the signed geometry as reference — labelled

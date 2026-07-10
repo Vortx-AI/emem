@@ -634,7 +634,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">03</span><span class="idx-label">Connect &amp; evolve</span></div>
     <dl>
-      <dt>connect</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">memb:&lt;cid&gt;</span></dd>
+      <dt>connect</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">emem:bundle:&lt;cid&gt;</span></dd>
       <dt>edges</dt><dd>POST&nbsp;/v1/edges/recall &middot; emem_edges_recall</dd>
       <dt>predicates</dt><dd>disagrees_with &middot; supersedes &middot; relates_to</dd>
       <dt>disagree</dt><dd>POST&nbsp;/v1/memory_contradictions</dd>
@@ -651,7 +651,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
       <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
       <figure class="cev-art"><img src="/art/connect-evolve.svg" alt="Facts at one cell fold into a signed bundle; a disagreeing attestation is recorded as a scored contradiction; a refinement loop re-attests" loading="lazy"></figure>
       <div class="cev-legend">
-        <div class="e"><b>connect</b><span><code>/v1/memory_bundle</code> groups N signed facts into one <code>memb:&lt;cid&gt;</code> envelope an agent cites as a unit.</span></div>
+        <div class="e"><b>connect</b><span><code>/v1/memory_bundle</code> groups N signed facts into one <code>emem:bundle:&lt;cid&gt;</code> envelope an agent cites as a unit.</span></div>
         <div class="e"><b>disagree</b><span><code>/v1/memory_contradictions</code> scores per-band spread and keeps every conflicting <code>fact_cid</code>, with no last-writer-wins.</span></div>
         <div class="e"><b>edges</b><span>Typed connections are first-class: <code>(subj, pred, obj, valid_from)</code> with predicates <code>disagrees_with</code>, <code>supersedes</code>, <code>relates_to</code>, queried by <code>/v1/edges/recall</code> and attached to any read with <code>include:["edges"]</code>. The opt-in refinement loop records <code>disagrees_with</code> edges from contradictions automatically.</span></div>
         <div class="e"><b>evolve</b><span>A new attestation <code>supersedes</code> on <code>as_of_signed_at</code>; <code>/v1/reviews</code> records the task outcome. The earlier bytes never vanish.</span></div>
@@ -692,7 +692,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
       <div class="lane">
         <span class="verb">cite · 1 string</span>
         <span class="title">/v1/memory_token</span>
-        <span class="endpoint">memt:&lt;cell64&gt;:&lt;fact_cid&gt;</span>
+        <span class="endpoint">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</span>
         <span class="desc">Compose a single colon-separated handle the agent can paste in chat, write to a long-term store, or quote across processes. Resolves back to the exact bytes on any responder that holds the fact.</span>
       </div>
       <div class="lane">
@@ -715,7 +715,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
   <span class="tok-key">"vector"</span>: [<span class="tok-n">4.17</span>, <span class="tok-n">-3.26</span>, <span class="tok-n">1.24</span>, <span class="tok-n">4.63</span>, <span class="tok-n">-2.15</span>, <span class="tok-c">/* 123 more */</span>],
   <span class="tok-key">"l2_norm"</span>: <span class="tok-n">37.84</span>,
   <span class="tok-key">"fact_cid"</span>: <span class="tok-s">"…"</span>,
-  <span class="tok-key">"memory_token"</span>: <span class="tok-s">"memt:defi.zb4d7.ze56c.zf24c:…"</span>,
+  <span class="tok-key">"memory_token"</span>: <span class="tok-s">"emem:fact:defi.zb4d7.ze56c.zf24c:…"</span>,
   <span class="tok-key">"receipt"</span>: <span class="tok-p">{</span> <span class="tok-key">"alg"</span>: <span class="tok-s">"ed25519"</span>, <span class="tok-key">"signature"</span>: <span class="tok-s">"…"</span> <span class="tok-p">}</span>
 <span class="tok-p">}</span></code></pre>
     </div>
@@ -724,7 +724,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
     <p>emem wires four foundation encoders: <strong>Clay v1.5</strong>, <strong>Prithvi-EO-2.0-300M-TL</strong>, <strong>Tessera</strong> (the default <span class="band">geotessera</span> 128-D embedding), and <strong>Galileo</strong>. Galileo is multimodal by design; on this responder only its Sentinel-2 modality is connected today, so the other modalities of the scaffold are present but not yet fed. The encoder map is honest about that: an unwired modality or encoder appears in <span class="band">missing[]</span> rather than being zero-filled.</p>
 
-    <p>Above the read surface sits a writable memory substrate the agent owns. <span class="band">/v1/memory_bundle</span> takes N (cell, band, tslot) triples and returns one signed envelope; the <span class="band">memb:&lt;bundle_cid&gt;</span> token is the multi-fact analogue of <span class="band">memt:</span>. The six file-op verbs (<span class="band">memory_view &middot; memory_create &middot; memory_str_replace &middot; memory_insert &middot; memory_delete &middot; memory_rename</span>) conform to Anthropic&rsquo;s memory tool spec (header <span class="band">context-management-2025-06-27</span>): the &ldquo;files&rdquo; are signed, content-addressed blobs under a path tree rooted at <span class="band">/memories/</span>. Each file carries a <span class="band">kind</span> from the CoALA / LangMem taxonomy (<span class="band">episodic</span> for observations of events, <span class="band">semantic</span> for durable learned facts, <span class="band">procedural</span> for playbooks, <span class="band">resource</span> for scratchpads), and <span class="band">memory_list_by_kind</span> returns only the slice the agent asked for.</p>
+    <p>Above the read surface sits a writable memory substrate the agent owns. <span class="band">/v1/memory_bundle</span> takes N (cell, band, tslot) triples and returns one signed envelope; the <span class="band">emem:bundle:&lt;bundle_cid&gt;</span> token is the multi-fact analogue of <span class="band">emem:fact:</span>. The six file-op verbs (<span class="band">memory_view &middot; memory_create &middot; memory_str_replace &middot; memory_insert &middot; memory_delete &middot; memory_rename</span>) conform to Anthropic&rsquo;s memory tool spec (header <span class="band">context-management-2025-06-27</span>): the &ldquo;files&rdquo; are signed, content-addressed blobs under a path tree rooted at <span class="band">/memories/</span>. Each file carries a <span class="band">kind</span> from the CoALA / LangMem taxonomy (<span class="band">episodic</span> for observations of events, <span class="band">semantic</span> for durable learned facts, <span class="band">procedural</span> for playbooks, <span class="band">resource</span> for scratchpads), and <span class="band">memory_list_by_kind</span> returns only the slice the agent asked for.</p>
 
     <p>Writes can be capability-bound. Paths under <span class="band">/memories/by_attester/&lt;pubkey_short&gt;/&hellip;</span> are write-restricted to the holder of the corresponding ed25519 private key: every <span class="band">memory_create</span> in that namespace carries an <span class="band">attester: {pubkey_b32, sig_b32}</span> block where the signature is computed over <span class="band">blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)</span>. Wrong key &rarr; 401 <span class="band">memory_attestation_invalid</span>. Wrong namespace &rarr; 403. Bare <span class="band">/memories/&hellip;</span> stays anyone-writable and back-compat with the unsigned form.</p>
 

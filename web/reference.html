@@ -436,7 +436,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="method post">POST</td><td class="path">/v1/state</td><td>emem_state</td><td class="desc">dense state vector at a cell; view=encoder (default, 128-D) or view=cube (1792-D)</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">fan-out across geotessera, clay_v1, prithvi_eo2; typed missing[] when unwired</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/state_diff</td><td>emem_state_diff</td><td class="desc">vintage delta at one cell: residual vector + L2 + cosine between two tslots</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/memory_token</td><td>emem_memory_token</td><td class="desc">compose memt:&lt;cell64&gt;:&lt;fact_cid&gt; citation handle</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/memory_token</td><td>emem_memory_token</td><td class="desc">compose emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt; citation handle</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/memory_token/resolve</td><td>emem_memory_token_resolve</td><td class="desc">single round-trip dereference; returns the signed fact body the cid names</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/trajectory</td><td>emem_trajectory</td><td class="desc">{cell, band, window:[a,b]} &rarr; time series</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/diff</td><td>emem_diff</td><td class="desc">signed delta between two tslots; rejects tautology (a == b)</td></tr>
@@ -448,6 +448,18 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="method">GET</td><td class="path">/v1/coverage_map.svg</td><td>emem_coverage_map</td><td class="desc">1440 &times; 720 plate-carr&eacute;e density map of attested cells</td></tr>
       </tbody>
     </table>
+    </div>
+
+    <div id="tokens" style="margin-top:2rem;border:1px solid var(--rule-strong);padding:1rem 1.1rem;background:var(--paper-2)">
+      <p style="font-weight:700;color:var(--ink);margin:0 0 .5rem">The emem token</p>
+      <p style="margin:0 0 .6rem">A token is an address, not a payload. It stays short in a model's context, survives summarization, and hands off between agents; resolving it returns the exact signed bytes. The family is typed by its second segment:</p>
+      <ul style="margin:0 0 .6rem;padding-left:1.1rem;line-height:1.8">
+        <li><span class="band">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</span> one signed fact (compose at /v1/memory_token)</li>
+        <li><span class="band">emem:bundle:&lt;bundle_cid&gt;</span> a signed set of facts (/v1/memory_bundle)</li>
+        <li><span class="band">emem:entity:&lt;entity_cid&gt;</span> a canonical object (/v1/entity)</li>
+        <li><span class="band">emem:cell:&lt;cell64&gt;</span> a bare place</li>
+      </ul>
+      <p style="margin:0">The pre-rename prefixes <span class="band">memt:</span>, <span class="band">memb:</span>, and <span class="band">meme:</span> still resolve. Resolving a fact token also returns its tamper-provenance: <span class="band">direct_sensor</span> and <span class="band">deterministic_index</span> facts are reproducible from raw satellite data, while <span class="band">model_output</span> and <span class="band">human_curated</span> facts had a model or a person in the loop.</p>
     </div>
 
     <p style="font-weight:700;color:var(--ink);margin-top:2rem">One-shot domain tools that wrap locate &rarr; recall &rarr; aggregate.</p>

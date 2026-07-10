@@ -6,7 +6,7 @@
 
 **Shared, verifiable memory of the physical world for AI agents.**
 
-*Give your agents one memory of the real world they can read, write, and cite. It is a citeable identity layer that stops referential drift: every place, fact, and object resolves to one canonical, signed identity (cell64, fact_cid, and a first-class object identity via emem_entity's meme: token), so different models reason from the same world object instead of divergent descriptions. Every fact is signed and addressed by its own hash, so anyone can re-check it offline against the signer's published key. No account needed to read.*
+*Give your agents one memory of the real world they can read, write, and cite. It is a citeable identity layer that stops referential drift: every place, fact, and object resolves to one canonical, signed identity (cell64, fact_cid, and a first-class object identity via emem_entity's emem:entity: token), so different models reason from the same world object instead of divergent descriptions. Every fact is signed and addressed by its own hash, so anyone can re-check it offline against the signer's published key. No account needed to read.*
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![Rust 1.91](https://img.shields.io/badge/Rust-1.91-orange.svg)](https://www.rust-lang.org)
@@ -32,7 +32,7 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
   <img src="docs/diagrams/png/34-shared-memory.png" width="820" alt="One memory, many agents: agents at several organizations write signed facts into one shared, append-only memory and recall from it; an auditor a year later verifies offline. No shared password, no shared database to trust." />
 </p>
 
-> **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 10 tools load instead of 81. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `memt:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later without trusting the transcript.
+> **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 10 tools load instead of 81. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later without trusting the transcript.
 
 ## Why add Earth memory to long-horizon tasks
 
@@ -84,7 +84,7 @@ Both blocks are abridged and rounded; the live response also carries the merkle 
 **Agent A makes a token.** `emem_memory_token`:
 
 ```
-memt:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala
+emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala
 ```
 
 That string is a portable citation. Agent A drops it into a message, a log, or a report.
@@ -131,7 +131,7 @@ The worlds also leave as artifacts. `python3 examples/3d-worlds/make_splats.py -
 
 Looking at a world should never cost the minutes it takes to build one. The hosted node bakes each preset once ([`scripts/bake_worlds.sh`](scripts/bake_worlds.sh)), verifies every receipt, and serves the finished artifacts from disk: [emem.dev/worlds](https://emem.dev/worlds) hash-checks the fetched scene against its provenance sha256 in your browser before drawing the first splat, and [`/v1/worlds`](https://emem.dev/v1/worlds) lists every artifact for download, with an open-in-SuperSplat link on the page. Browsers never trigger the materialize-and-sign build themselves.
 
-[emem.dev/worlds](https://emem.dev/worlds) is an instrument, not a video. Drag to orbit, scroll to zoom, and pan; a per-world legend says what height, thickness, and colour each stand for. Click any splat to read that cell's measured band values, follow its `fact_cid` to [`/verify`](https://emem.dev/verify), or copy its `memt:` token for an agent to recall. Recolour the whole world by any other signed band in the scene, change the vertical exaggeration and splat size live, and drape real satellite imagery (Esri World Imagery, fetched for the scene's own bounding box) beneath the signed geometry as reference, labelled reference-only and never folded into the facts. Every panel minimises so the render fills the screen. The same interaction ships in the editable [`examples/3d-worlds/`](examples/3d-worlds/) templates through `window.__ememWorld`, and the deterministic capture path that produces the GIFs above is untouched.
+[emem.dev/worlds](https://emem.dev/worlds) is an instrument, not a video. Drag to orbit, scroll to zoom, and pan; a per-world legend says what height, thickness, and colour each stand for. Click any splat to read that cell's measured band values, follow its `fact_cid` to [`/verify`](https://emem.dev/verify), or copy its `emem:fact:` token for an agent to recall. Recolour the whole world by any other signed band in the scene, change the vertical exaggeration and splat size live, and drape real satellite imagery (Esri World Imagery, fetched for the scene's own bounding box) beneath the signed geometry as reference, labelled reference-only and never folded into the facts. Every panel minimises so the render fills the screen. The same interaction ships in the editable [`examples/3d-worlds/`](examples/3d-worlds/) templates through `window.__ememWorld`, and the deterministic capture path that produces the GIFs above is untouched.
 
 [emem.dev/splats](https://emem.dev/splats) is the dense counterpart, and it answers a different question: how photoreal can a world get while every part of it stays accountable to a signed fact. Three scenes are baked there today, the Grand Canyon and the Tungabhadra and Srisailam reservoirs in southern India, each a navigable world of roughly 3.4 million oriented surfels. The geometry is a measured USGS 3DEP bare-earth DTM and the colour a measured Sentinel-2 L2A scene; a signed Sentinel-2 time series (eight frames from 2018 to 2025, each carrying its own `fact_cid`) drives a scrubber that plays the surface changing, with a change-since-baseline mode. Density comes from two steps that never overwrite a measurement: bicubic interpolation of the measured surface, and a diffusion super-resolution pass whose low-frequency signal is locked to the measured Sentinel-2, so only invented high-frequency texture is added. Every splat carries a tag, `measured` (its own signed cell), `interpolated` (re-derivable from measured neighbours), or `synthesized` (generative detail, removable); the manifest is ed25519-signed over the whole pipeline, and the invented layers peel back off to leave only the measured trust root. An Ask-Gemma panel reads the signed grid to find and cite facts without ever altering a splat. It is a hosted demo, not a download: the reproducible, hand-it-to-someone artifacts (`.ply`, `.splat`, provenance receipts) live on the sparse side at [`/v1/worlds`](https://emem.dev/v1/worlds).
 
@@ -153,20 +153,20 @@ Agents pay for context in tokens, so the unit of exchange matters. In emem, agen
 
 | What you put in the other agent's context | Size | BPE tokens |
 |---|---|---:|
-| `memt` memory token (address + fingerprint of one fact) | 79 chars | 46 to 49 |
+| `emem:fact` memory token (address + fingerprint of one fact) | 84 chars | about 50 |
 | The full signed response it stands in for (fact, receipt, proof) | ~4 KB JSON | about 1,600 |
 | A `cell64` place id on its own | 21 chars | 12 to 13 |
 
-Measured July 2026; the full response grows as a cell accrues attested bands, so the ratio only improves. A conversation between agents carries one line per fact instead of pages, roughly a 30x saving, and the line is self-certifying: the receiver re-derives the BLAKE3 hash of the resolved bytes and checks it against the fingerprint in the token. `emem_memory_bundle` does the same for a set of facts under a single `memb:` token.
+Character counts are exact; the token counts were measured with `tiktoken` in July 2026 on the pre-rename handle (the `emem:fact:` prefix adds five characters, so a fresh handle is a couple of tokens more, near 50). The full response grows as a cell accrues attested bands, so the ratio only improves. A conversation between agents carries one line per fact instead of pages, roughly a 30x saving, and the line is self-certifying: the receiver re-derives the BLAKE3 hash of the resolved bytes and checks it against the fingerprint in the token. `emem_memory_bundle` does the same for a set of facts under a single `emem:bundle:` token.
 
 ## Memory that outlives the context window
 
 Every long-horizon agent hits the same wall: the context fills up, the harness summarizes, and details the agent verified thirty turns ago quietly turn into prose. Numbers drift in the paraphrase. Nobody notices until something downstream is wrong.
 
-emem's answer is to keep the address in context and the payload out of it. A `memt:` line is small enough to survive any summarization pass, and after compaction it re-hydrates through `emem_memory_token_resolve` to the exact signed bytes, with the signature still checking. The summarizer keeps a handle, not a paraphrase, so compaction stops being lossy for anything the agent bothered to record.
+emem's answer is to keep the address in context and the payload out of it. An `emem:fact:` line is small enough to survive any summarization pass, and after compaction it re-hydrates through `emem_memory_token_resolve` to the exact signed bytes, with the signature still checking. The summarizer keeps a handle, not a paraphrase, so compaction stops being lossy for anything the agent bothered to record.
 
 <p align="center">
-  <img src="docs/diagrams/png/36-memory-outlives-the-context-window.png" width="820" alt="Memory outlives the context window: as the conversation is compacted turn after turn, payloads fall out of context, the one-line memt token survives, and after compaction it re-hydrates from the shared memory to the exact signed bytes, signature still valid." />
+  <img src="docs/diagrams/png/36-memory-outlives-the-context-window.png" width="820" alt="Memory outlives the context window: as the conversation is compacted turn after turn, payloads fall out of context, the one-line emem:fact token survives, and after compaction it re-hydrates from the shared memory to the exact signed bytes, signature still valid." />
 </p>
 
 The same holds across sessions and across models. A fact recorded under one model's session resolves identically under the next, because the address is derived from the bytes, not from who asked. And below the tokens sits slower machinery for the long tail: a deterministic refinement pass (opt-in, `EMEM_REFINEMENT_ENABLED`) that turns scored contradictions into signed `disagrees_with` edges, and an optional sleep-time agent (`crates/emem-sleep-agent`) that merges high-churn or contradicted memory into new signed records that supersede the originals bi-temporally. Nothing is destroyed; the old bytes stay resolvable under their old ids.
@@ -466,6 +466,8 @@ The raw material is the public record of the physical world: open satellite and 
 
 Four open foundation models (Tessera, Clay v1.5, Prithvi-EO-2, Galileo) turn raw readings into the numeric fingerprints used in the Compare operation. emem runs them for you and signs what they produce, so there is no inference stack to stand up. `emem_state` and `emem_state_multi` return the signed fingerprints; `emem_triple_consensus` runs three of them together and reports where they agree and where they disagree, so a disagreement is a signal rather than an average that hides it.
 
+Not every fact is made the same way, and emem says so. Each measurement carries a tamper-provenance class, derived from its band and pinned into every receipt through the bands manifest: `direct_sensor` (a direct instrument reading, like Copernicus DEM elevation) and `deterministic_index` (a fixed formula over raw satellite pixels, like NDVI) are reproducible by anyone from the cited source, with no model or person in the loop. `model_output` (a trained embedding, or an ML product like ESA WorldCover or SoilGrids) and `human_curated` (OpenStreetMap, Overture, administrative boundaries) are trusted through the signature and a hashed model checkpoint instead. Every `recall` returns the class on each fact, with a `deterministic` flag, so an agent can keep only the facts it can reproduce for itself.
+
 <p align="center">
   <img src="docs/diagrams/png/06-memory-vs-stac.png" width="820" alt="Memory versus catalog: the classic search, window, reproject, mosaic, cache pipeline versus emem's locate-then-recall over one signed address space." />
 </p>
@@ -563,8 +565,8 @@ The test we hold every item to: does it make emem's memories more trusted, porta
 
 ### The substrate: trusted, portable, verifiable memory
 
-- **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `memt:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo), reported alongside the offline verification those frameworks do not provide.
-- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `memb:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors.
+- **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `emem:fact:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo), reported alongside the offline verification those frameworks do not provide.
+- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `emem:bundle:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors.
 - **Signed state for agent-to-agent work.** Ships today: emem answers the A2A task surface at `/a2a/tasks` and serves a signed card at [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json). Open: an attestation that rides an agent card so two agents from two companies verify each other's claimed memory offline before acting on it, closing the trust gap the A2A spec leaves to implementers.
 - **An audit trail for regulated work.** Ships today: bi-temporal recall (`as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew) and a signed absence for what was never there. Open: the profile that turns those into a procurement-grade record of what an agent knew and when, aimed at the data-provenance gap that content-only provenance standards do not cover.
 

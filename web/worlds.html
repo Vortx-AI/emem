@@ -507,8 +507,8 @@ function semanticPCA(rows) {
       var anyCid = Object.keys(cids)[0];
       if (anyCid && cids[anyCid]) {
         cidWrap.appendChild(verifyLink(cids[anyCid], "verify signature ↗"));
-        var tok = "memt:" + cellId + ":" + cids[anyCid];
-        var cp = document.createElement("button"); cp.textContent = "copy memt token";
+        var tok = "emem:fact:" + cellId + ":" + cids[anyCid];
+        var cp = document.createElement("button"); cp.textContent = "copy emem:fact token";
         cp.onclick = function () { navigator.clipboard && navigator.clipboard.writeText(tok); toast("copied " + tok.slice(0, 22) + "…"); };
         cidWrap.appendChild(cp);
       }

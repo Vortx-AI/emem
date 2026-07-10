@@ -18,9 +18,9 @@ puts back.
 | State (full cube) | `POST /v1/state` view=cube | same | 1792-D state vector + coverage map |
 | State fan-out | `POST /v1/state_multi` | `{cell, encoders?, as_of_*?}` | per-encoder dense map |
 | State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}` | residual + cosine + both fact_cids |
-| Memory token | `POST /v1/memory_token` | `{cell, fact_cid}` | `memt:<cell>:<fact_cid>` |
+| Memory token | `POST /v1/memory_token` | `{cell, fact_cid}` | `emem:fact:<cell>:<fact_cid>` |
 | Memory token resolve | `POST /v1/memory_token/resolve` | `{token}` | full signed fact body |
-| Memory bundle | `POST /v1/memory_bundle` | `{triples, purpose?}` | signed envelope + `memb:<bundle_cid>` |
+| Memory bundle | `POST /v1/memory_bundle` | `{triples, purpose?}` | signed envelope + `emem:bundle:<bundle_cid>` |
 | Memory bundle resolve | `GET /v1/memory_bundle/<token>` | path param | same envelope |
 | Memory file write | MCP `memory_create` | `{path, file_text, kind?, attester?}` | `file_cid` + signed receipt |
 | Memory file edit | MCP `memory_str_replace`, `memory_insert` | `{path, old_str, new_str}` etc. | new `file_cid` + receipt |
@@ -31,6 +31,8 @@ puts back.
 | Memory file semantic search | `POST /v1/memory/search` | `{q, k?, kind?, path_prefix?, attester_pubkey_b32?}` | ranked hits + snippets |
 | Memory event stream | `GET /v1/memory/sse?path_prefix=&kind=&attester=` | query string | `text/event-stream` of writes |
 | Multi-attester contradictions | `POST /v1/memory_contradictions` | `{cell_prefix?, band?, window_unix_s?, min_severity?, limit?}` | severity-scored disagreements |
+
+The pre-rename prefixes `memt:`, `memb:`, and `meme:` still resolve.
 
 ## The four kinds
 

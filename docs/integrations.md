@@ -34,7 +34,7 @@ Response shape:
   "l2_norm":      3.7146,
   "tslot":        54,
   "fact_cid":     "<26 chars base32-nopad-lowercase>",
-  "memory_token": "memt:defi.zb4d7.ze56c.zf24c:<fact_cid>",
+  "memory_token": "emem:fact:defi.zb4d7.ze56c.zf24c:<fact_cid>",
   "receipt":      { /* signed ed25519 over canonical blake3 preimage */ }
 }
 ```
@@ -69,14 +69,16 @@ runtime, any host, is a memory token: a single colon-separated string
 that parses back into a cell and a fact CID.
 
 ```
-memt:<cell64>:<fact_cid>
+emem:fact:<cell64>:<fact_cid>
 ```
+
+The pre-rename prefixes `memt:`, `memb:`, and `meme:` still resolve.
 
 A canonical token, copy-pasteable, resolves to the South Mumbai
 elevation example used throughout this site:
 
 ```
-memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
+emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma
 ```
 
 ### Compose
@@ -94,10 +96,10 @@ Response:
 
 ```json
 {
-  "memory_token": "memt:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
+  "memory_token": "emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
   "cell":         "defi.zb4d7.ze56c.zf24c",
   "fact_cid":     "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
-  "grammar":      "memt:<cell64>:<fact_cid>",
+  "grammar":      "emem:fact:<cell64>:<fact_cid>",
   "docs":         "/whitepaper.md#194-memory-tokens"
 }
 ```
@@ -172,7 +174,7 @@ re-encode) are in [`/whitepaper.md#194-memory-tokens`](whitepaper.md#194-memory-
 ## Memory bundles
 
 A bundle composes N facts at N places into one signed envelope. The
-token grammar is `memb:<bundle_cid>` (parallel to `memt:`). Bundles
+token grammar is `emem:bundle:<bundle_cid>` (parallel to `emem:fact:`). Bundles
 fit the "task done, here are the citations I used" pattern: the agent
 hands one token to the next caller, who pulls every cited fact in one
 round-trip.
@@ -188,9 +190,9 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
     ],
     "purpose":"flood-risk site assessment 2026-05"
   }' | jq '.bundle_token'
-# "memb:vlkbh5bfzjeem6t3o54yje5rrq"
+# "emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq"
 
-curl -sX GET https://emem.dev/v1/memory_bundle/memb:vlkbh5bfzjeem6t3o54yje5rrq | jq .
+curl -sX GET https://emem.dev/v1/memory_bundle/emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq | jq .
 ```
 
 `bundle_cid` is deterministic across responders: the same triples in

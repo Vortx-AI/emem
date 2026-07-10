@@ -214,10 +214,10 @@ input::placeholder{color:var(--mute,#7a7363)}
     <article class="card status-live">
       <a class=title href="/integrations.md#memory-tokens">Memory tokens · compose, paste, resolve</a>
       <span class=endpoint>POST /v1/memory_token · POST /v1/memory_token/resolve</span>
-      <p class=desc>One handle, <code>memt:&lt;cell64&gt;:&lt;fact_cid&gt;</code>, that any pipeline can paste in chat, write to long-term memory, or quote across processes. The compose endpoint validates shape; the resolve endpoint single-trips back to the signed fact body on any responder that holds it. Card links to <code>/integrations.md#memory-tokens</code> for the curl + parse recipe (the POST endpoints themselves return 405 to a browser GET, by design).</p>
+      <p class=desc>One handle, <code>emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</code>, that any pipeline can paste in chat, write to long-term memory, or quote across processes. The compose endpoint validates shape; the resolve endpoint single-trips back to the signed fact body on any responder that holds it. Card links to <code>/integrations.md#memory-tokens</code> for the curl + parse recipe (the POST endpoints themselves return 405 to a browser GET, by design).</p>
       <div class=meta>
         <span class="tag status">live</span>
-        <span class=tag>memt:</span>
+        <span class=tag>emem:fact:</span>
         <span class=tag>citation handle</span>
       </div>
     </article>

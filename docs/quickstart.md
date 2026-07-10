@@ -155,7 +155,7 @@ facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
 fcid  = facts["facts"][0]["fact_cid"]
 
 token = em.memory_token(cell, fcid)["token"]
-# 'memt:defi.zb592.nemu.zEvE:vd5wzmaxh...j7bca'
+# 'emem:fact:defi.zb592.nemu.zEvE:vd5wzmaxh...j7bca'
 
 # Paste this anywhere (LLM prompt, log line, Slack); any reader does:
 em.memory_token_resolve(token)["fact"]
@@ -177,10 +177,10 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
       ],
       "purpose":"site assessment 2026-05"
     }' | jq '.bundle_token'
-# "memb:vlkbh5bfzjeem6t3o54yje5rrq"
+# "emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq"
 
 # Anyone with the token can pull the same signed envelope.
-curl -sX GET https://emem.dev/v1/memory_bundle/memb:vlkbh5bfzjeem6t3o54yje5rrq | jq .schema
+curl -sX GET https://emem.dev/v1/memory_bundle/emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq | jq .schema
 # "emem.memory_bundle.v1"
 ```
 

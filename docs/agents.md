@@ -6,7 +6,7 @@
 identity layer that stops referential drift: every place resolves to one
 canonical address (`cell64`), every observation to one signed fact
 (`fact_cid`), and every object to one citeable identity
-(`meme:<entity_cid>`, minted by `emem_entity`), so different models reason
+(`emem:entity:<entity_cid>`, minted by `emem_entity`), so different models reason
 from the same world object instead of divergent descriptions. Two layers,
 one trust surface. Every read returns an ed25519-signed receipt verifiable
 offline at `/verify`.
@@ -24,7 +24,7 @@ offline at `/verify`.
   capability-bound: paths under `/memories/by_attester/<pubkey>/...`
   require an ed25519 signature over the request preimage. `memory_search`
   runs BGE-768 against a LanceDB index over file contents. `memory_bundle`
-  composes N facts into one signed envelope (`memb:<bundle_cid>`).
+  composes N facts into one signed envelope (`emem:bundle:<bundle_cid>`).
   `memory_contradictions` scores disagreement between attesters at the
   same `(cell, band, tslot)`. `memory/sse` streams writes with
   server-side filter.
@@ -56,8 +56,9 @@ the daily-use surface. The state vector is the read-side: one call
 returns the dense 128-D Tessera embedding for any place, signed and
 content-addressed (`POST /v1/state`). The memory token is the cite-side:
 one parseable string an agent drops into any context, resolves to the
-same signed bytes on any replica forever (`memt:<cell64>:<fact_cid>`).
-Wiring is the wire; these are what flows on it.
+same signed bytes on any replica forever (`emem:fact:<cell64>:<fact_cid>`).
+Wiring is the wire; these are what flows on it. The pre-rename prefixes
+`memt:`, `memb:`, and `meme:` still resolve.
 
 ## First 5 minutes
 
@@ -75,8 +76,8 @@ From zero to a signed, cite-able answer in three calls:
    `/verify` or with `POST /v1/verify_receipt`: `{valid: true,
    signer_pubkey_b32}` makes the answer portable across sessions and
    audits. To hand a fact to another agent, compose a token with
-   `emem_memory_token` (`memt:<cell64>:<fact_cid>`) or
-   `emem_memory_bundle` (`memb:<bundle_cid>`) for several.
+   `emem_memory_token` (`emem:fact:<cell64>:<fact_cid>`) or
+   `emem_memory_bundle` (`emem:bundle:<bundle_cid>`) for several.
 
 That is the whole loop. Everything below is depth on each step.
 

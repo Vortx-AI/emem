@@ -216,9 +216,9 @@ write path from scratch.
   at :14870).
 - Handlers referenced by the upgrade plan: `emem_memory_contradictions` ->
   `crates/emem-primitives/src/memory_contradictions.rs:132` (severity :335);
-  `emem_diff` -> `crates/emem-primitives/src/diff.rs:43`; memt compose/parse
-  in `crates/emem-api-rest/src/lib.rs:17226, 18560-18568`; memb in
-  `crates/emem-primitives/src/memory_bundle.rs` (strict `memb:` parser at
+  `emem_diff` -> `crates/emem-primitives/src/diff.rs:43`; emem:fact compose/parse
+  in `crates/emem-api-rest/src/lib.rs:17226, 18560-18568`; emem:bundle in
+  `crates/emem-primitives/src/memory_bundle.rs` (strict `emem:bundle:` parser at
   :177-183).
 
 ## Counts that CI does not guard

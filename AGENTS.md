@@ -20,7 +20,7 @@ signed answer in three calls:
    `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` (auto-materialises
    on a miss).
 3. **Cite it.** Verify the receipt offline at `/verify` or via
-   `POST /v1/verify_receipt`; hand other agents a `memt:` token from
+   `POST /v1/verify_receipt`; hand other agents an `emem:fact:` token from
    `emem_memory_token` (or `emem_memory_bundle` for several).
 
 Newer "connect & evolve" surfaces (typed temporal edges, the
