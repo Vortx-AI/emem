@@ -2,7 +2,7 @@
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Reference: the read surface</title>
-<meta name=description content="emem read surface for agents and developers. Client setup for 8 MCP hosts, high-traffic endpoints, one-shot domain tools, the 12 hunter events, and the physics and forecasting solvers. MCP + REST, no API keys.">
+<meta name=description content="Read surface for emem, a shared, verifiable memory for AI agents: one canonical citeable identity per place, fact, and object, grounded in signed Earth observation, so models reason from the same world object instead of divergent descriptions. Client setup for 8 MCP hosts, high-traffic endpoints, one-shot domain tools, the 12 hunter events, and the physics and forecasting solvers. MCP + REST, no API keys.">
 <link rel=canonical href="https://emem.dev/reference">
 <link rel="alternate" type="text/markdown" href="/llms.txt">
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -344,7 +344,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <header class="hero hero-lean page">
   <div>
     <img class="mith-sun" src="/art/hero.svg" alt=""><h1>The <span class="accent">read surface</span>.</h1>
-    <p class="sub">One set of handlers answers every read, whether an agent reaches it over MCP or plain REST, and every answer comes back as an ed25519 receipt it can verify offline. This page is the human-readable index of that surface: client setup, the high-traffic endpoints, the one-shot domain tools, the twelve hunter events, and the physics solvers. The full machine contract is <a href="/openapi.json">/openapi.json</a>.</p>
+    <p class="sub">emem is a shared, verifiable memory for AI agents: a citeable identity layer that stops referential drift, so different models reason from the same world object instead of divergent descriptions, grounded in signed Earth observation. One set of handlers answers every read, whether an agent reaches it over MCP or plain REST, and every answer comes back as an ed25519 receipt it can verify offline. This page is the human-readable index of that surface: client setup, the high-traffic endpoints, the one-shot domain tools, the twelve hunter events, and the physics solvers. The full machine contract is <a href="/openapi.json">/openapi.json</a>.</p>
     <div class="hero-cta">
       <a class="btn" href="#client-setup">Client setup</a>
       <a class="btn ghost" href="/openapi.json">openapi.json</a>
@@ -409,8 +409,8 @@ input::placeholder{color:var(--mute,#7a7363)}
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">02</span><span class="idx-label">Endpoints</span></div>
     <dl>
-      <dt>REST paths</dt><dd>99 documented under /v1/*</dd>
-      <dt>MCP tools</dt><dd>85 (10 core / 75 extended)</dd>
+      <dt>REST paths</dt><dd>103 documented under /v1/*</dd>
+      <dt>MCP tools</dt><dd>88 (13 core / 75 extended)</dd>
       <dt>contract</dt><dd>OpenAPI 3.1</dd>
       <dt>mirror</dt><dd>MCP descriptors at /v1/tools</dd>
     </dl>
@@ -643,7 +643,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="idx"><span class="idx-num">06</span><span class="idx-label">Machine contract</span></div>
     <dl>
       <dt>OpenAPI</dt><dd>3.1</dd>
-      <dt>documented</dt><dd>99 paths under /v1/*</dd>
+      <dt>documented</dt><dd>103 paths under /v1/*</dd>
       <dt>algorithms</dt><dd>160 recipes</dd>
       <dt>bands</dt><dd>124 wired across 43 slots</dd>
       <dt>sources</dt><dd>46 schemes</dd>
@@ -653,7 +653,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <div class="section-body">
     <h2><span class="num">06</span>The full machine contract</h2>
-    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 99 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
+    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 103 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
     <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The 160 algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the 124 materializer-wired band names across 43 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
     <div class="hero-cta" style="margin-top:1.6rem">
       <a class="btn" href="/openapi.json">openapi.json</a>

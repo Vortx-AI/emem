@@ -1,6 +1,6 @@
 # emem.dev: verifiable memory for AI agents
 
-emem is a memory substrate AI agents read, write, and cite. Every read returns an ed25519-signed receipt. Every write is content-addressed. Every byte is reproducible on any peer that mirrors the data, verifiable in the browser at `/verify`.
+emem is a memory substrate AI agents read, write, and cite. It is a vendor-neutral, citeable identity layer that stops referential drift: every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), and every object to one citeable identity (meme:<entity_cid>, minted by emem_entity), so different models reason from the same world object instead of divergent descriptions. Every read returns an ed25519-signed receipt. Every write is content-addressed. Every byte is reproducible on any peer that mirrors the data, verifiable in the browser at `/verify`.
 
 emem is a shared memory for AI agents that connects facts and gets better over time. Every answer is signed, so anyone can check it without trusting the server.
 
@@ -32,7 +32,7 @@ This site renders the canonical docs straight from the repo at `docs/`. Every pa
 
 - *Receipts* are ed25519-signed over a domain-separated, length-prefixed preimage — `blake3("emem.preimage.v1" ‖ "receipt" ‖ tagged(request_id, served_at, [scope], [as_of], [edges], [manifest], primitive, cells[], fact_cids[]))` — so no two distinct responses can share signed bytes. The receipt's `preimage_version` selects the rule; both it and `/v1/verify_receipt` are verifiable in-browser at `/verify`.
 - *Bi-temporal* receipts carry an additional `as_of: { valid_time, transaction_time }` block when at least one bound was set; the block is absent for current-state reads so old receipts deserialise byte-identically.
-- *Content-addressed everywhere*. A `fact_cid` is 26 base32 chars; the same bytes hash to the same CID on every responder. `memt:<cell64>:<fact_cid>` is the cite handle for one fact at one place; `memb:<bundle_cid>` for N facts at N places.
+- *Content-addressed everywhere*. A `fact_cid` is 26 base32 chars; the same bytes hash to the same CID on every responder. `memt:<cell64>:<fact_cid>` is the cite handle for one fact at one place; `memb:<bundle_cid>` for N facts at N places; `meme:<entity_cid>` for a whole object (minted by `emem_entity`), the object you cite rather than only a fact.
 - *No silent fallbacks*. An empty result distinguishes wrong-query from empty-place. `find_similar` with a bi-temporal bound bypasses the LanceDB ANN fast-path (the index has no `signed_at` column) and reports `via: brute_force_fallback`.
 - *No stubs*. Nothing here is aspirational. If a primitive is documented, it ships and the receipt verifies.
 
@@ -41,7 +41,7 @@ This site renders the canonical docs straight from the repo at `docs/`. Every pa
 The same content surfaces are reachable to agents via:
 
 - `GET /openapi.json`: full REST surface (browseable at [/docs/api/](/docs/api/) via ReDoc)
-- `POST /mcp` `tools/list` returns all 85 MCP tools (10 core, 75 extended) by default; `{"tier":"core"}` narrows to the 10 essentials
+- `POST /mcp` `tools/list` returns all 88 MCP tools (13 core, 75 extended) by default; `{"tier":"core"}` narrows to the 13 essentials
 - `POST /mcp` `resources/list`: 18 resources + 8 URI templates (memory anchors include `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`)
 - `GET /llms.txt`, `GET /humans/llms.txt`, `GET /skills.md`
 - `GET /agent.json`, `GET /ai-plugin.json`

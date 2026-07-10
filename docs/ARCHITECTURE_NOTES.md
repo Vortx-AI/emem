@@ -20,7 +20,7 @@ emem-storage     MaterializingStorage facade, sled tree schemas, AttestationLog,
                  AttesterRegistry, and receipt signing (Server / ResponderIdentity)
 emem-primitives  recall/diff/verify/memory_* handlers, memory ACL, contradictions
 emem-intent      typed Intent grammar + heuristic planner
-emem-mcp         static MCP tool catalog (85 descriptors; no transport)
+emem-mcp         static MCP tool catalog (88 descriptors; no transport)
 emem-api-rest    axum router: REST routes, /mcp JSON-RPC dispatch, well-known, write gate
 emem-cli         emem-server binary (key load/persist) + receipt-verify CLI
 emem-membench    MemoryAgentBench-style scorecard harness (leaf)
@@ -149,8 +149,12 @@ their verifiers) — a genuine promote-lone-node construction, distinct from
 the batch-root tree in section 6.1, so consistency proofs are sound.
 `AttestationLog::leaf_hashes()` (`merkle_log.rs`) reads the append-ordered
 leaves; `GET /v1/log/{sth,inclusion,consistency}` serve a responder-signed
-STH and offline-verifiable proofs. Still open on this substrate: witness
-co-signing of STHs (P3), a sparse-merkle key->latest-value map (P4), and a
+STH and offline-verifiable proofs. **Phase 3 shipped:** witness co-signing
+(`POST /v1/log/witness`, `GET /v1/log/witnesses`) lets an external party
+counter-sign a `(tree_size, root)` head so split-view equivocation is
+detectable; the responder records a co-signature only when the signature
+verifies and the root matches its own history at that size. Still open on
+this substrate: a sparse-merkle key->latest-value map (P4), and a
 `fact_cid -> leaf_index` index so an inclusion proof can be requested by
 fact rather than by log position.
 
@@ -205,7 +209,7 @@ write path from scratch.
 - Canonical catalog: `pub const TOOLS: &[ToolDescriptor]` in
   `crates/emem-mcp/src/lib.rs:664`; `ToolDescriptor` struct at :31-68 (name,
   title, description, when_to_use, input_schema, level, category, four MCP
-  hint flags, tier). 85 tools: 10 core, 75 extended. Helpers: `lookup`
+  hint flags, tier). 88 tools: 13 core, 75 extended. Helpers: `lookup`
   (:1593), `tools_at_level` (:1598), `tools_at_tier` (:1647).
 - JSON-RPC dispatch and the REST mirror live in emem-api-rest
   (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:13780`, `mcp_tool_call`
@@ -219,7 +223,7 @@ write path from scratch.
 
 ## Counts that CI does not guard
 
-`scripts/sync_counts.py --check` verifies the canonical counts (85 tools,
-99 /v1 paths, 46 sources, 43 slots, 124 wired bands, 160 algorithms, 27
+`scripts/sync_counts.py --check` verifies the canonical counts (88 tools,
+103 /v1 paths, 46 sources, 43 slots, 124 wired bands, 160 algorithms, 27
 topics, 16 crates) against the registries and the live responder, but no CI
 workflow runs it. Run it manually after editing any doc that quotes a count.

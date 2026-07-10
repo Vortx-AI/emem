@@ -6,7 +6,7 @@
 
 **Shared, verifiable memory of the physical world for AI agents.**
 
-*Give your agents one memory of the real world they can read, write, and cite. Every fact is signed and addressed by its own hash, so anyone can re-check it offline against the signer's published key. No account needed to read.*
+*Give your agents one memory of the real world they can read, write, and cite. It is a citeable identity layer that stops referential drift: every place, fact, and object resolves to one canonical, signed identity (cell64, fact_cid, and a first-class object identity via emem_entity's meme: token), so different models reason from the same world object instead of divergent descriptions. Every fact is signed and addressed by its own hash, so anyone can re-check it offline against the signer's published key. No account needed to read.*
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![Rust 1.91](https://img.shields.io/badge/Rust-1.91-orange.svg)](https://www.rust-lang.org)
@@ -217,7 +217,7 @@ Explore the live console at [emem.dev](https://emem.dev).
 
 ## Connect your assistant
 
-Reading needs no key. Point your client at `https://emem.dev/mcp` and it gets all 85 tools.
+Reading needs no key. Point your client at `https://emem.dev/mcp` and it gets all 88 tools.
 
 ```jsonc
 // .mcp.json at your project root. Works in Claude Code, Claude Desktop, Cursor, Cline.
@@ -391,10 +391,10 @@ One binary, one core. The same handlers answer MCP tool calls and plain REST, so
 
 | Surface | Endpoint | What you get |
 | --- | --- | --- |
-| **MCP** | `https://emem.dev/mcp` | JSON-RPC 2.0 over Streamable HTTP. 85 tools: 10 core plus 75 extended. |
-| **REST** | `/v1/*` | 99 documented paths, described by [`/openapi.json`](https://emem.dev/openapi.json) (OpenAPI 3.1). |
+| **MCP** | `https://emem.dev/mcp` | JSON-RPC 2.0 over Streamable HTTP. 88 tools: 13 core plus 75 extended. |
+| **REST** | `/v1/*` | 103 documented paths, described by [`/openapi.json`](https://emem.dev/openapi.json) (OpenAPI 3.1). |
 
-Every MCP tool ships a `when_to_use` line and four hint flags (read-only, destructive, idempotent, open-world), so a planner picks the right tool without guessing. `tools/list` returns all 85; pass `{"tier":"core"}` for the 10 you need most.
+Every MCP tool ships a `when_to_use` line and four hint flags (read-only, destructive, idempotent, open-world), so a planner picks the right tool without guessing. `tools/list` returns all 88; pass `{"tier":"core"}` for the 13 you need most.
 
 <details>
 <summary><b>160 named algorithm recipes</b>: a formula an agent can read, with its source and honest accuracy</summary>
@@ -408,7 +408,7 @@ Recipes like `flood_risk@2`, `heat_index@2`, `carbon_sink_score@1`, and `eudr_co
 | Surface | Serves |
 | --- | --- |
 | `/v1/agent_card` | agent-readable capability card |
-| `/v1/tools` | all 85 tools with `when_to_use` and hints |
+| `/v1/tools` | all 88 tools with `when_to_use` and hints |
 | `/v1/algorithms` | 160 named algorithm recipes |
 | `/v1/topics` | 27 topic-grouped measurement areas |
 | `/v1/manifests` | the four ids that pin measurements, algorithms, sources, schema |
@@ -607,8 +607,8 @@ The protocol is written up in an open whitepaper:
 | Hugging Face Space | https://huggingface.co/spaces/vortx-ai/emem |
 | Agent loop · Wire spec | https://emem.dev/agents.md · https://emem.dev/spec.md |
 | LLM catalog (plaintext) | https://emem.dev/llms.txt · https://emem.dev/llms-full.txt |
-| OpenAPI 3.1 (102 paths, 99 under `/v1/*`) | https://emem.dev/openapi.json |
-| MCP endpoint (85 tools) | https://emem.dev/mcp |
+| OpenAPI 3.1 (106 paths, 103 under `/v1/*`) | https://emem.dev/openapi.json |
+| MCP endpoint (88 tools) | https://emem.dev/mcp |
 | In-browser receipt verifier | https://emem.dev/verify |
 | Python SDK on PyPI | https://pypi.org/project/ememdev/ |
 | Container (multi-arch) | `ghcr.io/vortx-ai/emem:latest` |

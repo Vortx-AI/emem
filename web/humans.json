@@ -14,10 +14,10 @@
   },
   "counts": {
     "_live_pointer":             "GET /v1/agent_card for the live snapshot; numbers below are publish-time only",
-    "mcp_tools":                 85,
+    "mcp_tools":                 88,
     "algorithms":                160,
-    "rest_paths_openapi":        102,
-    "rest_paths_v1_openapi":     99,
+    "rest_paths_openapi":        106,
+    "rest_paths_v1_openapi":     103,
     "band_cube_slots":           43,
     "materializer_wired_names":  124,
     "source_schemes":            46,

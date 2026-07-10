@@ -1,12 +1,12 @@
 # emem
 
-> emem is a signed, content-addressed spatial memory for AI agents: every place-time on Earth resolves to a verifiable fact, read over MCP or REST, no keys, every answer an ed25519 receipt verifiable offline.
+> emem is a shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift, so different models reason from the same world object instead of divergent descriptions. Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (meme:). Grounded in signed Earth observation, read over MCP or REST, no keys, every read returns an ed25519 receipt verifiable offline.
 
-Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 85 MCP tools, 99 documented /v1 paths, 160 algorithms, 46 source schemes.
+Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 88 MCP tools, 103 documented /v1 paths, 160 algorithms, 46 source schemes.
 
 ## Connect
 
-- [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; 85 tools (10 core, 75 extended). Point a client here, no key.
+- [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; 88 tools (13 core, 75 extended). Point a client here, no key.
 - [OpenAPI 3.1](https://emem.dev/openapi.json): full machine contract for the /v1 REST surface.
 - [Agent card](https://emem.dev/v1/agent_card): self-describing card with primitives, band taxonomy, and tool descriptors.
 - [Agent card (alias)](https://emem.dev/agent.json): same card at the conventional discovery path.
@@ -26,6 +26,7 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [memory search](https://emem.dev/v1/memory/search): POST query → BGE-768 semantic search over the writable agent-memory layer.
 - [memory contradictions](https://emem.dev/v1/memory_contradictions): POST → multi-attester contradiction scoring per band kind.
 - [memory bundle](https://emem.dev/v1/memory_bundle): POST → a signed, content-addressed bundle of facts (memb:<bundle_cid>).
+- [entity](https://emem.dev/v1/entity): POST place/cell/lat+lng → one canonical object identity (meme:<entity_cid>) any agent resolves the same way; the object-level antidote to referential drift, an object you cite, not just a fact.
 - [triple_consensus](https://emem.dev/v1/triple_consensus): POST cell → Clay + Prithvi + Tessera change-agreement at one cell; honest inconclusive when an encoder is absent.
 - [region_similarity](https://emem.dev/v1/region_similarity): POST two regions → cosine between their mean GeoTessera embeddings in [-1, 1].
 - [tessera_field](https://emem.dev/v1/tessera_field): POST bbox → a dense Tessera 128-D embedding field for a region, rendered as a colour raster (REST only; a picture, not a signed fact).

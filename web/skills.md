@@ -1,7 +1,10 @@
 # emem skills
 
-Composed recipes for AI agents that need spatial memory. Each skill is
-a small workflow that combines two or three `/v1/*` calls into a
+Composed recipes for AI agents building on emem, a shared, verifiable
+memory for AI agents: a citeable identity layer that stops referential
+drift, so different models reason from the same world object instead of
+divergent descriptions, grounded in signed Earth observation. Each skill
+is a small workflow that combines two or three `/v1/*` calls into a
 useful primitive: locate-and-recall, find-similar-and-verify,
 recall-polygon-and-solve, and so on.
 
@@ -348,13 +351,13 @@ verification, or similarity in a Claude Code session. See each
 ## Discovery surface
 
 - `https://emem.dev/llms.txt`: high-level summary + behavioural rules
-- `https://emem.dev/openapi.json`: full machine surface (99 documented REST paths under /v1/*)
+- `https://emem.dev/openapi.json`: full machine surface (103 documented REST paths under /v1/*)
 - `https://emem.dev/.well-known/emem.json`: manifest CIDs + responder pubkey
 - `https://emem.dev/v1/agent_card`: discover-first card with band taxonomy
 - `https://emem.dev/agents.md`: consumer-agent ontology + recipes
 - `https://emem.dev/humans`: interactive console where every `/v1/*`
   call prints in a live log pane
-- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint (85 tools: 10 core, 75 extended)
+- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint (88 tools: 13 core, 75 extended)
 
 ## License
 

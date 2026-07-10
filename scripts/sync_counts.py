@@ -48,12 +48,12 @@ CARGO = REPO / "Cargo.toml"
 # written to and the value --check enforces across every surface.
 # ---------------------------------------------------------------------------
 CANON = {
-    "mcp_tools": 85,
-    "mcp_core": 10,
+    "mcp_tools": 88,
+    "mcp_core": 13,
     "mcp_extended": 75,
     "algorithms": 160,
-    "rest_paths_v1": 99,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 102,  # all paths in OpenAPI
+    "rest_paths_v1": 103,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 106,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 124,
     "source_schemes": 46,

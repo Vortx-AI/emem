@@ -1,10 +1,15 @@
-# emem.dev/humans — knowledge constellation for AI agents
+# emem.dev/humans: shared, verifiable memory for AI agents
 
-> A single-page exploration of the emem corpus. Every visible thing carries
-> structured data attributes (cell64, band, fact_cid, tslot) so a scraping
-> LLM can extract everything from the rendered DOM. Every /v1/* call the
-> page makes is printed in a live console pane — read the page, learn the
-> API by observation. Sibling JSON twin: /humans.json.
+> A single-page exploration of emem, a shared, verifiable memory for AI
+> agents: a vendor-neutral, citeable identity layer that stops referential
+> drift, so different models reason from the same world object instead of
+> divergent descriptions. Every place resolves to one canonical address
+> (cell64), every observation to one signed fact (fact_cid), every object to
+> one citeable identity (meme:), grounded in signed Earth observation. Every
+> visible thing carries structured data attributes (cell64, band, fact_cid,
+> tslot) so a scraping LLM can extract everything from the rendered DOM.
+> Every /v1/* call the page makes is printed in a live console pane, read the
+> page, learn the API by observation. Sibling JSON twin: /humans.json.
 
 ## Endpoints discoverable on this page
 
@@ -21,7 +26,7 @@
 - `GET /v1/schema` — canonical CBOR wire schema
 - `GET /v1/topics` — 27 declared topic clusters with `live_bands_by_topic` filtered to this responder's wired materializers
 - `GET /v1/agent_card` — agent-readable summary, live counts, manifest CIDs
-- `GET /v1/tools` — 85 MCP tools (10 core, 75 extended) with `when_to_use` strings + four behavioural annotations
+- `GET /v1/tools` — 88 MCP tools (13 core, 75 extended) with `when_to_use` strings + four behavioural annotations
 - `GET /v1/quickstart` — copy-paste snippets for the canonical flows
 - `GET /v1/cells/{cell64}/info` — bbox, centre, approximate metres
 - `GET /v1/cells/{cell64}/scene.png` — optional Sentinel-2 thumbnail
@@ -113,7 +118,7 @@ live try-it drawer. Press `?` for the keyboard shortcut sheet.
 ## Try-it drawer (`T`)
 
 A slide-out drawer exposes 20 primitives the page knows about (the full
-agent surface has 85 MCP tools (10 core, 75 extended) — discover at `GET /v1/tools`). For each:
+agent surface has 88 MCP tools (13 core, 75 extended) — discover at `GET /v1/tools`). For each:
 
 - pre-filled JSON request body seeded from the corpus this responder
   actually serves (densest cell, top band)

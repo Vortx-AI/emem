@@ -2,9 +2,14 @@
 
 ## What this is
 
-**Verifiable memory substrate for AI agents.** Two layers, one trust
-surface. Every read returns an ed25519-signed receipt verifiable offline
-at `/verify`.
+**Shared, verifiable memory for AI agents.** A vendor-neutral, citeable
+identity layer that stops referential drift: every place resolves to one
+canonical address (`cell64`), every observation to one signed fact
+(`fact_cid`), and every object to one citeable identity
+(`meme:<entity_cid>`, minted by `emem_entity`), so different models reason
+from the same world object instead of divergent descriptions. Two layers,
+one trust surface. Every read returns an ed25519-signed receipt verifiable
+offline at `/verify`.
 
 - *Earth memory*: every patch of ground gets a 64-bit address (`cell64`,
   about 9.55 m at the equator); every measurement there is a fact keyed

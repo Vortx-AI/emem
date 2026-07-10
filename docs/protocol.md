@@ -992,9 +992,13 @@ offline):
   history.
 
 Usage: pin an STH, then re-request `/v1/log/consistency` later to prove
-the log only grew. Witness co-signing of STHs (an external party
-counter-signs a head so split-view equivocation is detectable) and a
-`fact_cid -> leaf_index` index are the next increments on this substrate.
+the log only grew. Witness co-signing of STHs is available: an external
+party counter-signs a `(tree_size, root)` head via `POST /v1/log/witness`
+(listed at `GET /v1/log/witnesses`) so split-view equivocation is
+detectable; the responder records a co-signature only when the signature
+verifies and the root matches its own history at that size. A
+`fact_cid -> leaf_index` index, so an inclusion proof can be requested by
+fact rather than by log position, is the next increment on this substrate.
 
 ---
 
