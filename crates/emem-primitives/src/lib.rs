@@ -12,6 +12,7 @@ pub mod compare;
 pub mod compare_bands;
 pub mod diff;
 pub mod edges;
+pub mod entity;
 pub mod find_similar;
 pub mod lance_index;
 pub mod memory_acl;

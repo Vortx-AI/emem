@@ -372,6 +372,32 @@ const SCHEMA_MEMORY_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["toke
 "token":{"type":"string","description":"A `memb:<bundle_cid>` rebindable handle to dereference."}
 }}"#;
 
+// ── Entity registry (emem.entity.v1) ──
+const SCHEMA_ENTITY: &str = r#"{"type":"object","required":["label"],"properties":{
+"label":{"type":"string","description":"Human name of the object, e.g. \"Golden Gate Bridge\", \"the north dam\". Required."},
+"kind":{"type":"string","description":"Object class: bridge, river, farm_plot, building, admin_division, place, custom, ... Defaults to \"place\"."},
+"place":{"type":"string","description":"Free-text place to anchor the object (geocoded). Provide place OR cell OR lat+lng."},
+"cell":{"type":"string","description":"cell64 to anchor the object directly (no geocode)."},
+"lat":{"type":"number"},"lng":{"type":"number"},
+"external_ids":{"type":"object","description":"Stable ids that drive convergence. Caller-supplied values win over geocoder-derived ones.","properties":{"gers":{"type":"string","description":"Overture GERS division id (strongest anchor)."},"osm":{"type":"string","description":"OpenStreetMap object as <type>/<id>, e.g. way/717919508."},"wikidata":{"type":"string","description":"Wikidata QID."}}},
+"parent":{"type":"string","description":"Optional parent entity_cid (containment)."}
+}}"#;
+
+const SCHEMA_ENTITY_RESOLVE: &str = r#"{"type":"object","properties":{
+"text":{"type":"string","description":"Fuzzy phrasing to resolve to an existing canonical object (e.g. \"the damaged bridge near the river\")."},
+"label":{"type":"string","description":"Alias for `text`."},
+"token":{"type":"string","description":"A `meme:<entity_cid>` handle to dereference directly to its signed object (bypasses the text search)."},
+"near":{"type":"string","description":"Optional place/cell to narrow to objects anchored nearby."},
+"k":{"type":"integer","description":"Max candidates (default 10)."}
+}}"#;
+
+const SCHEMA_ENTITY_LINK: &str = r#"{"type":"object","properties":{
+"entity_cid":{"type":"string","description":"The canonical object to attach an equivalence to. Provide entity_cid OR entity_token."},
+"entity_token":{"type":"string","description":"A `meme:<entity_cid>` handle for the same."},
+"alias":{"type":"string","description":"An alternate label/phrasing that should resolve to this object."},
+"external_ids":{"type":"object","description":"Stable ids to bind to this object.","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}
+}}"#;
+
 // ── Anthropic memory tool (context-management-2025-06-27) ──
 //
 // File-op surface so a Claude.ai connector or Anthropic API caller
@@ -682,7 +708,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_locate",
         title: "Resolve place to cell64 + band inventory",
-        description: "Resolves a place mention (free-text name, address, or lat/lng) to the protocol's cell64 identifier, and returns the topic-grouped inventory of bands and algorithms available at that location.",
+        description: "Mint the canonical, vendor-neutral address (cell64) for a real-world place: the shared spatial identity every agent resolves to identically, so two models refer to the same ground instead of two descriptions of it. Also returns the topic-grouped inventory of bands and algorithms recallable there. For a first-class OBJECT identity (a bridge, a plot, a named place) rather than a raw cell, use emem_entity.",
         when_to_use: "Use whenever the input refers to a real-world location and the next step needs the cell64 identifier or wants to know which bands are available before recalling. The response carries `data_at_this_cell` with three sub-fields: `live_bands_by_topic` (every band recallable here, grouped by topic such as flood_water_event_window, vegetation_condition, built_up_human_geography), `algorithms_for_topic` (composition recipes that fuse those bands into named scores), and `declared_but_no_materializer_at_this_responder` (cube slots reserved without a live connector). For the single-shot path that runs the full chain server-side and returns one packaged answer, use `emem_ask` instead.",
         input_schema: SCHEMA_LOCATE,
         example_args: r#"{"place":"Mount Everest"}"#,
@@ -710,7 +736,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"event":"algal_bloom","region":"Lake Erie"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
-    tier: "core",
+    tier: "extended",
     },
     ToolDescriptor {
         name: "emem_eudr_dds",
@@ -721,7 +747,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"plots":[{"plot_id":"farm-001","geometry_geojson":{"type":"Polygon","coordinates":[[[-60.5,-3.5],[-60.4,-3.5],[-60.4,-3.4],[-60.5,-3.4],[-60.5,-3.5]]]},"country_of_production":"BRA","commodity_hs":"0901","commodity_name":"coffee","quantity_kg":12000}],"operator":{"name":"Acme Coffee BV","eori":"NL123456789"}}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
-    tier: "core",
+    tier: "extended",
     },
     // ── Runtime algorithm endpoints ──────────────────────────────────
     ToolDescriptor {
@@ -882,13 +908,13 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token",
         title: "Compose a memory_token citation handle",
-        description: "Compose a `memt:<cell64>:<fact_cid>` (or `memt:<cell64>:<state_cid>`) citation handle. Validates both components are non-empty and do not contain the outer separator `:`.",
-        when_to_use: "Call when the agent wants a single rebindable string to cite a place + attested fact across messages, threads, or tools. The token is the recommended way for agents to pass earth-memory citations to other agents without re-fetching. Pair with `emem_verify_receipt` on the receiving end to verify the signed payload.",
+        description: "Mint a citation handle, `memt:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator.",
+        when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `meme:` token; for many facts at once use emem_memory_bundle.",
         input_schema: SCHEMA_MEMORY_TOKEN,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
-        tier: "extended",
+        tier: "core",
     },
     ToolDescriptor {
         name: "emem_memory_token_resolve",
@@ -899,7 +925,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"token":"memt:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
-        tier: "extended",
+        tier: "core",
     },
     ToolDescriptor {
         name: "emem_memory_bundle",
@@ -922,6 +948,40 @@ pub const TOOLS: &[ToolDescriptor] = &[
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
+    },
+    // ── Entity registry (emem.entity.v1): object identity, the antidote to referential drift ──
+    ToolDescriptor {
+        name: "emem_entity",
+        title: "Mint or get a canonical object identity",
+        description: "Give a real-world object (a bridge, a farm plot, a river, a named place) a single, shared, content-addressed identity that any agent resolves the same way. Returns an `entity_token` (`meme:<entity_cid>`) plus a signed receipt that attests how the reference resolved. Two agents that name the same object mint the SAME entity_cid; when a stable external id (Overture GERS / OSM) is known it dominates identity, so divergent labels for one real object still collapse to one id. This is the object-level antidote to referential drift: 'the damaged bridge near the river' becomes one canonical thing every model reasons about, not a phrase each model re-interprets.",
+        when_to_use: "Call when a conversation refers to a THING and you want a stable handle to it that survives summarization and travels between agents/turns/LLMs, before it drifts into 'that infrastructure issue'. Anchor it with `place`, a `cell`, or `lat`+`lng`. Hand the returned `meme:` token to any other agent; they dereference the identical object. Recall/ask at the entity's `cell64` for signed facts about it.",
+        input_schema: SCHEMA_ENTITY,
+        example_args: r#"{"label":"Golden Gate Bridge","kind":"bridge","place":"Golden Gate Bridge, San Francisco"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "core",
+    },
+    ToolDescriptor {
+        name: "emem_entity_resolve",
+        title: "Resolve a phrase (or meme: token) to a canonical object",
+        description: "Converge a fuzzy phrasing onto the canonical object other agents already minted, so everyone co-refers to the same identity instead of re-minting divergent ones. Pass `text` (e.g. \"the collapsed span at the ford\") to get ranked existing candidates; pass `near` to narrow to a place; or pass a `meme:` `token` to dereference it directly to the signed entity body. Read-only.",
+        when_to_use: "Call BEFORE minting when another agent may already have registered the object, or when you receive a `meme:` token and want the object behind it. This is how two agents avoid referential drift: resolve first, mint only if nothing matches.",
+        input_schema: SCHEMA_ENTITY_RESOLVE,
+        example_args: r#"{"text":"the golden gate bridge","near":"San Francisco"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "core",
+    },
+    ToolDescriptor {
+        name: "emem_entity_link",
+        title: "Attest that a phrasing/id denotes an existing object",
+        description: "Record a signed equivalence: bind an alternate label or a stable external id (GERS / OSM / Wikidata) to an existing canonical object so future `emem_entity_resolve` calls on that phrasing converge to the same entity_cid. Builds the shared reference graph that keeps different agents' vocabularies pointing at one identity.",
+        when_to_use: "Call when you learn that two phrasings denote the same object ('the north dam' == an existing entity), or to attach an authoritative external id to an object minted from free text.",
+        input_schema: SCHEMA_ENTITY_LINK,
+        example_args: r#"{"entity_token":"meme:0a1b2c3d4e5f60718293","alias":"the north dam"}"#,
+        level: "L0", category: ToolCategory::Write,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "core",
     },
     // ── Anthropic memory tool (context-management-2025-06-27) ──
     //
@@ -1016,7 +1076,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"q":"rainfall observations in spring","k":5}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
-        tier: "core",
+        tier: "extended",
     },
     ToolDescriptor {
         name: "emem_corpus_state_stats",
@@ -1043,7 +1103,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_recall",
         title: "Recall facts at a cell (auto-materializes on miss)",
-        description: "Recall facts about a cell — auto-materializes on miss for any band with a registered materializer.",
+        description: "Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. The content-addressed fact_cid is byte-identical for identical bytes on any responder, so a recalled fact is citeable and re-verifiable rather than a paraphrase.",
         when_to_use: "Call after `emem_locate` (or with a known cell64). Returns every Primary fact stored at that (cell, band, tslot). IMPORTANT: if the cell has no fact yet for a requested band AND that band has `has_materializer=true` (per `emem_coverage_matrix` / `emem_materializers`), the responder fetches the upstream value, signs it under its identity, persists it, and returns it in the same response (~180 ms first call, ~10 ms cached thereafter). So for any wired band you can recall ANY cell on Earth without seeding — just pass `bands: [<band>]`. The response carries `materialize_notes` listing what was just fetched. Empty result with no notes means the band has no materializer at this responder.",
         input_schema: SCHEMA_RECALL,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","bands":["weather.temperature_2m","copdem30m.elevation_mean"]}"#,
@@ -1148,7 +1208,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"cell_prefix":"damO","band":"indices.ndvi","min_severity":0.2}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
-    tier: "extended",
+    tier: "core",
     },
     ToolDescriptor {
         name: "emem_edges_recall",
@@ -1511,7 +1571,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"place":"Yellowstone National Park"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
-        tier: "core",
+        tier: "extended",
     },
     ToolDescriptor {
         name: "emem_ndvi",
@@ -1601,7 +1661,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"type":"what_is_here","cell":"damO.zb000.xUti.zde78"}"#,
         level: "L0", category: ToolCategory::Plan,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
-    tier: "extended",
+    tier: "core",
     },
 
     // ── Transparency log (RFC 6962) ──────────────────────────────────
@@ -1905,9 +1965,14 @@ mod tests {
             "core + extended must equal total"
         );
         assert_eq!(all.len(), TOOLS.len());
+        // The core tier is the identity/citation loop plus a couple of entry
+        // points (locate/recall/memory_token(+resolve)/memory_bundle/entity(+
+        // resolve/link)/memory_contradictions/verify_receipt/find_similar/ask/
+        // intent). Bounded so it stays a curated "essentials" set, not the
+        // whole catalog.
         assert!(
-            core.len() >= 6 && core.len() <= 12,
-            "core tier should have 6-12 tools, got {}",
+            core.len() >= 10 && core.len() <= 16,
+            "core tier should have 10-16 tools, got {}",
             core.len()
         );
     }
@@ -1947,6 +2012,21 @@ mod tests {
             names.contains(&"emem_memory_bundle"),
             "core must include emem_memory_bundle"
         );
+        // Identity/anti-drift loop — these are the reason emem is a shared
+        // memory and not a data source; they must lead the core tier.
+        for essential in [
+            "emem_memory_token",
+            "emem_memory_token_resolve",
+            "emem_memory_contradictions",
+            "emem_entity",
+            "emem_entity_resolve",
+            "emem_entity_link",
+        ] {
+            assert!(
+                names.contains(&essential),
+                "core must include the identity-loop tool {essential}"
+            );
+        }
     }
 
     /// The substrate upgrade adds 6 Anthropic memory-tool verbs and 2

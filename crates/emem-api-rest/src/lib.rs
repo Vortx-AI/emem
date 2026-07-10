@@ -1130,6 +1130,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/memory_token/resolve", post(post_memory_token_resolve))
         .route("/v1/memory_bundle", post(post_memory_bundle))
         .route("/v1/memory_bundle/:token", get(get_memory_bundle))
+        // Entity registry — content-addressed object identity (meme:).
+        .route("/v1/entity", post(post_entity))
+        .route("/v1/entity/resolve", post(post_entity_resolve))
+        .route("/v1/entity/alias", post(post_entity_alias))
+        .route("/v1/entity/:id", get(get_entity))
         // W4: SSE stream of memory write events. Subscribers may filter
         // by path_prefix, kind, attester. Events are best-effort (not
         // individually signed — the underlying file's receipt remains
@@ -3636,7 +3641,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // Compliant against https://a2a-protocol.org/dev/specification/
         "protocolVersion":    "1.2.0",
         "name":               "emem",
-        "description":        "Verifiable memory substrate for AI agents. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (memb:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
+        "description":        "Shared, verifiable memory for AI agents that stops referential drift: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (meme:<entity_cid>), so different models reason from the same world object instead of divergent descriptions. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (memb:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
         "url":                format!("{origin}/mcp"),
         "preferredTransport": "HTTP+JSON",
         "version":            env!("CARGO_PKG_VERSION"),
@@ -3749,7 +3754,7 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
         "$schema":     "https://modelcontextprotocol.io/schemas/draft/well-known-mcp.json",
         "name":        "emem",
         "version":     env!("CARGO_PKG_VERSION"),
-        "description": "Cite-able, content-addressed, signed Earth memory protocol. cell × band × tslot. Every read returns an ed25519 receipt. No API keys for L0/L1.",
+        "description": "Shared, verifiable memory for AI agents: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (meme:), so different models reason from the same world object, not divergent descriptions. Content-addressed and signed; every read returns an ed25519 receipt. No API keys for L0/L1.",
         "homepage":    "https://emem.dev",
         "documentation": format!("{origin}/agents.md"),
         "icon":        format!("{origin}/favicon.svg"),
@@ -3859,7 +3864,7 @@ async fn serve_example_gemini() -> Response {
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
         "description": format!(
-            "Verifiable memory substrate for AI agents. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (memb:<bundle_cid>), multi-attester contradiction scoring. No API keys."
+            "Shared, verifiable memory for AI agents that stops referential drift: one canonical, citeable identity per place, fact, and object (meme:<entity_cid>), so different models reason from the same world object. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (memb:<bundle_cid>), multi-attester contradiction scoring. No API keys."
         ),
         "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
         "license": "Apache-2.0",
@@ -5936,19 +5941,19 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "extended": emem_mcp::TOOLS.len() - core_count,
         "by_category": by_category,
         "list": "/v1/tools",
-        "mcp": "POST /mcp {\"method\":\"tools/list\"} returns all 85 tools by default; pass {\"tier\":\"core\"} for just the 10 essentials",
+        "mcp": format!("POST /mcp {{\"method\":\"tools/list\"}} returns all {} tools by default; pass {{\"tier\":\"core\"}} for just the {} essentials", emem_mcp::TOOLS.len(), core_count),
         "note": "Full descriptors (input_schema, when_to_use, annotations) at /v1/tools or via MCP tools/list. Summarized here to keep discovery token-cheap.",
     });
     Json(json!({
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
-        "purpose": "Agent-native, content-addressed memory of every place on Earth. Cite-able answers about places, signed receipts, token-economical addressing.",
+        "purpose": "Shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift. Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (meme:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt any agent verifies offline.",
         // Read this FIRST. The fastest path from zero to a signed answer.
         // `discover_first` below builds the full mental model; this block
         // is the 3-call shortcut a fresh agent should try before anything
         // else. Keep it machine-readable and small on purpose.
         "getting_started": {
-            "tldr": "One question → one signed answer: POST /v1/ask (free text) or POST /v1/intent (structured). Want control? locate → recall → verify_receipt.",
+            "tldr": "Give a thing one shared identity so agents do not drift: emem_entity (an object) or locate then recall (a place), then memory_token / memory_bundle to cite it, then resolve + verify_receipt so any other agent checks the identical signed object. One-shot geo answer: POST /v1/ask (free text) or POST /v1/intent (structured).",
             "fastest_path": {
                 "one_shot": {
                     "rest": "POST /v1/ask  {\"q\":\"what is the NDVI near Mount Fuji?\"}",
@@ -5963,10 +5968,16 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 ]
             },
             "first_call": "emem_ask",
-            "to_cite_a_fact": "Hand another agent / audit a `memt:` token from emem_memory_token (cell + fact_cid), or emem_memory_bundle for many; anyone verifies it offline at /verify or via emem_verify_receipt.",
+            "to_cite_a_fact": "Hand another agent a `memt:` token (one fact, from emem_memory_token), a `memb:` bundle (many facts, from emem_memory_bundle), or a `meme:` entity token (a whole object, from emem_entity). Any agent resolves it to the identical signed bytes and verifies offline at /verify or via emem_verify_receipt.",
             "full_mental_model": "Then walk `discover_first` (bands → materializers → algorithms → coverage_matrix → manifests)."
         },
         "trigger_phrases": [
+            "remember this place / fact / object so another agent can use it",
+            "give me a citeable handle for <thing>",
+            "what were we referring to when we said <thing>",
+            "is this the same <object> we discussed before",
+            "resolve this memt: / memb: / meme: token",
+            "do these sources agree about <place>",
             "what is at <place>",
             "tell me about this cell",
             "compare X and Y",
@@ -5997,7 +6008,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             { "pattern": "verify land tenure / FPIC / country-of-origin law compliance for an EUDR DDS", "reason": "EUDR Article 9(1)(b) legality verification is structurally out of Earth-observation scope. /v1/eudr_dds covers the geolocation + deforestation parts of Annex II only; pair with a partner legality module before submitting to TRACES NT." },
             { "pattern": "submit a Due Diligence Statement to the EU Information System on my behalf", "reason": "TRACES NT submission requires EU Login + EORI registration and is the operator's responsibility. /v1/eudr_dds produces the structured payload; the operator authenticates and submits." }
         ],
-        "primary_tools": ["emem_recall", "emem_state", "emem_memory_token", "emem_memory_token_resolve", "emem_compare", "emem_find_similar", "emem_diff", "emem_verify", "emem_ask", "emem_hunt"],
+        "primary_tools": ["emem_entity", "emem_entity_resolve", "emem_locate", "emem_recall", "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle", "emem_memory_contradictions", "emem_verify_receipt", "emem_ask"],
         // Order matters: bands → materializers → coverage_matrix builds
         // the agent's mental model in the right order. Bands declare
         // what *can* exist; materializers declare what auto-fetches on
@@ -14252,6 +14263,13 @@ fn iso8601_now_utc() -> String {
     emem_storage::server::iso8601_now()
 }
 
+/// The MCP `initialize.instructions` string — the first natural-language
+/// impression an MCP-connected model gets of emem. It states what emem is FOR
+/// (a shared identity layer that stops referential drift), names the primary
+/// mint -> cite -> resolve -> verify loop, and marks the raw fetchers as
+/// secondary populators. Keep it in sync with the `agent_card` purpose.
+const MCP_INSTRUCTIONS: &str = "emem is a shared, verifiable memory for AI agents: an external identity layer, not just a data source. Its job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (meme:<entity_cid>). Any agent can hand another a single token that resolves to the byte-identical signed object and verifies offline with no shared trust, so two models grounded on the same token reason about the same object rather than two paraphrases of it.\n\nPrimary loop, reach for these first:\n1. Name a thing. emem_entity mints or returns a canonical object identity (meme:) from a place, cell, or lat/lng. emem_entity_resolve converges a fuzzy phrasing onto an object another agent already registered, so you co-refer instead of re-inventing. emem_entity_link attests that two phrasings mean the same object.\n2. Ground a place. emem_locate returns the canonical cell64 for a place; emem_recall returns the signed facts there and auto-fetches on a miss.\n3. Cite it. emem_memory_token composes memt:<cell64>:<fact_cid> for one fact, emem_memory_bundle composes memb: for many. Hand the token to any agent or log it in an audit.\n4. Resolve and check. emem_memory_token_resolve and emem_entity_resolve dereference a handle back to the identical signed body; emem_verify_receipt (or /verify in a browser) checks the ed25519 receipt without trusting the server.\n5. Detect drift. emem_memory_contradictions surfaces where signed sources disagree at the same address.\nWrite durable agent notes with the memory_* file verbs and cite them the same way.\n\nEverything else (emem_ndvi, emem_weather, emem_soil, emem_elevation, emem_lst, emem_water, emem_forest, and the hunter and physics-solver tools) populates the memory with attested Earth-observation facts. Reach for those to ground a fact, not as the point of the system. Call tools/list with {\"tier\":\"core\"} for just the essentials. No API keys for reads.";
+
 async fn mcp_jsonrpc(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -14385,6 +14403,12 @@ async fn mcp_jsonrpc(
                 // because emem's resource and prompt sets are compiled in
                 // — they only change on a redeploy.
                 "capabilities": capabilities,
+                // The MCP-standard slot for "what I am / how to use me". This
+                // is the first natural-language impression an MCP-connected
+                // model gets, so it states what emem is FOR (shared identity /
+                // anti-drift), not just that it exists. Kept in sync with the
+                // agent_card `purpose` and the primary/secondary tool split.
+                "instructions": MCP_INSTRUCTIONS,
             }))
         }
         "tools/list" => {
@@ -15705,6 +15729,44 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        // Entity registry — content-addressed object identity (meme:).
+        "emem_entity" => {
+            let req: EntityMintReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_entity(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_entity_resolve" => {
+            // A `meme:` token dereferences directly; otherwise fuzzy-resolve.
+            if let Some(tok) = args.get("token").and_then(|v| v.as_str()) {
+                let tok = tok.to_string();
+                match get_entity(State(s.clone()), Path(tok)).await {
+                    Ok(Json(v)) => {
+                        Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?)
+                    }
+                    Err(e) => Err((-(e.1.code as i64), e.1.message)),
+                }
+            } else {
+                let req: EntityResolveReq =
+                    serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+                match post_entity_resolve(State(s.clone()), EmemJson(req)).await {
+                    Ok(Json(v)) => {
+                        Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?)
+                    }
+                    Err(e) => Err((-(e.1.code as i64), e.1.message)),
+                }
+            }
+        }
+        "emem_entity_link" => {
+            let req: EntityAliasReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_entity_alias(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         // Anthropic memory tool (context-management-2025-06-27).
         "memory_view" => {
             let req: MemoryViewReq =
@@ -16581,7 +16643,7 @@ async fn openapi() -> Json<JsonValue> {
         "info": {
             "title": "emem",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "Agent-native, content-addressed Earth memory protocol. Every read returns a signed receipt. cell × band × tslot.",
+            "description": "Shared, verifiable memory for AI agents: one canonical, citeable identity per place (cell64), observation (fact_cid), and object (meme:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt. cell × band × tslot.",
             "license": { "name": "Apache-2.0" }
         },
         "servers": servers,
@@ -16745,6 +16807,10 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token":      {"post":{"summary":"compose a memt:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token plus a docs link.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a memory token. Parses memt:<cell>:<fact_cid>, fetches the signed fact body by CID, returns the canonical body plus the offline-verify URL. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"memt:<cell64>:<fact_cid>"}}}}}},"responses":{"200":json_ok,"404":json_not_found}}},
+            "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (meme:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the canonical object other agents already minted (converge, do not re-mint), or dereference a meme: `token` directly to its signed body. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"meme:<entity_cid> to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/entity/alias":      {"post":{"summary":"Attest a signed equivalence: bind an alternate label or a stable external id (GERS/OSM/Wikidata) to an existing entity so future entity_resolve calls on that phrasing converge to the same entity_cid. Builds the shared reference graph.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/entity/{id}":       {"get":{"summary":"Dereference a canonical object by entity_cid or meme: token to its signed body, receipt, and recall hint. 404 with a typed code when this responder does not hold it.","operationId":"emem_entity_get","tags":["entity","identity"],"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"},"description":"entity_cid or meme:<entity_cid>"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
             "/v1/memory_contradictions":{"post":{"summary":"Scan the multi-attester index for (cell, band, tslot) triples where two or more attesters have signed disagreeing observations. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"Bytewise prefix filter on cell64 (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."}}}}}},"responses":{"200":json_ok}},
                                        "get":{"summary":"Same primitive as POST, exposed in query-string form for casual exploration. window_unix_s is split into window_lo + window_hi.","operationId":"emem_memory_contradictions_get","tags":["memory","contradiction-detection"],"parameters":[{"name":"cell_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string"}},{"name":"window_lo","in":"query","required":false,"schema":{"type":"integer"}},{"name":"window_hi","in":"query","required":false,"schema":{"type":"integer"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer"}},{"name":"min_severity","in":"query","required":false,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
@@ -19620,6 +19686,604 @@ async fn post_memory_bundle(
     }
 
     Ok(Json(resp))
+}
+
+// ── Entity registry (emem.entity.v1) ────────────────────────────────────
+// First-class, content-addressed, signed references to real-world objects.
+// The left half of the anti-drift story: `memt:`/`memb:` make a *value*
+// citeable; `meme:<entity_cid>` makes an *object* citeable, so two agents
+// co-refer to the same canonical thing instead of two paraphrases of it.
+// See emem_primitives::entity for the identity model. Purely additive over
+// the existing cell64 + memt/memb substrate — no existing path changes.
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct EntityMintReq {
+    /// Human label for the object ("Golden Gate Bridge"). Required.
+    label: String,
+    /// Object class (bridge, river, farm_plot, building, admin_division,
+    /// place, custom, …). Defaults to "place".
+    #[serde(default)]
+    kind: Option<String>,
+    /// Free-text place to anchor the object (geocoded). One of place / cell /
+    /// lat+lng is required.
+    #[serde(default)]
+    place: Option<String>,
+    /// A cell64 to anchor the object directly (no geocode).
+    #[serde(default)]
+    cell: Option<String>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
+    /// Caller-supplied stable external ids; merged with geocoder-derived
+    /// GERS/OSM (caller wins).
+    #[serde(default)]
+    external_ids: Option<emem_primitives::entity::ExternalIds>,
+    /// Optional parent entity_cid (containment).
+    #[serde(default)]
+    parent: Option<String>,
+}
+
+struct LocatedRich {
+    cell64: String,
+    point: [f64; 2],
+    bbox: Option<[f64; 4]>,
+    geojson: Option<JsonValue>,
+    gers: Option<String>,
+    osm: Option<String>,
+    #[allow(dead_code)]
+    label: Option<String>,
+    via: String,
+}
+
+fn entity_err(status: StatusCode, code: ErrorCode, message: impl Into<String>) -> ApiError {
+    ApiError(
+        status,
+        ErrorBody {
+            code,
+            message: message.into(),
+            details: None,
+        },
+    )
+}
+fn entity_bad_arg(message: impl Into<String>) -> ApiError {
+    entity_err(StatusCode::BAD_REQUEST, ErrorCode::InvalidArgument, message)
+}
+
+/// Pull the selected result's OSM id out of a locate body as `<type>/<id>`,
+/// normalizing photon's single-letter osm_type (W/N/R) and nominatim's full
+/// words to `way`/`node`/`relation`.
+fn entity_extract_osm(body: &JsonValue) -> Option<String> {
+    let alts = body.get("alternatives").and_then(|v| v.as_array())?;
+    let sel = alts
+        .iter()
+        .find(|a| {
+            a.get("is_selected")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        })
+        .or_else(|| alts.first())?;
+    let ty = sel.get("osm_type").and_then(|v| v.as_str())?;
+    let id = sel.get("osm_id").and_then(|v| {
+        v.as_str()
+            .map(String::from)
+            .or_else(|| v.as_i64().map(|n| n.to_string()))
+    })?;
+    let ty = match ty {
+        "W" | "way" => "way",
+        "N" | "node" => "node",
+        "R" | "relation" => "relation",
+        other => other,
+    };
+    Some(format!("{ty}/{id}"))
+}
+
+fn entity_extract_bbox(body: &JsonValue) -> Option<[f64; 4]> {
+    let b = body.get("polygon_bbox").or_else(|| body.get("bbox_deg"))?;
+    let g = |k: &str| b.get(k).and_then(|v| v.as_f64());
+    Some([g("min_lng")?, g("min_lat")?, g("max_lng")?, g("max_lat")?])
+}
+
+/// Resolve an entity anchor to a cell64 plus provenance (GERS/OSM/geometry).
+/// A bare cell64 is decoded to its centre without a geocode; otherwise the
+/// standard locate cascade runs (place or lat/lng).
+async fn entity_locate_rich(
+    place: Option<&str>,
+    lat: Option<f64>,
+    lng: Option<f64>,
+    cell: Option<&str>,
+) -> Result<LocatedRich, ApiError> {
+    if let Some(c) = cell {
+        if !emem_codec::is_cell64_shape(c) {
+            return Err(entity_bad_arg(format!(
+                "`cell` '{c}' is not a valid cell64 (4 dot-separated bigrams)"
+            )));
+        }
+        let ll = emem_codec::latlng_from_cell64(c)
+            .map_err(|_| entity_bad_arg(format!("cell64 '{c}' does not reverse-map to lat/lng")))?;
+        return Ok(LocatedRich {
+            cell64: c.to_string(),
+            point: [ll.lng_deg, ll.lat_deg],
+            bbox: None,
+            geojson: None,
+            gers: None,
+            osm: None,
+            label: None,
+            via: "cell64".to_string(),
+        });
+    }
+    if place.is_none() && (lat.is_none() || lng.is_none()) {
+        return Err(entity_bad_arg(
+            "provide `place`, or `lat`+`lng`, or a `cell` to anchor the entity",
+        ));
+    }
+    let lr = LocateReq {
+        lat,
+        lng,
+        place: place.map(|s| s.to_string()),
+    };
+    let resp =
+        match tokio::time::timeout(std::time::Duration::from_secs(12), locate_inner(lr)).await {
+            Ok(inner) => inner?,
+            Err(_) => {
+                return Err(entity_err(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    ErrorCode::NoGeocoderMatch,
+                    "resolving the entity anchor timed out (geocoder did not answer in 12 s); pass lat+lng or a cell64",
+                ))
+            }
+        };
+    let body = &resp.0;
+    let cell64 = body
+        .get("cell64")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            entity_err(
+                StatusCode::NOT_FOUND,
+                ErrorCode::NoGeocoderMatch,
+                "could not resolve the entity anchor to a cell64; pass lat+lng or a cell64",
+            )
+        })?
+        .to_string();
+    let point = {
+        let centre = body.get("centre");
+        let cla = centre
+            .and_then(|c| c.get("lat_deg"))
+            .and_then(|v| v.as_f64());
+        let clo = centre
+            .and_then(|c| c.get("lng_deg"))
+            .and_then(|v| v.as_f64());
+        match (cla, clo) {
+            (Some(a), Some(o)) => [o, a],
+            _ => {
+                let sla = body
+                    .pointer("/selected/lat")
+                    .and_then(|v| v.as_f64())
+                    .or(lat);
+                let slo = body
+                    .pointer("/selected/lng")
+                    .and_then(|v| v.as_f64())
+                    .or(lng);
+                match (sla, slo) {
+                    (Some(a), Some(o)) => [o, a],
+                    _ => match emem_codec::latlng_from_cell64(&cell64) {
+                        Ok(ll) => [ll.lng_deg, ll.lat_deg],
+                        Err(_) => [0.0, 0.0],
+                    },
+                }
+            }
+        }
+    };
+    let gers = body
+        .pointer("/overture_division/division_id")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let osm = entity_extract_osm(body);
+    let geojson = body
+        .get("polygon_geojson")
+        .cloned()
+        .filter(|v| !v.is_null());
+    let bbox = entity_extract_bbox(body);
+    let label = body
+        .get("place_label")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let via = body
+        .get("via")
+        .and_then(|v| v.as_str())
+        .unwrap_or("locate")
+        .to_string();
+    Ok(LocatedRich {
+        cell64,
+        point,
+        bbox,
+        geojson,
+        gers,
+        osm,
+        label,
+        via,
+    })
+}
+
+fn entity_alias_append(tree: &sled::Tree, key: &str, entity_cid: &str) {
+    let mut cids: Vec<String> = tree
+        .get(key.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_slice::<Vec<String>>(&v).ok())
+        .unwrap_or_default();
+    if !cids.iter().any(|c| c == entity_cid) {
+        cids.push(entity_cid.to_string());
+        if let Ok(buf) = serde_json::to_vec(&cids) {
+            let _ = tree.insert(key.as_bytes(), buf);
+        }
+    }
+}
+
+fn entity_alias_read(tree: &sled::Tree, key: &str) -> Vec<String> {
+    tree.get(key.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_slice::<Vec<String>>(&v).ok())
+        .unwrap_or_default()
+}
+
+fn entity_record_get(tree: &sled::Tree, entity_cid: &str) -> Option<JsonValue> {
+    tree.get(entity_cid.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_slice::<JsonValue>(&v).ok())
+}
+
+async fn post_entity(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<EntityMintReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    use emem_primitives::entity::{
+        alias_keys, compute_entity_cid, entity_token, normalize_text, Entity, EntityGeometry,
+        ENTITIES_TREE, ENTITY_ALIASES_TREE,
+    };
+    let started = std::time::Instant::now();
+    if req.label.trim().is_empty() {
+        return Err(entity_bad_arg("entity requires a non-empty `label`"));
+    }
+    let loc =
+        entity_locate_rich(req.place.as_deref(), req.lat, req.lng, req.cell.as_deref()).await?;
+
+    let mut ext = req.external_ids.clone().unwrap_or_default();
+    if ext.gers.is_none() {
+        ext.gers = loc.gers.clone();
+    }
+    if ext.osm.is_none() {
+        ext.osm = loc.osm.clone();
+    }
+
+    let kind = req
+        .kind
+        .as_deref()
+        .map(str::to_string)
+        .unwrap_or_else(|| "place".to_string());
+    let entity_cid = compute_entity_cid(&kind, &req.label, &loc.cell64, &ext);
+
+    let db = memory_db(&s)?;
+    let entities = db.open_tree(ENTITIES_TREE).map_err(|e| {
+        entity_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::CacheError,
+            format!("open {ENTITIES_TREE}: {e}"),
+        )
+    })?;
+
+    // Idempotent: a re-mint of the same canonical object returns the existing
+    // signed record instead of a second, differently-timestamped one.
+    if let Some(existing) = entity_record_get(&entities, &entity_cid) {
+        return Ok(Json(json!({
+            "created": false,
+            "entity_token": entity_token(&entity_cid),
+            "entity": existing.get("entity").cloned().unwrap_or(existing.clone()),
+            "receipt": existing.get("receipt").cloned(),
+            "recall_hint": format!("recall or ask at cell {} for signed facts about this object", loc.cell64),
+            "note": "existing canonical entity returned (idempotent). Cite meme:<entity_cid> so any agent resolves the identical object.",
+        })));
+    }
+
+    let entity = Entity {
+        schema: "emem.entity.v1".to_string(),
+        entity_cid: entity_cid.clone(),
+        kind: normalize_text(&kind),
+        label: req.label.clone(),
+        cell64: loc.cell64.clone(),
+        geometry: EntityGeometry {
+            point: loc.point,
+            bbox: loc.bbox,
+            geojson: loc.geojson.clone(),
+        },
+        external_ids: ext,
+        parent: req.parent.clone(),
+        resolved_via: loc.via.clone(),
+    };
+
+    // Sign the mint: the receipt attests the text->canonical-id resolution
+    // decision (over the anchor cell), so the reference-minting act is itself
+    // citeable and offline-verifiable, not an unsigned convenience resolve.
+    let receipt = s.sign_receipt(
+        "emem.entity",
+        vec![entity.cell64.clone()],
+        vec![],
+        false,
+        started,
+        Some(entity_cid.clone()),
+    );
+
+    let record = json!({
+        "entity": &entity,
+        "receipt": &receipt,
+        "minted_at": receipt.served_at,
+    });
+    entities
+        .insert(
+            entity_cid.as_bytes(),
+            serde_json::to_vec(&record).unwrap_or_default(),
+        )
+        .map_err(|e| {
+            entity_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::CacheError,
+                format!("persist entity: {e}"),
+            )
+        })?;
+    let _ = entities.flush();
+
+    if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
+        for k in alias_keys(&entity) {
+            entity_alias_append(&aliases, &k, &entity_cid);
+        }
+        let _ = aliases.flush();
+    }
+
+    // Tell the agent how strong this object's convergence is, so a weak
+    // (label-based) identity is not mistaken for a coordination-free one.
+    let convergence = match entity.external_ids.best() {
+        Some(anchor) => format!(
+            "strong: identity is anchored on {anchor}, so any agent that resolves this object to the same id mints the same entity_cid with no coordination"
+        ),
+        None => "weak: no stable external id (GERS/OSM) was available for this anchor (e.g. a locate cache hit), so identity is label-based and will not auto-converge with a differently-phrased mint. Before minting the same object elsewhere, call POST /v1/entity/resolve with `near` to reuse this one, or pass `external_ids`.".to_string(),
+    };
+    Ok(Json(json!({
+        "created": true,
+        "entity_token": entity_token(&entity_cid),
+        "entity": entity,
+        "receipt": receipt,
+        "convergence": convergence,
+        "recall_hint": format!("recall or ask at cell {} for signed facts about this object", loc.cell64),
+        "offline_verify_at": "/verify",
+        "note": "Canonical object minted. Hand meme:<entity_cid> to any agent/LLM; entity_resolve converges divergent phrasings onto this same id.",
+    })))
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct EntityResolveReq {
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    /// Optional place/cell to narrow to objects anchored nearby.
+    #[serde(default)]
+    near: Option<String>,
+    #[serde(default)]
+    k: Option<usize>,
+}
+
+async fn post_entity_resolve(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<EntityResolveReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    use emem_primitives::entity::{
+        alias_lookup_key, entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
+    };
+    let q = req
+        .text
+        .clone()
+        .or_else(|| req.label.clone())
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| entity_bad_arg("entity_resolve requires `text` (or `label`)"))?;
+    let key = alias_lookup_key(&q);
+    let k = req.k.unwrap_or(10).clamp(1, 100);
+
+    let db = memory_db(&s)?;
+    let aliases = db.open_tree(ENTITY_ALIASES_TREE).map_err(|e| {
+        entity_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::CacheError,
+            format!("open aliases: {e}"),
+        )
+    })?;
+
+    let mut cids: Vec<String> = entity_alias_read(&aliases, &key);
+    let near_cell = if let Some(near) = req.near.as_deref().filter(|s| !s.trim().is_empty()) {
+        let (cell, _) = resolve_cell_field(near).await?;
+        for c in entity_alias_read(&aliases, &format!("cell:{cell}")) {
+            if !cids.contains(&c) {
+                cids.push(c);
+            }
+        }
+        Some(cell)
+    } else {
+        None
+    };
+
+    let entities = db.open_tree(ENTITIES_TREE).map_err(|e| {
+        entity_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::CacheError,
+            format!("open entities: {e}"),
+        )
+    })?;
+    let mut candidates = Vec::new();
+    for cid in cids.iter().take(k) {
+        if let Some(rec) = entity_record_get(&entities, cid) {
+            candidates.push(json!({
+                "entity_token": entity_token(cid),
+                "entity": rec.get("entity").cloned().unwrap_or(rec),
+            }));
+        }
+    }
+
+    let note = if candidates.is_empty() {
+        "no existing entity matched; mint one with POST /v1/entity so other agents converge on the same canonical id"
+    } else {
+        "cite a candidate's entity_token (meme:) so any agent resolves the identical object"
+    };
+    Ok(Json(json!({
+        "query": q,
+        "match_key": key,
+        "near_cell": near_cell,
+        "count": candidates.len(),
+        "candidates": candidates,
+        "note": note,
+    })))
+}
+
+async fn get_entity(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<JsonValue>, ApiError> {
+    use emem_primitives::entity::{entity_token, parse_entity_token, ENTITIES_TREE};
+    let cid = if id.starts_with("meme:") {
+        parse_entity_token(&id).map_err(entity_bad_arg)?
+    } else {
+        id
+    };
+    let db = memory_db(&s)?;
+    let entities = db.open_tree(ENTITIES_TREE).map_err(|e| {
+        entity_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::CacheError,
+            format!("open entities: {e}"),
+        )
+    })?;
+    let rec = entity_record_get(&entities, &cid).ok_or_else(|| {
+        entity_err(
+            StatusCode::NOT_FOUND,
+            ErrorCode::CidNotFound,
+            format!("no entity {cid} on this responder; mint it with POST /v1/entity or resolve at a mirror"),
+        )
+    })?;
+    let cell = rec
+        .pointer("/entity/cell64")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok(Json(json!({
+        "resolved": true,
+        "entity_token": entity_token(&cid),
+        "entity": rec.get("entity").cloned(),
+        "receipt": rec.get("receipt").cloned(),
+        "minted_at": rec.get("minted_at").cloned(),
+        "recall_hint": format!("recall or ask at cell {cell} for signed facts about this object"),
+        "offline_verify_at": "/verify",
+    })))
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct EntityAliasReq {
+    #[serde(default)]
+    entity_cid: Option<String>,
+    #[serde(default)]
+    entity_token: Option<String>,
+    #[serde(default)]
+    alias: Option<String>,
+    #[serde(default)]
+    external_ids: Option<emem_primitives::entity::ExternalIds>,
+}
+
+async fn post_entity_alias(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<EntityAliasReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    use emem_primitives::entity::{
+        alias_lookup_key, entity_token, parse_entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
+    };
+    let started = std::time::Instant::now();
+    let cid = req
+        .entity_cid
+        .clone()
+        .or_else(|| {
+            req.entity_token
+                .as_deref()
+                .and_then(|t| parse_entity_token(t).ok())
+        })
+        .ok_or_else(|| entity_bad_arg("provide `entity_cid` or `entity_token`"))?;
+
+    let db = memory_db(&s)?;
+    let entities = db.open_tree(ENTITIES_TREE).map_err(|e| {
+        entity_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::CacheError,
+            format!("open entities: {e}"),
+        )
+    })?;
+    let rec = entity_record_get(&entities, &cid).ok_or_else(|| {
+        entity_err(
+            StatusCode::NOT_FOUND,
+            ErrorCode::CidNotFound,
+            format!("no entity {cid} to alias on this responder"),
+        )
+    })?;
+    let cell = rec
+        .pointer("/entity/cell64")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let mut keys: Vec<String> = Vec::new();
+    if let Some(a) = req.alias.as_deref().filter(|s| !s.trim().is_empty()) {
+        let k = alias_lookup_key(a);
+        if !k.is_empty() {
+            keys.push(k);
+        }
+    }
+    if let Some(ext) = &req.external_ids {
+        if let Some(g) = ext.gers.as_deref().filter(|s| !s.trim().is_empty()) {
+            keys.push(format!("gers:{}", g.trim()));
+        }
+        if let Some(o) = ext.osm.as_deref().filter(|s| !s.trim().is_empty()) {
+            keys.push(format!("osm:{}", o.trim()));
+        }
+        if let Some(w) = ext.wikidata.as_deref().filter(|s| !s.trim().is_empty()) {
+            keys.push(format!("wikidata:{}", w.trim()));
+        }
+    }
+    if keys.is_empty() {
+        return Err(entity_bad_arg(
+            "provide at least one `alias` string or `external_ids` to attach",
+        ));
+    }
+
+    let receipt = s.sign_receipt(
+        "emem.entity_alias",
+        vec![cell.clone()],
+        vec![],
+        false,
+        started,
+        Some(cid.clone()),
+    );
+
+    if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
+        for k in &keys {
+            entity_alias_append(&aliases, k, &cid);
+        }
+        let _ = aliases.flush();
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "entity_cid": cid,
+        "entity_token": entity_token(&cid),
+        "aliases_added": keys,
+        "receipt": receipt,
+        "note": "Equivalence recorded + signed. entity_resolve on any added alias now converges to this canonical object.",
+    })))
 }
 
 async fn get_memory_bundle(
@@ -42865,6 +43529,54 @@ async fn post_explain(
     }
 }
 
+/// True when a question is about emem itself rather than a place. Kept to a
+/// short set of strong self-referential phrases so a real place question
+/// ("what is the elevation at ...") never trips it.
+fn is_meta_self_question(q: &str) -> bool {
+    let l = q.trim().to_lowercase();
+    const NEEDLES: &[&str] = &[
+        "what is emem",
+        "what's emem",
+        "what is this server",
+        "what are you",
+        "who are you",
+        "how do i use you",
+        "how do i use emem",
+        "how to use emem",
+        "how should i use you",
+        "how should i use emem",
+        "what can you do",
+        "what do you do",
+        "how do you work",
+        "what is memt",
+        "what is a meme:",
+        "use you as memory",
+        "use emem as memory",
+        "what is your purpose",
+    ];
+    NEEDLES.iter().any(|n| l.contains(n))
+}
+
+/// The structured self-description returned for a meta question. Mirrors the
+/// MCP `initialize.instructions` thesis so every entry point tells one story.
+fn emem_self_describe() -> JsonValue {
+    json!({
+        "schema": "emem.self_describe.v1",
+        "summary": "emem is a shared, verifiable memory for AI agents: a vendor-neutral identity layer that stops referential drift. Every place, fact, and object gets one canonical, citeable, content-addressed identity that any agent resolves to the identical signed bytes, so different models reason from the same world object instead of divergent descriptions.",
+        "primary_loop": {
+            "1_name_a_thing": "emem_entity mints or returns a canonical object identity (meme:<entity_cid>); emem_entity_resolve converges a fuzzy phrasing onto one another agent already registered; emem_entity_link attests two phrasings mean the same object.",
+            "2_ground_a_place": "emem_locate returns the canonical cell64; emem_recall returns the signed facts there (auto-fetches on a miss).",
+            "3_cite_it": "emem_memory_token composes memt:<cell64>:<fact_cid> for one fact; emem_memory_bundle composes memb: for many.",
+            "4_resolve_and_verify": "emem_memory_token_resolve and emem_entity_resolve dereference a handle back to the identical signed body; emem_verify_receipt (or /verify) checks the ed25519 receipt without trusting the server.",
+            "5_detect_drift": "emem_memory_contradictions surfaces where signed sources disagree at the same address."
+        },
+        "populators": "The Earth-observation tools (ndvi, weather, soil, elevation, lst, water, forest, the hunter and physics solvers) fill the memory with attested facts. Reach for them to ground a fact, not as the point of the system.",
+        "trust": "No API keys for reads. Every read returns an ed25519 receipt verifiable offline at /verify.",
+        "docs": "https://emem.dev/spec.md",
+        "tools": "POST /mcp {\"method\":\"tools/list\"} (pass {\"tier\":\"core\"} for just the essentials), or GET /v1/agent_card."
+    })
+}
+
 async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
@@ -42875,6 +43587,15 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 details: None,
             },
         ));
+    }
+    // Self-describe short-circuit. A meta question about emem itself ("what
+    // are you", "how do I use you as memory") must not be geocoded into a
+    // greedy place grab; answer with what emem is and the primary loop. Only
+    // when the caller pinned no explicit location.
+    if !(req.cell.is_some() || req.lat.is_some() || req.lng.is_some() || req.place.is_some())
+        && is_meta_self_question(&req.q)
+    {
+        return Ok(emem_self_describe());
     }
     // Did the CALLER pin a location, or are we about to greedily extract one
     // from the question text? Captured before any lat/lng/place promotion
