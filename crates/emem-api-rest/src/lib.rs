@@ -1052,6 +1052,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/log/sth", get(get_log_sth))
         .route("/v1/log/inclusion", get(get_log_inclusion))
         .route("/v1/log/consistency", get(get_log_consistency))
+        .route("/v1/log/witness", post(post_log_witness))
+        .route("/v1/log/witnesses", get(get_log_witnesses))
         // Introspection
         .route("/v1/manifests", get(manifests))
         .route(
@@ -5934,7 +5936,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "extended": emem_mcp::TOOLS.len() - core_count,
         "by_category": by_category,
         "list": "/v1/tools",
-        "mcp": "POST /mcp {\"method\":\"tools/list\"} returns all 81 tools by default; pass {\"tier\":\"core\"} for just the 10 essentials",
+        "mcp": "POST /mcp {\"method\":\"tools/list\"} returns all 85 tools by default; pass {\"tier\":\"core\"} for just the 10 essentials",
         "note": "Full descriptors (input_schema, when_to_use, annotations) at /v1/tools or via MCP tools/list. Summarized here to keep discovery token-cheap.",
     });
     Json(json!({
@@ -12886,6 +12888,241 @@ async fn get_log_consistency(
     })))
 }
 
+// ── Witness co-signing (P3) ────────────────────────────────────────────
+//
+// A witness is an independent party that fetches the log's signed tree
+// head, checks it (append-only vs. what it last saw), and — if satisfied —
+// counter-signs the `(tree_size, root)` claim under its own ed25519 key.
+// Recorded co-signatures let a client detect split-view equivocation: if a
+// witness co-signed a different root at the same size than the one the
+// client was served, the responder equivocated. The responder records a
+// co-signature only after verifying (a) the signature and (b) that the
+// root matches its own history at that size — it will not vouch for a root
+// it cannot reproduce.
+
+/// Domain for the witness co-signature preimage. The witness signs
+/// `PreimageV1("emem.translog.witness.v1"){1:u64_be tree_size, 2:root,
+/// 3:witness_pubkey}` — deliberately independent of the responder's STH
+/// `signed_at`, so the claim is purely "at size N I saw root R".
+const TRANSLOG_WITNESS_DOMAIN: &str = "emem.translog.witness.v1";
+/// sled tree holding witness co-signatures.
+const TREE_LOG_WITNESSES: &str = "emem.log_witnesses";
+
+/// The 32-byte preimage a witness signs to co-sign a tree head.
+fn witness_preimage(tree_size: u64, root: &[u8; 32], witness_pk: &[u8; 32]) -> [u8; 32] {
+    let mut pb = emem_attest::PreimageV1::new(TRANSLOG_WITNESS_DOMAIN);
+    pb.seg(1, &tree_size.to_be_bytes());
+    pb.seg(2, root);
+    pb.seg(3, witness_pk);
+    pb.finalize()
+}
+
+fn b32_decode_n<const N: usize>(s: &str) -> Option<[u8; N]> {
+    let v = data_encoding::BASE32_NOPAD
+        .decode(s.to_uppercase().as_bytes())
+        .ok()?;
+    if v.len() != N {
+        return None;
+    }
+    let mut out = [0u8; N];
+    out.copy_from_slice(&v);
+    Some(out)
+}
+
+#[derive(Deserialize)]
+struct WitnessSubmitReq {
+    tree_size: u64,
+    root_b32: String,
+    witness_pubkey_b32: String,
+    signature_b32: String,
+}
+
+/// `POST /v1/log/witness` — record a witness co-signature over a
+/// `(tree_size, root)` tree-head claim.
+async fn post_log_witness(
+    State(s): State<AppState>,
+    Json(req): Json<WitnessSubmitReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let pk = b32_decode_n::<32>(&req.witness_pubkey_b32)
+        .ok_or_else(|| translog_bad_arg("witness_pubkey_b32 must be base32-nopad of 32 bytes"))?;
+    let sig = b32_decode_n::<64>(&req.signature_b32)
+        .ok_or_else(|| translog_bad_arg("signature_b32 must be base32-nopad of 64 bytes"))?;
+    let root = b32_decode_n::<32>(&req.root_b32)
+        .ok_or_else(|| translog_bad_arg("root_b32 must be base32-nopad of 32 bytes"))?;
+
+    // The responder will not vouch for a root it cannot reproduce: check
+    // the claimed root against its own history at that size first.
+    let leaves = read_translog_leaves(&s)?;
+    let n = leaves.len() as u64;
+    if req.tree_size == 0 || req.tree_size > n {
+        return Err(translog_bad_arg(format!(
+            "tree_size {} out of range (current log size is {n})",
+            req.tree_size
+        )));
+    }
+    let own_root = emem_attest::translog::merkle_tree_hash(&leaves[..req.tree_size as usize]);
+    if own_root != root {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "root_b32 does not match this responder's history at tree_size {}: this responder computes {}. A co-signature is only recorded for a root the responder can reproduce.",
+                    req.tree_size,
+                    b32_lower(&own_root)
+                ),
+                details: Some(json!({
+                    "code": "witness_root_mismatch",
+                    "tree_size": req.tree_size,
+                    "responder_root_b32": b32_lower(&own_root),
+                    "submitted_root_b32": req.root_b32,
+                })),
+            },
+        ));
+    }
+
+    // Verify the witness signature over the canonical witness preimage.
+    let preimage = witness_preimage(req.tree_size, &root, &pk);
+    let vk = ed25519_dalek::VerifyingKey::from_bytes(&pk).map_err(|_| {
+        ApiError(
+            StatusCode::UNAUTHORIZED,
+            ErrorBody {
+                code: ErrorCode::BadSignature,
+                message: "witness_pubkey_b32 is not a valid ed25519 key".into(),
+                details: None,
+            },
+        )
+    })?;
+    let signature = ed25519_dalek::Signature::from_bytes(&sig);
+    if vk.verify_strict(&preimage, &signature).is_err() {
+        return Err(ApiError(
+            StatusCode::UNAUTHORIZED,
+            ErrorBody {
+                code: ErrorCode::BadSignature,
+                message: "signature_b32 does not verify over PreimageV1(\"emem.translog.witness.v1\"){tree_size, root, witness_pubkey} under witness_pubkey_b32".into(),
+                details: None,
+            },
+        ));
+    }
+
+    // Persist: key = tree_size_be(8) || pubkey(32) so a range scan can list
+    // every witness at a given size, and a witness re-submitting the same
+    // size overwrites (idempotent).
+    let db = memory_db(&s)?;
+    let tree = db.open_tree(TREE_LOG_WITNESSES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open {TREE_LOG_WITNESSES}: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let mut key = Vec::with_capacity(40);
+    key.extend_from_slice(&req.tree_size.to_be_bytes());
+    key.extend_from_slice(&pk);
+    let cosigned_at = chrono_iso8601_utc();
+    let val = json!({
+        "root_b32": req.root_b32,
+        "signature_b32": req.signature_b32,
+        "cosigned_at": cosigned_at,
+    });
+    let val_bytes = serde_json::to_vec(&val).unwrap_or_default();
+    tree.insert(key, val_bytes).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("persist witness co-signature: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let _ = tree.flush();
+
+    Ok(Json(json!({
+        "ok": true,
+        "recorded": true,
+        "tree_size": req.tree_size,
+        "root_b32": req.root_b32,
+        "witness_pubkey_b32": req.witness_pubkey_b32,
+        "cosigned_at": cosigned_at,
+    })))
+}
+
+/// `GET /v1/log/witnesses` — list recorded witness co-signatures. Optional
+/// `?tree_size=<n>` filters to one size. Each entry is independently
+/// verifiable offline (ed25519 over the witness preimage).
+async fn get_log_witnesses(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let current = read_translog_leaves(&s)?.len();
+    let db = memory_db(&s)?;
+    let tree = db.open_tree(TREE_LOG_WITNESSES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open {TREE_LOG_WITNESSES}: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let size_filter: Option<u64> = match q.get("tree_size") {
+        Some(v) => Some(
+            v.parse()
+                .map_err(|_| translog_bad_arg("tree_size must be a non-negative integer"))?,
+        ),
+        None => None,
+    };
+    let mut out: Vec<JsonValue> = Vec::new();
+    for kv in tree.iter() {
+        let (k, v) = match kv {
+            Ok(x) => x,
+            Err(_) => continue,
+        };
+        if k.len() != 40 {
+            continue;
+        }
+        let ts = u64::from_be_bytes(k[..8].try_into().unwrap_or([0u8; 8]));
+        if let Some(want) = size_filter {
+            if ts != want {
+                continue;
+            }
+        }
+        let pk_b32 = b32_lower(&k[8..40]);
+        let body: JsonValue = serde_json::from_slice(&v).unwrap_or(json!({}));
+        out.push(json!({
+            "tree_size": ts,
+            "witness_pubkey_b32": pk_b32,
+            "root_b32": body.get("root_b32"),
+            "signature_b32": body.get("signature_b32"),
+            "cosigned_at": body.get("cosigned_at"),
+        }));
+    }
+    // Deterministic order: by tree_size then witness pubkey.
+    out.sort_by(|a, b| {
+        let ta = a["tree_size"].as_u64().unwrap_or(0);
+        let tb = b["tree_size"].as_u64().unwrap_or(0);
+        ta.cmp(&tb).then_with(|| {
+            a["witness_pubkey_b32"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["witness_pubkey_b32"].as_str().unwrap_or(""))
+        })
+    });
+    Ok(Json(json!({
+        "current_tree_size": current,
+        "count": out.len(),
+        "witnesses": out,
+        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see.",
+        "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
+        "preimage": "PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}"
+    })))
+}
+
 /// CID shape gate. Real fact CIDs are 26-58 chars of base32-nopad-lowercase
 /// (a-z + digits 2-7). Anything containing `$`, `{`, `<`, `[`, `(`,
 /// space, or comma is an un-interpolated placeholder a misbehaving
@@ -14151,7 +14388,7 @@ async fn mcp_jsonrpc(
             }))
         }
         "tools/list" => {
-            // Return the FULL catalog (all 81 tools) by default — that is what
+            // Return the FULL catalog (all 85 tools) by default — that is what
             // a standard MCP client expects from a no-param tools/list, and
             // most hosts do not follow a non-standard nextCursor, so a
             // core-only default left 70 tools undiscoverable. Token-conscious
@@ -15105,6 +15342,25 @@ fn mcp_render_prompt(name: &str, args: &JsonValue) -> Result<JsonValue, (i64, St
     }))
 }
 
+/// Flatten MCP `arguments` (a JSON object) into the `HashMap<String,String>`
+/// shape the query-string GET handlers extract, so a GET tool can be
+/// dispatched from a `tools/call`. Numbers stringify without quotes
+/// (`1000`), strings pass through, and null/absent keys are dropped.
+fn mcp_args_to_query(args: &JsonValue) -> std::collections::HashMap<String, String> {
+    let mut m = std::collections::HashMap::new();
+    if let Some(obj) = args.as_object() {
+        for (k, v) in obj {
+            let s = match v {
+                JsonValue::String(s) => s.clone(),
+                JsonValue::Null => continue,
+                other => other.to_string(),
+            };
+            m.insert(k.clone(), s);
+        }
+    }
+    m
+}
+
 async fn mcp_tool_call(
     name: &str,
     mut args: JsonValue,
@@ -15621,6 +15877,29 @@ async fn mcp_tool_call(
             let req: VerifyReceiptReq = serde_json::from_value(args)
                 .map_err(|e| (-32602, verify_receipt_shape_hint(&e.to_string())))?;
             match post_verify_receipt(State(s.clone()), Ok(Json(req))).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        // ── Transparency log (RFC 6962) read tools ──────────────────
+        "emem_log_sth" => match get_log_sth(State(s.clone())).await {
+            Ok(Json(v)) => Ok(v),
+            Err(e) => Err((-(e.1.code as i64), e.1.message)),
+        },
+        "emem_log_inclusion" => {
+            match get_log_inclusion(State(s.clone()), Query(mcp_args_to_query(&args))).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_log_consistency" => {
+            match get_log_consistency(State(s.clone()), Query(mcp_args_to_query(&args))).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_log_witnesses" => {
+            match get_log_witnesses(State(s.clone()), Query(mcp_args_to_query(&args))).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -16319,6 +16598,11 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/functions":         {"get":{"summary":"function registry","operationId":"emem_functions","responses":{"200":json_ok}}},
             "/v1/sources":           {"get":{"summary":"source registry","operationId":"emem_sources","responses":{"200":json_ok}}},
             "/v1/errors":            {"get":{"summary":"error code catalog","operationId":"emem_errors","responses":{"200":json_ok}}},
+            "/v1/log/sth":           {"get":{"summary":"transparency log: signed tree head (RFC 6962) over the append-only attestation log. {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}; ed25519 over PreimageV1(\"emem.translog.sth.v1\"). Pin it, then re-check /v1/log/consistency to prove the log only grew.","operationId":"emem_log_sth","responses":{"200":json_ok}}},
+            "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under the current signed tree head. Pass leaf_index=<i> or entry_hash=<base32 of the record blake3>. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}}],"responses":{"200":json_ok}}},
+            "/v1/log/consistency":   {"get":{"summary":"transparency log: RFC 6962 consistency proof that the tree of size `first` is an append-only prefix of size `second` (defaults to the current tree size). Verify offline with translog::verify_consistency against the first_root you pinned; a mismatch means the log rewrote history.","operationId":"emem_log_consistency","parameters":[{"name":"first","in":"query","required":true,"schema":{"type":"integer","minimum":1}},{"name":"second","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
+            "/v1/log/witnesses":     {"get":{"summary":"transparency log: witness co-signatures recorded for the current signed tree head — independent parties that counter-signed (tree_size, root), so a client can detect split-view equivocation. Empty until witnesses submit via POST /v1/log/witness.","operationId":"emem_log_witnesses","responses":{"200":json_ok}}},
+            "/v1/log/witness":       {"post":{"summary":"transparency log: submit a witness ed25519 co-signature over a (tree_size, root) tree-head claim. The responder verifies the signature AND that the root matches its own history at that size before recording it. Preimage: PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}.","operationId":"emem_log_witness","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tree_size","root_b32","witness_pubkey_b32","signature_b32"],"properties":{"tree_size":{"type":"integer","minimum":1},"root_b32":{"type":"string"},"witness_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/topics":            {"get":{"summary":"topic-grouped band + algorithm registry (single source of truth shared with `/v1/locate`'s `data_at_this_cell` block)","operationId":"emem_topics","responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"per-key drill-down on a single algorithm (formula, inputs, citation) — pair with /v1/algorithms's catalog","operationId":"emem_explain_algorithm","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","responses":{"200":json_ok}}},
@@ -50662,6 +50946,32 @@ mod tests {
         // Directory listing requires the trailing slash.
         assert!(validate_memory_path("/memories/", true).is_ok());
         assert!(validate_memory_path("/memories/", false).is_err());
+    }
+
+    #[test]
+    fn witness_preimage_signs_and_verifies() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pk = sk.verifying_key();
+        let pk_bytes: [u8; 32] = pk.to_bytes();
+        let root = [0x11u8; 32];
+        let tree_size = 12_345u64;
+        let preimage = witness_preimage(tree_size, &root, &pk_bytes);
+        let sig = sk.sign(&preimage);
+        assert!(pk.verify_strict(&preimage, &sig).is_ok());
+        // A different root (equivocation) yields a different preimage, so
+        // the co-signature no longer verifies — the binding is to the exact
+        // (tree_size, root) pair.
+        let forked = witness_preimage(tree_size, &[0x22u8; 32], &pk_bytes);
+        assert!(pk.verify_strict(&forked, &sig).is_err());
+        // A different tree_size likewise breaks it.
+        let resized = witness_preimage(tree_size + 1, &root, &pk_bytes);
+        assert!(pk.verify_strict(&resized, &sig).is_err());
+        // base32 helper round-trips and rejects malformed input.
+        let b32 = data_encoding::BASE32_NOPAD.encode(&pk_bytes).to_lowercase();
+        assert_eq!(b32_decode_n::<32>(&b32), Some(pk_bytes));
+        assert!(b32_decode_n::<32>("not-valid-base32!").is_none());
+        assert!(b32_decode_n::<64>(&b32).is_none()); // wrong length
     }
 
     #[test]

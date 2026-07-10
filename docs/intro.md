@@ -41,7 +41,7 @@ This site renders the canonical docs straight from the repo at `docs/`. Every pa
 The same content surfaces are reachable to agents via:
 
 - `GET /openapi.json`: full REST surface (browseable at [/docs/api/](/docs/api/) via ReDoc)
-- `POST /mcp` `tools/list` returns all 81 MCP tools (10 core, 71 extended) by default; `{"tier":"core"}` narrows to the 10 essentials
+- `POST /mcp` `tools/list` returns all 85 MCP tools (10 core, 75 extended) by default; `{"tier":"core"}` narrows to the 10 essentials
 - `POST /mcp` `resources/list`: 18 resources + 8 URI templates (memory anchors include `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`)
 - `GET /llms.txt`, `GET /humans/llms.txt`, `GET /skills.md`
 - `GET /agent.json`, `GET /ai-plugin.json`

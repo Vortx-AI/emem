@@ -660,6 +660,22 @@ const SCHEMA_VERIFY_RECEIPT: &str = r#"{"type":"object","required":["receipt"],"
 "pubkey_b32":{"type":"string","description":"Optional explicit responder pubkey (base32). When omitted, uses the receipt's embedded pubkey/responder fields."}
 }}"#;
 
+const SCHEMA_LOG_STH: &str = r#"{"type":"object","properties":{}}"#;
+
+const SCHEMA_LOG_INCLUSION: &str = r#"{"type":"object","properties":{
+"leaf_index":{"type":"integer","minimum":0,"description":"Zero-based position of the entry in the append-only log."},
+"entry_hash":{"type":"string","description":"Alternative to leaf_index: base32-nopad of the record's 32-byte blake3."}
+}}"#;
+
+const SCHEMA_LOG_CONSISTENCY: &str = r#"{"type":"object","required":["first"],"properties":{
+"first":{"type":"integer","minimum":1,"description":"Earlier tree size (the STH you pinned)."},
+"second":{"type":"integer","minimum":1,"description":"Later tree size. Defaults to the current tree size."}
+}}"#;
+
+const SCHEMA_LOG_WITNESSES: &str = r#"{"type":"object","properties":{
+"tree_size":{"type":"integer","minimum":0,"description":"Optional filter: only co-signatures recorded at this tree size."}
+}}"#;
+
 /// Normative tool inventory, with rich agent-facing metadata.
 pub const TOOLS: &[ToolDescriptor] = &[
     // ── Geocoder (must be first — every other primitive needs cell64) ──
@@ -1586,6 +1602,52 @@ pub const TOOLS: &[ToolDescriptor] = &[
         level: "L0", category: ToolCategory::Plan,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
+    },
+
+    // ── Transparency log (RFC 6962) ──────────────────────────────────
+    ToolDescriptor {
+        name: "emem_log_sth",
+        title: "Transparency log signed tree head",
+        description: "Fetch the responder-signed tree head (STH) over the whole append-only attestation log: {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}. The signature is ed25519 over a domain-separated preimage, verifiable offline.",
+        when_to_use: "Call to pin a cryptographic commitment to the log's current state. Save the STH, then later call emem_log_consistency to prove the log only grew (append-only) — a mismatch means the responder rewrote history. No arguments.",
+        input_schema: SCHEMA_LOG_STH,
+        example_args: r#"{}"#,
+        level: "L1", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_log_inclusion",
+        title: "Transparency log inclusion proof",
+        description: "Return an RFC 6962 inclusion (audit) proof that a log entry is committed under the current signed tree head. Verify offline: the audit path re-derives the STH root from the entry's leaf hash.",
+        when_to_use: "Call to prove a specific log entry is in the log. Pass `leaf_index` (0-based position) or `entry_hash` (base32 of the record's blake3). Returns the audit path plus the STH to check it against.",
+        input_schema: SCHEMA_LOG_INCLUSION,
+        example_args: r#"{"leaf_index":0}"#,
+        level: "L1", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_log_consistency",
+        title: "Transparency log consistency proof",
+        description: "Return an RFC 6962 consistency proof that the tree of size `first` is an append-only prefix of size `second` (defaults to the current size). This is the append-only guarantee: it catches a responder that rewrites or forks history.",
+        when_to_use: "Call with `first` = the tree_size of an STH you pinned earlier. Verify the returned proof offline against that STH's root; if the first_root does not match what you pinned, the log rewrote history.",
+        input_schema: SCHEMA_LOG_CONSISTENCY,
+        example_args: r#"{"first":1000}"#,
+        level: "L1", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_log_witnesses",
+        title: "Transparency log witness co-signatures",
+        description: "List witness co-signatures recorded for tree heads — independent parties that counter-signed a (tree_size, root) claim under their own ed25519 key. Co-signatures let a client detect split-view equivocation. Empty until witnesses submit (submission is a signed write, done off-MCP via POST /v1/log/witness).",
+        when_to_use: "Call to see who has independently vouched for the log's history. For each co-signature, verify it offline, then call emem_log_consistency from that witness's tree_size to the current size to confirm the log the witness saw is a prefix of the log you see. Optional `tree_size` filter.",
+        input_schema: SCHEMA_LOG_WITNESSES,
+        example_args: r#"{}"#,
+        level: "L1", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
     },
 ];
 
