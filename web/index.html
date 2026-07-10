@@ -954,14 +954,13 @@ input[type=text],input[type=search],input[type=email],input[type=url],input[type
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
 </style>
-<link rel="stylesheet" href="/maplibre-gl.css">
 </head>
 <body>
 
 <header class="statusbar">
   <div class="statusbar-inner">
     <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
-    <a href="#map" class="nav-sec">the map</a>
+    <a href="#hero" class="nav-sec">the token</a>
     <a href="#address" class="nav-sec">address</a>
     <a href="#fact" class="nav-sec">signed fact</a>
     <a href="#consensus" class="nav-sec">consensus</a>
@@ -977,291 +976,183 @@ input::placeholder{color:var(--mute,#7a7363)}
   </div>
 </header>
 
-<!-- ===================== HERO: the living map ===================== -->
-<section class="earth-hero" id="map" aria-label="interactive map of Earth's memory">
-  <div class="atlas-map" id="atlas-map"></div>
-  <div class="hero-cartouche">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 150" role="img" preserveAspectRatio="xMidYMid meet">
-<rect x="0" y="0" width="1200" height="150" fill="#f3eee2"/>
-
-<!-- ============ BOTTOM DOUBLE-LINE TICK BORDER (the horizon) ============ -->
-<rect x="0" y="129" width="1200" height="2.6" fill="#2b2620"/>
-<rect x="0" y="140" width="1200" height="2.6" fill="#2b2620"/>
-<g fill="#2b2620">
-<rect x="8" y="132.5" width="3" height="6"/><rect x="28" y="132.5" width="3" height="6"/><rect x="48" y="132.5" width="3" height="6"/><rect x="68" y="132.5" width="3" height="6"/><rect x="88" y="132.5" width="3" height="6"/><rect x="108" y="132.5" width="3" height="6"/><rect x="128" y="132.5" width="3" height="6"/><rect x="148" y="132.5" width="3" height="6"/><rect x="168" y="132.5" width="3" height="6"/><rect x="188" y="132.5" width="3" height="6"/><rect x="208" y="132.5" width="3" height="6"/><rect x="228" y="132.5" width="3" height="6"/><rect x="248" y="132.5" width="3" height="6"/><rect x="268" y="132.5" width="3" height="6"/><rect x="288" y="132.5" width="3" height="6"/><rect x="308" y="132.5" width="3" height="6"/><rect x="328" y="132.5" width="3" height="6"/><rect x="348" y="132.5" width="3" height="6"/><rect x="368" y="132.5" width="3" height="6"/><rect x="388" y="132.5" width="3" height="6"/><rect x="408" y="132.5" width="3" height="6"/><rect x="428" y="132.5" width="3" height="6"/><rect x="448" y="132.5" width="3" height="6"/><rect x="468" y="132.5" width="3" height="6"/><rect x="488" y="132.5" width="3" height="6"/><rect x="508" y="132.5" width="3" height="6"/><rect x="528" y="132.5" width="3" height="6"/><rect x="548" y="132.5" width="3" height="6"/><rect x="568" y="132.5" width="3" height="6"/><rect x="588" y="132.5" width="3" height="6"/><rect x="608" y="132.5" width="3" height="6"/><rect x="628" y="132.5" width="3" height="6"/><rect x="648" y="132.5" width="3" height="6"/><rect x="668" y="132.5" width="3" height="6"/><rect x="688" y="132.5" width="3" height="6"/><rect x="708" y="132.5" width="3" height="6"/><rect x="728" y="132.5" width="3" height="6"/><rect x="748" y="132.5" width="3" height="6"/><rect x="768" y="132.5" width="3" height="6"/><rect x="788" y="132.5" width="3" height="6"/><rect x="808" y="132.5" width="3" height="6"/><rect x="828" y="132.5" width="3" height="6"/><rect x="848" y="132.5" width="3" height="6"/><rect x="868" y="132.5" width="3" height="6"/><rect x="888" y="132.5" width="3" height="6"/><rect x="908" y="132.5" width="3" height="6"/><rect x="928" y="132.5" width="3" height="6"/><rect x="948" y="132.5" width="3" height="6"/><rect x="968" y="132.5" width="3" height="6"/><rect x="988" y="132.5" width="3" height="6"/><rect x="1008" y="132.5" width="3" height="6"/><rect x="1028" y="132.5" width="3" height="6"/><rect x="1048" y="132.5" width="3" height="6"/><rect x="1068" y="132.5" width="3" height="6"/><rect x="1088" y="132.5" width="3" height="6"/><rect x="1108" y="132.5" width="3" height="6"/><rect x="1128" y="132.5" width="3" height="6"/><rect x="1148" y="132.5" width="3" height="6"/><rect x="1168" y="132.5" width="3" height="6"/><rect x="1188" y="132.5" width="3" height="6"/>
-</g>
-<!-- dot row beneath the horizon ticks -->
-<g fill="#5c5346">
-<circle cx="18" cy="146.5" r="1.5"/><circle cx="38" cy="146.5" r="1.5"/><circle cx="58" cy="146.5" r="1.5"/><circle cx="78" cy="146.5" r="1.5"/><circle cx="98" cy="146.5" r="1.5"/><circle cx="118" cy="146.5" r="1.5"/><circle cx="138" cy="146.5" r="1.5"/><circle cx="158" cy="146.5" r="1.5"/><circle cx="178" cy="146.5" r="1.5"/><circle cx="198" cy="146.5" r="1.5"/><circle cx="1002" cy="146.5" r="1.5"/><circle cx="1022" cy="146.5" r="1.5"/><circle cx="1042" cy="146.5" r="1.5"/><circle cx="1062" cy="146.5" r="1.5"/><circle cx="1082" cy="146.5" r="1.5"/><circle cx="1102" cy="146.5" r="1.5"/><circle cx="1122" cy="146.5" r="1.5"/><circle cx="1142" cy="146.5" r="1.5"/><circle cx="1162" cy="146.5" r="1.5"/><circle cx="1182" cy="146.5" r="1.5"/>
-</g>
-
-<!-- ============ CENTRAL RADIANT SUN ============ -->
-<!-- long pointed rays (alternating ochre / indigo), behind disc -->
-<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.6" stroke-linejoin="round">
-<polygon points="600,8 606,52 594,52"/>
-<polygon points="668,16 650,56 638,50"/>
-<polygon points="532,16 562,50 550,56"/>
-<polygon points="722,44 678,62 672,50"/>
-<polygon points="478,44 528,50 522,62"/>
-<polygon points="740,96 690,80 698,68"/>
-<polygon points="460,96 510,68 502,80"/>
-</g>
-<g fill="#344a8c" stroke="#2b2620" stroke-width="1.6" stroke-linejoin="round">
-<polygon points="634,10 632,52 620,50"/>
-<polygon points="566,10 580,50 568,52"/>
-<polygon points="700,28 666,58 658,48"/>
-<polygon points="500,28 542,48 534,58"/>
-<polygon points="730,68 684,72 686,60"/>
-<polygon points="470,68 514,60 516,72"/>
-</g>
-<!-- ray-tip dots -->
-<g fill="#bb3b2c"><circle cx="600" cy="12" r="2.4"/><circle cx="666" cy="18" r="2.4"/><circle cx="534" cy="18" r="2.4"/><circle cx="718" cy="46" r="2.4"/><circle cx="482" cy="46" r="2.4"/></g>
-
-<!-- sun disc: double outline -->
-<circle cx="600" cy="78" r="44" fill="#bb3b2c" stroke="#2b2620" stroke-width="3"/>
-<circle cx="600" cy="78" r="44" fill="none" stroke="#2b2620" stroke-width="3"/>
-<circle cx="600" cy="78" r="39" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
-<!-- ring of dots inside disc edge -->
-<g fill="#f3eee2">
-<circle cx="600" cy="44" r="1.7"/><circle cx="617" cy="46" r="1.7"/><circle cx="630" cy="55" r="1.7"/><circle cx="635" cy="70" r="1.7"/><circle cx="634" cy="86" r="1.7"/><circle cx="627" cy="100" r="1.7"/><circle cx="614" cy="109" r="1.7"/><circle cx="600" cy="112" r="1.7"/><circle cx="583" cy="46" r="1.7"/><circle cx="570" cy="55" r="1.7"/><circle cx="565" cy="70" r="1.7"/><circle cx="566" cy="86" r="1.7"/><circle cx="573" cy="100" r="1.7"/><circle cx="586" cy="109" r="1.7"/>
-</g>
-
-<!-- inner ochre field for the face -->
-<circle cx="600" cy="78" r="31" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
-
-<!-- SIDE-PROFILE sun face (looking right) -->
-<g stroke="#2b2620" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round">
-<!-- profile silhouette: forehead, nose, lips, chin -->
-<path d="M 597 50 C 612 51 624 60 626 72 L 631 76 L 626 80 C 627 86 623 90 619 91 C 621 95 618 99 614 100 L 605 103" />
-<!-- receding brow -->
-<path d="M 591 64 C 599 60 609 61 615 66"/>
-</g>
-<!-- one large almond fish-eye -->
-<path d="M 597 70 C 604 66 614 66 620 71 C 614 76 604 76 597 71 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="2"/>
-<circle cx="608" cy="71" r="4.2" fill="#344a8c"/>
-<circle cx="608" cy="71" r="1.7" fill="#2b2620"/>
-<!-- cheek rosette + hatch fill in face -->
-<circle cx="588" cy="84" r="4.5" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.4"/>
-<g stroke="#2b2620" stroke-width="1.2"><path d="M576 92 q6 4 14 4"/><path d="M575 88 q5 3 11 3"/></g>
-
-<!-- ============ LEFT FLANK: profile bird + lotus vine ============ -->
-<!-- vine trunk reaching to left edge -->
-<path d="M 470 84 C 410 70 350 96 290 78 C 230 60 160 92 96 78 C 60 70 28 86 0 80" fill="none" stroke="#4f8a3d" stroke-width="4"/>
-<path d="M 470 92 C 410 78 350 104 290 86 C 230 68 160 100 96 86 C 60 78 28 94 0 88" fill="none" stroke="#4f8a3d" stroke-width="2"/>
-<!-- leaves along left vine (alternating green, double-outline veins) -->
-<g stroke="#2b2620" stroke-width="1.3" stroke-linejoin="round">
-<path d="M430 80 q-14 -18 -30 -14 q10 16 30 14 Z" fill="#4f8a3d"/>
-<path d="M380 96 q-12 18 -30 16 q8 -16 30 -16 Z" fill="#4f8a3d"/>
-<path d="M330 78 q-14 -18 -30 -12 q12 16 30 12 Z" fill="#4f8a3d"/>
-<path d="M280 92 q-12 18 -28 16 q6 -16 28 -16 Z" fill="#4f8a3d"/>
-<path d="M210 82 q-14 -18 -30 -12 q12 16 30 12 Z" fill="#4f8a3d"/>
-<path d="M160 96 q-12 18 -28 16 q6 -16 28 -16 Z" fill="#4f8a3d"/>
-<path d="M96 80 q-14 -18 -28 -12 q11 16 28 12 Z" fill="#4f8a3d"/>
-<path d="M48 92 q-12 17 -26 15 q6 -15 26 -15 Z" fill="#4f8a3d"/>
-</g>
-<g stroke="#2b2620" stroke-width="0.9" fill="none">
-<path d="M408 70 q5 8 14 8"/><path d="M358 110 q5 -8 14 -10"/><path d="M308 68 q6 8 14 8"/><path d="M256 106 q5 -8 14 -10"/><path d="M188 70 q6 8 14 8"/><path d="M138 110 q5 -8 14 -10"/><path d="M74 70 q6 7 14 8"/><path d="M28 105 q4 -7 12 -9"/>
-</g>
-<!-- buds on the vine -->
-<g stroke="#2b2620" stroke-width="1.3">
-<path d="M355 84 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
-<path d="M235 86 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
-<path d="M120 86 q-5 -12 0 -20 q5 8 0 20 Z" fill="#6e4a93"/>
-</g>
-<!-- dot rows packing the left field -->
-<g fill="#5c5346">
-<circle cx="440" cy="58" r="1.6"/><circle cx="420" cy="54" r="1.6"/><circle cx="400" cy="56" r="1.6"/><circle cx="380" cy="52" r="1.6"/><circle cx="360" cy="56" r="1.6"/><circle cx="340" cy="52" r="1.6"/><circle cx="320" cy="56" r="1.6"/><circle cx="300" cy="52" r="1.6"/><circle cx="280" cy="56" r="1.6"/><circle cx="260" cy="52" r="1.6"/><circle cx="240" cy="56" r="1.6"/><circle cx="220" cy="52" r="1.6"/><circle cx="200" cy="56" r="1.6"/><circle cx="180" cy="52" r="1.6"/><circle cx="160" cy="56" r="1.6"/><circle cx="140" cy="52" r="1.6"/><circle cx="120" cy="56" r="1.6"/><circle cx="100" cy="52" r="1.6"/><circle cx="80" cy="56" r="1.6"/><circle cx="60" cy="52" r="1.6"/><circle cx="40" cy="56" r="1.6"/><circle cx="20" cy="52" r="1.6"/>
-</g>
-<!-- fish-scale arcs filling upper-left -->
-<g fill="none" stroke="#344a8c" stroke-width="1.1">
-<path d="M30 38 q10 -10 20 0"/><path d="M50 38 q10 -10 20 0"/><path d="M70 38 q10 -10 20 0"/><path d="M90 38 q10 -10 20 0"/><path d="M110 38 q10 -10 20 0"/><path d="M40 30 q10 -10 20 0"/><path d="M60 30 q10 -10 20 0"/><path d="M80 30 q10 -10 20 0"/><path d="M100 30 q10 -10 20 0"/>
-</g>
-
-<!-- LEFT BIRD: side profile, facing center (right) -->
-<g>
-<!-- body double-outline -->
-<path d="M205 70 C 188 56 158 56 142 70 C 132 80 138 96 156 100 C 176 104 198 96 210 84 C 214 80 212 74 205 70 Z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.6"/>
-<path d="M205 70 C 188 56 158 56 142 70 C 132 80 138 96 156 100 C 176 104 198 96 210 84 C 214 80 212 74 205 70 Z" fill="none" stroke="#f3eee2" stroke-width="1"/>
-<!-- head + curved beak, profile -->
-<path d="M205 70 C 214 62 224 62 230 66 L 240 70 L 230 74 C 226 78 218 80 210 78" fill="#2e8c84" stroke="#2b2620" stroke-width="2.4"/>
-<!-- almond fish-eye -->
-<path d="M214 66 C 219 63 226 63 230 67 C 226 71 219 71 214 67 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="1.8"/>
-<circle cx="222" cy="67" r="2.6" fill="#2b2620"/>
-<!-- wing with concentric petals -->
-<path d="M178 72 C 168 70 158 76 158 86 C 168 90 182 86 188 78 Z" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.8"/>
-<path d="M174 76 q6 4 10 0" fill="none" stroke="#2b2620" stroke-width="1"/>
-<!-- tail feathers, hatched -->
-<g stroke="#2b2620" stroke-width="1.8" fill="#d59a2a">
-<path d="M142 78 L 116 70 L 122 82 Z"/>
-<path d="M142 84 L 114 84 L 122 92 Z"/>
-<path d="M144 90 L 118 98 L 128 98 Z"/>
-</g>
-<!-- legs -->
-<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M170 100 l0 12 l-6 4"/><path d="M170 112 l6 4"/><path d="M184 100 l0 12 l-6 4"/><path d="M184 112 l6 4"/></g>
-<!-- body scale fill -->
-<g fill="none" stroke="#f3eee2" stroke-width="0.9"><path d="M158 78 q6 -6 12 0"/><path d="M172 80 q6 -6 12 0"/><path d="M160 88 q6 -6 12 0"/><path d="M174 90 q6 -6 12 0"/></g>
-</g>
-
-<!-- ============ RIGHT FLANK: mirrored, hand-paired (slightly imperfect) ============ -->
-<path d="M 730 84 C 790 70 850 96 910 78 C 970 60 1040 92 1104 78 C 1140 70 1172 86 1200 80" fill="none" stroke="#4f8a3d" stroke-width="4"/>
-<path d="M 730 92 C 790 78 850 104 910 86 C 970 68 1040 100 1104 86 C 1140 78 1172 94 1200 88" fill="none" stroke="#4f8a3d" stroke-width="2"/>
-<g stroke="#2b2620" stroke-width="1.3" stroke-linejoin="round">
-<path d="M770 80 q14 -18 30 -14 q-10 16 -30 14 Z" fill="#4f8a3d"/>
-<path d="M820 96 q12 18 30 16 q-8 -16 -30 -16 Z" fill="#4f8a3d"/>
-<path d="M870 78 q14 -18 30 -12 q-12 16 -30 12 Z" fill="#4f8a3d"/>
-<path d="M922 92 q12 18 28 16 q-6 -16 -28 -16 Z" fill="#4f8a3d"/>
-<path d="M992 82 q14 -18 30 -12 q-12 16 -30 12 Z" fill="#4f8a3d"/>
-<path d="M1042 96 q12 18 28 16 q-6 -16 -28 -16 Z" fill="#4f8a3d"/>
-<path d="M1106 80 q14 -18 28 -12 q-11 16 -28 12 Z" fill="#4f8a3d"/>
-<path d="M1154 92 q12 17 26 15 q-6 -15 -26 -15 Z" fill="#4f8a3d"/>
-</g>
-<g stroke="#2b2620" stroke-width="0.9" fill="none">
-<path d="M792 70 q-5 8 -14 8"/><path d="M842 110 q-5 -8 -14 -10"/><path d="M892 68 q-6 8 -14 8"/><path d="M944 106 q-5 -8 -14 -10"/><path d="M1012 70 q-6 8 -14 8"/><path d="M1062 110 q-5 -8 -14 -10"/><path d="M1126 70 q-6 7 -14 8"/><path d="M1172 105 q-4 -7 -12 -9"/>
-</g>
-<g stroke="#2b2620" stroke-width="1.3">
-<path d="M845 84 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
-<path d="M965 86 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
-<path d="M1080 86 q5 -12 0 -20 q-5 8 0 20 Z" fill="#6e4a93"/>
-</g>
-<g fill="#5c5346">
-<circle cx="760" cy="58" r="1.6"/><circle cx="780" cy="54" r="1.6"/><circle cx="800" cy="56" r="1.6"/><circle cx="820" cy="52" r="1.6"/><circle cx="840" cy="56" r="1.6"/><circle cx="860" cy="52" r="1.6"/><circle cx="880" cy="56" r="1.6"/><circle cx="900" cy="52" r="1.6"/><circle cx="920" cy="56" r="1.6"/><circle cx="940" cy="52" r="1.6"/><circle cx="960" cy="56" r="1.6"/><circle cx="980" cy="52" r="1.6"/><circle cx="1000" cy="56" r="1.6"/><circle cx="1020" cy="52" r="1.6"/><circle cx="1040" cy="56" r="1.6"/><circle cx="1060" cy="52" r="1.6"/><circle cx="1080" cy="56" r="1.6"/><circle cx="1100" cy="52" r="1.6"/><circle cx="1120" cy="56" r="1.6"/><circle cx="1140" cy="52" r="1.6"/><circle cx="1160" cy="56" r="1.6"/><circle cx="1180" cy="52" r="1.6"/>
-</g>
-<g fill="none" stroke="#344a8c" stroke-width="1.1">
-<path d="M1090 38 q10 -10 20 0"/><path d="M1110 38 q10 -10 20 0"/><path d="M1130 38 q10 -10 20 0"/><path d="M1150 38 q10 -10 20 0"/><path d="M1170 38 q10 -10 20 0"/><path d="M1080 30 q10 -10 20 0"/><path d="M1100 30 q10 -10 20 0"/><path d="M1120 30 q10 -10 20 0"/><path d="M1140 30 q10 -10 20 0"/>
-</g>
-
-<!-- RIGHT BIRD: side profile, facing center (left) -->
-<g>
-<path d="M995 70 C 1012 56 1042 56 1058 70 C 1068 80 1062 96 1044 100 C 1024 104 1002 96 990 84 C 986 80 988 74 995 70 Z" fill="#2e8c84" stroke="#2b2620" stroke-width="2.6"/>
-<path d="M995 70 C 1012 56 1042 56 1058 70 C 1068 80 1062 96 1044 100 C 1024 104 1002 96 990 84 C 986 80 988 74 995 70 Z" fill="none" stroke="#f3eee2" stroke-width="1"/>
-<path d="M995 70 C 986 62 976 62 970 66 L 960 70 L 970 74 C 974 78 982 80 990 78" fill="#2e8c84" stroke="#2b2620" stroke-width="2.4"/>
-<path d="M986 66 C 981 63 974 63 970 67 C 974 71 981 71 986 67 Z" fill="#f3eee2" stroke="#2b2620" stroke-width="1.8"/>
-<circle cx="978" cy="67" r="2.6" fill="#2b2620"/>
-<path d="M1022 72 C 1032 70 1042 76 1042 86 C 1032 90 1018 86 1012 78 Z" fill="#bb3b2c" stroke="#2b2620" stroke-width="1.8"/>
-<path d="M1026 76 q-6 4 -10 0" fill="none" stroke="#2b2620" stroke-width="1"/>
-<g stroke="#2b2620" stroke-width="1.8" fill="#d59a2a">
-<path d="M1058 78 L 1084 70 L 1078 82 Z"/>
-<path d="M1058 84 L 1086 84 L 1078 92 Z"/>
-<path d="M1056 90 L 1082 98 L 1072 98 Z"/>
-</g>
-<g stroke="#2b2620" stroke-width="1.6" fill="none"><path d="M1030 100 l0 12 l6 4"/><path d="M1030 112 l-6 4"/><path d="M1016 100 l0 12 l6 4"/><path d="M1016 112 l-6 4"/></g>
-<g fill="none" stroke="#f3eee2" stroke-width="0.9"><path d="M1030 78 q-6 -6 -12 0"/><path d="M1016 80 q-6 -6 -12 0"/><path d="M1028 88 q-6 -6 -12 0"/><path d="M1014 90 q-6 -6 -12 0"/></g>
-</g>
-
-<!-- corner-style rosettes near the sun base to bridge flanks to center -->
-<g>
-<circle cx="500" cy="106" r="9" fill="#6e4a93" stroke="#2b2620" stroke-width="1.8"/>
-<circle cx="500" cy="106" r="3.5" fill="#f3eee2"/>
-<g stroke="#2b2620" stroke-width="1" fill="none"><path d="M491 106 h-6"/><path d="M509 106 h6"/><path d="M500 97 v-6"/><path d="M500 115 v6"/></g>
-</g>
-<g>
-<circle cx="700" cy="106" r="9" fill="#6e4a93" stroke="#2b2620" stroke-width="1.8"/>
-<circle cx="700" cy="106" r="3.5" fill="#f3eee2"/>
-<g stroke="#2b2620" stroke-width="1" fill="none"><path d="M691 106 h-6"/><path d="M709 106 h6"/><path d="M700 97 v-6"/><path d="M700 115 v6"/></g>
-</g>
-
-<!-- small 6-tick suns filling residual gaps above flanks -->
-<g stroke="#bb3b2c" stroke-width="1.3" fill="#ochre">
-<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.2"><circle cx="255" cy="40" r="4"/></g>
-<g fill="#d59a2a" stroke="#2b2620" stroke-width="1.2"><circle cx="945" cy="40" r="4"/></g>
-</g>
-<g stroke="#2b2620" stroke-width="1">
-<path d="M255 32 v-5"/><path d="M255 48 v5"/><path d="M247 40 h-5"/><path d="M263 40 h5"/><path d="M249 34 l-3 -3"/><path d="M261 46 l3 3"/>
-<path d="M945 32 v-5"/><path d="M945 48 v5"/><path d="M937 40 h-5"/><path d="M953 40 h5"/><path d="M939 34 l-3 -3"/><path d="M951 46 l3 3"/>
-</g>
-
-<!-- hatch fill bridging vine base to horizon (left + right) -->
-<g stroke="#5c5346" stroke-width="0.9">
-<path d="M40 110 l8 12"/><path d="M70 108 l8 12"/><path d="M110 112 l8 12"/><path d="M150 110 l8 12"/><path d="M200 114 l8 12"/><path d="M260 112 l8 12"/><path d="M320 116 l8 12"/><path d="M380 114 l8 12"/>
-<path d="M1160 110 l-8 12"/><path d="M1130 108 l-8 12"/><path d="M1090 112 l-8 12"/><path d="M1050 110 l-8 12"/><path d="M1000 114 l-8 12"/><path d="M940 112 l-8 12"/><path d="M880 116 l-8 12"/><path d="M820 114 l-8 12"/>
-</g>
-</svg>
-    <div class="plate" id="hero-plate">
-      <button type="button" class="plate-min" id="plate-min" aria-label="minimise" title="minimise">&minus;</button>
-      <div class="kicker">Shared, verifiable memory</div>
-      <h1>One canonical reference every AI agent shares</h1>
-      <p class="sub">So different models reason from the same world, not different descriptions. Each place, fact, and object gets one stable, signed identity, grounded in Earth observation, and anyone can re-check it without trusting the server.</p>
-      <form class="ask-bar" id="ask-form">
-        <input id="ask-q" type="text" autocomplete="off" spellcheck="false" placeholder="ask Earth anything: is this a good place to live? · air quality here? · is this land deforestation-free?">
-        <button type="submit" id="ask-go" class="ask-go">ask &rarr;</button>
-      </form>
-      <div class="ask-egs"><span class="lbl">ask here</span><button type="button" class="ask-eg" data-q="is this a good neighbourhood to buy a home, is it flood-safe">buy a home</button><button type="button" class="ask-eg" data-q="what is the air quality and heat risk here">air &amp; health</button><button type="button" class="ask-eg" data-q="how walkable, green and livable is this area">livable</button><button type="button" class="ask-eg" data-q="how densely populated and built up is this area">population</button><button type="button" class="ask-eg" data-q="is this place deforestation-free for EUDR">EUDR &check;</button></div>
-      <div class="atlas-answer" id="atlas-answer" hidden>
-        <button type="button" class="ans-x" id="ans-x" aria-label="dismiss answer" title="dismiss">&times;</button>
-        <div class="ans-q" id="ans-q"></div>
-        <div class="ans-text" id="ans-text"></div>
-        <div class="ans-sec" id="ans-readings-sec" hidden><div class="ans-h">signed readings</div><div class="ans-bands" id="ans-bands"></div></div>
-        <div class="ans-sec" id="ans-scored-sec" hidden><div class="ans-h">scored by emem</div><div class="ans-scored" id="ans-scored"></div></div>
-        <div class="ans-topics" id="ans-topics"></div>
-        <button type="button" class="ans-explain" id="ans-explain" hidden>explain in plain words &#9670;</button>
-        <div class="ans-explanation" id="ans-explanation" hidden></div>
-        <div class="ans-foot" id="ans-foot"></div>
+<!-- ===================== HERO: the emem token ===================== -->
+<style>
+.th{padding:3.2rem var(--pad-x) 2.4rem;max-width:1180px;margin:0 auto;border-bottom:2.6px solid var(--ink)}
+.th-top{display:grid;grid-template-columns:1fr minmax(220px,300px);gap:2.4rem;align-items:center}
+.th-kicker{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:.9rem}
+.th h1{font-size:clamp(1.9rem,4.4vw,3.05rem);line-height:1.06;letter-spacing:-.015em;margin:0 0 1rem;max-width:16ch}
+.th-lede{font-size:1.06rem;line-height:1.62;color:var(--ink-2);max-width:56ch;margin:0 0 1.4rem}
+.th-cta{display:flex;gap:.7rem;flex-wrap:wrap}
+.th-cta a{font-family:var(--mono);font-size:.86rem;padding:.6rem 1.05rem;border:1.6px solid var(--ink);text-decoration:none;border-radius:0}
+.btn-primary{background:var(--accent);color:var(--paper)}
+.btn-ghost{background:var(--paper);color:var(--ink)}
+.th-cta a:hover{background:var(--ink);color:var(--paper)}
+/* the token core */
+.th-core{margin:0;display:flex;flex-direction:column;align-items:center;gap:.6rem}
+.th-core svg{width:100%;max-width:280px;height:auto;display:block}
+.th-core figcaption{font-family:var(--mono);font-size:.72rem;color:var(--mute);text-align:center}
+.th-ring{transform-origin:120px 120px;animation:th-spin 34s linear infinite}
+.th-seed{transform-origin:120px 120px;animation:th-pulse 3.6s ease-in-out infinite}
+@keyframes th-spin{to{transform:rotate(360deg)}}
+@keyframes th-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+@media (prefers-reduced-motion:reduce){.th-ring,.th-seed{animation:none}}
+/* live demo */
+.th-demo{margin-top:2.6rem;border:1.6px solid var(--ink);background:var(--paper-2)}
+.th-demo-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.7rem .95rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);flex-wrap:wrap}
+.th-demo-title{font-weight:600;font-size:.94rem}
+.th-demo-url{font-family:var(--mono);font-size:.74rem;color:var(--mute)}
+.th-demo-form{display:flex;gap:.5rem;padding:.9rem .95rem .4rem}
+.th-demo-form input{flex:1;min-width:0;font-size:.92rem;padding:.55rem .7rem}
+.th-demo-form button{font-family:var(--mono);font-size:.85rem;padding:.55rem 1rem;border:1.6px solid var(--ink);background:var(--accent);color:var(--paper);cursor:pointer}
+.th-demo-form button:hover{background:var(--ink)}
+.th-egs{padding:0 .95rem .9rem;font-family:var(--mono);font-size:.76rem;color:var(--mute);display:flex;gap:.45rem;flex-wrap:wrap;align-items:center}
+.th-eg{font-family:var(--mono);font-size:.76rem;padding:.25rem .55rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer;border-radius:0}
+.th-eg:hover{border-color:var(--ink)}
+.th-out{padding:.2rem .95rem 1rem}
+.th-load,.th-miss{font-family:var(--mono);font-size:.82rem;color:var(--mute);padding:.6rem 0}
+.th-cell{font-family:var(--mono);font-size:.78rem;color:var(--mute);margin:.4rem 0 .7rem}
+.th-cell code{color:var(--ink)}
+.th-fact{border:1px solid var(--rule-strong);background:var(--paper);padding:.7rem .8rem;margin-bottom:.6rem}
+.th-fact-top{display:flex;justify-content:space-between;gap:1rem;align-items:baseline;margin-bottom:.5rem}
+.th-band{font-family:var(--mono);font-size:.8rem;color:var(--ink-2)}
+.th-val{font-weight:600;font-size:1rem}
+.th-tok{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.th-tok code{font-family:var(--mono);font-size:.78rem;background:var(--paper-3);border:1px solid var(--rule);padding:.28rem .45rem;word-break:break-all;flex:1;min-width:0}
+.th-copy{font-family:var(--mono);font-size:.72rem;padding:.28rem .5rem;border:1px solid var(--rule-strong);background:var(--paper);cursor:pointer}
+.th-meta{display:flex;gap:.7rem;align-items:center;flex-wrap:wrap;margin-top:.5rem;font-family:var(--mono);font-size:.74rem}
+.prov{padding:.2rem .5rem;border:1px solid var(--ink);border-radius:0}
+.prov-det{background:var(--accent-bg);color:var(--accent)}
+.prov-mod{background:var(--absent-bg);color:var(--absent)}
+.th-len{color:var(--mute)}
+.th-verify{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent)}
+/* journey beats */
+.th-beats{display:grid;grid-template-columns:repeat(3,1fr);gap:1.1rem;margin-top:2.4rem}
+.th-beats .beat{border:1.6px solid var(--ink);padding:1.05rem 1rem;background:var(--paper)}
+.th-beats .beat-n{font-family:var(--mono);font-size:.78rem;width:1.6rem;height:1.6rem;display:flex;align-items:center;justify-content:center;border:1.5px solid var(--ink);background:var(--accent);color:var(--paper);margin-bottom:.7rem}
+.th-beats .beat h3{font-size:1rem;margin:0 0 .5rem}
+.th-beats .beat p{font-size:.9rem;line-height:1.55;color:var(--ink-2);margin:0 0 .7rem}
+.th-beats .beat-tech{font-family:var(--mono);font-size:.72rem;color:var(--mute);border-top:1px dotted var(--rule-strong);padding-top:.55rem}
+@media (max-width:860px){.th-top{grid-template-columns:1fr}.th-core{max-width:220px;margin:0 auto;order:-1}.th-beats{grid-template-columns:1fr}}
+</style>
+<section class="th" id="hero" aria-label="emem, verifiable memory for AI agents">
+  <div class="th-top">
+    <div class="th-copy">
+      <div class="th-kicker">Memory for AI agents, robots, and world models</div>
+      <h1>One memory every model can cite, carry, and check.</h1>
+      <p class="th-lede">emem turns a place, a fact, or an object into one short, signed token. Drop it into any model's context and it survives summarization and hands off cleanly between agents. Resolve it to get the exact signed bytes back, and see how the value was made: a direct satellite reading, a deterministic index, or a model in the loop. Grounded in Earth observation, checkable by anyone, no key.</p>
+      <div class="th-cta">
+        <a class="btn-primary" href="#build">Connect an agent</a>
+        <a class="btn-ghost" href="/reference">Read the reference</a>
       </div>
+    </div>
+    <figure class="th-core" aria-label="the emem token, the core of the memory">
+      <svg viewBox="0 0 240 240" role="img" xmlns="http://www.w3.org/2000/svg">
+        <g class="th-ring">
+          <circle cx="120" cy="120" r="104" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-dasharray="5 9"/>
+          <circle cx="120" cy="120" r="112" fill="none" stroke="var(--rule-strong)" stroke-width="1.2"/>
+        </g>
+        <g stroke="var(--ink)" stroke-width="1.5" stroke-linejoin="round">
+          <polygon points="120,20 126,58 114,58" fill="#d59a2a"/>
+          <polygon points="187,53 156,80 148,70" fill="#344a8c"/>
+          <polygon points="220,120 182,126 182,114" fill="#d59a2a"/>
+          <polygon points="187,187 160,160 170,152" fill="#344a8c"/>
+          <polygon points="120,220 114,182 126,182" fill="#d59a2a"/>
+          <polygon points="53,187 80,160 88,168" fill="#344a8c"/>
+          <polygon points="20,120 58,114 58,126" fill="#d59a2a"/>
+          <polygon points="53,53 80,80 70,88" fill="#344a8c"/>
+        </g>
+        <circle class="th-seed" cx="120" cy="120" r="52" fill="var(--vermilion)" stroke="var(--ink)" stroke-width="3"/>
+        <circle cx="120" cy="120" r="44" fill="none" stroke="var(--paper)" stroke-width="1.5"/>
+        <g fill="var(--paper)">
+          <circle cx="120" cy="82" r="1.8"/><circle cx="140" cy="88" r="1.8"/><circle cx="153" cy="104" r="1.8"/><circle cx="158" cy="120" r="1.8"/><circle cx="153" cy="136" r="1.8"/><circle cx="140" cy="152" r="1.8"/><circle cx="120" cy="158" r="1.8"/><circle cx="100" cy="152" r="1.8"/><circle cx="87" cy="136" r="1.8"/><circle cx="82" cy="120" r="1.8"/><circle cx="87" cy="104" r="1.8"/><circle cx="100" cy="88" r="1.8"/>
+        </g>
+        <path d="M120 98 C104 108 104 132 120 142 C136 132 136 108 120 98 Z" fill="none" stroke="var(--paper)" stroke-width="2.4"/>
+        <circle cx="120" cy="120" r="7" fill="var(--paper)"/>
+      </svg>
+      <figcaption>the token: an address, not a payload</figcaption>
+    </figure>
+  </div>
+
+  <div class="th-demo" id="th-demo">
+    <div class="th-demo-head">
+      <span class="th-demo-title">Cite a real place, live</span>
+      <span class="th-demo-url">POST /v1/recall &rarr; one signed token</span>
+    </div>
+    <form class="th-demo-form" id="thf">
+      <input id="thq" type="text" autocomplete="off" spellcheck="false" value="Uluru, Australia" aria-label="place to cite">
+      <button type="submit">cite it &rarr;</button>
+    </form>
+    <div class="th-egs">try: <button type="button" class="th-eg">Mount Fuji</button><button type="button" class="th-eg">Lake Erie</button><button type="button" class="th-eg">Rondonia, Brazil</button></div>
+    <div class="th-out" id="thout" hidden></div>
+  </div>
+
+  <div class="th-beats">
+    <div class="beat">
+      <div class="beat-n">1</div>
+      <h3>It survives compression</h3>
+      <p>The token carries the address of a fact, not the fact. When a model summarizes a long conversation and drops the numbers, the handle stays and re-hydrates the exact signed bytes.</p>
+      <div class="beat-tech">blake3 CID, canonical CBOR. About 50 tokens versus roughly 1,600 for the full signed fact, near 30x less context (measured with tiktoken).</div>
+    </div>
+    <div class="beat">
+      <div class="beat-n">2</div>
+      <h3>It hands off between agents</h3>
+      <p>One agent passes the token to another. No shared database, no re-embedding, no re-describing. Resolve is a read by content hash straight from the store, so the next agent pays no upstream cost.</p>
+      <div class="beat-tech">Materialize once, cite many. About 180 ms cold, 10 ms warm; every receipt reports its own p50 and p99 latency and a was_cached flag.</div>
+    </div>
+    <div class="beat">
+      <div class="beat-n">3</div>
+      <h3>Anyone can check it</h3>
+      <p>The token resolves to an ed25519 receipt. Recompute the hash and the signature offline and the value stands on its own, with the tamper-provenance class attached, no need to trust the server.</p>
+      <div class="beat-tech">ed25519 receipt, offline verify at /verify. Provenance per fact: direct sensor, deterministic index, model output, or human curated.</div>
     </div>
   </div>
-  <div class="atlas-hint" id="atlas-hint">tap a gold city or anywhere on land &middot; drag to pan &middot; <span class="zoomhint">&#8984;/Ctrl&#8209;scroll or +/&minus; to zoom</span></div>
-  <div class="map-tip" id="map-tip" hidden></div>
-  <div class="map-legend" id="map-legend">
-    <div class="ml-title"><span>data layers</span><button class="box-min" id="leg-min" type="button" aria-label="minimise layers" title="minimise">&minus;</button></div>
-    <label class="ml-row"><input type="checkbox" id="lyr-cov" checked><span class="sw cov"></span><span class="lbl">the memory</span><b id="lyr-cov-n">&hellip;</b></label>
-    <label class="ml-row"><input type="checkbox" id="lyr-fld"><span class="sw fld"></span><span class="lbl">land parcels</span><b id="lyr-fld-n"></b></label>
-    <label class="ml-row"><input type="checkbox" id="lyr-tess"><span class="sw tess"></span><span class="lbl">embedding field</span><b id="lyr-tess-n"></b></label>
-    <label class="ml-row"><input type="checkbox" id="lyr-arch"><span class="sw arch"></span><span class="lbl">land archetypes</span><b id="lyr-arch-n"></b></label>
-    <div class="ml-sub">find events &middot; everyday &amp; compliance</div>
-    <div class="ml-row ml-hunt">
-      <select id="lyr-hnt-ev" class="ml-sel" aria-label="event">
-        <optgroup label="home &amp; safety"><option value="flood_extent">flood</option><option value="wildfire">wildfire</option><option value="landslide">landslide</option></optgroup>
-        <optgroup label="health &amp; comfort"><option value="urban_heat_island">urban heat</option><option value="algal_bloom">algal bloom</option><option value="water_turbidity">turbid water</option></optgroup>
-        <optgroup label="compliance"><option value="deforestation">deforestation (EUDR)</option></optgroup>
-        <optgroup label="climate &amp; energy"><option value="drought">drought</option><option value="methane_plume">methane plume</option><option value="oil_slick">oil slick (experimental)</option></optgroup>
-        <optgroup label="agriculture"><option value="crop_stress">crop stress</option><option value="soil_salinity">soil salinity</option></optgroup>
-      </select>
-      <button type="button" id="lyr-hnt-go" class="ml-btn"><span class="sw hnt"></span>hunt</button>
-    </div>
-    <div class="ml-row ml-hunt-n"><b id="lyr-hnt-n"></b></div>
-    <div class="ml-sub">basemap</div>
-    <div class="ml-base" role="group" aria-label="basemap">
-      <button type="button" class="bm on" data-bm="mithila">Mithila</button>
-      <button type="button" class="bm" data-bm="streets">streets</button>
-      <button type="button" class="bm" data-bm="sat">satellite</button>
-    </div>
-    <div class="ml-row ml-drop"><button type="button" id="geo-add" class="ml-btn">overlay a GeoJSON file</button><b id="geo-n"></b></div>
-    <input type="file" id="geo-file" accept=".geojson,.json,application/geo+json,application/json" style="display:none">
-    <div class="ml-row ml-live"><span class="livedot"></span><span id="ml-live">streaming /v1/stream&hellip;</span></div>
-    <div class="ml-note">coverage &middot; parcels &middot; events &middot; basemaps &middot; drop a .geojson &middot; all live, all signed</div>
-  </div>
-  <aside class="hero-consensus atlas-panel" id="atlas-panel">
-    <div class="mc-head"><span class="label">consensus</span><span class="url">/v1/state_multi + /v1/triple_consensus</span><span class="spacer"></span><button class="box-min" id="cons-min" type="button" aria-label="minimise panel" title="minimise">&minus;</button></div>
-    <div class="atlas-body">
-      <div class="atlas-place"><span id="atlas-place-name">Pick a patch to begin.</span><span class="cell" id="atlas-cell"></span></div>
-      <div class="atlas-status" id="atlas-status" role="status" aria-live="polite"></div>
-      <figure class="atlas-scene" id="atlas-scene" hidden></figure>
-      <div class="atlas-fp" id="atlas-fp" hidden>
-        <span class="sw" id="fp-sw"></span>
-        <span class="fp-t"><b>latent fingerprint</b><br><span>places that look alike to the models share a colour</span></span>
-      </div>
-      <figure class="atlas-engram" id="atlas-engram" hidden>
-        <canvas id="engram-canvas"></canvas>
-        <figcaption class="eng-cap"><span class="eng-legend" id="engram-legend"></span><span class="eng-hint">the model&rsquo;s numbers in 3D &middot; drag to turn</span></figcaption>
-      </figure>
-      <div class="atlas-similar" id="atlas-similar" hidden>
-        <div class="sim-h">most like this patch</div>
-        <div id="sim-rows"></div>
-      </div>
-      <div class="atlas-encs" id="atlas-encs"></div>
-      <div class="atlas-cube" id="atlas-cube" hidden>
-        <div class="cube-h"><span>full state cube</span><b id="cube-dim"></b></div>
-        <div class="cube-strip" id="cube-strip"></div>
-        <div class="cube-foot"><span class="cid" id="cube-cid"></span><button type="button" id="cube-dl" class="cube-dl">download 1792-D &darr;</button></div>
-      </div>
-      <div class="mc-verdict" id="atlas-verdict" hidden></div>
-      <div class="mc-deeper" id="atlas-deeper" hidden>
-        <a id="atlas-verify" href="/verify">verify any reading yourself &rarr;</a>
-        <a href="/reference">the endpoints behind this &rarr;</a>
-      </div>
-    </div>
-  </aside>
 </section>
+<script>
+(function(){
+  var form=document.getElementById('thf'), q=document.getElementById('thq'), out=document.getElementById('thout');
+  if(!form) return;
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function prov(p){
+    if(!p) return '';
+    var det=!!p.deterministic, cls=esc(p.class||''), te=esc(p.tamper_evidence||'');
+    var label=det?'reproducible from raw source':'model or human in the loop';
+    return '<span class="prov '+(det?'prov-det':'prov-mod')+'" title="'+te+'">'+cls+' &middot; '+label+'</span>';
+  }
+  function render(d){
+    var facts=(d&&d.facts)||[];
+    var cell='';
+    if(d&&d.resolved_from&&d.resolved_from.cell&&d.resolved_from.cell.cell64) cell=d.resolved_from.cell.cell64;
+    var rows=facts.filter(function(f){return f&&f.memory_token;});
+    if(!rows.length){ out.innerHTML='<div class="th-miss">No signed fact here yet. A cold cell materializes and signs a fresh fact, which can take a few seconds. Try again, or pick another place.</div>'; out.hidden=false; return; }
+    var html='';
+    if(cell) html+='<div class="th-cell">place resolved to <code>'+esc(cell)+'</code></div>';
+    rows.slice(0,2).forEach(function(f){
+      var tok=f.memory_token, cid=f.fact_cid||'';
+      var val=(f.value_decoded!=null)?f.value_decoded:(f.value!=null?f.value:'');
+      var md=f.band_metadata||{};
+      var unit=md.units?(' '+esc(md.units)):'';
+      html+='<div class="th-fact">';
+      html+='<div class="th-fact-top"><span class="th-band">'+esc(f.band||'')+'</span><span class="th-val">'+esc(String(val))+unit+'</span></div>';
+      html+='<div class="th-tok"><code>'+esc(tok)+'</code><button type="button" class="th-copy" data-t="'+esc(tok)+'">copy</button></div>';
+      html+='<div class="th-meta">'+prov(md.provenance)+'<span class="th-len">the handle is '+tok.length+' characters; the signed fact it stands for is roughly 1,600 tokens</span>'+(cid?'<a class="th-verify" href="/verify/'+esc(cid)+'">verify &rarr;</a>':'')+'</div>';
+      html+='</div>';
+    });
+    out.innerHTML=html; out.hidden=false;
+    out.querySelectorAll('.th-copy').forEach(function(b){b.addEventListener('click',function(){ if(navigator.clipboard){navigator.clipboard.writeText(b.getAttribute('data-t'));b.textContent='copied';setTimeout(function(){b.textContent='copy';},1200);} });});
+  }
+  function run(place){
+    out.hidden=false;
+    out.innerHTML='<div class="th-load">grounding '+esc(place)+'… a cold cell signs a fresh fact, which can take a few seconds.</div>';
+    fetch('/v1/recall',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cell:place,bands:['copdem30m.elevation_mean','indices.ndvi'],include:['freshness']})})
+      .then(function(r){return r.json();})
+      .then(function(d){ if(d&&d.code&&!d.facts){ out.innerHTML='<div class="th-miss">'+esc(d.message||'could not ground that place')+'</div>'; return; } render(d); })
+      .catch(function(){ out.innerHTML='<div class="th-miss">network error, try again.</div>'; });
+  }
+  form.addEventListener('submit',function(e){e.preventDefault();var v=q.value.trim();if(v)run(v);});
+  document.querySelectorAll('.th-eg').forEach(function(b){b.addEventListener('click',function(){q.value=b.textContent;run(b.textContent);});});
+})();
+</script>
 
 <main class="scroll">
 <div class="mith-div"><span class="gem"></span></div>
@@ -3632,983 +3523,6 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     es.onerror = () => { /* keep last paint; EventSource auto-retries */ };
     window.addEventListener('pagehide', () => { try { es.close(); } catch(_){} });
   } catch(_){}
-})();
-</script>
-<script src="/maplibre-gl.js"></script>
-<script>
-/* atlas: the homepage map + four-model consensus. Vanilla, no inline handlers
-   (CSP), no imports — MapLibre is a global, fetch is same-origin /v1/*. Patches
-   render as GL circle layers (not DOM markers) so no style attributes are set. */
-(function(){
-  if (!window.maplibregl) return;
-  if (!document.getElementById('atlas-map')) return;
-
-  // Mithila palette, mirrored from the page tokens but written in hex because
-  // MapLibre's color parser does not read oklch. Ink coastline on warm
-  // parchment land, the page's own cream as the sea, so the map dissolves
-  // into the page instead of sitting in a hard rectangle.
-  var PAPER='#f3eee2', LAND='#e6dcc2', INK='#2b2620',
-      VERM='#bb3b2c', INDIGO='#344a8c', OCHRE='#d59a2a', LEAF='#4f8a3d';
-
-  // Pre-warmed showcase patches: vegetated / cropland cells where all four
-  // encoders carry data. Warmed server-side after deploy so their verdict is
-  // instant; an arbitrary land click is honestly slower (cold fetch + sign).
-  // Pantanal/Iowa/Congo lead because they reliably carry a cloud-free
-  // Sentinel-2 scene as well as all four encoders — so the panel opens on a
-  // real satellite image + four signed embedding barcodes. The cloudy
-  // tropical patches (Amazon/Borneo/Sumatra) follow; they still show the
-  // embeddings, with an honest "no cloud-free scene" note for the image.
-  // Cities lead (the everyday consumer questions — flood, air, walkability,
-  // density — read richly there); the forest/wetland patches follow for the
-  // four-model consensus + EUDR story. The default (index 0) opens on a city.
-  var PATCHES = [
-    {name:'Mumbai',              lng:72.87,  lat:19.07},
-    {name:'São Paulo',      lng:-46.63, lat:-23.55},
-    {name:'Chicago',             lng:-87.63, lat:41.88},
-    {name:'Jakarta',             lng:106.85, lat:-6.20},
-    {name:'Pantanal wetland',    lng:-56.60, lat:-17.70},
-    {name:'Amazon, Para',        lng:-54.10, lat:-3.20},
-    {name:'Borneo, Kalimantan',  lng:113.90, lat:0.50},
-    {name:'Iowa cropland',       lng:-93.60, lat:42.00}
-  ];
-  var ENC_NAME = {geotessera:'Tessera', clay_v1:'Clay v1.5', prithvi_eo2:'Prithvi-EO-2', galileo:'Galileo'};
-  var ENC_COL  = {geotessera:'#5b78c8', clay_v1:'#5fa84a', prithvi_eo2:'#e0a838', galileo:'#cf5142'};
-  function encLabel(k){ return ENC_NAME[k] || k; }
-  function fc(features){ return {type:'FeatureCollection', features:features}; }
-
-  var patchFeatures = PATCHES.map(function(p,i){
-    return {type:'Feature', properties:{idx:i, name:p.name}, geometry:{type:'Point', coordinates:[p.lng,p.lat]}};
-  });
-
-  var map = new maplibregl.Map({
-    container:'atlas-map',
-    attributionControl:{compact:true, customAttribution:'coastline: Natural Earth (public domain)'},
-    style:{
-      version:8,
-      sources:{
-        land:{type:'geojson', data:'/land-110m.geojson'},
-        osm:{type:'raster', tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256, maxzoom:19, attribution:'&copy; OpenStreetMap contributors'},
-        sat:{type:'raster', tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize:256, maxzoom:19, attribution:'Esri, Maxar, Earthstar Geographics'},
-        dropped:{type:'geojson', data:fc([])},
-        coverage:{type:'geojson', data:fc([])},
-        hotpulse:{type:'geojson', data:fc([])},
-        fields:{type:'geojson', data:fc([])},
-        hunt:{type:'geojson', data:fc([])},
-        similar:{type:'geojson', data:fc([])},
-        cellfoot:{type:'geojson', data:fc([])},
-        patches:{type:'geojson', data:fc(patchFeatures)},
-        sel:{type:'geojson', data:fc([])}
-      },
-      layers:[
-        {id:'sea',   type:'background', paint:{'background-color':PAPER}},
-        // FOSS raster basemaps, hidden until chosen in the basemap switcher
-        {id:'osm-tiles', type:'raster', source:'osm', layout:{visibility:'none'}, paint:{'raster-opacity':0.92}},
-        {id:'sat-tiles', type:'raster', source:'sat', layout:{visibility:'none'}},
-        {id:'land',  type:'fill', source:'land', paint:{'fill-color':LAND}},
-        {id:'coast', type:'line', source:'land', paint:{'line-color':INK,'line-width':1.0,'line-opacity':0.85}},
-        // /v1/coverage — where Earth is already remembered (signed-fact density)
-        // The whole signed corpus reads as a soft indigo→gold density wash at
-        // world/continent zoom (the "memory" texture) and resolves to faint
-        // dots only once you zoom in, so 130k cells never become a wall of
-        // markers. Red is deliberately NOT in this ramp — it is reserved for
-        // active results (hunt hotspots, dropped overlays) so those stand out.
-        {id:'coverage-heat', type:'heatmap', source:'coverage', maxzoom:7, paint:{
-          'heatmap-weight':['interpolate',['linear'],['get','f'],0,0,40,1],
-          'heatmap-intensity':['interpolate',['linear'],['zoom'],0,0.5,7,1.4],
-          'heatmap-radius':['interpolate',['linear'],['zoom'],0,6,7,26],
-          'heatmap-opacity':['interpolate',['linear'],['zoom'],0,0.55,5,0.6,7,0.25],
-          'heatmap-color':['interpolate',['linear'],['heatmap-density'],
-            0,'rgba(243,238,226,0)',0.25,'rgba(52,74,140,0.28)',0.6,'rgba(52,74,140,0.45)',0.85,'rgba(213,154,42,0.6)',1,'rgba(213,154,42,0.8)']}},
-        {id:'coverage-dot', type:'circle', source:'coverage', minzoom:6, paint:{
-          'circle-radius':['interpolate',['linear'],['zoom'],6,1.1,12,3.2],
-          'circle-color':INDIGO,
-          'circle-opacity':['interpolate',['linear'],['zoom'],6,0.18,10,0.4]}},
-        // the densest cells breathe — a quiet GOLD pulse (not red) so it reads
-        // as "richest memory", never as an alert
-        {id:'hot-pulse', type:'circle', source:'hotpulse', maxzoom:7, paint:{
-          'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':OCHRE,'circle-stroke-width':1.6,'circle-stroke-opacity':0.55}},
-        {id:'hot-core', type:'circle', source:'hotpulse', maxzoom:7, paint:{
-          'circle-radius':2.6,'circle-color':OCHRE,'circle-opacity':0.8}},
-        // /v1/field_boundaries — Fields of The World farm polygons (on zoom)
-        {id:'fields-fill', type:'fill', source:'fields', paint:{'fill-color':OCHRE,'fill-opacity':0.16}},
-        {id:'fields-line', type:'line', source:'fields', paint:{'line-color':INK,'line-width':0.7,'line-opacity':0.55}},
-        // selected cell true footprint (/v1/cells/<cell>/geojson)
-        {id:'cell-foot', type:'fill', source:'cellfoot', paint:{'fill-color':INDIGO,'fill-opacity':0.28}},
-        {id:'cell-foot-line', type:'line', source:'cellfoot', paint:{'line-color':INDIGO,'line-width':1.4}},
-        // a user-dropped / pasted GeoJSON file, overlaid live (client-side only)
-        {id:'dropped-fill', type:'fill', source:'dropped', filter:['==',['geometry-type'],'Polygon'], paint:{'fill-color':VERM,'fill-opacity':0.22}},
-        {id:'dropped-line', type:'line', source:'dropped', paint:{'line-color':VERM,'line-width':1.4}},
-        {id:'dropped-dot', type:'circle', source:'dropped', filter:['==',['geometry-type'],'Point'], paint:{'circle-radius':4,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':1.2}},
-        // /v1/hunt — anomaly hotspots (triggered)
-        // hunt hotspots — the one thing on the map painted RED. A wide soft
-        // glow doubles as a generous click/tap target (queried below), and the
-        // solid core is large with a thick paper ring so it never gets lost.
-        {id:'hunt-glow', type:'circle', source:'hunt', paint:{'circle-radius':['interpolate',['linear'],['get','c'],0,16,1,38],'circle-color':VERM,'circle-opacity':0.2}},
-        {id:'hunt-dot', type:'circle', source:'hunt', paint:{'circle-radius':8.5,'circle-color':VERM,'circle-stroke-color':PAPER,'circle-stroke-width':2.6}},
-        // /v1/find_similar — places whose embedding is most like the selected cell
-        {id:'similar-line', type:'line', source:'similar', paint:{'line-color':LEAF,'line-width':1,'line-opacity':0.5,'line-dasharray':[2,2]}},
-        {id:'similar-dot', type:'circle', source:'similar', paint:{'circle-radius':['interpolate',['linear'],['get','s'],0.7,4,1,8],'circle-color':LEAF,'circle-stroke-color':PAPER,'circle-stroke-width':1.5}},
-        {id:'sel-halo', type:'circle', source:'sel', paint:{'circle-radius':15,'circle-color':INDIGO,'circle-opacity':0.13}},
-        {id:'sel-ring', type:'circle', source:'sel', paint:{'circle-radius':8,'circle-color':'rgba(255,255,255,0)','circle-stroke-color':INDIGO,'circle-stroke-width':2.2}},
-        // the eight seeded cities — GOLD entry points, distinct from red hunt
-        // results and indigo selection, so "tap a city to begin" reads clearly
-        {id:'patch-dot', type:'circle', source:'patches', paint:{'circle-radius':6,'circle-color':OCHRE,'circle-stroke-color':INK,'circle-stroke-width':2}}
-      ]
-    },
-    center:[8,16], zoom:1.1, minZoom:0.5, maxZoom:16,
-    renderWorldCopies:true, dragRotate:false, pitchWithRotate:false,
-    // Cooperative gestures: the wheel zooms the map only with Ctrl/⌘ (two
-    // fingers on touch), so scrolling the page past a full-screen map hero
-    // still works while the map stays directly zoomable. Replaces the old
-    // scrollZoom:false, which left visitors unable to zoom at all without the
-    // +/- buttons. Keyboard nav (arrows + / -) is on for accessibility.
-    cooperativeGestures:true, keyboard:true
-  });
-  map.touchZoomRotate.disableRotation();
-  map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'top-right');
-  // Expose the map for power users + automated UI checks (layer visibility,
-  // camera bounds). Harmless read handle; no state is driven through it.
-  window.atlasMap = map;
-  // Honour the OS reduced-motion setting for every CAMERA move (the page's
-  // CSS animations are already guarded). A user-driven move is marked
-  // essential:true so it still happens under reduce — it just jumps instead
-  // of animating. `flyTo` arcs (zoom out → pan → in) give spatial context on
-  // long jumps; `goTo` centralises the duration + essential flag.
-  var PREFERS_REDUCED = (window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches) || false;
-  // expose the live map for in-browser debugging and external verification
-  // (a read handle; nothing here mutates through it)
-  try { window.map = map; } catch (e) {}
-  function goTo(opts){
-    var o = {essential:true, duration: PREFERS_REDUCED ? 0 : 900};
-    for (var k in opts) o[k] = opts[k];
-    map.flyTo(o);
-  }
-
-  var elName=document.getElementById('atlas-place-name'),
-      elCell=document.getElementById('atlas-cell'),
-      elStatus=document.getElementById('atlas-status'),
-      elScene=document.getElementById('atlas-scene'),
-      elFp=document.getElementById('atlas-fp'), fpSw=document.getElementById('fp-sw'),
-      elEngram=document.getElementById('atlas-engram'),
-      elSimilar=document.getElementById('atlas-similar'), simRows=document.getElementById('sim-rows'),
-      elCube=document.getElementById('atlas-cube'), cubeStrip=document.getElementById('cube-strip'),
-      cubeDim=document.getElementById('cube-dim'), cubeCid=document.getElementById('cube-cid'),
-      elEncs=document.getElementById('atlas-encs'),
-      elVerdict=document.getElementById('atlas-verdict'),
-      elDeeper=document.getElementById('atlas-deeper');
-  var reqSeq = 0;
-  var SVGNS = 'http://www.w3.org/2000/svg';
-
-  function setStatus(t){ elStatus.textContent = t || ''; }
-  function clearKids(n){ while(n.firstChild) n.removeChild(n.firstChild); }
-  function el(tag, cls, text){ var e=document.createElement(tag); if(cls)e.className=cls; if(text!=null)e.textContent=text; return e; }
-
-  // ── the 3D embedding engram ────────────────────────────────────────────
-  // The four signed vectors for a cell, each rendered as a rotating 3D point
-  // cloud (canvas, no library). Each vector is reshaped into 3-tuples →
-  // points; the cloud SHAPE is a fingerprint of that cell's latent state, so
-  // different cells visibly differ and the four encoders read as four
-  // constellations over the same ground. Drag to turn; depth-fog + perspective
-  // sell the third axis. Honest: the points ARE the signed components.
-  var ENG = (function(){
-    var cv, ctx, W=0, H=0, dpr=1, raf=null, clouds=[];
-    var rotX=0.42, rotY=0.0, auto=true, drag=false, lx=0, ly=0, started=false;
-    function build(vec, maxPts){
-      var pts=[], mx=1e-6, i;
-      for(i=0;i+2<vec.length;i+=3){ pts.push([vec[i],vec[i+1],vec[i+2]]); }
-      // subsample evenly to maxPts
-      if(pts.length>maxPts){ var out=[], st=pts.length/maxPts; for(i=0;i<maxPts;i++) out.push(pts[Math.floor(i*st)]); pts=out; }
-      for(i=0;i<pts.length;i++){ var p=pts[i], r=Math.sqrt(p[0]*p[0]+p[1]*p[1]+p[2]*p[2]); if(r>mx)mx=r; }
-      for(i=0;i<pts.length;i++){ pts[i][0]/=mx; pts[i][1]/=mx; pts[i][2]/=mx; }
-      return pts;
-    }
-    function resize(){
-      dpr=Math.min(2, window.devicePixelRatio||1);
-      W=cv.clientWidth; H=cv.clientHeight;
-      cv.width=Math.max(1,Math.round(W*dpr)); cv.height=Math.max(1,Math.round(H*dpr));
-      ctx.setTransform(dpr,0,0,dpr,0,0);
-    }
-    function proj(p){
-      var cyw=Math.cos(rotY), syw=Math.sin(rotY), cxw=Math.cos(rotX), sxw=Math.sin(rotX);
-      var x=p[0], y=p[1], z=p[2];
-      var x1=x*cyw - z*syw, z1=x*syw + z*cyw;
-      var y1=y*cxw - z1*sxw, z2=y*sxw + z1*cxw;
-      var d=3.4, f=d/(d - z2), s=Math.min(W,H)*0.5;
-      return [W/2 + x1*f*s, H/2 + y1*f*s, z2, f];
-    }
-    function frame(){
-      raf=requestAnimationFrame(frame);
-      if(!W||!H){ resize(); if(!W) return; }
-      if(auto && !drag) rotY += 0.0045;
-      ctx.clearRect(0,0,W,H);
-      var all=[], ci, pi;
-      for(ci=0;ci<clouds.length;ci++){ var c=clouds[ci]; for(pi=0;pi<c.pts.length;pi++){ all.push([proj(c.pts[pi]), c.color]); } }
-      all.sort(function(a,b){ return a[0][2]-b[0][2]; });
-      for(var k=0;k<all.length;k++){
-        var pr=all[k][0], col=all[k][1];
-        var fog=(pr[2]+1.15)/2.3;                 // 0 far … 1 near
-        ctx.globalAlpha=Math.max(0.08, Math.min(0.92, 0.2+0.7*fog));
-        ctx.fillStyle=col;
-        var rad=Math.max(0.6, (0.8+1.7*pr[3])*(0.55+0.6*fog));
-        ctx.beginPath(); ctx.arc(pr[0],pr[1],rad,0,6.2832); ctx.fill();
-      }
-      ctx.globalAlpha=1;
-    }
-    function start(){ if(!raf) raf=requestAnimationFrame(frame); }
-    // Stop the render loop. Without this the rAF re-scheduled forever (even
-    // with an empty/hidden engram), a constant CPU/battery drain on the hero.
-    function stop(){ if(raf){ cancelAnimationFrame(raf); raf=null; } }
-    function init(){
-      if(started) return; started=true;
-      cv=document.getElementById('engram-canvas'); if(!cv) return;
-      ctx=cv.getContext('2d');
-      window.addEventListener('resize', resize);
-      // pause while the tab is hidden; resume only if there's something to draw
-      document.addEventListener('visibilitychange', function(){
-        if(document.hidden) stop(); else if(clouds.length) start();
-      });
-      cv.addEventListener('pointerdown', function(ev){ drag=true; auto=false; lx=ev.clientX; ly=ev.clientY; cv.setPointerCapture&&cv.setPointerCapture(ev.pointerId); });
-      cv.addEventListener('pointermove', function(ev){ if(!drag) return; rotY+=(ev.clientX-lx)*0.01; rotX+=(ev.clientY-ly)*0.01; rotX=Math.max(-1.4,Math.min(1.4,rotX)); lx=ev.clientX; ly=ev.clientY; });
-      function up(){ drag=false; setTimeout(function(){ auto=true; }, 2600); }
-      cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up); cv.addEventListener('pointerleave', up);
-    }
-    return {
-      setData: function(encoders){
-        init();
-        clouds=[];
-        (encoders||[]).forEach(function(e){
-          if(Array.isArray(e.vector) && e.vector.length){
-            clouds.push({color: ENC_COL[e.encoder] || '#cbb68a', pts: build(e.vector, 80)});
-          }
-        });
-        if(clouds.length){ elEngram.hidden=false; resize(); start();
-          var lg=document.getElementById('engram-legend');
-          if(lg){ clearKids(lg); (encoders||[]).forEach(function(e){ if(Array.isArray(e.vector)&&e.vector.length){ var sp=el('span'); var i2=el('i'); i2.style.background=ENC_COL[e.encoder]||'#cbb68a'; sp.appendChild(i2); sp.appendChild(document.createTextNode(encLabel(e.encoder))); lg.appendChild(sp); } }); }
-        } else { elEngram.hidden=true; stop(); }
-      },
-      clear: function(){ clouds=[]; stop(); if(elEngram) elEngram.hidden=true; }
-    };
-  })();
-
-  // Latent fingerprint: a fixed, deterministic 3-component projection of the
-  // embedding -> RGB. The basis is the same for every cell, so similar places
-  // get a similar colour — a stable visual hash of the place (the technique
-  // Tessera/AlphaEarth use: project the latent to 3 axes -> R,G,B).
-  function latentRGB(vec){
-    var acc=[0,0,0], seed=[12.9898,78.233,37.719], i, c;
-    for(i=0;i<vec.length;i++){
-      for(c=0;c<3;c++){ var w=Math.sin((i+1)*seed[c])*43758.5453; w=w-Math.floor(w); acc[c]+=vec[i]*(w*2-1); }
-    }
-    var n=(Math.sqrt(vec.length)||1)*1.7;
-    return acc.map(function(a){ var t=Math.max(-1,Math.min(1,a/n)); return Math.round((t*0.5+0.5)*255); });
-  }
-  function renderFingerprint(encoders){
-    var e=(encoders||[]).filter(function(x){ return Array.isArray(x.vector)&&x.vector.length; })[0];
-    if(!e){ elFp.hidden=true; return; }
-    var rgb=latentRGB(e.vector), css='rgb('+rgb[0]+','+rgb[1]+','+rgb[2]+')';
-    fpSw.style.background=css;
-    elFp.hidden=false;
-    // Paint the embedding ON the map: tint the selected cell's footprint with
-    // its own latent-fingerprint colour, so two places that look alike to the
-    // models read as the same hue on the map, not just in the side panel.
-    if(map.getLayer('cell-foot')) map.setPaintProperty('cell-foot','fill-color', css);
-  }
-
-  // Most similar places (/v1/find_similar): "this patch is like those". The
-  // single most meaningful embedding demo — neighbours by cosine, pinned on the
-  // map and listed with their similarity, each clickable to jump there.
-  function renderSimilar(neighbors, lng, lat, seq){
-    neighbors=(neighbors||[]).filter(function(n){ return typeof n.lng==='number' && typeof n.lat==='number'; }).slice(0,4);
-    if(!neighbors.length){ elSimilar.hidden=true; if(map.getSource('similar')) map.getSource('similar').setData(fc([])); return; }
-    clearKids(simRows);
-    neighbors.forEach(function(n){
-      var row=el('div','sim-row');
-      // The /v1/find_similar Neighbor payload is {cell, score, lat, lng,
-      // place_label_cached} — no thumbnail or label field, so use the paper
-      // swatch + place_label_cached||cell (the earlier n.scene_png_url/n.label
-      // reads were dead against the real contract).
-      row.appendChild(el('span','sim-thumb'));
-      row.appendChild(el('span','sim-name', n.place_label_cached || n.cell || 'a cell'));
-      var sc=(typeof n.score==='number')?n.score:0;
-      var bar=el('span','sim-bar'); var filli=el('i'); filli.style.width=Math.round(Math.max(0,Math.min(1,sc))*100)+'%'; bar.appendChild(filli);
-      var wrap=el('span'); wrap.style.display='flex'; wrap.style.alignItems='center'; wrap.style.gap='.35rem';
-      wrap.appendChild(bar); wrap.appendChild(el('span','sim-sc', sc.toFixed(2)));
-      row.appendChild(wrap);
-      row.addEventListener('click', function(){ selectAt(n.lng, n.lat, n.place_label_cached || null, true); });
-      simRows.appendChild(row);
-    });
-    elSimilar.hidden=false;
-    // pins + dashed lines from the selected cell to each neighbour
-    var feats=[];
-    neighbors.forEach(function(n){
-      feats.push({type:'Feature', properties:{s:n.score||0.7}, geometry:{type:'Point', coordinates:[n.lng,n.lat]}});
-      feats.push({type:'Feature', properties:{}, geometry:{type:'LineString', coordinates:[[lng,lat],[n.lng,n.lat]]}});
-    });
-    if(map.getSource('similar')) map.getSource('similar').setData(fc(feats));
-  }
-
-  // The full 1792-D voxel cube (/v1/state view=cube): all 43 band slots in
-  // canonical offset order, coloured by fill status, plus the state_cid and a
-  // one-click download of the whole signed cube. This is the "show the full
-  // embeddings, not just a few" view — a memory layer, not one model's vector.
-  var lastCube=null;
-  function renderCube(d){
-    if(!d || !Array.isArray(d.coverage) || !d.coverage.length){ elCube.hidden=true; return; }
-    lastCube=d;
-    var dim=d.dim||1792;
-    cubeDim.textContent=dim+'-D · '+(d.filled_dims!=null?d.filled_dims:'?')+' filled';
-    clearKids(cubeStrip);
-    d.coverage.forEach(function(c){
-      var seg=el('div','seg'); seg.style.width=((c.dims||1)/dim*100)+'%';
-      var st=c.status;
-      // Honest fill: 'placeholder' is an EMPTY slot (no real data) and must
-      // read grey like missing/absent, not the solid indigo of a filled slot —
-      // otherwise the bar overstates how much of the 1792-D cube is populated.
-      // 'scalar_filled' (a single materialiser scalar atop the slot) gets its
-      // own muted ochre, distinct from a 'primary' full-vector slot.
-      seg.style.background =
-          st==='primary'                       ? LEAF
-        : st==='scalar_filled'                 ? '#c9a86a'
-        : st==='dim_mismatch'                  ? OCHRE
-        : (st==='missing'||st==='absent'||st==='placeholder') ? '#cdc2a6'
-        : INDIGO;
-      seg.title=(c.key||'?')+' · '+(c.dims||0)+'-D · '+st+(typeof c.offset==='number'?(' · offset '+c.offset):'');
-      cubeStrip.appendChild(seg);
-    });
-    cubeCid.textContent='state_cid '+(d.state_cid||'');
-    elCube.hidden=false;
-  }
-  function downloadCube(){
-    if(!lastCube) return;
-    var blob=new Blob([JSON.stringify(lastCube,null,1)], {type:'application/json'});
-    var url=URL.createObjectURL(blob), a=document.createElement('a');
-    a.href=url; a.download=(lastCube.cell||'cell')+'.state-cube.json'; document.body.appendChild(a); a.click();
-    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 2000);
-  }
-  (function(){ var d=document.getElementById('cube-dl'); if(d) d.addEventListener('click', downloadCube); })();
-
-  // The real Sentinel-2 true-colour scene for the selected cell. Loaded
-  // lazily after the embeddings render; on a cloudy patch the endpoint 404s
-  // and we say so plainly rather than show a broken image.
-  function loadScene(cell, seq){
-    elScene.hidden=false; elScene.classList.remove('empty'); clearKids(elScene);
-    elScene.appendChild(el('div','scene-note','loading the latest cloud-free scene…'));
-    // NB: no loading="lazy" — the img is detached until onload, and a lazy
-    // detached img never starts loading, so the events never fire.
-    var img=el('img'); img.alt='Sentinel-2 true-colour scene at '+cell;
-    img.addEventListener('load', function(){
-      if(seq!==reqSeq) return;
-      clearKids(elScene); elScene.classList.remove('empty');
-      elScene.appendChild(img);
-      elScene.appendChild(el('figcaption','cap','Sentinel-2 true colour · most recent scene under 20% cloud'));
-    });
-    img.addEventListener('error', function(){
-      if(seq!==reqSeq) return;
-      clearKids(elScene); elScene.classList.add('empty');
-      elScene.appendChild(el('div','scene-note','no cloud-free Sentinel-2 scene at this patch in the last 90 days — the four embeddings below still read it through cloud.'));
-    });
-    img.src='/v1/cells/'+encodeURIComponent(cell)+'/scene.png';
-  }
-
-  function fetchJson(path, body){
-    return fetch(path, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body)})
-      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }, function(){ return {ok:false, j:null}; }); });
-  }
-
-  // A signed encoder reading: name + dim/|v|, the embedding barcode, and the
-  // FULL fact_cid as a link to /verify/<cid> so the reading is reproducible
-  // (no truncated "…" that can't be copied or checked).
-  function encRow(e){
-    var row = el('div','atlas-enc');
-    var nm = el('div','name'); var seal=el('span','seal');
-    if (ENC_COL[e.encoder]) seal.style.background = ENC_COL[e.encoder];   // tie row to the engram colour
-    nm.appendChild(seal); nm.appendChild(el('span', null, encLabel(e.encoder)));
-    row.appendChild(nm);
-    var l2 = (typeof e.l2_norm==='number') ? e.l2_norm.toFixed(2) : '?';
-    row.appendChild(el('div','meta', e.dim+'-D · |v| '+l2));
-    var cid = el('div','cid');
-    cid.appendChild(document.createTextNode('signed · '));
-    if (e.fact_cid){
-      var a = el('a', null, e.fact_cid);
-      a.href = '/verify/' + encodeURIComponent(e.fact_cid);
-      a.title = 'verify this signed embedding in your browser';
-      cid.appendChild(a);
-    }
-    row.appendChild(cid);
-    return row;
-  }
-
-  function absentRow(m){
-    var row = el('div','atlas-enc absent');
-    var nm = el('div','name'); nm.appendChild(el('span','seal')); nm.appendChild(el('span', null, encLabel(m.encoder)));
-    row.appendChild(nm);
-    row.appendChild(el('div','meta','absent'));
-    row.appendChild(el('div','cid', m.reason || 'no reading at this cell'));
-    return row;
-  }
-
-  function renderEncoders(state){
-    clearKids(elEncs);
-    ((state && state.encoders) || []).forEach(function(e){ elEncs.appendChild(encRow(e)); });
-    ((state && state.missing) || []).forEach(function(m){ elEncs.appendChild(absentRow(m)); });
-    ENG.setData((state && state.encoders) || []);   // the 3D engram from the signed vectors
-    renderFingerprint((state && state.encoders) || []);
-  }
-
-  function renderConsensus(cons){
-    elVerdict.hidden = false; clearKids(elVerdict);
-    var badge = el('span','badge'), note;
-    if (cons && cons.available && cons.verdict==='computed'){
-      badge.textContent = 'consensus: ' + String(cons.agreement||'').replace(/_/g,' ');
-      var ens = (typeof cons.ensemble==='number') ? cons.ensemble.toFixed(3) : '?';
-      note = el('span','note', 'year-over-year change '+ens+' over '+cons.n_encoders_used+' of 3 encoders');
-    } else {
-      badge.className = 'badge fail';
-      badge.textContent = 'consensus inconclusive';
-      note = el('span','note', (cons && cons.honest_note) ? cons.honest_note : 'needs two distinct vintages on the minimum encoders');
-    }
-    elVerdict.appendChild(badge); elVerdict.appendChild(note);
-  }
-
-  function selectAt(lng, lat, label, ease){
-    var seq = ++reqSeq;
-    map.getSource('sel').setData(fc([{type:'Feature', properties:{}, geometry:{type:'Point', coordinates:[lng,lat]}}]));
-    // Fly to a real place-view zoom so the selected cell is actually visible
-    // (the old Math.max(...,2.6) left a city-level pick at continental zoom).
-    if (ease) goTo({center:[lng,lat], zoom: Math.max(map.getZoom(), 11)});
-    elName.textContent = label || 'selected patch';
-    elCell.textContent = ''; elVerdict.hidden = true; elDeeper.hidden = true; elScene.hidden = true; ENG.clear(); clearKids(elEncs);
-    elFp.hidden = true; elSimilar.hidden = true; elCube.hidden = true;
-    if (map.getSource('cellfoot')) map.getSource('cellfoot').setData(fc([]));
-    if (map.getSource('similar')) map.getSource('similar').setData(fc([]));
-    setStatus('resolving cell…');
-
-    fetchJson('/v1/locate', {lat:lat, lng:lng}).then(function(loc){
-      if (seq!==reqSeq) return;
-      if (!loc.ok || !loc.j || !loc.j.cell64){ setStatus('could not resolve a cell at this point.'); return; }
-      var cell = loc.j.cell64;
-      var resolved = loc.j.place_label || (loc.j.place_resolution && loc.j.place_resolution.resolved_label);
-      if (resolved && !label) elName.textContent = resolved;
-      var placeName = (resolved || label || '').toString();
-      if (placeName){
-        if (!selMarker){
-          var lblEl=document.createElement('div'); lblEl.className='sel-label';
-          selMarker=new maplibregl.Marker({element:lblEl, anchor:'bottom', offset:[0,-12]});
-        }
-        selMarker.getElement().textContent=placeName;
-        selMarker.setLngLat([lng,lat]).addTo(map);
-      } else if (selMarker){ selMarker.remove(); }
-      elCell.textContent = cell;
-      setStatus('four models reading this patch… a cold patch takes a few seconds while the responder fetches and signs.');
-      loadScene(cell, seq);
-      // draw the cell's true ~9.5 m footprint (visible when zoomed in)
-      fetch('/v1/cells/'+encodeURIComponent(cell)+'/geojson').then(function(r){return r.json();}).then(function(g){
-        if (seq===reqSeq && g && g.geometry && map.getSource('cellfoot')) map.getSource('cellfoot').setData(g);
-      }).catch(function(){});
-      var sm = fetchJson('/v1/state_multi', {cell:cell, vectors:true});
-      var tc = fetchJson('/v1/triple_consensus', {cell:cell});
-      sm.then(function(r){ if (seq===reqSeq && r.ok && r.j) renderEncoders(r.j); });
-      // the full 1792-D voxel cube (all 43 band slots), downloadable
-      fetchJson('/v1/state', {cell:cell, view:'cube'}).then(function(r){ if (seq===reqSeq && r.ok && r.j) renderCube(r.j); }, function(){});
-      Promise.all([sm, tc]).then(function(rs){
-        if (seq!==reqSeq) return;
-        var smr=rs[0], tcr=rs[1];
-        var n = (smr.ok && smr.j && smr.j.encoders) ? smr.j.encoders.length : 0;
-        if (tcr.ok && tcr.j) renderConsensus(tcr.j);
-        elDeeper.hidden = false;
-        setStatus(n+' of 4 models signed a reading at this cell. Each row is one ed25519 receipt.');
-      }, function(){ if (seq===reqSeq) setStatus('the responder did not answer for this patch. Try a marked patch.'); });
-      // most-similar places by foundation-embedding cosine — "this patch is like those"
-      fetchJson('/v1/find_similar', {key:cell, k:4}).then(function(r){
-        if (seq!==reqSeq) return;
-        var ns = (r.j && (r.j.neighbors || r.j.neighbours)) || [];
-        renderSimilar(ns, lng, lat, seq);
-      }, function(){});
-    }, function(){ if (seq===reqSeq) setStatus('could not reach the responder.'); });
-  }
-
-  // ── ask the Earth: a natural-language question drives the map ──────────
-  // POST /v1/ask resolves the place, routes the topic, and hands back a
-  // synthesised answer + the signed band readings. We fly the map there, run
-  // the same consensus/engram a click would, and explain it in the panel.
-  var elAnswer=document.getElementById('atlas-answer'),
-      elAnsQ=document.getElementById('ans-q'), elAnsText=document.getElementById('ans-text'),
-      elAnsTopics=document.getElementById('ans-topics'), elAnsBands=document.getElementById('ans-bands'),
-      elAnsFoot=document.getElementById('ans-foot'), ansX=document.getElementById('ans-x'),
-      elAnsExplain=document.getElementById('ans-explain'), elAnsExplanation=document.getElementById('ans-explanation');
-  var lastAsk=null;   // the last /v1/ask response, for the Gemma "explain" layer
-  function clearAnswer(){ if(elAnswer) elAnswer.hidden=true; if(window.__consCollapse) window.__consCollapse(false); }
-  if(ansX) ansX.addEventListener('click', clearAnswer);
-  // Optional Gemma-4 "explain" — rewords the SIGNED facts in plain English via
-  // POST /v1/explain. Clearly unsigned: the signed answer above is untouched.
-  if(elAnsExplain) elAnsExplain.addEventListener('click', function(){
-    if(!lastAsk){ return; }
-    elAnsExplain.disabled=true; elAnsExplain.textContent='thinking… ◆';
-    elAnsExplanation.hidden=false;
-    // Explain runs Gemma-4 12B (4-bit) on a shared GPU: ~10-30s on this setup.
-    // A stepped loader reads the wait as progress, not a hang.
-    var EX_STEPS=['reading the signed facts','handing them to Gemma-4 (12B)','composing plain language'];
-    var stepIdx=0;
-    function renderSteps(){
-      var h='<span class="xh">plain language · Gemma-4 · unsigned · ~10-30s</span><div class="ex-steps">';
-      for(var i=0;i<EX_STEPS.length;i++){ var cls=(i<stepIdx?'done':(i===stepIdx?'active':'')); h+='<div class="ex-step '+cls+'">'+EX_STEPS[i]+'</div>'; }
-      elAnsExplanation.innerHTML=h+'</div>';
-    }
-    renderSteps();
-    var stepT=setInterval(function(){ if(stepIdx<EX_STEPS.length-1){ stepIdx++; renderSteps(); } }, 4500);
-    fetchJson('/v1/explain', {ask:lastAsk}).then(function(r){
-      clearInterval(stepT);
-      elAnsExplain.disabled=false; elAnsExplain.textContent='explain in plain words ◆';
-      var d=r.j||{};
-      if(d.explanation){
-        elAnsExplanation.innerHTML='';
-        var h=el('span','xh','plain language · '+(d.model? d.model.replace('google/','') : 'Gemma-4')+' · unsigned commentary');
-        elAnsExplanation.appendChild(h);
-        elAnsExplanation.appendChild(el('span',null,d.explanation));
-        // cite the SIGNED source this prose rewords: fact count + verify link
-        var src=(d.source||{}), fcids=(src.fact_cids||(lastAsk&&lastAsk.fact_cids)||[]);
-        var cite=el('div','x-cite');
-        cite.appendChild(el('span',null,'rewords '+fcids.length+' signed fact'+(fcids.length===1?'':'s')+' · '));
-        if(fcids[0]){ var a=el('a',null,'verify ✓'); a.href='/verify/'+fcids[0]; a.target='_blank'; a.rel='noopener'; cite.appendChild(a); }
-        else { cite.appendChild(el('span',null,'see the signed answer above')); }
-        elAnsExplanation.appendChild(cite);
-      } else {
-        elAnsExplanation.innerHTML='<span class="xh">plain language · unsigned</span><span>'+((d.reason)||'the explain layer is offline right now — the signed answer above is unaffected.')+'</span>';
-      }
-    }, function(){ clearInterval(stepT); elAnsExplain.disabled=false; elAnsExplain.textContent='explain in plain words ◆'; elAnsExplanation.innerHTML='<span class="xh">plain language · unsigned</span><span>could not reach the explain layer.</span>'; });
-  });
-  // Friendly labels for the bands an everyday question surfaces, so a row reads
-  // "PM2.5  22 µg/m³" not "cams.pm25  22 ug/m^3". Unknown bands fall through to
-  // the raw key (still honest, still the signed band name).
-  var BAND_LABEL={'cams.pm25':'PM2.5','cams.pm10':'PM10','cams.no2':'NO₂','cams.o3':'ozone','cams.co':'CO','cams.so2':'SO₂',
-    'indices.ndvi':'greenness (NDVI)','indices.evi':'greenness (EVI)','indices.ndbi':'built-up (NDBI)','indices.ndmi':'moisture (NDMI)',
-    'indices.urban_canopy_index':'tree canopy','modis.lst_day_8day':'land surface temp (day)','modis.lst_night_8day':'land surface temp (night)',
-    'weather.temperature_2m':'air temperature','weather.relative_humidity_2m':'humidity','weather.wind_speed_10m':'wind speed',
-    'weather.precipitation_mm':'precipitation','copdem30m.elevation_mean':'elevation','surface_water.recurrence':'surface water',
-    'overture.buildings.count':'buildings','overture.places.count':'places','overture.transportation.road_length_m':'road length'};
-  function prettyUnit(u){ return ({'ug/m^3':'µg/m³','m^3':'m³','degC':'°C','C':'°C'})[u]||u; }
-  function renderAnswer(d){
-    if(!elAnswer) return;
-    elAnswer.hidden=false;
-    lastAsk=d;
-    // offer the Gemma-4 plain-language layer for any answer that carries a fact
-    if(elAnsExplain){ elAnsExplain.hidden = !(d.answer || (d.fact_cids||[]).length); elAnsExplain.disabled=false; elAnsExplain.textContent='explain in plain words ◆'; }
-    if(elAnsExplanation){ elAnsExplanation.hidden=true; elAnsExplanation.innerHTML=''; }
-    elAnsQ.textContent = 'you asked: ' + (d.question || '');
-    // Humanise the synthesised answer: strip the "key@version" machine form to
-    // a plain phrase ("aqi_class@1 2" -> "aqi class 2"). The signed band rows
-    // below carry the actual numbers, so this stays a readable lead.
-    var txt = (d.answer||'').replace(/([a-z][a-z_]*)@\d+/gi, function(_,k){ return k.replace(/_/g,' '); });
-    elAnsText.textContent = txt || 'Signed readings for this place are below.';
-    clearKids(elAnsTopics);
-    ((d.topic_routing && d.topic_routing.matched_topics) || []).slice(0,5).forEach(function(t){
-      elAnsTopics.appendChild(el('span','ans-chip', t.replace(/_/g,' ')));
-    });
-    clearKids(elAnsBands);
-    var bands = (d.band_observations_summary && d.band_observations_summary.bands) || [];
-    bands.slice(0,8).forEach(function(b){
-      var row=el('div','ans-band');
-      row.appendChild(el('span','b', BAND_LABEL[b.band] || b.band));
-      var v = (typeof b.value==='number') ? (Math.abs(b.value)<100 ? b.value.toFixed(2) : Math.round(b.value)) : b.value;
-      row.appendChild(el('span','v', v + (b.unit ? ' '+prettyUnit(b.unit) : '')));
-      elAnsBands.appendChild(row);
-    });
-    document.getElementById('ans-readings-sec').hidden = !bands.length;
-    // Scored metrics: the algorithms emem actually evaluated (green space
-    // access, flood risk, outdoor comfort…). These are the "answer" for a
-    // composite question — surface them as their own labelled section.
-    var scored=document.getElementById('ans-scored'); clearKids(scored);
-    var outs=(d.algorithm_outcomes_summary || d.algorithm_outcomes || [])
-      .filter(function(o){ return o && typeof o.value==='number'; }).slice(0,6);
-    outs.forEach(function(o){
-      var row=el('div','ans-metric');
-      row.appendChild(el('span','m', (o.algorithm_key||o.key||'').replace(/@\d+$/,'').replace(/_/g,' ')));
-      var v=(Math.abs(o.value)<100)? o.value.toFixed(2) : Math.round(o.value);
-      row.appendChild(el('span','mv', v));
-      scored.appendChild(row);
-    });
-    document.getElementById('ans-scored-sec').hidden = !outs.length;
-    // Footer: signed-fact count + a real /verify deep-link on the lead fact, so
-    // a reader can re-check the receipt offline in the browser.
-    var nf=(d.fact_cids||[]).length, cid=(d.fact_cids||[])[0];
-    if(elAnsFoot){
-      clearKids(elAnsFoot);
-      elAnsFoot.appendChild(el('span',null,(nf? nf+' signed facts · ':'')+'ed25519'));
-      if(cid){ var a=el('a',null,'verify ✓'); a.href='/verify/'+cid; a.target='_blank'; a.rel='noopener'; elAnsFoot.appendChild(a); }
-    }
-  }
-  function askEarth(q){
-    q = (q||'').trim(); if(!q) return;
-    // A deictic question ("here", "this area") means the place currently on the
-    // map, so we anchor it to the selected cell. A question that names its own
-    // place ("deforestation in Borneo", "NDVI in Iowa") carries no anchor — we
-    // let /v1/ask resolve the place or run hunter mode itself.
-    var body={q:q, include:['band_observations','algorithm_outcomes']};
-    var deictic=/\b(here|this area|this place|this neighbou?r?hood|this cell|this patch|this spot|this region|this land|this home|this property|nearby|around here|this farm|this field|to live)\b/i.test(q);
-    var curCell=(elCell.textContent||'').trim();
-    if(deictic && /^defi\./.test(curCell)) body.cell=curCell;
-    var box=document.getElementById('ask-form'); if(box) box.classList.add('busy');
-    elName.textContent='asking Earth…'; clearAnswer();
-    setStatus('reading the question, resolving the place, and routing the topic…');
-    fetchJson('/v1/ask', body).then(function(r){
-      if(box) box.classList.remove('busy');
-      if(!r.ok || !r.j){ setStatus('the responder did not answer that question. Try a place + a topic.'); return; }
-      var d=r.j;
-      // HUNTER mode first: an event over a region returns hotspots AND a
-      // resolved region centre — show the hotspots (forestry / disaster / water
-      // / energy / urban / agri), not the region's centre cell.
-      if (d.hotspots && d.hotspots.length){
-        var hfeats=d.hotspots.filter(function(h){return typeof h.lng==='number';}).map(function(h){return {type:'Feature',properties:{c:h.coherence||0.5},geometry:{type:'Point',coordinates:[h.lng,h.lat]}};});
-        if(map.getSource('hunt')) map.getSource('hunt').setData(fc(hfeats));
-        var ev=String(d.event||'event').replace(/_/g,' ');
-        var where=(d.place_resolved && (d.place_resolved.label || d.place_resolved.place_label)) || 'this region';
-        elAnswer.hidden=false; elAnsQ.textContent='you asked: '+q;
-        elAnsText.textContent=hfeats.length+' '+ev+' hotspots across '+where+', ranked by coherence. The red markers are the strongest candidates — click one to read its signed cell.';
-        clearKids(elAnsTopics); elAnsTopics.appendChild(el('span','ans-chip', ev)); clearKids(elAnsBands);
-        document.getElementById('ans-readings-sec').hidden=true; document.getElementById('ans-scored-sec').hidden=true;
-        if(elAnsExplain) elAnsExplain.hidden=true; if(elAnsExplanation) elAnsExplanation.hidden=true;
-        if(elAnsFoot){ clearKids(elAnsFoot); elAnsFoot.appendChild(el('span',null,'the map zoomed to the hotspots · click any red marker for its signed cell')); }
-        // the hotspots ARE the answer — clear the prior single-cell selection
-        // visuals and collapse the consensus panel so the map reads cleanly.
-        if(map.getSource('sel')) map.getSource('sel').setData(fc([]));
-        if(map.getSource('cellfoot')) map.getSource('cellfoot').setData(fc([]));
-        if(selMarker) selMarker.remove();
-        elVerdict.hidden=true; elDeeper.hidden=true;
-        if(window.__consCollapse) window.__consCollapse(true);
-        focusHunt(hfeats);
-        elName.textContent=ev+' · '+where;
-        setStatus('hunter mode: '+hfeats.length+' hotspots. Click a red marker for its cell.');
-        return;
-      }
-      clearHunt();   // a point answer — clear any red hotspots from a prior hunt
-      renderAnswer(d);
-      var pr=d.place_resolved||{};
-      var lat=pr.lat, lng=pr.lng;
-      if(typeof lat==='number' && typeof lng==='number'){
-        selectAt(lng, lat, pr.label || pr.place_label || null, true);   // fly + cell + consensus + engram
-      } else {
-        setStatus('that reads as a corpus or out-of-scope question — see the answer above.');
-      }
-    }, function(){ if(box) box.classList.remove('busy'); setStatus('could not reach the responder.'); });
-  }
-  (function(){
-    var f=document.getElementById('ask-form'), q=document.getElementById('ask-q');
-    if(f) f.addEventListener('submit', function(ev){ ev.preventDefault(); askEarth(q.value); });
-    document.querySelectorAll('.ask-eg').forEach(function(btn){
-      btn.addEventListener('click', function(){ if(q) q.value=btn.getAttribute('data-q'); askEarth(btn.getAttribute('data-q')); });
-    });
-  })();
-
-  // ── data layers: coverage (on load), farm fields (on zoom), hunt (button) ──
-  var elCovN=document.getElementById('lyr-cov-n'),
-      elFldN=document.getElementById('lyr-fld-n'),
-      elHntN=document.getElementById('lyr-hnt-n');
-  function setLeg(el, txt){ if (el) el.textContent = txt; }
-
-  function loadCoverage(){
-    setLeg(elCovN, 'loading…');
-    // Stream the whole signed corpus, not a slice. The endpoint is gzipped
-    // (~2.5 MB for 130k+ cells) and server-cached (max-age=300, SWR=900), and
-    // MapLibre renders the points on the GPU, so there is no reason to cap the
-    // map at a fraction of what we hold. 200000 is the server's max_cells.
-    fetch('/v1/coverage?limit=200000').then(function(r){ return r.json(); }).then(function(j){
-      var feats = ((j && j.cells) || []).filter(function(c){ return typeof c.lng_deg === 'number'; }).map(function(c){
-        return {type:'Feature', properties:{f: c.fact_count || 1}, geometry:{type:'Point', coordinates:[c.lng_deg, c.lat_deg]}};
-      });
-      if (map.getSource('coverage')) map.getSource('coverage').setData(fc(feats));
-      // Honest legend: show the page size, and "of <total>" when the corpus
-      // is larger than what this page returned (total_cells is the true count).
-      var tot = (j && typeof j.total_cells === 'number') ? j.total_cells : feats.length;
-      setLeg(elCovN, feats.length.toLocaleString() + ' cells' + (tot > feats.length ? (' of ' + tot.toLocaleString()) : ''));
-      // the hottest cells (most signed facts) get a live pulse
-      var hot = feats.slice().sort(function(a,b){ return (b.properties.f||0)-(a.properties.f||0); }).slice(0,18);
-      if (map.getSource('hotpulse')) map.getSource('hotpulse').setData(fc(hot));
-    }).catch(function(){ setLeg(elCovN, 'unavailable'); });
-  }
-
-  // a slow heartbeat over the densest memory — the hot cells breathe
-  var pulseT = 0, pulseRAF = null, lastPulse = 0;
-  function pulse(ts){
-    pulseRAF = requestAnimationFrame(pulse);
-    if (ts - lastPulse < 55) return;          // ~18 fps is plenty for a breath
-    lastPulse = ts;
-    pulseT = (pulseT + 0.018) % 1;
-    var e = 0.5 - 0.5 * Math.cos(2 * Math.PI * pulseT);   // 0..1..0 ease
-    if (map.getLayer('hot-pulse')){
-      map.setPaintProperty('hot-pulse', 'circle-radius', 7 + 17 * e);
-      map.setPaintProperty('hot-pulse', 'circle-stroke-opacity', 0.55 * (1 - e));
-    }
-    if (map.getLayer('hot-core')) map.setPaintProperty('hot-core', 'circle-opacity', 0.55 + 0.35 * e);
-  }
-
-  var fieldsOn = false, fieldsBusy = false;
-  // The reverse-geocoded place name, shown as a small label pinned at the
-  // selected cell (maplibregl.Marker auto-tracks the camera) — so /v1/locate's
-  // reverse geocoding reads ON the map, not only in the side panel.
-  var selMarker = null;
-  // Active basemap. The land/water hit-test below queries the 'land' fill,
-  // which setBasemap HIDES on streets/satellite — so on those basemaps the
-  // query returns [] and every click was wrongly rejected as open water. We
-  // only run the land guard on the Mithila basemap (where 'land' is drawn);
-  // on raster basemaps we let /v1/locate decide (it returns no cell over sea).
-  var BASEMAP = 'mithila';
-  function loadFields(){
-    if (!fieldsOn) return;
-    var clearF=function(){ if (map.getSource('fields')) map.getSource('fields').setData(fc([])); };
-    if (map.getZoom() < 10.5){ clearF(); setLeg(elFldN, 'zoom in to load'); return; }
-    var b = map.getBounds();
-    // normalise the longitude span so the area guard behaves across the
-    // antimeridian / world-copy wrap (getEast-getWest can exceed 360 there).
-    var dlng=Math.abs(b.getEast()-b.getWest()); if(dlng>180) dlng=360-dlng;
-    if ((b.getNorth()-b.getSouth()) * dlng > 0.2){ clearF(); setLeg(elFldN, 'zoom in more'); return; }
-    if (fieldsBusy) return;
-    fieldsBusy = true; setLeg(elFldN, 'loading…');
-    fetchJson('/v1/field_boundaries', {polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}, max_features:4000}).then(function(r){
-      fieldsBusy = false;
-      if (r.ok && r.j && r.j.geojson && map.getSource('fields')){
-        map.getSource('fields').setData(r.j.geojson);
-        // count is the true total in view; only `drawn` are rendered (capped),
-        // so say "drawn of total" rather than implying every one is on screen.
-        var drawn=(r.j.geojson.features||[]).length, tot=r.j.count||drawn;
-        setLeg(elFldN, drawn.toLocaleString() + (tot>drawn ? (' of '+tot.toLocaleString()) : '') + ' fields');
-      } else { clearF(); setLeg(elFldN, 'none here'); }
-    }, function(){ fieldsBusy = false; clearF(); setLeg(elFldN, 'could not load — pan to retry'); });
-  }
-
-  var huntBusy=false;
-  function huntHere(){
-    if (huntBusy) return;
-    var b = map.getBounds();
-    var dlng=Math.abs(b.getEast()-b.getWest()); if(dlng>180) dlng=360-dlng;
-    // region cap raised 60→220 deg² so a continent-ish view (Borneo at z6,
-    // ~150 deg²) hunts instead of demanding more zoom; wrap-normalised.
-    if ((b.getNorth()-b.getSouth()) * dlng > 220){ setLeg(elHntN, 'zoom to a region first'); return; }
-    var ev = (document.getElementById('lyr-hnt-ev')||{}).value || 'deforestation';
-    huntBusy=true; if(bHnt) bHnt.disabled=true;
-    setLeg(elHntN, 'hunting ' + ev.replace(/_/g,' ') + '… (~5s)');
-    // hard client timeout so a hung responder can't wedge the button
-    var done=false, to=setTimeout(function(){ if(done) return; done=true; huntBusy=false; if(bHnt) bHnt.disabled=false; setLeg(elHntN,'timed out — try a smaller area'); }, 30000);
-    fetchJson('/v1/hunt', {event:ev, polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
-      if(done) return; done=true; clearTimeout(to); huntBusy=false; if(bHnt) bHnt.disabled=false;
-      if (r.ok && r.j && r.j.hotspots && r.j.hotspots.length){
-        var feats = r.j.hotspots.filter(function(h){ return typeof h.lng === 'number'; }).map(function(h){
-          return {type:'Feature', properties:{c: h.coherence || 0.5}, geometry:{type:'Point', coordinates:[h.lng, h.lat]}};
-        });
-        if (map.getSource('hunt')) map.getSource('hunt').setData(fc(feats));
-        focusHunt(feats);
-        setLeg(elHntN, feats.length + ' hotspots · click a red marker');
-      } else setLeg(elHntN, 'none found here');
-    }, function(){ if(done) return; done=true; clearTimeout(to); huntBusy=false; if(bHnt) bHnt.disabled=false; setLeg(elHntN, 'error — try again'); });
-  }
-
-  function setVis(ids, on){ ids.forEach(function(id){ if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); }); }
-
-  // When a hunt returns, the red hotspots ARE the answer — so fit the camera to
-  // them and quiet everything else (fade the coverage wash, hide the gold city
-  // dots + pulse) so the markers are unmistakable and easy to pick. clearHunt()
-  // undoes it for the next non-hunt interaction.
-  var COV_DOT_OP=['interpolate',['linear'],['zoom'],6,0.18,10,0.4];
-  var COV_HEAT_OP=['interpolate',['linear'],['zoom'],0,0.55,5,0.6,7,0.25];
-  function focusHunt(feats){
-    if(!feats || !feats.length) return;
-    var bb=new maplibregl.LngLatBounds(); feats.forEach(function(f){ bb.extend(f.geometry.coordinates); });
-    if(map.getLayer('coverage-dot')) map.setPaintProperty('coverage-dot','circle-opacity',0.06);
-    if(map.getLayer('coverage-heat')) map.setPaintProperty('coverage-heat','heatmap-opacity',0.1);
-    setVis(['patch-dot','hot-pulse','hot-core'], false);
-    if(feats.length===1) map.easeTo({center:feats[0].geometry.coordinates, zoom:Math.max(map.getZoom(),7), duration:900});
-    else map.fitBounds(bb, {padding:90, maxZoom:9, duration:900});
-  }
-  function clearHunt(){
-    if(map.getSource('hunt')) map.getSource('hunt').setData(fc([]));
-    if(map.getLayer('coverage-dot')) map.setPaintProperty('coverage-dot','circle-opacity',COV_DOT_OP);
-    if(map.getLayer('coverage-heat')) map.setPaintProperty('coverage-heat','heatmap-opacity',COV_HEAT_OP);
-    setVis(['patch-dot'], true);
-    var cov=document.getElementById('lyr-cov'); if(cov && cov.checked) setVis(['hot-pulse','hot-core'], true);
-    setLeg(elHntN, '');
-  }
-
-  var tCov=document.getElementById('lyr-cov'), tFld=document.getElementById('lyr-fld'), bHnt=document.getElementById('lyr-hnt-go');
-  // Mithila minimise/expand on the two map boxes
-  var consMin=document.getElementById('cons-min'), legMin=document.getElementById('leg-min');
-  // Collapse helpers that remember state across reloads (Felt pattern). The
-  // consensus panel also auto-collapses while an ask answer is on screen so the
-  // two boxes never fight for the same corner; it restores to the user's choice.
-  function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
-  function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
-  function setCollapsed(elId, btn, on){
-    var el=document.getElementById(elId); if(!el) return;
-    el.classList.toggle('collapsed', on); if(btn){ btn.textContent=on?'+':'−'; btn.title=on?'expand':'minimise'; }
-  }
-  var consUserCollapsed = lsGet('emem.cons.collapsed')==='1';
-  setCollapsed('atlas-panel', consMin, consUserCollapsed);
-  setCollapsed('map-legend', legMin, lsGet('emem.leg.collapsed')==='1');
-  if (consMin) consMin.addEventListener('click', function(){ consUserCollapsed=!document.getElementById('atlas-panel').classList.contains('collapsed'); setCollapsed('atlas-panel', consMin, consUserCollapsed); lsSet('emem.cons.collapsed', consUserCollapsed?'1':'0'); });
-  if (legMin) legMin.addEventListener('click', function(){ var on=!document.getElementById('map-legend').classList.contains('collapsed'); setCollapsed('map-legend', legMin, on); lsSet('emem.leg.collapsed', on?'1':'0'); });
-  // expose for the answer flow to auto-collapse/restore the consensus panel
-  window.__consCollapse = function(force){ setCollapsed('atlas-panel', consMin, force ? true : consUserCollapsed); };
-  // the centre ask box is collapsible too (to a bare search bar), state remembered
-  var plateMin=document.getElementById('plate-min');
-  setCollapsed('hero-plate', plateMin, lsGet('emem.plate.collapsed')==='1');
-  if (plateMin) plateMin.addEventListener('click', function(){ var on=!document.getElementById('hero-plate').classList.contains('collapsed'); setCollapsed('hero-plate', plateMin, on); lsSet('emem.plate.collapsed', on?'1':'0'); });
-
-  if (tCov) tCov.addEventListener('change', function(){ setVis(['coverage-heat','coverage-dot','hot-pulse','hot-core'], tCov.checked); });
-  if (tFld) tFld.addEventListener('change', function(){ fieldsOn = tFld.checked; setVis(['fields-fill','fields-line'], fieldsOn); if (fieldsOn) loadFields(); else setLeg(elFldN, ''); });
-  if (bHnt) bHnt.addEventListener('click', huntHere);
-
-  // ── embedding field (Tessera) — a DENSE per-pixel latent-colour raster read
-  // from the geotessera COG window for the viewport (one range read, not
-  // cell-by-cell), so places that look alike to the model share a colour.
-  // Overlays beautifully under the land-parcels and markers.
-  var tTess=document.getElementById('lyr-tess'), elTessN=document.getElementById('lyr-tess-n');
-  var tessOn=false, tessBusy=false, tessSeq=0;
-  function loadTesseraField(){
-    if(!tessOn) return;
-    if(map.getZoom() < 10){ setLeg(elTessN, 'zoom into a region'); setVis(['tessfield-img'], false); return; }
-    var b=map.getBounds();
-    var dlat=Math.abs(b.getNorth()-b.getSouth()), dlng=Math.abs(b.getEast()-b.getWest());
-    if(dlat>0.5 || dlng>0.5){ setLeg(elTessN, 'zoom in a little'); setVis(['tessfield-img'], false); return; }
-    if(tessBusy) return;
-    tessBusy=true; var seq=++tessSeq; setLeg(elTessN, 'reading Tessera…');
-    fetchJson('/v1/tessera_field', {polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
-      tessBusy=false; if(seq!==tessSeq || !tessOn) return;
-      var d=r.j||{};
-      if(d.available && d.image_data_url && d.coordinates){
-        if(map.getSource('tessfield')){
-          map.getSource('tessfield').updateImage({url:d.image_data_url, coordinates:d.coordinates});
-        } else {
-          map.addSource('tessfield', {type:'image', url:d.image_data_url, coordinates:d.coordinates});
-          map.addLayer({id:'tessfield-img', type:'raster', source:'tessfield', paint:{'raster-opacity':0.74, 'raster-fade-duration':0}}, 'fields-fill');
-        }
-        setVis(['tessfield-img'], true);
-        setLeg(elTessN, 'Tessera ' + (d.year||'') + ' · latent colour');
-      } else { setVis(['tessfield-img'], false); setLeg(elTessN, (d.reason)||'unavailable'); }
-    }, function(){ tessBusy=false; setLeg(elTessN, 'error'); });
-  }
-  // The embedding field and land archetypes are two renderings of the SAME
-  // Tessera field; stacking both is two rasters fighting at the same z, so they
-  // are mutually exclusive — turning one on turns the other off.
-  if (tTess) tTess.addEventListener('change', function(){ tessOn=tTess.checked; if(tessOn){ if(tArch&&tArch.checked){ tArch.checked=false; archOn=false; setVis(['arch-img'], false); setLeg(elArchN, ''); } loadTesseraField(); } else { setVis(['tessfield-img'], false); setLeg(elTessN, ''); } });
-
-  // Land archetypes: cluster that same embedding field into k land-cover classes
-  // (deterministic k-means over the Tessera vectors) and overlay the categorical
-  // map. One region read, no GPU; same bbox+year+k returns the same picture.
-  var tArch=document.getElementById('lyr-arch'), elArchN=document.getElementById('lyr-arch-n');
-  var archOn=false, archBusy=false, archSeq=0;
-  function loadArchetypes(){
-    if(!archOn) return;
-    if(map.getZoom() < 10){ setLeg(elArchN, 'zoom into a region'); setVis(['arch-img'], false); return; }
-    var b=map.getBounds();
-    var dlat=Math.abs(b.getNorth()-b.getSouth()), dlng=Math.abs(b.getEast()-b.getWest());
-    if(dlat>0.5 || dlng>0.5){ setLeg(elArchN, 'zoom in a little'); setVis(['arch-img'], false); return; }
-    if(archBusy) return;
-    archBusy=true; var seq=++archSeq; setLeg(elArchN, 'clustering…');
-    fetchJson('/v1/region_archetype_map', {polygon_bbox:{min_lat:b.getSouth(), max_lat:b.getNorth(), min_lng:b.getWest(), max_lng:b.getEast()}}).then(function(r){
-      archBusy=false; if(seq!==archSeq || !archOn) return;
-      var d=r.j||{};
-      if(d.available && d.image_data_url && d.coordinates){
-        if(map.getSource('archfield')){
-          map.getSource('archfield').updateImage({url:d.image_data_url, coordinates:d.coordinates});
-        } else {
-          map.addSource('archfield', {type:'image', url:d.image_data_url, coordinates:d.coordinates});
-          map.addLayer({id:'arch-img', type:'raster', source:'archfield', paint:{'raster-opacity':0.8, 'raster-fade-duration':0}}, 'fields-fill');
-        }
-        setVis(['arch-img'], true);
-        var top = (d.legend && d.legend[0]) ? Math.round((d.legend[0].pixel_fraction||0)*100) : 0;
-        setLeg(elArchN, (d.k||'?') + ' archetypes · top ' + top + '%');
-      } else { setVis(['arch-img'], false); setLeg(elArchN, (d.reason)||'unavailable'); }
-    }, function(){ archBusy=false; setLeg(elArchN, 'error'); });
-  }
-  if (tArch) tArch.addEventListener('change', function(){ archOn=tArch.checked; if(archOn){ if(tTess&&tTess.checked){ tTess.checked=false; tessOn=false; setVis(['tessfield-img'], false); setLeg(elTessN, ''); } loadArchetypes(); } else { setVis(['arch-img'], false); setLeg(elArchN, ''); } });
-
-  // basemap switcher: Mithila (self-hosted Natural Earth) / OSM streets / Esri satellite
-  function setBasemap(bm){
-    BASEMAP = bm;
-    setVis(['osm-tiles'], bm==='streets');
-    setVis(['sat-tiles'], bm==='sat');
-    setVis(['land','coast'], bm==='mithila');
-    document.querySelectorAll('.ml-base .bm').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-bm')===bm); });
-  }
-  document.querySelectorAll('.ml-base .bm').forEach(function(b){ b.addEventListener('click', function(){ setBasemap(b.getAttribute('data-bm')); }); });
-
-  // overlay a user GeoJSON (drag-drop, or file picker) — read locally, never uploaded
-  function showGeoJSON(text){
-    var data; try{ data=JSON.parse(text); }catch(e){ setLeg(document.getElementById('geo-n'), 'not valid JSON'); return; }
-    if(map.getSource('dropped')) map.getSource('dropped').setData(data);
-    var bb=new maplibregl.LngLatBounds(), any=false;
-    function walk(co){ if(typeof co[0]==='number'){ bb.extend(co); any=true; } else if(Array.isArray(co)) co.forEach(walk); }
-    var feats = data.features || (data.type==='Feature' ? [data] : []);
-    feats.forEach(function(f){ if(f && f.geometry && f.geometry.coordinates) walk(f.geometry.coordinates); });
-    if(any) map.fitBounds(bb, {padding:50, maxZoom:13, duration:800});
-    setLeg(document.getElementById('geo-n'), feats.length + ' feature' + (feats.length===1?'':'s'));
-  }
-  function readGeoFile(f){ if(!f) return; var r=new FileReader(); r.onload=function(ev){ showGeoJSON(ev.target.result); }; r.readAsText(f); }
-  var geoAdd=document.getElementById('geo-add'), geoFile=document.getElementById('geo-file');
-  if(geoAdd && geoFile){ geoAdd.addEventListener('click', function(){ geoFile.click(); }); geoFile.addEventListener('change', function(e){ readGeoFile(e.target.files[0]); }); }
-  var heroEl=document.getElementById('map');
-  if(heroEl){
-    heroEl.addEventListener('dragover', function(e){ e.preventDefault(); heroEl.classList.add('dragover'); });
-    heroEl.addEventListener('dragleave', function(){ heroEl.classList.remove('dragover'); });
-    heroEl.addEventListener('drop', function(e){ e.preventDefault(); heroEl.classList.remove('dragover'); var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) readGeoFile(f); });
-  }
-
-  // (The map legend's #ml-live indicator is now driven by the single SSE
-  // connection in the console heartbeat above — no second EventSource here.)
-
-  map.on('load', function(){
-    map.resize();
-    loadCoverage();
-    pulseRAF = requestAnimationFrame(pulse);
-    selectAt(PATCHES[0].lng, PATCHES[0].lat, PATCHES[0].name, false);
-  });
-  // Debounce the on-move data layers (fields + embedding field) so a pan/zoom
-  // gesture fires ONE fetch after the camera settles, not one per frame.
-  var _moveT=null;
-  map.on('moveend', function(){
-    if(_moveT) clearTimeout(_moveT);
-    _moveT=setTimeout(function(){ loadFields(); loadTesseraField(); loadArchetypes(); }, 500);
-  });
-  ['patch-dot','hunt-dot','hunt-glow','similar-dot'].forEach(function(ly){
-    map.on('mouseenter', ly, function(){ map.getCanvas().style.cursor='pointer'; });
-    map.on('mouseleave', ly, function(){ map.getCanvas().style.cursor='crosshair'; });
-  });
-  // Hover tooltip — a 1-line paper preview of the feature under the cursor, so
-  // the map reads as queryable (and reinforces provenance: most previews end in
-  // "· signed"). Lightweight div, not a maplibregl.Popup, to keep the theme.
-  var mapTip=document.getElementById('map-tip');
-  function tipHtml(f){
-    var p=f.properties||{}, layer=f.layer && f.layer.id;
-    if(layer==='patch-dot'){ var nm=(PATCHES[p.idx]||{}).name||'city'; return '<b>'+nm+'</b><div class="tip-sub">seeded city · click to read its memory</div>'; }
-    if(layer==='hunt-dot'||layer==='hunt-glow'){ return '<b>event hotspot</b><div class="tip-sub">coherence '+(typeof p.c==='number'?p.c.toFixed(2):'—')+'</div><div class="tip-sig">click for its signed cell</div>'; }
-    if(layer==='similar-dot'){ return '<b>similar place</b><div class="tip-sub">cosine '+(typeof p.s==='number'?(Math.round(p.s*100)+'%'):'—')+'</div><div class="tip-sig">click to compare · signed</div>'; }
-    if(layer==='coverage-dot'){ return '<b>memory cell</b><div class="tip-sub">'+(p.f||1)+' signed fact'+((p.f||1)==1?'':'s')+'</div><div class="tip-sig">click to read</div>'; }
-    return '';
-  }
-  map.on('mousemove', function(e){
-    var hits=map.queryRenderedFeatures(e.point, {layers:['patch-dot','hunt-dot','hunt-glow','similar-dot','coverage-dot']});
-    if(hits && hits.length){
-      var h=tipHtml(hits[0]); if(!h){ mapTip.hidden=true; return; }
-      mapTip.innerHTML=h; mapTip.hidden=false;
-      var x=e.point.x+14, y=e.point.y+14, w=mapTip.offsetWidth, mw=map.getCanvas().clientWidth;
-      if(x+w>mw-8) x=e.point.x-w-14;
-      mapTip.style.left=x+'px'; mapTip.style.top=y+'px';
-    } else { mapTip.hidden=true; }
-  });
-  map.on('mouseout', function(){ mapTip.hidden=true; });
-  map.on('click', function(e){
-    // A hunt hotspot first — query the wide soft glow as well as the core so
-    // the small red marker is forgiving to click/tap. Picks the hotspot's cell.
-    var hh = map.queryRenderedFeatures(e.point, {layers:['hunt-dot','hunt-glow']});
-    if (hh && hh.length){ var g=hh[0].geometry.coordinates; clearAnswer(); selectAt(g[0], g[1], null, true); return; }
-    clearAnswer();   // a direct map pick starts fresh; ask-driven picks keep the answer
-    var hits = map.queryRenderedFeatures(e.point, {layers:['patch-dot']});
-    if (hits && hits.length){ var i=hits[0].properties.idx; clearHunt(); selectAt(PATCHES[i].lng, PATCHES[i].lat, PATCHES[i].name, true); return; }
-    if (BASEMAP === 'mithila'){
-      var land = map.queryRenderedFeatures(e.point, {layers:['land']});
-      if (!land || !land.length){ setStatus('that is open water. Pick a spot on land.'); return; }
-    }
-    clearHunt(); selectAt(e.lngLat.lng, e.lngLat.lat, null, true);
-  });
-  window.addEventListener('resize', function(){ map.resize(); });
 })();
 </script>
 <script>
