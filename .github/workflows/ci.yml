@@ -58,9 +58,11 @@ jobs:
     name: cargo test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # Hard cap so a wedged post-run (cache save / process reaping) can't run
-    # to GitHub's 6h ceiling. 60 min leaves headroom for a cold macOS release
-    # build (lance/arrow, ort/ONNX) while still bounding a hang.
-    timeout-minutes: 60
+    # to GitHub's 6h ceiling. The cold macOS release build (lance/arrow,
+    # ort/ONNX, no target cache) measured 70.9 min on the last green main
+    # run and got cancelled at a 60-min cap on 2026-07-11, so the cap is
+    # sized from that measurement plus headroom, not from optimism.
+    timeout-minutes: 90
     # macOS test is BLOCKING again (was temporarily non-blocking). A GitHub
     # macOS image/Xcode update had broken linking of the `ort` (ONNX
     # Runtime) prebuilt static lib against the clang runtime — `ld: library
