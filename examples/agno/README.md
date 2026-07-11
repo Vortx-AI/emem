@@ -1,8 +1,8 @@
 # Agno + emem MCP Agent
 
 An Agno Agent that connects to emem over MCP (Streamable HTTP),
-auto-discovers all tools, and answers geospatial verification questions
-with signed receipts.
+auto-discovers all tools, and answers questions about real places with
+signed facts from the shared memory, citing receipts any agent can re-verify.
 
 ## Install
 

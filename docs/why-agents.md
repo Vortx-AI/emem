@@ -42,7 +42,7 @@ curl -s -X POST https://emem.dev/v1/recall \
   | jq '{value: .facts[0].value, fact_cid: .facts[0].fact_cid, source: .facts[0].derivation.source}'
 # {
 #   "value": 1,                       # forest in 2020 under JRC GFC2020 V3
-#   "fact_cid": "qi3jo4sqcg…l2hgjtwm", # 26-char content id: names the bytes
+#   "fact_cid": "qi3jo4sqcg…l2hgjtwm", # 52-char content id: names the bytes
 #   "source": "jrc.gfc2020"
 # }
 ```

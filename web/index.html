@@ -51,7 +51,7 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
 </script>
 <script async src="https://www.googletagmanager.com/gtag/js?id=__EMEM_GA_ID__"></script>
 <!-- ##GA_END## -->
-<script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"WebAPI","@id":"https://emem.dev/#api","name":"emem","url":"https://emem.dev","description":"Shared, verifiable memory for AI agents, robots, and world models. Every place, fact, and object gets one signed, citeable identity, grounded in Earth observation. Every read is an ed25519-signed receipt with a content-addressed CID, checkable offline.","documentation":"https://emem.dev/openapi.json","provider":{"@id":"https://vortx.ai/#org"},"license":"https://www.apache.org/licenses/LICENSE-2.0","termsOfService":"https://emem.dev/terms"},{"@type":"SoftwareApplication","@id":"https://emem.dev/#app","name":"emem","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://emem.dev","downloadUrl":"https://github.com/Vortx-AI/emem","license":"https://www.apache.org/licenses/LICENSE-2.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"creator":{"@id":"https://vortx.ai/#org"}},{"@type":"WebSite","@id":"https://emem.dev/#site","name":"emem","url":"https://emem.dev","publisher":{"@id":"https://vortx.ai/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://emem.dev/v1/locate?place={query}"},"query-input":"required name=query"}},{"@type":"Organization","@id":"https://vortx.ai/#org","name":"Vortx AI Private Limited","url":"https://vortx.ai","email":"avijeet@vortx.ai","logo":"https://emem.dev/logo.png","sameAs":["https://github.com/Vortx-AI"]},{"@type":"Service","@id":"https://emem.dev/#service","name":"emem use cases","provider":{"@id":"https://vortx.ai/#org"},"serviceType":"Earth-observation memory for AI agents","areaServed":{"@type":"Place","name":"Earth"},"hasOfferCatalog":{"@type":"OfferCatalog","name":"emem agent use cases","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"Consumer health","description":"Air quality (CAMS PM2.5, NO₂, O₃), urban heat exposure, wildfire smoke risk, pollen seasonality."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Real estate and insurance","description":"Flood risk composite, walkability, elevation, surface-water recurrence, storm-surge exposure."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Climate finance and carbon MRV","description":"Above-ground biomass proxies, mangrove cover, deforestation rate, NDVI / EVI trajectories with signed receipts for VM0042 / VCS / Gold Standard MRV."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"ESG and SDG reporting","description":"Biodiversity proxies (Tessera embedding novelty), supply-chain forest-loss adjacency, land-cover transitions for SDG 15."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Agriculture","description":"Crop stress (NDVI / NDRE), evapotranspiration (MODIS ET), soil moisture proxy, growing-season anomaly."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Urban planning","description":"Surface temperature, urban heat island, building density (Overture), road network length, green-space share."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Disaster response","description":"S1 backscatter for flood extent under cloud, MODIS burned area, JRC GSW for permanent vs flood water."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Conservation and biodiversity","description":"Hansen forest loss, ESA WorldCover transitions, ecoregion lookup, mangrove change."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Energy siting","description":"Solar irradiance (NASA POWER), wind speed (ERA5), DEM slope, land cover constraints."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Mining impact","description":"Pre / post NDVI delta, surface-water encroachment, land-cover change attestable per cell."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Tourism and recreation","description":"Marine wave height (ECMWF WAM), SST, snow cover seasonality, weather nowcast (MET Norway)."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Fisheries","description":"Sea-surface temperature, ocean chlorophyll-a proxy, marine wave conditions, bathymetry (GMRT)."}}]}},{"@type":"FAQPage","@id":"https://emem.dev/#faq","mainEntity":[{"@type":"Question","name":"What is emem?","acceptedAnswer":{"@type":"Answer","text":"emem is a shared, verifiable memory for AI agents. Every place on Earth gets a stable address called a cell64 (about 10 m on a side). Facts at that address (elevation, weather, land cover, foundation embeddings) are recall-able as Cell × Band × Tslot → Fact, signed with ed25519, content-addressed with blake3. There are no API keys for read endpoints."}},{"@type":"Question","name":"How do I connect Claude, Cursor, Cline, Gemini, or ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Point any MCP client at https://emem.dev/mcp. The full tool catalog appears under tools/list. Claude Code, Claude Desktop, Cursor, Cline, Gemini CLI, and ChatGPT Custom GPTs all support Streamable HTTP MCP. For ChatGPT Actions, import https://emem.dev/openapi.action.json with auth: none."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"L0 and L1 read endpoints are free and anonymous. No accounts, no API keys, no payment. Apache-2.0 source. Operators self-hosting their own responder pay only for their own compute."}},{"@type":"Question","name":"Can I verify the answers offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every read returns a receipt with the responder's ed25519 public key, the signed payload, and the content-addressed CID for each fact. Recompute blake3 over the canonical CBOR fact, verify ed25519 against the signer pubkey, and the answer is reproducible. POST /v1/verify_receipt does this for you, or do it offline in any ed25519 + blake3 implementation."}},{"@type":"Question","name":"Where does the data come from?","acceptedAnswer":{"@type":"Answer","text":"Sentinel-2 L2A and Sentinel-1 GRD via the Element84 STAC, MODIS Terra/Aqua via NASA LP DAAC, Copernicus DEM, GMRT topo and bathy, JRC Global Surface Water, Hansen Global Forest Change, ESA WorldCover, SoilGrids 2.0, MET Norway nowcast weather, ECMWF ERA5 and CAMS via Open-Meteo, NASA POWER, Overture Maps. Foundation embeddings: Tessera v1 (Cambridge), Prithvi-EO-2.0 (NASA / IBM), Galileo Base (NASA Harvest)."}},{"@type":"Question","name":"How does emem handle GDPR, CCPA, and DPDP? Does it use Google Analytics?","acceptedAnswer":{"@type":"Answer","text":"The canonical channel carries no PII. The hosted responder logs only a blake3-hashed truncated IP (non-reversible), the request path, and GET query strings, retained for 30 days then vacuumed by systemd-journald. The HTML landing page loads Google Analytics 4 (operator-configurable measurement ID, see /.well-known/agent-card.json) under Consent Mode v2 with default-denied. An explicit consent banner asks human visitors whether to enable cookie-based analytics, with equal-prominence Accept and Reject buttons. AI crawlers do not run JS and do not see the banner. The decision is stored in a first-party cookie emem_consent (180-day max-age, SameSite=Lax, Secure) and can be revoked via the Manage cookies link in the footer. Data subject rights under GDPR Art. 15-21, UK GDPR, India DPDP 2023, and CCPA / CPRA route to avijeet@vortx.ai. Full policy at https://emem.dev/privacy."}}]}]}</script>
+<script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"WebAPI","@id":"https://emem.dev/#api","name":"emem","url":"https://emem.dev","description":"Shared, verifiable memory for AI agents, robots, and world models. Every place, fact, and object gets one signed, citeable identity, grounded in Earth observation. Every read is an ed25519-signed receipt with a content-addressed CID, checkable offline.","documentation":"https://emem.dev/openapi.json","provider":{"@id":"https://vortx.ai/#org"},"license":"https://www.apache.org/licenses/LICENSE-2.0","termsOfService":"https://emem.dev/terms"},{"@type":"SoftwareApplication","@id":"https://emem.dev/#app","name":"emem","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://emem.dev","downloadUrl":"https://github.com/Vortx-AI/emem","license":"https://www.apache.org/licenses/LICENSE-2.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"creator":{"@id":"https://vortx.ai/#org"}},{"@type":"WebSite","@id":"https://emem.dev/#site","name":"emem","url":"https://emem.dev","publisher":{"@id":"https://vortx.ai/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://emem.dev/v1/locate?place={query}"},"query-input":"required name=query"}},{"@type":"Organization","@id":"https://vortx.ai/#org","name":"Vortx AI Private Limited","url":"https://vortx.ai","email":"avijeet@vortx.ai","logo":"https://emem.dev/logo.png","sameAs":["https://github.com/Vortx-AI"]},{"@type":"Service","@id":"https://emem.dev/#service","name":"emem use cases","provider":{"@id":"https://vortx.ai/#org"},"serviceType":"Shared, verifiable memory for AI agents","areaServed":{"@type":"Place","name":"Earth"},"hasOfferCatalog":{"@type":"OfferCatalog","name":"emem agent use cases","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"Consumer health","description":"Air quality (CAMS PM2.5, NO₂, O₃), urban heat exposure, wildfire smoke risk, pollen seasonality."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Real estate and insurance","description":"Flood risk composite, walkability, elevation, surface-water recurrence, storm-surge exposure."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Climate finance and carbon MRV","description":"Above-ground biomass proxies, mangrove cover, deforestation rate, NDVI / EVI trajectories with signed receipts for VM0042 / VCS / Gold Standard MRV."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"ESG and SDG reporting","description":"Biodiversity proxies (Tessera embedding novelty), supply-chain forest-loss adjacency, land-cover transitions for SDG 15."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Agriculture","description":"Crop stress (NDVI / NDRE), evapotranspiration (MODIS ET), soil moisture proxy, growing-season anomaly."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Urban planning","description":"Surface temperature, urban heat island, building density (Overture), road network length, green-space share."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Disaster response","description":"S1 backscatter for flood extent under cloud, MODIS burned area, JRC GSW for permanent vs flood water."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Conservation and biodiversity","description":"Hansen forest loss, ESA WorldCover transitions, ecoregion lookup, mangrove change."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Energy siting","description":"Solar irradiance (NASA POWER), wind speed (ERA5), DEM slope, land cover constraints."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Mining impact","description":"Pre / post NDVI delta, surface-water encroachment, land-cover change attestable per cell."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Tourism and recreation","description":"Marine wave height (ECMWF WAM), SST, snow cover seasonality, weather nowcast (MET Norway)."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Fisheries","description":"Sea-surface temperature, ocean chlorophyll-a proxy, marine wave conditions, bathymetry (GMRT)."}}]}},{"@type":"FAQPage","@id":"https://emem.dev/#faq","mainEntity":[{"@type":"Question","name":"What is emem?","acceptedAnswer":{"@type":"Answer","text":"emem is a shared, verifiable memory for AI agents. Every place on Earth gets a stable address called a cell64 (about 10 m on a side). Facts at that address (elevation, weather, land cover, foundation embeddings) are recall-able as Cell × Band × Tslot → Fact, signed with ed25519, content-addressed with blake3. There are no API keys for read endpoints."}},{"@type":"Question","name":"How do I connect Claude, Cursor, Cline, Gemini, or ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Point any MCP client at https://emem.dev/mcp. The full tool catalog appears under tools/list. Claude Code, Claude Desktop, Cursor, Cline, Gemini CLI, and ChatGPT Custom GPTs all support Streamable HTTP MCP. For ChatGPT Actions, import https://emem.dev/openapi.action.json with auth: none."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"L0 and L1 read endpoints are free and anonymous. No accounts, no API keys, no payment. Apache-2.0 source. Operators self-hosting their own responder pay only for their own compute."}},{"@type":"Question","name":"Can I verify the answers offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every read returns a receipt with the responder's ed25519 public key, the signed payload, and the content-addressed CID for each fact. Recompute blake3 over the canonical CBOR fact, verify ed25519 against the signer pubkey, and the answer is reproducible. POST /v1/verify_receipt does this for you, or do it offline in any ed25519 + blake3 implementation."}},{"@type":"Question","name":"Where does the data come from?","acceptedAnswer":{"@type":"Answer","text":"Sentinel-2 L2A and Sentinel-1 GRD via the Element84 STAC, MODIS Terra/Aqua via NASA LP DAAC, Copernicus DEM, GMRT topo and bathy, JRC Global Surface Water, Hansen Global Forest Change, ESA WorldCover, SoilGrids 2.0, MET Norway nowcast weather, ECMWF ERA5 and CAMS via Open-Meteo, NASA POWER, Overture Maps. Foundation embeddings: Tessera v1 (Cambridge), Prithvi-EO-2.0 (NASA / IBM), Galileo Base (NASA Harvest)."}},{"@type":"Question","name":"How does emem handle GDPR, CCPA, and DPDP? Does it use Google Analytics?","acceptedAnswer":{"@type":"Answer","text":"The canonical channel carries no PII. The hosted responder logs only a blake3-hashed truncated IP (non-reversible), the request path, and GET query strings, retained for 30 days then vacuumed by systemd-journald. The HTML landing page loads Google Analytics 4 (operator-configurable measurement ID, see /.well-known/agent-card.json) under Consent Mode v2 with default-denied. An explicit consent banner asks human visitors whether to enable cookie-based analytics, with equal-prominence Accept and Reject buttons. AI crawlers do not run JS and do not see the banner. The decision is stored in a first-party cookie emem_consent (180-day max-age, SameSite=Lax, Secure) and can be revoked via the Manage cookies link in the footer. Data subject rights under GDPR Art. 15-21, UK GDPR, India DPDP 2023, and CCPA / CPRA route to avijeet@vortx.ai. Full policy at https://emem.dev/privacy."}}]}]}</script>
 <style>
 :root{
   --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
@@ -586,96 +586,16 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .mc-section>.mc-lede{font-size:var(--t-md);color:var(--ink-2);max-width:62ch;margin:0 0 1.4rem;line-height:1.5}
 
 /* atlas: pick a patch of Earth — Natural Earth map + four-model consensus */
-.atlas-wrap{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:1.1rem;margin:1.4rem 0 0}
-@media (max-width:880px){.atlas-wrap{grid-template-columns:1fr}}
-.atlas-mapframe{position:relative;border:2px solid var(--ink);background:var(--paper);min-width:0}
-.atlas-mapframe::after{content:"";position:absolute;inset:5px;border:1px solid var(--rule-strong);pointer-events:none;z-index:2}
-.atlas-map{position:relative;height:460px;width:100%;z-index:1}
-@media (max-width:880px){.atlas-map{height:340px}}
-.atlas-map canvas{cursor:crosshair;outline:none}
-.atlas-hint{position:absolute;left:11px;bottom:11px;z-index:3;font:500 var(--t-xs)/1.3 var(--mono);color:var(--ink-2);background:color-mix(in oklch,var(--paper) 90%,transparent);padding:.32rem .55rem;border:1px solid var(--rule)}
-.atlas-panel{border:1px solid var(--rule);background:var(--paper-2);display:flex;flex-direction:column;min-width:0}
-.atlas-body{padding:1rem 1.1rem;display:flex;flex-direction:column;gap:.6rem;min-width:0}
-.atlas-place{font-size:var(--t-lg);color:var(--ink);font-weight:600;line-height:1.2;letter-spacing:-.01em}
-.atlas-place .cell{display:block;font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);font-weight:400;margin-top:.25rem;word-break:break-all}
-.atlas-status{font-size:var(--t-xs);color:var(--mute);min-height:1em;line-height:1.4}
-.atlas-encs{display:flex;flex-direction:column;border:1px solid var(--rule);background:var(--paper)}
-.atlas-enc{display:grid;grid-template-columns:1fr auto;gap:.15rem .8rem;padding:.5rem .7rem;border-bottom:1px solid var(--rule)}
-.atlas-enc:last-child{border-bottom:0}
-.atlas-enc.absent{opacity:.62}
-.atlas-enc .name{font-weight:700;color:var(--ink);font-size:var(--t-sm);display:flex;align-items:center;gap:.4rem}
-.atlas-enc .name .seal{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:0 0 auto}
-.atlas-enc.absent .name .seal{background:var(--mute-2)}
-.atlas-enc .meta{font-family:var(--mono);font-size:var(--t-xs);color:var(--mute);text-align:right;white-space:nowrap}
-.atlas-enc .cid{grid-column:1/-1;font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);word-break:break-all}
-.atlas-enc.absent .cid{color:var(--mute)}
-.atlas-enc .cid a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 35%,transparent)}
-.atlas-enc .cid a:hover{background:var(--accent-bg)}
 /* embedding heatmap: the signed vector drawn as a diverging barcode (indigo -, vermilion +) */
-.atlas-enc .heat{grid-column:1/-1;margin:.2rem 0 .05rem}
-.atlas-enc .heat svg{display:block;width:100%;height:20px;border:1px solid var(--rule)}
-.atlas-enc.absent .heat{display:none}
 /* the actual Sentinel-2 scene for the selected cell */
-.atlas-scene{margin:0;border:1px solid var(--rule);background:var(--paper);position:relative;overflow:hidden}
-.atlas-scene img{display:block;width:100%;height:150px;object-fit:cover}
-.atlas-scene .cap{font-size:var(--t-xs);color:var(--mute);padding:.3rem .5rem;border-top:1px solid var(--rule)}
-.atlas-scene .scene-note{font-size:var(--t-xs);color:var(--mute);padding:.85rem .6rem;text-align:center;line-height:1.4}
-.atlas-scene.empty{background:repeating-linear-gradient(45deg,var(--paper) 0 6px,var(--paper-2) 6px 12px)}
-#atlas-scene[hidden]{display:none}
 /* the 3D embedding engram — the cell's latent memory as four orbiting point clouds, on paper */
-.atlas-engram{margin:0;border:1px solid var(--rule-strong);background:var(--paper-3);position:relative;overflow:hidden}
-.atlas-engram canvas{display:block;width:100%;height:172px;cursor:grab;touch-action:none}
-.atlas-engram canvas:active{cursor:grabbing}
-.atlas-engram .eng-cap{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.5rem;
-  padding:.3rem .5rem;font-size:9.5px;color:var(--ink-2);background:linear-gradient(0deg,color-mix(in oklch,var(--paper-3) 88%,transparent),transparent)}
-.atlas-engram .eng-legend{display:flex;gap:.5rem;flex-wrap:wrap}
-.atlas-engram .eng-legend span{display:inline-flex;align-items:center;gap:.22rem;white-space:nowrap}
-.atlas-engram .eng-legend i{width:7px;height:7px;border-radius:50%;display:inline-block}
-.atlas-engram .eng-hint{margin-left:auto;opacity:.75;font-style:italic}
-#atlas-engram[hidden]{display:none}
 /* latent fingerprint: a PCA-RGB swatch — places that look alike share a colour */
-.atlas-fp{display:flex;align-items:center;gap:.6rem;border:1px solid var(--rule);background:var(--paper);padding:.5rem .6rem;margin:0}
-.atlas-fp .sw{width:42px;height:42px;flex:0 0 auto;border:1px solid var(--ink);position:relative}
-.atlas-fp .sw::after{content:"";position:absolute;right:-1px;top:-1px;width:7px;height:7px;border:1px solid var(--ochre);background:var(--paper)}
-.atlas-fp .fp-t{font-size:var(--t-xs);line-height:1.4}
-.atlas-fp .fp-t b{color:var(--ink)}
-.atlas-fp .fp-t span{color:var(--mute)}
-#atlas-fp[hidden]{display:none}
 /* most-similar places (find_similar) — this place is like those */
-.atlas-similar{border:1px solid var(--rule);background:var(--paper);padding:.5rem .6rem;margin:0}
-.atlas-similar .sim-h{font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin-bottom:.4rem}
-.atlas-similar .sim-row{display:grid;grid-template-columns:24px 1fr auto;gap:.45rem;align-items:center;padding:.2rem 0;cursor:pointer}
-.atlas-similar .sim-row:hover{background:var(--accent-bg)}
-.atlas-similar .sim-row img{width:24px;height:24px;object-fit:cover;border:1px solid var(--rule);display:block}
-.atlas-similar .sim-row .sim-thumb{width:24px;height:24px;background:var(--paper-2);border:1px solid var(--rule)}
-.atlas-similar .sim-row .sim-name{font-size:var(--t-xs);color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.atlas-similar .sim-row .sim-bar{height:5px;background:var(--rule);width:64px;flex:0 0 auto;position:relative}
-.atlas-similar .sim-row .sim-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);display:block}
-.atlas-similar .sim-row .sim-sc{font-family:var(--mono);font-size:9.5px;color:var(--ink-2)}
-#atlas-similar[hidden]{display:none}
 /* the full 1792-D voxel cube — 43 band slots, fill status, downloadable */
-.atlas-cube{border:1px solid var(--rule);background:var(--paper);padding:.5rem .6rem;margin:0}
-.atlas-cube .cube-h{display:flex;justify-content:space-between;font-size:9.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin-bottom:.4rem}
-.atlas-cube .cube-h b{color:var(--ink)}
-.atlas-cube .cube-strip{display:flex;height:15px;border:1px solid var(--ink);overflow:hidden}
-.atlas-cube .cube-strip .seg{height:100%;border-right:1px solid color-mix(in oklch,var(--paper) 60%,transparent)}
-.atlas-cube .cube-foot{display:flex;justify-content:space-between;align-items:center;margin-top:.4rem;gap:.5rem}
-.atlas-cube .cube-foot .cid{font-family:var(--mono);font-size:9px;color:var(--accent);word-break:break-all;flex:1;min-width:0}
-.atlas-cube .cube-dl{font:inherit;font-size:9.5px;padding:.25rem .5rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer;white-space:nowrap}
-.atlas-cube .cube-dl:hover{border-color:var(--accent);background:var(--accent-bg)}
-#atlas-cube[hidden]{display:none}
 /* Mithila minimise button on map boxes */
 .box-min{width:18px;height:18px;flex:0 0 auto;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);
   font:700 13px/1 var(--mono);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .box-min:hover{border-color:var(--accent);background:var(--accent-bg)}
-.hero-consensus.collapsed .atlas-body{display:none}
-.hero-consensus.collapsed .box-min,.map-legend.collapsed .box-min{}
-.map-legend.collapsed > *:not(.ml-title){display:none}
-.atlas-mapframe .maplibregl-ctrl-group{border:1px solid var(--ink);border-radius:0;background:var(--paper);box-shadow:none}
-.atlas-mapframe .maplibregl-ctrl-group button+button{border-top:1px solid var(--rule)}
-.atlas-mapframe .maplibregl-ctrl-attrib{background:color-mix(in oklch,var(--paper) 86%,transparent);font-size:9px}
-.atlas-mapframe .maplibregl-ctrl-attrib a{color:var(--mute)}
-#atlas-verdict[hidden],#atlas-deeper[hidden]{display:none}
 
 /* ===== Mithila-scroll homepage ===== */
 /* ============================================================================
@@ -685,69 +605,17 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
    ============================================================================ */
 
 /* ---- full-screen living map hero ---------------------------------------- */
-.earth-hero{position:relative;height:calc(100vh - 40px);min-height:560px;max-height:920px;
-  border-bottom:2px solid var(--ink);overflow:hidden;background:var(--paper)}
-.earth-hero #atlas-map{position:absolute;inset:0;height:100%;width:100%;z-index:1}
 /* visible keyboard focus on every hero control (the paper theme makes the
    browser default ring nearly invisible) */
-.earth-hero :focus-visible,.map-legend :focus-visible,.maplibregl-ctrl button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.earth-hero .atlas-hint{position:absolute;left:16px;bottom:16px;z-index:4}
-.atlas-hint .zoomhint{color:var(--accent)}
 /* hover tooltip — a tiny paper cartouche that previews the feature under the
    cursor (city / hotspot / similar place / memory cell) with its provenance */
-.map-tip{position:absolute;z-index:7;pointer-events:none;max-width:240px;
-  background:color-mix(in oklch,var(--paper) 97%,transparent);border:1px solid var(--ink);
-  box-shadow:0 0 0 2px var(--paper),0 8px 22px -12px rgba(0,0,0,.5);
-  padding:.3rem .45rem;font:500 var(--t-xs)/1.35 var(--mono);color:var(--ink)}
-.map-tip b{color:var(--ink);font-weight:700}
-.map-tip .tip-sub{color:var(--mute);font-size:9px}
-.map-tip .tip-sig{color:var(--accent);font-size:9px}
 /* reverse-geocoded place label pinned at the selected cell */
 .sel-label{background:color-mix(in oklch,var(--paper) 95%,transparent);border:1px solid var(--ink);
   box-shadow:0 0 0 2px var(--paper);padding:.1rem .35rem;font:700 10px/1.2 var(--mono);color:var(--ink);
   white-space:nowrap;transform:translateY(-2px);max-width:200px;overflow:hidden;text-overflow:ellipsis}
 /* map data-layer legend (top-left), Mithila paper panel */
-.map-legend{position:absolute;left:22px;top:22px;z-index:6;width:226px;
-  background:color-mix(in oklch,var(--paper-2) 95%,transparent);border:2px solid var(--ink);
-  box-shadow:0 0 0 4px var(--paper),0 14px 36px -20px rgba(0,0,0,.5);padding:.6rem .7rem .55rem;font-size:var(--t-xs)}
-.map-legend .ml-title{font-weight:700;color:var(--ink);letter-spacing:.04em;text-transform:uppercase;font-size:10px;margin-bottom:.45rem;display:flex;align-items:center;justify-content:space-between;gap:.5rem}
-.map-legend.collapsed{width:auto}
-.map-legend.collapsed .ml-title{margin-bottom:0}
-.map-legend .ml-row{display:flex;align-items:center;gap:.4rem;margin:.28rem 0;color:var(--ink-2);cursor:pointer}
-.map-legend .ml-row input{accent-color:var(--accent);margin:0;cursor:pointer}
-.map-legend .ml-row .lbl{flex:1}
-.map-legend .ml-row b{color:var(--ink);font-weight:700}
-.map-legend .sw{width:11px;height:11px;flex:0 0 auto;border:1px solid var(--ink)}
-.map-legend .sw.cov{background:linear-gradient(90deg,var(--machine),var(--accent),var(--absent))}
-.map-legend .sw.fld{background:var(--warn)}
-.map-legend .sw.tess{background:conic-gradient(from 0deg,#bb3b2c,#d59a2a,#4f8a3d,#344a8c,#bb3b2c)}
-.map-legend .sw.arch{background:linear-gradient(90deg,#bb3b2c 0 17%,#d59a2a 17% 34%,#4f8a3d 34% 50%,#2f7e7a 50% 67%,#344a8c 67% 84%,#7a4a8c 84% 100%)}
-.map-legend .sw.hnt{background:var(--absent)}
-.map-legend .ml-btn{display:flex;align-items:center;gap:.4rem;width:100%;background:var(--paper);border:1px solid var(--rule-strong);
-  color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.3rem .4rem;cursor:pointer;text-align:left}
-.map-legend .ml-btn:hover{border-color:var(--accent);background:var(--accent-bg)}
-.map-legend .ml-hunt{gap:.4rem}
-.map-legend .ml-sel{flex:1;min-width:0;background-color:var(--paper);border:1px solid var(--ink);color:var(--ink);font:inherit;font-size:var(--t-xs);padding:.3rem 1.45rem .3rem .45rem;cursor:pointer}
-.map-legend .ml-hunt .ml-btn{width:auto;flex:0 0 auto}
-.map-legend .ml-hunt-n{margin:.1rem 0 0;min-height:0}
-.map-legend .ml-hunt-n b{color:var(--absent);font-weight:700}
-.map-legend .ml-sub{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:.55rem 0 .25rem}
-.map-legend .ml-live{gap:.4rem;color:var(--mute);font-size:9.5px}
-.map-legend .ml-live .livedot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:0 0 auto;animation:livepulse 2.2s ease-in-out infinite}
 @keyframes livepulse{0%,100%{opacity:.35}50%{opacity:1}}
-.map-legend .ml-base{display:flex;gap:.25rem}
-.map-legend .ml-base .bm{flex:1;font:inherit;font-size:9.5px;padding:.25rem .2rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink-2);cursor:pointer}
-.map-legend .ml-base .bm:hover{border-color:var(--accent)}
-.map-legend .ml-base .bm.on{background:var(--accent);color:var(--paper);border-color:var(--ink)}
-.map-legend .ml-drop{margin-top:.4rem}
-.map-legend .ml-drop .ml-btn{width:100%}
-.map-legend .ml-drop b{color:var(--accent);font-weight:700}
-.earth-hero.dragover::after{border-color:var(--accent);border-width:2px}
-.map-legend .ml-note{margin-top:.5rem;color:var(--mute);font-size:9.5px;line-height:1.35;border-top:1px solid var(--rule);padding-top:.4rem}
-@media (max-width:880px){.map-legend{left:12px;top:12px;width:200px}}
 /* double-line Mithila frame drawn over the map edges */
-.earth-hero::before{content:"";position:absolute;inset:10px;border:1px solid var(--ink);z-index:3;pointer-events:none}
-.earth-hero::after{content:"";position:absolute;inset:15px;border:1px solid var(--rule-strong);z-index:3;pointer-events:none}
 
 /* title cartouche overlaid top-centre */
 .hero-cartouche{position:absolute;left:50%;top:26px;transform:translateX(-50%);z-index:5;
@@ -762,7 +630,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   background:var(--paper);color:var(--ink-2);font:700 13px/1 var(--mono);width:20px;height:20px;cursor:pointer;border-radius:0}
 .plate-min:hover{border-color:var(--accent);color:var(--accent)}
 .hero-cartouche .plate.collapsed{padding:.45rem .55rem}
-.plate.collapsed .kicker,.plate.collapsed h1,.plate.collapsed .sub,.plate.collapsed .ask-egs,.plate.collapsed #atlas-answer{display:none}
 .plate.collapsed .ask-bar{margin-top:0}
 .hero-cartouche .kicker{font-size:var(--t-xs);letter-spacing:.22em;text-transform:uppercase;color:var(--vermilion)}
 .hero-cartouche h1{font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.07;letter-spacing:-.02em;margin:.25rem 0 .45rem;color:var(--ink);font-weight:600}
@@ -782,61 +649,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 @media (max-width:880px){.ask-bar{max-width:none}}
 /* the answer card — appears directly under the ask bar, over the map, where
    the eye already is. Opaque paper + ink frame so it reads over the busy map. */
-.atlas-answer{position:relative;text-align:left;pointer-events:auto;margin:.7rem auto 0;max-width:46ch;
-  border:2px solid var(--ink);background:color-mix(in oklch,var(--paper) 97%,transparent);
-  box-shadow:0 0 0 3px var(--paper),0 16px 40px -22px rgba(0,0,0,.55);
-  padding:.6rem .75rem;max-height:min(46vh,340px);overflow:auto}
-#atlas-answer[hidden]{display:none}
-.atlas-answer .ans-x{position:absolute;top:.25rem;right:.4rem;border:none;background:none;color:var(--mute);font-size:16px;line-height:1;cursor:pointer;padding:.1rem .25rem}
-.atlas-answer .ans-x:hover{color:var(--vermilion)}
-.atlas-answer .ans-q{font-size:var(--t-xs);color:var(--mute);margin-bottom:.3rem;padding-right:1rem}
-.atlas-answer .ans-text{font-size:var(--t-sm);color:var(--ink);line-height:1.5;font-weight:500}
-.atlas-answer .ans-sec{margin-top:.55rem}
-.atlas-answer .ans-h{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2);margin-bottom:.25rem}
-.atlas-answer .ans-scored{display:flex;flex-direction:column;gap:.12rem}
-.atlas-answer .ans-metric{display:flex;justify-content:space-between;gap:.6rem;font-family:var(--mono);font-size:var(--t-xs)}
-.atlas-answer .ans-metric .m{color:var(--ink-2)}
-.atlas-answer .ans-metric .mv{color:var(--accent);font-weight:700}
-.atlas-answer .ans-foot{margin-top:.5rem;font-size:9px;color:var(--mute);border-top:1px solid var(--rule);padding-top:.35rem;display:flex;justify-content:space-between;gap:.5rem;align-items:center}
-.atlas-answer .ans-foot a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent)}
-.atlas-answer .ans-foot a:hover{background:var(--accent-bg)}
 /* the optional Gemma-4 "explain" affordance — clearly an UNSIGNED commentary
    layer, set apart from the signed readings above it */
-.atlas-answer .ans-explain{margin-top:.55rem;font:inherit;font-size:var(--t-xs);padding:.28rem .55rem;
-  border:1px dashed var(--accent);background:var(--paper);color:var(--accent);cursor:pointer;border-radius:0}
-.atlas-answer .ans-explain:hover{background:var(--accent-bg)}
-.atlas-answer .ans-explain[disabled]{opacity:.6;cursor:default}
-.atlas-answer .ans-explanation{margin-top:.5rem;padding:.5rem .6rem;border-left:2px solid var(--ochre);
-  background:color-mix(in oklch,var(--ochre) 9%,var(--paper));font-size:var(--t-sm);line-height:1.5;color:var(--ink-2)}
-.atlas-answer .ans-explanation .xh{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute-2);margin-bottom:.25rem;display:block}
-.atlas-answer .ans-explanation .x-cite{margin-top:.35rem;font-size:9px;color:var(--mute)}
-.atlas-answer .ans-explanation .x-cite a{color:var(--accent);text-decoration:none;border-bottom:1px solid var(--accent)}
-.atlas-answer .ans-explanation .ex-steps{margin-top:.4rem;display:flex;flex-direction:column;gap:.25rem}
-.atlas-answer .ans-explanation .ex-step{font-size:10px;color:var(--mute-2);padding-left:1.15rem;position:relative;line-height:1.3}
-.atlas-answer .ans-explanation .ex-step::before{content:"\25CB";position:absolute;left:0;top:0;color:var(--rule-strong)}
-.atlas-answer .ans-explanation .ex-step.active{color:var(--ink)}
-.atlas-answer .ans-explanation .ex-step.active::before{content:"\25C6";color:var(--accent);animation:exPulse 1.1s ease-in-out infinite}
-.atlas-answer .ans-explanation .ex-step.done{color:var(--mute)}
-.atlas-answer .ans-explanation .ex-step.done::before{content:"\2713";color:#4f8a3d}
 @keyframes exPulse{0%,100%{opacity:.35}50%{opacity:1}}
-@media (prefers-reduced-motion:reduce){.atlas-answer .ans-explanation .ex-step.active::before{animation:none}}
-.atlas-answer .ans-topics{display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.5rem}
-.atlas-answer .ans-chip{font-size:9.5px;padding:.12rem .4rem;border:1px solid var(--accent);color:var(--accent);background:var(--paper);border-radius:2px;white-space:nowrap}
-.atlas-answer .ans-bands{margin-top:.5rem;display:flex;flex-direction:column;gap:.15rem}
-.atlas-answer .ans-band{display:flex;justify-content:space-between;gap:.6rem;font-family:var(--mono);font-size:var(--t-xs)}
-.atlas-answer .ans-band .b{color:var(--ink-2)}
-.atlas-answer .ans-band .v{color:var(--ink);font-weight:700}
 
 /* the consensus card floats bottom-right over the map; becomes a normal block on mobile */
-.hero-consensus{position:absolute;right:22px;bottom:22px;z-index:5;width:min(380px,calc(100% - 44px));
-  border:2px solid var(--ink);background:color-mix(in oklch,var(--paper-2) 96%,transparent);
-  box-shadow:0 0 0 4px var(--paper),0 14px 40px -18px rgba(0,0,0,.5);max-height:min(70%,520px);overflow:auto}
-.hero-consensus .mc-head{border-bottom:1px solid var(--rule)}
 @media (max-width:880px){
-  .earth-hero{height:auto;max-height:none}
-  .earth-hero #atlas-map{position:relative;height:62vh;min-height:360px}
   .hero-cartouche{position:static;transform:none;width:auto;padding:1.4rem var(--pad-x) .4rem;pointer-events:auto}
-  .hero-consensus{position:static;width:auto;margin:0 var(--pad-x) 1.4rem;max-height:none}
 }
 
 /* ---- the painted story scroll ------------------------------------------- */
@@ -912,17 +731,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .who .who-head .kicker{font-size:var(--t-xs);letter-spacing:.2em;text-transform:uppercase;color:var(--mute-2)}
 .who .who-head h2{font-size:clamp(1.5rem,2.8vw,2.2rem);letter-spacing:-.02em;margin:.4rem 0 .6rem;color:var(--ink);font-weight:600}
 .who .who-head p{color:var(--ink-2);font-size:var(--t-md);margin:0}
-.who-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.1rem}
-@media (max-width:980px){.who-grid{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:540px){.who-grid{grid-template-columns:1fr}}
-.who-card{display:flex;flex-direction:column;text-decoration:none;color:inherit;
-  background:var(--paper-2);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule);transition:box-shadow .18s,transform .18s}
-.who-card:hover{box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--accent);transform:translateY(-2px)}
-.who-card .frame{aspect-ratio:16/10;overflow:hidden;border-bottom:1px solid var(--rule);background:var(--paper)}
-.who-card .frame img{width:100%;height:100%;object-fit:cover;display:block}
-.who-card .meta{display:flex;flex-direction:column;gap:.3rem;padding:.7rem .85rem .9rem}
-.who-card .meta .lab{font-weight:700;color:var(--ink);font-size:var(--t-sm);letter-spacing:.01em}
-.who-card .meta .ln{color:var(--ink-2);font-size:var(--t-xs);line-height:1.4}
 .who-more{text-align:center;margin:2.2rem 0 0}
 .who-more a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 40%,transparent);font-size:var(--t-sm)}
 
@@ -953,6 +761,13 @@ input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:
 input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+
+.who-list{list-style:none;margin:1.2rem 0 0;padding:0;columns:2;column-gap:3rem}
+.who-list li{break-inside:avoid;margin:0 0 .85rem}
+.who-list a{font-weight:700;color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule-strong)}
+.who-list span{display:block;color:var(--mute);font-size:.86rem;margin-top:.1rem}
+.who-more{margin-top:1.4rem;font-size:.9rem}
+@media (max-width:760px){.who-list{columns:1}}
 </style>
 </head>
 <body>
@@ -983,6 +798,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 .th h1{font-size:clamp(1.9rem,4.4vw,3.05rem);line-height:1.06;letter-spacing:-.015em;margin:0 0 1rem;max-width:32ch}
 .th-lede{font-size:1.06rem;line-height:1.62;color:var(--ink-2);max-width:120ch;margin:0 0 1.1rem}
 .th-who{font-size:.95rem;line-height:1.6;color:var(--mute);max-width:120ch;margin:0 0 1.4rem}
+.th-verb-slot{display:inline-block;min-width:9.6ch;white-space:nowrap}
 .th-verb{color:var(--accent);text-decoration:none;border-bottom:2px solid var(--accent);white-space:nowrap;transition:opacity .2s ease}
 .th-verb.th-swap{opacity:0}
 .th-verb-hint{font-family:var(--mono);font-size:.76rem;color:var(--mute);margin:.15rem 0 1.2rem}
@@ -1043,7 +859,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <section class="th" id="hero" aria-label="emem, verifiable memory for AI agents">
   <div class="th-top">
     <div class="th-copy">
-      <h1>Give your AI a memory of the real world it can <a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check</a>.</h1>
+      <h1>Give your AI a memory of the real world it can <span class="th-verb-slot"><a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check.</a></span></h1>
       <p class="th-verb-hint">the underlined verb is live: it opens <a id="tvh-ep" href="/verify"><code>/verify</code></a></p>
       <p class="th-lede">AI models forget. When a long session is summarized, or a task hands off to another agent, the facts they checked blur into paraphrases and the numbers quietly drift. emem is a shared memory that fixes that: every fact about a real place becomes one short, signed line an agent can keep. It survives summarization, moves cleanly between agents and sessions, and resolves back to the exact value, which anyone can re-check without trusting the source.</p>
       <p class="th-who">Built for the agents, robots, and world models that need to reason from the same facts, and for the teams behind them. The facts are grounded in open Earth observation, checkable by anyone, with no account needed.</p>
@@ -1177,7 +993,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     var v=verbs[i];
     el.classList.add('th-swap');
     setTimeout(function(){
-      el.textContent=v.w; el.setAttribute('href',v.href); el.setAttribute('title',v.t);
+      el.textContent=v.w+'.'; el.setAttribute('href',v.href); el.setAttribute('title',v.t);
       ep.setAttribute('href',v.href); if(code) code.textContent=v.href;
       el.classList.remove('th-swap');
     },220);
@@ -2275,17 +2091,17 @@ input::placeholder{color:var(--mute,#7a7363)}
       <h2>Whatever an agent needs to know about a place</h2>
       <p>A family checking flood risk before they buy a home, a trip planner reading air quality and heat, a city scoring walkability, a bank signing a deforestation-free EUDR statement, an insurer pricing a storm. The same signed memory answers the everyday question and the audit-grade one.</p>
     </div>
-    <div class="who-grid">
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/29-eudr-supply-chain.svg" alt="eudr compliance" loading="lazy"></span><span class="meta"><span class="lab">eudr compliance</span><span class="ln">A deforestation-free plot signed into one handle that clears customs</span></span></a>
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/13-parametric-insurance.svg" alt="parametric insurance" loading="lazy"></span><span class="meta"><span class="lab">parametric insurance</span><span class="ln">Trigger and payout cite the same signed pixels</span></span></a>
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/16-disaster-response.svg" alt="disaster response" loading="lazy"></span><span class="meta"><span class="lab">disaster response</span><span class="ln">Every responder works from one common operating picture</span></span></a>
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/20-carbon-mrv.svg" alt="carbon mrv" loading="lazy"></span><span class="meta"><span class="lab">carbon mrv</span><span class="ln">A carbon credit where the carbon is content-addressed</span></span></a>
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/12-reinsurance-cat.svg" alt="reinsurance cat" loading="lazy"></span><span class="meta"><span class="lab">reinsurance cat</span><span class="ln">Catastrophe layers priced on facts, not a black-box curve</span></span></a>
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/27-precision-agriculture.svg" alt="precision agriculture" loading="lazy"></span><span class="meta"><span class="lab">precision agriculture</span><span class="ln">Per-field decisions citing per-pixel facts</span></span></a>
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/15-defense-geoint.svg" alt="defense geoint" loading="lazy"></span><span class="meta"><span class="lab">defense geoint</span><span class="ln">Fuse classified and open intel without losing chain of custody</span></span></a>
-      <a class="who-card" href="/solutions"><span class="frame"><img src="/docs/diagrams/11-insurance-pc.svg" alt="property underwriting" loading="lazy"></span><span class="meta"><span class="lab">property underwriting</span><span class="ln">Price every parcel from the same signed truth</span></span></a>
-    </div>
-    <div class="who-more"><a href="/solutions">see what people are building &rarr;</a></div>
+    <ul class="who-list">
+      <li><a href="/solutions">eudr compliance</a><span>A deforestation-free plot signed into one handle that clears customs</span></li>
+      <li><a href="/solutions">parametric insurance</a><span>Trigger and payout cite the same signed pixels</span></li>
+      <li><a href="/solutions">disaster response</a><span>Every responder works from one common operating picture</span></li>
+      <li><a href="/solutions">carbon mrv</a><span>A carbon credit where the carbon is content-addressed</span></li>
+      <li><a href="/solutions">reinsurance cat</a><span>Catastrophe layers priced on facts, not a black-box curve</span></li>
+      <li><a href="/solutions">precision agriculture</a><span>Per-field decisions citing per-pixel facts</span></li>
+      <li><a href="/solutions">defense geoint</a><span>Fuse classified and open intel without losing chain of custody</span></li>
+      <li><a href="/solutions">property underwriting</a><span>Price every parcel from the same signed truth</span></li>
+    </ul>
+    <p class="who-more"><a href="/solutions">worked solutions and the full use-case shelf &rarr;</a> &middot; <a href="/docs/diagrams">every diagram &rarr;</a></p>
   </div>
 </section>
 
@@ -2552,7 +2368,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="words">
     <div class="kicker"><span class="n">06</span> In three dimensions</div>
     <h2>An area of the memory, in 3-D</h2>
-    <p class="cap">Every splat is one cell of signed facts. Its height, tilt, thickness, and colour are each a measurement with its own <code>fact_cid</code>, so nothing is interpolated and nothing is invented. Where the memory has no fact, there is no splat, and any splat re-checks at <a href="/verify">/verify</a>.</p>
+    <p class="cap">Every splat is one cell of signed facts. Its height, tilt, thickness, and colour are each a measurement with its own <code>fact_cid</code>, so nothing is invented: measured cells stay exact, and when the viewer densifies for detail, every in-between splat is derived from its signed neighbours and re-derivable from them. Where the memory has no fact, there is no splat, and any splat re-checks at <a href="/verify">/verify</a>.</p>
     <div class="world-cards" id="world-cards">
       <a class="world-card" href="/worlds?world=canyon"><span class="wc-t">Grand Canyon</span><span class="wc-d">elevation, each gaussian lying in the terrain's tangent plane</span><span class="wc-n" data-preset="canyon">signed elevation facts</span></a>
       <a class="world-card" href="/worlds?world=interlaken"><span class="wc-t">Interlaken</span><span class="wc-d">elevation, Sentinel-2 NDVI, and JRC water fused per cell</span><span class="wc-n" data-preset="interlaken">signed facts</span></a>
@@ -2908,7 +2724,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <div><span class="bk">models</span> Tessera &middot; Clay v1.5 &middot; Prithvi-EO-2.0 &middot; Galileo</div>
         <div><span class="bk">data</span> ESA Copernicus &middot; NASA &middot; USGS &middot; JRC &middot; Hansen/GFW &middot; SoilGrids &middot; ECMWF &middot; Overture &middot; Fields of The World</div>
       </div>
-      <div class="builton-note">46 sources, 124 bands, four encoders &middot; full credits in the <a href="/whitepaper#refs">whitepaper references</a> &middot; <a href="/v1/sources">/v1/sources</a></div>
+      <div class="builton-note">every source, band, and encoder is enumerated live at <a href="/v1/sources">/v1/sources</a> and <a href="/v1/bands">/v1/bands</a> &middot; full credits in the <a href="/whitepaper#refs">whitepaper references</a></div>
     </div>
   </div>
 </section>
@@ -2927,7 +2743,7 @@ input::placeholder{color:var(--mute,#7a7363)}
           <li><a href="/docs/">docs (full book + search)</a></li>
           <li><a href="/spec.md">spec.md</a></li>
           <li><a href="/whitepaper">whitepaper</a></li>
-          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/diagrams">diagram gallery</a></li>
           <li><a href="/docs/gallery">live coverage map</a></li>
         </ul>
       </div>

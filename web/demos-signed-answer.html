@@ -612,8 +612,8 @@ async function runStep4(){
       ['recall', dt+' ms', ''],
     ]);
     setTag(4, matches
-      ? `<span style="color:var(--accent)">✓ same fact_cid (${dt} ms) — content-addressed, idempotent</span>`
-      : `<span style="color:var(--warn)">✗ fact_cid drifted — investigate</span>`);
+      ? `<span style="color:var(--accent)">✓ same fact_cid (${dt} ms): content-addressed, idempotent</span>`
+      : `<span style="color:var(--warn)">✗ fact_cid drifted: investigate</span>`);
     if (matches) setStep(4,'done');
   }catch(e){
     setOut('out4', String(e)); setTag(4,'<span style="color:var(--warn)">✗ '+e.message+'</span>');

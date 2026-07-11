@@ -32,7 +32,7 @@ with Client() as em:
     print(facts["facts"][0]["value"])   # 10.0
 ```
 
-Install from the repo while the PyPI release is in flight:
+Install from PyPI (`pip install ememdev`; the import name stays `emem`), or editable from the repo:
 
 ```bash
 pip install -e "git+https://github.com/Vortx-AI/emem.git#egg=emem&subdirectory=sdks/emem-py"

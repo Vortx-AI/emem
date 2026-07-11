@@ -544,7 +544,7 @@ async function run(){
     if (!rows.length) {
       const empty = document.createElement('div');
       empty.className = 'table-row';
-      empty.innerHTML = `<div class=muted style="grid-column:1/-1">no vintages returned at this cell + band — try another band, or run /v1/recall first to materialise</div>`;
+      empty.innerHTML = `<div class=muted style="grid-column:1/-1">no vintages returned at this cell + band. Try another band, or run /v1/recall first to materialise</div>`;
       tbl.appendChild(empty);
     } else {
       rows.forEach(r => {

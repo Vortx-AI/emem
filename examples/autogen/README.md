@@ -1,7 +1,7 @@
 # AutoGen + emem MCP Agent
 
 A Microsoft AutoGen assistant that connects to emem over MCP (Streamable HTTP)
-and answers geospatial verification questions with signed receipts.
+and answers questions about real places with signed facts from the shared memory, citing receipts any agent can re-verify.
 
 ## Install
 

@@ -33,7 +33,7 @@ Response shape:
   "vector":       [0.043, -0.115, 0.298, ... ],
   "l2_norm":      3.7146,
   "tslot":        54,
-  "fact_cid":     "<26 chars base32-nopad-lowercase>",
+  "fact_cid":     "<52 chars base32-nopad-lowercase>",
   "memory_token": "emem:fact:defi.zb4d7.ze56c.zf24c:<fact_cid>",
   "receipt":      { /* signed ed25519 over canonical blake3 preimage */ }
 }
@@ -118,7 +118,7 @@ curl -sS https://emem.dev/v1/facts/4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp
 
 That returns the canonical CBOR (or JSON when you ask for it) of the
 fact. The CID is self-certifying:
-`blake3(canonical_cbor(fact))[:16] == base32_decode(fact_cid)`. A
+`blake3(canonical_cbor(fact)) == base32_decode(fact_cid)` (52 base32 chars, the full 32-byte digest). A
 man-in-the-middle that swaps a different fact for the same CID is
 detected by the digest check.
 
@@ -160,10 +160,12 @@ bytes from any emem responder that ever held the fact.
 ### Parse rules
 
 ```
-parts    = token.split(":", 2)
-assert parts[0] == "memt"
-cell64   = parts[1]
-fact_cid = parts[2]
+parts    = token.split(":", 3)
+assert parts[0] == "emem" and parts[1] == "fact"
+cell64   = parts[2]
+fact_cid = parts[3]
+
+Legacy memt: tokens keep the old three-part shape (memt:<cell64>:<fact_cid>) and still resolve.
 ```
 
 The outer separator is `:`. Neither `cell64` nor `fact_cid` may contain
@@ -340,8 +342,8 @@ The same loop applies regardless of runtime. Cache the agent card once
 per session, then read directly:
 
 1. **discover.** `GET /v1/agent_card` (or call `tools/list` on the MCP
-   transport). Cache the result for the session. The card lists the 50
-   read-only tools, their JSON schemas, and trigger / anti-trigger
+   transport). Cache the result for the session. The card lists the
+   tools, their JSON schemas, and trigger / anti-trigger
    phrases for tool selection.
 2. **locate.** `POST /v1/locate { "q": "<place>" }` to bridge a place
    name (or lat/lng) to a `cell64`. The response reports which layer of

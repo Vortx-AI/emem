@@ -1,8 +1,8 @@
 # Mastra + emem MCP Agent
 
 A Mastra Agent (TypeScript) that connects to emem over MCP (Streamable
-HTTP), auto-discovers all tools, and answers a geospatial verification
-question with signed receipts.
+HTTP), auto-discovers all tools, and answers a question about a real place
+with signed facts from the shared memory, citing receipts any agent can re-verify.
 
 ## Install
 

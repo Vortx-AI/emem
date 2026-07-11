@@ -328,7 +328,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <span class=endpoint>POST /v1/state_multi</span>
       </div>
       <p class=desc>
-        Three foundation encoders at the same place, side by side. Useful for cross-encoder consensus
+        The wired foundation encoders at the same place, side by side. Useful for cross-encoder consensus
         (do Tessera, Clay, and Prithvi agree on the archetype here?) and redundancy-aware reasoning.
       </p>
       <div class=actions>
@@ -466,8 +466,7 @@ async function call(path, body){
 async function step1(){
   setStep(1);
   const p=$('placeInput').value.trim();
-  tag('tag1','<span class=spinner></span>resolving '+p);
-  $('tag1').innerHTML=tag('tag1','').textContent || '';
+  (delete lines 469-470 entirely; line 471, $('tag1').innerHTML='<span class="spinner"></span> resolving '+escapeHTML(p);, already renders the spinner correctly)
   $('tag1').innerHTML='<span class="spinner"></span> resolving '+escapeHTML(p);
   const r=await call('/v1/locate',{q:p});
   if(!r.ok){$('out1').textContent='ERROR '+(r.status||'')+'\n'+pretty(r.data); tag('tag1',r.data&&r.data.message?r.data.message:'locate failed'); return false;}

@@ -2,14 +2,14 @@
 
 > emem is a shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift, so different models reason from the same world object instead of divergent descriptions. Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (emem:entity:). Grounded in signed Earth observation, read over MCP or REST, no keys, every read returns an ed25519 receipt verifiable offline.
 
-Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 88 MCP tools, 103 documented /v1 paths, 160 algorithms, 46 source schemes.
+Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A fact is keyed by Cell × Band × Tslot and signed by the responder over the BLAKE3 of its canonical CBOR, so the same content id returns byte-identical bytes from any conformant responder and any client verifies the receipt offline. Reads need no auth. For a single-shot answer to a free-text question, call emem_ask: it routes the question to a place, recalls the relevant bands, and runs the applicable algorithms in one call. For a fast, deterministic single-fact read, the locate → recall → verify_receipt chain is the lower-latency path (ask materializes the full topic and can be slower on a cold place). Every spatial call accepts a cell64, a place name, or lat+lng. Canonical surface: 88 MCP tools, 103 documented /v1 paths, 160 algorithms, 46 source schemes (publish-time snapshot; live counts at /v1/agent_card).
 
 ## Connect
 
-- [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; 88 tools (13 core, 75 extended). Point a client here, no key.
+- [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; tools/list returns the live catalog (core tier by default, tier "all" for everything). Point a client here, no key.
 - [OpenAPI 3.1](https://emem.dev/openapi.json): full machine contract for the /v1 REST surface.
 - [Agent card](https://emem.dev/v1/agent_card): self-describing card with primitives, band taxonomy, and tool descriptors.
-- [Agent card (alias)](https://emem.dev/agent.json): same card at the conventional discovery path.
+- [Agent manifest](https://emem.dev/agent.json): build-pinned static discovery manifest at the conventional path; prefer /v1/agent_card for live counts and CIDs.
 - [Quickstart](https://emem.dev/docs/quickstart.html): step-by-step playbook from locate to a verified fact.
 - [MCP descriptor](https://emem.dev/.well-known/mcp.json): well-known MCP server descriptor for auto-discovery.
 

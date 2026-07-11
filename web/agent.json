@@ -127,6 +127,7 @@
     "emem_hunt",
     "emem_eudr_dds"
   ],
+  "_primitives_note": "curated subset of the tool surface; the MCP tools/list call and /v1/agent_card enumerate the full set",
   "primitive_count": 88,
   "algorithm_count": 160,
   "band_cube_slot_count": 43,
@@ -303,13 +304,12 @@
     "every_algorithm_has_formula_and_citation": true
   },
   "mcp_tools": {
-    "core": 10,
-    "extended": 71,
-    "total": 81
+    "core": 13,
+    "extended": 75,
+    "total": 88
   },
   "mcp_resources": {
     "static": 18,
     "uri_templates": 8
-  },
-  "materializable_band_count": 42
+  }
 }

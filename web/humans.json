@@ -31,17 +31,17 @@
     "jepa_v2_dynamics":  { "band": "(synthesized)","dim": 128,  "status": "untrained_baseline; short-circuits to last-attested vintage; receipt carries `untrained_baseline` warning" }
   },
   "consensus_algorithms": {
-    "_purpose": "The triple-consensus pattern — three encoders with independent receptive-field aliasing vote on a change index. Consensus across all three is signal; one-or-none is receptive-field artifact.",
+    "_purpose": "The triple-consensus pattern: three encoders with independent receptive-field aliasing vote on a change index. Consensus across all three is signal; one-or-none is receptive-field artifact.",
     "base":               "clay_prithvi_tessera_triple_consensus@1",
-    "deforestation":      "deforestation_triple@1 — Hansen GFC mask uplift to `hansen_confirmed` verdict, gate=0.20",
-    "wetland_change":     "wetland_change_triple@1 — Tessera leg substituted by JRC GSW recurrence delta, gate=0.10",
-    "urban_expansion":    "urban_expansion_triple@1 — Overture buildings delta + s2.B11 SWIR corroboration, gate=0.20",
-    "disaster_anomaly":   "disaster_anomaly_triple@1 — spatial (no temporal recipe), 2-σ neighbour z-score gate",
-    "climate_archetype":  "climate_archetype_triple@1 — 12-class Köppen-Geiger classifier with type-locality centroids",
-    "coastal_erosion":    "coastal_erosion_triple@1 — bathymetry-clamped to active-coastline cells (-5m ≤ depth ≤ +5m)"
+    "deforestation":      "deforestation_triple@1: Hansen GFC mask uplift to `hansen_confirmed` verdict, gate=0.20",
+    "wetland_change":     "wetland_change_triple@1: Tessera leg substituted by JRC GSW recurrence delta, gate=0.10",
+    "urban_expansion":    "urban_expansion_triple@1: Overture buildings delta + s2.B11 SWIR corroboration, gate=0.20",
+    "disaster_anomaly":   "disaster_anomaly_triple@1: spatial (no temporal recipe), 2-σ neighbour z-score gate",
+    "climate_archetype":  "climate_archetype_triple@1: 12-class Köppen-Geiger classifier with type-locality centroids",
+    "coastal_erosion":    "coastal_erosion_triple@1: bathymetry-clamped to active-coastline cells (-5m ≤ depth ≤ +5m)"
   },
   "ask_intents": {
-    "_purpose": "When /v1/ask classifies the question via keyword pre-pass, the response carries a `foundation_embeddings` envelope with per-encoder neighbour lists and cross-encoder consensus voting. Additive — non-matching questions keep the topic-router scalar response.",
+    "_purpose": "When /v1/ask classifies the question via keyword pre-pass, the response carries a `foundation_embeddings` envelope with per-encoder neighbour lists and cross-encoder consensus voting. Additive: non-matching questions keep the topic-router scalar response.",
     "similarity_keywords": ["find places like", "places like", "similar to", "looks like", "where else", "analog of", "look-alike", "comparable to", "find similar"],
     "change_keywords":     ["what changed", "year over year", "since last year", "deforestation", "forest loss", "new construction", "urban expansion", "wetland change", "coastline change", "coastal erosion", "anomaly"]
   },
@@ -108,7 +108,7 @@
     },
     "verify_page": {
       "routes":      ["/verify", "/verify/{fact_cid}"],
-      "purpose":     "Reconstruct the canonical preimage, run ed25519 against the responder pubkey, surface green/red verdict — entirely in-browser via @noble/curves + @noble/hashes.",
+      "purpose":     "Reconstruct the canonical preimage, run ed25519 against the responder pubkey, surface green/red verdict: entirely in-browser via @noble/curves + @noble/hashes.",
       "fallback":    "POST /v1/verify_receipt if the CDN imports time out"
     },
     "agent_eye_view": "Every right-pane card carries a `human` / `raw` toggle that flips the rendered card to the raw JSON envelope an MCP-driven agent would receive."

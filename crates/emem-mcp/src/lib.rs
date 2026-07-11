@@ -108,13 +108,13 @@ pub const RESOURCES: &[ResourceDescriptor] = &[
     ResourceDescriptor {
         uri: "memory://emem/registry/bands",
         name: "registry.bands",
-        description: "Full bands manifest (41+ bands) keyed by family/topic with units, value_range, interpretation, and per-band dimensions.",
+        description: "Full bands manifest keyed by family/topic with units, value_range, interpretation, and per-band dimensions.",
         mime_type: "application/json",
     },
     ResourceDescriptor {
         uri: "memory://emem/registry/algorithms",
         name: "registry.algorithms",
-        description: "Algorithm registry (~160 entries): formula text, inputs, evaluation AST, accuracy_band, temporal_recipe, citations.",
+        description: "Algorithm registry: formula text, inputs, evaluation AST, accuracy_band, temporal_recipe, citations.",
         mime_type: "application/json",
     },
     ResourceDescriptor {
@@ -227,7 +227,9 @@ const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties"
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Returns the latest fact per (cell,band) whose tslot ≤ as_of_tslot — answers `what did this place look like AS OF date X`. Conflicts with an explicit `tslot` when as_of_tslot < tslot (rejected with code:`invalid_temporal_bound`)."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound. RFC 3339 string. Returns only facts whose `signed_at` ≤ as_of_signed_at — answers `what did emem KNOW as of system-date Y`. Malformed strings are rejected with code:`invalid_signed_at_format`."},
 "scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set, the recall is FILTERED to facts written under the same four-tuple (a recall scoped to {user_id:'u1'} sees only u1's facts, never another tenant's and never globally-written facts) AND the signed receipt binds the scope. Omit (or send {}) for the global, pre-v0.0.8 recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},
-"include":{"type":"array","items":{"type":"string","enum":["freshness","edges"]},"description":"Opt-in response expansion. include:['freshness'] attaches an advisory per-fact freshness block: a Q(Δt) staleness score from the band's physics decay kernel (the same one /v1/temporal_route ranks bands with), so an agent learns how stale each reading is in the call that returns it. Advisory only; it does NOT enter the receipt. include:['edges'] attaches each fact's typed temporal edges and threads their CIDs into the receipt. Absent leaves the response byte-identical to the pre-v0.0.9 recall."}
+"include":{"type":"array","items":{"type":"string","enum":["freshness","edges"]},"description":"Opt-in response expansion. include:['freshness'] attaches an advisory per-fact freshness block: a Q(Δt) staleness score from the band's physics decay kernel (the same one /v1/temporal_route ranks bands with), so an agent learns how stale each reading is in the call that returns it. Advisory only; it does NOT enter the receipt. include:['edges'] attaches each fact's typed temporal edges and threads their CIDs into the receipt. Absent leaves the response byte-identical to the pre-v0.0.9 recall."},
+"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied BEFORE the receipt is signed, so the receipt covers exactly the returned facts; `bands_already_attested_at_cell` stays unfiltered so you still see what else exists at the cell."},
+"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only facts any third party can recompute from the cited raw source (direct_sensor + deterministic_index); false keeps the rest (model_output + human_curated + unclassified). Composable with `provenance` (intersection)."}
 }}"#;
 
 const SCHEMA_QUERY_REGION: &str = r#"{"type":"object","required":["geometry"],"properties":{
@@ -332,7 +334,8 @@ const SCHEMA_STATE_DIFF: &str = r#"{"type":"object","required":["cell","tslot_a"
 
 const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_cid"],"properties":{
 "cell":{"type":"string","description":"cell64 — neither component may contain `:`.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
-"fact_cid":{"type":"string","description":"26-char base32-nopad-lowercase content-id of the fact."}
+"fact_cid":{"type":"string","description":"52-char base32-nopad-lowercase content-id of the fact (full 32-byte blake3)."},
+"band":{"type":"string","description":"Optional band key. When set, the minted citation carries the band's tamper-provenance block (class, deterministic, tamper_evidence, trust_rank) so the receiving agent sees the trust class without a resolve round-trip."}
 }}"#;
 
 const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
@@ -730,7 +733,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_hunt",
         title: "Hunter mode — find event hotspots over a region",
-        description: "Event-discovery sweep: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text name or polygon_bbox). The responder geocodes the region, fans out across up to 32 sampled cells, recalls each event's primary scalar input band, and returns the top 8 hotspots ranked by that scalar — each carrying its cell64, lat/lng, the recalled value, a fact_cid for citation, and a scene.png URL. Bypass for free-text input is `emem_ask` (the classifier in /v1/ask routes \"find X in Y\" questions to the same hunter path).",
+        description: "Event-discovery sweep: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text name or polygon_bbox). The responder geocodes the region, fans out across up to 32 sampled cells, recalls each event's primary scalar input band, and returns the top 8 hotspots ranked by that scalar, each an attested entry in the shared memory carrying its cell64, lat/lng, the recalled value, a fact_cid for citation, and a scene.png URL. Bypass for free-text input is `emem_ask` (the classifier in /v1/ask routes \"find X in Y\" questions to the same hunter path).",
         when_to_use: "Call when the user asks an open-world discovery question (\"find oil spills in the Persian Gulf\", \"where is deforestation happening in the Amazon\", \"show me algal blooms in Lake Erie\", \"hunt wildfires across California\"). Surface 3–8 hotspots with their scene.png as image attachments and quote at least one fact_cid. For `oil_slick` the responder honestly reports `not_yet_implemented` and points at SAR-darkening + turbidity proxies — don't fabricate detections. The ranking uses the algorithm's primary scalar input only; for the full per-cell algorithm score, fetch the formula at /v1/algorithms/<key> and apply it client-side over the same recalled bands.",
         input_schema: SCHEMA_HUNT,
         example_args: r#"{"event":"algal_bloom","region":"Lake Erie"}"#,
@@ -753,7 +756,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_spi",
         title: "Standardized Precipitation Index (McKee 1993) drought metric",
-        description: "Compute the Standardized Precipitation Index (McKee et al. 1993) at a cell: fit a gamma distribution to the same-window precipitation-accumulation history, then standardize the current accumulation to a z-score and map it to a drought class (extreme/severe/moderate drought … normal … wet). Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit them to read the stored `weather.precipitation_mm` trajectory and build the window accumulations server-side. `window_days` selects SPI-1 (30 d), SPI-3 (90 d, default), SPI-12 (360 d), etc.",
+        description: "Compute the Standardized Precipitation Index (McKee et al. 1993) at a cell: fit a gamma distribution to the same-window precipitation-accumulation history, then standardize the current accumulation to a z-score and map it to a drought class (extreme/severe/moderate drought … normal … wet). Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit them to read the stored `weather.precipitation_mm` trajectory and build the window accumulations server-side. `window_days` selects SPI-1 (30 d), SPI-3 (90 d, default), SPI-12 (360 d), etc. The result is signed; the receipt cites the precipitation fact_cids it read from the shared memory.",
         when_to_use: "Call when the user asks 'is this place in drought', 'how dry is it relative to normal', or wants a precipitation-anomaly z-score. The response is honest: when fewer than the WMO-recommended minimum samples exist it returns verdict=`inconclusive` with `spi:null` and a `honest_note` rather than fabricating a z-score from a handful of points. Quote the `spi`, `spi_class`, and `n_samples`. For raw precipitation use `emem_weather`; SPI is the standardized anomaly.",
         input_schema: SCHEMA_SPI,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","window_days":90}"#,
@@ -764,7 +767,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_burn_severity",
         title: "Burn severity (dNBR, Key & Benson) from pre/post-fire NBR",
-        description: "Compute the differenced Normalized Burn Ratio (dNBR = NBR_pre − NBR_post; Key & Benson 2006) and map it to the USGS burn-severity classes (unburned / low / moderate-low / moderate-high / high). Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) for a correct result, or omit both to use the two most-recent stored `indices.nbr` scenes (older=pre, newer=post) as a coarse estimate.",
+        description: "Compute the differenced Normalized Burn Ratio (dNBR = NBR_pre − NBR_post; Key & Benson 2006) and map it to the USGS burn-severity classes (unburned / low / moderate-low / moderate-high / high). Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) for a correct result, or omit both to use the two most-recent stored `indices.nbr` scenes (older=pre, newer=post) as a coarse estimate. The result is signed; the receipt cites the NBR fact_cids it read from the shared memory.",
         when_to_use: "Call after a wildfire to quantify how badly an area burned, or to triage post-fire severity across a region cell-by-cell. Best practice: explicitly pass `nbr_pre`/`nbr_post` from scenes that bracket the known fire date — the stored-trajectory fallback just takes the two most-recent scenes and may not bracket the fire. Surface `dnbr` and `severity_class`. For active-fire detection use `emem_hunt` with the wildfire event instead.",
         input_schema: SCHEMA_BURN_SEVERITY,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","nbr_pre":0.62,"nbr_post":0.11}"#,
@@ -819,7 +822,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_terrain",
         title: "Terrain triad — slope + ruggedness + topographic position from DEM",
-        description: "Compute three standard DEM terrain indices from one 3×3 Copernicus-DEM (copdem30m.elevation_mean) neighbourhood at a cell: Horn (1981) slope in degrees, Riley (1999) Terrain Ruggedness Index (TRI = sqrt(Σ(Z_centre−Z_i)²)), and Weiss (2001) Topographic Position Index (TPI = Z_centre − mean(neighbours); positive = ridge, negative = valley). The 8 neighbour cell64s are derived by perturbing the cell's lat/lng one cell pitch per axis; the east-west ground spacing is cos(lat)-corrected.",
+        description: "Compute three standard DEM terrain indices from one 3×3 Copernicus-DEM (copdem30m.elevation_mean) neighbourhood at a cell: Horn (1981) slope in degrees, Riley (1999) Terrain Ruggedness Index (TRI = sqrt(Σ(Z_centre−Z_i)²)), and Weiss (2001) Topographic Position Index (TPI = Z_centre − mean(neighbours); positive = ridge, negative = valley). The 8 neighbour cell64s are derived by perturbing the cell's lat/lng one cell pitch per axis; the east-west ground spacing is cos(lat)-corrected. Each result is signed; the receipt cites the elevation fact_cids read from the shared memory.",
         when_to_use: "Call when the user asks how steep / how rugged / ridge-or-valley a place is, for siting (solar, construction, agriculture), erosion/landslide screening, or habitat-heterogeneity inputs. Slope and TRI need the full 8-neighbour ring; TPI degrades to ≥1 neighbour. Copernicus DEM is bathymetry-free, so ocean cells return a signed `inconclusive` rather than a fabricated slope — read each index's own `verdict`. For raw elevation use `emem_elevation`.",
         input_schema: SCHEMA_TERRAIN,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
@@ -875,7 +878,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_state",
         title: "Read the place's state vector (single encoder OR full 1792-D cube)",
-        description: "Get one dense numeric fingerprint that summarises everything known about a place — ready to feed into similarity search, a classifier, or clustering. Two views: `encoder` returns a single AI-model embedding (128-D Tessera, 1024-D Clay, 1024-D Prithvi); `cube` returns the full 1792-D vector concatenated across every band, with a per-band coverage manifest.",
+        description: "Get one dense numeric fingerprint that summarises everything known about a place, ready to feed into similarity search, a classifier, or clustering. Two views: `encoder` returns a single AI-model embedding (128-D Tessera, 1024-D Clay, 1024-D Prithvi); `cube` returns the full 1792-D vector concatenated across every band, with a per-band coverage manifest.",
         when_to_use: "Call this when the user wants a machine-usable summary of a place rather than individual band readings — e.g. 'give me a feature vector for this location', 'how do I represent this place for ML', or before running similarity / linear-probe / clustering downstream. Also use it to get one rebindable handle (`memory_token` / `state_cid`) that cites the whole place. Default `view=encoder` is the cheap single-recall path; pass `view=cube` for the full attested view (its `coverage[]` lets you tell signed-zero from not-yet-materialised). Then hand the vector to `emem_find_similar` (k-NN), `emem_compare` (two-place cosine), or `emem_verify_receipt` (audit the signature).",
         input_schema: SCHEMA_STATE_FULL,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","view":"cube"}"#,
@@ -964,7 +967,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_entity_resolve",
         title: "Resolve a phrase (or emem:entity: token) to a canonical object",
-        description: "Converge a fuzzy phrasing onto the canonical object other agents already minted, so everyone co-refers to the same identity instead of re-minting divergent ones. Pass `text` (e.g. \"the collapsed span at the ford\") to get ranked existing candidates; pass `near` to narrow to a place; or pass a `meme:` `token` to dereference it directly to the signed entity body. Read-only.",
+        description: "Converge a fuzzy phrasing onto the canonical object other agents already minted, so everyone co-refers to the same identity instead of re-minting divergent ones. Pass `text` (e.g. \"the collapsed span at the ford\") to get ranked existing candidates; pass `near` to narrow to a place; or pass an `emem:entity:` `token` to dereference it directly to the signed entity body. Read-only.",
         when_to_use: "Call BEFORE minting when another agent may already have registered the object, or when you receive a `emem:entity:` token and want the object behind it. This is how two agents avoid referential drift: resolve first, mint only if nothing matches.",
         input_schema: SCHEMA_ENTITY_RESOLVE,
         example_args: r#"{"text":"the golden gate bridge","near":"San Francisco"}"#,
@@ -1103,8 +1106,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_recall",
         title: "Recall facts at a cell (auto-materializes on miss)",
-        description: "Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. The content-addressed fact_cid is byte-identical for identical bytes on any responder, so a recalled fact is citeable and re-verifiable rather than a paraphrase.",
-        when_to_use: "Call after `emem_locate` (or with a known cell64). Returns every Primary fact stored at that (cell, band, tslot). IMPORTANT: if the cell has no fact yet for a requested band AND that band has `has_materializer=true` (per `emem_coverage_matrix` / `emem_materializers`), the responder fetches the upstream value, signs it under its identity, persists it, and returns it in the same response (~180 ms first call, ~10 ms cached thereafter). So for any wired band you can recall ANY cell on Earth without seeding — just pass `bands: [<band>]`. The response carries `materialize_notes` listing what was just fetched. Empty result with no notes means the band has no materializer at this responder.",
+        description: "Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. The content-addressed fact_cid is byte-identical for identical bytes on any responder, so a recalled fact is citeable and re-verifiable rather than a paraphrase. Pass `deterministic:true` (or a `provenance` class list) to keep only facts recomputable from the cited raw source, with no model or human in the loop.",
+        when_to_use: "Call after `emem_locate` (or with a known cell64). Returns every Primary fact stored at that (cell, band, tslot). IMPORTANT: if the cell has no fact yet for a requested band AND that band has `has_materializer=true` (per `emem_coverage_matrix` / `emem_materializers`), the responder fetches the upstream value, signs it under its identity, persists it, and returns it in the same response (slower on the first call while the upstream is fetched; fast once cached). So for any wired band you can recall ANY cell on Earth without seeding, just pass `bands: [<band>]`. The response carries `materialize_notes` listing what was just fetched. Empty result with no notes means the band has no materializer at this responder.",
         input_schema: SCHEMA_RECALL,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","bands":["weather.temperature_2m","copdem30m.elevation_mean"]}"#,
         level: "L0", category: ToolCategory::Read,
@@ -1180,7 +1183,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_trajectory",
         title: "Time series for one (cell, band)",
-        description: "Time series for one (cell, band) over an inclusive [start, end] tslot window. Returns only what's already attested — does NOT trigger materialization. For historical backfill use `emem_backfill`.",
+        description: "Time series for one (cell, band) over an inclusive [start, end] tslot window. Returns only what's already attested; it does NOT trigger materialization. For historical backfill use `emem_backfill`.",
         when_to_use: "Call when the user asks 'how did X change over time' for a band that already has multiple historical tslots seeded. IMPORTANT differences from `emem_recall`: (1) trajectory does NOT auto-materialize past tslots — it returns only facts that have already been attested at this responder, so for fast-tempo bands like `indices.ndwi` you'll typically see ONE point at the latest tslot until an attester seeds history. (2) tslots are non-negative `u64`; there's no negative-offset 'last 2 years' shorthand. For LONG-TERM history questions ('flooded in last 2 years', 'forest loss since 2020') prefer either (a) a static-tempo summary band that one fact answers — `surface_water.recurrence` covers 1984-2021 in a single signed value, no trajectory needed — or (b) `emem_backfill` to materialize and sign the missing tslots in one call.",
         input_schema: SCHEMA_TRAJECTORY,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[0,12]}"#,
@@ -1202,7 +1205,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_contradictions",
         title: "Scan for multi-attester disagreement",
-        description: "Surface where the corpus DISAGREES with itself. When two or more independent sources signed different values for the same place + band + time, this returns that disagreement with a 0–1 severity score and citations to every disputed fact — instead of silently picking one value and hiding the conflict. The opposite of a confident single answer: it tells you when not to trust one.",
+        description: "Surface where the corpus DISAGREES with itself. When two or more independent sources signed different values for the same place + band + time, this returns that disagreement with a 0–1 severity score and citations to every disputed fact, instead of silently picking one value and hiding the conflict. The opposite of a confident single answer: it tells you when not to trust one.",
         when_to_use: "Call this when trust matters before you rely on a number — 'is there disagreement about X', 'do the sources corroborate this', 'audit this claim', or 'find contradictory observations in region Y'. Use it to decide whether a fact is well-corroborated or contested. Narrow with `cell_prefix` (e.g. \"defi.zb5\") for a region and `band` for one family; `min_severity` filters out trivial differences. Severity is per band kind: scalar = spread over the band's range, vector = 1 − mean cosine, categorical = 1 − mode share. The receipt cites every disputed CID — follow up with `emem_diff` to quantify a pair, or (with the refinement loop on) read the emitted `disagrees_with` edge via `emem_edges_recall`.",
         input_schema: SCHEMA_MEMORY_CONTRADICTIONS,
         example_args: r#"{"cell_prefix":"damO","band":"indices.ndvi","min_severity":0.2}"#,
@@ -1224,7 +1227,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_fetch",
         title: "Resolve a fact by content-address (CID)",
-        description: "Fetch a fact by its content-address (CID). Returns the full signed Primary or Absence fact — the same body served by REST `/v1/facts/{cid}`. Closes the citation loop: any fact_cid surfaced by recall, materialize, attest, or verify can be re-resolved by another agent without REST.",
+        description: "Fetch a fact by its content-address (CID). Returns the full signed Primary or Absence fact, the same body served by REST `/v1/facts/{cid}`. Closes the citation loop: any fact_cid surfaced by recall, materialize, attest, or verify can be re-resolved by another agent without REST.",
         when_to_use: "Call whenever you have a `fact_cid` (e.g. from `emem_recall`'s response, an `emem_attest` receipt, an `emem_materializers` outcome, or a citation in another agent's reply) and need the full fact body — its value, unit, sources, signer, signed_at, and derivation. Particularly useful for verifying that a citation a downstream agent gave you actually resolves on this responder. The response is byte-identical across responders for the same CID — the CID itself is the validator.",
         input_schema: SCHEMA_FETCH,
         example_args: r#"{"cid":"qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq"}"#,
@@ -1248,7 +1251,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_heat_solve",
         title: "2-D heat-equation forecast (urban LST evolution)",
-        description: "Forward-step 2-D explicit finite-difference solver for the heat equation ∂u/∂t = α∇²u over a 3×3 cell stencil centred on `cell`. Reads `modis.lst_day_8day` (Land Surface Temperature) at the centre and 8 cell64 neighbours, integrates N hours ahead under a CFL-stable timestep, returns a signed forecast. Real PDE rollout — not a decay-scoring heuristic.",
+        description: "Forward-step 2-D explicit finite-difference solver for the heat equation ∂u/∂t = α∇²u over a 3×3 cell stencil centred on `cell`. Reads `modis.lst_day_8day` (Land Surface Temperature) at the centre and 8 cell64 neighbours, integrates N hours ahead under a CFL-stable timestep, returns a signed forecast. Real PDE rollout, not a decay-scoring heuristic.",
         when_to_use: "Use when the user wants a short-horizon LST forecast (urban heat island, surface-temperature evolution, heatwave onset modelling) at a specific cell. Default α=1e-6 m²/s matches urban surface diffusivity (Oke 2017); pass a smaller α for water bodies or higher for vegetated surfaces. The solver caps at one-week horizons because the 8-day MODIS composite stops being a representative initial condition past that. Each call materialises 9 MODIS facts (one per neighbour) on miss — first call ~5 s cold, ~30 ms warm. Receipt cites all 9 input fact CIDs.",
         input_schema: SCHEMA_HEAT_SOLVE,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","hours_ahead":6}"#,
@@ -1259,7 +1262,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_wave_solve",
         title: "1-D shallow-water swell propagation to coast",
-        description: "Forward-step 1-D explicit finite-difference solver for the shallow-water wave equation ∂²u/∂t² = c²∂²u/∂x² with c² = g·h, where depth h comes from `gmrt.topobathy_mean` along the seaward gradient. Models how an offshore swell of height H_s and period T propagates toward `coastal_cell`. Returns arrival height + time + depth + phase-speed profiles, all under a CFL-stable timestep.",
+        description: "Forward-step 1-D explicit finite-difference solver for the shallow-water wave equation ∂²u/∂t² = c²∂²u/∂x² with c² = g·h, where depth h comes from `gmrt.topobathy_mean` along the seaward gradient. Models how an offshore swell of height H_s and period T propagates toward `coastal_cell`. Returns a signed forecast of arrival height + time + depth + phase-speed profiles, all under a CFL-stable timestep; the receipt cites the depth facts read from the shared memory.",
         when_to_use: "Use when the user wants to predict swell arrival at a coast (storm-surge planning, shoreline-impact assessment, surf forecasting). The solver walks `n_offshore_cells` cells seaward from `coastal_cell` along the bathymetric gradient (default 8 cells = 80 m of profile at the active 10 m grid), samples GMRT depth at each, and integrates the wave equation forward until the wavefront reaches the coast plus one period. Receipt cites every depth fact CID along the profile. Returns 422 with a clear message if `coastal_cell` is land-locked.",
         input_schema: SCHEMA_WAVE_SOLVE,
         example_args: r#"{"coastal_cell":"damO.zb000.xUti.zde78","offshore_height_m":2.0,"period_s":8.0}"#,
@@ -1270,7 +1273,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_jepa_predict",
         title: "Constrained JEPA-pattern next-month NDVI predictor",
-        description: "Predict next-month NDVI at a cell using a constrained JEPA-pattern AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI's physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned — they're fixed from the agricultural-NDVI literature. v2 (future) will train an actual encoder + predictor on the geotessera embedding pool.",
+        description: "Predict next-month NDVI at a cell using a constrained JEPA-pattern AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI's physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned, they're fixed from the agricultural-NDVI literature. For the learned multi-band dynamics head, see `emem_jepa_predict_v2` (jepa_temporal_predictor@2).",
         when_to_use: "Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation). Lookback defaults to 6 months; if fewer monthly tslots are attested at this cell, the predictor uses what's there and surfaces the count in `lookback_months_used`. Returns 422 if no NDVI history exists at the cell — chain to `emem_backfill` first to seed history. Receipt cites every input NDVI fact CID.",
         input_schema: SCHEMA_JEPA_PREDICT,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","lookback_months":6}"#,
@@ -1281,7 +1284,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_jepa_predict_v2",
         title: "Learned multi-band-scalar dynamics head (jepa_temporal_predictor@2)",
-        description: "Predict the next-step value of 4 environmental scalars at a cell — `indices.ndvi`, `modis.lst_day_8day`, `modis.lst_night_8day`, `cams.pm25` — using a small learned dynamics MLP. Reads up to K=6 most-recent attested lags per band, runs them through an ONNX dynamics head (~200k params, CPU-fast), and returns a per-band {value, confidence, n_real_lags, via}. The receipt's `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, a top-level `skill_vs_persistence` block, and `honesty_warnings` — flagging `untrained_baseline` when the artifact is the zero-init sentinel and `NEGATIVE_SKILL` when the learned model is worse than persistence on real held-out NDVI. When the model does not beat persistence, bands with a real lag are returned from that lag tagged `via:persistence_fallback_negative_skill` (bands with no real lag fall back to labelled climatology). Distinct from v1 (`emem_jepa_predict`) which returns a single NDVI scalar via closed-form coefficients.",
+        description: "Predict the next-step value of 4 environmental scalars at a cell (`indices.ndvi`, `modis.lst_day_8day`, `modis.lst_night_8day`, `cams.pm25`) using a small learned dynamics MLP. Reads up to K=6 most-recent attested lags per band, runs them through an ONNX dynamics head (~200k params, CPU-fast), and returns a per-band {value, confidence, n_real_lags, via}. The receipt's `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, a top-level `skill_vs_persistence` block, and `honesty_warnings`, flagging `untrained_baseline` when the artifact is the zero-init sentinel and `NEGATIVE_SKILL` when the learned model is worse than persistence on real held-out NDVI. When the model does not beat persistence, bands with a real lag are returned from that lag tagged `via:persistence_fallback_negative_skill` (bands with no real lag fall back to labelled climatology). Distinct from v1 (`emem_jepa_predict`) which returns a single NDVI scalar via closed-form coefficients.",
         when_to_use: "Use when you want a short-horizon forecast of NDVI / land-surface temperature / PM2.5 at a cell grounded in its attested history. Returns 422 with a `/v1/backfill` hint when the cell lacks enough cached lags. Always read the receipt's `model.honesty_warnings` — `untrained_baseline` means the trivial 'predict last vintage' baseline (treat as no-op), and `NEGATIVE_SKILL` means the served values are the persistence fallback, not a learned improvement. Check each band's `via` field to see whether its value came from the learned model, persistence, or climatology.",
         input_schema: SCHEMA_JEPA_PREDICT_V2,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78"}"#,
@@ -1449,7 +1452,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_explain_algorithm",
         title: "One-algorithm drill-down (formula + inputs + citation)",
         description: "Per-key drill-down on a single composition recipe — full body (kind, inputs, formula, output, citation, references) for ONE algorithm key. Companion to `emem_algorithms` (which is the catalog).",
-        when_to_use: "Call when you already know the algorithm key (from `emem_algorithms`'s catalog or the topic registry) and need its full math. Cheaper than fetching the 190 KB catalog when you only need one entry. Returns the same structure that `/v1/algorithms/{key}` does. 404s with `cid_not_found` if the key isn't registered — call `emem_algorithms` for the live key list.",
+        when_to_use: "Call when you already know the algorithm key (from `emem_algorithms`'s catalog or the topic registry) and need its full math. Cheaper than fetching the full catalog when you only need one entry. Returns the same structure that `/v1/algorithms/{key}` does. 404s with `cid_not_found` if the key isn't registered, call `emem_algorithms` for the live key list.",
         input_schema: SCHEMA_EXPLAIN_ALGORITHM,
         example_args: r#"{"key":"walkability_score@1"}"#,
         level: "L0", category: ToolCategory::Introspect,
@@ -1565,7 +1568,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_at",
         title: "Multi-band snapshot at a place",
-        description: "One-shot multi-band recall at a place (or lat/lng). Defaults to emem's standard at-a-glance band set; pass `band` / `bands` to override. Polygon-resolved places stay at the centroid by default (`n_cells: 1`) to keep multi-band calls cheap — pass `n_cells: 2..=64` to fan out.",
+        description: "One-shot recall of the signed facts at a place's cell64 (or lat/lng); each band carries a citeable fact_cid. Defaults to emem's standard at-a-glance band set; pass `band` / `bands` to override. Polygon-resolved places stay at the centroid by default (`n_cells: 1`) to keep multi-band calls cheap; pass `n_cells: 2..=64` to fan out.",
         when_to_use: "Use when the user names a place and wants the standard situational readout (vegetation + elevation + landcover + recent weather) without picking bands. Polygon-aware: `place` that resolves to a polygon (park, lake, district) lands at the centroid unless `n_cells` widens it. For a single band, use the domain-specific shortcuts (emem_ndvi, emem_air, …) or emem_recall directly.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Yellowstone National Park"}"#,
@@ -1576,7 +1579,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_ndvi",
         title: "NDVI at a place (one-shot, polygon-aware)",
-        description: "Recall Sentinel-2 NDVI (indices.ndvi, 10 m native) at a point or place. Composes locate → cell64 → recall in one call; auto-materializes on miss.",
+        description: "Recall the signed Sentinel-2 NDVI fact (indices.ndvi, 10 m native) at a place's canonical cell64, attesting it into the shared memory on a miss. Composes locate → cell64 → recall in one call; the value returns with its citeable fact_cid.",
         when_to_use: "Use when the user names a place (or lat/lng) and just wants the NDVI number. Polygon-resolved places default to a 16-cell fan-out aggregated as mean/median. Set `n_cells: 1` for point behaviour. For multi-band batches use emem_recall.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Yellowstone National Park"}"#,
@@ -1587,7 +1590,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_air",
         title: "Air-quality snapshot (CAMS PM2.5 / NO2 / O3)",
-        description: "Recall Copernicus CAMS air-quality bands at a place: PM2.5 + NO2 + O3. Composes locate → recall → aggregate.",
+        description: "Recall the signed Copernicus CAMS air-quality facts (PM2.5 + NO2 + O3) at a place's cell64, attesting on a miss. Composes locate → recall → aggregate; each band carries a citeable fact_cid.",
         when_to_use: "Use when the user names a place and asks about air quality, pollution, or emissions exposure. CAMS is the European reanalysis — global coverage, ~0.4° native (resampled). For finer-grained urban PM2.5, pair with /v1/at-style stations data when available.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Delhi, India"}"#,
@@ -1598,7 +1601,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_lst",
         title: "Land surface temperature (MODIS day + night)",
-        description: "Recall MODIS land surface temperature day-8day + night-8day composites at a place. 1 km native, 8-day composite.",
+        description: "Recall the signed MODIS land surface temperature facts (day-8day + night-8day composites, 1 km native) at a place's cell64, attesting on a miss; each carries a citeable fact_cid.",
         when_to_use: "Use when the user asks about surface heat, urban heat island, thermal anomalies, or wants day/night LST. Returns both fluxes so the agent can derive day–night spread.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Phoenix, AZ"}"#,
@@ -1609,7 +1612,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_soil",
         title: "Soil profile (SoilGrids 0–30 cm: SOC, pH, texture)",
-        description: "Recall SoilGrids 250 m profile at a place: SOC, pH, clay/sand/silt fractions, bulk density, nitrogen — all at 0–30 cm depth.",
+        description: "Recall the signed SoilGrids 250 m profile at a place's cell64 (SOC, pH, clay/sand/silt fractions, bulk density, nitrogen, all at 0–30 cm depth), attesting on a miss; each band carries a citeable fact_cid.",
         when_to_use: "Use when the user asks about soil quality, agricultural suitability, or carbon stocks at a location. Six bands returned in one envelope.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Bhanu Pratappur, Chhattisgarh"}"#,
@@ -1620,7 +1623,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_water",
         title: "Surface water (JRC GSW recurrence + S1 backscatter)",
-        description: "Recall surface-water signals at a place: JRC Global Surface Water recurrence (1984–2021) + Sentinel-1 SAR backscatter (current). Pair detects standing water through clouds.",
+        description: "Recall the signed surface-water facts at a place's cell64: JRC Global Surface Water recurrence (1984–2021) + Sentinel-1 SAR backscatter (current), attested on a miss and citeable by fact_cid. The pair detects standing water through clouds.",
         when_to_use: "Use when the user asks about flooding, wetlands, surface-water dynamics, or wants a robust water-presence check. JRC alone gives historical baseline; Sentinel-1 gives current flood detection.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Sundarbans"}"#,
@@ -1631,7 +1634,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_forest",
         title: "Forest signals (Hansen GFC + ESA WorldCover)",
-        description: "Recall forest signals at a place: Hansen Global Forest Change (tree cover 2000 baseline + year-of-loss) + ESA WorldCover 2021 land class.",
+        description: "Recall the signed forest facts at a place's cell64: Hansen Global Forest Change (tree cover 2000 baseline + year-of-loss) + ESA WorldCover 2021 land class, attested on a miss; each carries a citeable fact_cid.",
         when_to_use: "Use when the user asks about deforestation, canopy cover, forest loss, or wants a forest-vs-not classification. Hansen gives year-of-loss for any cell with disturbance since 2001; WorldCover gives the current land class.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Amazon, Brazil"}"#,
@@ -1642,7 +1645,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_weather",
         title: "Current weather snapshot (temperature, cloud, precip, wind)",
-        description: "Recall the standard met.no/CAMS weather bundle at a place: 2 m temperature + total cloud cover + precipitation + 10 m wind speed.",
+        description: "Recall the signed met.no/CAMS weather facts at a place's cell64 (2 m temperature + total cloud cover + precipitation + 10 m wind speed), attesting on a miss; each value carries a citeable fact_cid.",
         when_to_use: "Use when the user names a place and asks 'what's the weather' or wants a now-cast snapshot. weather.* bands are now-only (no backfill); for climatology use terraclimate.*.",
         input_schema: SCHEMA_BORING_LATLNG,
         example_args: r#"{"place":"Reykjavik"}"#,

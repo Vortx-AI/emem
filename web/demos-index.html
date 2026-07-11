@@ -143,7 +143,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <main class=wrap>
   <header class=masthead>
-    <p class=kicker>emem.dev · demos · 2026</p>
+    <p class=kicker>emem.dev · demos</p> (same change at demos-ask-the-earth.html line 178)
     <h1>Pick a demo.<br><span class=accent>Each one runs live and is verifiable end-to-end.</span></h1>
     <p class=lede>Every page below talks to the same hosted responder at <b>emem.dev</b>. No fixtures, no mocked endpoints. Receipts come back signed by the same Ed25519 identity (<code>/.well-known/emem.json</code>) and recomputing the fact CID in your own checkout returns byte-identical bytes.</p>
   </header>
@@ -190,7 +190,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <article class="card status-live">
       <a class=title href="/demos/find-similar#consensus">Multi-encoder consensus · Clay + Prithvi + Tessera</a>
       <span class=endpoint>POST /v1/triple_consensus</span>
-      <p class=desc>The headline differentiator. emem recalls a cell through three foundation encoders, measures each one's vintage-to-vintage change as <code>1 - cos(now, prev)</code>, and reports whether they <b>agree</b> something changed (<code>two_of_three</code> / <code>all_three</code>). No single model gets the last word. Runs live inside the find-similar page.</p>
+      <p class=desc>emem recalls a cell through three foundation encoders, measures each one's vintage-to-vintage change as <code>1 - cos(now, prev)</code>, and reports whether they <b>agree</b> something changed (<code>two_of_three</code> / <code>all_three</code>). No single model gets the last word. Runs live inside the find-similar page.</p>
       <div class=meta>
         <span class="tag status">live</span>
         <span class=tag>/v1/triple_consensus</span>
@@ -272,7 +272,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <article class="card status-live">
       <a class=title href="/gallery">Case-study gallery</a>
       <span class=endpoint>GET /gallery</span>
-      <p class=desc>Earth-observation figures rendered live by the responder. Walkability, flood exposure, urban heat, NDVI trajectories, deforestation hotspots, each with a signed receipt the reader can verify.</p>
+      <p class=desc>Worked figures rendered live from the shared memory: walkability, flood exposure, urban heat, NDVI trajectories, deforestation hotspots, each an attested fact set with a signed receipt any agent or reader can verify.</p>
       <div class=meta>
         <span class="tag status">live</span>
         <span class=tag>/v1/recall_polygon</span>

@@ -180,22 +180,6 @@ const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 /// crawlers (Slack, X, LinkedIn, Discord, most LLM fetchers) do NOT render
 /// an SVG og:image — the pages reference this PNG so previews actually show.
 const OG_IMAGE_PNG: &[u8] = include_bytes!("../../../web/og-image.png");
-/// MapLibre GL JS (self-hosted, BSD-3, v4.7.1) + its stylesheet, served from
-/// `'self'` so the interactive map hero needs no external `script-src` and
-/// stays on-brand for a no-external-trust protocol. The map draws only the
-/// vendored Natural Earth land polygons (`LAND_GEOJSON`, same-origin), so no
-/// external basemap host is contacted. Beyond `'self'`, MapLibre needs two CSP
-/// allowances (both in `csp_header_value`): `worker-src blob:` for its render
-/// worker, and `style-src-attr 'unsafe-inline'` because it positions the canvas
-/// and controls with JS-applied `style` attributes — which the hash-based
-/// `style-src` cannot cover (hashes never apply to style attributes). `<style>`
-/// elements stay hash-pinned and `script-src` stays strict.
-const MAPLIBRE_JS: &str = include_str!("../../../web/maplibre-gl.js");
-const MAPLIBRE_CSS: &str = include_str!("../../../web/maplibre-gl.css");
-// Natural Earth 110m land polygons (public domain), the only basemap geometry
-// the homepage map draws — no external tile server is contacted. Properties are
-// stripped; the responder styles it ink-on-cream in the Mithila hand.
-const LAND_GEOJSON: &str = include_str!("../../../web/land-110m.geojson");
 
 /// Bespoke Mithila (Madhubani) story panels reused across the homepage and the
 /// narrative pages (`/how-it-works`, `/solutions`, `/reference`). Flat-fill SVGs
@@ -424,6 +408,18 @@ const DOCS_DIAGRAMS: &[(&str, &str)] = &[
     (
         "33-fusion-orbit-and-ground.svg",
         include_str!("../../../docs/diagrams/33-fusion-orbit-and-ground.svg"),
+    ),
+    (
+        "34-shared-memory.svg",
+        include_str!("../../../docs/diagrams/34-shared-memory.svg"),
+    ),
+    (
+        "35-two-agents-one-memory.svg",
+        include_str!("../../../docs/diagrams/35-two-agents-one-memory.svg"),
+    ),
+    (
+        "36-memory-outlives-the-context-window.svg",
+        include_str!("../../../docs/diagrams/36-memory-outlives-the-context-window.svg"),
     ),
 ];
 
@@ -831,9 +827,6 @@ pub fn router(state: AppState) -> Router {
         .route("/logo-1200w.png", get(serve_logo_1200))
         .route("/og-image.svg", get(serve_og_image))
         .route("/og-image.png", get(serve_og_image_png))
-        .route("/maplibre-gl.js", get(serve_maplibre_js))
-        .route("/maplibre-gl.css", get(serve_maplibre_css))
-        .route("/land-110m.geojson", get(serve_land_geojson))
         .route("/art/:name", get(serve_art_panel))
         .route(
             "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
@@ -2713,12 +2706,12 @@ fn csp_header_value() -> &'static HeaderValue {
         let csp = format!(
             "default-src 'self'; \
              script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com{script_src_extra}; \
-             connect-src 'self' https://www.google-analytics.com https://esm.sh https://tile.openstreetmap.org https://server.arcgisonline.com https://tiles.maps.eox.at; \
+             connect-src 'self' https://www.google-analytics.com https://esm.sh https://server.arcgisonline.com; \
              img-src 'self' data: https:; \
              style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
              style-src-attr 'unsafe-inline'; \
              font-src 'self' data: https://fonts.gstatic.com; \
-             worker-src 'self' blob:; \
+             worker-src 'self'; \
              frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
              base-uri 'self'; \
              form-action 'self'"
@@ -3350,15 +3343,6 @@ async fn serve_logo_1200() -> Response {
 async fn serve_og_image_png() -> Response {
     png_response(OG_IMAGE_PNG)
 }
-async fn serve_maplibre_js() -> Response {
-    text_response("application/javascript; charset=utf-8", MAPLIBRE_JS)
-}
-async fn serve_maplibre_css() -> Response {
-    text_response("text/css; charset=utf-8", MAPLIBRE_CSS)
-}
-async fn serve_land_geojson() -> Response {
-    text_response("application/geo+json; charset=utf-8", LAND_GEOJSON)
-}
 /// `/art/<name>.svg` — one of the bespoke Mithila story panels. Slug must match
 /// the file name verbatim (e.g. `p1.svg`). 404 with a short reason on an unknown
 /// slug so a typo surfaces instead of silently rendering nothing.
@@ -3772,7 +3756,7 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             "emem": {
                 "url":         format!("{origin}/mcp"),
                 "transport":   "streamable-http",
-                "description": "Earth memory protocol — recall, compare, find_similar, diff, trajectory, verify over signed receipts.",
+                "description": "Shared, verifiable memory for AI agents: recall signed facts, cite them as emem: tokens, verify receipts offline; compare, diff, and trajectory read the same memory.",
             }
         },
         // Capability surface so the client can decide whether to install
@@ -3873,19 +3857,22 @@ async fn serve_example_gemini() -> Response {
         "documentation": "https://emem.dev/agents.md",
         "icon": "https://emem.dev/logo.png",
         "keywords": [
-            "earth-observation",
-            "geospatial",
-            "satellite",
+            "memory",
+            "agent-memory",
+            "verifiable",
+            "identity",
             "mcp",
             "ed25519",
             "content-addressed",
+            "earth-observation",
+            "satellite",
             "no-api-key"
         ],
         "mcpServers": {
             "emem": {
                 "url": "https://emem.dev/mcp",
                 "transport": "streamable-http",
-                "description": "Earth memory protocol — recall, compare, find_similar, diff, trajectory, verify over signed receipts."
+                "description": "Shared, verifiable memory for AI agents: recall signed facts, cite them as emem: tokens, verify receipts offline; compare, diff, and trajectory read the same memory."
             }
         },
         "context": {
@@ -3945,7 +3932,7 @@ async fn serve_example_llamaindex() -> Response {
 async fn serve_agents_txt() -> Response {
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     let body = format!(
-        "# {origin} — Earth memory protocol for AI agents.\n\
+        "# {origin}, shared verifiable memory for AI agents.\n\
          # Plaintext discovery card. One line per canonical agent surface.\n\
          # Source: github.com/Vortx-AI/emem (Apache-2.0).\n\
          \n\
@@ -6618,6 +6605,20 @@ struct RecallApiReq {
     /// identical to the pre-v0.0.9 recall.
     #[serde(default)]
     include: Option<Vec<String>>,
+    /// Tamper-provenance filter: return only facts whose band's provenance
+    /// class is one of these (`"direct_sensor"`, `"deterministic_index"`,
+    /// `"model_output"`, `"human_curated"`, `"unclassified"`). Validated in
+    /// `post_recall` via `resolve_provenance_filter`, then applied INSIDE
+    /// the recall primitive, before the receipt is signed. Composable with
+    /// `deterministic` (intersection).
+    #[serde(default)]
+    provenance: Option<Vec<String>>,
+    /// Sugar over `provenance`: `true` keeps only the classes any third
+    /// party can recompute from the cited raw source (`direct_sensor` +
+    /// `deterministic_index`); `false` keeps the rest (`model_output` +
+    /// `human_curated` + `unclassified`).
+    #[serde(default)]
+    deterministic: Option<bool>,
 }
 
 impl From<RecallApiReq> for RecallReq {
@@ -6656,7 +6657,139 @@ impl From<RecallApiReq> for RecallReq {
             as_of_signed_at: api.as_of_signed_at,
             scope: api.scope,
             include: api.include,
+            // Set by `post_recall` AFTER `resolve_provenance_filter`
+            // validates the raw request fields; the unvalidated strings
+            // never reach the primitive.
+            provenance: None,
         }
+    }
+}
+
+/// Resolve the (`provenance`, `deterministic`) request pair into the
+/// canonical class-string list the recall primitive filters on. `Ok(None)`
+/// means no filter was requested. Unknown class names and combinations
+/// that exclude every class are typed errors listing the accepted
+/// vocabulary, so an agent's first mistake teaches it the wire strings.
+fn resolve_provenance_filter(
+    provenance: Option<&[String]>,
+    deterministic: Option<bool>,
+) -> Result<Option<Vec<String>>, String> {
+    use emem_core::bands::ProvenanceClass as Pc;
+    const ALL: [Pc; 5] = [
+        Pc::DirectSensor,
+        Pc::DeterministicIndex,
+        Pc::ModelOutput,
+        Pc::HumanCurated,
+        Pc::Unclassified,
+    ];
+    if provenance.is_none() && deterministic.is_none() {
+        return Ok(None);
+    }
+    let mut allowed: Vec<Pc> = match provenance {
+        Some(list) if !list.is_empty() => {
+            let mut v: Vec<Pc> = Vec::with_capacity(list.len());
+            for s in list {
+                let norm = s.trim().to_ascii_lowercase();
+                match ALL.iter().find(|c| c.as_str() == norm) {
+                    Some(c) => {
+                        if !v.contains(c) {
+                            v.push(*c);
+                        }
+                    }
+                    None => {
+                        return Err(format!(
+                            "unknown provenance class {s:?}: accepted values are \
+                             direct_sensor, deterministic_index, model_output, \
+                             human_curated, unclassified"
+                        ));
+                    }
+                }
+            }
+            v
+        }
+        // Absent or explicitly empty: no class constraint, only the
+        // `deterministic` flag (if set) narrows the set.
+        _ => ALL.to_vec(),
+    };
+    if let Some(det) = deterministic {
+        allowed.retain(|c| c.is_deterministic() == det);
+        if allowed.is_empty() {
+            return Err(format!(
+                "provenance filter excludes every class: the listed classes and \
+                 deterministic={det} have no overlap. deterministic=true matches \
+                 direct_sensor and deterministic_index; deterministic=false matches \
+                 model_output, human_curated, and unclassified."
+            ));
+        }
+    }
+    Ok(Some(
+        allowed.iter().map(|c| c.as_str().to_string()).collect(),
+    ))
+}
+
+#[cfg(test)]
+mod provenance_filter_tests {
+    use super::resolve_provenance_filter;
+
+    #[test]
+    fn absent_pair_means_no_filter() {
+        assert_eq!(resolve_provenance_filter(None, None), Ok(None));
+    }
+
+    #[test]
+    fn class_list_passes_through_normalised_and_deduped() {
+        let list = vec!["Direct_Sensor ".to_string(), "direct_sensor".to_string()];
+        assert_eq!(
+            resolve_provenance_filter(Some(&list), None),
+            Ok(Some(vec!["direct_sensor".to_string()]))
+        );
+    }
+
+    #[test]
+    fn unknown_class_is_a_typed_error_listing_the_vocabulary() {
+        let list = vec!["satellite".to_string()];
+        let err = resolve_provenance_filter(Some(&list), None).unwrap_err();
+        assert!(err.contains("unknown provenance class"), "{err}");
+        assert!(err.contains("deterministic_index"), "{err}");
+    }
+
+    #[test]
+    fn deterministic_true_folds_to_the_recomputable_classes() {
+        assert_eq!(
+            resolve_provenance_filter(None, Some(true)),
+            Ok(Some(vec![
+                "direct_sensor".to_string(),
+                "deterministic_index".to_string(),
+            ]))
+        );
+    }
+
+    #[test]
+    fn deterministic_false_folds_to_the_attested_only_classes() {
+        assert_eq!(
+            resolve_provenance_filter(None, Some(false)),
+            Ok(Some(vec![
+                "model_output".to_string(),
+                "human_curated".to_string(),
+                "unclassified".to_string(),
+            ]))
+        );
+    }
+
+    #[test]
+    fn contradictory_pair_is_a_typed_error() {
+        let list = vec!["model_output".to_string()];
+        let err = resolve_provenance_filter(Some(&list), Some(true)).unwrap_err();
+        assert!(err.contains("excludes every class"), "{err}");
+    }
+
+    #[test]
+    fn list_and_flag_intersect() {
+        let list = vec!["direct_sensor".to_string(), "model_output".to_string()];
+        assert_eq!(
+            resolve_provenance_filter(Some(&list), Some(true)),
+            Ok(Some(vec!["direct_sensor".to_string()]))
+        );
     }
 }
 
@@ -6686,6 +6819,21 @@ async fn post_recall(
             ));
         }
     }
+    // Validate the provenance filter BEFORE the request is consumed, so a
+    // bad class name fails fast with the accepted vocabulary.
+    let prov_filter =
+        resolve_provenance_filter(api_req.provenance.as_deref(), api_req.deterministic).map_err(
+            |message| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message,
+                        details: None,
+                    },
+                )
+            },
+        )?;
     let mut req: RecallReq = api_req.into();
     if req.cell.trim().is_empty() {
         return Err(ApiError(
@@ -6696,6 +6844,45 @@ async fn post_recall(
                 details: None,
             },
         ));
+    }
+    // Apply the provenance filter. Explicitly requested bands are narrowed
+    // here rather than only inside the primitive for two reasons: the
+    // auto-materializer must not fetch a band the filter would immediately
+    // drop, and a request whose EVERY listed band is excluded deserves a
+    // 400 naming each band's class rather than a confusing empty 200.
+    if let Some(allowed) = prov_filter.as_ref() {
+        if let Some(bands) = req.bands.take() {
+            let registry = &*emem_core::bands::DEFAULT;
+            let class_of = |b: &String| {
+                registry
+                    .provenance_class_for(&resolve_band_name(b))
+                    .as_str()
+            };
+            let (kept, excluded): (Vec<String>, Vec<String>) = bands
+                .into_iter()
+                .partition(|b| allowed.iter().any(|a| a == class_of(b)));
+            if kept.is_empty() {
+                let listing = excluded
+                    .iter()
+                    .map(|b| format!("{b} ({})", class_of(b)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Err(ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!(
+                            "provenance filter [{}] excludes every requested band: {listing}. \
+                             Call /v1/bands (or emem_bands) for each band's provenance_class.",
+                            allowed.join(", ")
+                        ),
+                        details: None,
+                    },
+                ));
+            }
+            req.bands = Some(kept);
+        }
+        req.provenance = prov_filter.clone();
     }
     // Accept place names: `recall {"cell":"Mount Everest"}` is just
     // `locate` + `recall` from the agent's POV, no reason to make
@@ -6814,6 +7001,12 @@ async fn post_recall(
                     "materialize_notes".into(),
                     JsonValue::Array(materialize_notes),
                 );
+            }
+            // Echo the applied provenance filter so the agent can confirm
+            // which classes shaped this (signed) result. Advisory, outside
+            // the preimage: the filter itself ran before signing.
+            if let Some(allowed) = prov_filter.as_ref() {
+                map.insert("provenance_filter".into(), json!(allowed));
             }
             if let Some(env) = resolved_env {
                 map.insert("resolved_from".into(), env);
@@ -7419,46 +7612,10 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
     // Bands with dots ("esa_worldcover.lc_2021", "copdem30m.elevation_mean")
     // are materializer scalars that ride atop a cube band; they don't
     // appear directly in the registry. Map them to their cube band so
-    // the editorial fields still surface. The map below is the inverse
-    // of the family-alias map derived in `/v1/coverage_matrix` from
-    // `bands-v0.json` `scalar_keys` — both views must stay in sync
-    // when adding a new scalar to a family band.
-    let cube_band = match band_key {
-        // Cop-DEM scalars → `cop_dem` slot.
-        b if b.starts_with("copdem30m.") => "cop_dem",
-        // GMRT bathymetry rides on the legacy `dem` slot today.
-        "gmrt.topobathy_mean" => "dem",
-        // ESA WorldCover scalar → `landcover` slot.
-        "esa_worldcover.lc_2021" => "landcover",
-        // Indices.* and s2.* → their respective family slots.
-        b if b.starts_with("indices.") => "indices",
-        b if b.starts_with("s2.") => "sentinel2_raw",
-        b if b.starts_with("geotessera") => "geotessera",
-        b if b.starts_with("overture.") => "overture",
-        b if b.starts_with("weather.") => "climate",
-        b if b.starts_with("surface_water.") => "surface_water",
-        b if b.starts_with("hansen.") => "forest_change",
-        // Canonical `forest_change.*` sub-bands resolve directly to the
-        // `forest_change` cube slot — kept here next to the legacy
-        // `hansen.*` arm so adding either form picks up the family
-        // editorial fields (description / interpretation / …).
-        b if b.starts_with("forest_change.") => "forest_change",
-        // MODIS NDVI is an optical index → inherit `indices` editorial fields.
-        // MODIS LST is land-surface temperature in Kelvin — it must NOT inherit
-        // the `indices` (-1..1 unitless) metadata (that mislabelled LST 302 K as
-        // a unitless index). It falls through to band_key, so the response shows
-        // no inherited cube description rather than a wrong one; the fact itself
-        // already carries the correct unit:"K".
-        b if b.starts_with("modis.ndvi") => "indices",
-        b if b.starts_with("soilgrids.") => "soilgrids",
-        // CAMS scalars now have a dedicated `air_quality` band entry
-        // (carved 7 dims off the front of `_reserved_512` in
-        // bands-v0.json on 2026-05-04). Per-pollutant units +
-        // value_range live in dimensions[]; the dimension lookup
-        // below pulls the right one by name.
-        b if b.starts_with("cams.") => "air_quality",
-        _ => band_key,
-    };
+    // the editorial fields still surface. The alias map lives in
+    // emem-core (`cube_band_alias`) so the recall provenance filter and
+    // this metadata view resolve a dotted key to the same registry entry.
+    let cube_band = emem_core::bands::cube_band_alias(band_key);
     let band_entry = registry
         .lookup(cube_band)
         .or_else(|| registry.lookup(band_key));
@@ -10900,6 +11057,7 @@ async fn post_recall_polygon(
                 as_of_signed_at,
                 scope,
                 include: None,
+                provenance: None,
             };
             (
                 idx,
@@ -11022,6 +11180,7 @@ async fn post_recall_polygon(
                 as_of_signed_at: req.as_of_signed_at.clone(),
                 scope: req.scope.clone(),
                 include: None,
+                provenance: None,
             };
             match recall_with_auto_materialize(&r, &s).await {
                 Ok((resp, notes)) => {
@@ -14285,7 +14444,7 @@ fn iso8601_now_utc() -> String {
 /// (a shared identity layer that stops referential drift), names the primary
 /// mint -> cite -> resolve -> verify loop, and marks the raw fetchers as
 /// secondary populators. Keep it in sync with the `agent_card` purpose.
-const MCP_INSTRUCTIONS: &str = "emem is a shared, verifiable memory for AI agents: an external identity layer, not just a data source. Its job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single token that resolves to the byte-identical signed object and verifies offline with no shared trust, so two models grounded on the same token reason about the same object rather than two paraphrases of it.\n\nPrimary loop, reach for these first:\n1. Name a thing. emem_entity mints or returns a canonical object identity (emem:entity:) from a place, cell, or lat/lng. emem_entity_resolve converges a fuzzy phrasing onto an object another agent already registered, so you co-refer instead of re-inventing. emem_entity_link attests that two phrasings mean the same object.\n2. Ground a place. emem_locate returns the canonical cell64 for a place; emem_recall returns the signed facts there and auto-fetches on a miss.\n3. Cite it. emem_memory_token composes emem:fact:<cell64>:<fact_cid> for one fact, emem_memory_bundle composes emem:bundle: for many. Hand the token to any agent or log it in an audit.\n4. Resolve and check. emem_memory_token_resolve and emem_entity_resolve dereference a handle back to the identical signed body; emem_verify_receipt (or /verify in a browser) checks the ed25519 receipt without trusting the server.\n5. Detect drift. emem_memory_contradictions surfaces where signed sources disagree at the same address.\nWrite durable agent notes with the memory_* file verbs and cite them the same way.\n\nEverything else (emem_ndvi, emem_weather, emem_soil, emem_elevation, emem_lst, emem_water, emem_forest, and the hunter and physics-solver tools) populates the memory with attested Earth-observation facts. Reach for those to ground a fact, not as the point of the system. Call tools/list with {\"tier\":\"core\"} for just the essentials. No API keys for reads.";
+const MCP_INSTRUCTIONS: &str = "emem is a shared, verifiable memory for AI agents: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single token that resolves to the byte-identical signed object and verifies offline with no shared trust, so two models grounded on the same token reason about the same object rather than two paraphrases of it.\n\nPrimary loop, reach for these first:\n1. Name a thing. emem_entity mints or returns a canonical object identity (emem:entity:) from a place, cell, or lat/lng. emem_entity_resolve converges a fuzzy phrasing onto an object another agent already registered, so you co-refer instead of re-inventing. emem_entity_link attests that two phrasings mean the same object.\n2. Ground a place. emem_locate returns the canonical cell64 for a place; emem_recall returns the signed facts there and auto-fetches on a miss.\n3. Cite it. emem_memory_token composes emem:fact:<cell64>:<fact_cid> for one fact, emem_memory_bundle composes emem:bundle: for many. Hand the token to any agent or log it in an audit.\n4. Resolve and check. emem_memory_token_resolve and emem_entity_resolve dereference a handle back to the identical signed body; emem_verify_receipt (or /verify in a browser) checks the ed25519 receipt without trusting the server.\n5. Detect drift. emem_memory_contradictions surfaces where signed sources disagree at the same address.\nWrite durable agent notes with the memory_* file verbs and cite them the same way.\n\nEverything else (emem_ndvi, emem_weather, emem_soil, emem_elevation, emem_lst, emem_water, emem_forest, and the hunter and physics-solver tools) populates the memory with attested Earth-observation facts. Reach for those to ground a fact, not as the point of the system. Call tools/list with {\"tier\":\"core\"} for just the essentials. No API keys for reads.";
 
 async fn mcp_jsonrpc(
     State(s): State<AppState>,
@@ -16822,7 +16981,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2, galileo)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2, galileo). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block on the minted citation.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Parses emem:fact:<cell>:<fact_cid> (legacy memt: also accepted), fetches the signed fact body by CID, returns the canonical body plus the offline-verify URL. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (emem:entity:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the canonical object other agents already minted (converge, do not re-mint), or dereference an emem:entity: `token` directly to its signed body. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"emem:entity:<entity_cid> (legacy meme: accepted) to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
@@ -16839,7 +16998,7 @@ async fn openapi() -> Json<JsonValue> {
         },
         "components": {
             "schemas": {
-                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}}}},
+                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied before the receipt is signed, so the receipt covers exactly the returned facts."},"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only classes any third party can recompute from the cited raw source (direct_sensor, deterministic_index); false keeps the rest. Composable with `provenance` (intersection)."}}},
                 "QueryRegionReq":  {"type":"object","description":"Either `geometry` (cell64 or 'cells:c1,c2,...') or `bbox` ([west, south, east, north] WGS-84 degrees) is required. When `bbox` is given the responder samples it to up to `max_cells` cells (default 256, max 1024) and runs the canonical primitive over the cell list.","properties":{"geometry":{"type":"string","description":"cell64 or `cells:c1,c2,...`"},"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first)"},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":256,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied."},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band — ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine — matches cosine precision at ~16× less work."}}},
@@ -17031,7 +17190,7 @@ async fn openapi_action_json() -> Json<JsonValue> {
     if let Some(info) = spec.get_mut("info").and_then(|v| v.as_object_mut()) {
         info.insert(
             "title".into(),
-            json!("emem Earth Memory — Custom GPT Action subset"),
+            json!("emem shared memory: Custom GPT Action subset"),
         );
         info.insert(
             "description".into(),
@@ -17583,6 +17742,12 @@ async fn post_locate(Json(req): Json<LocateReq>) -> Result<Json<JsonValue>, ApiE
 struct MemoryTokenReq {
     cell: String,
     fact_cid: String,
+    /// Optional band key. When supplied, the response carries the band's
+    /// tamper-provenance block, so a freshly minted citation states its
+    /// trust class up front. The mint itself stays pure string
+    /// composition; it never loads the fact.
+    #[serde(default)]
+    band: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -17593,6 +17758,11 @@ struct MemoryTokenResp {
     cell_token: String,
     cell: String,
     fact_cid: String,
+    /// Tamper-provenance for the requested `band`: the same block
+    /// `/v1/recall` attaches per fact and `/v1/memory_token/resolve`
+    /// returns top-level. Absent when the caller supplied no band.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provenance: Option<JsonValue>,
     grammar: &'static str,
     docs: &'static str,
 }
@@ -18022,6 +18192,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         as_of_signed_at: req.as_of_signed_at.clone(),
         scope: req.scope.clone(),
         include: None,
+        provenance: None,
     };
     let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
@@ -18243,6 +18414,7 @@ async fn post_state_multi(
                 as_of_signed_at,
                 scope,
                 include: None,
+                provenance: None,
             };
             let res = recall_with_auto_materialize(&recall_req, &s).await;
             (encoder, res)
@@ -18661,6 +18833,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         as_of_signed_at: req.as_of_signed_at.clone(),
         scope: req.scope.clone(),
         include: None,
+        provenance: None,
     };
 
     let (resp, materialize_notes) = if materialize {
@@ -18696,6 +18869,7 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
             as_of_signed_at: req.as_of_signed_at.clone(),
             scope: req.scope.clone(),
             include: None,
+            provenance: None,
         };
         match recall_with_auto_materialize(&warm_req, &s).await {
             Ok((r, n)) => {
@@ -19410,6 +19584,11 @@ async fn post_memory_token(
         cell_token: cell_token(cell),
         cell: cell.to_string(),
         fact_cid: cid.to_string(),
+        provenance: req
+            .band
+            .as_deref()
+            .map(|b| provenance_for_band(b.trim()))
+            .filter(|v| !v.is_null()),
         grammar: "emem:fact:<cell64>:<fact_cid>",
         docs: "/reference#tokens",
     }))
@@ -19645,6 +19824,7 @@ async fn post_memory_bundle(
             as_of_signed_at: t.as_of_signed_at.clone(),
             scope: req.scope.clone(),
             include: None,
+            provenance: None,
         };
         let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 

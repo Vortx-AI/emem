@@ -310,6 +310,65 @@ impl BandRegistry {
     pub fn key_index(&self) -> HashMap<&str, &Band> {
         self.bands.iter().map(|b| (b.key.as_str(), b)).collect()
     }
+
+    /// Tamper-provenance class for any band key an agent can cite,
+    /// including dotted materializer scalars ("copdem30m.elevation_mean")
+    /// that ride atop a cube band (resolved through [`cube_band_alias`]).
+    /// Unknown keys fall back to [`ProvenanceClass::Unclassified`], the
+    /// lowest-trust class, so an unrecognised band never claims
+    /// tamper-evidence.
+    pub fn provenance_class_for(&self, band_key: &str) -> ProvenanceClass {
+        self.lookup(cube_band_alias(band_key))
+            .or_else(|| self.lookup(band_key))
+            .map(|b| b.provenance_class)
+            .unwrap_or(ProvenanceClass::Unclassified)
+    }
+}
+
+/// Map a dotted materializer band key ("esa_worldcover.lc_2021",
+/// "copdem30m.elevation_mean") to the cube band it rides atop, so registry
+/// lookups (provenance class, editorial metadata) resolve for scalar keys
+/// that don't appear directly in the manifest. Keys with no alias pass
+/// through unchanged. This is the inverse of the family-alias map
+/// `/v1/coverage_matrix` derives from `bands-v0.json` `scalar_keys` — both
+/// views must stay in sync when adding a new scalar to a family band.
+pub fn cube_band_alias(band_key: &str) -> &str {
+    match band_key {
+        // Cop-DEM scalars → `cop_dem` slot.
+        b if b.starts_with("copdem30m.") => "cop_dem",
+        // GMRT bathymetry rides on the legacy `dem` slot today.
+        "gmrt.topobathy_mean" => "dem",
+        // ESA WorldCover scalar → `landcover` slot.
+        "esa_worldcover.lc_2021" => "landcover",
+        // Indices.* and s2.* → their respective family slots.
+        b if b.starts_with("indices.") => "indices",
+        b if b.starts_with("s2.") => "sentinel2_raw",
+        b if b.starts_with("geotessera") => "geotessera",
+        b if b.starts_with("overture.") => "overture",
+        b if b.starts_with("weather.") => "climate",
+        b if b.starts_with("surface_water.") => "surface_water",
+        b if b.starts_with("hansen.") => "forest_change",
+        // Canonical `forest_change.*` sub-bands resolve directly to the
+        // `forest_change` cube slot — kept here next to the legacy
+        // `hansen.*` arm so adding either form picks up the family
+        // editorial fields (description / interpretation / …).
+        b if b.starts_with("forest_change.") => "forest_change",
+        // MODIS NDVI is an optical index → inherit `indices` editorial fields.
+        // MODIS LST is land-surface temperature in Kelvin — it must NOT inherit
+        // the `indices` (-1..1 unitless) metadata (that mislabelled LST 302 K as
+        // a unitless index). It falls through to band_key, so the response shows
+        // no inherited cube description rather than a wrong one; the fact itself
+        // already carries the correct unit:"K".
+        b if b.starts_with("modis.ndvi") => "indices",
+        b if b.starts_with("soilgrids.") => "soilgrids",
+        // CAMS scalars now have a dedicated `air_quality` band entry
+        // (carved 7 dims off the front of `_reserved_512` in
+        // bands-v0.json on 2026-05-04). Per-pollutant units +
+        // value_range live in dimensions[]; the dimension lookup
+        // in the API layer pulls the right one by name.
+        b if b.starts_with("cams.") => "air_quality",
+        _ => band_key,
+    }
 }
 
 /// Process-wide cached default registry. Loaded once on first access.
@@ -319,6 +378,33 @@ pub static DEFAULT: LazyLock<BandRegistry> =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provenance_class_resolves_through_cube_band_alias() {
+        let r = &*DEFAULT;
+        // Dotted materializer scalars resolve to their cube band's class.
+        assert_eq!(
+            r.provenance_class_for("copdem30m.elevation_mean"),
+            ProvenanceClass::DirectSensor
+        );
+        assert_eq!(
+            r.provenance_class_for("indices.ndvi"),
+            ProvenanceClass::DeterministicIndex
+        );
+        // Direct cube keys resolve as themselves.
+        assert_eq!(
+            r.provenance_class_for("geotessera"),
+            ProvenanceClass::ModelOutput
+        );
+        assert_eq!(
+            r.provenance_class_for("overture.roads_km"),
+            ProvenanceClass::HumanCurated
+        );
+        // Unknown keys never claim tamper-evidence.
+        let unknown = r.provenance_class_for("no_such_band.at_all");
+        assert_eq!(unknown, ProvenanceClass::Unclassified);
+        assert!(!unknown.is_deterministic());
+    }
 
     #[test]
     fn default_loads_and_validates() {

@@ -2,7 +2,7 @@
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Reference: the read surface</title>
-<meta name=description content="Read surface for emem, a shared, verifiable memory for AI agents: one canonical citeable identity per place, fact, and object, grounded in signed Earth observation, so models reason from the same world object instead of divergent descriptions. Client setup for 8 MCP hosts, high-traffic endpoints, one-shot domain tools, the 12 hunter events, and the physics and forecasting solvers. MCP + REST, no API keys.">
+<meta name=description content="Read surface for emem, a shared, verifiable memory for AI agents: one canonical citeable identity per place, fact, and object, grounded in signed Earth observation, so models reason from the same world object instead of divergent descriptions. Client setup for the MCP hosts, high-traffic endpoints, one-shot domain tools, the hunter events, and the physics and forecasting solvers. MCP + REST, no API keys.">
 <link rel=canonical href="https://emem.dev/reference">
 <link rel="alternate" type="text/markdown" href="/llms.txt">
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -434,7 +434,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="method post">POST</td><td class="path">/v1/ask</td><td>emem_ask</td><td class="desc">place-anchored Q&amp;A with packaged receipts; routes to one of 27 band-topics</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/hunt</td><td>emem_hunt</td><td class="desc">event + region &rarr; top 8 cells, ranked by the algorithm's primary scalar</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/state</td><td>emem_state</td><td class="desc">dense state vector at a cell; view=encoder (default, 128-D) or view=cube (1792-D)</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">fan-out across geotessera, clay_v1, prithvi_eo2; typed missing[] when unwired</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">fan-out across geotessera, clay_v1, prithvi_eo2, galileo; typed missing[] when unwired</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/state_diff</td><td>emem_state_diff</td><td class="desc">vintage delta at one cell: residual vector + L2 + cosine between two tslots</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/memory_token</td><td>emem_memory_token</td><td class="desc">compose emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt; citation handle</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/memory_token/resolve</td><td>emem_memory_token_resolve</td><td class="desc">single round-trip dereference; returns the signed fact body the cid names</td></tr>
@@ -459,7 +459,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <li><span class="band">emem:entity:&lt;entity_cid&gt;</span> a canonical object (/v1/entity)</li>
         <li><span class="band">emem:cell:&lt;cell64&gt;</span> a bare place</li>
       </ul>
-      <p style="margin:0">The pre-rename prefixes <span class="band">memt:</span>, <span class="band">memb:</span>, and <span class="band">meme:</span> still resolve. Resolving a fact token also returns its tamper-provenance: <span class="band">direct_sensor</span> and <span class="band">deterministic_index</span> facts are reproducible from raw satellite data, while <span class="band">model_output</span> and <span class="band">human_curated</span> facts had a model or a person in the loop.</p>
+      <p style="margin:0">The pre-rename prefixes <span class="band">memt:</span>, <span class="band">memb:</span>, and <span class="band">meme:</span> still resolve. Resolving a fact token also returns its tamper-provenance: <span class="band">direct_sensor</span> and <span class="band">deterministic_index</span> facts are reproducible from raw satellite data, while <span class="band">model_output</span> and <span class="band">human_curated</span> facts had a model or a person in the loop. Recall filters on the same class: pass <span class="band">deterministic: true</span> (or a <span class="band">provenance</span> class list) to <span class="band">POST /v1/recall</span> and only facts recomputable from the cited raw source come back; the filter runs before the receipt is signed, so the receipt covers exactly the returned facts. Minting at <span class="band">/v1/memory_token</span> with the optional <span class="band">band</span> field attaches the same provenance block to the citation itself.</p>
     </div>
 
     <p style="font-weight:700;color:var(--ink);margin-top:2rem">One-shot domain tools that wrap locate &rarr; recall &rarr; aggregate.</p>
@@ -586,7 +586,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <h2><span class="num">04</span>Hunter: open-world discovery</h2>
     <p class="lede"><span class="band">/v1/hunt</span> takes an event keyword plus a region, geocodes the region, fans out across up to 32 sampled cells, recalls each event's primary input band, and returns the top 8 hotspots ranked by that scalar, each with its cell64, lat/lng, recalled value, a fact_cid, and a scene.png URL.</p>
 
-    <p style="font-weight:700;color:var(--ink);margin-top:1rem">Twelve events ship today. The registry decides which algorithm runs.</p>
+    <p style="font-weight:700;color:var(--ink);margin-top:1rem">Eleven events run today; oil_slick is registered but returns not_yet_implemented until its algorithm lands. The registry decides which algorithm runs.</p>
 
     <div class="scroll-x">
     <table class="absent-table">
@@ -656,17 +656,17 @@ input::placeholder{color:var(--mute,#7a7363)}
     <dl>
       <dt>OpenAPI</dt><dd>3.1</dd>
       <dt>documented</dt><dd>103 paths under /v1/*</dd>
-      <dt>algorithms</dt><dd>160 recipes</dd>
-      <dt>bands</dt><dd>124 wired across 43 slots</dd>
-      <dt>sources</dt><dd>46 schemes</dd>
-      <dt>topics</dt><dd>27</dd>
+      <dt>algorithms</dt><dd>live at /v1/algorithms</dd>
+      <dt>bands</dt><dd>live at /v1/bands</dd>
+      <dt>sources</dt><dd>live at /v1/sources</dd>
+      <dt>topics</dt><dd>live at /v1/topics</dd>
     </dl>
   </aside>
 
   <div class="section-body">
     <h2><span class="num">06</span>The full machine contract</h2>
     <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 103 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
-    <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The 160 algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the 124 materializer-wired band names across 43 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
+    <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the materializer-wired band names across 43 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
     <div class="hero-cta" style="margin-top:1.6rem">
       <a class="btn" href="/openapi.json">openapi.json</a>
       <a class="btn ghost" href="/docs/api/">API reference</a>
@@ -687,7 +687,7 @@ input::placeholder{color:var(--mute,#7a7363)}
           <li><a href="/docs/">docs (full book + search)</a></li>
           <li><a href="/spec.md">spec.md</a></li>
           <li><a href="/whitepaper">whitepaper</a></li>
-          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/diagrams">diagram gallery</a></li>
           <li><a href="/docs/gallery">live coverage map</a></li>
         </ul>
       </div>

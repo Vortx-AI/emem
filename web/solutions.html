@@ -458,6 +458,12 @@ input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:
 input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+
+.uc-list{list-style:none;margin:1.2rem 0 0;padding:0;columns:2;column-gap:3rem}
+.uc-list li{break-inside:avoid;margin:0 0 .85rem}
+.uc-list a{font-weight:700;color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule-strong)}
+.uc-list span{display:block;color:var(--mute);font-size:.86rem;margin-top:.1rem}
+@media (max-width:760px){.uc-list{columns:1}}
 </style>
 </head>
 <body>
@@ -679,6 +685,46 @@ input::placeholder{color:var(--mute,#7a7363)}
     <p style="margin-top:1.5rem"><a href="/reference">Full read surface &rarr;</a> &middot; <a href="/how-it-works">How the substrate works &rarr;</a></p>
   </div>
 </section>
+
+<!-- The use-case shelf -->
+<section class="section page" id="use-cases">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Use-case shelf</span></div>
+    <dl>
+      <dt>what</dt><dd>one worked diagram per industry</dd>
+      <dt>gallery</dt><dd><a href="/docs/diagrams">/docs/diagrams</a></dd>
+      <dt>same substrate</dt><dd>locate &middot; recall &middot; cite &middot; verify</dd>
+    </dl>
+  </aside>
+
+  <div class="section-body">
+    <h2><span class="num">06</span>The use-case shelf</h2>
+    <p class="lede">Every industry story above runs on the same four calls; only the bands and the claim change. Each entry below is one worked diagram: the workflow, the bands it reads, and where the signed handle lands.</p>
+    <ul class="uc-list">
+      <li><a href="/docs/diagrams/11-insurance-pc.svg">property &amp; casualty underwriting</a><span>price every parcel from the same signed truth</span></li>
+      <li><a href="/docs/diagrams/12-reinsurance-cat.svg">reinsurance catastrophe</a><span>cat layers priced on facts, not on a black-box curve</span></li>
+      <li><a href="/docs/diagrams/13-parametric-insurance.svg">parametric insurance</a><span>the trigger and the payout cite the same signed pixels</span></li>
+      <li><a href="/docs/diagrams/14-csrd-disclosure.svg">CSRD / ESRS E1 climate disclosure</a><span>disclose with receipts an auditor can verify on a flight</span></li>
+      <li><a href="/docs/diagrams/15-defense-geoint.svg">defence &amp; GEOINT</a><span>fuse classified and open intel without losing chain of custody</span></li>
+      <li><a href="/docs/diagrams/16-disaster-response.svg">disaster response</a><span>one common operating picture, every responder on the same address</span></li>
+      <li><a href="/docs/diagrams/17-urban-planning.svg">urban planning &amp; permits</a><span>a permit a citizen can audit on their phone</span></li>
+      <li><a href="/docs/diagrams/18-land-registry.svg">land registry &amp; title</a><span>every parcel a content-addressed title, shared byte-for-byte</span></li>
+      <li><a href="/docs/diagrams/19-esg-investing.svg">ESG investing</a><span>ESG scores with the receipts attached</span></li>
+      <li><a href="/docs/diagrams/20-carbon-mrv.svg">voluntary carbon-market MRV</a><span>a carbon credit where the carbon is content-addressed</span></li>
+      <li><a href="/docs/diagrams/21-commodity-trading.svg">soft-commodity trading desks</a><span>trade a yield forecast where every field has a citation</span></li>
+      <li><a href="/docs/diagrams/22-real-estate.svg">real-estate due diligence</a><span>every claim about the parcel has a 26-character handle</span></li>
+      <li><a href="/docs/diagrams/23-mining-exploration.svg">mining exploration</a><span>the terrain and surface-change context layer for exploration</span></li>
+      <li><a href="/docs/diagrams/24-pipeline-monitoring.svg">pipeline integrity monitoring</a><span>every alert on the line carries its own evidence</span></li>
+      <li><a href="/docs/diagrams/25-renewable-siting.svg">renewable-energy siting</a><span>a site score where every input has a public address</span></li>
+      <li><a href="/docs/diagrams/26-grid-resilience.svg">grid &amp; transmission resilience</a><span>transmission resilience facts that survive an audit</span></li>
+      <li><a href="/docs/diagrams/27-precision-agriculture.svg">precision agriculture</a><span>per-field decisions citing per-pixel facts</span></li>
+      <li><a href="/docs/diagrams/28-forestry-timber.svg">forestry &amp; timber</a><span>legal-harvest provenance that travels with the log</span></li>
+      <li><a href="/docs/diagrams/29-eudr-supply-chain.svg">EUDR supply chain</a><span>a deforestation-free plot, signed into one handle that clears customs</span></li>
+      <li><a href="/docs/diagrams/30-maritime-ports.svg">maritime &amp; ports</a><span>under-keel clearance and pilotage from one signed bundle</span></li>
+    </ul>
+  </div>
+</section>
+
 
 <footer class="page foot">
   <div class="foot-meta">

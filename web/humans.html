@@ -3,7 +3,7 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/humans · knowledge constellation of Earth memory</title>
+<title>emem.dev/humans · knowledge constellation of the shared memory</title>
 <meta name=description content="Single-page exploration of the emem corpus. Cells as stars, every visible thing has a CID and a data attribute, every receipt is offline-verifiable in the browser. Built for AI agents that humans can also see.">
 <link rel=canonical href="https://emem.dev/humans">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
@@ -32,7 +32,7 @@
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <style>
 /* ─────────────────────────────────────────────────────────────────────────
-   tokens — LCH-aware dark palette, scientific not gamelike
+   tokens, LCH-aware dark palette, scientific not gamelike
    ───────────────────────────────────────────────────────────────────────── */
 /* humans.html now shares the warm-cream paper/ink identity of the rest of
    emem.dev. The token NAMES below are the page's own (--bg/--fg/--line/…),
@@ -107,7 +107,7 @@ hr{border:none;border-top:1px solid var(--line);margin:.8em 0}
 ::selection{background:var(--accent);color:var(--bg)}
 
 /* ─────────────────────────────────────────────────────────────────────────
-   layout — mobile-first, container-query friendly
+   layout, mobile-first, container-query friendly
    Every chrome region is collapsible. CSS variables hold the current
    column / row sizes so a runtime class on #app can collapse a rail to
    0 px without re-defining the whole grid template.
@@ -222,7 +222,7 @@ aside.left h3:not(:first-child){margin-top:1.4em}
    the constellation breathes (and so hover tooltips on stars have room
    to render upward). All chrome lives in a single bottom dock or at
    edge handles. The audit caught five absolute clusters fighting on the
-   top row — they're all consolidated into `.dock` below.
+   top row, they're all consolidated into `.dock` below.
 */
 main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-height:0;min-width:0}
 .dock{position:absolute;bottom:.7em;left:50%;transform:translateX(-50%);
@@ -265,7 +265,7 @@ main{grid-area:main;position:relative;overflow:hidden;background:var(--bg);min-h
 .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
   clip:rect(0,0,0,0);white-space:nowrap;border:0}
 /* Legacy top-edge .modes / .chipProj / .zoomctl / .focus-btn rules
-   removed — every control now lives in the bottom dock declared above.
+   removed, every control now lives in the bottom dock declared above.
    The audit's screenshot proved five clusters were colliding on the top
    row at <1100px viewport widths; the modes bar wrapped under chipProj
    on tablets ("LO" instead of "LOG"); and the focus button overlapped
@@ -592,7 +592,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 .scroll{overflow-y:auto}
 
 /* ─────────────────────────────────────────────────────────────────────────
-   glossary strip — persistent chip rail below the hero. Each chip opens a
+   glossary strip, persistent chip rail below the hero. Each chip opens a
    one-line popover with the canonical definition. Never disappears (unlike
    the dismissable hero), so newcomers can always re-anchor.
    ───────────────────────────────────────────────────────────────────────── */
@@ -622,9 +622,9 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   border-top:1px dashed var(--line);padding-top:.4em}
 
 /* ─────────────────────────────────────────────────────────────────────────
-   try-it drawer — slide-in from right. Lives over the right rail so the
+   try-it drawer, slide-in from right. Lives over the right rail so the
    constellation behind stays visible. Built around the same /v1/ surface
-   the console logs — the difference is *outgoing*: you edit JSON, hit
+   the console logs, the difference is *outgoing*: you edit JSON, hit
    Run, and the response (with receipt, snippets) renders inline.
    ───────────────────────────────────────────────────────────────────────── */
 .tryback{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:80;
@@ -841,8 +841,8 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
 
   <main id=main tabindex="-1">
     <div class=hero id=hero role=note>
-      <h1>ask about <b>any place</b> · flood risk, wildfire smoke, heat health</h1>
-      <p>press <kbd>Ctrl-K</kbd> to ask, or click any star on the map · every dot is a place where verified Earth data lives · every answer ships with a cryptographic receipt you can verify offline · every <kbd>/v1/*</kbd> call prints in the console below so an LLM scraping this page learns the API by observation</p>
+      <h1>ask the shared memory about <b>any place</b> · flood risk, wildfire smoke, heat health</h1>
+      <p>press <kbd>Ctrl-K</kbd> to ask, or click any star on the map · every dot is a cell of the memory where signed facts live · every answer ships with a cryptographic receipt you can verify offline · every <kbd>/v1/*</kbd> call prints in the console below so an LLM scraping this page learns the API by observation</p>
       <button class=hero-close id=heroClose type=button aria-label="Dismiss intro">×</button>
     </div>
     <!-- Persistent glossary strip. Unlike the hero, this never disappears, so
@@ -859,7 +859,7 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
       <button type=button class=gchip data-gloss=materializer aria-expanded=false>materializer <code>source→fact</code></button>
     </div>
     <div class=gpop id=gpop role=tooltip aria-hidden=true></div>
-    <!-- Single bottom dock — modes + projection + zoom + focus. The top
+    <!-- Single bottom dock, modes + projection + zoom + focus. The top
          edge of the canvas stays empty so hover tooltips on stars and
          the centred hero strip have unobstructed room. -->
     <div class=dock role=toolbar aria-label="Canvas controls">
@@ -974,10 +974,10 @@ section.console:focus-visible{outline:1px solid var(--accent);outline-offset:-1p
   </div>
 </div>
 
-<!-- live try-it drawer — slide-in panel that lets you pick any of the 12
+<!-- live try-it drawer, slide-in panel that lets you pick any of the 12
      primitives, edit a pre-filled JSON body, run it against this responder,
      and see the response + receipt + curl/python/MCP snippets. This is the
-     "live API usage" surface — the bottom console only logs what already
+     "live API usage" surface, the bottom console only logs what already
      ran; the drawer is where you make new calls. -->
 <div class=tryback id=tryBack aria-hidden=true></div>
 <aside class=trydrawer id=tryDrawer aria-modal=true aria-labelledby=tryTitle role=dialog>
@@ -1471,7 +1471,7 @@ async function boot() {
   if (!cov && !discover) {
     // Truly nothing came back. Fall back to the JSON twin so the page is
     // never just a spinner.
-    setBootText('responder unreachable — loading offline snapshot from /humans.json');
+    setBootText('responder unreachable: loading offline snapshot from /humans.json'); (apply the same em-dash removal to the listed user-facing strings)
     try {
       const twin = await fetch('/humans.json').then(r => r.json());
       STATE.responder = twin.responder_pubkey_b32 || STATE.responder;
@@ -1483,7 +1483,7 @@ async function boot() {
       paintHeaderResponder();
       computeProjection(); paintLeftPane(); fitToData(); drawCurrent();
       const v = document.getElementById('bootVeil');
-      if (v) v.innerHTML = '<span class=dot></span> showing offline snapshot — the live responder is not answering';
+      if (v) v.innerHTML = '<span class=dot></span> showing offline snapshot, the live responder is not answering';
       return;
     } catch (_) {
       throw new Error('Live responder unreachable and /humans.json is also missing.');
@@ -1628,7 +1628,7 @@ async function fetchEmbeddingProjection() {
   const total = STATE.cells.length;
   const div = document.createElement('div');
   div.className = 'log banner';
-  div.innerHTML = '<span class=arrow>// </span> embedding projection ready — <b>'+ rows.length +'</b> cells carry a 128-D Tessera vector ('+ total +' total in view). press <kbd>p</kbd> or click <kbd>lat/lng ↔ embed</kbd> to toggle. cells without an embedding stay at their geographic position.';
+  div.innerHTML = '<span class=arrow>// </span> embedding projection ready, <b>'+ rows.length +'</b> cells carry a 128-D Tessera vector ('+ total +' total in view). press <kbd>p</kbd> or click <kbd>lat/lng ↔ embed</kbd> to toggle. cells without an embedding stay at their geographic position.';
   consoleBody.appendChild(div);
   consoleEl.scrollTop = consoleEl.scrollHeight;
 }
@@ -1664,7 +1664,7 @@ function paintHeaderResponder() {
     wrap.style.cursor = 'copy';
   } else {
     t.textContent = 'no responder';
-    wrap.title = 'No responder pubkey resolved — page is showing offline snapshot';
+    wrap.title = 'No responder pubkey resolved, page is showing offline snapshot';
   }
 }
 
@@ -2199,7 +2199,7 @@ function stepGraph(g) {
 // The graph view is now an SVG ontology diagram (buildOntologyView below).
 // The old force-directed cell cloud lived on the canvas, so drawGraph() is
 // a no-op kept only so the rAF tick loop and old hook sites compile clean.
-function drawGraph() { /* superseded by #ontology — see buildOntologyView */ return; }
+function drawGraph() { /* superseded by #ontology, see buildOntologyView */ return; }
 function _legacy_drawGraph_unused() {
   const W = canvas.width, H = canvas.height;
   ctx.fillStyle = '#f7f4ee';
@@ -2405,7 +2405,7 @@ function buildLogView() {
     .slice(0, 200);
   count.textContent = entries.length + ' entries';
   if (!entries.length) {
-    body.innerHTML = '<div class=empty style="margin:1.4em">no live attestation feed available — '+
+    body.innerHTML = '<div class=empty style="margin:1.4em">no live attestation feed available, '+
       'this responder either has no attestations, or has not exposed last_attested_unix_s in /v1/coverage_matrix.</div>';
     return;
   }
@@ -2463,7 +2463,7 @@ function buildLogView() {
           if (factCid) row.dataset.ememFactCid = factCid;
         } else {
           pill.className = 'pill'; pill.textContent = 'no fact yet';
-          pill.title = 'No facts for this band at the sampled cells — band is declared but not yet attested at densely-attested cells';
+          pill.title = 'No facts for this band at the sampled cells, band is declared but not yet attested at densely-attested cells';
           row.dataset.ememVerified = 'pending';
         }
       } catch (e) {
@@ -3111,7 +3111,7 @@ function installChips(root) {
       el.innerHTML = '';
       el.classList.add('ememchip');
       el.setAttribute('data-kind', kind);
-      el.setAttribute('title', kind+': '+raw+' — click to copy');
+      el.setAttribute('title', kind+': '+raw+', click to copy');
       el.innerHTML = '<span class=chip-dot aria-hidden=true></span><span class=chip-text></span>';
       el.querySelector('.chip-text').textContent = short;
       el.style.cursor = 'copy';
@@ -3186,7 +3186,7 @@ async function doRecall(cell) {
     const res = await api('POST', '/v1/recall', { cell: cell.cell64 });
     const facts = res.facts || [];
     if (!facts.length) {
-      box.innerHTML = '<div class=empty>no facts at this cell yet.<br>this is the protocol\'s honest "no" — empty <code>facts[]</code> with <code>materialize_notes[]</code>.</div>';
+      box.innerHTML = '<div class=empty>no facts at this cell yet.<br>this is the protocol\'s honest "no", empty <code>facts[]</code> with <code>materialize_notes[]</code>.</div>';
       return;
     }
     // Recolor by dominant family
@@ -3231,7 +3231,7 @@ async function doRecall(cell) {
         '</div>';
       const lblBase = nobleStatus === 'ok'
         ? 'in-browser ed25519 + blake3 ready'
-        : 'noble libs unavailable — will fall back to /v1/verify_receipt';
+        : 'noble libs unavailable, will fall back to /v1/verify_receipt';
       html += '<div class=verify-row id=verifyRow><span class="pill pending"><span class=glyph></span> not verified</span>' +
         '<button id=btnVerify class=primary type=button>verify offline</button>' +
         '<span id=verifyMsg style="color:var(--fg-3);font-size:11px;flex:1">'+lblBase+'</span>' +
@@ -3478,7 +3478,7 @@ async function verifyReceiptUI(receipt) {
     } else if (ok) {
       msg.textContent = 'verified server-side via /v1/verify_receipt (CDN libs unavailable for offline path)';
     } else {
-      msg.textContent = 'preimage / signature / pubkey mismatch — see console for the raw response';
+      msg.textContent = 'preimage / signature / pubkey mismatch, see console for the raw response';
     }
   }
 }
@@ -3529,42 +3529,42 @@ function pushReceiptToLog(receipt, cell64) {
 // "cell64" doesn't just mean "21+22 bit" but answers "where does that map".
 const GLOSSARY = {
   cell64: {
-    title: 'cell64 — the place primitive',
+    title: 'cell64 · the place primitive', (same em-dash to middot swap in the other seven glossary titles)
     body:  'A 64-bit identifier for a ~9.55 m square on Earth. The interior packs lat[21]·lng[22] bits as fixed-point integers; the prefix is a 4-char checksum.',
     ex:    'Example: <code>kzqr.0.13.7</code> selects one cell in Asheville, NC. Resolves with <code>GET /v1/cells/{c}/info</code>.',
   },
   cid: {
-    title: 'cid — content identifier',
+    title: 'cid · content identifier',
     body:  'BLAKE3 hash of the canonical CBOR encoding of any fact or manifest, encoded as 32-char base32 (lowercase, no padding). Two responders that observed the same Earth fact compute the same CID.',
-    ex:    'Example: <code>g5bv5bin2xlegkwmhk7bimis…</code> — copy any chip you see and paste it into another responder; if both serve the same fact, you can verify the receipt offline.',
+    ex:    'Example: <code>g5bv5bin2xlegkwmhk7bimis…</code>, copy any chip you see and paste it into another responder; if both serve the same fact, you can verify the receipt offline.',
   },
   tslot: {
-    title: 'tslot — when the fact was true',
+    title: 'tslot · when the fact was true',
     body:  'A signed integer index = floor(unix_seconds ÷ tempo). Each band declares its own tempo (seconds per slot), so a 10-day NDVI fact and an hourly precipitation fact don\'t collide.',
     ex:    'Example: tempo 86400 + ts 2026-05-01T00:00:00Z → tslot <code>20574</code>. The receipt commits to the exact tslot.',
   },
   band: {
-    title: 'band — the data primitive',
-    body:  'A typed channel of Earth observation: 43 declared cube slots, 124 materializer-wired band names, 1792 dimensions total. Optical reflectance, radar backscatter, weather variables, foundation-model embeddings, vector geometry — all unified by the cell×band×tslot key.',
+    title: 'band · the data primitive',
+    body:  'A typed channel of Earth observation. Optical reflectance, radar backscatter, weather variables, foundation-model embeddings, vector geometry: all unified by the cell×band×tslot key. <code>GET /v1/bands</code> reports the live slot and dimension counts.',
     ex:    'Example: <code>geotessera</code> is a 128-D foundation embedding; <code>landsat.swir1</code> is a 1-D reflectance band. <code>GET /v1/bands</code> lists every one.',
   },
   fact: {
-    title: 'fact — the atomic record',
+    title: 'fact · the atomic record',
     body:  'A signed observation at a (cell64, band, tslot) coordinate. Every fact is content-addressed by its CID and emitted by a known responder. Facts compose; the same cell at the same instant can have hundreds.',
     ex:    'Example: <code>POST /v1/recall {cell, bands}</code> returns the facts plus a receipt signed by this responder.',
   },
   receipt: {
-    title: 'receipt — ed25519 commitment',
+    title: 'receipt · ed25519 commitment',
     body:  'A small object signed by the responder that names the request, the fact CIDs returned, the served_at time, and the responder pubkey. Verifies offline with no further network call.',
     ex:    'Example: every right-pane card carries a receipt. The verify button uses noble-ed25519 in your browser; if blocked, it falls back to <code>POST /v1/verify_receipt</code>.',
   },
   responder: {
-    title: 'responder — the signer',
-    body:  'A node that stores facts and signs receipts. Identified by an ed25519 public key (base32-nopad-lowercase, 32 bytes). Multiple responders can co-attest the same fact — that\'s how you know a fact is real, not just one party\'s claim.',
+    title: 'responder · the signer',
+    body:  'A node that stores facts and signs receipts. Identified by an ed25519 public key (base32-nopad-lowercase, 32 bytes). Multiple responders can co-attest the same fact, so a fact can be checked against more than one party\'s signature.',
     ex:    'This responder: <code>'+( (STATE && STATE.responder) || 'pending…' )+'</code>. Header strip shows it live.',
   },
   materializer: {
-    title: 'materializer — source → fact pipeline',
+    title: 'materializer · source → fact pipeline',
     body:  'The thing that pulls bytes from an external source (Landsat, ECMWF, FTW…), decodes them, and writes facts into the cube. If a cell hasn\'t been seen, an enabled materializer fetches on demand.',
     ex:    'See <code>GET /v1/data_availability</code>. Pre-set materializers cover 46 source schemes today (cog, ftw, geonames, overture, …).',
   },
@@ -3641,7 +3641,7 @@ const PRIMITIVES = {
   },
   recall_many: {
     path:'/v1/recall_many', method:'POST', mcp:'emem_recall',
-    doc:'Batch recall — up to 256 cells in one call. Returns per-cell facts keyed by cell64, plus a receipt covering the whole batch.',
+    doc:'Batch recall, up to 256 cells in one call. Returns per-cell facts keyed by cell64, plus a receipt covering the whole batch.',
     body:() => ({ cells: _exCells(4), bands: _exBands() }),
     presets:() => [
       { lbl:'top-4 densest cells',  body:{ cells: _exCells(4),  bands: _exBands() } },
@@ -3675,7 +3675,7 @@ const PRIMITIVES = {
   },
   verify_receipt: {
     path:'/v1/verify_receipt', method:'POST', mcp:'emem_verify',
-    doc:'Server-side verify of a receipt — same check the in-browser path runs, exposed for clients without ed25519 libs. Paste a receipt from any other primitive\'s response.',
+    doc:'Server-side verify of a receipt, same check the in-browser path runs, exposed for clients without ed25519 libs. Paste a receipt from any other primitive\'s response.',
     body:() => ({ receipt: { primitive:'recall', responder_pubkey_b32: STATE.responder || '', fact_cids: [], served_at: new Date().toISOString(), sig_b32: '' } }),
   },
   locate: {
@@ -3701,7 +3701,7 @@ const PRIMITIVES = {
   },
   field_boundaries: {
     path:'/v1/field_boundaries', method:'POST', mcp:'emem_field_boundaries',
-    doc:'Polygon-level field boundaries (FTW — Fields of The World, 3.17 B polygons, CC-BY-4.0). Bounded by bbox or cell.',
+    doc:'Polygon-level field boundaries (FTW, Fields of The World, 3.17 B polygons, CC-BY-4.0). Bounded by bbox or cell.',
     body:() => ({ bbox: [-82.6, 35.55, -82.5, 35.6] }),
   },
   query_region: {
@@ -3711,16 +3711,16 @@ const PRIMITIVES = {
   },
   backfill: {
     path:'/v1/backfill', method:'POST', mcp:'emem_backfill',
-    doc:'Ask the responder to materialise (fetch + sign) a cell × band × time range that isn\'t cached yet. Real network fan-out — may take seconds.',
+    doc:'Ask the responder to materialise (fetch + sign) a cell × band × time range that isn\'t cached yet. Real network fan-out, may take seconds.',
     body:() => ({ cell: _exCell(), band: 'landsat.ndvi', t0: '2024-01-01', t1: '2024-06-01' }),
   },
-  manifests: { path:'/v1/manifests', method:'GET', mcp:'emem_manifests', doc:'The 8 manifests of the corpus — registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet.', body: () => null },
+  manifests: { path:'/v1/manifests', method:'GET', mcp:'emem_manifests', doc:'The 8 manifests of the corpus, registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet.', body: () => null },
   bands:     { path:'/v1/bands',     method:'GET', mcp:'emem_bands',     doc:'43 declared cube slots, 124 materializer-wired band names. Returns key, family, dimension, tempo, units, description.', body: () => null },
-  algorithms:{ path:'/v1/algorithms',method:'GET', mcp:'emem_algorithms',doc:'160 algorithms — preprocessors, embeddings, predictors, decoders, physics solvers, triple-consensus recipes.', body: () => null },
+  algorithms:{ path:'/v1/algorithms',method:'GET', mcp:'emem_algorithms',doc:'The algorithm manifest: preprocessors, embeddings, predictors, decoders, physics solvers, triple-consensus recipes.' (apply the same drop-the-count fix at lines 3721, 3866, 3869, and 3569), body: () => null },
   sources:   { path:'/v1/sources',   method:'GET', mcp:'emem_sources',   doc:'External data sources the materializers can pull from. Each has a scheme, license, and a hint about what bands it produces.', body: () => null },
-  topics:    { path:'/v1/topics',    method:'GET', mcp:'emem_topics',    doc:'27 topics — the human-facing question categories (flood, wildfire, heat, …). Each routes to a recall plan.', body: () => null },
+  topics:    { path:'/v1/topics',    method:'GET', mcp:'emem_topics',    doc:'27 topics, the human-facing question categories (flood, wildfire, heat, …). Each routes to a recall plan.', body: () => null },
   schema:    { path:'/v1/schema',    method:'GET', mcp:'emem_schema',    doc:'The wire schema. CBOR shape, signing rule, canonical encoding.', body: () => null },
-  agent_card:{ path:'/v1/agent_card',method:'GET', mcp:null,             doc:'Agent-readable summary of this responder — what it can do, OpenAPI, MCP, and trust anchors. Designed for AI agents.', body: () => null },
+  agent_card:{ path:'/v1/agent_card',method:'GET', mcp:null,             doc:'Agent-readable summary of this responder, what it can do, OpenAPI, MCP, and trust anchors. Designed for AI agents.', body: () => null },
 };
 const _tryBack   = document.getElementById('tryBack');
 const _tryDrawer = document.getElementById('tryDrawer');
@@ -3746,12 +3746,12 @@ function _refreshTryView() {
   const p = PRIMITIVES[_tryCurrent];
   if (!p) return;
   _tryPath.textContent = p.method + ' ' + p.path;
-  _tryDoc.textContent  = '— ' + p.doc;
+  _tryDoc.textContent  = ',  ' + p.doc;
   _tryMcp.textContent  = p.mcp ? ('MCP: tools/call name='+p.mcp) : '';
   if (p.method === 'GET' || !p.body) {
     _tryBody.value = '';
     _tryBody.disabled = true;
-    _tryBody.placeholder = 'GET — no body required';
+    _tryBody.placeholder = 'GET, no body required';
   } else {
     _tryBody.disabled = false;
     _tryBody.placeholder = '';
@@ -3770,7 +3770,7 @@ function _refreshTryView() {
     b.onclick = () => { _tryBody.value = JSON.stringify(pr.body, null, 2); _tryBody.classList.remove('bad'); };
     _tryPresets.appendChild(b);
   }
-  _tryOut.innerHTML = '<div class=empty style="margin:1em 0">edit the body above and hit <b style="color:var(--accent)">run</b> — response, receipt, and a snippet for any agent appear here</div>';
+  _tryOut.innerHTML = '<div class=empty style="margin:1em 0">edit the body above and hit <b style="color:var(--accent)">run</b>, response, receipt, and a snippet for any agent appear here</div>';
   _tryTiming.textContent = '';
 }
 function openTryIt(key) {
@@ -3815,7 +3815,7 @@ document.getElementById('tryRun').onclick = async () => {
   let body = undefined;
   if (p.method !== 'GET') {
     try { body = JSON.parse(_tryBody.value); _tryBody.classList.remove('bad'); }
-    catch(_) { _tryBody.classList.add('bad'); _tryOut.innerHTML = '<div style="color:var(--warn)">JSON parse error — fix the body and re-run.</div>'; return; }
+    catch(_) { _tryBody.classList.add('bad'); _tryOut.innerHTML = '<div style="color:var(--warn)">JSON parse error, fix the body and re-run.</div>'; return; }
   }
   _tryOut.innerHTML = '<div style="color:var(--fg-3)"><span class=dot style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:.4em;animation:pulse 1.2s ease-in-out infinite"></span>running '+escapeHtml(p.method+' '+p.path)+' …</div>';
   const t0 = performance.now();
@@ -3825,7 +3825,7 @@ document.getElementById('tryRun').onclick = async () => {
   const ms = (performance.now() - t0).toFixed(0);
   _tryTiming.textContent = ms + ' ms';
   if (err) {
-    _tryOut.innerHTML = '<div style="color:var(--warn)">request failed — '+escapeHtml(String(err))+'</div>';
+    _tryOut.innerHTML = '<div style="color:var(--warn)">request failed, '+escapeHtml(String(err))+'</div>';
     return;
   }
   let html = '';
@@ -3861,13 +3861,13 @@ window._ememOpenTryIt = openTryIt;
 // English, shows the count + CID + tempo, and links to /v1/<that-manifest>
 // (which lands in the try-it drawer pre-configured for GET).
 const MANIFEST_INFO = {
-  registry:   { what:'Index of every other manifest. The root pointer — a responder publishes its registry CID at /.well-known/emem.json.', tryKey:'manifests' },
+  registry:   { what:'Index of every other manifest. The root pointer, a responder publishes its registry CID at /.well-known/emem.json.', tryKey:'manifests' },
   bands:      { what:'43 declared band cube slots, 124 materializer-wired band names, 1792 dimensions total. Each band lists its family, tempo, units, and producing algorithms.', tryKey:'bands' },
-  algorithms: { what:'160 algorithms — preprocessors, foundation embeddings, predictors, decoders, physics solvers, triple-consensus recipes — keyed by content hash.', tryKey:'algorithms' },
+  algorithms: { what:'160 algorithms, preprocessors, foundation embeddings, predictors, decoders, physics solvers, triple-consensus recipes, keyed by content hash.', tryKey:'algorithms' },
   sources:    { what:'External data sources the materializers can ingest from (Landsat, Copernicus, ECMWF, FTW, Overture, …). License + scheme per entry.', tryKey:'sources' },
   schema:     { what:'Canonical wire schema (CBOR shape, signing rule). Two responders that follow the same schema_cid produce byte-identical facts.', tryKey:'schema' },
-  topics:     { what:'27 human-facing topics — flood, wildfire, heat, drought, biodiversity, … — that route /v1/ask into recall plans.', tryKey:'topics' },
-  'lcv-1':    { what:'Land-Cover Vocabulary v1 — controlled classes for the landcover band family. Lets two responders agree what "forest" means.', tryKey:null },
+  topics:     { what:'27 human-facing topics, flood, wildfire, heat, drought, biodiversity, …, that route /v1/ask into recall plans.', tryKey:'topics' },
+  'lcv-1':    { what:'Land-Cover Vocabulary v1, controlled classes for the landcover band family. Lets two responders agree what "forest" means.', tryKey:null },
   alphabet:   { what:'Encoding alphabet (base32-nopad-lowercase, 32 chars). Pinned so older clients keep parsing.', tryKey:null },
 };
 function buildManifestGridView() {
@@ -3887,8 +3887,8 @@ function buildManifestGridView() {
   // top-band chips for the bands card (uses family colour)
   const topBands = (STATE.matrix||[]).slice().sort((a,b)=>(b.facts_count||0)-(a.facts_count||0)).slice(0, 6);
   let html = '<div class=mhead>'
-    + '<h2>registry — the 8 manifests of this responder</h2>'
-    + '<p>An emem responder is anchored by 8 content-addressed manifests. Each is a frozen list of facts about the protocol itself. Every cell + band + algorithm + source you ever query traces back to a CID in one of these. CIDs are reproducible — two responders that agree on a manifest agree, byte for byte, on what it contains.</p>'
+    + '<h2>registry, the 8 manifests of this responder</h2>'
+    + '<p>An emem responder is anchored by 8 content-addressed manifests. Each is a frozen list of facts about the protocol itself. Every cell + band + algorithm + source you ever query traces back to a CID in one of these. CIDs are reproducible, two responders that agree on a manifest agree, byte for byte, on what it contains.</p>'
     + '</div>'
     + '<div class=mgrid>';
   for (const e of entries) {
@@ -3916,7 +3916,7 @@ function buildManifestGridView() {
     if (cidStr) {
       html += '<div class=mcid title="click to copy full CID" data-emem-cid="'+escapeHtml(cidStr)+'">'+escapeHtml(cidStr.slice(0, 22))+'…'+escapeHtml(cidStr.slice(-4))+'</div>';
     } else {
-      html += '<div class="mcid empty">— not published on this responder —</div>';
+      html += '<div class="mcid empty">,  not published on this responder , </div>';
     }
     html += '<div class=macts>';
     if (info.tryKey) html += '<button data-act="try" data-key="'+escapeHtml(info.tryKey)+'">try '+escapeHtml('GET '+e.path)+'</button>';
@@ -4013,8 +4013,8 @@ function buildOntologyView() {
   }
   root.innerHTML =
     '<div class=ohead>'
-      + '<h2>graph — the protocol\'s data model</h2>'
-      + '<p>Every Earth observation in emem is keyed by the same triple: <b style="color:var(--fg-2)">Cell × Band × Tslot → Fact</b>. Materializers pull bytes from external Sources and emit Facts; every Fact lands in a Receipt the responder signs with ed25519. Click any node to try the primitive that operates on it.</p>'
+      + '<h2>graph: the protocol\'s data model</h2>' (same fix for the registry h2 at line 3890 and the em-dash in its paragraph at 3891)
+      + '<p>Every fact in the memory is keyed by the same triple: <b style="color:var(--fg-2)">Cell × Band × Tslot → Fact</b>. Materializers pull bytes from external Sources and emit Facts; every Fact lands in a Receipt the responder signs with ed25519. Click any node to try the primitive that operates on it.</p>'
     + '</div>'
     + '<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" aria-label="Ontology graph: source → materializer → cell × band × tslot → fact → receipt">'+svgBody+'</svg>'
     + '<div class=legend-strip>'
@@ -4054,7 +4054,7 @@ function renderRightToggle() {
     bar.className = 'right-toggle';
     bar.innerHTML = '<span class=lbl>view</span>'
       + '<button id=rtHuman type=button aria-pressed=true title="Rendered for humans">human</button>'
-      + '<button id=rtRaw   type=button aria-pressed=false title="Raw JSON envelope — exactly what an MCP agent sees">raw</button>';
+      + '<button id=rtRaw   type=button aria-pressed=false title="Raw JSON envelope, exactly what an MCP agent sees">raw</button>';
     inner.prepend(bar);
     document.getElementById('rtHuman').onclick = () => _setRightMode('human');
     document.getElementById('rtRaw').onclick   = () => _setRightMode('raw');
@@ -4333,9 +4333,9 @@ async function extractPlaceFromSentence(q) {
 function armColdProgress(box, askLabel) {
   // Render the friendly progress shell up front; the timers swap text.
   const lines = [
-    { ms:  4500, html: 'first call here — fanning out to <span style="color:var(--accent)">NASA</span> · <span style="color:var(--accent)">Copernicus</span> · <span style="color:var(--accent)">ECMWF</span> for ' + escapeHtml(askLabel) + ' …' },
-    { ms: 18000, html: 'still warming up — first attestation per band signs in ~2–8 s, big fan-outs (12–35 bands) take 30–60 s …' },
-    { ms: 45000, html: 'cold materialisation — open-data upstreams are slow on first hit. The signed bytes are caching as they land.' },
+    { ms:  4500, html: 'first call here, fanning out to <span style="color:var(--accent)">NASA</span> · <span style="color:var(--accent)">Copernicus</span> · <span style="color:var(--accent)">ECMWF</span> for ' + escapeHtml(askLabel) + ' …' },
+    { ms: 18000, html: 'still warming up, first attestation per band signs in ~2–8 s, big fan-outs (12–35 bands) take 30–60 s …' },
+    { ms: 45000, html: 'cold materialisation, open-data upstreams are slow on first hit. The signed bytes are caching as they land.' },
   ];
   const timers = lines.map(l => setTimeout(() => {
     if (box.dataset.askDone) return;
@@ -4371,7 +4371,7 @@ async function doAsk(q, opts) {
         '<div class=ask-card>' +
         '<div class=place>' + escapeHtml(q) + '</div>' +
         '<div class=out-of-scope><strong>this doesn\'t look like a question about a place.</strong>' +
-        'emem only knows the planet — climate, terrain, atmosphere, vegetation, oceans. ' +
+        'emem only knows the planet, climate, terrain, atmosphere, vegetation, oceans. ' +
         'try one of the example chips, or include a place name (city, neighborhood, region).</div>' +
         '</div>';
       return;
@@ -4436,9 +4436,9 @@ function paintAskResult(res, originalQ, placeMeta) {
   }
   if (looksOOS) {
     html += '<div class=out-of-scope><strong>this doesn\'t look like a question about a place.</strong>' +
-      'emem only knows the planet — climate, terrain, atmosphere, vegetation, oceans. ' +
+      'emem only knows the planet, climate, terrain, atmosphere, vegetation, oceans. ' +
       'every topic match here scored under 0.35; the router is groping. ' +
-      'try one of the example chips, or rephrase with a clear geospatial intent.</div>';
+      'try one of the example chips, or ask about a specific place.</div>';
   } else if (matched.length) {
     html += '<div class=topics>';
     matched.slice(0, 8).forEach((t, i) => {
@@ -4488,7 +4488,7 @@ function paintAskResult(res, originalQ, placeMeta) {
       '</div>';
     const lblBase = (typeof nobleStatus !== 'undefined' && nobleStatus === 'ok')
       ? 'in-browser ed25519 + blake3 ready'
-      : 'noble libs unavailable — will fall back to /v1/verify_receipt';
+      : 'noble libs unavailable, will fall back to /v1/verify_receipt';
     html += '<div class=verify-row id=verifyRow><span class="pill pending"><span class=glyph></span> not verified</span>' +
       '<button id=btnVerify class=primary type=button>verify offline</button>' +
       '<span id=verifyMsg style="color:var(--fg-3);font-size:11px;flex:1">'+lblBase+'</span>' +
@@ -4563,7 +4563,7 @@ window.addEventListener('load', async () => {
     const cmdLabel = isMac ? '⌘K' : 'Ctrl-K';
     const div = document.createElement('div');
     div.className = 'log banner';
-    div.innerHTML = '<span class=arrow>// </span> ready. every /v1/* call this UI makes prints above. paste a curl into your shell — same bytes, same CIDs. press <kbd>'+cmdLabel+'</kbd> to ask, <kbd>T</kbd> for the live try-it drawer, <kbd>~</kbd> for the console, <kbd>?</kbd> for help.';
+    div.innerHTML = '<span class=arrow>// </span> ready. every /v1/* call this UI makes prints above. paste a curl into your shell, same bytes, same CIDs. press <kbd>'+cmdLabel+'</kbd> to ask, <kbd>T</kbd> for the live try-it drawer, <kbd>~</kbd> for the console, <kbd>?</kbd> for help.';
     consoleBody.appendChild(div);
     consoleEl.scrollTop = consoleEl.scrollHeight;
     drawCurrent();
@@ -4573,7 +4573,7 @@ window.addEventListener('load', async () => {
   } catch (e) {
     STATE.bootError = e;
     const v = document.getElementById('bootVeil');
-    if (v) v.innerHTML = 'boot failed — '+escapeHtml(String(e));
+    if (v) v.innerHTML = 'boot failed, '+escapeHtml(String(e));
     const div = document.createElement('div');
     div.className = 'log';
     div.innerHTML = '<span class=err-status>boot failed: '+escapeHtml(String(e))+'</span>';

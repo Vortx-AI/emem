@@ -54,7 +54,7 @@ cargo build --release --bin emem-server
 ./target/release/emem-server          # binds 0.0.0.0:5051
 ```
 
-Requirements: Rust 1.85+, ~12 GB free disk (for `target/`), 4 GB RAM
+Requirements: Rust 1.91+ (the workspace MSRV), ~12 GB free disk (for `target/`), 4 GB RAM
 warm. First build ~5 min; incremental ~30 s.
 
 ## Environment
@@ -152,7 +152,7 @@ version:
 ```ini
 # ~/.config/systemd/user/emem-server.service
 [Unit]
-Description=emem.dev Earth memory protocol server
+Description=emem.dev shared verifiable memory for AI agents
 After=network-online.target
 
 [Service]

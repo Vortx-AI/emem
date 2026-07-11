@@ -1,8 +1,8 @@
 # CrewAI + emem MCP Agent
 
 A CrewAI Agent that connects to emem over MCP (Streamable HTTP),
-auto-discovers all tools, and answers a geospatial verification question
-with signed receipts.
+auto-discovers all tools, and grounds a question about a real place in
+signed facts from the shared memory, citing receipts any agent can re-verify.
 
 ## Install
 

@@ -140,13 +140,12 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 94 paths under
-`/v1/*`, 85 MCP tools (10 core, 75 extended), 18 static MCP
+port 5051. The live surface ships 103 paths under
+`/v1/*` (106 total in `/openapi.json`), 88 MCP tools (13 core, 75 extended), 18 static MCP
 resources + 8 URI templates, 160 algorithms in the content-addressed
-registry, 43 bands in the manifest, 46 source schemes, and 16 data
-connectors + 13 utility modules.
-Version 1.0.0, MSRV Rust 1.91. No API keys; the MCP surface is read-only
-because writes need an Ed25519 secret no LLM host can manage safely.
+registry, 43 bands in the manifest, 46 source schemes, and 27 data
+connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
+Version 1.0.0, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
 
@@ -169,8 +168,8 @@ log. See "Watching humans use the API" below.
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 102 documented, 99 under `/v1/*` |
-| MCP tools | 85 (10 core / 75 extended) |
+| REST paths (OpenAPI) | 106 documented, 103 under `/v1/*` |
+| MCP tools | 88 (13 core / 75 extended) |
 | Algorithms (composition recipes) | 160 |
 | Band-cube slots | 43 |
 | MCP resources | 18 static + 8 URI templates |
@@ -300,7 +299,7 @@ Key fields:
 - `signature` is 64 bytes Ed25519 over a BLAKE3 digest of a canonical
   preimage (see "Verify a receipt offline").
 - `fact_cid` is content-addressed:
-  `base32_nopad(blake3(canonical_cbor(fact))[..16])`. Identical fact at
+  `base32_nopad_lc(blake3(canonical_cbor(fact)))`, 52 chars. Identical fact bytes at
   any responder produces the same CID.
 - `bands_already_attested_at_cell` is the no-silent-fallback escape
   hatch: if your band returned empty but the cell carries data under a
@@ -538,9 +537,11 @@ Iterates the per-tslot upstream materializer over a window. Bands
 without historical fetch return `status: "present_only"`; check
 `/v1/data_availability` before picking a window.
 
-   ### MCP tools (49)
+   ### MCP tools
 
-All MCP tools are read-only (`readOnlyHint: true`). Inputs are JSON; MCP
+The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
+
+Most MCP tools are read-only (`readOnlyHint: true`); the agent-memory file verbs (`memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`) and the entity write surface (`emem_entity`, `emem_entity_link`) are writes and say so in their hints. Inputs are JSON; MCP
 tools omit top-level `anyOf`/`oneOf` (Claude.ai's MCP frontend accepts
 only `{type, properties, required}`). Wire schemas live in
 `crates/emem-mcp/src/lib.rs`.
@@ -872,27 +873,44 @@ into an EUDR DDS submission.
 
 ## Verify a receipt offline
 
-The preimage the responder hashes and Ed25519-signs is:
+Every receipt carries a `preimage_version` field that selects the signing
+rule. Receipts signed today use **v1**: a domain-separated, length-prefixed
+byte stream,
 
 ```
 blake3(
-    request_id || "|" || served_at  || "|" || primitive || "|" ||
-    cell1 "," cell2 "," ... || "|" || cid1 "," cid2 "," ...
+    "emem.preimage.v1\x00" || len("receipt") || "receipt"
+    || seg(0x01, request_id) || seg(0x02, served_at)
+    || [seg(0x03, scope_hex)] || [seg(0x04, as_of_hex)]
+    || [seg(0x05, edges_hex)] || [seg(0x06, manifest_hex)]
+    || seg(0x07, primitive)
+    || seg_list(0x08, cells) || seg_list(0x09, fact_cids)
 )
 ```
 
-The trailing commas after the last cell and the last cid are intentional
-(the signing loop appends `","` after every entry). The pubkey is loaded
-from `responder_pubkey_b32` (base32-nopad) or the byte array; both encode
-the same 32-byte Ed25519 verifying key.
+where `seg(tag, bytes)` is `tag || u32-LE length || bytes` and
+`seg_list(tag, items)` is `tag || u32-LE count || (u32-LE len || bytes)*`.
+The bracketed segments are present only when the receipt body carries the
+matching field: `manifest_hex`, for example, is the lowercase blake3 hex of
+the canonical-CBOR encoding of a non-empty `source_versions` map. No two
+distinct responses can share signed bytes, and the merkle tree uses
+RFC 6962 leaf/node domain separation. Receipts signed before the cutover
+(no `preimage_version` field) still verify under the original
+concatenation rule (`request_id || "|" || served_at || "|" || primitive ||
+"|" || cells, || "|" || cids,`, with intentional trailing commas).
 
-Self-contained Python verification:
+The pubkey is loaded from `responder_pubkey_b32` (base32-nopad) or the
+byte array; both encode the same 32-byte Ed25519 verifying key.
+
+Self-contained Python verification of a live v1 receipt (this exact
+script was run against the production responder and printed `VALID`):
 
 ```python
-"""Verify an emem receipt offline. Reproduces /v1/verify_receipt locally."""
+"""Verify an emem receipt offline (preimage v1). Reproduces /v1/verify_receipt locally."""
 import base64
 import requests
 import blake3
+import cbor2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.exceptions import InvalidSignature
 
@@ -908,16 +926,37 @@ resp = requests.post(f"{EMEM}/v1/recall",
                            "bands": ["copdem30m.elevation_mean"]},
                      timeout=30).json()
 r = resp["receipt"]
+assert r.get("preimage_version") == 1, "this sample implements the v1 rule"
 
 h = blake3.blake3()
-h.update(r["request_id"].encode()); h.update(b"|")
-h.update(r["served_at"].encode());  h.update(b"|")
-h.update(r["primitive"].encode());  h.update(b"|")
-for c in r["cells"]:
-    h.update(c.encode()); h.update(b",")
-h.update(b"|")
-for c in r["fact_cids"]:
-    h.update(c.encode()); h.update(b",")
+h.update(b"emem.preimage.v1\x00")
+h.update(len(b"receipt").to_bytes(4, "little")); h.update(b"receipt")
+
+def seg(tag: int, data: bytes):
+    h.update(bytes([tag]))
+    h.update(len(data).to_bytes(4, "little"))
+    h.update(data)
+
+def seg_list(tag: int, items):
+    h.update(bytes([tag]))
+    body = b""
+    for it in items:
+        b = it.encode()
+        body += len(b).to_bytes(4, "little") + b
+    h.update(len(items).to_bytes(4, "little"))
+    h.update(body)
+
+seg(0x01, r["request_id"].encode())
+seg(0x02, r["served_at"].encode())
+# Optional segments, present only when the receipt carries the matching
+# body field: 0x03 scope, 0x04 as_of, 0x05 edges, 0x06 manifest.
+if r.get("source_versions"):
+    versions = dict(sorted(r["source_versions"].items()))
+    manifest_hex = blake3.blake3(cbor2.dumps(versions)).hexdigest()
+    seg(0x06, manifest_hex.encode())
+seg(0x07, r["primitive"].encode())
+seg_list(0x08, r["cells"])
+seg_list(0x09, r["fact_cids"])
 preimage_digest = h.digest()
 
 pk_bytes  = b32_nopad_decode_lower(r["responder_pubkey_b32"])
@@ -930,11 +969,6 @@ try:
     print(f"VALID, signed by {r['responder_pubkey_b32']}")
 except InvalidSignature:
     print("INVALID")
-
-echo = requests.post(f"{EMEM}/v1/verify_receipt",
-                     json={"receipt": r}, timeout=30).json()
-assert echo["valid"] is True
-assert echo["preimage_blake3_hex"] == preimage_digest.hex()
 ```
 
 The responder pubkey is the only trust anchor; it is published at

@@ -32,7 +32,7 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
   <img src="docs/diagrams/png/34-shared-memory.png" width="820" alt="One memory, many agents: agents at several organizations write signed facts into one shared, append-only memory and recall from it; an auditor a year later verifies offline. No shared password, no shared database to trust." />
 </p>
 
-> **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 10 tools load instead of 81. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later without trusting the transcript.
+> **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 13 tools load instead of 88. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later without trusting the transcript.
 
 ## Why add Earth memory to long-horizon tasks
 
@@ -98,7 +98,7 @@ That string is a portable citation. Agent A drops it into a message, a log, or a
 Agent B did not have to trust Agent A. It recomputed the content ID and checked the signature against the responder's public key. That is the core of the trust model, with one honest limit noted [below](#how-a-fact-is-made-and-proven). No account, no callback, no shared password.
 
 <p align="center">
-  <img src="docs/diagrams/png/35-two-agents-one-memory.png" width="820" alt="Two agents, one memory: agent A recalls a signed fact, hands agent B a 79-character memt token, agent B resolves the same bytes from the shared memory and verifies the signature offline." />
+  <img src="docs/diagrams/png/35-two-agents-one-memory.png" width="820" alt="Two agents, one memory: agent A recalls a signed fact, hands agent B an 84-character emem:fact token, agent B resolves the same bytes from the shared memory and verifies the signature offline." />
 </p>
 
 ## An area of the memory, in 3D

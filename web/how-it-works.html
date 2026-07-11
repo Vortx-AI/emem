@@ -533,9 +533,9 @@ input::placeholder{color:var(--mute,#7a7363)}
     <h2><span class="num">02</span>Signing, CID, and the receipt preimage</h2>
     <p class="lede">The responder pubkey is the only trust anchor. The preimage is a deterministic byte string any agent can recompute offline to check the signature. A receipt issued today verifies in any year, on any node, as long as the pubkey is preserved.</p>
 
-    <p>Each fact body is encoded as canonical CBOR and hashed with BLAKE3; the content id (<span class="band">fact_cid</span>) is that digest, base32-nopad, truncated to 16 bytes. The CID is the citation: re-encode the body and the CID drifts, so a quoted CID pins exact bytes. The receipt signs over a preimage that names the request, the time served, the primitive, and every cell and CID in the answer.</p>
+    <p>Each fact body is encoded as canonical CBOR and hashed with BLAKE3; the content id (<span class="band">fact_cid</span>) is that digest, base32-nopad, all 32 bytes of it: 52 characters that name the exact bytes. The CID is the citation: re-encode the body and the CID drifts, so a quoted CID pins exact bytes. The receipt signs over a preimage that names the request, the time served, the primitive, and every cell and CID in the answer.</p>
 
-    <p>The receipt&rsquo;s <span class="band">preimage_version</span> field selects the rule. Version 1 domain-separates and length-prefixes every field, computing <span class="band">blake3("emem.preimage.v1" &Vert; "receipt" &Vert; tagged(request_id, served_at, scope?, as_of?, primitive, cells[], fact_cids[]))</span>, so no two distinct responses can ever share signed bytes, and the merkle tree uses RFC&nbsp;6962 leaf/node separation. The original concatenation rule shown below still verifies pre-v1 receipts unchanged.</p>
+    <p>The receipt&rsquo;s <span class="band">preimage_version</span> field selects the rule. Version 1 domain-separates and length-prefixes every field, computing <span class="band">blake3("emem.preimage.v1" &Vert; "receipt" &Vert; tagged(request_id, served_at, scope?, as_of?, edges?, manifest?, primitive, cells[], fact_cids[]))</span>, where the optional tagged segments appear only when the receipt body carries the matching field, so no two distinct responses can ever share signed bytes, and the merkle tree uses RFC&nbsp;6962 leaf/node separation. The original concatenation rule shown below still verifies pre-v1 receipts unchanged.</p>
 
     <div class="code">
       <div class="code-head"><span class="lang">PSEUDO</span><span class="tab">preimage (pre-v1 rule)</span><span class="spacer"></span><button class="copy" data-copy-target="#code-preimage">copy</button></div>
@@ -636,7 +636,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     <dl>
       <dt>the question</dt><dd>could a human or a model have touched this value?</dd>
       <dt>four classes</dt><dd>direct_sensor &middot; deterministic_index &middot; model_output &middot; human_curated</dd>
-      <dt>recomputable</dt><dd>direct_sensor &middot; deterministic_index (14 of 43 bands)</dd>
+      <dt>recomputable</dt><dd>direct_sensor &middot; deterministic_index (<span id="pv-aside">14 of 43</span> bands)</dd>
       <dt>attested by</dt><dd>bands_cid, already in the receipt preimage (section&nbsp;02)</dd>
       <dt>on the wire</dt><dd>/v1/recall band_metadata &middot; /v1/memory_token/resolve &middot; /v1/bands</dd>
     </dl>
@@ -658,7 +658,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
       </tbody>
     </table>
 
-    <p>The split that matters is <span class="band">recomputable_from_source</span>: a direct sensor read or a deterministic index that any third party reproduces from the cited raw data, with no model and no human in the loop. Across the 43 bands in the v0 ontology today, 14 are recomputable this way (6 direct sensor, 8 deterministic index), 22 are model output, 5 are human curated, and 2 are still unclassified. An agent that only wants values it can check for itself reads the first two classes and treats the rest as claims it has to trust a signer for.</p>
+    <p>The split that matters is <span class="band">recomputable_from_source</span>: a direct sensor read or a deterministic index that any third party reproduces from the cited raw data, with no model and no human in the loop. Across the <span id="pv-total">43</span> bands in the ontology today, <span id="pv-det">14</span> are recomputable this way (<span id="pv-sensor">6</span> direct sensor, <span id="pv-index">8</span> deterministic index), <span id="pv-model">22</span> are model output, <span id="pv-human">5</span> are human curated, and <span id="pv-uncl">2</span> are still unclassified. These counts are read live from <a href="/v1/bands">/v1/bands</a>, the same manifest the <span class="band">bands_cid</span> in every receipt pins. An agent that only wants values it can check for itself reads the first two classes and treats the rest as claims it has to trust a signer for.</p>
 
     <p>None of this is a new signed field on the fact, so no <span class="band">fact_cid</span> changed when the tag arrived. The class is declared per band in the content-addressed bands manifest, and that manifest&rsquo;s id (<span class="band">bands_cid</span>) is already folded into every receipt preimage from section&nbsp;02. The provenance tag therefore rides into the same ed25519 signature you already verify, and a verifier reproduces the classification offline from the pinned manifest. The signature that proves the number was not altered now also carries how the number was made.</p>
 
@@ -877,7 +877,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
           <li><a href="/docs/">docs (full book + search)</a></li>
           <li><a href="/spec.md">spec.md</a></li>
           <li><a href="/whitepaper">whitepaper</a></li>
-          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/diagrams">diagram gallery</a></li>
           <li><a href="/docs/gallery">live coverage map</a></li>
         </ul>
       </div>
@@ -1507,4 +1507,34 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 })();
 </script>
 
+<script>
+// Live provenance distribution for chapter 03: re-tally from GET /v1/bands
+// (the same content-addressed manifest bands_cid pins) so the printed
+// counts can never drift from the served ontology. Baked values remain
+// as the no-JS / offline fallback.
+(function () {
+  fetch("/v1/bands", { headers: { accept: "application/json" } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || !Array.isArray(d.bands) || !d.bands.length) return;
+      var c = { direct_sensor: 0, deterministic_index: 0, model_output: 0, human_curated: 0, unclassified: 0 };
+      d.bands.forEach(function (b) {
+        var k = b.provenance_class || "unclassified";
+        c[k] = (c[k] || 0) + 1;
+      });
+      var det = c.direct_sensor + c.deterministic_index;
+      var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = String(v); };
+      set("pv-total", d.bands.length);
+      set("pv-det", det);
+      set("pv-sensor", c.direct_sensor);
+      set("pv-index", c.deterministic_index);
+      set("pv-model", c.model_output);
+      set("pv-human", c.human_curated);
+      set("pv-uncl", c.unclassified);
+      var aside = document.getElementById("pv-aside");
+      if (aside) aside.textContent = det + " of " + d.bands.length;
+    })
+    .catch(function () { /* baked fallback stands */ });
+})();
+</script>
 </body></html>

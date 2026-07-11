@@ -113,24 +113,38 @@ canonical preimage, BLAKE3 it, then `ed25519.verify(signature, digest,
 pubkey)`. The pubkey is at `/.well-known/emem.json`. The byte layout
 is defined at `crates/emem-storage/src/server.rs::sign_receipt`.
 
-### Preimage
+### Preimage (v1, current receipts)
+
+Receipts carry `preimage_version: 1`. The digest is blake3 over a
+domain-separated stream of tagged, length-prefixed segments:
 
 ```
-<request_id> | <served_at> | <primitive> |
-<cell_0>,<cell_1>,…<cell_N>, |
-<fact_cid_0>,<fact_cid_1>,…<fact_cid_M>,
+blake3(
+    "emem.preimage.v1\x00" || len("receipt") || "receipt"
+    || seg(0x01, request_id) || seg(0x02, served_at)
+    || [seg(0x03, scope_hex)] || [seg(0x04, as_of_hex)]
+    || [seg(0x05, edges_hex)] || [seg(0x06, manifest_hex)]
+    || seg(0x07, primitive)
+    || seg_list(0x08, cells) || seg_list(0x09, fact_cids)
+)
 ```
 
-Pipes between sections, commas after each list element (including the
-last), no leading or trailing whitespace.
+`seg(tag, bytes)` = `tag || u32-LE length || bytes`; `seg_list` adds a
+u32-LE count. Bracketed segments appear only when the receipt body has
+the matching field (`manifest_hex` = lowercase blake3 hex of the
+canonical-CBOR of a non-empty `source_versions`). The byte layout lives
+in `crates/emem-attest` (`receipt_preimage_v1`); `POST /v1/verify_receipt`
+is the server-side reference check. Receipts with no `preimage_version`
+field use the legacy rule instead: pipes between sections, commas after
+each list element (including the last), no leading or trailing
+whitespace.
 
-### python (fully offline, ~30 lines)
+### python (fully offline, ~35 lines)
 
 ```py
-import httpx, json, base64
+import httpx, cbor2
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from blake3 import blake3
-import base64
 
 BASE = "https://emem.dev"
 pubkey_b32 = httpx.get(f"{BASE}/.well-known/emem.json").json()["responder"]["pubkey_b32"]
@@ -141,22 +155,26 @@ def b32decode(s):
     return bytes(int(bits[i:i+8], 2) for i in range(0, len(bits) - len(bits)%8, 8))
 
 def verify(receipt):
-    parts = []
-    parts.append(receipt["request_id"].encode())
-    parts.append(b"|")
-    parts.append(receipt["served_at"].encode())
-    parts.append(b"|")
-    parts.append(receipt["primitive"].encode())
-    parts.append(b"|")
-    for c in receipt.get("cells", []):
-        parts.append(c.encode()); parts.append(b",")
-    parts.append(b"|")
-    for cid in receipt.get("fact_cids", []):
-        parts.append(cid.encode()); parts.append(b",")
-    digest = blake3(b"".join(parts)).digest()
-    sig = bytes(receipt["signature"]) if isinstance(receipt["signature"], list) else base64.b64decode(receipt["signature"])
-    pk = b32decode(pubkey_b32)
-    Ed25519PublicKey.from_public_bytes(pk).verify(sig, digest)
+    assert receipt.get("preimage_version") == 1, "v1 rule; legacy receipts use the concatenation rule"
+    h = blake3()
+    h.update(b"emem.preimage.v1\x00")
+    h.update(len(b"receipt").to_bytes(4, "little")); h.update(b"receipt")
+    def seg(tag, data):
+        h.update(bytes([tag])); h.update(len(data).to_bytes(4, "little")); h.update(data)
+    def seg_list(tag, items):
+        h.update(bytes([tag]))
+        body = b"".join(len(i.encode()).to_bytes(4, "little") + i.encode() for i in items)
+        h.update(len(items).to_bytes(4, "little")); h.update(body)
+    seg(0x01, receipt["request_id"].encode())
+    seg(0x02, receipt["served_at"].encode())
+    if receipt.get("source_versions"):
+        mh = blake3(cbor2.dumps(dict(sorted(receipt["source_versions"].items())))).hexdigest()
+        seg(0x06, mh.encode())
+    seg(0x07, receipt["primitive"].encode())
+    seg_list(0x08, receipt.get("cells", []))
+    seg_list(0x09, receipt.get("fact_cids", []))
+    sig = bytes(receipt["signature"])
+    Ed25519PublicKey.from_public_bytes(b32decode(pubkey_b32)).verify(sig, h.digest())
     return True
 ```
 
@@ -321,7 +339,7 @@ curl -sf -X POST $BASE/v1/heat_solve -H 'content-type: application/json' \
     "cell": "defi.zb493.xuqA.zcb5f",
     "horizon_hours": 24,
     "step_seconds": 3600
-  }' | jq '{steps, max_temp_k: .max_temp_k, avg_temp_k: .avg_temp_k}'
+  }' | jq '{n_steps, hours_ahead, forecast_k, forecast_unit}' (and either add the recall_polygon step the title promises, or reword the intro at line 312 to say the solver recalls its own LST stencil and the receipt carries the input band CIDs)
 ```
 
 The solver carries a receipt warning chain: `frozen_pretrained_encoder`
@@ -351,7 +369,7 @@ verification, or similarity in a Claude Code session. See each
 ## Discovery surface
 
 - `https://emem.dev/llms.txt`: high-level summary + behavioural rules
-- `https://emem.dev/openapi.json`: full machine surface (103 documented REST paths under /v1/*)
+- `https://emem.dev/openapi.json`: full machine surface (every documented REST path under /v1/*)
 - `https://emem.dev/.well-known/emem.json`: manifest CIDs + responder pubkey
 - `https://emem.dev/v1/agent_card`: discover-first card with band taxonomy
 - `https://emem.dev/agents.md`: consumer-agent ontology + recipes

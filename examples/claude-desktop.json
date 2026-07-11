@@ -3,7 +3,7 @@
   "mcpServers": {
     "emem": {
       "url": "https://emem.dev/mcp",
-      "description": "Earth memory protocol — recall, compare, find_similar, diff, trajectory, verify over signed receipts."
+      "description": "Shared, verifiable memory for AI agents: recall signed facts, cite them as emem: tokens, verify receipts offline; compare, diff, and trajectory read the same memory."
     }
   }
 }

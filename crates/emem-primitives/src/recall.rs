@@ -66,6 +66,18 @@ pub struct RecallReq {
     /// identical to the pre-v0.0.9 recall path. (v0.0.9; `freshness` added later.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
+    /// Optional tamper-provenance filter: keep only facts whose band's
+    /// provenance class (declared in the content-addressed bands manifest)
+    /// is in this list. Entries are the wire class strings
+    /// (`"direct_sensor"`, `"deterministic_index"`, `"model_output"`,
+    /// `"human_curated"`, `"unclassified"`); the API layer validates them
+    /// and folds its `deterministic` boolean sugar into this list before
+    /// the request reaches the primitive. The filter runs BEFORE facts
+    /// load and the receipt is signed, so the signed preimage covers
+    /// exactly the returned facts. `bands_already_attested_at_cell` stays
+    /// unfiltered so the agent still sees what else exists at the cell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<Vec<String>>,
 }
 
 impl RecallReq {
@@ -340,6 +352,27 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
             all
         }
     };
+
+    // Tamper-provenance filter: drop pairs whose band class is not in the
+    // requested set. One uniform point after all four selection arms, and
+    // BEFORE facts load + receipt signing, so the signed preimage covers
+    // exactly what is returned. Classes resolve through the same default
+    // registry `band_metadata_for_response` reads, so the filter and the
+    // per-fact `provenance` block the API attaches can never disagree.
+    let pairs: Vec<(CanonicalKey, FactCid)> =
+        match req.provenance.as_ref().filter(|p| !p.is_empty()) {
+            Some(allowed) => {
+                let registry = &*emem_core::bands::DEFAULT;
+                pairs
+                    .into_iter()
+                    .filter(|(k, _)| {
+                        let class = registry.provenance_class_for(&k.band);
+                        allowed.iter().any(|a| a == class.as_str())
+                    })
+                    .collect()
+            }
+            None => pairs,
+        };
 
     let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
     let fetched = storage.get_facts_many(&cids).await?;
@@ -775,6 +808,78 @@ mod include_edges_tests {
         assert_eq!(edges[0], edge);
         assert_eq!(withe.receipt.edge_cids.len(), 1);
         assert_eq!(withe.receipt.edge_cids[0], edge.cid());
+    }
+
+    /// provenance filter: only facts whose band class is in the allowed
+    /// list return, the receipt covers exactly the filtered set (the
+    /// filter runs before signing), and the unfiltered
+    /// `bands_already_attested_at_cell` hint still names every band at
+    /// the cell.
+    #[tokio::test]
+    async fn provenance_filter_narrows_facts_and_receipt() {
+        let cell = "damO.zb000.xUti.zde78";
+        let (storage, srv) = ephemeral_server();
+
+        // Two facts at the same cell: indices.ndvi (deterministic_index)
+        // and geotessera (model_output).
+        let ndvi = mk_fact(cell, 12);
+        let mut tess = mk_fact(cell, 12);
+        if let Fact::Primary(p) = &mut tess {
+            p.band = "geotessera".into();
+        }
+        let att = sign(vec![ndvi, tess], [7u8; 32]);
+        storage.put_attestation(&att).await.expect("attest");
+
+        // Unfiltered baseline: both facts.
+        let base = recall(
+            &RecallReq {
+                cell: cell.into(),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall");
+        assert_eq!(base.facts.len(), 2);
+
+        // deterministic_index only: the ndvi fact survives, the receipt
+        // signs exactly one CID, and the attested-bands hint is unfiltered.
+        let det = recall(
+            &RecallReq {
+                cell: cell.into(),
+                provenance: Some(vec!["deterministic_index".into()]),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall filtered");
+        assert_eq!(det.facts.len(), 1);
+        match &det.facts[0] {
+            Fact::Primary(p) => assert_eq!(p.band, "indices.ndvi"),
+            other => panic!("expected Primary, got {other:?}"),
+        }
+        assert_eq!(det.receipt.fact_cids.len(), 1);
+        let attested = det
+            .bands_already_attested_at_cell
+            .as_deref()
+            .expect("hint present");
+        assert!(attested.contains(&"indices.ndvi".to_string()));
+        assert!(attested.contains(&"geotessera".to_string()));
+
+        // A class neither band carries: zero facts, zero signed CIDs.
+        let none = recall(
+            &RecallReq {
+                cell: cell.into(),
+                provenance: Some(vec!["direct_sensor".into()]),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .expect("recall filtered to none");
+        assert!(none.facts.is_empty());
+        assert!(none.receipt.fact_cids.is_empty());
     }
 
     /// contested_surfaced_in_recall: marking a returned fact contested

@@ -19,7 +19,7 @@ dots, e.g. `dedi.zaf00.bafi.baba`. The integer form is what gets hashed
 and compared; the dotted text form is what shows up inside facts and
 receipts.
 
-![address algebra: cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID](/docs/diagrams/09-address-algebra.svg)
+![address algebra: cell + band + tslot → canonical CBOR → blake3 → 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
 *The full address pipeline at a glance. Section 4 walks each box; the SVG also names every constant the encoder uses.*
 
 ### 1.1 Bit layout
