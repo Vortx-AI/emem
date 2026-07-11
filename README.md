@@ -34,6 +34,16 @@ It is a working protocol with a hosted node, a written spec, an open [whitepaper
 
 > **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 13 tools load instead of 88. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later without trusting the transcript.
 
+## Who it is for
+
+Three kinds of users write to and read from the same memory:
+
+- **AI agents**, so two models grounded on one token reason about the same object instead of two paraphrases, across sessions, vendors, and context windows.
+- **Robots and embodied systems**, which have famously poor long-term memory: landmarks as `emem:entity:` identities, terrain, hazard, and traversability signals as signed facts at addresses that never drift, shareable across a fleet and across manufacturers, verifiable without trusting the peer that wrote them. The same MCP and REST surface agents use; no separate stack.
+- **Sensing platforms at the source**, satellites, drones, and fixed sensors, which attest observations where they are born; the orbital-encoder thesis is [Vortx](https://vortx.ai)'s, and emem is the open, signed memory those encoders write into.
+
+Earth observation is the first substrate and the industry catalogue (EUDR, insurance, carbon, agriculture, and the rest of the [use-case shelf](https://emem.dev/solutions#use-cases)) is what that substrate already serves. Nothing in the fact, receipt, or token grammar is satellite-specific; a sensing domain with its own canonical address space joins the same attest, recall, cite, verify path unchanged.
+
 ## Why add Earth memory to long-horizon tasks
 
 Three problems show up the moment you ship an agent that runs longer than one session.
@@ -569,7 +579,7 @@ The test we hold every item to: does it make emem's memories more trusted, porta
 - **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `emem:bundle:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors.
 - **Signed state for agent-to-agent work.** Ships today: emem answers the A2A task surface at `/a2a/tasks` and serves a signed card at [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json). Open: an attestation that rides an agent card so two agents from two companies verify each other's claimed memory offline before acting on it, closing the trust gap the A2A spec leaves to implementers.
 - **Quantitative evaluation in the open.** Ships today: every receipt carries its own cost block (`latency_p50_ms`, `was_cached`), `emem-membench` scores retrieval accuracy against a running responder with no hardcoded numbers, and [docs/benchmarks.md](docs/benchmarks.md) publishes dated, single-node latency and throughput measurements with the method next to each number. Open: multi-node scaling, storage per fact, cache-hit ratio under realistic mixes, and head-to-head comparisons against spatial databases and geospatial data infrastructures on identical queries.
-- **Substrate generality.** The signed fact, the receipt preimage, the provenance class, and the token grammar operate on any canonical address; nothing in them is satellite-specific. Ships today: Earth observation as the first substrate over cell64. Open: a written profile for a second sensing domain with its own canonical address space, plus formal definitions of the load-bearing terms (memory, agreement) in the docs so the claims are checkable rather than rhetorical.
+- **Substrate generality.** The signed fact, the receipt preimage, the provenance class, and the token grammar operate on any canonical address; nothing in them is satellite-specific. Ships today: Earth observation as the first substrate over cell64. Open: a written profile for a second sensing domain with its own canonical address space, plus the formal memory model started in [docs/model.md](docs/model.md): the observation tuple, the property table with mechanisms, and the shipped memory algebra, with machine-checked proofs, uncertainty propagation, semantic compression, and a conformance profile as the open work.
 - **An audit trail for regulated work.** Ships today: bi-temporal recall (`as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew) and a signed absence for what was never there. Open: the profile that turns those into a procurement-grade record of what an agent knew and when, aimed at the data-provenance gap that content-only provenance standards do not cover.
 
 ### The worlds: making the proof denser, live, and portable

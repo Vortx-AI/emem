@@ -26,6 +26,7 @@
 
 - [Agents](./agents.md)
 - [Memory substrate](./memory.md)
+- [The memory model](./model.md)
 - [EUDR DDS + visual evidence](./eudr.md)
 - [Integrations](./integrations.md)
 - [MCP Directory](./mcp-directory.md)

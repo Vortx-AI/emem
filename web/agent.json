@@ -2,8 +2,8 @@
   "name": "emem",
   "version": "1.0.0",
   "protocol": "emem-earth-memory",
-  "tagline": "Shared, verifiable memory for AI agents. One canonical, citeable identity per place, fact, and object, so different models reason from the same world, not different descriptions. Grounded in signed Earth observation.",
-  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns \u2014 six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (emem:bundle:<bundle_cid>) and object identities (emem:entity:<entity_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 88 MCP tools (13 core, 75 extended), 18 static MCP resources + 8 URI templates, 160 algorithms in a content-addressed registry, 124 materializer-wired band names across 43 cube slots, 46 source schemes, 4 foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo), three GPU-pinned and Tessera streamed from Cloud-Optimized GeoTIFF on CPU, behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
+  "tagline": "Shared, verifiable memory for AI agents, robots, and sensing platforms. One canonical, citeable identity per place, fact, and object, so different models reason from the same world, not different descriptions. Grounded in signed Earth observation.",
+  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns: six Anthropic memory-tool verbs (memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (emem:bundle:<bundle_cid>) and object identities (emem:entity:<entity_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 88 MCP tools (13 core, 75 extended), 18 static MCP resources + 8 URI templates, 160 algorithms in a content-addressed registry, 124 materializer-wired band names across 43 cube slots, 46 source schemes, 4 foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo), three GPU-pinned and Tessera streamed from Cloud-Optimized GeoTIFF on CPU, behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",
@@ -51,7 +51,7 @@
     "splats": "/splats"
   },
   "domain_shortcuts": {
-    "_purpose": "One-shot locate \u2192 recall \u2192 polygon-aggregate per place name. REST and MCP equivalents.",
+    "_purpose": "One-shot locate → recall → polygon-aggregate per place name. REST and MCP equivalents.",
     "any_band": "POST /v1/at      | MCP emem_at",
     "vegetation": "POST /v1/ndvi    | MCP emem_ndvi",
     "elevation": "POST /v1/elevation | MCP emem_elevation",
@@ -137,9 +137,9 @@
   "source_scheme_count": 46,
   "topic_count_declared": 27,
   "address_algebra": {
-    "cell": "64-bit cell identifier \u2014 21-bit lat \u00d7 22-bit lng on the active grid (~9.54 m \u00d7 ~9.55 m at the equator, matching Sentinel-1/Sentinel-2 native pitch). Wire form: four base-1024 bigrams separated by dots, Hilbert-ordered so neighbours share string prefixes.",
+    "cell": "64-bit cell identifier: 21-bit lat × 22-bit lng on the active grid (~9.54 m × ~9.55 m at the equator, matching Sentinel-1/Sentinel-2 native pitch). Wire form: four base-1024 bigrams separated by dots, Hilbert-ordered so neighbours share string prefixes.",
     "tslot": "u64 bucket of the Unix timeline at the band's tempo cadence (slot_seconds = 86400 fast / 2592000 medium / 31536000 slow / 3600 ultra_fast / 0 static). Equal across responders for the same band.",
-    "band": "logical channel within a 1792-D embedding contract; loaded from content-addressed `bands_cid` manifest. 43 cube slots; 124 (slot \u00d7 subkey) materializer-wired band names auto-fetchable on miss."
+    "band": "logical channel within a 1792-D embedding contract; loaded from content-addressed `bands_cid` manifest. 43 cube slots; 124 (slot × subkey) materializer-wired band names auto-fetchable on miss."
   },
   "crypto": {
     "hash": "BLAKE3 over canonical CBOR (deterministic CIDs across responders)",
@@ -153,7 +153,7 @@
     "clay_v1.5": {
       "band": "clay_v1",
       "dim": 1024,
-      "input": "Sentinel-2 L2A, 10 bands @ 10 m, 256\u00d7256 chip",
+      "input": "Sentinel-2 L2A, 10 bands @ 10 m, 256×256 chip",
       "warm_latency_ms": 12,
       "receipt_warning": "frozen_pretrained_encoder",
       "source": "https://clay-foundation.github.io/model/"
@@ -161,7 +161,7 @@
     "prithvi_eo2_300m_tl": {
       "band": "prithvi_eo2",
       "dim": 1024,
-      "input": "HLS V2 6-band @ 30 m, 224\u00d7224 chip",
+      "input": "HLS V2 6-band @ 30 m, 224×224 chip",
       "warm_latency_ms": 13,
       "receipt_warning": "frozen_pretrained_encoder",
       "source": "https://research.ibm.com/blog/prithvi2-geospatial"
@@ -224,7 +224,7 @@
     },
     {
       "key": "disaster_anomaly_triple@1",
-      "purpose": "Spatial-anomaly consensus \u2014 cell vs 8-neighbour mean per encoder, adaptive z-score gate (2-\u03c3 over neighbour distribution).",
+      "purpose": "Spatial-anomaly consensus: cell vs 8-neighbour mean per encoder, adaptive z-score gate (2-σ over neighbour distribution).",
       "encoders": [
         "clay_v1",
         "prithvi_eo2",
@@ -233,7 +233,7 @@
     },
     {
       "key": "climate_archetype_triple@1",
-      "purpose": "12-class K\u00f6ppen-Geiger classifier with per-encoder centroids seeded from Beck et al. 2018 type localities.",
+      "purpose": "12-class Köppen-Geiger classifier with per-encoder centroids seeded from Beck et al. 2018 type localities.",
       "encoders": [
         "clay_v1",
         "prithvi_eo2",
@@ -242,7 +242,7 @@
     },
     {
       "key": "coastal_erosion_triple@1",
-      "purpose": "Coastline-clamped consensus \u2014 bathymetry clamp restricts execution to active-coastline cells (-5 m \u2264 depth \u2264 +5 m).",
+      "purpose": "Coastline-clamped consensus: bathymetry clamp restricts execution to active-coastline cells (-5 m ≤ depth ≤ +5 m).",
       "encoders": [
         "clay_v1",
         "prithvi_eo2",
@@ -252,7 +252,7 @@
     }
   ],
   "ask_intents": {
-    "_purpose": "When /v1/ask classifies the question as Similarity or Change, the response carries a `foundation_embeddings` envelope with per-encoder neighbour lists and cross-encoder consensus voting. Additive \u2014 non-matching questions keep the topic-router scalar response.",
+    "_purpose": "When /v1/ask classifies the question as Similarity or Change, the response carries a `foundation_embeddings` envelope with per-encoder neighbour lists and cross-encoder consensus voting. Additive: non-matching questions keep the topic-router scalar response.",
     "similarity": [
       "find places like",
       "places like",
@@ -278,9 +278,9 @@
     ]
   },
   "honest_limits": [
-    "No commercial sub-meter imagery \u2014 Sentinel-2 (10 m) is the finest native pitch wired today.",
+    "No commercial sub-meter imagery: Sentinel-2 (10 m) is the finest native pitch wired today.",
     "No edge / onboard inference.",
-    "Single-host deployment \u2014 no federation, no global routing, no SOC 2.",
+    "Single-host deployment: no federation, no global routing, no SOC 2.",
     "JEPA v2 dynamics is untrained; the endpoint short-circuits to the last attested vintage and signs the receipt with `untrained_baseline`.",
     "Tessera multi-vintage coverage is upstream-rate-limited; only 2024 reliably serves today.",
     "Some declared bands have no registered materializer at this responder and appear under `declared_but_no_materializer_at_this_responder`."

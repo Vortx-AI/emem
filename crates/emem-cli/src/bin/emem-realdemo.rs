@@ -711,7 +711,7 @@ impl TraceIndex {
             by_step.insert(st.name.clone(), st);
         }
         md.push_str("\n## Per-step files\n\n");
-        for (_, st) in by_step.iter() {
+        for st in by_step.values() {
             md.push_str(&format!("### {}\n\n", st.name));
             if let Some(req) = &st.request_file {
                 md.push_str(&format!("- Request: `{req}`\n"));

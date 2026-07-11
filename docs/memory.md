@@ -1,5 +1,8 @@
 # Memory substrate
 
+> The formal definition of what this substrate is (the observation tuple,
+> the property table, the memory algebra) lives in [the memory model](model.md).
+
 The memory substrate is the writable layer of emem. Below it sit the
 read primitives (`/v1/recall`, `/v1/state`, `/v1/find_similar`,
 `/v1/trajectory`) whose facts come from upstream materialisers. Above

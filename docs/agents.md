@@ -29,6 +29,15 @@ offline at `/verify`.
   same `(cell, band, tslot)`. `memory/sse` streams writes with
   server-side filter.
 
+Recall also filters on tamper-provenance: pass `deterministic: true`
+(or `provenance: ["direct_sensor","deterministic_index",...]`) and only
+facts recomputable from the cited raw source come back. The filter runs
+before the receipt is signed, so the receipt covers exactly the returned
+facts; `bands_already_attested_at_cell` stays unfiltered. Non-deterministic
+classes (`model_output`, `human_curated`, `unclassified`) carry an in-band
+`caution` string inside the `provenance` block naming their failure mode,
+so the caveat arrives in the same payload as the value.
+
 Every read primitive accepts a bi-temporal axis: `as_of_tslot` returns
 the latest fact whose observation time is on or before the bound;
 `as_of_signed_at` returns the latest fact whose signing time is on or

@@ -1,5 +1,8 @@
 # emem protocol (v1.0.0)
 
+> The wire spec below is the concrete encoding; the formal object, the
+> property table, and the memory algebra live in [the memory model](model.md).
+
 ## What this document promises
 
 Bytes on the wire. Anyone implementing emem in another language reads this

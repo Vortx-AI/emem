@@ -84,6 +84,15 @@ Both gates run in `.github/workflows/ci.yml` against Linux + macOS, plus
 an MSRV 1.91 build job. Don't ship a commit that fails either: the CI
 will reject it and the next agent will have to figure out why.
 
+Two hard-won specifics. CI pins `dtolnay/rust-toolchain@stable`, so the
+clippy gate tracks CURRENT stable, not the MSRV: run `rustup update
+stable` first (never while a build is running; it deletes the old
+toolchain's rlibs out from under an in-flight compile) or new-in-stable
+lints will pass locally and fail in CI one at a time. And run clippy
+with `--all-targets`: a plain `--lib` test run never compiles the
+integration-test and demo-bin targets, which is exactly where CI finds
+what you missed.
+
 ## Code style
 
 - **No `unsafe`.** Every crate carries `#![forbid(unsafe_code)]` at the top.

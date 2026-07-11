@@ -657,7 +657,7 @@ fn render_markdown(t: &TraceIndex) -> String {
     for st in &t.steps {
         by_step.insert(st.name.clone(), st);
     }
-    for (_, st) in by_step.iter() {
+    for st in by_step.values() {
         s.push_str(&format!("### {}\n\n", st.name));
         if let Some(req) = &st.request_file {
             s.push_str(&format!("- Request: `{}`\n", req));
