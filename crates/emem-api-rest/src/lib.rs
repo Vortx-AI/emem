@@ -13351,7 +13351,7 @@ async fn get_fact(
         return (StatusCode::BAD_REQUEST, Json(body)).into_response();
     }
     // Immutable: the CID *is* the validator. Return 304 on If-None-Match match.
-    let etag_value = format!("\"{}\"", &cid);
+    let etag_value = format!("\"{}\"", cid);
     if let Some(if_none) = headers.get(IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
         if if_none.contains(&etag_value) {
             return Response::builder()
