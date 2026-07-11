@@ -166,3 +166,56 @@ ratio under a realistic access mix, and a head-to-head against spatial
 databases and geospatial data infrastructures on the same queries. Numbers
 above will drift with hardware and load; re-run the method column against
 your own responder rather than quoting these as universal.
+
+## Failure modes, typed
+
+Reviewers ask for failure modes; emem's are enumerated closed sets on the
+wire rather than prose, so they are testable:
+
+- **Absence reasons** (a missing value is a signed answer, never a bare
+  404): `unavailable_capability`, `outside_coverage`, `gpu_unavailable`,
+  `archetype_seed_unavailable`, `no_auto_materializer_registered`,
+  `present_only`.
+- **Change-ensemble degradation** (`/v1/triple_consensus` carries
+  `degraded`, `degraded_reason`, and per-encoder `reason_code`):
+  `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`,
+  `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`,
+  `insufficient_encoders`. A 2-of-3 result reports `degraded: true` even
+  though it carries a real ensemble number.
+- **Request errors** are typed (`invalid_argument`,
+  `band_not_in_registry`, `invalid_temporal_bound`,
+  `invalid_signed_at_format`, ...) and teach the accepted vocabulary in
+  the message.
+- **Process level**: a watchdog restarts the responder if the runtime
+  stalls; receipts are content-addressed, so a restart never changes
+  what a token resolves to.
+
+## Agreement statistics for the change ensemble
+
+Reviewers asked for agreement statistics, so here is a first, small,
+fully stated sample rather than a claim: the 15 named places used across
+the site's own demos and world presets, run through
+`POST /v1/triple_consensus` against the production responder on
+2026-07-11. The sample is site-chosen and small; it characterises the
+instrument on this node, not global model behaviour.
+
+| Outcome | Count |
+|---|---|
+| Computed, all three encoders | 9 |
+| Computed, degraded 2-of-3 (`partial_consensus_2_of_3`) | 5 |
+| Failed before the ensemble (geocoder miss on "Sao Paulo") | 1 |
+| Change claimed (`all` legs over the 0.15 gate) | 0 |
+| `one_or_none` (zero or one leg over the gate) | 14 of 14 computed |
+
+Ensemble change indices (mean of per-encoder `1 - cosine` between the
+two latest vintages) ranged 0.047 (Borneo) to 0.579 (Interlaken). No
+place cleared the all-legs rule, which is the expected null result for
+stable landmarks compared year over year; the two highest means
+(Interlaken 0.579, Mumbai 0.405) show single encoders firing without
+corroboration, exactly the case the all-legs rule exists to hold back.
+The 5 degraded runs are the honest cost of sidecar-gated encoders on a
+cold vintage: the response says so in a typed `degraded_reason` instead
+of averaging over the gap. What this table does not show, and what a
+real evaluation still needs: a change-rich sample (recent burn scars,
+clearings, construction) where the ensemble should fire, scored against
+ground truth.

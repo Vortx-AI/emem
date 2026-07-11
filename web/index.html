@@ -846,7 +846,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="th-copy">
       <h1>Give your AI a memory of the real world it can <span class="th-verb-slot"><a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check.</a></span></h1>
       <p class="th-verb-hint">the underlined verb is live: it opens <a id="tvh-ep" href="/verify"><code>/verify</code></a></p>
-      <p class="th-lede">AI models forget. When a long session is summarized, or a task hands off to another agent, the facts they checked blur into paraphrases and the numbers quietly drift. emem is a shared memory that fixes that: every fact about a real place becomes one short, signed line an agent can keep. It survives summarization, moves cleanly between agents and sessions, and resolves back to the exact value, which anyone can re-check without trusting the source.</p>
+      <p class="th-lede">AI models forget. When a long session is summarized, or a task hands off to another agent, the details they checked blur into paraphrases and the numbers quietly drift. emem is a shared memory that fixes that: every observation about a real place becomes one short, signed line an agent can keep. It survives summarization, moves cleanly between agents and sessions, and resolves back to the exact value, which anyone can re-check without trusting the source.</p>
       <p class="th-who">Built for the agents, robots, and world models that need to reason from the same facts, and for the teams behind them. The facts are grounded in open Earth observation, checkable by anyone, with no account needed.</p>
       <div class="th-cta">
         <a class="btn-primary" href="#build">Connect an agent</a>
@@ -1496,7 +1496,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="go"><a href="/verify">verify a receipt &rarr;</a><a href="/whitepaper">the trust model &rarr;</a></div>
   </div>
   <div class="latent-band" aria-label="where the latent comes from">
-    <p class="lb-lead">What reaches emem is a latent, not an image. The encoding travels; the pixels stay at the source.</p>
+    <p class="lb-lead">For the encoder pipelines, what reaches emem is a model-derived latent representation, not raw imagery; scalar bands (elevation, weather, indices) arrive as plain values. Either way the encoding travels and the pixels stay at the source.</p>
     <div class="latent-cards">
       <a class="lcard" href="/how-it-works#latent-origin">
         <span class="lc-k">where the latent comes from</span>
@@ -1765,7 +1765,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="words">
     <div class="kicker"><span class="n">03</span> It remembers</div>
     <h2>It links and self-corrects</h2>
-    <p class="cap">In emem, memory means an addressable, verifiable, append-only record of observations over space and time. Signed writes, typed temporal edges, multi-attester contradictions, cross-encoder agreement checks, and bi-temporal reads let that record correct itself instead of caching a stale tile; nothing is overwritten, later attestations supersede.</p>
+    <p class="cap">In emem, memory means an addressable, verifiable, append-only record of observations over space and time. Signed writes, typed temporal edges, multi-attester contradictions, <a href="/how-it-works#agreement">cross-encoder agreement checks</a>, and bi-temporal reads keep the record current. Self-correction means exactly two things: a later attestation supersedes on the transaction-time axis without erasing what it replaces, and contradictions are kept as scored, queryable evidence rather than resolved silently.</p>
     <div class="go"><a href="/how-it-works">the memory layer &rarr;</a><a href="/whitepaper">whitepaper &rarr;</a></div>
   </div>
 </section>
@@ -2058,7 +2058,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="words">
     <div class="kicker"><span class="n">05</span> In three dimensions</div>
     <h2>An area of the memory, in 3-D</h2>
-    <p class="cap">Every splat is one cell of signed facts. Its height, tilt, thickness, and colour are each a measurement with its own <code>fact_cid</code>, so nothing is invented: measured cells stay exact, and when the viewer densifies for detail, every in-between splat is derived from its signed neighbours and re-derivable from them. Where the memory has no fact, there is no splat, and any splat re-checks at <a href="/verify">/verify</a>. The separate <a href="/splats">/splats</a> demo goes further into generative fill and labels every splat measured, interpolated, or synthesized, so grounded-only stays one toggle away.</p>
+    <p class="cap">Every splat is one cell of signed facts. Its height, tilt, thickness, and colour are each a measurement with its own <code>fact_cid</code>. In the base representation, nothing is interpolated and nothing is invented; when the viewer densifies for detail, every in-between splat is derived from its signed neighbours, labelled as derived, and re-derivable from them. Where the memory has no fact, there is no splat, and any splat re-checks at <a href="/verify">/verify</a>. The separate <a href="/splats">/splats</a> demo goes further into generative fill and labels every splat measured, interpolated, or synthesized, so grounded-only stays one toggle away.</p>
     <div class="world-cards" id="world-cards">
       <a class="world-card" href="/worlds?world=canyon"><span class="wc-t">Grand Canyon</span><span class="wc-d">elevation, each gaussian lying in the terrain's tangent plane</span><span class="wc-n" data-preset="canyon">signed elevation facts</span></a>
       <a class="world-card" href="/worlds?world=interlaken"><span class="wc-t">Interlaken</span><span class="wc-d">elevation, Sentinel-2 NDVI, and JRC water fused per cell</span><span class="wc-n" data-preset="interlaken">signed facts</span></a>

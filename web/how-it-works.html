@@ -417,7 +417,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <section class="hero page hero-lean">
   <div>
     <img class="mith-sun" src="/art/hero.svg" alt=""><h1>How emem works</h1>
-    <p class="sub">Every place on Earth resolves to a stable token. Every fact at that token is ed25519-signed, content-addressed, and tagged with how it was produced, so an agent can tell a raw sensor reading from a model&rsquo;s estimate. Facts link through typed edges and improve through contradiction scoring and a refinement loop, over a typed, bi-temporal memory substrate.</p>
+    <p class="sub">Every place on Earth resolves to a stable token. Every observation at that token becomes a signed, content-addressed record, tagged with how it was produced, so an agent can tell a raw sensor reading from a model&rsquo;s estimate. Records link through typed edges and improve through contradiction scoring and a refinement loop, over a typed, bi-temporal memory substrate.</p>
     <div class="hero-cta">
       <a class="btn" href="/">Back to home</a>
       <a class="btn ghost" href="/whitepaper">Whitepaper &rarr;</a>
@@ -440,7 +440,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <div class="section-body">
     <h2><span class="num">&#9670;</span>What reaches emem is a latent, not an image</h2>
-    <p class="lede">The bottleneck in Earth observation was never the lens; it is the link. A sensor sees far more than physics will let it send home.</p>
+    <p class="lede">The bottleneck in Earth observation was never the lens; it is the link. A sensor sees far more than physics will let it send home. For the encoder pipelines, emem stores and exchanges model-derived latent representations rather than raw imagery; scalar bands arrive as plain values.</p>
 
     <p>So the encoder runs at the source: on an orbital payload, a drone, a vehicle camera, a fixed CCTV. A scene becomes a compact <span class="band">latent vector</span> before it ever touches a ground station, orders of magnitude smaller than the raw imagery. <strong>emem is the open decoder for that latent.</strong> It resolves each one onto the cell64 lattice (section&nbsp;01) and turns it into a signed fact (section&nbsp;02). Today those latents come from four open Earth-observation foundation encoders (Tessera, Clay&nbsp;v1.5, Prithvi-EO-2.0, and Galileo), read side by side and scored for agreement (section&nbsp;04 onward).</p>
 
@@ -462,9 +462,9 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">&#9670;</span>A 2026 model reads the embedding directly</h2>
+    <h2><span class="num">&#9670;</span>The representation is the interface</h2>
     <figure class="cev-art"><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="The encoder runs at the source and emits an embedding; emem stores and signs that embedding on the ground." loading="lazy"></figure>
-    <p>Google&nbsp;DeepMind&rsquo;s Gemma&nbsp;4&nbsp;12B announcement (3&nbsp;June&nbsp;2026) describes a model that drops separate image and audio encoders and projects raw inputs straight into one shared embedding space; the claim is theirs, linked below. emem reaches the same point from the source side: the encoder runs where the data is born, and emem stores, indexes, and signs the embedding it emits, not the pixels. An embedding is a representation, not a memory. It becomes part of the memory only once it is signed, content-addressed, and recallable as a fact with provenance attached.</p>
+    <p>emem signs the representation agents actually read: the encoder runs where the data is born, and emem stores, indexes, and signs the embedding it emits, not the pixels. An embedding is a representation, not a memory. It becomes part of the memory only once it is signed, content-addressed, and recallable as a record with provenance attached. The protocol does not depend on any one model&rsquo;s architecture; for the industry direction, Google&nbsp;DeepMind&rsquo;s Gemma&nbsp;4&nbsp;12B announcement (3&nbsp;June&nbsp;2026, linked below) describes a model that reads embeddings directly, and that claim stays theirs.</p>
     <p style="font-size:var(--t-sm);color:var(--mute)">Reference: <a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/" rel="noopener">Introducing Gemma&nbsp;4&nbsp;12B</a>, Google&nbsp;DeepMind, 2026.</p>
   </div>
 </section>
@@ -708,6 +708,8 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
         <div class="e"><b>evolve</b><span>A new attestation <code>supersedes</code> on <code>as_of_signed_at</code>; <code>/v1/reviews</code> records the task outcome. The earlier bytes never vanish.</span></div>
       </div>
     </div>
+
+    <p id="agreement"><strong>Agreement, defined.</strong> Two mechanisms, both published, no learned fusion and no hidden calibration. Contradiction scoring, per band at one cell: encoder-independent attestations &rarr; normalised disagreement (scalars: spread over the band&rsquo;s documented physical range; vectors: 1 &minus; mean cosine; categoricals: 1 &minus; mode share) &rarr; a scored, addressable contradiction that keeps every conflicting <span class="band">fact_cid</span>. Cross-encoder change ensemble: encoder outputs &rarr; per-encoder change index (1 &minus; cosine between that encoder&rsquo;s two latest vintages, clamped to [0,1]) &rarr; each index voted against the registry gate (default 0.15) &rarr; change is claimed only when every leg clears &rarr; anything less is a signed <span class="band">inconclusive</span> with a typed reason. Formulas and citations: <a href="/v1/algorithms">/v1/algorithms</a>.</p>
 
     <p>The loop is honest by construction. A scalar disagreement is scored by normalised spread against the band&rsquo;s documented physical range; a vector disagreement by 1&nbsp;&minus;&nbsp;mean cosine; a categorical one by 1&nbsp;&minus;&nbsp;mode-share. The contradiction is itself addressable, so two agents settle a number by reading the same scored evidence rather than trusting either one. The three edge predicates carry distinct meaning: <span class="band">disagrees_with</span> links conflicting attestations, <span class="band">supersedes</span> marks a transaction-time replacement, and <span class="band">relates_to</span> records a non-conflicting association.</p>
   </div>
