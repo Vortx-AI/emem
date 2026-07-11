@@ -7647,15 +7647,18 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
         // source. The class is declared in the bands manifest and pinned
         // into every receipt via `bands_cid`, so it is verifiable offline.
         let pc = b.provenance_class;
-        map.insert(
-            "provenance".into(),
-            json!({
-                "class": pc.as_str(),
-                "deterministic": pc.is_deterministic(),
-                "tamper_evidence": pc.tamper_evidence(),
-                "trust_rank": pc.trust_rank(),
-            }),
-        );
+        let mut prov = serde_json::Map::new();
+        prov.insert("class".into(), json!(pc.as_str()));
+        prov.insert("deterministic".into(), json!(pc.is_deterministic()));
+        prov.insert("tamper_evidence".into(), json!(pc.tamper_evidence()));
+        prov.insert("trust_rank".into(), json!(pc.trust_rank()));
+        // In-band bias warning for the non-deterministic classes, so an
+        // agent weighing this value sees the caveat in the same payload
+        // as the number. Absent for deterministic classes.
+        if let Some(c) = pc.caution() {
+            prov.insert("caution".into(), json!(c));
+        }
+        map.insert("provenance".into(), JsonValue::Object(prov));
         // Per-scalar dimension overlay: when the dotted `band_key`
         // suffix matches a `dimensions[].name`, surface ITS units +
         // value_range + description so an LLM doesn't read

@@ -138,3 +138,31 @@ The full scorecard embeds the responder's signed receipt
 `recall_fallback` retrieval and learning scores reflect a purely **lexical**
 ranker; running against a responder with the BGE embedder loaded switches
 the read path to semantic `memory_search` and is expected to score higher.
+
+## Measured system performance
+
+Micro-benchmarks against the production responder at emem.dev, run on the
+serving host itself over loopback (no WAN in the numbers), 2026-07-11,
+binary built from commit `f4946e9`. Host: 30 vCPU / 216 GB RAM /
+network-attached block storage, the same machine that answers public
+traffic, so background load is included rather than idealised away.
+Client wall-clock timing from a Python `httpx` client; the measurement
+script method is stated per row. These are single-node numbers; no
+scaling claim is made.
+
+| Measurement | Result | Method |
+|---|---|---|
+| Warm recall latency | p50 2.5 ms · p95 6.1 ms · p99 9.1 ms | `POST /v1/recall`, one attested cell, one band, n=200 sequential |
+| Warm recall with provenance filter | p50 2.4 ms · p95 4.2 ms · p99 5.3 ms | same call with `deterministic: true`, n=200; the filter adds no measurable overhead |
+| Cold recall (auto-materialize) | 0.5 s to 1.6 s (n=3) | fresh never-attested cells (Siberia, Sahara, Australian interior), `copdem30m.elevation_mean`; dominated by the upstream Copernicus fetch, then signed and persisted |
+| Receipt verification, server side | p50 1.0 ms · p99 4.2 ms | `POST /v1/verify_receipt`, n=100 |
+| Receipt verification, offline | p50 0.13 ms · p99 0.17 ms | pure-Python blake3 preimage-v1 + ed25519 check, no network, n=100 |
+| Token dereference | p50 1.2 ms · p99 3.0 ms | `POST /v1/memory_token/resolve`, n=100 |
+| Sustained read throughput | 632 requests/s | 8 concurrent clients x 50 warm recalls, single node, loopback |
+
+Not yet measured, tracked as open evaluation work: multi-node scaling,
+storage bytes per fact under compaction, deduplication ratio, cache-hit
+ratio under a realistic access mix, and a head-to-head against spatial
+databases and geospatial data infrastructures on the same queries. Numbers
+above will drift with hardware and load; re-run the method column against
+your own responder rather than quoting these as universal.

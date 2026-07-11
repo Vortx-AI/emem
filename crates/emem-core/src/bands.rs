@@ -140,6 +140,33 @@ impl ProvenanceClass {
             Self::Unclassified => "unclassified",
         }
     }
+
+    /// In-band caution for the classes an agent must not treat as ground
+    /// truth. A signature proves the bytes were not altered after signing;
+    /// it says nothing about systematic error upstream of the signature.
+    /// `None` for the deterministic classes (their failure mode is the
+    /// cited source itself, which any party can re-read). Surfaced verbatim
+    /// on every provenance block so the warning travels with the value
+    /// instead of living in documentation an agent may never read.
+    pub fn caution(self) -> Option<&'static str> {
+        match self {
+            Self::DirectSensor | Self::DeterministicIndex => None,
+            Self::ModelOutput => Some(
+                "model output: a learned representation, not a measurement. \
+                 Subject to training bias, domain shift, and encoder revision; \
+                 treat as a hypothesis and corroborate against a deterministic \
+                 band before load-bearing use.",
+            ),
+            Self::HumanCurated => Some(
+                "human-curated source: subject to editorial choices, mapping \
+                 conventions, and coverage gaps that vary by region.",
+            ),
+            Self::Unclassified => Some(
+                "unclassified band: production method not yet declared; \
+                 lowest trust, never claims tamper-evidence.",
+            ),
+        }
+    }
 }
 
 /// Fail-safe default when a manifest band omits `provenance_class`: the

@@ -31,7 +31,7 @@
     "jepa_v2_dynamics":  { "band": "(synthesized)","dim": 128,  "status": "untrained_baseline; short-circuits to last-attested vintage; receipt carries `untrained_baseline` warning" }
   },
   "consensus_algorithms": {
-    "_purpose": "The triple-consensus pattern: three encoders with independent receptive-field aliasing vote on a change index. Consensus across all three is signal; one-or-none is receptive-field artifact.",
+    "_purpose": "The triple-consensus pattern: an experiment over model outputs, not a vote of confidence. Per encoder, change = 1 - cos(latest vintage, previous vintage), clamped to [0,1], voted against the registry gate (default 0.15); all three legs must clear it to claim change, anything less degrades to a signed inconclusive. Independent receptive-field aliasing is why agreement is informative: one-or-none is artifact.",
     "base":               "clay_prithvi_tessera_triple_consensus@1",
     "deforestation":      "deforestation_triple@1: Hansen GFC mask uplift to `hansen_confirmed` verdict, gate=0.20",
     "wetland_change":     "wetland_change_triple@1: Tessera leg substituted by JRC GSW recurrence delta, gate=0.10",

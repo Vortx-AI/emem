@@ -455,7 +455,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">&#9670;</span><span class="idx-label">the validation</span></div>
     <dl>
-      <dt>Gemma&nbsp;4&nbsp;12B</dt><dd>encoder-free, 3&nbsp;Jun&nbsp;2026</dd>
+      <dt>Gemma&nbsp;4&nbsp;12B</dt><dd>reads embeddings directly, per DeepMind, 3&nbsp;Jun&nbsp;2026</dd>
       <dt>reads</dt><dd>the embedding, directly</dd>
       <dt>emem</dt><dd>stores and signs that embedding</dd>
     </dl>
@@ -464,7 +464,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="section-body">
     <h2><span class="num">&#9670;</span>A 2026 model reads the embedding directly</h2>
     <figure class="cev-art"><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="The encoder runs at the source and emits an embedding; emem stores and signs that embedding on the ground." loading="lazy"></figure>
-    <p>Gemma&nbsp;4&nbsp;12B (Google&nbsp;DeepMind, 3&nbsp;June&nbsp;2026) removed its image and audio encoders and projects raw inputs straight into one shared embedding space. emem reaches the same point from the source side: the encoder runs where the data is born, and emem stores, indexes, and signs the embedding it emits, not the pixels.</p>
+    <p>Google&nbsp;DeepMind&rsquo;s Gemma&nbsp;4&nbsp;12B announcement (3&nbsp;June&nbsp;2026) describes a model that drops separate image and audio encoders and projects raw inputs straight into one shared embedding space; the claim is theirs, linked below. emem reaches the same point from the source side: the encoder runs where the data is born, and emem stores, indexes, and signs the embedding it emits, not the pixels. An embedding is a representation, not a memory. It becomes part of the memory only once it is signed, content-addressed, and recallable as a fact with provenance attached.</p>
     <p style="font-size:var(--t-sm);color:var(--mute)">Reference: <a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/" rel="noopener">Introducing Gemma&nbsp;4&nbsp;12B</a>, Google&nbsp;DeepMind, 2026.</p>
   </div>
 </section>
@@ -487,6 +487,8 @@ input::placeholder{color:var(--mute,#7a7363)}
     <p class="lede">A language model tokenises text so its layers can reason over symbols instead of raw characters. emem tokenises Earth for the same reason: agents need a finite alphabet for places before they can reason, remember, or cite.</p>
 
     <p>The cell64 grid is that alphabet: a 64-bit identifier per ~9.55 m square at the equator, content-addressed, deterministic, and the same on every responder. Antimeridian and pole canonicalisation are pinned in code, so two queries 1 m apart land in the same cell, every time. An LLM asked what is at a place will usually guess; cell64 is the missing handle it can anchor on instead.</p>
+
+    <p>Nothing else in the protocol is Earth-specific. The signed fact, the receipt preimage, the provenance class, and the token grammar operate on any canonical address; cell64 is the first addressing scheme and satellite observation the first substrate. A sensing domain with its own canonical address space can join the same attest, recall, cite, and verify path unchanged.</p>
 
     <div class="memt-block" aria-label="LLM tokens versus Earth tokens: the conceptual analogy">
       <div class="memt-head">
@@ -658,7 +660,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
       </tbody>
     </table>
 
-    <p>The split that matters is <span class="band">recomputable_from_source</span>: a direct sensor read or a deterministic index that any third party reproduces from the cited raw data, with no model and no human in the loop. Across the <span id="pv-total">43</span> bands in the ontology today, <span id="pv-det">14</span> are recomputable this way (<span id="pv-sensor">6</span> direct sensor, <span id="pv-index">8</span> deterministic index), <span id="pv-model">22</span> are model output, <span id="pv-human">5</span> are human curated, and <span id="pv-uncl">2</span> are still unclassified. These counts are read live from <a href="/v1/bands">/v1/bands</a>, the same manifest the <span class="band">bands_cid</span> in every receipt pins. An agent that only wants values it can check for itself reads the first two classes and treats the rest as claims it has to trust a signer for.</p>
+    <p>The split that matters is <span class="band">recomputable_from_source</span>: a direct sensor read or a deterministic index that any third party reproduces from the cited raw data, with no model and no human in the loop. Across the <span id="pv-total">43</span> bands in the ontology today, <span id="pv-det">14</span> are recomputable this way (<span id="pv-sensor">6</span> direct sensor, <span id="pv-index">8</span> deterministic index), <span id="pv-model">22</span> are model output, <span id="pv-human">5</span> are human curated, and <span id="pv-uncl">2</span> are still unclassified. These counts are read live from <a href="/v1/bands">/v1/bands</a>, the same manifest the <span class="band">bands_cid</span> in every receipt pins. An agent that only wants values it can check for itself reads the first two classes and treats the rest as claims it has to trust a signer for. The warning travels in-band: every <span class="band">model_output</span>, <span class="band">human_curated</span>, and <span class="band">unclassified</span> provenance block carries a <span class="band">caution</span> field naming its failure mode (training bias and domain shift, editorial choices and coverage gaps, undeclared method), so the caveat arrives in the same payload as the number instead of living in documentation an agent never read. Recall accepts <span class="band">deterministic: true</span> to keep only the recomputable classes; the filter runs before the receipt is signed.</p>
 
     <p>None of this is a new signed field on the fact, so no <span class="band">fact_cid</span> changed when the tag arrived. The class is declared per band in the content-addressed bands manifest, and that manifest&rsquo;s id (<span class="band">bands_cid</span>) is already folded into every receipt preimage from section&nbsp;02. The provenance tag therefore rides into the same ed25519 signature you already verify, and a verifier reproduces the classification offline from the pinned manifest. The signature that proves the number was not altered now also carries how the number was made.</p>
 
@@ -730,6 +732,8 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
   <div class="section-body">
     <h2><span class="num">05</span>The memory substrate</h2>
     <p class="lede">Below the recall surface sits a typed, signed, searchable memory substrate. State is the read motion (a per-place dense vector). The memory token is the cite motion (one string any pipeline can paste). Memory files give an agent a writable scratchpad whose every edit is ed25519-signed and content-addressed. Every read carries the same bi-temporal axis pair: <span class="band">as_of_tslot</span> for what the world looked like on a given date; <span class="band">as_of_signed_at</span> for what the system knew on a given date.</p>
+
+    <p><strong>Memory here is operational, not metaphor.</strong> Write means attest: sign an observation and give it a content address. Read means recall: bi-temporal, receipt-signed. Remember means resolve: a token returns the byte-identical signed bytes it named, in any later session, on any conformant responder. Nothing is forgotten silently: a newer attestation supersedes on the transaction-time axis and the old bytes stay replayable. Anything that cannot be re-verified offline is not in the memory.</p>
 
     <div class="substrate-grid">
       <div class="lane">

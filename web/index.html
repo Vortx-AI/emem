@@ -1806,11 +1806,11 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="words">
     <div class="kicker"><span class="n">03</span> Four readers</div>
     <h2>Four models read the same ground</h2>
-    <p class="cap">Tessera, Clay, Prithvi, and Galileo each read the same cell, and a consensus pass scores whether they corroborate or disagree.</p>
-    <div class="go"><a href="#hero">try a live recall above &uarr;</a><a href="/how-it-works">how consensus is scored &rarr;</a></div>
+    <p class="cap">Tessera, Clay, Prithvi, and Galileo each read the same cell, side by side, and each reading lands as its own signed fact that carries a <code>model_output</code> caution: a learned representation, not a measurement. Agreement between them is a computed experiment, not a vote of confidence. The change ensemble takes 1 &minus; cosine between each encoder&rsquo;s two latest vintages for Clay, Prithvi, and Tessera, and claims change only when every index clears a published gate (default 0.15); anything less returns a signed <code>inconclusive</code>.</p>
+    <div class="go"><a href="#hero">try a live recall above &uarr;</a><a href="/how-it-works">how agreement is scored &rarr;</a></div>
   </div>
   <div class="latent-band" aria-label="where the latent comes from">
-    <p class="lb-lead">What reaches emem is a latent, not an image. In 2026, Gemma 4 shipped encoder-free, reading embeddings directly.</p>
+    <p class="lb-lead">What reaches emem is a latent, not an image. In 2026, Google DeepMind described Gemma&nbsp;4 as reading embeddings directly, without separate modality encoders.</p>
     <div class="latent-cards">
       <a class="lcard" href="/how-it-works#latent-origin">
         <span class="lc-k">where the latent comes from</span>
@@ -1819,7 +1819,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       </a>
       <a class="lcard" href="/how-it-works#embedding-first">
         <span class="lc-k">why the timing</span>
-        <span class="lc-t">Gemma&nbsp;4 shipped encoder-free in 2026, reading the embedding directly, the same shape emem already used: the encoding travels, the pixels stay at the source.</span>
+        <span class="lc-t">Google DeepMind&rsquo;s Gemma&nbsp;4 notes describe the model reading embeddings directly, the same shape emem already used: the encoding travels, the pixels stay at the source.</span>
         <span class="lc-go">embedding-first &rarr;</span>
       </a>
     </div>
