@@ -666,6 +666,25 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="section-body">
     <h2><span class="num">06</span>The full machine contract</h2>
     <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 103 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
+
+    <p style="font-weight:700;color:var(--ink);margin-top:1.6rem">One algebra, nine verbs</p>
+    <p>The read surface implements the memory algebra defined in <a href="/docs/model.html">the memory model</a>; every verb is an existing endpoint, not a new one:</p>
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead><tr><th>Verb</th><th>Surface</th></tr></thead>
+      <tbody>
+        <tr><td class="path">ensure(a, B)</td><td class="desc">POST /v1/recall: reuses what exists, materializes what is missing; deterministic / provenance filters</td></tr>
+        <tr><td class="path">valid(M, a)</td><td class="desc">POST /v1/temporal_route: per-band staleness, cite_now vs fetch_for_intent</td></tr>
+        <tr><td class="path">diff</td><td class="desc">POST /v1/diff &middot; /v1/state_diff</td></tr>
+        <tr><td class="path">merge</td><td class="desc">POST /v1/memory_bundle: one signed envelope, one citable name</td></tr>
+        <tr><td class="path">verify</td><td class="desc">POST /v1/verify_receipt &middot; /verify in-browser &middot; fully offline from the receipt bytes</td></tr>
+        <tr><td class="path">trace</td><td class="desc">in the fact body: derivation.fn_key + sources[] &middot; formulas at /v1/algorithms</td></tr>
+        <tr><td class="path">competing</td><td class="desc">POST /v1/memory_contradictions: disagreement kept as scored evidence</td></tr>
+        <tr><td class="path">cite / resolve</td><td class="desc">POST /v1/memory_token &middot; /v1/memory_token/resolve</td></tr>
+        <tr><td class="path">evolve</td><td class="desc">POST /v1/attest &middot; supersedes edges, nothing erased</td></tr>
+      </tbody>
+    </table>
+    </div>
     <p>Browse it interactively at the <a href="/docs/api/">API reference (ReDoc)</a>. The algorithm recipes are listed at <a href="/v1/algorithms">/v1/algorithms</a> (each carries a formula, input bands, a citation, an accuracy band, and a learned_from provenance line); the 27 topics at <a href="/v1/topics">/v1/topics</a>; the materializer-wired band names across 43 cube slots and the 46 source schemes are introspectable through the registries. Discovery for agents starts at <a href="/v1/agent_card">/v1/agent_card</a>, <a href="/agent.json">/agent.json</a>, or <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
     <div class="hero-cta" style="margin-top:1.6rem">
       <a class="btn" href="/openapi.json">openapi.json</a>

@@ -911,7 +911,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token",
         title: "Compose a memory_token citation handle",
-        description: "Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator.",
+        description: "Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Algebra: cite.",
         when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `emem:entity:` token; for many facts at once use emem_memory_bundle.",
         input_schema: SCHEMA_MEMORY_TOKEN,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
@@ -922,7 +922,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token_resolve",
         title: "Dereference a memory_token in one round-trip",
-        description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually.",
+        description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Algebra: resolve.",
         when_to_use: "Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the underlying signed bytes. The response carries the parsed cell + fact_cid, the full fact body, and the stable `fact_url` an agent can hand to any other peer. 404 with a typed code if the responder doesn't hold the cid; try /v1/fetch with the cid then, or paste the token at a mirror.",
         input_schema: SCHEMA_MEMORY_TOKEN_RESOLVE,
         example_args: r#"{"token":"emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
@@ -933,7 +933,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_bundle",
         title: "Compose a signed multi-fact memory bundle",
-        description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set.",
+        description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set. Algebra: merge.",
         when_to_use: "Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt (the receipt covers all cited fact_cids and cells). Use this instead of N separate `emem_memory_token` composers when the citation is conceptually one thing (e.g. \"the EUDR-relevant baseline for these 8 plots at 2020-12-31\").",
         input_schema: SCHEMA_MEMORY_BUNDLE,
         example_args: r#"{"triples":[{"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},{"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi"}],"purpose":"audit baseline 2026"}"#,
@@ -1106,7 +1106,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_recall",
         title: "Recall facts at a cell (auto-materializes on miss)",
-        description: "Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. The content-addressed fact_cid is byte-identical for identical bytes on any responder, so a recalled fact is citeable and re-verifiable rather than a paraphrase. Pass `deterministic:true` (or a `provenance` class list) to keep only facts recomputable from the cited raw source, with no model or human in the loop.",
+        description: "Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. The content-addressed fact_cid is byte-identical for identical bytes on any responder, so a recalled fact is citeable and re-verifiable rather than a paraphrase. Pass `deterministic:true` (or a `provenance` class list) to keep only facts recomputable from the cited raw source, with no model or human in the loop. In the memory algebra this is ensure(cell, bands), not get: state what must exist and the responder reuses or materializes.",
         when_to_use: "Call after `emem_locate` (or with a known cell64). Returns every Primary fact stored at that (cell, band, tslot). IMPORTANT: if the cell has no fact yet for a requested band AND that band has `has_materializer=true` (per `emem_coverage_matrix` / `emem_materializers`), the responder fetches the upstream value, signs it under its identity, persists it, and returns it in the same response (slower on the first call while the upstream is fetched; fast once cached). So for any wired band you can recall ANY cell on Earth without seeding, just pass `bands: [<band>]`. The response carries `materialize_notes` listing what was just fetched. Empty result with no notes means the band has no materializer at this responder.",
         input_schema: SCHEMA_RECALL,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","bands":["weather.temperature_2m","copdem30m.elevation_mean"]}"#,
@@ -1194,7 +1194,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_diff",
         title: "Signed delta between two tslots",
-        description: "Compute a DerivativeFact (delta) between a band's values at two tslots.",
+        description: "Compute a DerivativeFact (delta) between a band's values at two tslots. Algebra: diff.",
         when_to_use: "Call when the user asks 'what changed between t1 and t2', 'give me the delta'. Returns a signed DerivativeFact + receipt — the delta itself is content-addressed and citable.",
         input_schema: SCHEMA_DIFF,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
@@ -1205,7 +1205,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_contradictions",
         title: "Scan for multi-attester disagreement",
-        description: "Surface where the corpus DISAGREES with itself. When two or more independent sources signed different values for the same place + band + time, this returns that disagreement with a 0–1 severity score and citations to every disputed fact, instead of silently picking one value and hiding the conflict. The opposite of a confident single answer: it tells you when not to trust one.",
+        description: "Surface where the corpus DISAGREES with itself (algebra: competing evidence). When two or more independent sources signed different values for the same place + band + time, this returns that disagreement with a 0–1 severity score and citations to every disputed fact, instead of silently picking one value and hiding the conflict. The opposite of a confident single answer: it tells you when not to trust one.",
         when_to_use: "Call this when trust matters before you rely on a number — 'is there disagreement about X', 'do the sources corroborate this', 'audit this claim', or 'find contradictory observations in region Y'. Use it to decide whether a fact is well-corroborated or contested. Narrow with `cell_prefix` (e.g. \"defi.zb5\") for a region and `band` for one family; `min_severity` filters out trivial differences. Severity is per band kind: scalar = spread over the band's range, vector = 1 − mean cosine, categorical = 1 − mode share. The receipt cites every disputed CID — follow up with `emem_diff` to quantify a pair, or (with the refinement loop on) read the emitted `disagrees_with` edge via `emem_edges_recall`.",
         input_schema: SCHEMA_MEMORY_CONTRADICTIONS,
         example_args: r#"{"cell_prefix":"damO","band":"indices.ndvi","min_severity":0.2}"#,
@@ -1541,7 +1541,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_temporal_route",
         title: "Plan a temporal recall recipe for a cell",
-        description: "Turn a time-shaped question into a ready-to-run recall plan: it figures out WHICH bands to pull at WHICH past time windows (e.g. 'the year before the flood', 'last growing season', 'two vintages to compare') so you don't have to compute tslot offsets by hand. Returns the band + lookback + a `purpose` tag for each step.",
+        description: "Turn a time-shaped question into a ready-to-run recall plan: it figures out WHICH bands to pull at WHICH past time windows (e.g. 'the year before the flood', 'last growing season', 'two vintages to compare') so you don't have to compute tslot offsets by hand. Returns the band + lookback + a `purpose` tag for each step. Algebra: valid(M, a): per-band validity from the physics decay kernel, cite_now versus fetch_for_intent.",
         when_to_use: "Call this first when the user's question is about CHANGE OVER TIME or a PAST EVENT and you're not sure which bands/dates to recall — 'was this flooded last year', 'what was the NDVI baseline before the fire', 'compare this place across vintages'. It hands you the recipe; then run those steps with `emem_recall`. Skip it when the user wants a single current reading. Pass `cell` plus an optional free-text `intent` hint. The plan is deterministic and the receipt cites which algorithm supplied each step.",
         input_schema: SCHEMA_TEMPORAL_ROUTE,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","intent":"flood_window"}"#,
@@ -1552,7 +1552,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_verify_receipt",
         title: "Server-side ed25519 receipt verifier",
-        description: "Verify a signed receipt envelope server-side: recomputes the canonical preimage (`request_id | served_at | primitive | cells, | fact_cids,`), runs ed25519 over the embedded pubkey + signature, and returns `{valid, reason, pubkey_b32}`. Use when the in-browser /verify path is blocked (CDN offline, agent runtime has no crypto) or when you want a server-side audit of a third-party receipt.",
+        description: "Verify a signed receipt envelope server-side: recomputes the canonical preimage (preimage v1: tagged, length-prefixed segments; receipts without `preimage_version` verify under the legacy `request_id | served_at | primitive | cells, | fact_cids,` concatenation), runs ed25519 over the embedded pubkey + signature, and returns `{valid, reason, pubkey_b32}`. Use when the in-browser /verify path is blocked (CDN offline, agent runtime has no crypto) or when you want a server-side audit of a third-party receipt. Algebra: verify.",
         when_to_use: "Pass a receipt object exactly as returned by any read primitive (signature can be byte[] or sig_b32; pubkey can be byte[] or responder_pubkey_b32 — the verifier tolerates both shapes). Optionally override `pubkey_b32` to assert verification against a specific signer. Returns 200 with `valid: false` when the signature fails — never 4xx for a structurally-well-formed bad signature.",
         input_schema: SCHEMA_VERIFY_RECEIPT,
         example_args: r#"{"receipt":{"primitive":"recall","served_at":"2026-05-14T12:00:00Z","request_id":"req-1","cells":["damO.zb000.xUti.zde78"],"fact_cids":["qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq"],"signature":[1,2,3],"responder_pubkey":[4,5,6]}}"#,

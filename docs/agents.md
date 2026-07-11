@@ -38,6 +38,21 @@ classes (`model_output`, `human_curated`, `unclassified`) carry an in-band
 `caution` string inside the `provenance` block naming their failure mode,
 so the caveat arrives in the same payload as the value.
 
+The read surface implements the memory algebra defined in
+[the memory model](model.md); every verb is an existing endpoint:
+
+| Verb | Surface |
+|---|---|
+| `ensure(a, B)` | `POST /v1/recall` (reuses or materializes; `deterministic` / `provenance` filters) |
+| `valid(M, a)` | `POST /v1/temporal_route` (per-band staleness, `cite_now` vs `fetch_for_intent`) |
+| `diff` | `POST /v1/diff`, `/v1/state_diff` |
+| `merge` | `POST /v1/memory_bundle` |
+| `verify` | `POST /v1/verify_receipt`, `/verify`, or fully offline |
+| `trace` | in the fact body: `derivation.fn_key` + `sources[]`; formulas at `/v1/algorithms` |
+| `competing` | `POST /v1/memory_contradictions` |
+| `cite` / `resolve` | `POST /v1/memory_token`, `/v1/memory_token/resolve` |
+| `evolve` | `POST /v1/attest`; `supersedes` edges, nothing erased |
+
 Every read primitive accepts a bi-temporal axis: `as_of_tslot` returns
 the latest fact whose observation time is on or before the bound;
 `as_of_signed_at` returns the latest fact whose signing time is on or
