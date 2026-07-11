@@ -92,6 +92,52 @@ observation arrived. Counterfactual REMOVAL (the memory with one
 observation excised and downstream effects recomputed) is open work, and
 harder than it looks because derivations would need re-execution.
 
+## The compiler view
+
+Read the model above from a different angle and a second system appears:
+a content-addressed build graph over the physical world, one graph per
+cell. The leaf level is shipped and serving traffic today:
+
+- **Rule**: every derived observation names its rule, `derivation.fn_key`
+  (`sentinel2_l2a_indices_ndvi@1`), a versioned entry in the
+  content-addressed algorithm registry whose `algorithms_cid` is pinned
+  into receipts, together with the full argument list.
+- **Inputs**: `sources[]` carry the upstream ids, content hashes, and
+  capture times.
+- **Output**: the `fact_cid`, blake3 of the canonical bytes.
+- **Demand-driven**: recall on a miss materialises, signs, and persists,
+  which is a lazy build; the receipt's `was_cached` is cache semantics
+  on the wire.
+- **Hermeticity labels**: the provenance classes are exactly this.
+  `deterministic_index` is a hermetic action (rebuild bit-identical from
+  the cited sources); `model_output` is a pinned non-hermetic action
+  (reproducible given the signed checkpoint); `direct_sensor` and
+  `human_curated` are sources, not actions.
+
+Determinism buys the property a build system wants most: derived
+artifacts are evictable without breaking citations, because
+re-materialisation yields the same bytes, hence the same cid, hence
+every token keeps resolving. Nothing permanent is required beyond
+immutable observations and the rule registry.
+
+What is missing before "build graph" is earned rather than aspirational,
+in dependency order: multi-hop composition as signed objects (the worlds
+bake already derives splats from facts with re-derivable bilinear
+weights, but the splat layer lives in a sidecar, not in the fact model);
+the one-traversal `lineage(O)` DAG from the open-work list below; a
+target language (ask for a mesh at a cell and the graph compiles
+gaussians, mesh, and navigation surfaces on demand); and portable,
+sandboxed action definitions, since today the registry formulas document
+Rust implementations rather than define hermetic rules a second
+implementation could execute.
+
+Against the neighbours: Earth Engine is a computation graph inside one
+org's trust domain with unsigned results; Bazel and Nix are
+content-addressed builds inside one org's trust domain. The receipts are
+what make this graph verifiable ACROSS trust domains: any robot can
+re-check any org's compiled artifact offline. The memory is the product;
+the build graph is the substrate thesis.
+
 ## Open formal work
 
 The honest gap list, in priority order:
