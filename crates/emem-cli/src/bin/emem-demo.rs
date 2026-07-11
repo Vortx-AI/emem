@@ -149,9 +149,9 @@ async fn main() -> anyhow::Result<()> {
         .map(|v| v.as_str().unwrap().to_string())
         .collect();
 
-    println!("== GET /v1/cells/{} ==", &cells[1]);
+    println!("== GET /v1/cells/{} ==", cells[1]);
     let r: Value = client
-        .get(format!("{base}/v1/cells/{}", &cells[1]))
+        .get(format!("{base}/v1/cells/{}", cells[1]))
         .send()
         .await?
         .json()
@@ -221,9 +221,9 @@ async fn main() -> anyhow::Result<()> {
         r["result"]["facts"].as_array().unwrap().len()
     );
 
-    println!("== GET /v1/facts/{} ==", &cids[0]);
+    println!("== GET /v1/facts/{} ==", cids[0]);
     let r: Value = client
-        .get(format!("{base}/v1/facts/{}", &cids[0]))
+        .get(format!("{base}/v1/facts/{}", cids[0]))
         .send()
         .await?
         .json()

@@ -266,7 +266,7 @@ async fn main() -> anyhow::Result<()> {
         .get(
             &client,
             "19_facts_by_cid",
-            &format!("/v1/facts/{}", &cids[0]),
+            &format!("/v1/facts/{}", cids[0]),
         )
         .await?;
 

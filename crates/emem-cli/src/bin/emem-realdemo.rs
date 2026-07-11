@@ -369,7 +369,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     trace
-        .get(&http, "12_facts_by_cid", &format!("/v1/facts/{}", &cids[0]))
+        .get(&http, "12_facts_by_cid", &format!("/v1/facts/{}", cids[0]))
         .await?;
     trace
         .post_json(
