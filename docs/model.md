@@ -81,6 +81,8 @@ not just retrieve.
 | `explain(O)` | the receipt plus the registry formula are the signed explanation; the natural-language layer (`/v1/ask`) is an explicitly unsigned sidecar over signed reads |
 | `evolve(M)` | attest; a later observation `supersedes` without erasing, and the refinement loop records `disagrees_with` edges from contradictions |
 | `resolve(name)` | token dereference: `emem:fact:` / `emem:bundle:` / `emem:entity:` back to byte-identical bytes |
+| `ensure(M, a, B)` | shipped at single-hop: `POST /v1/recall` with a band list states the goal; the responder reuses what exists (`was_cached`), fetches and signs what does not (`materialize_notes`), and the agent never orchestrates the fetch. Multi-hop targets are open work (see the compiler view) |
+| `valid(M, a)` | `POST /v1/temporal_route`: per-band staleness Q(dt) from the band's physics decay kernel, split into `cite_now` (fresh enough to cite) and `fetch_for_intent` (needs re-materialisation): validity intervals and invalidation, on the wire |
 
 Deliberately absent: a silent `forget()`. Removal without trace would
 break every property above. What exists instead is supersession on the
@@ -131,6 +133,101 @@ sandboxed action definitions, since today the registry formulas document
 Rust implementations rather than define hermetic rules a second
 implementation could execute.
 
+### From build graph to execution substrate
+
+The deeper consequence, and the direction this is being built toward:
+the agent no longer owns the state, the world owns the state. An agent's
+progress is not "I completed step 17" in a session transcript; it is the
+state of the cells it touched: which observations exist, at which
+versions, derived from what, still valid until when. A different agent,
+months later, under a different model, continues from the world.
+
+The mechanisms for that are the ones above, read as an execution
+substrate. What already exists: every recall returns
+`bands_already_attested_at_cell`, so "what has been computed here" is
+one call. What is still valid: `temporal_route`'s per-band staleness
+scores split `cite_now` from `fetch_for_intent`. What replaced what:
+supersede edges. Why believe any of it: the receipt. And the goal verb
+is shipped at single-hop: a recall with a band list is `ensure`, not
+`get`; the agent states what must exist and the responder decides reuse
+versus fetch. What is missing is stated in the gap list above:
+multi-hop targets and a cost-based planner ("cheapest valid path to a
+navigation surface at this cell"), which turn ensure from a band-level
+verb into a graph-level one.
+
+Coordination follows the same shape. A thousand agents working the same
+region do not synchronise through messages; they coordinate through
+shared, immutable, content-addressed artifacts and the dependency rules
+between them, with contradiction scoring as the conflict rule when two
+writers disagree. The objective underneath all of it: make repeated
+reasoning unnecessary. If an artifact is deterministic, reproducible,
+and already exists, no future agent should spend tokens re-deriving it
+or arguing itself into trusting it; it resolves by name and re-checks by
+hash.
+
+One scope note, taken from review: "memory for long-horizon agents" is
+one application of this substrate, not its definition. The architecture
+is meant to stay valuable even if today's agents are replaced by a
+different class of systems; durable, verifiable, reusable state about
+the physical world is the invariant.
+
+### The atom, answered
+
+Review asked the right whiteboard question: what is the smallest
+immutable object, git's blob, IPFS's block? If the answer were "band",
+emem would have stopped too early. It is not. The atom is the
+observation `O` defined at the top of this page; the band is its
+semantic TYPE field, not the object. The proposed "Earth Value"
+(location, time, semantic meaning, algorithm, dependencies, cid,
+confidence, validity, signature) maps element for element onto what
+already ships:
+
+| Proposed | Shipped element of `O` |
+|---|---|
+| location | `a` (cell64) |
+| time | `t` plus `signed_at` (bi-temporal) |
+| semantic meaning | `b` (band, from the content-addressed manifest) |
+| algorithm | `p.derivation.fn_key@version` |
+| dependencies | `p.sources[]` (ids, content hashes, capture times) |
+| cid | `cid(O)` |
+| confidence | `u` |
+| validity | tempo class + Q(dt) staleness (`valid(M, a)`) |
+| signature | `s` |
+
+The git analogy holds the same way: blob, tree, commit correspond to
+observation, edge, rule-plus-receipt. Worlds, meshes, and projects are
+meant to emerge from those, not to become new stored types.
+
+Where the review is right that we have stopped early: today `v` is
+band-typed. A gaussian patch, a mesh, or a road graph is not yet an
+observation; the worlds bake keeps its derived splats in a provenance
+sidecar. Generalising `v` to artifact-typed values with canonical
+encodings, so a mesh is signed, cited, and evicted exactly like an NDVI
+reading, is the real content of the "multi-hop derivation as signed
+objects" gap above, and it strengthens the existing fact model rather
+than adding a second object system beside it.
+
+On learned graphs versus written ones: build systems assume someone
+wrote the graph, and for Earth nobody knows the graph. The position
+here is deliberate: the RULES stay declared, versioned, and signed,
+because a discovered rule cannot be re-verified, but WHICH declared
+derivations exist, apply, and are worth running at a given cell for a
+given goal is discovered, not hardcoded. The seed of that planner
+already ships: `/v1/ask` routes a question to the applicable recipes in
+`algorithms_for_question`, and one goal already has competing
+derivations to choose between (deforestation via the NDVI-drop alert,
+via SAR disturbance, or via the triple ensemble). Learn the graph;
+never learn the rule.
+
+The verb this converges on is `prove(goal)`, not `get` and not
+`build(target)`: the answer to a goal is an artifact PLUS a
+machine-checkable chain that every dependency is valid for this
+location at this time. At single-hop that is shipped today, receipt
+plus provenance class plus staleness on every ensure; making it hold
+across a discovered multi-hop chain is the planner work in the gap
+list, with its trust question answered per hop ("can I trust this
+gaussian", not "does it exist").
+
 Against the neighbours: Earth Engine is a computation graph inside one
 org's trust domain with unsigned results; Bazel and Nix are
 content-addressed builds inside one org's trust domain. The receipts are
@@ -161,6 +258,17 @@ The honest gap list, in priority order:
 5. A written conformance profile, so a second implementation can claim
    compatibility by satisfying the algebra and property table rather
    than by matching this codebase.
+6. Artifact-typed observations: generalise `v` beyond band-typed values
+   so gaussians, meshes, and route graphs are first-class signed
+   observations with canonical encodings, extending the existing fact
+   model instead of adding a parallel object system. Prerequisite for
+   multi-hop signed derivation.
+7. Derivation discovery and the `prove(goal)` contract: learn, per cell
+   and goal, which declared rules apply and which chain is cheapest,
+   while every edge stays a declared, signed rule; the planner's output
+   is the artifact plus the validity chain. Seed shipped:
+   `algorithms_for_question` routing and competing derivations for one
+   goal.
 
 The research roadmap in the [README](https://github.com/Vortx-AI/emem#open-research)
 tracks these; the sequencing argument is in the whitepaper.
