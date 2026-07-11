@@ -2711,7 +2711,7 @@ fn csp_header_value() -> &'static HeaderValue {
              style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
              style-src-attr 'unsafe-inline'; \
              font-src 'self' data: https://fonts.gstatic.com; \
-             worker-src 'self'; \
+             worker-src 'self' blob:; \
              frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
              base-uri 'self'; \
              form-action 'self'"
@@ -17554,8 +17554,14 @@ async fn splats_post(Path(path): Path<String>, body: Bytes) -> Response {
     if path != "api/gemma" {
         return not_found("not found");
     }
+    // Long uncapped answers (scene tours) can exceed 90 s on the 12B bridge; the
+    // ceiling is generous by default and tunable without a rebuild.
+    let timeout_s: u64 = std::env::var("EMEM_SPLATS_GEMMA_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(600);
     let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(90))
+        .timeout(std::time::Duration::from_secs(timeout_s))
         .build()
     {
         Ok(c) => c,
