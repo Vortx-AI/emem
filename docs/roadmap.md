@@ -66,7 +66,9 @@ Candidate substrates, in the order the machinery favours them:
 - **Robot fleets.** Landmarks as `emem:entity:` identities, terrain,
   hazard, and traversability as signed facts. Two vendors' robots share
   one map and verify each other's contributions without a shared
-  backend.
+  backend. A runnable two-vendor example ships today at
+  `examples/fleet-memory/` (plain HTTP, runs on the robot); a ROS 2
+  client package is open work.
 - **Industrial machines.** A meter, a turbine, a pipeline sensor:
   location-pinned observations whose provenance class says exactly how
   the value was produced.

@@ -41,7 +41,7 @@ In practice your agent runs four verbs: locate a place, recall its signed facts,
 
 **Two agents stop re-deriving each other's work.** Agent A verifies a flood line and leaves a token in the report. Agent B, at another company, on another model, resolves it and proves it is genuine in one call. No shared database, no shared credentials, no "trust me".
 
-**A fleet shares one map it can prove.** Robots and autonomous systems keep landmarks as `emem:entity:` identities and terrain or hazard readings as signed facts at addresses that never drift, shareable across vendors over the same MCP and REST surface agents use, verifiable without trusting the peer that wrote them.
+**A fleet shares one map it can prove.** Robots and autonomous systems keep landmarks as `emem:entity:` identities and terrain or hazard readings as signed facts at addresses that never drift, shareable across vendors over the same MCP and REST surface agents use, verifiable without trusting the peer that wrote them. Runnable proof: [examples/fleet-memory/](examples/fleet-memory/), two vendors, one landmark, a 206-character handoff, verified offline.
 
 **Technical long-horizon tasks**, the failure modes every agent and robot developer already knows:
 
