@@ -1265,6 +1265,9 @@ pub fn router(state: AppState) -> Router {
         // Liveness + metrics: exempt from the concurrency limit above (added
         // after it) but still under every shared layer below.
         .route("/health", get(health))
+        // Alias for PaaS health probes (Glama and friends probe GET /ping
+        // and mark the machine unhealthy without it). Same handler.
+        .route("/ping", get(health))
         .route("/metrics", get(metrics))
         // Shared layers wrap everything (heavy routes + liveness).
         // Order: outermost wraps innermost.
@@ -2173,6 +2176,7 @@ async fn rate_limit_layer(
     let bypass = matches!(
         path,
         "/health"
+            | "/ping"
             | "/metrics"
             | "/.well-known/emem.json"
             | "/.well-known/agent.json"

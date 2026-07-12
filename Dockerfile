@@ -130,19 +130,23 @@ RUN setcap 'cap_net_bind_service=+ep' /usr/local/bin/emem-server
 # generic OCI tooling (cosign, syft, GHCR UI).
 LABEL io.modelcontextprotocol.server.name="io.github.Vortx-AI/emem" \
       org.opencontainers.image.title="emem" \
-      org.opencontainers.image.description="Earth memory protocol — content-addressed, ed25519-signed memory of every place on Earth" \
+      org.opencontainers.image.description="The verifiable memory protocol for the physical world: content-addressed, ed25519-signed observations AI agents can cite" \
       org.opencontainers.image.url="https://emem.dev" \
       org.opencontainers.image.source="https://github.com/Vortx-AI/emem" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="Vortx-AI"
 
-# Persistent storage volume (sled cache + identity key).
-RUN mkdir -p /var/emem && chown -R emem:emem /var/emem
+# Persistent storage volume (sled cache + identity key). /var/emem is
+# the image default; /data is pre-created for platforms that mount their
+# managed volume there (Glama does) and set EMEM_DATA=/data in env.
+RUN mkdir -p /var/emem /data && chown -R emem:emem /var/emem /data
 VOLUME ["/var/emem"]
 
 USER emem
-ENV EMEM_BIND=0.0.0.0:5051 \
-    EMEM_DATA=/var/emem \
+# EMEM_BIND is intentionally NOT baked: the entrypoint derives it from
+# PORT (the PaaS convention Glama and friends inject) with 5051 as the
+# fallback, and an explicit -e EMEM_BIND=... still wins.
+ENV EMEM_DATA=/var/emem \
     RUST_LOG=info
 
 # 5051 — plain HTTP for local / proxy deployments.
@@ -152,6 +156,9 @@ EXPOSE 5051 443
 # Lightweight container healthcheck against /health. Use bash builtin
 # /dev/tcp so the runtime image stays free of curl / wget.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD bash -c '</dev/tcp/127.0.0.1/${EMEM_BIND##*:}' || exit 1
+    CMD bash -c 'b="${EMEM_BIND:-0.0.0.0:${PORT:-5051}}"; </dev/tcp/127.0.0.1/${b##*:}' || exit 1
 
-ENTRYPOINT ["/usr/local/bin/emem-server"]
+# PORT (PaaS convention) -> EMEM_BIND translation. TLS stays off unless
+# EMEM_TLS_DOMAINS is set explicitly; platforms terminate TLS at their
+# gateway and probe GET /ping (served as an alias of /health).
+ENTRYPOINT ["/bin/bash", "-c", "EMEM_BIND=\"${EMEM_BIND:-0.0.0.0:${PORT:-5051}}\" exec /usr/local/bin/emem-server"]

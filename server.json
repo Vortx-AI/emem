@@ -1,19 +1,22 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Vortx-AI/emem",
-  "title": "emem \u2014 Earth memory protocol",
-  "description": "Content-addressed, ed25519-signed memory of every place on Earth. Apache-2.0, no keys for reads.",
+  "title": "emem, the verifiable memory protocol for the physical world",
+  "description": "Shared, verifiable memory for AI agents, robots, and sensing platforms: every real-world observation becomes a signed, content-addressed Memory Token that resolves anywhere and verifies offline. Apache-2.0, no keys for reads.",
   "version": "1.0.0",
   "websiteUrl": "https://emem.dev",
   "keywords": [
+    "memory",
+    "agent-memory",
+    "verifiable",
+    "robotics",
+    "mcp",
+    "model-context-protocol",
+    "ed25519",
+    "content-addressed",
     "earth-observation",
     "geospatial",
-    "satellite",
-    "carbon-mrv",
-    "ed25519",
-    "no-api-key",
-    "mcp",
-    "model-context-protocol"
+    "no-api-key"
   ],
   "categories": [
     "data",
@@ -67,15 +70,21 @@
       },
       "environmentVariables": [
         {
+          "name": "PORT",
+          "description": "PaaS port convention: the container entrypoint binds 0.0.0.0:$PORT when EMEM_BIND is not set explicitly. Falls back to 5051.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
           "name": "EMEM_BIND",
-          "description": "Bind address for the HTTP server. Defaults to 0.0.0.0:5051 inside the container.",
+          "description": "Bind address for the HTTP server. When unset, the entrypoint derives it from PORT, falling back to 0.0.0.0:5051.",
           "isRequired": false,
           "isSecret": false,
           "value": "0.0.0.0:5051"
         },
         {
           "name": "EMEM_DATA",
-          "description": "Path to the persistent data directory (sled cache + ed25519 identity). Mount a volume here.",
+          "description": "Path to the persistent data directory (sled cache + ed25519 identity). Mount a volume here; on managed platforms that mount /data, set EMEM_DATA=/data.",
           "isRequired": false,
           "isSecret": false,
           "value": "/var/emem"
