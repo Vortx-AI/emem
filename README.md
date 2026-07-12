@@ -41,6 +41,17 @@ One line: the address of a place plus the fingerprint of one signed observation 
 
 **A fleet shares one map it can prove.** Robots and autonomous systems keep landmarks as `emem:entity:` identities and terrain or hazard readings as signed facts at addresses that never drift, shareable across vendors over the same MCP and REST surface agents use, verifiable without trusting the peer that wrote them.
 
+The same pattern, wherever a task outlives a context window:
+
+| Long-horizon task | What the memory does |
+|---|---|
+| Area watch (ISR, disaster, conservation) | months of signed change evidence per cell; every alert cites the exact facts it fired on, and a relieving agent resumes from tokens, not tribal knowledge |
+| A growing season | planting to harvest, NDVI, soil, and rainfall land as signed facts; "stress began in week 23" resolves to the exact readings next spring |
+| A forest baseline held for years | canopy and loss-year facts cited in every annual report, re-checkable by any auditor without trusting the author's laptop |
+| Weather-dependent operations | the forecast the agent acted on is pinned at decision time (`as_of_signed_at`), so "what did we know when we launched" has an answer months later |
+| Lending and collateral | a parcel's state on origination date stays citable for the life of the loan; point-in-time recall replays it without hindsight |
+| Insurance | the state on the policy date and on the claim date: two tokens, one comparison, no argument about which map version anyone used |
+
 <p align="center">
   <img src="docs/diagrams/png/36-memory-outlives-the-context-window.png" width="820" alt="Memory outlives the context window: as the conversation is compacted turn after turn, payloads fall out of context, the one-line emem:fact token survives, and after compaction it re-hydrates from the shared memory to the exact signed bytes." />
 </p>
@@ -116,6 +127,7 @@ Or skip the menu: `emem_ask` takes a plain-language question and returns a signe
 3. Every record names its source, its versioned algorithm, and its provenance class, so you know whether a value is recomputable from raw data or trusted through a model or a person.
 4. A missing value is a signed absence with a typed reason, never a bare 404.
 5. Nothing is overwritten. Later records supersede; disagreement between writers is kept and scored as evidence.
+6. An append-only transparency log (RFC 6962) with witness co-signing records every attestation batch, so a responder cannot tell two clients two different histories. Pin a signed tree head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), then prove the log only grew.
 
 The signature proves who attested a record and that the bytes never changed, not that the value is objectively true; confidence, uncertainty, and provenance travel with it. Deeper: [how it works](https://emem.dev/how-it-works) with live consoles, [the formal model](docs/model.md), [the wire spec](https://emem.dev/spec.md).
 
