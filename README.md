@@ -45,24 +45,24 @@ One line: the address of a place plus the fingerprint of one signed observation 
 
 | Your problem | What survives |
 |---|---|
-| Context compaction eats verified detail | the 84-char token outlives every summarization pass and re-hydrates to the exact signed bytes |
-| Crash or restart mid-task | notes hold tokens, not payloads; the restarted agent resumes by resolving, not by redoing the work |
-| Model swapped mid-project | the address is derived from the bytes, not from who asked; the successor model resolves the same tokens identically |
-| Subagent fan-out and join | workers receive and return tokens instead of payload copies; the join step resolves and verifies, contexts stay small |
-| "Did I already compute this?" | recall is ensure, not get: what exists is reused (`was_cached`), what is missing is fetched and signed once, for everyone |
-| "Is what I know still valid?" | `/v1/temporal_route` scores per-band staleness and says cite it or refetch it, without re-reading everything |
-| Robot reboot or a new unit joining the fleet | landmarks are `emem:entity:` identities and hazards signed facts at drift-free addresses; relocalize by resolving, merge maps across vendors by verifying, not trusting |
+| Context compaction quietly turns your agent's verified details into paraphrase | the 84-char token outlives every summarization pass and re-hydrates to the exact signed bytes |
+| A crash or restart lands mid-task and the transcript is gone | notes hold tokens, not payloads; the restarted agent resumes by resolving, not redoing |
+| The model gets swapped or upgraded halfway through the project | the address derives from the bytes, not from who asked; the successor resolves the same tokens identically |
+| Subagents fan out and the join step drowns in payload copies | workers receive and return tokens; the join resolves and verifies, contexts stay small |
+| "Did I, or anyone, already compute this?" asked on every loop | recall is ensure, not get: what exists is reused (`was_cached`), what is missing is fetched and signed once |
+| "Is what I knew last week still valid?" with no cheap way to answer | `/v1/temporal_route` scores per-band staleness: cite it or refetch it, no full re-read |
+| A robot reboots, or a unit from another vendor joins the fleet | landmarks are `emem:entity:` identities at drift-free addresses; relocalize by resolving, merge maps by verifying |
 
 **Long-horizon business tasks**, the same survival at business length:
 
 | Task | What the memory does |
 |---|---|
-| Area watch (ISR, disaster, conservation) | months of signed change evidence per cell; every alert cites the exact facts it fired on, and a relieving agent resumes from tokens, not tribal knowledge |
-| Autonomous inspection rounds | a fleet inspects pipelines, rail, or solar fields quarter after quarter; findings are signed facts at fixed addresses, and a contractor handover keeps every prior finding citable |
-| A growing season | planting to harvest, NDVI, soil, and rainfall land as signed facts; "stress began in week 23" resolves to the exact readings next spring |
-| A forest baseline held for years | canopy and loss-year facts cited in every annual report, re-checkable by any auditor without trusting the author's laptop |
-| Weather-dependent operations | the forecast the agent acted on is pinned at decision time (`as_of_signed_at`), so "what did we know when we launched" has an answer months later |
-| Lending, collateral, insurance | a parcel's state on the origination, policy, or claim date stays citable for years; point-in-time recall replays it without hindsight |
+| An area watch that runs for months (ISR, disaster response, conservation) | signed change evidence accrues per cell; every alert cites the facts it fired on, and a relieving agent resumes from tokens |
+| Autonomous inspection rounds over pipelines, rail, or solar fields | findings land as signed facts at fixed addresses, quarter after quarter; a contractor handover keeps every prior finding citable |
+| A growing season managed end to end, planting to harvest | NDVI, soil, and rainfall land as signed facts; "stress began in week 23" resolves to the exact readings next spring |
+| A forest baseline that must hold across years of annual reports | canopy and loss-year facts stay citable and re-checkable by any auditor, without trusting the author's laptop |
+| Operations that commit real resources on a forecast | the forecast acted on is pinned at decision time (`as_of_signed_at`); "what did we know when we launched" has an answer months later |
+| Lending, collateral, and insurance decisions tied to a date | a parcel's state on the origination, policy, or claim date stays citable for years; point-in-time recall replays it without hindsight |
 
 <p align="center">
   <img src="docs/diagrams/png/36-memory-outlives-the-context-window.png" width="820" alt="Memory outlives the context window: as the conversation is compacted turn after turn, payloads fall out of context, the one-line emem:fact token survives, and after compaction it re-hydrates from the shared memory to the exact signed bytes." />
