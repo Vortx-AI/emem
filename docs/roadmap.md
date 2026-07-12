@@ -33,7 +33,6 @@ The staged work from here, building on those pieces:
 
 Federate later; the fact ids will not move. Near-term work is tracked in [issues](https://github.com/Vortx-AI/emem/issues).
 
-<p align="center"><img src="diagrams/federation.png" width="720" alt="Roadmap: many independent emem responders sharing one address space, resolving the same content ids byte-for-byte and recording where they disagree." /></p>
 
 ## Open research
 
