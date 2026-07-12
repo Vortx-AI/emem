@@ -1495,21 +1495,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     </div>
     <div class="go"><a href="/verify">verify a receipt &rarr;</a><a href="/whitepaper">the trust model &rarr;</a></div>
   </div>
-  <div class="latent-band" aria-label="where the latent comes from">
-    <p class="lb-lead">For the encoder pipelines, what reaches emem is a model-derived latent representation, not raw imagery; scalar bands (elevation, weather, indices) arrive as plain values. Either way the encoding travels and the pixels stay at the source.</p>
-    <div class="latent-cards">
-      <a class="lcard" href="/how-it-works#latent-origin">
-        <span class="lc-k">where the latent comes from</span>
-        <span class="lc-t">The encoder runs at the source and emits a vector. emem is the open, signed decoder for that vector, not another place to push pixels.</span>
-        <span class="lc-go">the split &rarr;</span>
-      </a>
-      <a class="lcard" href="/how-it-works#embedding-first">
-        <span class="lc-k">embedding-first</span>
-        <span class="lc-t">The embedding is what agents read, so it is what emem signs: stored, indexed, and content-addressed at the cell it describes, with its provenance class attached.</span>
-        <span class="lc-go">embedding-first &rarr;</span>
-      </a>
-    </div>
-  </div>
+  
 </section>
 <div class="mith-div"><span class="gem"></span></div>
 
@@ -2043,6 +2029,21 @@ input::placeholder{color:var(--mute,#7a7363)}
     <p class="cap">Every answer is reproducible, not just signed: the same cell, band, and time resolve to byte-identical bytes with the same content id on any conformant responder, and deterministic bands recompute from the cited raw source. Recompute the blake3 id, check the ed25519 signature, and the answer holds with no key, no account, and no callback to us.</p>
     <div class="go"><a href="/verify">verify a receipt yourself &rarr;</a><a href="/whitepaper">the federation design &rarr;</a></div>
     <p class="bench-line">Measured on the production node, 2026-07-11: warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node. Method and full table: <a href="/docs/benchmarks.html">benchmarks</a>.</p>
+  </div>
+  <div class="latent-band" aria-label="where the latent comes from">
+    <p class="lb-lead">The substrate today is open satellite observation. For the encoder pipelines, what reaches emem is a model-derived latent representation, not raw imagery; scalar bands arrive as plain values; either way the encoding travels and the pixels stay at the source. Next, on the roadmap: fixed sensors, drones, robot fleets, machines, and government registries, with location as the first key throughout.</p>
+    <div class="latent-cards">
+      <a class="lcard" href="/how-it-works#latent-origin">
+        <span class="lc-k">where the latent comes from</span>
+        <span class="lc-t">The encoder runs at the source and emits a vector. emem is the open, signed decoder for that vector, not another place to push pixels.</span>
+        <span class="lc-go">the split &rarr;</span>
+      </a>
+      <a class="lcard" href="/how-it-works#embedding-first">
+        <span class="lc-k">embedding-first</span>
+        <span class="lc-t">The embedding is what agents read, so it is what emem signs: stored, indexed, and content-addressed at the cell it describes, with its provenance class attached.</span>
+        <span class="lc-go">embedding-first &rarr;</span>
+      </a>
+    </div>
   </div>
 </section>
 <div class="mith-div"><span class="gem"></span></div>

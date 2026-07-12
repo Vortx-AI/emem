@@ -93,3 +93,28 @@ anyone's word for it.
   vector store gives you.
 - [Connect & evolve](./connect-and-evolve.md): how facts link to each
   other and how the corpus improves over time.
+
+## Where it sits next to what you already run
+
+emem does not replace your vector store. It is the layer under it for facts about the physical world.
+
+| | emem | Vector DB | RAG pipeline | Tile / catalog API |
+|---|---|---|---|---|
+| Shared across agents and orgs | one memory, any reader | within one deployment | within one app | reads only |
+| Verifiable offline | ed25519 + content id, no account | no | no | no |
+| Content-addressed | id = hash of the bytes | ids are arbitrary | no | paths are positional |
+| Empty answer | signed absence, typed reason | empty result set | empty retrieval | `404` |
+| Source disagreement | kept and scored | duplicates or last write | up to the app | not modeled |
+| Handing one fact to another agent | one short token | share credentials or re-embed | resend the text | send URL and hope it is stable |
+| Auth to read | none | usually an API key | app-specific | usually an account |
+
+## An unsigned memory can be poisoned
+
+Published work on memory-injection attacks (MINJA, NeurIPS 2025)
+reports a 95% success rate at planting false records in a conventional
+agent memory store through queries alone. Signatures do not make a
+writer honest, but they pin every record to a key: in emem a planted
+fact is attributable, scoreable against other writers, and
+supersedable, instead of anonymous and silently trusted. Policy for
+which writers to trust stays with the reader.
+

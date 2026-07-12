@@ -17504,7 +17504,8 @@ fn splats_mime(path: &str) -> &'static str {
 async fn splats_home() -> Response {
     // temporary (307), not permanent (308): browsers cache 308 indefinitely, which would
     // pin the default world in clients even after we change it here.
-    Redirect::temporary("/splats/viewer/temporal.html?world=../world3d/").into_response()
+    // Land on the newest flagship world — Har Ki Pauri (Ganges 4D, entity pins, theme fabric).
+    Redirect::temporary("/splats/viewer/temporal.html?world=../world_haridwar/").into_response()
 }
 
 async fn serve_splats_file(Path(path): Path<String>, headers: HeaderMap) -> Response {

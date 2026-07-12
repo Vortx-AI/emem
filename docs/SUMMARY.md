@@ -36,6 +36,7 @@
 - [Errors](./errors.md)
 - [Self-host](./self-host.md)
 - [Benchmarks](./benchmarks.md)
+- [Limits and roadmap](./roadmap.md)
 - [Architecture](./developers/architecture.md)
 - [Data sources](./developers/data-sources.md)
 - [Developing](./developers/developing.md)

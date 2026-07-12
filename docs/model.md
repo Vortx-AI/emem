@@ -169,7 +169,10 @@ One scope note, taken from review: "memory for long-horizon agents" is
 one application of this substrate, not its definition. The architecture
 is meant to stay valuable even if today's agents are replaced by a
 different class of systems; durable, verifiable, reusable state about
-the physical world is the invariant.
+the physical world is the invariant. The same invariant is what admits
+the next substrates (fixed sensors, drones, robot fleets, machines,
+government registries), each a written profile over the same attest,
+recall, cite, verify path, with location as the first key.
 
 ### The atom, answered
 
