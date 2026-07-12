@@ -33,6 +33,8 @@ emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45
 
 One line: the address of a place plus the fingerprint of one signed observation there. It is 84 characters, about 50 BPE tokens; the full signed record it stands in for is about 1,600. An agent keeps the line and drops the payload. Any agent, any model, any month later resolves the line back to the exact same bytes and re-checks the signature without trusting whoever sent it.
 
+In practice your agent runs four verbs: locate a place, recall its signed facts, reason over them, and cite the tokens in its output. Verification is the receiver's single call.
+
 ## When the token earns its keep
 
 **A long task survives its own context window.** The harness compacts, the session ends, the model gets swapped. A paraphrase drifts; the token does not. After compaction it re-hydrates to the exact signed value, signature still checking. Record it once, cite it forever.
