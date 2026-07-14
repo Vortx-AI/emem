@@ -118,7 +118,7 @@ live try-it drawer. Press `?` for the keyboard shortcut sheet.
 ## Try-it drawer (`T`)
 
 A slide-out drawer exposes 20 primitives the page knows about (the full
-agent surface has 88 MCP tools (13 core, 75 extended), discover at `GET /v1/tools`). For each:
+agent surface has 89 MCP tools (14 core, 75 extended), discover at `GET /v1/tools`). For each:
 
 - pre-filled JSON request body seeded from the corpus this responder
   actually serves (densest cell, top band)

@@ -41,6 +41,61 @@ pub struct StacItem {
     pub assets: std::collections::BTreeMap<String, String>,
     /// Raw collection name (`sentinel-2-l2a`, `sentinel-1-grd`, …).
     pub collection: String,
+    /// `s2:processing_baseline` verbatim, e.g. `"05.11"`. Sentinel-2 only,
+    /// and `None` when the catalogue does not publish the property (early
+    /// L2A items predate it). The baseline decides how a raw ESA DN maps to
+    /// reflectance: from baseline 04.00 (2022-01-25) onward ESA encodes
+    /// L2A reflectance with a `BOA_ADD_OFFSET` of -1000 DN, so
+    /// `reflectance = (DN - 1000) * 1e-4` against a catalogue that serves
+    /// ESA's DNs unaltered. Element84 removes that offset before publishing
+    /// (see [`s2_dn_is_harmonised`]), which is why the value path scales by
+    /// 1e-4 with no offset term. Parsed and carried so a future provider
+    /// swap has the fact available to branch on rather than having to
+    /// guess; nothing is defaulted, because a wrong default here biases
+    /// every index silently.
+    #[serde(default)]
+    pub processing_baseline: Option<String>,
+}
+
+/// The ESA processing baseline from which Sentinel-2 L2A reflectance
+/// carries a `BOA_ADD_OFFSET` of -1000 DN. Baselines are published as
+/// zero-padded `"MM.mm"` strings, which compare correctly as strings.
+/// Source: ESA's 2022-01-25 baseline 04.00 product notice.
+pub const S2_BOA_OFFSET_BASELINE: &str = "04.00";
+
+/// The `BOA_ADD_OFFSET` ESA applies from [`S2_BOA_OFFSET_BASELINE`] onward,
+/// in DN. A catalogue that serves ESA's DNs verbatim needs this ADDED to the
+/// DN before the 1e-4 scale; a harmonised catalogue has already done it.
+pub const S2_BOA_ADD_OFFSET_DN: f64 = -1000.0;
+
+/// Does `search_url` serve Sentinel-2 L2A DNs with ESA's `BOA_ADD_OFFSET`
+/// already folded in?
+///
+/// Element84's AWS Open Data mirror harmonises the L2A DN range across the
+/// baseline 04.00 boundary: it publishes `DN_esa - 1000` for post-baseline
+/// scenes so that a single `DN * 1e-4` reads correctly for every scene in
+/// the archive. Microsoft Planetary Computer publishes ESA's DNs unaltered,
+/// so the same `DN * 1e-4` over an MPC scene overstates reflectance by 0.1
+/// in every band.
+///
+/// That difference cancels in no band-ratio index. NDVI is invariant to a
+/// common *scale* on NIR and red but not to a common *offset*: adding `k` to
+/// both bands changes `(NIR-RED)/(NIR+RED)` to
+/// `(NIR-RED)/(NIR+RED+2k)`, which pulls the ratio toward zero. A +1000 DN
+/// offset on both bands biases NDVI toward zero by roughly a third at
+/// typical canopy reflectance. The bias is smooth, plausible-looking, and
+/// invisible without a reference, which is why the value path asserts the
+/// provider instead of trusting it.
+pub fn s2_dn_is_harmonised(search_url: &str) -> bool {
+    search_url == STAC_ELEMENT84_V1
+}
+
+/// Does an item on this baseline carry ESA's `BOA_ADD_OFFSET`? `None`
+/// (baseline not published) returns `None`: the honest answer is "unknown",
+/// not "no". Callers reading a harmonised catalogue do not need to ask.
+pub fn s2_baseline_has_boa_offset(processing_baseline: Option<&str>) -> Option<bool> {
+    let b = processing_baseline?;
+    Some(b >= S2_BOA_OFFSET_BASELINE)
 }
 
 /// Request a single best item from the STAC API at the given (lng, lat)
@@ -143,6 +198,12 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         .get("proj:epsg")
         .and_then(|v| v.as_u64())
         .map(|n| n as u32);
+    // Absent on non-Sentinel-2 collections and on early L2A items. Left as
+    // `None` rather than defaulted: see `StacItem::processing_baseline`.
+    let processing_baseline = props
+        .get("s2:processing_baseline")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let mut assets = std::collections::BTreeMap::new();
     if let Some(a) = f.get("assets").and_then(|a| a.as_object()) {
         for (k, v) in a {
@@ -158,6 +219,7 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         epsg,
         assets,
         collection: collection.to_string(),
+        processing_baseline,
     }
 }
 
@@ -462,6 +524,93 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_the_s2_processing_baseline_property() {
+        // Property shape as Element84 publishes it on a sentinel-2-l2a item.
+        let feat = json!({
+            "id": "S2C_30UXC_20260425_0_L2A",
+            "properties": {
+                "datetime": "2026-04-25T11:16:19Z",
+                "eo:cloud_cover": 3.1,
+                "proj:epsg": 32630,
+                "s2:processing_baseline": "05.11"
+            },
+            "assets": {"red": {"href": "https://example.invalid/B04.tif"}}
+        });
+        let item = parse_stac_feature(&feat, "sentinel-2-l2a");
+        assert_eq!(item.processing_baseline.as_deref(), Some("05.11"));
+        assert_eq!(
+            s2_baseline_has_boa_offset(item.processing_baseline.as_deref()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn missing_processing_baseline_stays_unknown_not_defaulted() {
+        // Collections other than Sentinel-2 (and early L2A items) omit the
+        // property. It must read back as "unknown", never as a guessed
+        // baseline: a wrong guess silently biases every index.
+        let feat = json!({
+            "id": "S1A_IW_GRDH_20260425",
+            "properties": {"datetime": "2026-04-25T11:16:19Z", "proj:epsg": 32630},
+            "assets": {}
+        });
+        let item = parse_stac_feature(&feat, "sentinel-1-rtc");
+        assert_eq!(item.processing_baseline, None);
+        assert_eq!(s2_baseline_has_boa_offset(None), None);
+    }
+
+    #[test]
+    fn boa_offset_applies_from_baseline_04_00_onward() {
+        // The 2022-01-25 boundary: 03.01 has no offset, 04.00 is the first
+        // baseline that does, and every later baseline keeps it.
+        assert_eq!(s2_baseline_has_boa_offset(Some("02.07")), Some(false));
+        assert_eq!(s2_baseline_has_boa_offset(Some("03.01")), Some(false));
+        assert_eq!(s2_baseline_has_boa_offset(Some("04.00")), Some(true));
+        assert_eq!(s2_baseline_has_boa_offset(Some("05.11")), Some(true));
+    }
+
+    #[test]
+    fn only_element84_serves_harmonised_s2_dns() {
+        // The invariant the Sentinel-2 value path is built on. Element84
+        // removes ESA's BOA_ADD_OFFSET before publishing, so `DN * 1e-4` is
+        // correct with no offset term. MPC serves ESA's DNs verbatim, so the
+        // same arithmetic is wrong there by 0.1 reflectance per band.
+        assert!(s2_dn_is_harmonised(STAC_ELEMENT84_V1));
+        assert!(!s2_dn_is_harmonised(STAC_MPC_V1));
+        // Anything unrecognised is not assumed harmonised.
+        assert!(!s2_dn_is_harmonised(
+            "https://stac.example.invalid/v1/search"
+        ));
+    }
+
+    #[test]
+    fn ndvi_is_scale_invariant_but_not_offset_invariant() {
+        // Why the provider assertion exists rather than a comment. Synthetic
+        // DNs (not a measurement): a canopy-like NIR/red pair.
+        let ndvi = |nir: f64, red: f64| (nir - red) / (nir + red);
+        let (nir_dn, red_dn) = (3000.0, 1000.0);
+        let truth = ndvi(nir_dn * 1e-4, red_dn * 1e-4);
+        // Scale cancels: the DN-domain ratio equals the reflectance-domain one.
+        assert!((ndvi(nir_dn, red_dn) - truth).abs() < 1e-12);
+        // Offset does not cancel. Reading ESA-offset DNs (what MPC serves)
+        // as if they were harmonised biases NDVI toward zero.
+        let biased = ndvi(
+            (nir_dn - S2_BOA_ADD_OFFSET_DN) * 1e-4,
+            (red_dn - S2_BOA_ADD_OFFSET_DN) * 1e-4,
+        );
+        assert!(
+            biased.abs() < truth.abs(),
+            "unremoved BOA offset must pull NDVI toward zero: biased={biased} truth={truth}"
+        );
+        // Removing the offset recovers the truth exactly.
+        let corrected = ndvi(
+            ((nir_dn - S2_BOA_ADD_OFFSET_DN) + S2_BOA_ADD_OFFSET_DN) * 1e-4,
+            ((red_dn - S2_BOA_ADD_OFFSET_DN) + S2_BOA_ADD_OFFSET_DN) * 1e-4,
+        );
+        assert!((corrected - truth).abs() < 1e-12);
+    }
 
     #[test]
     fn rfc3339_utc_parses_the_mpc_expiry_shape() {

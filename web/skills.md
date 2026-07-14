@@ -375,7 +375,10 @@ verification, or similarity in a Claude Code session. See each
 - `https://emem.dev/agents.md`: consumer-agent ontology + recipes
 - `https://emem.dev/humans`: interactive console where every `/v1/*`
   call prints in a live log pane
-- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint (88 tools: 13 core, 75 extended)
+- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint. 89 tools: 14 core, 75
+  extended. `tools/list` advertises the core tier; `https://emem.dev/mcp/full`
+  advertises all 89, and `tools/call` reaches every tool from either. Call
+  `emem_tools` to map the surface or fetch one tool's schema.
 
 ## License
 

@@ -223,13 +223,24 @@ write path from scratch.
 ## MCP tool registry
 
 - Canonical catalog: `pub const TOOLS: &[ToolDescriptor]` in
-  `crates/emem-mcp/src/lib.rs:664`; `ToolDescriptor` struct at :31-68 (name,
+  `crates/emem-mcp/src/lib.rs:716`; `ToolDescriptor` struct at :31-68 (name,
   title, description, when_to_use, input_schema, level, category, four MCP
-  hint flags, tier). 88 tools: 13 core, 75 extended. Helpers: `lookup`
-  (:1593), `tools_at_level` (:1598), `tools_at_tier` (:1647).
+  hint flags, tier). 89 tools: 14 core, 75 extended. Helpers: `lookup`
+  (:1738), `tools_at_level` (:1743), `tools_at_tier` (:1792).
 - JSON-RPC dispatch and the REST mirror live in emem-api-rest
-  (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:13780`, `mcp_tool_call`
-  at :14870).
+  (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:14875`, `mcp_tool_call`
+  at :16177).
+- Two endpoints, one dispatcher: `/mcp` (`mcp_jsonrpc`) advertises the core
+  tier from `tools/list`, `/mcp/full` (`mcp_jsonrpc_full` at :14883)
+  advertises all 89. Both funnel into `mcp_jsonrpc_inner` (:14891) with a
+  different `default_tier`; see `MCP_CORE_ENDPOINT_TIER` (:14869) for why the
+  split exists and which earlier `nextCursor` attempt it supersedes. An
+  explicit `{"tier":...}` beats the endpoint default, and `tools/call`
+  dispatches every tool by name at either endpoint regardless of tier.
+- `emem_tools` (core) is the in-band catalog: `tools_catalog` at
+  `crates/emem-api-rest/src/lib.rs:16015`, backed by `CORE_LOOP` (emem-mcp
+  :1813) and `TOOL_GROUPS` (:1857), both asserted against `TOOLS` by unit
+  tests in the same file.
 - Handlers referenced by the upgrade plan: `emem_memory_contradictions` ->
   `crates/emem-primitives/src/memory_contradictions.rs:132` (severity :335);
   `emem_diff` -> `crates/emem-primitives/src/diff.rs:43`; emem:fact compose/parse
@@ -239,7 +250,7 @@ write path from scratch.
 
 ## Counts that CI does not guard
 
-`scripts/sync_counts.py --check` verifies the canonical counts (88 tools,
+`scripts/sync_counts.py --check` verifies the canonical counts (89 tools,
 103 /v1 paths, 46 sources, 43 slots, 124 wired bands, 160 algorithms, 27
 topics, 16 crates) against the registries and the live responder, but no CI
 workflow runs it. Run it manually after editing any doc that quotes a count.

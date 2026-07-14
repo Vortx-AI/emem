@@ -1222,6 +1222,9 @@ pub fn router(state: AppState) -> Router {
             post(post_temporal_route).get(get_temporal_route),
         )
         .route("/mcp", get(mcp_discover).post(mcp_jsonrpc))
+        // Same server, same dispatch; the only difference is how much of
+        // the catalog tools/list advertises. See MCP_CORE_ENDPOINT_TIER.
+        .route("/mcp/full", get(mcp_discover).post(mcp_jsonrpc_full))
         // A2A v1.2 Task adapter — accepts either a strict A2A JSON-RPC
         // `message/send` envelope or the friendlier `{skill, args}` shape,
         // dispatches to the underlying MCP tool, and returns an A2A
@@ -2157,7 +2160,11 @@ async fn security_headers_layer(
     // use; see `csp_header_value()` for the build. Drop new HTML
     // pages into `served_html_pages()` or their inline blocks will be
     // browser-blocked.
-    h.insert("content-security-policy", csp_header_value().clone());
+    // Don't clobber a CSP the handler already tailored to its own body (see `splats_html_csp`,
+    // which hashes a disk-served page's inline blocks). Only supply the default when absent.
+    if !h.contains_key("content-security-policy") {
+        h.insert("content-security-policy", csp_header_value().clone());
+    }
     // x-emem-version is *not* emitted globally — auditors flag it as
     // server-version disclosure on every response. The version is
     // intentionally re-emitted on /.well-known/emem.json (and only
@@ -2763,21 +2770,88 @@ fn csp_header_value() -> &'static HeaderValue {
             .iter()
             .map(|h| format!(" 'sha256-{h}'"))
             .collect();
-        let csp = format!(
-            "default-src 'self'; \
-             script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com{script_src_extra}; \
-             connect-src 'self' https://www.google-analytics.com https://esm.sh https://server.arcgisonline.com; \
-             img-src 'self' data: https:; \
-             style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
-             style-src-attr 'unsafe-inline'; \
-             font-src 'self' data: https://fonts.gstatic.com; \
-             worker-src 'self' blob:; \
-             frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
-             base-uri 'self'; \
-             form-action 'self'"
-        );
-        HeaderValue::from_str(&csp).expect("CSP header is ASCII")
+        HeaderValue::from_str(&build_csp(&script_src_extra, &style_src_extra))
+            .expect("CSP header is ASCII")
     })
+}
+
+/// The one CSP policy text, parameterised by the inline hashes to allow.
+///
+/// Split out of [`csp_header_value`] so pages we read from DISK at request time can be granted
+/// their own inline hashes without duplicating (and drifting from) the policy.
+fn build_csp(script_src_extra: &str, style_src_extra: &str) -> String {
+    format!(
+        "default-src 'self'; \
+         script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com{script_src_extra}; \
+         connect-src 'self' https://www.google-analytics.com https://esm.sh https://server.arcgisonline.com; \
+         img-src 'self' data: https:; \
+         style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
+         style-src-attr 'unsafe-inline'; \
+         font-src 'self' data: https://fonts.gstatic.com; \
+         worker-src 'self' blob:; \
+         frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
+         base-uri 'self'; \
+         form-action 'self'"
+    )
+}
+
+/// CSP for an HTML page served off disk from the splats site.
+///
+/// [`csp_header_value`] can only hash pages COMPILED INTO the binary; the splats viewer is read
+/// from `EMEM_SPLATS_DIR` per request, so its inline blocks were never in that set. The Spark
+/// viewer needs an inline `<script type="importmap">` (browsers do not support external import
+/// maps), and without a matching hash CSP silently drops it — the canvas appears but every bare
+/// specifier fails to resolve and no world ever loads.
+///
+/// Hashing the file we are about to send, rather than a constant baked in at build time, is what
+/// keeps `publish_splats.sh` live-immediately: change the viewer, and the next request just works
+/// with no emem rebuild or restart.
+fn splats_html_csp(html: &str) -> String {
+    let mut scripts = std::collections::BTreeSet::new();
+    let mut styles = std::collections::BTreeSet::new();
+    extract_inline_blocks(html, "script", |open_tag, body| {
+        if has_src_attr(open_tag) || body.trim().is_empty() {
+            return;
+        }
+        scripts.insert(sha256_b64(body));
+    });
+    extract_inline_blocks(html, "style", |_open_tag, body| {
+        if body.trim().is_empty() {
+            return;
+        }
+        styles.insert(sha256_b64(body));
+    });
+    let f = |set: &std::collections::BTreeSet<String>| -> String {
+        set.iter().map(|h| format!(" 'sha256-{h}'")).collect()
+    };
+    let script_hashes = f(&scripts);
+    let _ = f(&styles); // styles are injected at runtime by the renderer; see style-src below
+
+    // A GPU splat renderer needs things emem's document pages never do, so this policy is
+    // deliberately NOT `build_csp` — it is scoped to /splats only and each relaxation is load-
+    // bearing (verified against the Spark viewer in a headless browser, not guessed):
+    //   script-src 'wasm-unsafe-eval' + blob:  Spark compiles WASM and spawns worker code as blobs
+    //   connect-src data: blob:                its WASM arrives as a data: URI and workers fetch
+    //                                          via blob: — plain 'self' blocks both outright
+    //   style-src 'unsafe-inline'              the viewer injects CSS from JS at runtime, so the
+    //                                          hashes cannot be known ahead of time
+    //   img-src blob:                          CCTV frames + readback canvases
+    // Everything still defaults to 'self': no third-party script origin is permitted here, and
+    // this policy never applies outside the splats site.
+    format!(
+        "default-src 'self'; \
+         script-src 'self' 'wasm-unsafe-eval' blob:{script_hashes}; \
+         connect-src 'self' data: blob: https://emem.dev; \
+         img-src 'self' data: blob: https:; \
+         style-src 'self' 'unsafe-inline'; \
+         style-src-attr 'unsafe-inline'; \
+         font-src 'self' data:; \
+         worker-src 'self' blob:; \
+         child-src 'self' blob:; \
+         frame-ancestors 'self'; \
+         base-uri 'self'; \
+         form-action 'self'"
+    )
 }
 
 // ── Static page routes ───────────────────────────────────────────────────
@@ -4613,7 +4687,7 @@ async fn materializers(
                 "kernel_for_router": "wave_seasonal",
                 "fetch_strategy":    "stac_search + https_range_cog",
                 "fetch_bytes_per_cell": "~600 KB (IFD + 1 tile per band × 2 bands)",
-                "notes":             "Pure-Rust COG range read against AWS Open Data sentinel-cogs bucket. STAC search picks the latest scene <40% cloud that *contains* the point (intersects: Point); reflectance scale = 1e-4. NDVI = (B08 − B04) / (B08 + B04). No API key. Range read uses Predictor 2 (horizontal differencing) + Deflate decompression."
+                "notes":             "Pure-Rust COG range read against AWS Open Data sentinel-cogs bucket. STAC search picks the latest scene <40% cloud that *contains* the point (intersects: Point). Reflectance = DN × 1e-4 with no additive offset, which is correct because Element84 harmonises the L2A DN range: it removes ESA's BOA_ADD_OFFSET (−1000 DN from processing baseline 04.00, 2022-01-25) before publishing, so one scale reads the whole archive. Microsoft Planetary Computer serves ESA's DNs unaltered and would need the −1000 applied per item for baseline ≥ 04.00. The responder refuses to run this path against a non-harmonised catalogue rather than sign an offset-biased index. NDVI = (B08 − B04) / (B08 + B04). No API key. Range read uses Predictor 2 (horizontal differencing) + Deflate decompression."
             },
             {
                 "band":              "sentinel1_raw",
@@ -7693,6 +7767,77 @@ fn decode_class_value(band: &str, value_json: &JsonValue) -> Option<String> {
         .map(|(_, lab)| lab.to_string())
 }
 
+/// Position of the per-pixel SCL class in a Sentinel-2 fact's
+/// `derivation.args`, and the fn_key prefix that identifies such a fact.
+/// Both are set by `materialize_sentinel2_band_inner`; the index is
+/// positional in a signed array, so the two must move together.
+const S2_FN_KEY_PREFIX: &str = "sentinel2_l2a_";
+const S2_ARGS_SCL_INDEX: usize = 9;
+
+/// Is a vegetation index measuring vegetation over this SCL class?
+///
+/// `confidence` on a Sentinel-2 fact answers a *radiometric* question: is
+/// this pixel clean? Snow (11) is a clean pixel and is scored 0.95, which is
+/// correct. But `indices.ndvi` is a vegetation index, and NDVI over a
+/// snow-covered field measures snow. Those are different questions and the
+/// second one has no field on the fact, so an agent reading confidence 0.95
+/// on a January NDVI has no way to tell. This is that second question,
+/// surfaced next to the first rather than folded into it.
+///
+/// The split is emem's editorial reading of ESA's class semantics, not an
+/// ESA-published flag:
+///   - 4 vegetation, 5 bare soil → true. Both are land surfaces where NDVI
+///     reads what it claims to: vegetation, or its absence.
+///   - 6 water, 11 snow / ice → false. NDVI is a real number over both and
+///     measures neither vegetation nor its absence.
+///   - 2 cast shadows, 3 cloud shadows → false. Illumination, not surface,
+///     drives the value.
+///   - 7 cloud (low probability) → false. The pixel is judged cloud.
+///   - 0, 1, 8, 9, 10 → false, and unreachable here: `s2_scl_is_hard_reject`
+///     turns those into a signed Absence before any value is computed.
+fn s2_scl_vegetation_valid(scl: i64) -> bool {
+    matches!(scl, 4 | 5)
+}
+
+/// Build the `surface_class` block for a Sentinel-2 fact from the SCL class
+/// already signed into its `derivation.args`. `None` when the class is
+/// outside the documented 0..=11 range, which includes the -1 the
+/// materializer signs for "SCL was unavailable, confidence fell back to
+/// scene-level cloud_cover". An absent block is the honest rendering of
+/// that, rather than a class we did not measure.
+///
+/// Derived, never re-measured: the value comes from the signed args, so the
+/// block cannot disagree with the receipt.
+fn s2_surface_class_json(scl: i64) -> Option<JsonValue> {
+    let label = decode_class_value("s2.scl", &json!(scl))?;
+    Some(json!({
+        "scl":              scl,
+        "label":            label,
+        "vegetation_valid": s2_scl_vegetation_valid(scl),
+    }))
+}
+
+/// Read the per-pixel SCL class out of a serialized fact's
+/// `derivation.args`, if this is a Sentinel-2 fact that carries one.
+/// Tolerates both the flat wire form (`Fact` is internally tagged, so a
+/// Primary serializes with its fields at the top level) and the wrapped
+/// `{"Primary": {...}}` form, matching what `enrich_facts_inner` already
+/// does for `band` and `value`.
+fn s2_scl_from_fact_json(obj: &serde_json::Map<String, JsonValue>) -> Option<i64> {
+    let derivation = obj
+        .get("derivation")
+        .or_else(|| obj.get("Primary").and_then(|p| p.get("derivation")))?;
+    let fn_key = derivation.get("fn_key").and_then(|v| v.as_str())?;
+    if !fn_key.starts_with(S2_FN_KEY_PREFIX) {
+        return None;
+    }
+    derivation
+        .get("args")?
+        .as_array()?
+        .get(S2_ARGS_SCL_INDEX)?
+        .as_i64()
+}
+
 /// Build a `band_metadata` JSON block sourced from the cached band
 /// registry. Includes description / units / value_range / interpretation
 /// / pitfalls / references and, for categorical bands, a `class_decode`
@@ -7863,6 +8008,19 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
         if let Some(v) = value_for_decode {
             if let Some(label) = decode_class_value(&band, &v) {
                 obj.insert("value_decoded".into(), json!(label));
+            }
+        }
+        // `surface_class` for Sentinel-2 facts: the per-pixel SCL class the
+        // materializer probed and signed into derivation.args, lifted out of
+        // that positional array into a field an agent can read. Answers "is
+        // this NDVI measuring vegetation?", which `confidence` (radiometric
+        // cleanliness) deliberately does not. Independent of
+        // `with_band_metadata`: this is per-fact truth about one pixel, not
+        // a per-band constant, so the fan-out endpoints that hoist band
+        // metadata to the response root must still carry it per fact.
+        if let Some(scl) = s2_scl_from_fact_json(obj) {
+            if let Some(block) = s2_surface_class_json(scl) {
+                obj.insert("surface_class".into(), block);
             }
         }
         if with_band_metadata {
@@ -14740,12 +14898,85 @@ fn iso8601_now_utc() -> String {
 /// (a shared identity layer that stops referential drift), names the primary
 /// mint -> cite -> resolve -> verify loop, and marks the raw fetchers as
 /// secondary populators. Keep it in sync with the `agent_card` purpose.
-const MCP_INSTRUCTIONS: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single token that resolves to the byte-identical signed object and verifies offline with no shared trust, so two models grounded on the same token reason about the same object rather than two paraphrases of it.\n\nPrimary loop, reach for these first:\n1. Name a thing. emem_entity mints or returns a canonical object identity (emem:entity:) from a place, cell, or lat/lng. emem_entity_resolve converges a fuzzy phrasing onto an object another agent already registered, so you co-refer instead of re-inventing. emem_entity_link attests that two phrasings mean the same object.\n2. Ground a place. emem_locate returns the canonical cell64 for a place; emem_recall returns the signed facts there and auto-fetches on a miss.\n3. Cite it. emem_memory_token composes emem:fact:<cell64>:<fact_cid> for one fact, emem_memory_bundle composes emem:bundle: for many. Hand the token to any agent or log it in an audit.\n4. Resolve and check. emem_memory_token_resolve and emem_entity_resolve dereference a handle back to the identical signed body; emem_verify_receipt (or /verify in a browser) checks the ed25519 receipt without trusting the server.\n5. Detect drift. emem_memory_contradictions surfaces where signed sources disagree at the same address.\n6. Weigh trust. Every fact's provenance block says how the value was produced; model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source.\nWrite durable agent notes with the memory_* file verbs and cite them the same way.\n\nEverything else (emem_ndvi, emem_weather, emem_soil, emem_elevation, emem_lst, emem_water, emem_forest, and the hunter and physics-solver tools) populates the memory with attested Earth-observation facts. Reach for those to ground a fact, not as the point of the system. Call tools/list with {\"tier\":\"core\"} for just the essentials. No API keys for reads.";
+/// What emem is. Editorial framing, so it is prose; the loop that follows
+/// it is not, and is serialized from `emem_mcp::CORE_LOOP`.
+const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single token that resolves to the byte-identical signed object and verifies offline with no shared trust, so two models grounded on the same token reason about the same object rather than two paraphrases of it.";
+
+/// The `initialize` instructions an MCP host puts in front of the model.
+///
+/// Built rather than stored, for two reasons. The loop steps come from
+/// `emem_mcp::CORE_LOOP`, so this text and the `emem_tools` catalog cannot
+/// describe different loops. And the closing paragraph depends on which
+/// endpoint the client reached: telling an agent on `/mcp` that it can see
+/// all 88 tools would be false, and telling an agent on `/mcp/full` to go
+/// find the rest would be noise.
+fn mcp_instructions(default_tier: &str) -> String {
+    let mut s = String::with_capacity(4096);
+    s.push_str(MCP_PREAMBLE);
+    s.push_str("\n\nThe loop. Walk it in order; everything else exists to serve it:\n");
+    for (step, tool, why) in emem_mcp::CORE_LOOP {
+        s.push_str(&format!("{step}. {tool} — {why}\n"));
+    }
+    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create.\n\n");
+
+    let total = emem_mcp::TOOLS.len();
+    let core = emem_mcp::tools_at_tier("core").len();
+    match default_tier {
+        "core" => s.push_str(&format!(
+            "This endpoint advertises the {core} tools of the loop, not the full catalog of {total}. That is deliberate: loading every descriptor costs roughly 190 KB of your context whether or not you use it. The other {} tools are the Earth-observation, search, embedding and transparency-log surface that populates the memory. They still exist, and tools/call still dispatches them by name. To find one, call emem_tools: with no arguments it maps the whole surface, with q it searches, and with name it returns one tool's exact input schema and a runnable example. For a one-shot answer about a place without choosing a primitive at all, use emem_ask. If you would rather have all {total} registered as callable tools, reconnect to this server at /mcp/full. No API keys for reads.",
+            total - core
+        )),
+        _ => s.push_str(&format!(
+            "This endpoint advertises all {total} tools. Everything outside the loop (emem_ndvi, emem_weather, emem_soil, emem_elevation, emem_lst, emem_water, emem_forest, the hunter and the physics solvers) populates the memory with attested Earth-observation facts: reach for those to ground a fact, not as the point of the system. emem_tools maps the surface by what each tool is for. If {total} tool descriptors is more context than you want, connect at /mcp instead, which advertises the {core} loop tools and reaches the rest through emem_tools and emem_ask. No API keys for reads."
+        )),
+    }
+    s
+}
+
+/// Discovery tier the bare `/mcp` endpoint advertises.
+///
+/// An MCP host puts every advertised descriptor into the model's context
+/// at connect. The full catalog costs ~190 KB there, which is a tax on
+/// every conversation whether or not it ever touches Earth observation
+/// (reported from outside in Vortx-AI/emem#9). So `/mcp` advertises the
+/// loop and `emem_tools` describes the rest.
+///
+/// This was tried once before by making the no-param `tools/list` default
+/// to core and paging the remainder behind `nextCursor`, and it was
+/// reverted: hosts do not follow a non-standard cursor, so the other
+/// tools became undiscoverable. The difference now is that discovery does
+/// not depend on the cursor. `emem_tools` is itself core and describes the
+/// whole surface, `emem_ask` and `emem_intent` reach the data tools
+/// server-side, and a host that wants every tool registered connects to
+/// `/mcp/full`. `tools/call` still dispatches all 88 by name at either
+/// endpoint, so nothing here removes a capability.
+const MCP_CORE_ENDPOINT_TIER: &str = "core";
+
+/// Discovery tier for `/mcp/full`: the complete catalog, which is what
+/// `/mcp` served before the split.
+const MCP_FULL_ENDPOINT_TIER: &str = "all";
 
 async fn mcp_jsonrpc(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
+) -> axum::response::Response {
+    mcp_jsonrpc_inner(s, headers, body, MCP_CORE_ENDPOINT_TIER).await
+}
+
+async fn mcp_jsonrpc_full(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    mcp_jsonrpc_inner(s, headers, body, MCP_FULL_ENDPOINT_TIER).await
+}
+
+async fn mcp_jsonrpc_inner(
+    s: AppState,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+    default_tier: &str,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     // DNS-rebinding defense — see `mcp_origin_allowed` above. We check
@@ -14880,17 +15111,17 @@ async fn mcp_jsonrpc(
                 // model gets, so it states what emem is FOR (shared identity /
                 // anti-drift), not just that it exists. Kept in sync with the
                 // agent_card `purpose` and the primary/secondary tool split.
-                "instructions": MCP_INSTRUCTIONS,
+                "instructions": mcp_instructions(default_tier),
             }))
         }
         "tools/list" => {
-            // Return the FULL catalog (all 85 tools) by default — that is what
-            // a standard MCP client expects from a no-param tools/list, and
-            // most hosts do not follow a non-standard nextCursor, so a
-            // core-only default left 70 tools undiscoverable. Token-conscious
-            // callers can still narrow with {"tier":"core"} (the 10 essentials)
-            // or {"tier":"extended"}. tools/call dispatches by name against ALL
-            // tools regardless of tier.
+            // What a no-param tools/list returns is the endpoint's choice:
+            // `/mcp` advertises the core loop, `/mcp/full` the whole
+            // catalog. See MCP_CORE_ENDPOINT_TIER for why, including the
+            // earlier attempt this supersedes. An explicit {"tier": ...}
+            // always wins over the endpoint default, so `/mcp` with
+            // {"tier":"all"} is still the full 88. tools/call dispatches by
+            // name against ALL tools at either endpoint regardless of tier.
             let requested_tier = req
                 .params
                 .as_ref()
@@ -14910,9 +15141,25 @@ async fn mcp_jsonrpc(
             } else if cursor_tier == "tier:core" {
                 "core"
             } else {
-                "all"
+                default_tier
             };
-            let tools = emem_mcp::tools_at_tier(effective_tier);
+            // `{"bundle": "robotics"}` registers exactly the tools that job
+            // needs, which is the honest middle between 14 and 89: a host
+            // that knows what it is doing should not have to choose between
+            // a loop it has outgrown and a catalog it will never use. An
+            // unknown bundle name yields nothing, so it fails visibly
+            // rather than silently falling back to a different surface.
+            let requested_bundle = req
+                .params
+                .as_ref()
+                .and_then(|p| p.get("bundle"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let tools = if requested_bundle.is_empty() {
+                emem_mcp::tools_at_tier(effective_tier)
+            } else {
+                emem_mcp::tools_in_bundle(requested_bundle)
+            };
             let tool_json: Vec<JsonValue> = tools.iter().map(|t| json!({
                 "name": t.name,
                 "title": t.title,
@@ -14933,6 +15180,17 @@ async fn mcp_jsonrpc(
                     "category":        t.category,
                     "level":           t.level,
                     "tier":            t.tier,
+                },
+                // `_meta` is the MCP-standard slot for server-defined
+                // metadata, namespaced by reverse-DNS. Shape answers "what
+                // does this return", which is the question an agent is
+                // actually asking when it asks what to call; bundles answer
+                // "I am doing X, what do I need". Both ride here rather
+                // than in `annotations`, which the spec reserves for the
+                // hint set above.
+                "_meta": {
+                    "dev.emem/shape":   emem_mcp::shape_of(t.name),
+                    "dev.emem/bundles": emem_mcp::bundles_of(t.name),
                 },
             })).collect();
             let total = emem_mcp::TOOLS.len();
@@ -15857,6 +16115,237 @@ fn mcp_args_to_query(args: &JsonValue) -> std::collections::HashMap<String, Stri
     m
 }
 
+/// `emem_tools`: the map of the tool surface, serialized from the same
+/// `emem_mcp` tables `tools/list` reads.
+///
+/// This exists because the default endpoint advertises the core loop, not
+/// all 88 tools. A tool an agent cannot see is a tool it concludes does
+/// not exist, so exactly one visible tool has to be able to describe the
+/// rest. The catalog defaults to `tier: all` for that reason: narrowing
+/// discovery is the endpoint's job, and this is the escape hatch from it.
+fn tools_catalog(args: &JsonValue) -> JsonValue {
+    let want_name = args.get("name").and_then(|v| v.as_str());
+    let q = args
+        .get("q")
+        .and_then(|v| v.as_str())
+        .map(str::to_lowercase)
+        .unwrap_or_default();
+    let want_cat = args.get("category").and_then(|v| v.as_str());
+    let tier = args.get("tier").and_then(|v| v.as_str()).unwrap_or("all");
+    let want_shape = args.get("shape").and_then(|v| v.as_str());
+    let want_bundle = args.get("bundle").and_then(|v| v.as_str());
+
+    let cat_of = |t: &emem_mcp::ToolDescriptor| {
+        serde_json::to_value(t.category)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_else(|| "other".into())
+    };
+
+    // One named tool: hand back everything needed to call it, so the
+    // caller never has to load the rest of the catalog.
+    if let Some(n) = want_name {
+        let Some(t) = emem_mcp::TOOLS.iter().find(|t| t.name == n) else {
+            let near: Vec<&str> = emem_mcp::TOOLS
+                .iter()
+                .map(|t| t.name)
+                .filter(|c| c.contains(n) || n.contains(c))
+                .take(5)
+                .collect();
+            return json!({
+                "schema": "emem.tools.v1",
+                "error": format!("no tool named `{n}` on this responder"),
+                "did_you_mean": near,
+                "hint": "Call emem_tools with no arguments for the whole map, or `q` to search.",
+            });
+        };
+        return json!({
+            "schema": "emem.tools.v1",
+            "tool": {
+                "name": t.name,
+                "title": t.title,
+                "description": t.description,
+                "when_to_use": t.when_to_use,
+                "input_schema": serde_json::from_str::<JsonValue>(t.input_schema)
+                    .unwrap_or(JsonValue::Null),
+                "example_args": serde_json::from_str::<JsonValue>(t.example_args)
+                    .unwrap_or(JsonValue::Null),
+                "category": cat_of(t),
+                "tier": t.tier,
+                "annotations": {
+                    "readOnlyHint": t.read_only_hint,
+                    "destructiveHint": t.destructive_hint,
+                    "idempotentHint": t.idempotent_hint,
+                    "openWorldHint": t.open_world_hint,
+                },
+            },
+            "callable": "Call it by name through tools/call. Tools dispatch by name at every tier, so a tool absent from your list is still callable if your host will send an unadvertised name; if it will not, reconnect to /mcp/full.",
+        });
+    }
+
+    let matches = |t: &emem_mcp::ToolDescriptor| -> bool {
+        if !q.is_empty() {
+            let hay = format!(
+                "{} {} {} {}",
+                t.name.to_lowercase(),
+                t.title.to_lowercase(),
+                t.when_to_use.to_lowercase(),
+                t.description.to_lowercase()
+            );
+            if !hay.contains(&q) {
+                return false;
+            }
+        }
+        if let Some(c) = want_cat {
+            if !cat_of(t).eq_ignore_ascii_case(c) {
+                return false;
+            }
+        }
+        if let Some(sh) = want_shape {
+            if !emem_mcp::shape_of(t.name).eq_ignore_ascii_case(sh) {
+                return false;
+            }
+        }
+        if let Some(b) = want_bundle {
+            if !emem_mcp::bundles_of(t.name)
+                .iter()
+                .any(|x| x.eq_ignore_ascii_case(b))
+            {
+                return false;
+            }
+        }
+        match tier {
+            "core" => t.tier == "core",
+            "extended" => t.tier == "extended",
+            _ => true,
+        }
+    };
+
+    let brief = |t: &emem_mcp::ToolDescriptor| {
+        // First sentence of the trigger text: enough to choose between
+        // tools, far short of loading every descriptor.
+        let w = t.when_to_use;
+        let cut = w.find(". ").map(|i| i + 1).unwrap_or(w.len().min(240));
+        json!({
+            "name": t.name,
+            "use_when": w[..cut].trim(),
+            "returns": emem_mcp::shape_of(t.name),
+            "tier": t.tier,
+        })
+    };
+
+    let loop_json: Vec<JsonValue> = emem_mcp::CORE_LOOP
+        .iter()
+        .filter(|(_, n, _)| {
+            emem_mcp::TOOLS
+                .iter()
+                .find(|t| t.name == *n)
+                .map(matches)
+                .unwrap_or(false)
+        })
+        .map(|(step, n, why)| json!({ "step": step, "tool": n, "why": why }))
+        .collect();
+
+    let mut groups = serde_json::Map::new();
+    let mut filed: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for (_, n, _) in emem_mcp::CORE_LOOP {
+        filed.insert(n);
+    }
+    for (group, why, names) in emem_mcp::TOOL_GROUPS {
+        let tools: Vec<JsonValue> = names
+            .iter()
+            .filter_map(|n| emem_mcp::TOOLS.iter().find(|t| t.name == *n))
+            .inspect(|t| {
+                filed.insert(t.name);
+            })
+            .filter(|t| matches(t))
+            .map(brief)
+            .collect();
+        if !tools.is_empty() {
+            groups.insert(
+                (*group).to_string(),
+                json!({ "what_it_is_for": why, "tools": tools }),
+            );
+        }
+    }
+    let other: Vec<JsonValue> = emem_mcp::TOOLS
+        .iter()
+        .filter(|t| !filed.contains(t.name) && t.name != "emem_tools")
+        .filter(|t| matches(t))
+        .map(brief)
+        .collect();
+    if !other.is_empty() {
+        groups.insert(
+            "other".into(),
+            json!({ "what_it_is_for": "Not yet filed into a group.", "tools": other }),
+        );
+    }
+
+    let shown: usize = groups
+        .values()
+        .filter_map(|g| g.get("tools").and_then(|t| t.as_array()).map(Vec::len))
+        .sum::<usize>()
+        + loop_json.len();
+    let core_count = emem_mcp::tools_at_tier("core").len();
+
+    // The menu, not just the map. An agent that cannot see a tool
+    // concludes the capability does not exist, so the surface has to
+    // announce what it can do before it is asked. Each bundle is one line
+    // and a count here; asking for one costs a second call.
+    let bundles: Vec<JsonValue> = emem_mcp::TOOL_BUNDLES
+        .iter()
+        .map(|(name, why, names)| json!({ "bundle": name, "for": why, "tools": names.len() }))
+        .collect();
+    let shapes: Vec<JsonValue> = emem_mcp::TOOL_SHAPES
+        .iter()
+        .map(|(name, why, names)| json!({ "shape": name, "means": why, "tools": names.len() }))
+        .collect();
+
+    // Unfiltered, this answers with the menu and not the meal.
+    //
+    // Listing all 88 briefs by default is the same mistake as advertising
+    // all 88 descriptors: it is a dump, just a cheaper one, and it does not
+    // survive contact with the host's 24 KB cap on a single tool result.
+    // The catalog is the one response that must never be truncated, because
+    // a truncated catalog silently teaches an agent that a capability does
+    // not exist. So the default is the map of the territory (the loop, the
+    // bundles, the shapes, and their sizes) and a filter is what gets you
+    // the tools. That is one extra round trip to see any given slice, and
+    // it keeps every slice whole.
+    let unfiltered =
+        q.is_empty() && want_cat.is_none() && want_shape.is_none() && want_bundle.is_none();
+    let reaching = format!(
+        "This endpoint advertises the {core_count} core loop tools. The other {} are catalogued here and dispatch by name at every tier, so a tool missing from your list is not missing from the server. For a one-shot answer without choosing a primitive, use emem_ask. To have a whole bundle registered as callable tools, call tools/list with {{\"bundle\":\"...\"}}; for the complete catalog, connect to /mcp/full.",
+        emem_mcp::TOOLS.len() - core_count
+    );
+
+    if unfiltered {
+        return json!({
+            "schema": "emem.tools.v1",
+            "total_on_this_responder": emem_mcp::TOOLS.len(),
+            "advertised_by_default": core_count,
+            "start_here": "Walk `loop` in order. It is the whole point of emem: name a thing, ground it, cite it, resolve the citation, verify it, then look for drift. Everything else grounds a fact for step 3.",
+            "loop": loop_json,
+            "bundles": bundles,
+            "shapes": shapes,
+            "how_to_narrow": "This is the map, not the tools. Ask for a slice and you get the tools in it: by the job, `{\"bundle\":\"robotics\"}`, or by the shape of the answer you need, `{\"shape\":\"raster\"}`. Shape is usually the real question, since `scalar` (one number at one address) and `raster` (a gridded field over an area) answer very different ones. `{\"q\":\"ndvi\"}` searches text, and `{\"name\":\"emem_ndvi\"}` returns one tool's exact input schema and a runnable example.",
+            "reaching_the_rest": reaching,
+        });
+    }
+
+    json!({
+        "schema": "emem.tools.v1",
+        "total_on_this_responder": emem_mcp::TOOLS.len(),
+        "advertised_by_default": core_count,
+        "matched": shown,
+        "filter": { "q": q, "category": want_cat, "tier": tier, "shape": want_shape, "bundle": want_bundle },
+        "loop": loop_json,
+        "groups": groups,
+        "reaching_the_rest": reaching,
+        "next": "emem_tools {\"name\":\"emem_ndvi\"} returns one tool's exact input schema and a runnable example. emem_tools with no arguments returns the bundle and shape menu.",
+    })
+}
+
 async fn mcp_tool_call(
     name: &str,
     mut args: JsonValue,
@@ -15891,9 +16380,7 @@ async fn mcp_tool_call(
                         continue;
                     }
                     if !emem_codec::is_cell64_shape(v) {
-                        let (cell64, rref) = resolve_cell_field(v)
-                            .await
-                            .map_err(|e| (-(e.1.code as i64), e.1.message))?;
+                        let (cell64, rref) = resolve_cell_field(v).await.map_err(mcp_err)?;
                         obj.insert((*field).to_string(), JsonValue::String(cell64));
                         if matches!(rref, ResolvedRef::Place { .. }) {
                             resolved_envelope_map.insert(
@@ -15955,9 +16442,7 @@ async fn mcp_tool_call(
             // the top of the call stack can answer without a second
             // round-trip.
             let req: AskReq = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            ask_inner(s.clone(), req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            ask_inner(s.clone(), req).await.map_err(mcp_err)
         }
         "emem_hunt" => {
             // Structured hunter-mode: caller picks the event keyword
@@ -16127,7 +16612,7 @@ async fn mcp_tool_call(
             let req: RecallReq = api_req.into();
             let (resp, materialize_notes) = recall_with_auto_materialize(&req, s)
                 .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))?;
+                .map_err(mcp_err)?;
             let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
             if !materialize_notes.is_empty() {
                 if let Some(map) = v.as_object_mut() {
@@ -16243,51 +16728,37 @@ async fn mcp_tool_call(
         "memory_view" => {
             let req: MemoryViewReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            memory_view_inner(s, req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            memory_view_inner(s, req).await.map_err(mcp_err)
         }
         "memory_create" => {
             let req: MemoryCreateReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            memory_create_inner(s, req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            memory_create_inner(s, req).await.map_err(mcp_err)
         }
         "memory_str_replace" => {
             let req: MemoryStrReplaceReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            memory_str_replace_inner(s, req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            memory_str_replace_inner(s, req).await.map_err(mcp_err)
         }
         "memory_insert" => {
             let req: MemoryInsertReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            memory_insert_inner(s, req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            memory_insert_inner(s, req).await.map_err(mcp_err)
         }
         "memory_delete" => {
             let req: MemoryDeleteReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            memory_delete_inner(s, req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            memory_delete_inner(s, req).await.map_err(mcp_err)
         }
         "memory_rename" => {
             let req: MemoryRenameReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            memory_rename_inner(s, req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            memory_rename_inner(s, req).await.map_err(mcp_err)
         }
         "memory_list_by_kind" => {
             let req: MemoryListByKindReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            memory_list_by_kind_inner(s, req)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            memory_list_by_kind_inner(s, req).await.map_err(mcp_err)
         }
         // Semantic search over /memories/* file contents (BGE + Lance).
         // Mirrors POST /v1/memory/search exactly so MCP + REST agree.
@@ -16327,7 +16798,7 @@ async fn mcp_tool_call(
             };
             let (resp, materialize_notes) = find_similar_with_auto_materialize(&req, &band_used, s)
                 .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))?;
+                .map_err(mcp_err)?;
             let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
             if !materialize_notes.is_empty() {
                 if let Some(map) = v.as_object_mut() {
@@ -16716,6 +17187,7 @@ async fn mcp_tool_call(
             "algorithms_cid": ALGORITHMS_CID.clone(),
             "topics_cid": TOPICS_CID.clone(),
         })),
+        "emem_tools" => Ok(tools_catalog(&args)),
         "emem_capabilities" => {
             let c = cached_capabilities();
             Ok(json!({
@@ -16800,37 +17272,27 @@ async fn mcp_tool_call(
         "emem_backfill" => {
             let req: BackfillReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            backfill_inner(req, s)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            backfill_inner(req, s).await.map_err(mcp_err)
         }
         "emem_heat_solve" => {
             let req: physics::HeatSolveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            physics::heat_solve(req, s)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            physics::heat_solve(req, s).await.map_err(mcp_err)
         }
         "emem_wave_solve" => {
             let req: physics::WaveSolveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            physics::wave_solve(req, s)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            physics::wave_solve(req, s).await.map_err(mcp_err)
         }
         "emem_jepa_predict" => {
             let req: physics::JepaPredictReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            physics::jepa_predict(req, s)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            physics::jepa_predict(req, s).await.map_err(mcp_err)
         }
         "emem_jepa_predict_v2" => {
             let req: physics::JepaPredictV2Req =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            physics::jepa_predict_v2(req, s)
-                .await
-                .map_err(|e| (-(e.1.code as i64), e.1.message))
+            physics::jepa_predict_v2(req, s).await.map_err(mcp_err)
         }
         // MCP spec: unknown TOOL names are tool-runtime failures, not
         // protocol errors — surface them through the CallToolResult
@@ -17927,14 +18389,23 @@ async fn serve_splats_file(Path(path): Path<String>, headers: HeaderMap) -> Resp
             }
         }
         None => match std::fs::read(&p) {
-            Ok(bytes) => Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", splats_mime(&path))
-                .header("cache-control", "public, max-age=300")
-                .header("etag", etag)
-                .header("accept-ranges", "bytes")
-                .body(axum::body::Body::from(bytes))
-                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+            Ok(bytes) => {
+                let mut b = Response::builder()
+                    .status(StatusCode::OK)
+                    .header("content-type", splats_mime(&path))
+                    .header("cache-control", "public, max-age=300")
+                    .header("etag", etag)
+                    .header("accept-ranges", "bytes");
+                // HTML off disk carries its own CSP, hashed from its own inline blocks, so the
+                // Spark viewer's inline importmap survives without weakening the global policy.
+                if path.ends_with(".html") {
+                    if let Ok(html) = std::str::from_utf8(&bytes) {
+                        b = b.header("content-security-policy", splats_html_csp(html));
+                    }
+                }
+                b.body(axum::body::Body::from(bytes))
+                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+            }
             Err(_) => not_found("read error"),
         },
     }
@@ -21402,6 +21873,82 @@ fn open_namespace_requires_attester(verb: &str) -> bool {
     policy_gates_verb(memory_write_policy(), verb)
 }
 
+/// Collapse an `ApiError` into the `(code, message)` pair MCP tool errors
+/// carry, keeping the typed `details` instead of dropping them.
+///
+/// An MCP `CallToolResult` has no slot for a typed error body: the wrapper
+/// renders `tool error (code): message` and nothing else survives. So
+/// every `ErrorBody::details` this crate carefully builds was invisible to
+/// MCP callers and visible only over REST, which is backwards. The agent
+/// on MCP is the one that cannot open a browser, read the docs, and
+/// improvise; the details are exactly what it needs to self-correct on the
+/// next turn. Folding them into the message is not elegant, but the
+/// alternative is a machine-readable payload that never reaches the
+/// machine. This costs nothing on the success path.
+fn mcp_err(e: ApiError) -> (i64, String) {
+    let code = -(e.1.code as i64);
+    match e.1.details {
+        Some(d) => (
+            code,
+            format!(
+                "{}\n\ndetails:\n{}",
+                e.1.message,
+                serde_json::to_string_pretty(&d).unwrap_or_else(|_| d.to_string())
+            ),
+        ),
+        None => (code, e.1.message),
+    }
+}
+
+/// Everything a caller needs to produce a valid `attester` block for
+/// *this* write, with the actual bytes filled in.
+///
+/// The refusal used to name the preimage's shape
+/// (`blake3("emem.memory_write|verb|path|body_hash")`) and stop there,
+/// which leaves a caller guessing at the parts that actually matter: is
+/// `body_hash` the digest or its hex text, do you sign the digest bytes
+/// or the string, which base32 alphabet, and which 8 characters of which
+/// encoding name the namespace. An agent hitting this cannot answer those
+/// from the tool contract, and the honest options are to guess against a
+/// production store or give up. Both are bad, so the responder answers
+/// instead: it already computed the exact digest it will verify against,
+/// and none of it is secret (it derives from the verb, the path and the
+/// body the caller just sent). Only the private key is secret.
+fn attester_recipe(verb: &str, path: &str, body_hash: &[u8; 32]) -> JsonValue {
+    let digest = emem_primitives::attester_preimage(verb, path, body_hash);
+    json!({
+        "sign_this": {
+            "digest_hex": data_encoding::HEXLOWER.encode(&digest),
+            "what_it_is": "The 32-byte blake3 digest this responder will verify your signature against, for this exact verb, path and body. Sign these raw bytes with ed25519. Do NOT sign the hex text of them, and do NOT hash them again.",
+        },
+        "how_it_was_built": {
+            "preimage": format!("blake3(\"emem.memory_write|\" || \"{verb}\" || \"|\" || \"{path}\" || \"|\" || body_hash)"),
+            "body_hash_hex": data_encoding::HEXLOWER.encode(body_hash),
+            "body_hash_is": match verb {
+                "create" => "blake3 of the `file_text` string's UTF-8 bytes, exactly as you transmit them",
+                "str_replace" | "insert" => "blake3 of the WHOLE file's UTF-8 bytes AFTER your edit is applied, not the fragment you sent",
+                "delete" => "blake3 of the empty string",
+                "rename" => "blake3 of the OLD path's UTF-8 bytes, while `path` above is the NEW path, so one signature binds both ends of the move",
+                _ => "blake3 of the verb's canonical body",
+            },
+            "note": "body_hash enters the preimage as 32 raw bytes, not as this hex text. The hex is shown so you can check your own digest.",
+        },
+        "encoding": {
+            "alphabet": "RFC 4648 base32, no padding, lowercase, for both fields",
+            "pubkey_b32": "52 chars = 32 raw bytes of the ed25519 public key",
+            "sig_b32": "103 chars = 64 raw bytes of the ed25519 signature over digest_hex's bytes",
+            "verification": "ed25519 verify_strict, which rejects malleable signatures",
+        },
+        "namespace": {
+            "rule": format!("Writes under `{}<pubkey8>/...` are accepted only from the key whose shortcode matches.", emem_primitives::BY_ATTESTER_PREFIX),
+            "pubkey8_is": format!("the first {} characters of your lowercase base32 pubkey, i.e. pubkey_b32[..{}]", emem_primitives::PUBKEY_SHORT_LEN, emem_primitives::PUBKEY_SHORT_LEN),
+            "registration": "None. Any ed25519 keypair works; generate one locally. The namespace is claimed by whoever first writes to it and is then held by that key. There is no enrolment step and no API key.",
+        },
+        "worked_example": "import base64, blake3, httpx\nfrom cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey\nfrom cryptography.hazmat.primitives import serialization\n\nsk = Ed25519PrivateKey.generate()          # persist the 32-byte seed; it owns your namespace\npk = sk.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)\nb32 = lambda b: base64.b32encode(b).decode().rstrip('=').lower()\npubkey_b32 = b32(pk)\npath = f\"/memories/by_attester/{pubkey_b32[:8]}/note.md\"\ntext = \"what I learned\"\nbody_hash = blake3.blake3(text.encode()).digest()\ndigest = blake3.blake3(b\"emem.memory_write|create|\" + path.encode() + b\"|\" + body_hash).digest()\nattester = {\"pubkey_b32\": pubkey_b32, \"sig_b32\": b32(sk.sign(digest))}\n# then POST memory_create with {path, file_text: text, attester}",
+        "spec": "GET /v1/verifier_spec, under caller_signed_objects",
+    })
+}
+
 /// Validate the W2 attester binding on a write verb. Returns `Ok(())`
 /// if the binding verifies (or is absent and the path doesn't require
 /// one); returns a typed 401 / 403 otherwise.
@@ -21440,11 +21987,14 @@ fn validate_attester_binding(
                     StatusCode::UNAUTHORIZED,
                     ErrorBody {
                         code: ErrorCode::InvalidArgument,
-                        message: reason,
+                        message: format!(
+                            "{reason} `details.how_to_sign` carries the exact digest to sign for this write, the encoding rules, and a worked example; no registration or API key is involved."
+                        ),
                         details: Some(json!({
                             "code": "memory_attestation_required",
                             "path": path,
                             "verb": verb,
+                            "how_to_sign": attester_recipe(verb, path, body_hash),
                         })),
                     },
                 ));
@@ -21458,16 +22008,32 @@ fn validate_attester_binding(
                     StatusCode::UNAUTHORIZED,
                     ErrorBody {
                         code: ErrorCode::BadSignature,
-                        message: "memory_attestation_invalid: attester.pubkey_b32 is not a valid 32-byte ed25519 key".into(),
-                        details: Some(json!({"code": "memory_attestation_invalid", "reason": "bad_pubkey"})),
+                        message: "memory_attestation_invalid: attester.pubkey_b32 is not a valid 32-byte ed25519 key. Expected RFC 4648 base32, no padding, lowercase: 52 characters. See `details.how_to_sign.encoding`.".into(),
+                        details: Some(json!({
+                            "code": "memory_attestation_invalid",
+                            "reason": "bad_pubkey",
+                            "how_to_sign": attester_recipe(verb, path, body_hash),
+                        })),
                     },
                 )),
+                // The signature is wrong, and the overwhelmingly likely
+                // cause is a different preimage rather than a bad key. So
+                // hand back the exact digest that was expected: the caller
+                // can diff it against their own and see which component
+                // disagrees, instead of guessing.
                 AttestationVerdict::BadSignature => Err(ApiError(
                     StatusCode::UNAUTHORIZED,
                     ErrorBody {
                         code: ErrorCode::BadSignature,
-                        message: "memory_attestation_invalid: attester.sig_b32 does not verify over blake3(\"emem.memory_write|verb|path|body_hash\")".into(),
-                        details: Some(json!({"code": "memory_attestation_invalid", "reason": "bad_signature"})),
+                        message: format!(
+                            "memory_attestation_invalid: attester.sig_b32 does not verify over the expected preimage. This responder expected blake3 digest {} for `{verb}` at `{path}`. Compare it with the digest you signed: `details.how_to_sign` shows how it was built, including what body_hash means for this verb.",
+                            data_encoding::HEXLOWER.encode(&emem_primitives::attester_preimage(verb, path, body_hash))
+                        ),
+                        details: Some(json!({
+                            "code": "memory_attestation_invalid",
+                            "reason": "bad_signature",
+                            "how_to_sign": attester_recipe(verb, path, body_hash),
+                        })),
                     },
                 )),
                 AttestationVerdict::NamespaceMismatch => Err(ApiError(
@@ -29142,7 +29708,12 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
     static B12: &[&str] = &["swir22", "B12"];
     static SCL: &[&str] = &["scl"];
     match band {
-        // Raw L2A surface reflectance per band (uint16, scale 1e-4 → reflectance ∈ [0,1]).
+        // Raw L2A surface reflectance per band. uint16 DN → reflectance ∈ [0,1]
+        // by a bare 1e-4 scale, correct because `S2_STAC_HOST` (Element84)
+        // harmonises the DN range: it removes ESA's BOA_ADD_OFFSET (-1000 DN
+        // from processing baseline 04.00) before publishing. A catalogue that
+        // serves ESA's DNs raw (MPC does) needs the -1000 applied first for
+        // baseline >= 04.00. `s2_guard_harmonised_dn` enforces the provider.
         "s2.B01" => Some((vec![B01], "raw_reflectance", "B01 60m coastal aerosol")),
         "s2.B02" => Some((vec![B02], "raw_reflectance", "B02 10m blue")),
         "s2.B03" => Some((vec![B03], "raw_reflectance", "B03 10m green")),
@@ -29416,6 +29987,22 @@ fn s2_scl_reject_label(class: u8) -> Option<&'static str> {
     }
 }
 
+/// How many candidate scenes [`s2_pick_clear_scene`] SCL-probes at once
+/// within one tier. Defaults to 4, matching the default `EMEM_S2_MAX_SCENES`
+/// so a tier's candidates clear in a single wave; tunable via
+/// `EMEM_S2_SCL_CONCURRENCY` (clamped 1..=12, the same ceiling
+/// `EMEM_S2_MAX_SCENES` is clamped to). Setting it to 1 reproduces the
+/// original strictly-serial probe. Bounded because each probe is two range
+/// reads against the same public bucket and one cell's picker should not be
+/// able to open an unbounded fan-out there.
+fn s2_scl_probe_concurrency() -> usize {
+    std::env::var("EMEM_S2_SCL_CONCURRENCY")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(4)
+        .clamp(1, 12)
+}
+
 /// Sample the per-pixel Sentinel-2 SCL class at `(lat, lng)` for one STAC
 /// item. Returns `Some(0..=11)` or `None` when the item carries no SCL
 /// asset, the UTM projection fails, or the COG read errors — in which case
@@ -29446,12 +30033,67 @@ async fn s2_sample_scl(
     }
 }
 
+/// The STAC catalogue the Sentinel-2 value path reads, for every band and
+/// every index. Named once, here, because the DN→reflectance arithmetic in
+/// [`materialize_sentinel2_band`] is calibrated to THIS catalogue's DN
+/// convention and to no other: see [`s2_guard_harmonised_dn`]. Changing this
+/// constant to a non-harmonised catalogue is a correctness change, not a
+/// failover, and the tests below fail when it is.
+const S2_STAC_HOST: &str = emem_fetch::stac::STAC_ELEMENT84_V1;
+
+/// Refuse to apply the offset-free `DN * 1e-4` scale to a catalogue that
+/// does not serve harmonised Sentinel-2 DNs.
+///
+/// The value path multiplies raw DNs by 1e-4 with no additive term. That is
+/// correct against Element84, which removes ESA's `BOA_ADD_OFFSET` (-1000 DN
+/// from processing baseline 04.00, 2022-01-25) before publishing. Against a
+/// catalogue that serves ESA's DNs verbatim (Microsoft Planetary Computer
+/// does) the same arithmetic overstates every band's reflectance by 0.1.
+///
+/// A hard error, not a silent correction, because the failure this guards
+/// against is a *misconfiguration* and the two outcomes are not equally
+/// recoverable. Auto-correcting would mean inferring the offset from
+/// `s2:processing_baseline`, which is absent on early items, so the
+/// correction would itself have to guess on exactly the scenes where a wrong
+/// guess is unrecoverable. An error is loud, local, and leaves no biased
+/// fact signed into the log. Ratio indices make the bias smooth and
+/// plausible rather than obviously broken, so nothing downstream would catch
+/// it.
+///
+/// `sources-v0.json` lists an MPC `sentinel-2-l2a` provider in the
+/// `sentinel_s2_l2a` scheme. That registry is a public catalogue of where
+/// the data comes from; it does not route, and no code path selects a
+/// provider from it. This guard is what makes wiring it a loud failure
+/// instead of a silent NDVI bias.
+fn s2_guard_harmonised_dn(search_url: &str) -> Result<(), String> {
+    if emem_fetch::stac::s2_dn_is_harmonised(search_url) {
+        return Ok(());
+    }
+    Err(format!(
+        "refusing to scale Sentinel-2 DNs from {search_url}: the value path applies \
+         reflectance = DN * 1e-4 with no additive term, which is only correct for a \
+         catalogue that has already removed ESA's BOA_ADD_OFFSET ({} DN from processing \
+         baseline {} onward). {} is the only such catalogue wired here. Serving raw ESA \
+         DNs through this path would bias every band ratio (NDVI, NDWI, EVI, …) toward \
+         zero without failing anything. Route Sentinel-2 back to the harmonised catalogue, \
+         or teach this path the per-item offset from `s2:processing_baseline` before \
+         changing S2_STAC_HOST.",
+        emem_fetch::stac::S2_BOA_ADD_OFFSET_DN,
+        emem_fetch::stac::S2_BOA_OFFSET_BASELINE,
+        emem_fetch::stac::STAC_ELEMENT84_V1,
+    ))
+}
+
 /// The scene chosen by [`s2_pick_clear_scene`], plus the audit fields the
 /// materializer surfaces in the fact's derivation args.
 struct S2ChosenScene {
     item: emem_fetch::stac::StacItem,
     used_cloud: f64,
     used_days: i64,
+    /// The STAC host the scene was searched from. Carried so the DN→
+    /// reflectance step asserts the provider it actually read rather than
+    /// re-deriving it from a constant that may have drifted.
+    search_url: &'static str,
     /// Per-pixel SCL of the chosen scene (already sampled — reused by the
     /// materializer so it does not re-read the SCL COG).
     scl: Option<u8>,
@@ -29539,7 +30181,7 @@ async fn s2_pick_clear_scene(
         );
         let items = match emem_fetch::stac::search_many_at(
             cli,
-            emem_fetch::stac::STAC_ELEMENT84_V1,
+            S2_STAC_HOST,
             "sentinel-2-l2a",
             lng,
             lat,
@@ -29558,9 +30200,28 @@ async fn s2_pick_clear_scene(
             ));
             continue;
         }
-        for item in items {
-            scenes_tried += 1;
+        // Probe the tier's candidates CONCURRENTLY. Each candidate's SCL read
+        // is independent (its own scene, its own COG), so the serial await
+        // that used to walk them added one full round-trip pair per candidate
+        // to a path already fighting the gateway budget. `buffered` (not
+        // `buffer_unordered`) because the decision below is order-dependent:
+        // we must take the NEWEST clear candidate, and `buffered` yields in
+        // input order while still driving `probe_conc` reads at once.
+        //
+        // Semantics are unchanged from the serial loop. Results are consumed
+        // in the same order, `scenes_tried` still counts candidates up to and
+        // including the chosen one, and returning early drops the stream,
+        // cancelling the probes that are still in flight. The only difference
+        // is that some probes may be *started* that the serial loop would
+        // never have reached; they are never observed and never counted.
+        use futures_util::StreamExt as _;
+        let mut probes = futures_util::stream::iter(items.into_iter().map(|item| async move {
             let scl = s2_sample_scl(cli, &item, lat, lng).await;
+            (item, scl)
+        }))
+        .buffered(s2_scl_probe_concurrency());
+        while let Some((item, scl)) = probes.next().await {
+            scenes_tried += 1;
             if newest_seen.is_none() {
                 newest_seen = Some((item.clone(), cloud, days, scl));
             }
@@ -29574,6 +30235,7 @@ async fn s2_pick_clear_scene(
                         item,
                         used_cloud: cloud,
                         used_days: days,
+                        search_url: S2_STAC_HOST,
                         scl,
                         clear: true,
                         scenes_tried,
@@ -29589,6 +30251,7 @@ async fn s2_pick_clear_scene(
             item,
             used_cloud,
             used_days,
+            search_url: S2_STAC_HOST,
             scl,
             clear: false,
             scenes_tried,
@@ -29597,22 +30260,71 @@ async fn s2_pick_clear_scene(
     Err(last_err.unwrap_or_else(|| "no Sentinel-2 L2A scene found".into()))
 }
 
-/// Generic Sentinel-2 L2A point sampler. Handles every `s2.*` raw-reflectance
-/// band and every `indices.*` derived index from the same one-scene path:
+/// Generic Sentinel-2 L2A point sampler, bounded by
+/// [`materializer_timeout_secs`].
 ///
-/// 1. STAC search Element84 → latest scene <40% cloud that *contains* the
-///    point (intersects: Point, never bbox).
+/// The bound lives here rather than at the call sites because the S2 path is
+/// the deepest sequential fetch in the responder (a cold cell can pay 3 STAC
+/// searches, a tier of SCL probes, and the per-asset value reads) and two of
+/// its entry points, `/v1/fetch` and `/v1/backfill`, call
+/// [`materialize_band_at`] with a bare await. Those were bounded only by the
+/// 90 s S2 reqwest client timeout, which is past the 40 s gateway timeout, so
+/// a cold `indices.ndvi` could only ever surface as a 504 with no
+/// attribution. `try_materialize_bands` and the EUDR visual path already
+/// wrap their own calls at the same budget; wrapping here too is redundant
+/// for them and harmless (the inner bound fires first, with a better
+/// message), and it makes the guarantee hold for any future call site.
+///
+/// See [`materialize_sentinel2_band_inner`] for the fetch itself.
+async fn materialize_sentinel2_band(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    target_unix: Option<i64>,
+    at_or_before: bool,
+) -> Result<emem_fact::FactCid, String> {
+    let secs = materializer_timeout_secs();
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(secs),
+        materialize_sentinel2_band_inner(cell64, s, band, target_unix, at_or_before),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => Err(format!(
+            "sentinel-2 materializer exceeded the {secs}s budget for {band} at {cell64}: the \
+             upstream STAC search or COG range reads were too slow on this call. Retry to hit \
+             the warmed profile/tile caches, or raise EMEM_MATERIALIZER_TIMEOUT_SECS."
+        )),
+    }
+}
+
+/// The Sentinel-2 fetch [`materialize_sentinel2_band`] bounds. Handles every
+/// `s2.*` raw-reflectance band and every `indices.*` derived index from the
+/// same one-scene path:
+///
+/// 1. STAC search [`S2_STAC_HOST`] → latest scene <40% cloud that *contains*
+///    the point (intersects: Point, never bbox).
 /// 2. For each STAC asset the band needs (1..4 of them), open the COG profile
 ///    via HTTP range read and sample one pixel.
-/// 3. Compute the band value (raw scale 1e-4 reflectance, SCL category, or
-///    a deterministic index formula).
+/// 3. Compute the band value (DN → reflectance, SCL category, or a
+///    deterministic index formula).
 /// 4. Sign one Primary fact under the responder identity. The
 ///    `derivation.fn_key` records the formula so external attesters can
 ///    re-execute and corroborate.
 ///
+/// Step 3 scales DNs by 1e-4 with NO additive offset. That is correct here,
+/// and only here, because [`S2_STAC_HOST`] is Element84, which harmonises
+/// the L2A DN range: it removes ESA's `BOA_ADD_OFFSET` (-1000 DN from
+/// processing baseline 04.00, 2022-01-25) before publishing, so one scale
+/// reads every scene in the archive correctly. MPC serves ESA's DNs verbatim
+/// and would need the -1000 applied per item, keyed on
+/// `StacItem::processing_baseline`. [`s2_guard_harmonised_dn`] asserts the
+/// provider below rather than leaving that dependency implicit.
+///
 /// One STAC search per call, so per-band cost is dominated by the per-asset
 /// COG reads (~600 KB each: IFD head + 1 tile).
-async fn materialize_sentinel2_band(
+async fn materialize_sentinel2_band_inner(
     cell64: &str,
     s: &AppState,
     band: &str,
@@ -29677,6 +30389,16 @@ async fn materialize_sentinel2_band(
         samples.push(v);
         asset_urls.push(url);
     }
+
+    // Every arm below turns DNs into reflectance with a bare 1e-4 scale and
+    // no additive term, which is a statement about WHO served the DNs, not
+    // about the band. Assert it against the catalogue this scene actually
+    // came from before any of those arms runs. `scl_categorical` reads a
+    // class index rather than reflectance and is offset-free either way, but
+    // it is gated too: the guard is about the provider being the one this
+    // path is calibrated for, and there is no version of "wrong catalogue"
+    // where signing a fact from it is right.
+    s2_guard_harmonised_dn(chosen.search_url)?;
 
     // Compute the band value.
     let (value, fact_unit) = match kind {
@@ -50196,6 +50918,152 @@ fn not_found(msg: &str) -> Response {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(body))
         .unwrap_or_else(|_| StatusCode::NOT_FOUND.into_response())
+}
+
+#[cfg(test)]
+mod s2_dn_offset_invariant {
+    use super::*;
+
+    /// The load-bearing claim of the whole Sentinel-2 value path: it reads a
+    /// catalogue whose DNs have ESA's BOA_ADD_OFFSET already removed, which
+    /// is what makes the bare `DN * 1e-4` in `materialize_sentinel2_band_inner`
+    /// correct with no offset term.
+    ///
+    /// This test is the tripwire on a provider swap. Repointing
+    /// `S2_STAC_HOST` at Microsoft Planetary Computer (which `sources-v0.json`
+    /// lists as a `sentinel_s2_l2a` provider, and which serves ESA's DNs
+    /// verbatim) fails here rather than silently biasing every NDVI toward
+    /// zero. The bias is smooth and plausible, so nothing else would catch
+    /// it. If you are here because this test failed: the path needs the
+    /// per-item -1000 offset keyed on `StacItem::processing_baseline` before
+    /// it can read a raw catalogue. It is not a config change.
+    #[test]
+    fn s2_value_path_reads_a_harmonised_catalogue() {
+        assert!(
+            emem_fetch::stac::s2_dn_is_harmonised(S2_STAC_HOST),
+            "S2_STAC_HOST must serve harmonised DNs; see s2_guard_harmonised_dn"
+        );
+        assert!(s2_guard_harmonised_dn(S2_STAC_HOST).is_ok());
+    }
+
+    /// The guard refuses a non-harmonised provider rather than correcting it
+    /// or passing it through. A hard error keeps a biased fact out of the log.
+    #[test]
+    fn guard_refuses_a_raw_dn_catalogue() {
+        let err = s2_guard_harmonised_dn(emem_fetch::stac::STAC_MPC_V1)
+            .expect_err("MPC serves raw ESA DNs and must be refused");
+        assert!(err.contains("BOA_ADD_OFFSET"), "error must name the cause");
+        assert!(
+            s2_guard_harmonised_dn("https://stac.example.invalid/v1/search").is_err(),
+            "an unrecognised catalogue is not assumed harmonised"
+        );
+    }
+}
+
+#[cfg(test)]
+mod s2_surface_class {
+    use super::*;
+
+    /// The SCL index into `derivation.args` is positional inside a SIGNED
+    /// array. Pin the layout that `materialize_sentinel2_band_inner` writes,
+    /// so reordering the args breaks here instead of silently making every
+    /// `surface_class` report the wrong neighbouring field.
+    fn s2_fact_json(scl: i64) -> JsonValue {
+        json!({
+            "kind": "primary",
+            "band": "indices.ndvi",
+            "value": 0.21,
+            "confidence": 0.95,
+            "derivation": {
+                "fn_key": "sentinel2_l2a_indices_ndvi@1",
+                "args": [
+                    51.5, -0.12, "S2C_30UXC_20260115_0_L2A", 32630,
+                    "NDVI = (B08 − B04) / (B08 + B04). Vegetation greenness.",
+                    [3000.0, 1000.0],
+                    4.0, 40.0, 30,
+                    scl,
+                    1
+                ]
+            }
+        })
+    }
+
+    /// Snow is radiometrically clear, so confidence stays 0.95, which is the
+    /// correct answer to the question confidence asks. The point of
+    /// `surface_class` is that an agent can now see the number is measuring
+    /// snow, which confidence never said.
+    #[test]
+    fn snow_keeps_its_confidence_but_declares_itself_not_vegetation() {
+        let mut v = json!({"facts": [s2_fact_json(11)]});
+        enrich_facts_with_metadata(&mut v);
+        let fact = &v["facts"][0];
+        assert_eq!(fact["confidence"], json!(0.95), "confidence is unchanged");
+        assert_eq!(fact["surface_class"]["scl"], json!(11));
+        assert_eq!(fact["surface_class"]["label"], json!("Snow / ice"));
+        assert_eq!(fact["surface_class"]["vegetation_valid"], json!(false));
+    }
+
+    /// Vegetation and bare soil are the classes where NDVI reads what it
+    /// claims to. Water and shadow are not.
+    #[test]
+    fn vegetation_valid_tracks_the_surface_not_the_cleanliness() {
+        for (scl, expect) in [
+            (4, true),   // vegetation
+            (5, true),   // bare soil
+            (6, false),  // water
+            (2, false),  // cast shadows
+            (3, false),  // cloud shadows
+            (7, false),  // cloud (low probability)
+            (11, false), // snow / ice
+        ] {
+            let mut v = json!({"facts": [s2_fact_json(scl)]});
+            enrich_facts_with_metadata(&mut v);
+            assert_eq!(
+                v["facts"][0]["surface_class"]["vegetation_valid"],
+                json!(expect),
+                "scl={scl}"
+            );
+        }
+    }
+
+    /// -1 is what the materializer signs when the SCL band could not be read.
+    /// It is not a class, so no block is emitted rather than a fabricated one.
+    #[test]
+    fn unavailable_scl_emits_no_surface_class() {
+        let mut v = json!({"facts": [s2_fact_json(-1)]});
+        enrich_facts_with_metadata(&mut v);
+        assert!(v["facts"][0].get("surface_class").is_none());
+    }
+
+    /// Non-Sentinel-2 facts are untouched: the args index is only meaningful
+    /// under the S2 fn_key that writes it.
+    #[test]
+    fn non_s2_facts_are_left_alone() {
+        let mut v = json!({"facts": [{
+            "kind": "primary",
+            "band": "modis.lst_day_8day",
+            "value": 300.0,
+            "derivation": {
+                "fn_key": "modis_ornl_mod11a2_lstday@1",
+                "args": [51.5, -0.12, "x", 1, "f", [1.0], 0.0, 0.0, 0, 11, 1]
+            }
+        }]});
+        enrich_facts_with_metadata(&mut v);
+        assert!(
+            v["facts"][0].get("surface_class").is_none(),
+            "args[9] on a non-S2 fact is a different field entirely"
+        );
+    }
+
+    /// The band registry must point agents at the per-pixel class the
+    /// response now carries, not only at the scene-level cloud proxy.
+    #[test]
+    fn ndvi_pitfalls_point_at_the_pixel_level_class() {
+        let meta = band_metadata_for_response("indices.ndvi");
+        let pitfalls = meta["pitfalls"].as_str().expect("ndvi carries pitfalls");
+        assert!(pitfalls.contains("surface_class"));
+        assert!(pitfalls.contains("vegetation_valid"));
+    }
 }
 
 #[cfg(test)]

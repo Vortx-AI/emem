@@ -48,12 +48,15 @@ CARGO = REPO / "Cargo.toml"
 # written to and the value --check enforces across every surface.
 # ---------------------------------------------------------------------------
 CANON = {
-    "mcp_tools": 88,
-    "mcp_core": 13,
+    # 89 = 88 primitives + emem_tools, the catalog tool. It is core
+    # because /mcp advertises the core loop rather than the full surface,
+    # so exactly one visible tool has to be able to describe the rest.
+    "mcp_tools": 89,
+    "mcp_core": 14,
     "mcp_extended": 75,
     "algorithms": 160,
-    "rest_paths_v1": 103,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 106,  # all paths in OpenAPI
+    "rest_paths_v1": 106,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 110,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 124,
     "source_schemes": 46,
@@ -215,11 +218,30 @@ def write_agent(check_only: bool) -> list[str]:
     # value-agnostic regexes (match whatever number is there now, set it to
     # canonical) so the description can't silently rot the way the old one-shot
     # string migrations did.
-    def _sub(pattern: str, repl: str, s: str) -> str:
-        return re.sub(pattern, repl, s)
+    #
+    # That claim was not enforced, and it failed: one pattern carried a
+    # literal `10 core`, so when core moved to 13 it matched nothing and
+    # re.sub returned the input unchanged, leaving a stale description
+    # beside a freshly-written number. A rewrite that matches nothing is
+    # always a bug here, either the surface changed shape or the pattern
+    # rotted, so it is now loud rather than silent.
+    misses: list[str] = []
 
-    new = _sub(r"\d+ MCP tools \(10 core, \d+ extended\)",
-               f'{CANON["mcp_tools"]} MCP tools (10 core, {CANON["mcp_extended"]} extended)', new)
+    def _sub(pattern: str, repl: str, s: str) -> str:
+        out, n = re.subn(pattern, repl, s)
+        if n == 0:
+            misses.append(pattern)
+        return out
+
+    # The core count is canonical on both sides. It used to be literal
+    # `10` in the pattern AND the replacement, which is from the 81-tool
+    # era: once core moved to 13 the pattern stopped matching, `_sub`
+    # rewrote nothing, and agent.json kept a stale description next to a
+    # freshly-written `primitive_count`. A --write that silently no-ops is
+    # worse than no --write, so every count here is a capture, never a
+    # literal.
+    new = _sub(r"\d+ MCP tools \(\d+ core, \d+ extended\)",
+               f'{CANON["mcp_tools"]} MCP tools ({CANON["mcp_core"]} core, {CANON["mcp_extended"]} extended)', new)
     new = _sub(r"\d+ static MCP resources \+ \d+ URI templates",
                f'{CANON["mcp_resources"]} static MCP resources + {CANON["mcp_uri_templates"]} URI templates', new)
     new = _sub(r"\d+ algorithms in a content-addressed registry",
@@ -228,7 +250,13 @@ def write_agent(check_only: bool) -> list[str]:
                f'{CANON["materializer_wired"]} materializer-wired band names across {CANON["cube_slots"]} cube slots', new)
     new = _sub(r"\d+ cube slots; \d+ \(slot",
                f'{CANON["cube_slots"]} cube slots; {CANON["materializer_wired"]} (slot', new)
-    return _apply(f, text, new, check_only)
+    out = _apply(f, text, new, check_only)
+    if misses:
+        rel = f.relative_to(REPO)
+        out += [
+            f"{rel}: pattern matched nothing, so nothing was rewritten: {p}" for p in misses
+        ]
+    return out
 
 
 def _apply(f: Path, old: str, new: str, check_only: bool) -> list[str]:

@@ -330,6 +330,12 @@ four lines:
 }
 ```
 
+That endpoint advertises the 14 core tools from `tools/list`, so the host
+registers about 38 KB of descriptors rather than 194 KB for all 89. The rest
+stay callable by name, and `emem_tools` searches them or returns one tool's
+schema on demand. Use `https://emem.dev/mcp/full` instead to register the
+whole catalog.
+
 Hosts without native Streamable HTTP (older releases) speak stdio
 through the `mcp-remote` bridge:
 
@@ -350,9 +356,11 @@ The same loop applies regardless of runtime. Cache the agent card once
 per session, then read directly:
 
 1. **discover.** `GET /v1/agent_card` (or call `tools/list` on the MCP
-   transport). Cache the result for the session. The card lists the
-   tools, their JSON schemas, and trigger / anti-trigger
-   phrases for tool selection.
+   transport, or `emem_tools` from inside a session). Cache the result for
+   the session. The card lists the tools, their JSON schemas, and trigger /
+   anti-trigger phrases for tool selection. Note that `tools/list` on `/mcp`
+   answers with the core tier; pass `{"tier":"all"}` or use `/mcp/full` for
+   the complete catalog.
 2. **locate.** `POST /v1/locate { "q": "<place>" }` to bridge a place
    name (or lat/lng) to a `cell64`. The response reports which layer of
    the geocoder cascade answered, so the agent can score confidence.

@@ -152,12 +152,7 @@ pub fn plan(intent: &Intent) -> Plan {
         ],
         Intent::DidChange { cell, band, window } => vec![ToolCall {
             primitive: "emem_diff".into(),
-            args: scalar_args(&[
-                ("cell", cell.clone()),
-                ("band", band.clone()),
-                ("tslot_a", window[0].to_string()),
-                ("tslot_b", window[1].to_string()),
-            ]),
+            args: did_change_args(cell.clone(), band.clone(), window),
         }],
         Intent::FindLike { key, k, filter } => vec![ToolCall {
             primitive: "emem_find_similar".into(),
@@ -183,6 +178,37 @@ fn scalar_args(pairs: &[(&str, String)]) -> ciborium::Value {
             })
             .collect(),
     )
+}
+
+/// Build args for `emem_diff`.
+///
+/// `tslot_a` and `tslot_b` deserialize to `u64`, so they have to ride as
+/// CBOR integers. `scalar_args` encodes every value as Text, so routing
+/// them through it produced a plan the planner could not execute:
+/// `invalid type: string "19723", expected u64`. A planner exists to
+/// answer "what do I call", so a plan whose own args are the wrong type is
+/// worse than no plan, and the failure is invisible until something runs
+/// it. `plan_args_round_trip_into_their_primitives` pins every variant's
+/// args against the primitive's own request type for that reason.
+fn did_change_args(cell: String, band: String, window: &[u64; 2]) -> ciborium::Value {
+    ciborium::Value::Map(vec![
+        (
+            ciborium::Value::Text("cell".into()),
+            ciborium::Value::Text(cell),
+        ),
+        (
+            ciborium::Value::Text("band".into()),
+            ciborium::Value::Text(band),
+        ),
+        (
+            ciborium::Value::Text("tslot_a".into()),
+            ciborium::Value::Integer(window[0].into()),
+        ),
+        (
+            ciborium::Value::Text("tslot_b".into()),
+            ciborium::Value::Integer(window[1].into()),
+        ),
+    ])
 }
 
 /// Build args for `emem_recall` with a `bands` array of one or more
@@ -347,6 +373,104 @@ mod tests {
             }
         }
         None
+    }
+
+    /// The planner emitted `tslot_a`/`tslot_b` as CBOR Text because
+    /// `scalar_args` stringifies everything, so `emem_intent{did_change}`
+    /// built a plan and then failed executing it with
+    /// `invalid type: string "19723", expected u64`. Asserting the CBOR
+    /// type directly is the check that would have caught it: the args a
+    /// plan carries have to deserialize into the primitive's own request
+    /// type, and a plan the planner cannot run is worse than no plan.
+    #[test]
+    fn did_change_emits_tslots_as_integers_not_strings() {
+        let plan = plan(&Intent::DidChange {
+            cell: "damO.zb000.xUti.zde78".into(),
+            band: "indices.ndvi".into(),
+            window: [19723, 20634],
+        });
+        let args = &plan.calls[0].args;
+        assert_eq!(plan.calls[0].primitive, "emem_diff");
+        for (key, want) in [("tslot_a", 19723u64), ("tslot_b", 20634u64)] {
+            match cbor_get(args, key) {
+                Some(ciborium::Value::Integer(i)) => {
+                    let got: u64 = (*i).try_into().expect("tslot fits u64");
+                    assert_eq!(got, want, "{key} value");
+                }
+                other => panic!(
+                    "{key} must be a CBOR integer so emem_diff's u64 field parses; got {other:?}"
+                ),
+            }
+        }
+        // The string-typed fields stay strings.
+        assert!(matches!(
+            cbor_get(args, "cell"),
+            Some(ciborium::Value::Text(_))
+        ));
+        assert!(matches!(
+            cbor_get(args, "band"),
+            Some(ciborium::Value::Text(_))
+        ));
+    }
+
+    /// Every variant must produce at least one call, and never an arg map
+    /// that is empty or non-Map. This is the cheap structural floor under
+    /// the planner: it does not prove the types are right (see the
+    /// `did_change` test for that shape of check), but it catches a
+    /// variant wired to nothing.
+    #[test]
+    fn every_intent_variant_plans_at_least_one_call() {
+        let claim = Claim {
+            band: "indices.ndvi".into(),
+            op: Op::Gt,
+            value: ciborium::Value::Float(0.7),
+            tslot: Some(0),
+            window: None,
+            agg: None,
+        };
+        let cell = "damO.zb000.xUti.zde78".to_string();
+        let variants = vec![
+            Intent::WhereIs {
+                description: "the Eiffel Tower".into(),
+            },
+            Intent::WhatIsHere {
+                cell: Some(cell.clone()),
+                place: None,
+                description: None,
+            },
+            Intent::IsLike {
+                a: cell.clone(),
+                b: cell.clone(),
+            },
+            Intent::DidChange {
+                cell: cell.clone(),
+                band: "indices.ndvi".into(),
+                window: [1, 2],
+            },
+            Intent::FindLike {
+                key: cell.clone(),
+                k: Some(5),
+                filter: None,
+            },
+            Intent::Confirm {
+                cell: cell.clone(),
+                claim: claim.clone(),
+            },
+        ];
+        for v in &variants {
+            let p = plan(v);
+            assert!(!p.calls.is_empty(), "variant {v:?} planned no calls");
+            for c in &p.calls {
+                assert!(
+                    !c.primitive.is_empty(),
+                    "variant {v:?} planned an unnamed call"
+                );
+                assert!(
+                    matches!(c.args, ciborium::Value::Map(_)),
+                    "variant {v:?} args must be a CBOR map"
+                );
+            }
+        }
     }
 
     /// Regression: the old `Intent::FindLike { key, .. }` arm dropped

@@ -70,7 +70,7 @@ In practice your agent runs four verbs: locate a place, recall its signed facts,
   <img src="docs/diagrams/png/36-memory-outlives-the-context-window.png" width="820" alt="Memory outlives the context window: as the conversation is compacted turn after turn, payloads fall out of context, the one-line emem:fact token survives, and after compaction it re-hydrates from the shared memory to the exact signed bytes." />
 </p>
 
-> **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Call `tools/list` with `{"tier":"core"}` so 13 tools load instead of 88. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later.
+> **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Connecting to `/mcp` loads the 14 core tools rather than all 89, so call `emem_tools` when you need a capability you cannot see in your list, or connect to `/mcp/full` to have every tool registered up front. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later.
 
 ## See the memory
 
@@ -177,7 +177,7 @@ Version 1.0.0: the wire format, receipt preimage, and address space are settled 
 | Limits, roadmap, open research | [docs/roadmap.md](docs/roadmap.md) |
 | Benchmarks, with methods | [docs/benchmarks.md](docs/benchmarks.md) |
 | Industry use cases | https://emem.dev/solutions |
-| Wire spec · OpenAPI (106 paths) · MCP (88 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
+| Wire spec · OpenAPI (106 paths) · MCP (89 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
 | Live proof in a regulated workflow | https://eudr.dev |
 | Companion open model | [TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA) |
 

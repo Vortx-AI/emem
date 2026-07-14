@@ -420,7 +420,7 @@ const SCHEMA_MEMORY_CREATE: &str = r#"{"type":"object","required":["path","file_
 "path":{"type":"string","description":"`/memories/<file>` path. Overwrites if the file exists. Must stay under `/memories/`."},
 "file_text":{"type":"string","description":"Full file contents."},
 "kind":{"type":"string","enum":["episodic","semantic","procedural","resource","vault"],"description":"Optional memory typing tag. Default `resource`. `episodic` = observation; `semantic` = learned fact; `procedural` = playbook; `resource` = generic scratchpad; `vault` = AEAD-sealed secret (stored encrypted; memory_view returns ciphertext-only unless a valid ed25519 capability over blake3(\"emem.vault_open|\"+path+\"|\"+nonce) is supplied; never indexed by memory_search)."},
-"attester":{"type":"object","description":"Optional ed25519 caller binding. Required for writes under `/memories/by_attester/<pubkey8>/...`. Shape: {pubkey_b32, sig_b32} where sig signs blake3(\"emem.memory_write|create|path|body_hash\").","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
+"attester":{"type":"object","description":"ed25519 caller binding: {pubkey_b32, sig_b32}, where sig signs blake3(\"emem.memory_write|create|<path>|<body_hash>\") and body_hash = blake3(the file_text bytes you send). This responder refuses unattested writes by default. You do not need to look the format up or register anything: send the write without `attester` and the refusal returns the exact 32-byte digest to sign for that write, the base32 rules, and a runnable example. Any locally generated keypair works; the key owns `/memories/by_attester/<first 8 chars of pubkey_b32>/...`.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 const SCHEMA_MEMORY_STR_REPLACE: &str = r#"{"type":"object","required":["path","old_str","new_str"],"properties":{
@@ -442,6 +442,15 @@ const SCHEMA_MEMORY_INSERT: &str = r#"{"type":"object","required":["path","inser
 const SCHEMA_MEMORY_DELETE: &str = r#"{"type":"object","required":["path"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` or `/memories/<subdir>/` to delete. Directories drop every file beneath them."},
 "attester":{"type":"object","description":"Optional ed25519 caller binding. Required for `/memories/by_attester/<pubkey8>/...`. Body is empty for delete; sig signs blake3(\"emem.memory_write|delete|path|body_hash\") where body_hash = blake3(\"\").","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
+}}"#;
+
+const SCHEMA_TOOLS: &str = r#"{"type":"object","properties":{
+"name":{"type":"string","description":"Return the full descriptor for exactly this tool (input schema, runnable example, annotations), e.g. `emem_ndvi`. Use this when you already know the name and want its schema without loading the whole catalog."},
+"q":{"type":"string","description":"Free-text filter over tool names, titles and trigger text, e.g. `ndvi`, `cloud`, `flood`, `verify`, `token`."},
+"shape":{"type":"string","enum":["scalar","timeseries","raster","geometry","vector","identity","token","proof","plan","file","catalog"],"description":"Filter by what the answer looks like, which is usually the real question. `scalar` is one number at one address; `raster` is a gridded field over an area; `timeseries` is a value per timestep; `vector` is a learned embedding; `identity` is a canonical name for a thing; `token` is a citation handle; `proof` checks one."},
+"bundle":{"type":"string","enum":["tokenisation","verification","agent_to_agent","long_horizon","robotics","satellites","agriculture","forestry","climate_risk"],"description":"Filter by the job you are doing. Call with no arguments first to see each bundle and its size."},
+"category":{"type":"string","enum":["read","write","verify","introspect","plan"],"description":"Filter to one category."},
+"tier":{"type":"string","enum":["core","extended","all"],"description":"Which slice to list. Defaults to `all`, so this tool shows the whole surface even when the endpoint advertises only the core loop."}
 }}"#;
 
 const SCHEMA_MEMORY_RENAME: &str = r#"{"type":"object","required":["old_path","new_path"],"properties":{
@@ -707,6 +716,19 @@ const SCHEMA_LOG_WITNESSES: &str = r#"{"type":"object","properties":{
 
 /// Normative tool inventory, with rich agent-facing metadata.
 pub const TOOLS: &[ToolDescriptor] = &[
+    // ── The map of the surface. First, because an agent that cannot see
+    // a tool needs one tool that can. ──
+    ToolDescriptor {
+        name: "emem_tools",
+        title: "What tools exist here, and when to reach for each",
+        description: "The map of emem's tool surface, and the only tool you need to find the rest. Returns the working loop in the order you walk it (name a thing, ground it, cite it, resolve it, verify it, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` to get one tool's full input schema and a runnable example, so you can use a tool without loading all of the descriptors into context. This endpoint advertises the core loop only; the Earth-observation, search, embedding and log tools are catalogued here and remain callable by name.",
+        when_to_use: "Call this FIRST when you do not know which emem tool answers the question, or when you need a capability you cannot see in your tool list. This responder advertises a small core loop by default rather than its full catalog, so a tool being absent from your list does not mean it is absent from the server. Pass `q` to search by topic (`ndvi`, `cloud`, `flood`, `verify`), `name` for one tool's exact schema, or no arguments for the whole map. If you want the full catalog registered as callable tools instead, reconnect to the /mcp/full endpoint; for a one-shot answer without picking a primitive at all, use emem_ask.",
+        input_schema: SCHEMA_TOOLS,
+        example_args: r#"{"q":"ndvi"}"#,
+        level: "L0", category: ToolCategory::Introspect,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    tier: "core",
+    },
     // ── Geocoder (must be first — every other primitive needs cell64) ──
     ToolDescriptor {
         name: "emem_locate",
@@ -1778,9 +1800,542 @@ pub fn tools_at_tier(tier: &str) -> Vec<&'static ToolDescriptor> {
     }
 }
 
+/// The working loop, in the order an agent actually walks it: name a
+/// thing, ground it, cite it, resolve and check the citation, then look
+/// for disagreement.
+///
+/// This ordering is editorial. It cannot be derived from [`TOOLS`],
+/// which is why it lives here as data instead of being re-typed as prose
+/// in each place that explains emem: the MCP `initialize` instructions,
+/// the `emem_tools` catalog, and the docs all serialize from this one
+/// array, so they cannot drift apart. A test pins every name to a real
+/// tool at the `core` tier.
+///
+/// Each entry is `(step, tool, why this step exists)`.
+pub const CORE_LOOP: &[(u8, &str, &str)] = &[
+    (
+        1,
+        "emem_entity",
+        "Name the thing once. Mints or returns the canonical object identity so two agents co-refer instead of each inventing a description. emem_entity_resolve converges a fuzzy phrasing onto an identity someone already registered; emem_entity_link attests that two phrasings mean the same object.",
+    ),
+    (
+        2,
+        "emem_locate",
+        "Ground it. Turns a place into the canonical cell64 address every agent resolves to identically, and lists which bands are recallable there.",
+    ),
+    (
+        3,
+        "emem_recall",
+        "Read the signed facts at that address, auto-fetching on a miss. Pass deterministic:true to keep only facts recomputable from the cited raw source.",
+    ),
+    (
+        4,
+        "emem_memory_token",
+        "Cite it. Composes the emem:fact: handle for one fact; emem_memory_bundle collapses many into one emem:bundle: token. Hand either to another agent or drop it in an audit log.",
+    ),
+    (
+        5,
+        "emem_memory_token_resolve",
+        "Dereference a handle back to the byte-identical signed body, so the citation survives leaving this conversation.",
+    ),
+    (
+        6,
+        "emem_verify_receipt",
+        "Check the ed25519 receipt without trusting the responder. This is the step that makes the rest worth anything.",
+    ),
+    (
+        7,
+        "emem_memory_contradictions",
+        "Detect drift: surface where signed sources disagree at the same address.",
+    ),
+];
+
+/// Where the tools that are not part of the loop live, keyed by the
+/// question they answer. Used by `emem_tools` to group the catalog into
+/// something an agent can scan, rather than 88 flat names.
+///
+/// A tool absent from every prefix here still appears in the catalog
+/// under `other`, so this table can never silently hide one.
+pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
+    (
+        "shortcuts",
+        "Answer without picking a primitive yourself. Start here when the question is about one place and you want the packaged, citation-bearing answer rather than the chain.",
+        &["emem_ask", "emem_intent", "emem_at"],
+    ),
+    (
+        "identity_and_citation",
+        "The rest of the loop's naming and citing surface: converge on an identity someone already registered, bundle many facts into one handle, and walk the edges between them.",
+        &[
+            "emem_entity_resolve",
+            "emem_entity_link",
+            "emem_memory_bundle",
+            "emem_memory_bundle_resolve",
+            "emem_edges_recall",
+        ],
+    ),
+    (
+        "verify",
+        "Check a claim rather than trust it.",
+        &["emem_verify", "emem_triple_consensus"],
+    ),
+    (
+        "earth_observation",
+        "Ground a fact in signed sensor data. These populate the memory; they are not the point of the system. Reach for one when the loop needs a value that is not cached yet.",
+        &[
+            "emem_ndvi",
+            "emem_weather",
+            "emem_soil",
+            "emem_elevation",
+            "emem_terrain",
+            "emem_lst",
+            "emem_water",
+            "emem_forest",
+            "emem_air",
+            "emem_spi",
+            "emem_burn_severity",
+            "emem_deforestation_alert",
+            "emem_sar_forest_disturbance",
+            "emem_field_boundaries",
+            "emem_rice_ch4",
+            "emem_eudr_dds",
+            "emem_fetch",
+            "emem_backfill",
+            "emem_cell_scene_rgb",
+            "emem_cell_geojson",
+        ],
+    ),
+    (
+        "search_and_compare",
+        "Ask a question across many places or many times, rather than one address.",
+        &[
+            "emem_hunt",
+            "emem_compare",
+            "emem_compare_bands",
+            "emem_diff",
+            "emem_trajectory",
+            "emem_temporal_route",
+            "emem_query_region",
+            "emem_recall_many",
+            "emem_recall_polygon",
+            "emem_region_similarity",
+            "emem_state",
+            "emem_state_diff",
+            "emem_state_multi",
+        ],
+    ),
+    (
+        "embeddings_and_models",
+        "Foundation-model representations and learned dynamics. Everything here is provenance class model_output: it is a prediction, not a measurement.",
+        &[
+            "emem_jepa_predict",
+            "emem_jepa_predict_v2",
+            "emem_embedding_centroid",
+            "emem_embedding_diversity",
+            "emem_find_similar",
+            "emem_neighborhood_consistency",
+            "emem_heat_solve",
+            "emem_wave_solve",
+        ],
+    ),
+    (
+        "transparency_log",
+        "Prove this responder is not showing you a private history. Append-only log with inclusion and consistency proofs.",
+        &[
+            "emem_log_sth",
+            "emem_log_inclusion",
+            "emem_log_consistency",
+            "emem_log_witnesses",
+        ],
+    ),
+    (
+        "agent_memory_files",
+        "Durable agent notes, addressed by path and cited like any other fact. Writes must be signed: see the attester block.",
+        &[
+            "memory_create",
+            "memory_view",
+            "memory_str_replace",
+            "memory_insert",
+            "memory_delete",
+            "memory_rename",
+            "memory_list_by_kind",
+            "emem_memory_search",
+        ],
+    ),
+    (
+        "introspection",
+        "Ask the responder what it is, what it knows, and how it computed something.",
+        &[
+            "emem_capabilities",
+            "emem_bands",
+            "emem_sources",
+            "emem_schema",
+            "emem_manifests",
+            "emem_algorithms",
+            "emem_explain_algorithm",
+            "emem_functions",
+            "emem_materializers",
+            "emem_topics",
+            "emem_errors",
+            "emem_grid_info",
+            "emem_data_availability",
+            "emem_coverage_map",
+            "emem_coverage_matrix",
+            "emem_benchmark",
+            "emem_corpus_state_stats",
+            "emem_fleet",
+        ],
+    ),
+];
+
+/// The shape `name` returns, or `"unknown"` for a name that is not a
+/// tool. Every real tool has exactly one, pinned by
+/// `every_tool_has_exactly_one_shape`.
+pub fn shape_of(name: &str) -> &'static str {
+    TOOL_SHAPES
+        .iter()
+        .find(|(_, _, names)| names.contains(&name))
+        .map(|(s, _, _)| *s)
+        .unwrap_or("unknown")
+}
+
+/// Every bundle `name` belongs to, which may be none: a bundle is a view
+/// onto the catalog, not a partition of it.
+pub fn bundles_of(name: &str) -> Vec<&'static str> {
+    TOOL_BUNDLES
+        .iter()
+        .filter(|(_, _, names)| names.contains(&name))
+        .map(|(b, _, _)| *b)
+        .collect()
+}
+
+/// Tools in `bundle`, empty for an unknown bundle name.
+pub fn tools_in_bundle(bundle: &str) -> Vec<&'static ToolDescriptor> {
+    TOOL_BUNDLES
+        .iter()
+        .find(|(b, _, _)| *b == bundle)
+        .map(|(_, _, names)| {
+            names
+                .iter()
+                .filter_map(|n| TOOLS.iter().find(|t| t.name == *n))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The shape of the answer a tool returns.
+///
+/// "Which tool do I use" is nearly always a question about shape, not
+/// about topic: an agent building a field wants a raster and does not care
+/// which index it is, and an agent citing a measurement wants a token and
+/// does not care which sensor produced it. Topic matching cannot answer
+/// that question, which is why an agent asking "which tool gives me the
+/// 10 m NDVI array, not per-cell scalars" was answered with a scalar at a
+/// cell.
+///
+/// Every tool has exactly one shape, pinned by `every_tool_has_one_shape`.
+/// `absent` is not a shape: a tool with no honest answer here means the
+/// vocabulary is wrong, not that the tool is special.
+pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
+    (
+        "scalar",
+        "One number or label at one address, with its receipt. The default shape of a measurement.",
+        &[
+            "emem_ndvi", "emem_weather", "emem_soil", "emem_elevation", "emem_terrain",
+            "emem_lst", "emem_water", "emem_forest", "emem_air", "emem_spi", "emem_burn_severity",
+            "emem_deforestation_alert", "emem_sar_forest_disturbance", "emem_rice_ch4",
+            "emem_recall", "emem_recall_many", "emem_recall_polygon", "emem_at",
+            "emem_ask", "emem_state", "emem_state_multi", "emem_diff", "emem_compare",
+            "emem_compare_bands", "emem_query_region", "emem_hunt", "emem_state_diff",
+            "emem_eudr_dds", "emem_heat_solve", "emem_wave_solve", "emem_backfill",
+            "emem_fetch",
+        ],
+    ),
+    (
+        "timeseries",
+        "A value per timestep at one address. Ask for this when the question is about change over time rather than a moment.",
+        &["emem_trajectory", "emem_temporal_route"],
+    ),
+    (
+        "raster",
+        "A gridded field over an area, rather than points. This is what a world model consumes.",
+        &["emem_cell_scene_rgb", "emem_coverage_map"],
+    ),
+    (
+        "geometry",
+        "Vector geometry: boundaries, footprints, polygons.",
+        &["emem_cell_geojson", "emem_field_boundaries"],
+    ),
+    (
+        "vector",
+        "A learned embedding, or a neighbourhood in embedding space. Provenance class model_output: a representation, not a measurement.",
+        &[
+            "emem_find_similar", "emem_embedding_centroid", "emem_embedding_diversity",
+            "emem_region_similarity", "emem_neighborhood_consistency", "emem_jepa_predict",
+            "emem_jepa_predict_v2", "emem_triple_consensus",
+        ],
+    ),
+    (
+        "identity",
+        "A canonical, citeable name for a thing, so two agents refer to one object instead of two descriptions.",
+        &["emem_locate", "emem_entity", "emem_entity_resolve", "emem_entity_link"],
+    ),
+    (
+        "token",
+        "A citation handle that resolves anywhere to the byte-identical signed object.",
+        &[
+            "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle",
+            "emem_memory_bundle_resolve", "emem_edges_recall",
+        ],
+    ),
+    (
+        "proof",
+        "Evidence about evidence: receipts, inclusion proofs, disagreement between sources.",
+        &[
+            "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
+            "emem_log_sth", "emem_log_inclusion", "emem_log_consistency", "emem_log_witnesses",
+        ],
+    ),
+    (
+        "plan",
+        "Tells you what to call, instead of answering the question itself.",
+        &["emem_intent", "emem_tools"],
+    ),
+    (
+        "file",
+        "Durable agent notes, addressed by path and cited like any other fact.",
+        &[
+            "memory_create", "memory_view", "memory_str_replace", "memory_insert",
+            "memory_delete", "memory_rename", "memory_list_by_kind", "emem_memory_search",
+        ],
+    ),
+    (
+        "catalog",
+        "What this responder is, knows, and how it computed something.",
+        &[
+            "emem_capabilities", "emem_bands", "emem_sources", "emem_schema",
+            "emem_manifests", "emem_algorithms", "emem_explain_algorithm", "emem_functions",
+            "emem_materializers", "emem_topics", "emem_errors", "emem_grid_info",
+            "emem_data_availability", "emem_coverage_matrix", "emem_benchmark",
+            "emem_corpus_state_stats", "emem_fleet",
+        ],
+    ),
+];
+
+/// Named sets of tools, addressed by the job an agent is doing rather
+/// than by what the tool returns.
+///
+/// A bundle is a view, not a partition: a tool belongs to as many bundles
+/// as it is useful in, and belonging to none is allowed (plenty of
+/// introspection tools answer no particular job). This is the axis that
+/// answers "I am doing X, what do I need", where [`TOOL_SHAPES`] answers
+/// "I need something shaped like Y".
+///
+/// `emem_tools {"bundle": "..."}` and `tools/list {"bundle": "..."}` both
+/// read this table, so a host can register exactly the surface a workflow
+/// needs instead of all of it.
+pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
+    (
+        "tokenisation",
+        "Turn something into a citeable, verifiable handle, and turn a handle back into the signed bytes. The point of emem: what you hand another agent instead of a paraphrase.",
+        &[
+            "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle",
+            "emem_memory_bundle_resolve", "emem_entity", "emem_entity_resolve",
+            "emem_entity_link", "emem_locate",
+        ],
+    ),
+    (
+        "verification",
+        "Check rather than trust: verify a receipt offline, confirm a claim against the ground, find where signed sources disagree, and prove the log is not showing you a private history.",
+        &[
+            "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
+            "emem_log_sth", "emem_log_inclusion", "emem_log_consistency",
+            "emem_log_witnesses", "emem_triple_consensus",
+        ],
+    ),
+    (
+        "agent_to_agent",
+        "Hand work to another agent without handing over trust. Co-refer on one identity, pass one token, let them resolve and verify it themselves with no shared secret.",
+        &[
+            "emem_entity", "emem_entity_resolve", "emem_entity_link", "emem_memory_token",
+            "emem_memory_bundle", "emem_memory_token_resolve", "emem_memory_bundle_resolve",
+            "emem_verify_receipt", "emem_memory_search",
+        ],
+    ),
+    (
+        "long_horizon",
+        "Work that outlives one context window. Park state as durable notes, cite what you found so a later run resolves the identical bytes, walk what changed since, and detect when the world moved under a conclusion you already drew.",
+        &[
+            "memory_create", "memory_view", "memory_str_replace", "memory_insert",
+            "memory_list_by_kind", "emem_memory_search", "emem_edges_recall",
+            "emem_trajectory", "emem_temporal_route", "emem_state_diff",
+            "emem_memory_contradictions", "emem_backfill",
+        ],
+    ),
+    (
+        "robotics",
+        "Ground a fleet in shared, signed state: where a thing is, what the terrain and surface under it are, what changed since the last pass, and which sensor lineage produced each of those.",
+        &[
+            "emem_locate", "emem_entity", "emem_elevation", "emem_terrain", "emem_water",
+            "emem_recall", "emem_recall_polygon", "emem_state", "emem_state_diff",
+            "emem_cell_geojson", "emem_fleet", "emem_trajectory", "emem_at",
+        ],
+    ),
+    (
+        "satellites",
+        "The sensing surface itself: what imagery exists, which scene was chosen and why, what the pixel-level classification says, and which upstream served it.",
+        &[
+            "emem_cell_scene_rgb", "emem_data_availability", "emem_coverage_map",
+            "emem_coverage_matrix", "emem_fleet", "emem_sources", "emem_manifests",
+            "emem_fetch", "emem_backfill", "emem_sar_forest_disturbance",
+        ],
+    ),
+    (
+        "agriculture",
+        "Crop and field questions: vegetation condition, soil, water, weather and drought, field boundaries, and methane from rice.",
+        &[
+            "emem_ndvi", "emem_soil", "emem_weather", "emem_spi", "emem_water",
+            "emem_field_boundaries", "emem_rice_ch4", "emem_lst", "emem_trajectory",
+            "emem_compare",
+        ],
+    ),
+    (
+        "forestry",
+        "Forest loss and disturbance, from optical and radar, plus the regulatory surface built on them.",
+        &[
+            "emem_forest", "emem_deforestation_alert", "emem_sar_forest_disturbance",
+            "emem_burn_severity", "emem_eudr_dds", "emem_hunt", "emem_ndvi",
+        ],
+    ),
+    (
+        "climate_risk",
+        "Exposure questions: heat, water, air, drought, terrain, and the physics solvers over them.",
+        &[
+            "emem_lst", "emem_water", "emem_air", "emem_spi", "emem_weather",
+            "emem_elevation", "emem_terrain", "emem_heat_solve", "emem_wave_solve",
+            "emem_burn_severity",
+        ],
+    ),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The loop is prose-ordered data, so nothing but a test stops it
+    /// naming a tool that was renamed or demoted out of the core tier.
+    #[test]
+    fn core_loop_names_real_core_tools_in_order() {
+        for (i, (step, name, why)) in CORE_LOOP.iter().enumerate() {
+            let t = TOOLS
+                .iter()
+                .find(|t| t.name == *name)
+                .unwrap_or_else(|| panic!("CORE_LOOP names `{name}`, which is not a tool"));
+            assert_eq!(
+                t.tier, "core",
+                "CORE_LOOP step {step} names `{name}`, which sits at tier `{}`. An agent \
+                 connected to the default endpoint would be told to walk a step it cannot see.",
+                t.tier
+            );
+            assert_eq!(
+                *step as usize,
+                i + 1,
+                "CORE_LOOP steps must be consecutive from 1; `{name}` breaks the run"
+            );
+            assert!(!why.is_empty(), "`{name}` has no rationale");
+        }
+    }
+
+    /// `emem_tools` is the one tool that has to be visible, since it is
+    /// how an agent on the core endpoint learns the rest exist.
+    #[test]
+    fn the_catalog_tool_is_core() {
+        let t = TOOLS
+            .iter()
+            .find(|t| t.name == "emem_tools")
+            .expect("emem_tools must exist");
+        assert_eq!(t.tier, "core");
+    }
+
+    /// Shape is the axis agents actually search on, so a tool with no
+    /// shape is invisible to the question they are asking. Exactly one,
+    /// because "it depends" is not an answer a router can use.
+    #[test]
+    fn every_tool_has_exactly_one_shape() {
+        for t in TOOLS {
+            let shapes: Vec<&str> = TOOL_SHAPES
+                .iter()
+                .filter(|(_, _, names)| names.contains(&t.name))
+                .map(|(s, _, _)| *s)
+                .collect();
+            assert_eq!(
+                shapes.len(),
+                1,
+                "`{}` has {} shapes ({shapes:?}); every tool needs exactly one, since shape is \
+                 what an agent filters on when it asks what to call",
+                t.name,
+                shapes.len()
+            );
+        }
+    }
+
+    #[test]
+    fn shape_and_bundle_tables_name_real_tools() {
+        for (label, names) in TOOL_SHAPES
+            .iter()
+            .map(|(s, _, n)| (*s, *n))
+            .chain(TOOL_BUNDLES.iter().map(|(b, _, n)| (*b, *n)))
+        {
+            for n in names {
+                assert!(
+                    TOOLS.iter().any(|t| t.name == *n),
+                    "`{label}` names `{n}`, which is not a tool"
+                );
+            }
+        }
+    }
+
+    /// A bundle is a view, so overlap is fine and empty is not: a bundle
+    /// nobody can use is a promise the catalog cannot keep.
+    #[test]
+    fn every_bundle_is_non_empty_and_described() {
+        for (bundle, why, names) in TOOL_BUNDLES {
+            assert!(!names.is_empty(), "bundle `{bundle}` is empty");
+            assert!(!why.is_empty(), "bundle `{bundle}` has no description");
+        }
+    }
+
+    /// A tool missing from every group still surfaces under `other`, but
+    /// a group naming a tool that does not exist is a typo that would
+    /// silently drop it from the catalog.
+    #[test]
+    fn tool_groups_name_real_tools() {
+        for (group, _, names) in TOOL_GROUPS {
+            for n in *names {
+                assert!(
+                    TOOLS.iter().any(|t| t.name == *n),
+                    "TOOL_GROUPS group `{group}` names `{n}`, which is not a tool"
+                );
+            }
+        }
+    }
+
+    /// Every tool the loop does not name should be reachable by scanning
+    /// the groups; anything else lands in `other` and is easy to miss.
+    #[test]
+    fn every_tool_is_grouped_or_in_the_loop() {
+        let ungrouped: Vec<&str> = TOOLS
+            .iter()
+            .filter(|t| t.name != "emem_tools")
+            .filter(|t| !CORE_LOOP.iter().any(|(_, n, _)| *n == t.name))
+            .filter(|t| !TOOL_GROUPS.iter().any(|(_, _, ns)| ns.contains(&t.name)))
+            .map(|t| t.name)
+            .collect();
+        assert!(
+            ungrouped.is_empty(),
+            "these tools appear in neither CORE_LOOP nor TOOL_GROUPS, so emem_tools files them \
+             under `other`: {ungrouped:?}"
+        );
+    }
 
     #[test]
     fn introspection_tools_present() {

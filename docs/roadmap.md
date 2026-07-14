@@ -148,15 +148,21 @@ return a signed hole instead of a value.
 
 ### Client surfaces, ranked by leverage
 
-- **A first-class SDK.** Ships today: typed clients for Python
-  (`pip install ememdev`) and TypeScript (`@emem/client`), plus a
-  LangChain `BaseStore` adapter (`emem-langmem`), each wrapping the REST
-  surface so a signed receipt is the only new thing a caller learns. Open:
-  a warm-and-retry wrapper that hides the cold-start timeout on first read;
-  built-in offline receipt verification in three lines; signing writes by
-  default now that the memory layer requires an attester; and publish
-  automation for the TypeScript and LangChain packages so all three ship
-  on release, not just Python.
+- **A first-class SDK.** In the repo today: typed clients for Python and
+  TypeScript, plus a LangChain `BaseStore` adapter (`emem-langmem`) that
+  signs its writes, each wrapping the REST surface so a signed receipt is
+  the only new thing a caller learns. **Not yet installable.** The
+  published `ememdev` 1.0.0 wheel contains no Python modules at all: a
+  root-anchored `/src/` pattern in the repo's `.gitignore` was re-anchored
+  by the build backend to the SDK directory, so the wheel built clean and
+  empty and `pip install ememdev` then `import emem` raises
+  `ModuleNotFoundError`. CI tested the source tree over `PYTHONPATH` and
+  never the artefact, so it stayed green throughout. The build is fixed and
+  CI now builds both wheels, asserts they contain modules, and imports one
+  from an installed wheel. Open: a version bump and re-publish, since PyPI
+  will not let 1.0.0 be replaced; `@emem/client` has never been published;
+  and then a warm-and-retry wrapper that hides the cold-start timeout on
+  first read, plus publish automation so all three ship on release.
 - **Framework adapters as thin wrappers over the SDK.** LangChain,
   LlamaIndex, CrewAI, the Claude Agent SDK, the OpenAI Agents SDK. Build
   one SDK and make each adapter a thin layer over it; hand-maintaining six
@@ -175,6 +181,59 @@ return a signed hole instead of a value.
   the signed-write path, and tenancy are solid; when it starts, one
   flagship design partner beats a generic ROS package. A runnable
   two-vendor HTTP example ships today at `examples/fleet-memory/`.
+
+### What agents building on emem actually hit
+
+Reported by an agent that built the 4D Gaussian-splat worlds at
+[/splats](https://emem.dev/splats) from emem's signed facts, plus an
+independent outside measurement of the MCP endpoint. Both landed on the
+same shape of problem: emem computes the right thing and then collapses it
+one function before the caller sees it.
+
+- **Serialised tool discovery.** Ships today: `/mcp` advertises the
+  14-tool loop rather than the full catalog, `/mcp/full` serves all of it,
+  and `emem_tools` maps the whole surface on demand, returning any single
+  tool's schema and a runnable example. Connecting costs 38 KB of context
+  instead of 190 KB, with the map at 19 KB and one tool at about 2 KB,
+  fetched only when wanted. `tools/call` still dispatches every tool by
+  name at either endpoint, so narrowing discovery removes no capability.
+  This supersedes an earlier attempt that paged the catalog behind a
+  non-standard `nextCursor`, which hosts ignored.
+- **The write path explains itself.** Ships today: a refused memory write
+  returns the exact 32-byte digest to sign for that verb, path and body,
+  the base32 rules, how `body_hash` is defined per verb, how the namespace
+  shortcode is derived, and a worked example. None of it is secret, and an
+  agent can go from refusal to a signed write in one turn without reading
+  the source. MCP tool errors now carry their typed `details` too, which
+  they previously dropped, making every typed error in this codebase
+  invisible to exactly the callers that could not go and look it up.
+- **A native-resolution raster for an area of interest.** Open, and the
+  single change most likely to keep a world-model pipeline inside emem. A
+  world model is a field, not a set of points, and emem has no way to
+  return one: `build_cell_scene_rgb` reads only B04/B03/B02 and returns a
+  256x256 8-bit stretched PNG that is not invertible for science, and every
+  other route returns per-cell scalars. A 2 km area of interest holds
+  40,040 cells at 10 m against `recall_polygon`'s `max_cells` limit of
+  1024, so per-cell recall cannot express the query at all. The reporting
+  agent wrote its own STAC and COG reader against emem's own upstream and
+  got a clean 200x200 at 10.00 m/px, which means emem was cut out of its
+  own pipeline. The primitive already exists: `cog::sample_window` returns
+  a native-resolution row-major `Vec<f64>`, and all five of its call sites
+  destroy it (three crush it to 8-bit RGB, one discards it to warm a cache,
+  one collapses it to a single scalar per cell). The plumbing is not the
+  hard part. The open question is what the receipt attests when a response
+  is bulk bytes over a bounding box with no cell and no `fact_cid`, since
+  that is the first emem response that would not be a signed fact addressed
+  by cell. Worth answering deliberately rather than stapling a signature
+  onto a byte pipe.
+- **Partial results instead of a timeout.** Open. A cold NDVI polygon
+  cannot finish inside the 40 s gateway: worst case is roughly 31
+  sequential upstream round trips for a single cell, and `recall_polygon`
+  runs 64 cells in waves. Bounding the S2 materializer and parallelising
+  the cloud-mask probe (both in flight) shrink the window but do not change
+  the shape. An agent handed 40 of 64 cells plus a list of what is still
+  materializing can proceed; a 504 teaches it to stop calling emem. That is
+  an API change and it deserves a design.
 
 ### Protocol consistency
 
