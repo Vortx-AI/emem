@@ -159,10 +159,14 @@ return a signed hole instead of a value.
   `ModuleNotFoundError`. CI tested the source tree over `PYTHONPATH` and
   never the artefact, so it stayed green throughout. The build is fixed and
   CI now builds both wheels, asserts they contain modules, and imports one
-  from an installed wheel. Open: a version bump and re-publish, since PyPI
-  will not let 1.0.0 be replaced; `@emem/client` has never been published;
-  and then a warm-and-retry wrapper that hides the cold-start timeout on
-  first read, plus publish automation so all three ship on release.
+  from an installed wheel, and the publish workflow refuses to upload a
+  wheel that holds no modules or that will not import once installed. The
+  version is bumped to 1.0.1, because PyPI versions are immutable and 1.0.0
+  can only be superseded, never replaced. Open: running that publish;
+  `@emem/client` has never been published at all; and then a
+  warm-and-retry wrapper that hides the cold-start timeout on first read,
+  plus publish automation so all three ship on release rather than Python
+  alone.
 - **Framework adapters as thin wrappers over the SDK.** LangChain,
   LlamaIndex, CrewAI, the Claude Agent SDK, the OpenAI Agents SDK. Build
   one SDK and make each adapter a thin layer over it; hand-maintaining six

@@ -12,8 +12,18 @@ name: publish-pypi
 #   * release published  — cut a GitHub Release and the SDK version in
 #                          sdks/emem-py/pyproject.toml is published
 #
-# Versions are immutable on PyPI; bump sdks/emem-py/pyproject.toml
-# (and src/emem/__init__.py) before publishing a new release.
+# Versions are immutable on PyPI; bump sdks/emem-py/pyproject.toml before
+# publishing a new release. `src/emem/__init__.py` no longer needs bumping:
+# it resolves `__version__` from the installed distribution metadata, so
+# pyproject.toml is the only place a version is written.
+#
+# This workflow published ememdev 1.0.0 as 2,364 bytes of metadata with no
+# Python modules in it: a root-anchored `/src/` in the repo .gitignore was
+# re-anchored by hatchling to sdks/emem-py, `python -m build` reported
+# success, and nothing here looked inside the artefact. `pip install
+# ememdev` then `import emem` raised ModuleNotFoundError for every user who
+# tried. The .gitignore is fixed, and the build no longer publishes without
+# proving the wheel contains code and imports.
 
 on:
   workflow_dispatch:
@@ -42,8 +52,40 @@ jobs:
           python -m pip install --upgrade build
           python -m build
 
+      # A wheel that builds clean and holds nothing is the failure that
+      # actually happened, and `python -m build` exits 0 for it. Look inside
+      # the artefact before it leaves the machine.
+      - name: the wheel contains its modules
+        run: |
+          python - <<'PY'
+          import glob, sys, zipfile
+
+          whls = sorted(glob.glob("sdks/emem-py/dist/*.whl"))
+          if not whls:
+              sys.exit("no wheel was built")
+          for whl in whls:
+              modules = [n for n in zipfile.ZipFile(whl).namelist() if n.endswith(".py")]
+              print(f"{whl}: {len(modules)} module(s) -> {modules}")
+              if not modules:
+                  sys.exit(f"refusing to publish {whl}: it ships no Python modules")
+          PY
+
+      # Importing from the built wheel is the only check that matches what a
+      # user gets from `pip install`. Testing the source tree over
+      # PYTHONPATH, which is what CI does, passes even when the package is
+      # empty.
+      - name: an installed wheel imports
+        run: |
+          python -m venv /tmp/wheelcheck
+          /tmp/wheelcheck/bin/pip install --quiet sdks/emem-py/dist/*.whl
+          /tmp/wheelcheck/bin/python -c "import emem; print('import emem OK, version', emem.__version__)"
+
       - name: publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: sdks/emem-py/dist/
+          # PyPI versions are immutable, so a re-run against an
+          # already-published version skips rather than fails. That is what
+          # keeps 1.0.0 empty on the index: it can never be replaced, only
+          # superseded. Bump pyproject.toml.
           skip-existing: true
