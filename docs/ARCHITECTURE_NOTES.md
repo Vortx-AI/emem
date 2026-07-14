@@ -189,8 +189,24 @@ signatures rather than transport auth:
 - Memory files: `crates/emem-primitives/src/memory_acl.rs` write-locks
   `/memories/by_attester/<pubkey8>/` to the keyholder; signature = ed25519
   over `blake3("emem.memory_write|" || verb || "|" || path || "|" ||
-  body_hash)` (:59-68); enforced from the REST layer
-  (`crates/emem-api-rest/src/lib.rs:19125-19170`).
+  body_hash)` (`attester_preimage`, :64-73); enforced from the REST layer
+  (`validate_attester_binding`, `crates/emem-api-rest/src/lib.rs:21275-21349`).
+  `body_hash` is the content the verb yields, not the POSTed JSON:
+  `file_text` for `create`, the post-edit file for `str_replace` /
+  `insert`, `blake3("")` for `delete`. `rename` signs `path = new_path`
+  with `body_hash = blake3(old_path)` (`rename_body_hash`, :92-94), so one
+  signature pins both ends of a move; the source's ownership is a
+  namespace check (`namespace_ownership_ok`), since one signature cannot
+  verify against two preimages.
+- The bare `/memories/` namespace is closed by default: `memory_write_policy`
+  (`crates/emem-api-rest/src/lib.rs:21219-21247`) returns `RequireAll` in
+  non-test builds, so an unattested write gets 401
+  `memory_attestation_required`. `EMEM_MEMORY_OPEN=1` restores the unsigned
+  memory-tool contract, `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1` gates only
+  `delete` / `rename` (`policy_gates_verb`, :21252-21258). Precedence:
+  `REQUIRE_ATTESTER` > `OPEN` > `HARDEN_DESTRUCTIVE` > default, read once
+  into a `OnceLock`. `cfg(test)` defaults to `Open` so in-crate fixtures
+  keep exercising the unattested path. `by_attester` is gated regardless.
 - Multi-attester disagreement is preserved, not overwritten: every distinct
   CID per `(cell, band, tslot)` is appended to sled tree
   `emem.multi_attester_index` at `put_attestation`

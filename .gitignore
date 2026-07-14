@@ -29,17 +29,21 @@ tls/
 # These patterns prevent the scaffolding from sneaking back in at root.
 # sdks/emem-ts/ has its own legitimate package.json / tsconfig.json /
 # src/ — those are NOT matched here because patterns are anchored to /.
+#
+# Anchoring only holds for git. hatchling re-anchors a root-anchored
+# pattern to whatever directory it is building, so `/src/` here also hit
+# `sdks/emem-py/src` and `sdks/emem-langmem/src`, and both wheels built
+# clean with zero modules in them. ememdev 1.0.0 shipped to PyPI that
+# way: metadata only, `import emem` raised ModuleNotFoundError. Keep
+# root-anchored patterns off any directory name an SDK also uses.
 node_modules/
 dist/
 dist-server/
 .parcel-cache/
 /index.html
-/package.json
 /package-lock.json
 /vite.config.ts
-/tsconfig.json
 /tsconfig.server.json
-/src/
 /server/
 /tests/*.test.ts
 

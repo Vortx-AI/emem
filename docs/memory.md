@@ -85,12 +85,47 @@ The signed preimage is:
 blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)
 ```
 
-where `body_hash = blake3(canonical request body bytes)`. Verbs:
-`create`, `str_replace`, `insert`, `delete`, `rename`.
+where `body_hash = blake3(canonical body bytes)`. What counts as the
+body depends on the verb:
+
+| verb | `path` | body |
+|---|---|---|
+| `create` | the file written | the `file_text` string sent |
+| `str_replace` | the file edited | the whole file *after* the edit |
+| `insert` | the file edited | the whole file *after* the edit |
+| `delete` | the file removed | empty, i.e. `blake3("")` |
+| `rename` | the **new_path** | the **old_path** string |
+
+`rename` is the only verb whose signature binds two paths. The
+destination rides the preimage's `path`, the source rides its
+`body_hash`, so one signature authorises one specific move. Signing the
+destination alone would let a captured signature drag any other file to
+that destination. When the source is itself under `by_attester`, the
+responder additionally checks the key owns it, and refuses with 403
+`memory_namespace_violation` (`reason: source_namespace`) if not.
 
 Wrong key → 401 `memory_attestation_invalid`.
 Wrong namespace → 403 `memory_namespace_violation`.
-Bare `/memories/...` stays anyone-writable.
+
+Bare `/memories/...` is **not** anyone-writable by default. A release
+build with no env set refuses every unattested write with 401
+`memory_attestation_required`. The operator picks the policy:
+
+| env | unattested writes to bare `/memories/...` |
+|---|---|
+| *(none set)* | refused for every verb |
+| `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1` | `create`, `str_replace`, `insert` accepted; `delete` and `rename` refused |
+| `EMEM_MEMORY_OPEN=1` | accepted for every verb (the unsigned memory-tool contract) |
+| `EMEM_MEMORY_REQUIRE_ATTESTER=1` | refused for every verb (the default, set explicitly) |
+
+Precedence when several are set: `EMEM_MEMORY_REQUIRE_ATTESTER` >
+`EMEM_MEMORY_OPEN` > `EMEM_MEMORY_HARDEN_DESTRUCTIVE`. The value is
+read once at startup, so a change needs a restart. `emem.dev` runs with
+`EMEM_MEMORY_REQUIRE_ATTESTER=1`.
+
+The policy only ever governs the bare namespace.
+`/memories/by_attester/<pubkey8>/...` requires a valid attester under
+every policy, including `EMEM_MEMORY_OPEN=1`.
 
 For attested writes, the receipt's `cells[]` becomes
 `["pubkey:<b32>", path]`; for bare writes it stays `[path]`. This means

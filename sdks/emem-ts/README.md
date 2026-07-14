@@ -1,10 +1,11 @@
 # @emem/client — TypeScript client for emem.dev
 
 Thin, typed TypeScript client for the [emem.dev](https://emem.dev) Earth
-memory protocol. Wraps the public REST surface (97 documented paths, 94 under
-`/v1/*`) in a single `Client` class. Every call returns parsed JSON
-verbatim — every ed25519-signed receipt and content-addressed CID is
-preserved for citation and offline verification.
+memory protocol. Wraps the public REST surface in a single `Client` class.
+Every call returns parsed JSON verbatim, so every ed25519-signed receipt and
+content-addressed CID is preserved for citation and offline verification.
+The current surface is whatever [`/openapi.json`](https://emem.dev/openapi.json)
+lists; this README does not restate a count that would go stale.
 
 Runs on Node 18+, Bun, Deno, browsers, and edge runtimes. Uses the
 platform `fetch`; zero runtime dependencies.

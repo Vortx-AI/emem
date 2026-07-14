@@ -1308,6 +1308,7 @@ pub fn router(state: AppState) -> Router {
 /// 40 s blanket was killing as 504 mid-generation. The bridge itself caps its
 /// upstream call (GEMMA_TIMEOUT_S), so sockets cannot pile up indefinitely.
 fn splats_router(state: AppState) -> Router {
+    use tower_http::compression::predicate::Predicate as _;
     let timeout_s: u64 = std::env::var("EMEM_SPLATS_TIMEOUT_S")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -1330,7 +1331,29 @@ fn splats_router(state: AppState) -> Router {
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
-        .layer(tower_http::compression::CompressionLayer::new().gzip(true))
+        // Keep gzip for `.splat`/`.u8` (measured 2.04x: 108 MB -> ~53 MB on the wire — the
+        // classic viewer still fetches those, so dropping it would be a hard regression) but
+        // skip the already-compressed formats: SPZ is internally gzipped, RAD is range-paged.
+        // Re-gzipping them burns CPU for ~0 gain.
+        // 206s need no guard here — tower-http already refuses to compress any response
+        // carrying `content-range` (compression/future.rs).
+        .layer(
+            tower_http::compression::CompressionLayer::new()
+                .gzip(true)
+                .compress_when(
+                    tower_http::compression::predicate::DefaultPredicate::new()
+                        .and(
+                            tower_http::compression::predicate::NotForContentType::const_new(
+                                "application/x-spz",
+                            ),
+                        )
+                        .and(
+                            tower_http::compression::predicate::NotForContentType::const_new(
+                                "application/x-rad",
+                            ),
+                        ),
+                ),
+        )
         .with_state(state)
 }
 
@@ -4109,6 +4132,22 @@ async fn health(State(s): State<AppState>) -> Json<JsonValue> {
     }))
 }
 
+/// Domain separator for the operator-attestation preimage.
+const OPERATOR_ATTESTATION_DOMAIN: &str = "emem.operator_attestation.v1";
+
+/// Segment tags for the operator-attestation preimage. Stable wire
+/// constants — never renumber.
+mod operator_attestation_tag {
+    pub const VERSION: u8 = 1;
+    pub const KEY_EPOCH: u8 = 2;
+    pub const ATTESTED_AT: u8 = 3;
+    pub const GIT_COMMIT: u8 = 4;
+    pub const BUILD_TIMESTAMP: u8 = 5;
+    pub const BINARY_BLAKE3: u8 = 6;
+    pub const BANDS_CID: u8 = 7;
+    pub const REGISTRY_CID: u8 = 8;
+}
+
 async fn well_known(State(s): State<AppState>) -> Response {
     // Operator attestation: a signed liveness claim binding the running
     // binary's provenance (git commit, build timestamp, BLAKE3 hash of
@@ -4136,22 +4175,39 @@ async fn well_known(State(s): State<AppState>) -> Response {
         .to_lowercase();
     let bands_cid: &str = s.manifests.bands_cid.as_ref();
     let registry_cid: &str = s.manifests.registry_cid.as_str();
-    let attest_preimage = format!(
-        "emem.operator_attestation|v{}|epoch{}|{}|git:{}|build:{}|binary:{}|bands:{}|registry:{}",
-        version,
-        s.identity.epoch.0,
-        attested_at,
-        git_commit,
-        build_timestamp,
-        binary_blake3,
-        bands_cid,
-        registry_cid,
+    // Tagged, length-prefixed v1 preimage. Was a raw pipe-delimited UTF-8
+    // string signed directly; that construction was the only signed family
+    // outside the PreimageV1 rule, had no verifier in-tree, and its
+    // unescaped `|` separators made two different field sets able to render
+    // the same bytes. Signing blake3 of a domain-separated tagged stream is
+    // now the invariant across every signed object; the segment table is
+    // published at GET /v1/verifier_spec.
+    let mut pb = emem_attest::PreimageV1::new(OPERATOR_ATTESTATION_DOMAIN);
+    pb.seg(operator_attestation_tag::VERSION, version.as_bytes());
+    pb.seg(
+        operator_attestation_tag::KEY_EPOCH,
+        &s.identity.epoch.0.to_be_bytes(),
     );
-    let attest_sig = s
-        .identity
-        .signing
-        .sign(attest_preimage.as_bytes())
-        .to_bytes();
+    pb.seg(
+        operator_attestation_tag::ATTESTED_AT,
+        attested_at.as_bytes(),
+    );
+    pb.seg(operator_attestation_tag::GIT_COMMIT, git_commit.as_bytes());
+    pb.seg(
+        operator_attestation_tag::BUILD_TIMESTAMP,
+        build_timestamp.as_bytes(),
+    );
+    pb.seg(
+        operator_attestation_tag::BINARY_BLAKE3,
+        binary_blake3.as_bytes(),
+    );
+    pb.seg(operator_attestation_tag::BANDS_CID, bands_cid.as_bytes());
+    pb.seg(
+        operator_attestation_tag::REGISTRY_CID,
+        registry_cid.as_bytes(),
+    );
+    let attest_digest = pb.finalize();
+    let attest_sig = s.identity.signing.sign(&attest_digest).to_bytes();
     let attest_sig_b32 = data_encoding::BASE32_NOPAD
         .encode(&attest_sig)
         .to_lowercase();
@@ -4188,10 +4244,12 @@ async fn well_known(State(s): State<AppState>) -> Response {
             "build_timestamp": build_timestamp,
             "binary_blake3":   binary_blake3,
             "tee_quote":       JsonValue::Null,
-            "preimage":        attest_preimage,
+            "preimage_version": 1,
+            "preimage_domain":  OPERATOR_ATTESTATION_DOMAIN,
+            "preimage":        "PreimageV1(\"emem.operator_attestation.v1\"){1:version, 2:key_epoch u32-BE, 3:attested_at, 4:git_commit, 5:build_timestamp, 6:binary_blake3, 7:bands_cid, 8:registry_cid}",
             "signature_b32":   attest_sig_b32,
             "alg":             "ed25519",
-            "_note":           "Verify by recomputing `preimage` from the named fields and checking ed25519 over it against `responder.pubkey_b32`. `binary_blake3` is the BLAKE3 hash of the running emem-server executable, computed once at startup by reading /proc/self/exe; together with `git_commit` and `build_timestamp` this binds the running code to a verifiable source tree. `tee_quote` is null on this responder (full Intel SGX / AMD SEV-SNP attestation report); operators who deploy under a TEE populate it from the platform's quoting service. Whitepaper §20 names the path.",
+            "_note":           "Verify by rebuilding the tagged preimage from the named fields (bands_cid and registry_cid are under `manifests`) and checking ed25519 against `responder.pubkey_b32`. ed25519 signs blake3 of the domain-separated, length-prefixed segment stream, not a raw string: the machine-readable segment table is at GET /v1/verifier_spec. `binary_blake3` is the BLAKE3 hash of the running emem-server executable, computed once at startup by reading /proc/self/exe; together with `git_commit` and `build_timestamp` this binds the running code to a verifiable source tree. `tee_quote` is null on this responder (full Intel SGX / AMD SEV-SNP attestation report); operators who deploy under a TEE populate it from the platform's quoting service. Whitepaper §20 names the path.",
         },
         "tools_url": "/v1/tools",
         "openapi_url": "/openapi.json",
@@ -12594,6 +12652,12 @@ fn verify_receipt_shape_hint(detail: &str) -> String {
 /// bespoke pipe-delimited preimages that have not yet been migrated onto the
 /// tagged v1 family (tracked in the roadmap).
 async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
+    use crate::corpus_state_stats_tag as cst;
+    use crate::operator_attestation_tag as oat;
+    use crate::stream_tick_tag as stt;
+    use crate::translog_sth_tag as st;
+    use crate::translog_witness_tag as wt;
+    use emem_attest::attestation_tag as at;
     use emem_attest::receipt_tag as rt;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
@@ -12608,7 +12672,7 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
     };
     Json(json!({
         "schema": "emem.verifier_spec.v1",
-        "generated_from": "emem-attest compiled constants (receipt_tag::*, PREIMAGE_V1); this document is emitted by the responder from the same code that signs, so it cannot drift from the wire.",
+        "generated_from": "emem-attest compiled constants (receipt_tag::*, PREIMAGE_V1) and emem-primitives (BY_ATTESTER_PREFIX, PUBKEY_SHORT_LEN); this document is emitted by the responder from the same code that signs and verifies, so it cannot drift from the wire.",
         "signature": {
             "algorithm": "ed25519",
             "digest": "blake3-256",
@@ -12644,14 +12708,109 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
             },
         },
         "other_signed_objects": [
-            { "name": "attestation", "domain": "attestation", "construction": "preimage_v1", "segments": "0x01 batch_root, 0x02 registry_cid, 0x03 schema_cid", "note": "tagged v1; numeric tags not yet lifted to named constants" },
-            { "name": "transparency_log_sth", "domain": "emem.translog.sth.v1", "construction": "preimage_v1", "served_at": "GET /v1/log/sth" },
-            { "name": "transparency_log_witness", "domain": "emem.translog.witness.v1", "construction": "preimage_v1", "served_at": "POST /v1/log/witness" },
-            { "name": "corpus_state_stats", "construction": "pipe_delimited_legacy", "preimage": "emem.corpus_state_stats|v<ver>|epoch<n>|t<ts>|cells:<n>|bands:<n>|facts:<n>", "signed": "raw utf-8 bytes (not blake3-wrapped)", "note": "bespoke; migration onto preimage_v1 is on the roadmap" },
-            { "name": "operator_attestation", "construction": "pipe_delimited_legacy", "served_at": "/.well-known/emem.json", "note": "bespoke pipe; migration on roadmap" },
-            { "name": "stream_tick", "construction": "pipe_delimited_legacy", "served_at": "GET /v1/memory/sse (corpus.state tick)", "note": "bespoke pipe; migration on roadmap" },
+            {
+                "name": "attestation",
+                "domain": "attestation",
+                "construction": "preimage_v1",
+                "source_of_truth": "emem_attest::attestation_preimage_v1",
+                "segments": [
+                    seg(at::BATCH_ROOT, "batch_root", "scalar", false, "32 raw bytes of the merkle root"),
+                    seg(at::REGISTRY_CID, "registry_cid", "scalar", false, ""),
+                    seg(at::SCHEMA_CID, "schema_cid", "scalar", false, ""),
+                ],
+            },
+            {
+                "name": "transparency_log_sth",
+                "domain": TRANSLOG_STH_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "GET /v1/log/sth",
+                "segments": [
+                    seg(st::TREE_SIZE, "tree_size", "scalar", false, "u64 big-endian"),
+                    seg(st::ROOT, "root", "scalar", false, "32 raw bytes"),
+                    seg(st::SIGNED_AT, "signed_at", "scalar", false, ""),
+                    seg(st::RESPONDER_PUBKEY, "responder_pubkey", "scalar", false, "32 raw bytes"),
+                ],
+            },
+            {
+                "name": "transparency_log_witness",
+                "domain": TRANSLOG_WITNESS_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "POST /v1/log/witness",
+                "segments": [
+                    seg(wt::TREE_SIZE, "tree_size", "scalar", false, "u64 big-endian"),
+                    seg(wt::ROOT, "root", "scalar", false, "32 raw bytes"),
+                    seg(wt::WITNESS_PUBKEY, "witness_pubkey", "scalar", false, "32 raw bytes"),
+                ],
+            },
+            {
+                "name": "operator_attestation",
+                "domain": OPERATOR_ATTESTATION_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "/.well-known/emem.json",
+                "segments": [
+                    seg(oat::VERSION, "version", "scalar", false, ""),
+                    seg(oat::KEY_EPOCH, "key_epoch", "scalar", false, "u32 big-endian"),
+                    seg(oat::ATTESTED_AT, "attested_at", "scalar", false, ""),
+                    seg(oat::GIT_COMMIT, "git_commit", "scalar", false, ""),
+                    seg(oat::BUILD_TIMESTAMP, "build_timestamp", "scalar", false, ""),
+                    seg(oat::BINARY_BLAKE3, "binary_blake3", "scalar", false, ""),
+                    seg(oat::BANDS_CID, "bands_cid", "scalar", false, "under `manifests` in the response"),
+                    seg(oat::REGISTRY_CID, "registry_cid", "scalar", false, "under `manifests` in the response"),
+                ],
+            },
+            {
+                "name": "corpus_state_stats",
+                "domain": CORPUS_STATE_STATS_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "GET /v1/corpus_state_stats",
+                "segments": [
+                    seg(cst::VERSION, "version", "scalar", false, ""),
+                    seg(cst::KEY_EPOCH, "key_epoch", "scalar", false, "u32 big-endian"),
+                    seg(cst::SERVED_AT_UNIX_S, "served_at_unix_s", "scalar", false, "u64 big-endian"),
+                    seg(cst::DISTINCT_CELLS, "distinct_cells", "scalar", false, "u64 big-endian"),
+                    seg(cst::DISTINCT_BANDS, "distinct_bands", "scalar", false, "u64 big-endian"),
+                    seg(cst::FACTS_SCANNED, "facts_scanned", "scalar", false, "u64 big-endian"),
+                ],
+            },
+            {
+                "name": "stream_tick",
+                "domain": STREAM_TICK_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "GET /v1/stream (corpus.state tick)",
+                "segments": [
+                    seg(stt::VERSION, "version", "scalar", false, ""),
+                    seg(stt::KEY_EPOCH, "key_epoch", "scalar", false, "u32 big-endian"),
+                    seg(stt::SERVED_AT, "served_at", "scalar", false, ""),
+                    seg(stt::REGISTRY_CID, "registry_cid", "scalar", false, ""),
+                    seg(stt::DISTINCT_CELLS, "distinct_cells", "scalar", false, "u64 big-endian"),
+                ],
+            },
         ],
-        "notes": "The receipt table is the single source of truth for offline verification and is generated from the emem-attest tag constants. The three pipe_delimited_legacy families are documented for completeness and are being migrated onto the tagged preimage_v1 family so one spec covers every signature.",
+        "caller_signed_objects": [
+            {
+                "name": "memory_write",
+                "direction": "the caller signs and this responder verifies. Every other object on this page is the reverse, which is why this one does not use the receipt rule.",
+                "construction": "blake3_pipe",
+                "preimage": "blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash)",
+                "source_of_truth": "emem_primitives::attester_preimage, the one function the responder verifies against.",
+                "signed_bytes": "ed25519 signs the 32-byte blake3 digest, same as preimage_v1",
+                "verbs": {
+                    "create": "body_hash = blake3(the `file_text` string's UTF-8 bytes, exactly as transmitted)",
+                    "str_replace": "body_hash = blake3(the whole file's UTF-8 bytes AFTER the edit)",
+                    "insert": "body_hash = blake3(the whole file's UTF-8 bytes AFTER the insert)",
+                    "delete": "body_hash = blake3(\"\")",
+                    "rename": "path is the NEW path and body_hash = blake3(the OLD path's UTF-8 bytes), so one signature binds both ends of the move. See emem_primitives::rename_body_hash.",
+                },
+                "namespace_rule": format!(
+                    "A write to `{}<pubkey8>/...` is accepted only from the key whose shortcode matches, where pubkey8 is the first {} chars of the base32-nopad lowercased pubkey. Mismatch returns 403 memory_namespace_violation. A rename must own both the source and the destination.",
+                    emem_primitives::BY_ATTESTER_PREFIX,
+                    emem_primitives::PUBKEY_SHORT_LEN,
+                ),
+                "verification": "ed25519_dalek verify_strict, which rejects malleable signatures",
+                "not_preimage_v1": "This is the one construction on the responder that is not preimage_v1. Its shape is pinned by the whitepaper (§5.2.1) and by every client that already signs against it, so it is deliberately frozen rather than migrated. It is domain-separated and the verb is inside the preimage, so a signature cannot cross verbs or paths; what it lacks is preimage_v1's explicit length prefixes.",
+            },
+        ],
+        "notes": "Every object this responder signs uses one rule: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream. Each segment table above is serialized from the compiled tag constants, so this spec cannot drift from the signer. Two constructions sit outside that rule and both are listed here rather than hidden: the legacy v0 receipt, which is verify-only for pre-cutover receipts and is never emitted, and memory_write under `caller_signed_objects`, which the caller signs rather than the responder.",
     }))
 }
 
@@ -13015,6 +13174,17 @@ fn b32_lower(bytes: &[u8]) -> String {
 /// STH format change.
 const TRANSLOG_STH_DOMAIN: &str = "emem.translog.sth.v1";
 
+/// Segment tags for the signed-tree-head preimage. Stable wire constants —
+/// never renumber. Named so `GET /v1/verifier_spec` serializes these symbols
+/// instead of re-typed integers, the same discipline `emem_attest::receipt_tag`
+/// follows.
+mod translog_sth_tag {
+    pub const TREE_SIZE: u8 = 1;
+    pub const ROOT: u8 = 2;
+    pub const SIGNED_AT: u8 = 3;
+    pub const RESPONDER_PUBKEY: u8 = 4;
+}
+
 fn translog_bad_arg(msg: impl Into<String>) -> ApiError {
     ApiError(
         StatusCode::BAD_REQUEST,
@@ -13064,10 +13234,10 @@ fn sign_sth(s: &AppState, leaves: &[[u8; 32]]) -> JsonValue {
     let signed_at = chrono_iso8601_utc();
     let pk = s.identity.pubkey.0;
     let mut pb = emem_attest::PreimageV1::new(TRANSLOG_STH_DOMAIN);
-    pb.seg(1, &tree_size.to_be_bytes());
-    pb.seg(2, &root);
-    pb.seg(3, signed_at.as_bytes());
-    pb.seg(4, &pk);
+    pb.seg(translog_sth_tag::TREE_SIZE, &tree_size.to_be_bytes());
+    pb.seg(translog_sth_tag::ROOT, &root);
+    pb.seg(translog_sth_tag::SIGNED_AT, signed_at.as_bytes());
+    pb.seg(translog_sth_tag::RESPONDER_PUBKEY, &pk);
     let preimage = pb.finalize();
     let sig = s.identity.signing.sign(&preimage).to_bytes();
     json!({
@@ -13210,15 +13380,23 @@ async fn get_log_consistency(
 /// 3:witness_pubkey}` — deliberately independent of the responder's STH
 /// `signed_at`, so the claim is purely "at size N I saw root R".
 const TRANSLOG_WITNESS_DOMAIN: &str = "emem.translog.witness.v1";
+
+/// Segment tags for the witness co-signature preimage. Stable wire
+/// constants — never renumber.
+mod translog_witness_tag {
+    pub const TREE_SIZE: u8 = 1;
+    pub const ROOT: u8 = 2;
+    pub const WITNESS_PUBKEY: u8 = 3;
+}
 /// sled tree holding witness co-signatures.
 const TREE_LOG_WITNESSES: &str = "emem.log_witnesses";
 
 /// The 32-byte preimage a witness signs to co-sign a tree head.
 fn witness_preimage(tree_size: u64, root: &[u8; 32], witness_pk: &[u8; 32]) -> [u8; 32] {
     let mut pb = emem_attest::PreimageV1::new(TRANSLOG_WITNESS_DOMAIN);
-    pb.seg(1, &tree_size.to_be_bytes());
-    pb.seg(2, root);
-    pb.seg(3, witness_pk);
+    pb.seg(translog_witness_tag::TREE_SIZE, &tree_size.to_be_bytes());
+    pb.seg(translog_witness_tag::ROOT, root);
+    pb.seg(translog_witness_tag::WITNESS_PUBKEY, witness_pk);
     pb.finalize()
 }
 
@@ -17105,6 +17283,10 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry).","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Parses emem:fact:<cell>:<fact_cid> (legacy memt: also accepted), fetches the signed fact body by CID, and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. Binds the cell: a token whose cell contradicts the signed fact's own cell is refused with 409, so a real fact_cid cannot be passed off under a false location. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"404":json_not_found,"409":json_conflict}}},
+            "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
+            "/.well-known/emem-verifier.json": {"get":{"summary":"Alias of GET /v1/verifier_spec: the code-generated signing/verification specification, at a well-known path so an offline verifier can discover it without reading the OpenAPI document.","operationId":"emem_verifier_spec_well_known","tags":["verify"],"responses":{"200":json_ok}}},
+            "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations. The memory algebra's `merge`: one handle that cites many facts.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["triples"],"properties":{"triples":{"type":"array","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory_bundle/{token}": {"get":{"summary":"Dereference a bundle token back to its signed envelope: the citations, the fact_cids, the cells, and the receipt. Accepts emem:bundle:<bundle_cid> (legacy memb: also accepted) or a bare bundle_cid; the response always re-emits the canonical `bundle_token`. 404 when this responder did not compose the bundle (the composer is stateless, the resolver is sled-backed, so paste the token at the responder that minted it or re-compose from the original triples).","operationId":"emem_memory_bundle_resolve","tags":["memory","cite"],"parameters":[{"name":"token","in":"path","required":true,"schema":{"type":"string"},"description":"emem:bundle:<bundle_cid> (legacy memb: or bare cid accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (emem:entity:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the canonical object other agents already minted (converge, do not re-mint), or dereference an emem:entity: `token` directly to its signed body. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"emem:entity:<entity_cid> (legacy meme: accepted) to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/alias":      {"post":{"summary":"Attest a signed equivalence: bind an alternate label or a stable external id (GERS/OSM/Wikidata) to an existing entity so future entity_resolve calls on that phrasing converge to the same entity_cid. Builds the shared reference graph.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
@@ -17605,6 +17787,47 @@ fn splats_root() -> std::path::PathBuf {
         .into()
 }
 
+/// Parse a single `Range: bytes=<start>-<end>` spec against a known content length.
+///
+/// Returns `None` when the caller should serve the whole file (no header, unparseable, or a
+/// multi-range spec — RFC 9110 permits answering those with a normal 200), and `Some(Err(()))`
+/// when the range is unsatisfiable (caller answers 416).
+///
+/// Range support is NOT cosmetic here: Spark's `SplatPager` fetches `.rad` LOD pages with
+/// `Range: bytes=…`. Without a 206 every page request would re-download the whole 108 MB file,
+/// so a paged viewer would be dramatically *slower* than the monolithic fetch it replaces.
+fn parse_byte_range(spec: Option<&str>, len: u64) -> Option<Result<(u64, u64), ()>> {
+    let spec = spec?.trim().strip_prefix("bytes=")?;
+    if spec.contains(',') {
+        return None; // multi-range: serve 200 rather than build a multipart body
+    }
+    if len == 0 {
+        return Some(Err(()));
+    }
+    let (a, b) = spec.split_once('-')?;
+    let (a, b) = (a.trim(), b.trim());
+    let (start, end) = if a.is_empty() {
+        // suffix form `bytes=-N`: the final N bytes
+        let n: u64 = b.parse().ok()?;
+        if n == 0 {
+            return Some(Err(()));
+        }
+        (len.saturating_sub(n), len - 1)
+    } else {
+        let start: u64 = a.parse().ok()?;
+        let end: u64 = if b.is_empty() {
+            len - 1
+        } else {
+            b.parse().ok()?
+        };
+        (start, end.min(len - 1))
+    };
+    if start >= len || start > end {
+        return Some(Err(()));
+    }
+    Some(Ok((start, end)))
+}
+
 fn splats_mime(path: &str) -> &'static str {
     match path.rsplit('.').next().unwrap_or("") {
         "html" => "text/html; charset=utf-8",
@@ -17614,6 +17837,11 @@ fn splats_mime(path: &str) -> &'static str {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "svg" => "image/svg+xml",
+        // Distinct types for the two ALREADY-COMPRESSED splat formats so the compression
+        // predicate can skip them precisely: SPZ is internally gzipped (magic 1f8b) and RAD is
+        // range-paged. Everything else stays octet-stream and keeps its ~2x wire gzip.
+        "spz" => "application/x-spz",
+        "rad" => "application/x-rad",
         _ => "application/octet-stream", // .splat .tsplat .u8 .ply …
     }
 }
@@ -17656,15 +17884,59 @@ async fn serve_splats_file(Path(path): Path<String>, headers: HeaderMap) -> Resp
             .body(axum::body::Body::empty())
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     }
-    match std::fs::read(&p) {
-        Ok(bytes) => Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", splats_mime(&path))
-            .header("cache-control", "public, max-age=300")
-            .header("etag", etag)
-            .body(axum::body::Body::from(bytes))
+    // `If-Range` guards against splicing pages from two different builds into one buffer: if the
+    // client's validator no longer matches, ignore the Range and hand back the whole current file.
+    let if_range_ok = headers
+        .get("if-range")
+        .and_then(|v| v.to_str().ok())
+        .is_none_or(|v| v == etag);
+    let len = md.len();
+    let range = if if_range_ok {
+        parse_byte_range(headers.get("range").and_then(|v| v.to_str().ok()), len)
+    } else {
+        None
+    };
+
+    match range {
+        Some(Err(())) => Response::builder()
+            .status(StatusCode::RANGE_NOT_SATISFIABLE)
+            .header("content-range", format!("bytes */{len}"))
+            .header("accept-ranges", "bytes")
+            .body(axum::body::Body::empty())
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
-        Err(_) => not_found("read error"),
+        Some(Ok((start, end))) => {
+            use std::io::{Read, Seek, SeekFrom};
+            let n = (end - start + 1) as usize;
+            let read = std::fs::File::open(&p).and_then(|mut f| {
+                f.seek(SeekFrom::Start(start))?;
+                let mut buf = vec![0u8; n];
+                f.read_exact(&mut buf)?;
+                Ok(buf)
+            });
+            match read {
+                Ok(buf) => Response::builder()
+                    .status(StatusCode::PARTIAL_CONTENT)
+                    .header("content-type", splats_mime(&path))
+                    .header("cache-control", "public, max-age=300")
+                    .header("etag", etag)
+                    .header("accept-ranges", "bytes")
+                    .header("content-range", format!("bytes {start}-{end}/{len}"))
+                    .body(axum::body::Body::from(buf))
+                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+                Err(_) => not_found("read error"),
+            }
+        }
+        None => match std::fs::read(&p) {
+            Ok(bytes) => Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", splats_mime(&path))
+                .header("cache-control", "public, max-age=300")
+                .header("etag", etag)
+                .header("accept-ranges", "bytes")
+                .body(axum::body::Body::from(bytes))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+            Err(_) => not_found("read error"),
+        },
     }
 }
 
@@ -17922,6 +18194,19 @@ struct StreamParams {
     interval_s: Option<u64>,
 }
 
+/// Domain separator for the SSE `corpus.state` tick preimage.
+const STREAM_TICK_DOMAIN: &str = "emem.stream.tick.v1";
+
+/// Segment tags for the stream-tick preimage. Stable wire constants —
+/// never renumber.
+mod stream_tick_tag {
+    pub const VERSION: u8 = 1;
+    pub const KEY_EPOCH: u8 = 2;
+    pub const SERVED_AT: u8 = 3;
+    pub const REGISTRY_CID: u8 = 4;
+    pub const DISTINCT_CELLS: u8 = 5;
+}
+
 async fn get_stream_sse(
     State(s): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<StreamParams>,
@@ -17974,26 +18259,32 @@ async fn get_stream_sse(
                 }),
             };
 
-            // Signed tick preimage: the canonical concatenation any
-            // verifier can reconstruct from the event body. Matches the
-            // protocol's "every responder claim is signed" rule.
+            // Signed tick preimage: a tagged, length-prefixed v1 stream any
+            // verifier can rebuild from the event body. Matches the
+            // protocol's "every responder claim is signed" rule, and now the
+            // same PreimageV1 rule as every other signed object (this was a
+            // raw pipe-delimited string signed directly). Segment table at
+            // GET /v1/verifier_spec.
             let version = env!("CARGO_PKG_VERSION");
             let pubkey_b32 = data_encoding::BASE32_NOPAD
                 .encode(&s.identity.pubkey.0)
                 .to_lowercase();
             let registry_cid = s.manifests.registry_cid.as_str();
-            let preimage = format!(
-                "emem.stream.tick|v{}|epoch{}|{}|registry:{}|cells:{}",
-                version,
-                s.identity.epoch.0,
-                served_at,
-                registry_cid,
-                snapshot_block
-                    .get("distinct_cells")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
+            let distinct_cells = snapshot_block
+                .get("distinct_cells")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let mut pb = emem_attest::PreimageV1::new(STREAM_TICK_DOMAIN);
+            pb.seg(stream_tick_tag::VERSION, version.as_bytes());
+            pb.seg(stream_tick_tag::KEY_EPOCH, &s.identity.epoch.0.to_be_bytes());
+            pb.seg(stream_tick_tag::SERVED_AT, served_at.as_bytes());
+            pb.seg(stream_tick_tag::REGISTRY_CID, registry_cid.as_bytes());
+            pb.seg(
+                stream_tick_tag::DISTINCT_CELLS,
+                &distinct_cells.to_be_bytes(),
             );
-            let sig = s.identity.signing.sign(preimage.as_bytes()).to_bytes();
+            let digest = pb.finalize();
+            let sig = s.identity.signing.sign(&digest).to_bytes();
             let sig_b32 = data_encoding::BASE32_NOPAD.encode(&sig).to_lowercase();
 
             let payload = json!({
@@ -18011,9 +18302,12 @@ async fn get_stream_sse(
                     "bands_cid":    &s.manifests.bands_cid,
                 },
                 "signature": {
-                    "preimage":      preimage,
+                    "preimage_version": 1,
+                    "preimage_domain":  STREAM_TICK_DOMAIN,
+                    "preimage":      "PreimageV1(\"emem.stream.tick.v1\"){1:version, 2:key_epoch u32-BE, 3:served_at, 4:registry_cid, 5:distinct_cells u64-BE}",
                     "signature_b32": sig_b32,
                     "alg":           "ed25519",
+                    "_note":         "ed25519 signs blake3 of the domain-separated, length-prefixed segment stream, not a raw string. Rebuild it from the named fields in this event; the machine-readable segment table is at GET /v1/verifier_spec.",
                 },
             });
 
@@ -19329,6 +19623,20 @@ struct CorpusBandStat {
     cell_count: u64,
 }
 
+/// Domain separator for the corpus-state-stats preimage.
+const CORPUS_STATE_STATS_DOMAIN: &str = "emem.corpus_state_stats.v1";
+
+/// Segment tags for the corpus-state-stats preimage. Stable wire
+/// constants — never renumber.
+mod corpus_state_stats_tag {
+    pub const VERSION: u8 = 1;
+    pub const KEY_EPOCH: u8 = 2;
+    pub const SERVED_AT_UNIX_S: u8 = 3;
+    pub const DISTINCT_CELLS: u8 = 4;
+    pub const DISTINCT_BANDS: u8 = 5;
+    pub const FACTS_SCANNED: u8 = 6;
+}
+
 #[derive(Debug, Serialize)]
 struct CorpusStateStats {
     responder_pubkey_b32: String,
@@ -19443,16 +19751,30 @@ async fn get_corpus_state_stats(
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
     let version = env!("CARGO_PKG_VERSION");
-    let preimage = format!(
-        "emem.corpus_state_stats|v{}|epoch{}|t{}|cells:{}|bands:{}|facts:{}",
-        version,
-        s.identity.epoch.0,
-        now,
-        cells.len(),
-        by_band.len(),
-        entries.len(),
+    // Tagged v1 preimage (was a raw pipe-delimited UTF-8 string signed
+    // directly, with no verifier in-tree). Segment table at
+    // GET /v1/verifier_spec.
+    let mut pb = emem_attest::PreimageV1::new(CORPUS_STATE_STATS_DOMAIN);
+    pb.seg(corpus_state_stats_tag::VERSION, version.as_bytes());
+    pb.seg(
+        corpus_state_stats_tag::KEY_EPOCH,
+        &s.identity.epoch.0.to_be_bytes(),
     );
-    let sig = s.identity.signing.sign(preimage.as_bytes()).to_bytes();
+    pb.seg(corpus_state_stats_tag::SERVED_AT_UNIX_S, &now.to_be_bytes());
+    pb.seg(
+        corpus_state_stats_tag::DISTINCT_CELLS,
+        &(cells.len() as u64).to_be_bytes(),
+    );
+    pb.seg(
+        corpus_state_stats_tag::DISTINCT_BANDS,
+        &(by_band.len() as u64).to_be_bytes(),
+    );
+    pb.seg(
+        corpus_state_stats_tag::FACTS_SCANNED,
+        &(entries.len() as u64).to_be_bytes(),
+    );
+    let digest = pb.finalize();
+    let sig = s.identity.signing.sign(&digest).to_bytes();
     let sig_b32 = data_encoding::BASE32_NOPAD.encode(&sig).to_lowercase();
 
     Ok(Json(CorpusStateStats {
@@ -19470,9 +19792,12 @@ async fn get_corpus_state_stats(
             "sources_cid":  s.manifests.sources_cid,
         }),
         signature: json!({
-            "preimage":      preimage,
+            "preimage_version": 1,
+            "preimage_domain":  CORPUS_STATE_STATS_DOMAIN,
+            "preimage":      "PreimageV1(\"emem.corpus_state_stats.v1\"){1:version, 2:key_epoch u32-BE, 3:served_at_unix_s u64-BE, 4:distinct_cells u64-BE, 5:distinct_bands u64-BE, 6:facts_scanned u64-BE}",
             "signature_b32": sig_b32,
             "alg":           "ed25519",
+            "_note":         "ed25519 signs blake3 of the domain-separated, length-prefixed segment stream, not a raw string. Rebuild it from the named fields in this response; the machine-readable segment table is at GET /v1/verifier_spec.",
         }),
     }))
 }
@@ -21082,8 +21407,13 @@ fn open_namespace_requires_attester(verb: &str) -> bool {
 /// one); returns a typed 401 / 403 otherwise.
 ///
 /// `verb` is one of `create | str_replace | insert | delete | rename`.
-/// `body_hash` is the blake3 digest of the write body — for verbs
-/// without a body (delete/rename) pass blake3(b"").
+/// `body_hash` is the blake3 digest of the verb's canonical body: the
+/// `file_text` for `create`, the whole post-edit file for `str_replace`
+/// and `insert`, blake3(b"") for the body-less `delete`, and
+/// blake3(old_path) for `rename` (see [`rename_body_hash`], which binds
+/// the move's source into the signature over its destination).
+///
+/// [`rename_body_hash`]: emem_primitives::rename_body_hash
 fn validate_attester_binding(
     verb: &str,
     path: &str,
@@ -21145,11 +21475,11 @@ fn validate_attester_binding(
                     ErrorBody {
                         code: ErrorCode::InvalidArgument,
                         message: format!(
-                            "memory_attestation_invalid: signature verified, but path `{path}` is under a different attester's namespace. Use `/memories/by_attester/{}/...`",
+                            "memory_namespace_violation: signature verified, but path `{path}` is under a different attester's namespace. Use `/memories/by_attester/{}/...`",
                             att.pubkey_short()
                         ),
                         details: Some(json!({
-                            "code": "memory_attestation_invalid",
+                            "code": "memory_namespace_violation",
                             "reason": "namespace_mismatch",
                             "expected_short": att.pubkey_short(),
                         })),
@@ -22418,31 +22748,35 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
             },
         ));
     }
-    // W2: validate the signature against the NEW path (this is where
-    // the write effectively lands). Both old and new must satisfy
-    // namespace ownership independently — if either is attester-scoped
-    // a binding is required.
-    let empty_bh = emem_primitives::body_hash(b"");
-    validate_attester_binding("rename", &new_path, &empty_bh, req.attester.as_ref())?;
+    // W2: one signature covers both ends of the move. The destination
+    // rides the preimage's `path`; the source rides its body_hash (see
+    // `emem_primitives::rename_body_hash`). Verifying the *same*
+    // signature a second time against a preimage built from `old_path`
+    // would be checking one signature against two different messages,
+    // which always fails: the source is a namespace question, not a
+    // signature question.
+    let rename_bh = emem_primitives::rename_body_hash(&old_path);
+    validate_attester_binding("rename", &new_path, &rename_bh, req.attester.as_ref())?;
     if emem_primitives::namespace_requires_attester(&old_path) {
         // The source path is also attester-scoped; ensure the supplied
         // attester (if any) owns it.
         if let Some(att) = req.attester.as_ref() {
-            // Reuse the same verifier — it enforces namespace match.
-            match emem_primitives::verify_attester("rename", &old_path, &empty_bh, att) {
-                emem_primitives::AttestationVerdict::Ok => {}
-                v => {
-                    return Err(ApiError(
-                        StatusCode::FORBIDDEN,
-                        ErrorBody {
-                            code: ErrorCode::InvalidArgument,
-                            message: format!(
-                                "memory_attestation_invalid: rename source `{old_path}` not owned by attester (verdict={v:?})"
-                            ),
-                            details: Some(json!({"code": "memory_attestation_invalid", "reason": "source_namespace"})),
-                        },
-                    ));
-                }
+            if !emem_primitives::namespace_ownership_ok(&old_path, &att.pubkey_b32) {
+                return Err(ApiError(
+                    StatusCode::FORBIDDEN,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!(
+                            "memory_namespace_violation: rename source `{old_path}` is under a different attester's namespace. This key may only move files out of `/memories/by_attester/{}/...`",
+                            att.pubkey_short()
+                        ),
+                        details: Some(json!({
+                            "code": "memory_namespace_violation",
+                            "reason": "source_namespace",
+                            "expected_short": att.pubkey_short(),
+                        })),
+                    },
+                ));
             }
         } else {
             return Err(ApiError(
@@ -52870,6 +53204,129 @@ mod tests {
         .await
         .expect_err("must reject cross-namespace write");
         assert_eq!(err.0, StatusCode::FORBIDDEN);
+        let details = err.1.details.expect("typed details");
+        assert_eq!(
+            details.get("code").and_then(|v| v.as_str()),
+            Some("memory_namespace_violation"),
+            "the 403 code is documented in docs/memory.md and the whitepaper; keep them the same string"
+        );
+    }
+
+    /// A key renaming a file inside its own namespace must succeed. The
+    /// responder used to re-verify the caller's signature against a
+    /// second preimage built from `old_path`; since `old_path` and
+    /// `new_path` are required to differ, that check could never pass
+    /// and every rename inside `by_attester` was refused.
+    #[tokio::test]
+    async fn memory_rename_within_own_attester_namespace_succeeds() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let old_path = format!("/memories/by_attester/{short}/a.md");
+        let new_path = format!("/memories/by_attester/{short}/b.md");
+
+        let body = b"movable";
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: old_path.clone(),
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: None,
+                attester: Some(sign_attester(&sk, "create", &old_path, body)),
+            },
+        )
+        .await
+        .expect("attested create");
+
+        // One signature, over the destination, carrying the source as
+        // its body.
+        let att = sign_attester(&sk, "rename", &new_path, old_path.as_bytes());
+        memory_rename_inner(
+            &s,
+            MemoryRenameReq {
+                old_path: old_path.clone(),
+                new_path: new_path.clone(),
+                attester: Some(att),
+            },
+        )
+        .await
+        .map_err(|e| format!("attested rename: {} {}", e.0, e.1.message))
+        .unwrap();
+
+        let db = memory_db(&s).unwrap();
+        let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).unwrap();
+        assert!(paths.get(new_path.as_bytes()).unwrap().is_some());
+        assert!(paths.get(old_path.as_bytes()).unwrap().is_none());
+    }
+
+    /// The rename signature binds the source, so it cannot be replayed
+    /// to move some other file to the same destination.
+    #[tokio::test]
+    async fn memory_rename_signature_binds_the_source() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let signed_source = format!("/memories/by_attester/{short}/a.md");
+        let other_source = format!("/memories/by_attester/{short}/secrets.md");
+        let new_path = format!("/memories/by_attester/{short}/b.md");
+
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: other_source.clone(),
+                file_text: "private".into(),
+                kind: None,
+                attester: Some(sign_attester(&sk, "create", &other_source, b"private")),
+            },
+        )
+        .await
+        .expect("attested create");
+
+        // Signature authorises moving `a.md`, replayed against `secrets.md`.
+        let att = sign_attester(&sk, "rename", &new_path, signed_source.as_bytes());
+        let err = memory_rename_inner(
+            &s,
+            MemoryRenameReq {
+                old_path: other_source,
+                new_path,
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect_err("a rename signature must not transfer to another source");
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+    }
+
+    /// Moving a file out of another key's namespace stays refused, and
+    /// reports the documented namespace code rather than a signature
+    /// error, since the signature legitimately covers the destination.
+    #[tokio::test]
+    async fn memory_rename_out_of_foreign_namespace_refused() {
+        let s = test_app_state();
+        let (sk_a, pk_a) = test_attester_signer();
+        let (_sk_b, pk_b) = test_attester_signer();
+        let short_a = emem_primitives::pubkey_short_from_b32(&pk_a);
+        let short_b = emem_primitives::pubkey_short_from_b32(&pk_b);
+        let old_path = format!("/memories/by_attester/{short_b}/private.md");
+        let new_path = format!("/memories/by_attester/{short_a}/stolen.md");
+
+        let att = sign_attester(&sk_a, "rename", &new_path, old_path.as_bytes());
+        let err = memory_rename_inner(
+            &s,
+            MemoryRenameReq {
+                old_path,
+                new_path,
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect_err("must not move another key's file");
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        let details = err.1.details.expect("typed details");
+        assert_eq!(
+            details.get("code").and_then(|v| v.as_str()),
+            Some("memory_namespace_violation")
+        );
     }
 
     #[tokio::test]

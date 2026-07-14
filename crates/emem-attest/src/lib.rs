@@ -267,6 +267,17 @@ where
     p.finalize()
 }
 
+/// Segment tags for the v1 attestation preimage. Stable wire constants —
+/// never renumber. Named for the same reason [`receipt_tag`] is: the
+/// generated verifier spec (`GET /v1/verifier_spec`) serializes these
+/// symbols rather than re-typed integers, so the published spec cannot
+/// drift from the signer.
+pub mod attestation_tag {
+    pub const BATCH_ROOT: u8 = 0x01;
+    pub const REGISTRY_CID: u8 = 0x02;
+    pub const SCHEMA_CID: u8 = 0x03;
+}
+
 /// Canonical v1 attestation preimage digest:
 /// `blake3(domain("attestation") || tagged(batch_root) ||
 /// tagged(registry_cid) || tagged(schema_cid))`. Replaces the v0 rule
@@ -279,9 +290,9 @@ pub fn attestation_preimage_v1(
     schema_cid: &str,
 ) -> [u8; 32] {
     let mut p = PreimageV1::new("attestation");
-    p.seg(0x01, batch_root);
-    p.seg(0x02, registry_cid.as_bytes());
-    p.seg(0x03, schema_cid.as_bytes());
+    p.seg(attestation_tag::BATCH_ROOT, batch_root);
+    p.seg(attestation_tag::REGISTRY_CID, registry_cid.as_bytes());
+    p.seg(attestation_tag::SCHEMA_CID, schema_cid.as_bytes());
     p.finalize()
 }
 

@@ -178,8 +178,39 @@ jobs:
       - name: install test deps
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "httpx>=0.27" "pytest>=8.0" "respx>=0.21" "langchain-core>=0.3,<1.0"
+          python -m pip install "httpx>=0.27" "pytest>=8.0" "respx>=0.21" "langchain-core>=0.3,<1.0" "blake3>=0.3" "cryptography>=41"
       - name: emem-py parity tests
         run: PYTHONPATH=sdks/emem-py/src python -m pytest sdks/emem-py/tests/ -v
       - name: emem-langmem smoke tests
         run: PYTHONPATH=sdks/emem-langmem/src python -m pytest sdks/emem-langmem/tests/ -v
+      # The two steps above put src/ on PYTHONPATH, so they pass whether or
+      # not the built package contains any code. ememdev 1.0.0 shipped to
+      # PyPI holding nothing but metadata, and this suite stayed green
+      # through it. Build the artefact and import it out of a wheel, which
+      # is the thing users actually install.
+      - name: wheels contain their modules
+        run: |
+          python -m pip install --upgrade build
+          for sdk in emem-py emem-langmem; do
+            python -m build --wheel --outdir "dist-$sdk" "sdks/$sdk"
+          done
+          python - <<'PY'
+          import glob, sys, zipfile
+
+          failed = False
+          for whl in sorted(glob.glob("dist-*/*.whl")):
+              modules = [n for n in zipfile.ZipFile(whl).namelist() if n.endswith(".py")]
+              print(f"{whl}: {len(modules)} module(s)")
+              if not modules:
+                  print(f"  ERROR: {whl} ships no Python modules", file=sys.stderr)
+                  failed = True
+          sys.exit(1 if failed else 0)
+          PY
+      - name: an installed wheel imports
+        run: |
+          python -m venv /tmp/wheelcheck
+          /tmp/wheelcheck/bin/pip install --quiet dist-emem-py/*.whl
+          /tmp/wheelcheck/bin/python -c "import emem; print('emem', emem.__version__)"
+          /tmp/wheelcheck/bin/pip install --quiet "langchain-core>=0.3,<1.0" "blake3>=0.3" "cryptography>=41"
+          /tmp/wheelcheck/bin/pip install --quiet dist-emem-langmem/*.whl
+          /tmp/wheelcheck/bin/python -c "import emem_langmem; print('emem_langmem', emem_langmem.__version__)"

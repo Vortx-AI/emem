@@ -239,8 +239,11 @@ only the slice the agent asked for, sorted by `signed_at` desc.
 
 ### Capability binding (multi-agent integration)
 
-For multi-agent setups where each agent should write to its own
-namespace, send an `attester` block on every write:
+Send an `attester` block on every write. A release responder refuses
+unattested writes to *any* path by default with 401
+`memory_attestation_required`, and `emem.dev` runs that way, so signing
+is the normal path rather than a multi-agent extra. It also gives each
+agent its own namespace:
 
 ```jsonc
 {"name":"memory_create","arguments":{
@@ -256,9 +259,14 @@ namespace, send an `attester` block on every write:
 
 The responder verifies the signature before persisting; an invalid
 sig returns 401 `memory_attestation_invalid`, a wrong-namespace
-write returns 403 `memory_namespace_violation`. Reference
-implementation in `crates/emem-primitives/src/memory_acl.rs`:
-`attester_preimage()`, `verify_attester()`. The same shape works
+write returns 403 `memory_namespace_violation`. `<body_hash>` is
+blake3 over the content the verb produces: the `file_text` for
+`create`, the whole file after the edit for `str_replace` and
+`insert`, `blake3("")` for `delete`. `rename` signs over the
+`new_path` with the `old_path` as its body, so one signature covers
+both ends of the move. Reference implementation in
+`crates/emem-primitives/src/memory_acl.rs`: `attester_preimage()`,
+`rename_body_hash()`, `verify_attester()`. The same shape works
 across LangChain, AutoGen, CrewAI multi-agent flows: each agent
 gets a stable identity, every action is signed by that identity,
 and `memory_contradictions` surfaces disagreement between agents

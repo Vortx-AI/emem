@@ -876,9 +876,32 @@ attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
 where:
 
 - `verb ∈ {create, str_replace, insert, delete, rename}`
-- `path` is the canonical memory path beginning with `/memories/`
-- `body_hash = blake3(canonical request body bytes)`, the JSON body
-  the caller will POST, byte-for-byte
+- `path` is the canonical memory path beginning with `/memories/`, the
+  path the verb writes *to*: for `rename` that is the `new_path`
+- `body_hash = blake3(canonical body bytes)`, where the canonical body
+  is defined per verb:
+
+| verb | canonical body |
+|---|---|
+| `create` | the `file_text` string's UTF-8 bytes |
+| `str_replace` | the whole file's UTF-8 bytes *after* the replacement |
+| `insert` | the whole file's UTF-8 bytes *after* the insertion |
+| `delete` | the empty string: `blake3("")` |
+| `rename` | the `old_path` string's UTF-8 bytes |
+
+The body is the *content*, never the JSON envelope the caller POSTs.
+For the edit verbs the caller must apply the edit locally and hash the
+resulting file, which makes the signature commit to the state the
+responder will persist rather than to the patch that produced it.
+
+`rename` binds both ends of the move with one signature: the
+destination is the preimage's `path`, the source is its `body_hash`.
+Verifying the same signature a second time against a preimage built
+from `old_path` would check one signature against two messages, which
+no ed25519 signature satisfies, so a responder MUST treat the source as
+a namespace question: if `old_path` is under `by_attester`, the
+attester key MUST own it, else 403 `memory_namespace_violation`
+(`reason: source_namespace`).
 
 The reference implementation is `crates/emem-primitives/src/memory_acl.rs`:
 
@@ -893,9 +916,19 @@ are write-restricted, where `pubkey_short` is the first 8 chars of
 `base32_nopad_lower(pubkey_bytes)`. A write with a valid signature
 but the wrong namespace returns 403 `memory_namespace_violation`. A
 write with an invalid signature returns 401
-`memory_attestation_invalid`. Bare `/memories/...` paths (no
-`by_attester` segment) accept anyone, back-compat with the
-unsigned Anthropic memory-tool form.
+`memory_attestation_invalid`.
+
+Bare `/memories/...` paths (no `by_attester` segment) are governed by
+the responder's memory-write policy, not by the namespace rule. A
+release build defaults to refusing every unattested write with 401
+`memory_attestation_required`; an operator re-opens the bare namespace
+for the unsigned Anthropic memory-tool form with `EMEM_MEMORY_OPEN=1`,
+or admits unattested `create` / `str_replace` / `insert` while gating
+`delete` and `rename` with `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`. A
+conforming client MUST NOT assume the bare namespace accepts unattested
+writes; it MUST treat 401 `memory_attestation_required` as the expected
+response and sign. The policy never relaxes `by_attester`, which
+requires a valid attester under every setting.
 
 For attested writes, the responder's own receipt (§7.1) carries
 `cells = ["pubkey:<b32>", path]`, so the path → attester binding

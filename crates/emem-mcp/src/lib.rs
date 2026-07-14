@@ -447,7 +447,7 @@ const SCHEMA_MEMORY_DELETE: &str = r#"{"type":"object","required":["path"],"prop
 const SCHEMA_MEMORY_RENAME: &str = r#"{"type":"object","required":["old_path","new_path"],"properties":{
 "old_path":{"type":"string","description":"Existing `/memories/<file>` path."},
 "new_path":{"type":"string","description":"Destination `/memories/<file>` path. Fails when the destination exists."},
-"attester":{"type":"object","description":"Optional ed25519 caller binding (verb=rename). Required when either path is under `/memories/by_attester/<pubkey8>/...`.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
+"attester":{"type":"object","description":"Optional ed25519 caller binding (verb=rename). Required when either path is under `/memories/by_attester/<pubkey8>/...`. One signature binds both ends of the move: sig signs blake3(\"emem.memory_write|rename|<new_path>|<body_hash>\") where body_hash = blake3(<old_path>). The key must own both namespaces.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 const SCHEMA_MEMORY_LIST_BY_KIND: &str = r#"{"type":"object","required":["kind"],"properties":{

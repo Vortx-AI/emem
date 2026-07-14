@@ -11,11 +11,16 @@
 //! When an attester is present, the path namespace
 //! `/memories/by_attester/<pubkey8>/...` is write-restricted to that
 //! pubkey's signer. `<pubkey8>` = first 8 chars of the base32-nopad
-//! lowercased pubkey. Other paths (including bare `/memories/...`)
-//! remain open for back-compat with un-attested callers.
+//! lowercased pubkey.
 //!
-//! When an attester is absent, behaviour is unchanged — the receipt
-//! still binds the path + bytes to the responder identity.
+//! Whether a write to any *other* path (including bare `/memories/...`)
+//! may go out un-attested is not decided here: it is the responder's
+//! `MemoryWritePolicy`, which refuses un-attested writes by default. The
+//! `by_attester` sub-tree is gated regardless of policy, because its
+//! ownership claim only means something if it is enforced.
+//!
+//! `verb` is part of the preimage, so a signature authorising a `create`
+//! cannot be replayed as a `delete` of the same path.
 
 #![forbid(unsafe_code)]
 
@@ -68,10 +73,42 @@ pub fn attester_preimage(verb: &str, path: &str, body_hash: &[u8; 32]) -> [u8; 3
 }
 
 /// Compute the body-hash component of the attester preimage: blake3
-/// over the file bytes. For verbs that don't carry a body (delete,
-/// rename) callers pass an empty slice.
+/// over the request's canonical body bytes. `delete` carries no body,
+/// so it hashes an empty slice. `rename` carries its source path: see
+/// [`rename_body_hash`].
 pub fn body_hash(bytes: &[u8]) -> [u8; 32] {
     *blake3::hash(bytes).as_bytes()
+}
+
+/// The body-hash for a `rename`, which is blake3 over the *source*
+/// path's UTF-8 bytes.
+///
+/// A rename's canonical body is the pair of paths it moves between. The
+/// destination already rides the preimage's `path` component, so hashing
+/// the source here makes one signature bind both ends. Without it the
+/// signature authorises "move something to `new_path`" while naming no
+/// source, and a captured signature could be replayed to drag a
+/// different file to the same destination.
+pub fn rename_body_hash(old_path: &str) -> [u8; 32] {
+    body_hash(old_path.as_bytes())
+}
+
+/// Whether `pubkey_b32` may write at `path` under the namespace rule.
+///
+/// Paths outside [`BY_ATTESTER_PREFIX`] have no owner, so every key
+/// passes. A path inside it passes only for the key whose shortcode
+/// names the namespace.
+///
+/// This is the namespace half of [`verify_attester`], split out because
+/// a rename has to answer "does this key own the source?" for a path the
+/// signature does not cover. Verifying the signature against the source
+/// would be checking one signature against two different messages, which
+/// no ed25519 signature can satisfy.
+pub fn namespace_ownership_ok(path: &str, pubkey_b32: &str) -> bool {
+    match path.strip_prefix(BY_ATTESTER_PREFIX) {
+        Some(rest) => rest.split('/').next().unwrap_or("") == pubkey_short_from_b32(pubkey_b32),
+        None => true,
+    }
 }
 
 /// Verdict from validating an attester binding.
@@ -129,20 +166,18 @@ pub fn verify_attester(
     // Enforce namespace ownership when the path lands in the attester
     // sub-tree. Other paths accept the signature as advisory binding;
     // the receipt records the pubkey for audit.
-    if let Some(rest) = path.strip_prefix(BY_ATTESTER_PREFIX) {
-        let claimed = rest.split('/').next().unwrap_or("");
-        let short = pubkey_short_from_b32(&attester.pubkey_b32);
-        if claimed != short {
-            return AttestationVerdict::NamespaceMismatch;
-        }
+    if !namespace_ownership_ok(path, &attester.pubkey_b32) {
+        return AttestationVerdict::NamespaceMismatch;
     }
     AttestationVerdict::Ok
 }
 
-/// When an attester is absent, only the `by_attester` namespace is
-/// gated — bare `/memories/...` writes remain open. This helper
-/// returns `true` if the path requires an attester but the caller
-/// supplied none.
+/// Whether `path` is gated by the namespace rule alone, independent of
+/// the responder's write policy.
+///
+/// Only the `by_attester` sub-tree is: a write there claims ownership,
+/// so it must prove it. Whether bare `/memories/...` also demands an
+/// attester is a policy question the responder answers, not this rule.
 pub fn namespace_requires_attester(path: &str) -> bool {
     path.starts_with(BY_ATTESTER_PREFIX)
 }
@@ -238,6 +273,120 @@ mod tests {
         assert_eq!(
             verify_attester("create", "/memories/x.md", &[0u8; 32], &attester),
             AttestationVerdict::BadPubkey
+        );
+    }
+
+    /// A rename inside one's own namespace has to actually work. The
+    /// responder used to verify the caller's signature a second time
+    /// against a preimage built from `old_path`, which no signature over
+    /// `new_path` can satisfy, so every such rename was refused.
+    #[test]
+    fn rename_within_own_namespace_verifies() {
+        let sk = fresh_signer();
+        let pubkey_b32 = pubkey_b32_of(&sk);
+        let short = pubkey_short_from_b32(&pubkey_b32);
+        let old_path = format!("/memories/by_attester/{short}/a.md");
+        let new_path = format!("/memories/by_attester/{short}/b.md");
+
+        let bh = rename_body_hash(&old_path);
+        let attester = MemoryAttester {
+            pubkey_b32: pubkey_b32.clone(),
+            sig_b32: sign_b32(&sk, &attester_preimage("rename", &new_path, &bh)),
+        };
+
+        // The one signature covers the destination...
+        assert_eq!(
+            verify_attester("rename", &new_path, &bh, &attester),
+            AttestationVerdict::Ok
+        );
+        // ...and the source is answered as a namespace question.
+        assert!(namespace_ownership_ok(&old_path, &pubkey_b32));
+    }
+
+    /// The source path is bound by the signature, so a captured rename
+    /// signature cannot be replayed to drag a different file to the
+    /// same destination.
+    #[test]
+    fn rename_signature_binds_the_source_path() {
+        let sk = fresh_signer();
+        let pubkey_b32 = pubkey_b32_of(&sk);
+        let short = pubkey_short_from_b32(&pubkey_b32);
+        let new_path = format!("/memories/by_attester/{short}/b.md");
+        let signed_source = format!("/memories/by_attester/{short}/a.md");
+        let other_source = format!("/memories/by_attester/{short}/secrets.md");
+
+        let attester = MemoryAttester {
+            pubkey_b32,
+            sig_b32: sign_b32(
+                &sk,
+                &attester_preimage("rename", &new_path, &rename_body_hash(&signed_source)),
+            ),
+        };
+
+        assert_eq!(
+            verify_attester(
+                "rename",
+                &new_path,
+                &rename_body_hash(&other_source),
+                &attester
+            ),
+            AttestationVerdict::BadSignature
+        );
+    }
+
+    /// Moving a file *out* of someone else's namespace stays refused,
+    /// and that refusal is a namespace verdict rather than a signature
+    /// one, since the signature legitimately covers only the target.
+    #[test]
+    fn rename_out_of_a_foreign_namespace_refused() {
+        let sk_a = fresh_signer();
+        let sk_b = fresh_signer();
+        let short_a = pubkey_short_from_b32(&pubkey_b32_of(&sk_a));
+        let short_b = pubkey_short_from_b32(&pubkey_b32_of(&sk_b));
+
+        // A signs a move of B's file into A's own namespace.
+        let old_path = format!("/memories/by_attester/{short_b}/private.md");
+        let new_path = format!("/memories/by_attester/{short_a}/stolen.md");
+        let bh = rename_body_hash(&old_path);
+        let attester = MemoryAttester {
+            pubkey_b32: pubkey_b32_of(&sk_a),
+            sig_b32: sign_b32(&sk_a, &attester_preimage("rename", &new_path, &bh)),
+        };
+
+        // The signature itself is honest about the destination.
+        assert_eq!(
+            verify_attester("rename", &new_path, &bh, &attester),
+            AttestationVerdict::Ok
+        );
+        // The source is what stops it.
+        assert!(!namespace_ownership_ok(&old_path, &attester.pubkey_b32));
+    }
+
+    #[test]
+    fn unowned_paths_have_no_namespace_owner() {
+        let sk = fresh_signer();
+        let pubkey_b32 = pubkey_b32_of(&sk);
+        // Nothing outside the sub-tree is owned, so the rule passes and
+        // policy alone decides.
+        assert!(namespace_ownership_ok("/memories/notes.md", &pubkey_b32));
+        assert!(namespace_ownership_ok("/memories/by_attester", &pubkey_b32));
+    }
+
+    /// The verb is part of the preimage: a `create` signature must not
+    /// be replayable as a `delete` of the same path.
+    #[test]
+    fn signature_does_not_cross_verbs() {
+        let sk = fresh_signer();
+        let pubkey_b32 = pubkey_b32_of(&sk);
+        let path = "/memories/notes.md";
+        let bh = body_hash(b"");
+        let attester = MemoryAttester {
+            pubkey_b32,
+            sig_b32: sign_b32(&sk, &attester_preimage("create", path, &bh)),
+        };
+        assert_eq!(
+            verify_attester("delete", path, &bh, &attester),
+            AttestationVerdict::BadSignature
         );
     }
 }

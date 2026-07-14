@@ -35,8 +35,9 @@ pub use edges::{edges_recall, EdgesRecallReq, EdgesRecallResp};
 pub use find_similar::{find_similar, FindSimilarReq, FindSimilarResp, Neighbor};
 pub use lance_index::{IndexStats, LanceIndex, PerDimStats};
 pub use memory_acl::{
-    attester_preimage, body_hash, namespace_requires_attester, pubkey_short_from_b32,
-    verify_attester, AttestationVerdict, MemoryAttester, BY_ATTESTER_PREFIX, PUBKEY_SHORT_LEN,
+    attester_preimage, body_hash, namespace_ownership_ok, namespace_requires_attester,
+    pubkey_short_from_b32, rename_body_hash, verify_attester, AttestationVerdict, MemoryAttester,
+    BY_ATTESTER_PREFIX, PUBKEY_SHORT_LEN,
 };
 pub use memory_contradictions::{
     memory_contradictions, AttesterDisagreement, Contradiction, ContradictionsReq,

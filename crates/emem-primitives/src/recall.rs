@@ -653,9 +653,8 @@ mod include_edges_tests {
     use super::*;
     use std::sync::Arc;
 
-    use blake3::Hasher;
-    use ed25519_dalek::{Signer, SigningKey};
-    use emem_core::{AttesterKey, KeyEpoch, Signature};
+    use ed25519_dalek::SigningKey;
+    use emem_core::{AttesterKey, KeyEpoch};
     use emem_fact::{
         Attestation, Derivation, EdgeFact, Fact, PrimaryFact, RegistryCid, SchemaCid, Source,
     };
@@ -713,38 +712,17 @@ mod include_edges_tests {
 
     fn sign(facts: Vec<Fact>, secret: [u8; 32]) -> Attestation {
         let signing = SigningKey::from_bytes(&secret);
-        let mut pk = [0u8; 32];
-        pk.copy_from_slice(signing.verifying_key().as_bytes());
-        let mut leaves: Vec<[u8; 32]> = facts
-            .iter()
-            .map(|f| {
-                let mut buf = Vec::new();
-                ciborium::ser::into_writer(f, &mut buf).unwrap();
-                *blake3::hash(&buf).as_bytes()
-            })
-            .collect();
-        leaves.sort();
-        let root = emem_attest::merkle_root(&leaves);
-        let mut h = Hasher::new();
-        h.update(&root);
-        h.update(b"test-registry");
-        h.update(b"test-schema");
-        let sig = signing.sign(h.finalize().as_bytes());
-        let mut sb = [0u8; 64];
-        sb.copy_from_slice(&sig.to_bytes());
-        Attestation {
+        Attestation::build_and_sign_v1(
             facts,
-            edges: vec![],
-            batch_root: root,
-            attester: AttesterKey(pk),
-            attester_key_epoch: KeyEpoch(0),
-            registry_cid: RegistryCid::new("test-registry"),
-            schema_cid: SchemaCid::new("test-schema"),
-            signature: Signature(sb),
-            attested_at: "2026-05-29T00:00:00Z".into(),
-            scope: None,
-            preimage_version: 0,
-        }
+            vec![],
+            RegistryCid::new("test-registry"),
+            SchemaCid::new("test-schema"),
+            &signing,
+            KeyEpoch(0),
+            "2026-05-29T00:00:00Z".into(),
+            None,
+        )
+        .expect("attestation build")
     }
 
     #[tokio::test]

@@ -16,26 +16,58 @@ pip install emem-langmem
 from emem_langmem import EmemStore
 from langgraph.graph import StateGraph
 
-store = EmemStore(base_url="https://emem.dev")
+store = EmemStore(base_url="https://emem.dev", signing_key=SEED)
 
 graph = StateGraph(...).compile(store=store)
 ```
+
+`SEED` is a raw 32-byte ed25519 seed that you own and persist, for
+example `os.urandom(32)` once, then kept wherever the agent's other
+secrets live. It signs every write, and the responder requires that:
+an unattested write is refused unless the operator opened the responder
+with `EMEM_MEMORY_OPEN=1`. The key also decides where the store writes.
 
 `EmemStore` implements the four `BaseStore` verbs by issuing MCP
 `tools/call` requests to the emem responder against the six Anthropic
 memory-tool verbs:
 
-| BaseStore verb | emem MCP tool   |
-|----------------|-----------------|
-| `mget(keys)`   | `memory_view`   |
-| `mset(pairs)`  | `memory_create` |
-| `mdelete(ks)`  | `memory_delete` |
-| `yield_keys`   | `memory_view` (directory walk) |
+| BaseStore verb | emem MCP tool   | Signed |
+|----------------|-----------------|--------|
+| `mget(keys)`   | `memory_view`   | read, no signature |
+| `mset(pairs)`  | `memory_create` | yes |
+| `mdelete(ks)`  | `memory_delete` | yes |
+| `yield_keys`   | `memory_view` (directory walk) | read, no signature |
 
-LangChain calls `mget(("ns","key"))`; emem stores it at
-`/memories/ns/key`. Top-level namespace `by_attester/` triggers
-capability binding on the emem side — see
-[docs/memory.md](https://emem.dev/docs/memory.md).
+## Namespaces
+
+With a signing key, the store roots itself at
+`/memories/by_attester/<pubkey8>/`, where `<pubkey8>` is the first 8
+characters of your base32 pubkey. Only that key can write there, so
+agents sharing one responder cannot overwrite each other. LangChain
+calls `mget(("ns","key"))` and the store reads
+`/memories/by_attester/<pubkey8>/ns/key`.
+
+```python
+store.root              # '/memories/by_attester/aoqqpp7t'
+store.signer.pubkey_b32 # the full base32 pubkey
+```
+
+A key that starts with `/` is taken as a literal absolute path and is
+left alone, which is how you reach outside your own root. Writing into
+another key's namespace is refused with a 403. Without a signing key the
+root stays `/memories` and writes go out unattested. See
+[docs/memory.md](https://emem.dev/docs/memory.md) for the wire format.
+
+`EmemSigner` is public if you drive the memory tools yourself and need
+the same `attester` block:
+
+```python
+from emem_langmem import EmemSigner
+
+signer = EmemSigner(SEED)
+signer.attester_block("create", f"{signer.namespace_root}/n.md", b"hi")
+# {'pubkey_b32': '...', 'sig_b32': '...'}
+```
 
 Async variants `amget` / `amset` / `amdelete` / `ayield_keys` are
 implemented over `httpx.AsyncClient`.

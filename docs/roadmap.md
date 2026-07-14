@@ -184,12 +184,31 @@ return a signed hole instead of a value.
   constants, so the offline-verification spec cannot drift from the signer
   the way a hand-written doc does. The receipt preimage is the single
   canonical, single-sourced construction: the signer and the
-  `/v1/verify_receipt` verifier both call one function. Open: fold the
-  three remaining bespoke pipe-delimited preimages (`corpus_state_stats`,
-  `operator_attestation`, `stream.tick`, which today sign a raw string
-  rather than a tagged blake3 stream) onto the same tagged `preimage_v1`
-  family, and lift the attestation, STH, and witness segment tags into
-  named constants, so the one generated spec describes every signature.
+  `/v1/verify_receipt` verifier both call one function. Every object the
+  responder signs now uses that one rule: the three bespoke
+  pipe-delimited preimages (`corpus_state_stats`, `operator_attestation`,
+  `stream.tick`) were folded onto the tagged `preimage_v1` family, and
+  the attestation, STH, and witness segment tags are named constants the
+  spec serializes rather than re-typed literals.
+- **The one construction left outside `preimage_v1`, and why.** The
+  memory-write attester binding
+  (`blake3("emem.memory_write|" || verb || "|" || path || "|" ||
+  body_hash)`) is signed by the *caller*, not the responder, and its
+  shape is pinned by the whitepaper and by every client that already
+  signs against it. Migrating it would break those clients to buy
+  consistency in a preimage that is already domain-separated and already
+  carries the verb, so a signature cannot cross verbs or paths. It stays
+  as it is, and `GET /v1/verifier_spec` lists it under
+  `caller_signed_objects` with its per-verb body rule rather than
+  omitting it. What it lacks against `preimage_v1` is explicit length
+  prefixes. That costs nothing at its current shape: the verb is supplied
+  by the responder from a closed set that contains no separator, and
+  `body_hash` is a fixed-length 32-byte digest at the tail, which leaves
+  the path as the only variable-length field and brackets it
+  unambiguously. A path may itself contain a `|` without collision. The
+  ambiguity length-prefixing exists to prevent needs two adjacent
+  variable-length fields, and there are none. Revisit if the binding ever
+  grows a second one.
 
 ### The substrate: trusted, portable, verifiable memory
 

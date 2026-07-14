@@ -12,15 +12,13 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use blake3::Hasher;
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde_json::{json, Value};
 
-use emem_attest::merkle_root;
 use emem_codec::to_cell64;
-use emem_core::{AttesterKey, Cell, KeyEpoch, Signature};
+use emem_core::{AttesterKey, Cell, KeyEpoch};
 use emem_fact::{Attestation, Derivation, Fact, PrimaryFact, RegistryCid, SchemaCid, Source};
 
 #[tokio::main]
@@ -116,42 +114,16 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    let mut leaves: Vec<[u8; 32]> = facts
-        .iter()
-        .map(|f| {
-            let mut buf = Vec::new();
-            ciborium::ser::into_writer(f, &mut buf).unwrap();
-            let h = blake3::hash(&buf);
-            let mut a = [0u8; 32];
-            a.copy_from_slice(h.as_bytes());
-            a
-        })
-        .collect();
-    leaves.sort();
-    let batch_root = merkle_root(&leaves);
-
-    let mut h = Hasher::new();
-    h.update(&batch_root);
-    h.update(registry_cid.as_bytes());
-    h.update(schema_cid.as_bytes());
-    let msg = h.finalize();
-    let dalek_sig = signing.sign(msg.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
-
-    let att = Attestation {
+    let att = Attestation::build_and_sign_v1(
         facts,
-        edges: vec![],
-        batch_root,
-        attester,
-        attester_key_epoch: KeyEpoch(0),
-        registry_cid: RegistryCid::new(registry_cid.clone()),
-        schema_cid: SchemaCid::new(schema_cid.clone()),
-        signature: Signature(sig_bytes),
-        attested_at: "2026-04-26T15:00:00Z".into(),
-        scope: None,
-        preimage_version: 0,
-    };
+        vec![],
+        RegistryCid::new(registry_cid.clone()),
+        SchemaCid::new(schema_cid.clone()),
+        &signing,
+        KeyEpoch(0),
+        "2026-04-26T15:00:00Z".into(),
+        None,
+    )?;
 
     // POST attestation as canonical CBOR for byte-exact merkle agreement.
     let mut att_cbor = Vec::new();

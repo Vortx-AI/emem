@@ -10,22 +10,20 @@
 //! auto-emitted `disagrees_with` edge is polled, the cell is recalled with
 //! `include:["edges"]`, and a returned receipt is verified offline.
 //!
-//! Reuses the exact signing path of `emem-demo.rs` and the edge-folding
-//! merkle construction of `emem_storage::verify_attestation` /
-//! `build_signed_with_edges`, so the responder accepts every envelope.
+//! Signs through `Attestation::build_and_sign_v1`, the one canonical
+//! signing path, which folds the edge digests into the merkle leaf set,
+//! so the responder accepts every envelope.
 //!
 //! Steps 1-7 each print a clear header. Any HTTP error prints status + body
 //! and exits non-zero, so this is a real test rather than a silent pass.
 
-use blake3::Hasher;
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use rand::RngCore;
 use serde_json::{json, Value};
 
-use emem_attest::merkle_root;
 use emem_codec::{cell_from_latlng, to_cell64};
-use emem_core::{AttesterKey, KeyEpoch, Signature};
+use emem_core::{AttesterKey, KeyEpoch};
 use emem_fact::{
     Attestation, Derivation, EdgeFact, Fact, FactCid, PrimaryFact, RegistryCid, SchemaCid, Source,
 };
@@ -371,11 +369,11 @@ fn mk_edge(subj: &str, pred: &str, obj: &str, valid_from: u64, att: &Attester) -
     }
 }
 
-/// Construct a fully-signed Attestation over `facts` + `edges`. Replicates
-/// `emem_storage::verify_attestation` exactly: fact leaves are
-/// `blake3(canonical_cbor(fact))`, edge leaves are `edge.blake3_digest()`,
-/// all pushed together then SORTED, merkled, and the root signed under
-/// `blake3(batch_root || registry_cid || schema_cid)`.
+/// Construct a fully-signed Attestation over `facts` + `edges` through the
+/// one canonical signing path, `Attestation::build_and_sign_v1`: fact leaves
+/// are `blake3(canonical_cbor(fact))`, edge leaves are `edge.blake3_digest()`,
+/// all pushed together then SORTED and merkled under the v1 rules, and the
+/// root signed over the tagged `attestation_preimage_v1` stream.
 fn sign_attestation(
     facts: Vec<Fact>,
     edges: Vec<EdgeFact>,
@@ -383,42 +381,17 @@ fn sign_attestation(
     registry_cid: &str,
     schema_cid: &str,
 ) -> Attestation {
-    let mut leaves: Vec<[u8; 32]> = facts
-        .iter()
-        .map(|f| {
-            let mut buf = Vec::new();
-            ciborium::ser::into_writer(f, &mut buf).expect("fact cbor");
-            *blake3::hash(&buf).as_bytes()
-        })
-        .collect();
-    for e in &edges {
-        leaves.push(e.blake3_digest());
-    }
-    leaves.sort();
-    let batch_root = merkle_root(&leaves);
-
-    let mut h = Hasher::new();
-    h.update(&batch_root);
-    h.update(registry_cid.as_bytes());
-    h.update(schema_cid.as_bytes());
-    let msg = h.finalize();
-    let dalek_sig = att.signing.sign(msg.as_bytes());
-    let mut sig_bytes = [0u8; 64];
-    sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
-
-    Attestation {
+    Attestation::build_and_sign_v1(
         facts,
         edges,
-        batch_root,
-        attester: att.key(),
-        attester_key_epoch: KeyEpoch(0),
-        registry_cid: RegistryCid::new(registry_cid),
-        schema_cid: SchemaCid::new(schema_cid),
-        signature: Signature(sig_bytes),
-        attested_at: "2026-05-29T00:00:00Z".into(),
-        scope: None,
-        preimage_version: 0,
-    }
+        RegistryCid::new(registry_cid),
+        SchemaCid::new(schema_cid),
+        &att.signing,
+        KeyEpoch(0),
+        "2026-05-29T00:00:00Z".into(),
+        None,
+    )
+    .expect("attestation build")
 }
 
 /// POST a signed Attestation to `/v1/attest_cbor`; return its `cids`.
