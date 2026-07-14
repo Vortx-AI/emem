@@ -151,7 +151,12 @@ const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 // merged into agents.md; MULTIMODAL_MD into inference.md; SPEC_MD into
 // protocol.md.
 const AGENTS_MD: &str = include_str!("../../../docs/agents.md");
-const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper.md");
+const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper-v2.md");
+/// v1, archived and unedited. It is the version cited by the Zenodo DOI,
+/// so it is served verbatim rather than corrected: a citation that
+/// resolves to a silently different document is worse than a stale one.
+/// `whitepaper-v2.md` §16 lists what v1 got wrong.
+const WHITEPAPER_V1_MD: &str = include_str!("../../../docs/whitepaper-v1.md");
 const INTEGRATIONS_MD: &str = include_str!("../../../docs/integrations.md");
 const SPEC_MD: &str = include_str!("../../../docs/protocol.md");
 const CLIENTS_MD: &str = include_str!("../../../docs/agents.md");
@@ -256,11 +261,18 @@ const API_REDOC_HTML: &str = include_str!("../../../web/api-redoc.html");
 const HOW_IT_WORKS_HTML: &str = include_str!("../../../web/how-it-works.html");
 const SOLUTIONS_HTML: &str = include_str!("../../../web/solutions.html");
 const REFERENCE_HTML: &str = include_str!("../../../web/reference.html");
-/// The whitepaper as a first-class web page (sticky TOC, embedded Mithila
-/// diagrams, styled math) in the same paper/ink design as the rest of the
-/// site. Browsers get this; agents that `Accept: text/markdown` still get
-/// the raw `docs/whitepaper.md` via the same route.
-const WHITEPAPER_HTML: &str = include_str!("../../../web/whitepaper.html");
+/// The whitepaper as a first-class web page (sticky TOC, styled math) in
+/// the same paper/ink design as the rest of the site. Browsers get this;
+/// agents that `Accept: text/markdown` get the markdown via the same
+/// route.
+///
+/// GENERATED from `docs/whitepaper-v2.md` by `scripts/render_whitepaper.py`.
+/// Do not hand-edit: the next render overwrites it. v1 kept these as two
+/// hand-written copies of one document and they drifted apart, which is
+/// how the HTML came to assert things the markdown did not.
+const WHITEPAPER_HTML: &str = include_str!("../../../web/whitepaper-v2.html");
+/// v1's page, archived verbatim alongside its markdown.
+const WHITEPAPER_V1_HTML: &str = include_str!("../../../web/whitepaper-v1.html");
 
 /// Static lookup table for the 33 protocol + industry diagrams that ship
 /// in `docs/diagrams/`. The slug is the literal filename; the body is the
@@ -769,6 +781,9 @@ pub fn router(state: AppState) -> Router {
         .route("/whitepaper", get(serve_whitepaper_page))
         .route("/whitepaper.html", get(serve_whitepaper_page))
         .route("/whitepaper.md", get(serve_whitepaper_md))
+        .route("/whitepaper/v1", get(serve_whitepaper_v1_page))
+        .route("/whitepaper/v1.html", get(serve_whitepaper_v1_page))
+        .route("/whitepaper/v1.md", get(serve_whitepaper_v1_md))
         .route("/integrations", get(serve_integrations_md))
         .route("/integrations.md", get(serve_integrations_md))
         .route("/spec", get(serve_spec_md))
@@ -1758,6 +1773,9 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/whitepaper"
         | "/whitepaper.html"
         | "/whitepaper.md"
+        | "/whitepaper/v1"
+        | "/whitepaper/v1.html"
+        | "/whitepaper/v1.md"
         | "/integrations"
         | "/integrations.md"
         | "/spec.md"
@@ -2901,6 +2919,12 @@ async fn serve_agents_md() -> Response {
 }
 async fn serve_whitepaper_md() -> Response {
     text_response("text/markdown; charset=utf-8", WHITEPAPER_MD)
+}
+async fn serve_whitepaper_v1_page(headers: HeaderMap) -> Response {
+    html_or_md(&headers, WHITEPAPER_V1_HTML, WHITEPAPER_V1_MD)
+}
+async fn serve_whitepaper_v1_md() -> Response {
+    text_response("text/markdown; charset=utf-8", WHITEPAPER_V1_MD)
 }
 async fn serve_integrations_md() -> Response {
     text_response("text/markdown; charset=utf-8", INTEGRATIONS_MD)
@@ -12969,7 +12993,7 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                     emem_primitives::PUBKEY_SHORT_LEN,
                 ),
                 "verification": "ed25519_dalek verify_strict, which rejects malleable signatures",
-                "not_preimage_v1": "This is the one construction on the responder that is not preimage_v1. Its shape is pinned by the whitepaper (§5.2.1) and by every client that already signs against it, so it is deliberately frozen rather than migrated. It is domain-separated and the verb is inside the preimage, so a signature cannot cross verbs or paths; what it lacks is preimage_v1's explicit length prefixes.",
+                "not_preimage_v1": "This is the one construction on the responder that is not preimage_v1. Its shape is pinned by the whitepaper (v2 §6.4) and by every client that already signs against it, so it is deliberately frozen rather than migrated. It is domain-separated and the verb is inside the preimage, so a signature cannot cross verbs or paths; what it lacks is preimage_v1's explicit length prefixes.",
             },
         ],
         "notes": "Every object this responder signs uses one rule: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream. Each segment table above is serialized from the compiled tag constants, so this spec cannot drift from the signer. Two constructions sit outside that rule and both are listed here rather than hidden: the legacy v0 receipt, which is verify-only for pre-cutover receipts and is never emitted, and memory_write under `caller_signed_objects`, which the caller signs rather than the responder.",
@@ -14904,7 +14928,7 @@ fn iso8601_now_utc() -> String {
 /// secondary populators. Keep it in sync with the `agent_card` purpose.
 /// What emem is. Editorial framing, so it is prose; the loop that follows
 /// it is not, and is serialized from `emem_mcp::CORE_LOOP`.
-const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single token that resolves to the byte-identical signed object and verifies offline with no shared trust, so two models grounded on the same token reason about the same object rather than two paraphrases of it.";
+const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single emem:fact: token that resolves to the byte-identical signed body and verifies offline with no shared trust, so two models grounded on the same token reason about the same observation rather than two paraphrases of it. An emem:entity: token converges you on the same canonical name for an object, which is weaker: the identity is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes.";
 
 /// The `initialize` instructions an MCP host puts in front of the model.
 ///
@@ -14914,6 +14938,61 @@ const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, r
 /// endpoint the client reached: telling an agent on `/mcp` that it can see
 /// the whole catalog would be false, and telling an agent on `/mcp/full` to go
 /// find the rest would be noise.
+/// One MCP tool descriptor, exactly as `tools/list` emits it.
+///
+/// Extracted so the advertised bytes and the *measured* advertised bytes
+/// cannot disagree: [`FULL_CATALOG_BYTES`] serializes the whole catalog
+/// through this same function, so the "costs roughly N KB" line in the
+/// initialize instructions is a measurement of what this build actually
+/// sends, not a number somebody typed once and stopped updating.
+fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
+    json!({
+        "name": t.name,
+        "title": t.title,
+        "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
+        "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
+        // Spec 2025-11-25 `Tool.execution.taskSupport`. "optional" on
+        // the documented slow tools (emem_eudr_dds, emem_hunt) so a
+        // host MAY run them as background tasks; "forbidden" (default)
+        // everywhere else.
+        "execution": { "taskSupport": emem_mcp::tool_task_support(t.name) },
+        "annotations": {
+            "title":           t.title,
+            "readOnlyHint":    t.read_only_hint,
+            "destructiveHint": t.destructive_hint,
+            "idempotentHint":  t.idempotent_hint,
+            "openWorldHint":   t.open_world_hint,
+            "when_to_use":     t.when_to_use,
+            "category":        t.category,
+            "level":           t.level,
+            "tier":            t.tier,
+        },
+        // `_meta` is the MCP-standard slot for server-defined
+        // metadata, namespaced by reverse-DNS. Shape answers "what
+        // does this return", which is the question an agent is
+        // actually asking when it asks what to call; bundles answer
+        // "I am doing X, what do I need". Both ride here rather
+        // than in `annotations`, which the spec reserves for the
+        // hint set above.
+        "_meta": {
+            "dev.emem/shape":   emem_mcp::shape_of(t.name),
+            "dev.emem/bundles": emem_mcp::bundles_of(t.name),
+        },
+    })
+}
+
+/// Byte size of a full `tools/list` descriptor array, measured once.
+///
+/// The instructions used to claim "roughly 190 KB" while the catalog had
+/// grown past 200 KB. A number in prose has no owner; this one is derived.
+static FULL_CATALOG_BYTES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    let all: Vec<JsonValue> = emem_mcp::tools_at_tier("all")
+        .iter()
+        .map(|t| mcp_tool_descriptor(t))
+        .collect();
+    serde_json::to_string(&all).map(|s| s.len()).unwrap_or(0)
+});
+
 fn mcp_instructions(default_tier: &str) -> String {
     let mut s = String::with_capacity(4096);
     s.push_str(MCP_PREAMBLE);
@@ -14921,13 +15000,17 @@ fn mcp_instructions(default_tier: &str) -> String {
     for (step, tool, why) in emem_mcp::CORE_LOOP {
         s.push_str(&format!("{step}. {tool} — {why}\n"));
     }
-    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create.\n\n");
+    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create. Reading is only half of this: emem_derive registers a value YOU computed over parent facts, under your own ed25519 key, and hands back an emem:fact: token for it. Your derivation cites its parents, so a third party can walk the lineage back to signed measurements; it stays out of everyone else's default reads until you hand them the token. Send it unsigned first and the 401 returns the exact digest to sign.\n\n");
 
     let total = emem_mcp::TOOLS.len();
     let core = emem_mcp::tools_at_tier("core").len();
+    // Measured, not typed. This paragraph told agents "roughly 190 KB"
+    // while the catalog had grown past 200: the same rot the whitepaper
+    // hit. Round to the nearest 10 KB so it reads as the estimate it is.
+    let full_kb = (*FULL_CATALOG_BYTES as f64 / 1024.0 / 10.0).round() as usize * 10;
     match default_tier {
         "core" => s.push_str(&format!(
-            "This endpoint advertises the {core} tools of the loop, not the full catalog of {total}. That is deliberate: loading every descriptor costs roughly 190 KB of your context whether or not you use it. The other {} tools are the Earth-observation, search, embedding and transparency-log surface that populates the memory. They still exist, and tools/call still dispatches them by name. To find one, call emem_tools: with no arguments it maps the whole surface, with q it searches, and with name it returns one tool's exact input schema and a runnable example. For a one-shot answer about a place without choosing a primitive at all, use emem_ask. If you would rather have all {total} registered as callable tools, reconnect to this server at /mcp/full. No API keys for reads.",
+            "This endpoint advertises the {core} tools of the loop, not the full catalog of {total}. That is deliberate: loading every descriptor costs roughly {full_kb} KB of your context whether or not you use it. The other {} tools are the Earth-observation, search, embedding and transparency-log surface that populates the memory. They still exist, and tools/call still dispatches them by name. To find one, call emem_tools: with no arguments it maps the whole surface, with q it searches, and with name it returns one tool's exact input schema and a runnable example. For a one-shot answer about a place without choosing a primitive at all, use emem_ask. If you would rather have all {total} registered as callable tools, reconnect to this server at /mcp/full. No API keys for reads.",
             total - core
         )),
         _ => s.push_str(&format!(
@@ -15164,39 +15247,7 @@ async fn mcp_jsonrpc_inner(
             } else {
                 emem_mcp::tools_in_bundle(requested_bundle)
             };
-            let tool_json: Vec<JsonValue> = tools.iter().map(|t| json!({
-                "name": t.name,
-                "title": t.title,
-                "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
-                "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
-                // Spec 2025-11-25 `Tool.execution.taskSupport`. "optional" on
-                // the documented slow tools (emem_eudr_dds, emem_hunt) so a
-                // host MAY run them as background tasks; "forbidden" (default)
-                // everywhere else.
-                "execution": { "taskSupport": emem_mcp::tool_task_support(t.name) },
-                "annotations": {
-                    "title":           t.title,
-                    "readOnlyHint":    t.read_only_hint,
-                    "destructiveHint": t.destructive_hint,
-                    "idempotentHint":  t.idempotent_hint,
-                    "openWorldHint":   t.open_world_hint,
-                    "when_to_use":     t.when_to_use,
-                    "category":        t.category,
-                    "level":           t.level,
-                    "tier":            t.tier,
-                },
-                // `_meta` is the MCP-standard slot for server-defined
-                // metadata, namespaced by reverse-DNS. Shape answers "what
-                // does this return", which is the question an agent is
-                // actually asking when it asks what to call; bundles answer
-                // "I am doing X, what do I need". Both ride here rather
-                // than in `annotations`, which the spec reserves for the
-                // hint set above.
-                "_meta": {
-                    "dev.emem/shape":   emem_mcp::shape_of(t.name),
-                    "dev.emem/bundles": emem_mcp::bundles_of(t.name),
-                },
-            })).collect();
+            let tool_json: Vec<JsonValue> = tools.iter().map(|t| mcp_tool_descriptor(t)).collect();
             let total = emem_mcp::TOOLS.len();
             let mut result = json!({
                 "tools": tool_json,
@@ -18351,15 +18402,40 @@ async fn splats_home() -> Response {
     Redirect::temporary("/splats/viewer/temporal.html?world=../world_haridwar/").into_response()
 }
 
-async fn serve_splats_file(Path(path): Path<String>, headers: HeaderMap) -> Response {
+async fn serve_splats_file(
+    Path(path): Path<String>,
+    uri: axum::http::Uri,
+    headers: HeaderMap,
+) -> Response {
+    // A trailing slash means "directory" (`/splats/spark/` → path `spark/`). Strip it BEFORE the
+    // traversal guard, or the empty final segment reads as a bad path and every directory URL 404s.
+    let rel = path.trim_end_matches('/');
     // reject empty / traversal segments before touching the filesystem
-    if path
-        .split('/')
-        .any(|s| s.is_empty() || s == "." || s == "..")
+    if rel.is_empty()
+        || rel
+            .split('/')
+            .any(|s| s.is_empty() || s == "." || s == "..")
     {
         return not_found("bad path");
     }
-    let p = splats_root().join(&path);
+    let base = splats_root().join(rel);
+
+    // Directory → its index.html, so a viewer mount behaves like any static host.
+    // The no-trailing-slash form MUST redirect rather than serve: the page's relative refs
+    // (./theme.css, ./spark.module.js, the importmap) resolve against the PARENT when the URL has
+    // no trailing slash, so serving index.html at /splats/spark would 404 every asset. The query
+    // has to survive the redirect — ?world=… is how a world is selected.
+    let is_dir = base.is_dir();
+    if is_dir && !path.ends_with('/') {
+        let q = uri.query().map(|q| format!("?{q}")).unwrap_or_default();
+        return Redirect::temporary(&format!("/splats/{rel}/{q}")).into_response();
+    }
+    let (p, path) = if is_dir {
+        (base.join("index.html"), format!("{rel}/index.html")) // `path` also drives splats_mime
+    } else {
+        (base, rel.to_string())
+    };
+
     let md = match std::fs::metadata(&p) {
         Ok(md) if md.is_file() => md,
         _ => return not_found("not found"),
@@ -20419,7 +20495,7 @@ async fn get_benchmark() -> Json<JsonValue> {
         "n_items":    items.len(),
         "items":      items,
         "grader_url": "/v1/benchmark/grade",
-        "docs":       "/whitepaper.md#20-open-questions",
+        "docs":       "/whitepaper.md#17-open-questions",
         "_note":      "Hand-verified items pulled from /agents.md and /docs/whitepaper.md. Submission shape: { \"answers\": { \"<id>\": \"<fact_cid or cell64>\", ... } }. The grader scores exact-match for fact_cid items and (cell + score-min) for find_similar items.",
     }))
 }

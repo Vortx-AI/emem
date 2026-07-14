@@ -279,8 +279,11 @@ STALE_PHRASES = {
     "web/solutions.html": ["75 MCP tools", "118 materializer", "35 cube slots"],
     "web/reference.html": ["75 MCP tools", "87 documented", "118 materializer", "35 cube slots"],
     "docs/intro.md": ["75 MCP", "87 ", "118 materializer", "35 cube", "41 cube"],
-    "docs/whitepaper.md": ["Forty-one band cube", "41 cube", "35 cube",
-                           "118 materializer", "75 MCP"],
+    # v2 only. whitepaper-v1.md is deliberately absent from this table: it
+    # is archived unedited as the DOI-cited version, so its stale counts are
+    # a historical record, not drift to sweep. v2 §16 lists what it got wrong.
+    "docs/whitepaper-v2.md": ["Forty-one band cube", "41 cube", "35 cube",
+                              "118 materializer", "75 MCP"],
     "docs/registries.md": ["118 materializer", "(43)", "(86)"],
     "web/skills.md": ["75 tools", "71 paths", "87 paths"],
     "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer"],
@@ -292,6 +295,11 @@ def scan_prose() -> list[str]:
     for rel, phrases in STALE_PHRASES.items():
         p = REPO / rel
         if not p.exists():
+            # A rename must not silently disable a check. This table is the
+            # only thing catching these phrases, and a `continue` here is how
+            # a file gets renamed and its drift guard quietly stops running.
+            hits.append(f"{rel}: listed in STALE_PHRASES but does not exist "
+                        f"(renamed or deleted? update the table)")
             continue
         body = p.read_text()
         for ph in phrases:

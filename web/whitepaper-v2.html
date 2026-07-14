@@ -1,0 +1,920 @@
+<!doctype html><html lang=en>
+<head>
+<meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>emem whitepaper v2: an external identity layer for verifiable agent memory</title>
+<meta name=description content="The emem whitepaper, version 2. An external identity layer for verifiable agent memory: the token grammar, cell64 + tslot addressing, canonical CBOR + BLAKE3 CIDs, ed25519 receipts over a domain-separated tagged preimage, five tamper-provenance classes, the RFC 6962 tree construction, and caller-registered derivations. Supersedes v1.">
+<link rel=canonical href="https://emem.dev/whitepaper">
+<link rel=alternate type=text/markdown href=/whitepaper.md>
+<link rel=icon type="image/gif" href="/vortxgola.gif">
+<link rel="apple-touch-icon" href="/vortxgola.gif">
+<meta property=og:type content=article>
+<meta property=og:url content="https://emem.dev/whitepaper.html">
+<meta property=og:title content="emem whitepaper v2: an external identity layer for verifiable agent memory">
+<meta property=og:description content="The emem whitepaper, version 2. An external identity layer for verifiable agent memory: the token grammar, cell64 + tslot addressing, canonical CBOR + BLAKE3 CIDs, ed25519 receipts over a domain-separated tagged preimage, five tamper-provenance classes, the RFC 6962 tree construction, and caller-registered derivations. Supersedes v1.">
+<meta property=og:site_name content=emem>
+<meta name=twitter:card content=summary>
+<meta name=twitter:title content="emem whitepaper">
+<meta name=twitter:description content="A content-addressed protocol for verifiable agent memory. Version 0.1.0.">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --pad-x:1.5rem;
+  --t-xs:.75rem;--t-sm:.8125rem;--t-base:1rem;--t-md:1.0625rem;--t-lg:1.25rem;--t-xl:1.5rem;--t-2xl:2rem;--t-3xl:2.75rem;--t-4xl:4.25rem;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  }
+}
+*{box-sizing:border-box}
+html{font-size:100%;scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--accent);color:var(--paper)}
+:target{scroll-margin-top:64px}
+
+/* statusbar (verbatim from index.html) */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{color:var(--ink);background:var(--paper-3);opacity:1}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem;opacity:1;text-decoration:none;cursor:pointer}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+
+/* page shell */
+.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer;position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
+.btn:hover{background:var(--ink-2);transform:translateY(-1px)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
+
+/* a multi-band Mithila rule divider for major parts */
+.band-rule{height:6px;margin:0;border:0;background:
+  linear-gradient(var(--rule),var(--rule)) left top/100% 1px no-repeat,
+  linear-gradient(var(--rule),var(--rule)) left bottom/100% 1px no-repeat,
+  repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px) center/auto 100%;
+  -webkit-mask:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+
+/* small rotated-diamond seal mark */
+.seal-row{display:flex;align-items:center;justify-content:center;gap:.7rem;margin:0;color:var(--mute-2);font-size:var(--t-xs)}
+.seal{width:6px;height:6px;background:var(--paper);border:1px solid var(--accent);opacity:.7;transform:rotate(45deg);flex:0 0 auto}
+.seal-row .line{flex:1;height:1px;background:var(--rule);max-width:7rem}
+
+/* ── hero ─────────────────────────────────────────────────────────────── */
+.hero{position:relative;padding:4rem 0 3rem;border-bottom:1px solid var(--rule)}
+.hero .kicker{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.14em;color:var(--mute);margin:0 0 1.2rem;display:flex;align-items:center;gap:.6rem}
+.hero .kicker .seal{opacity:.8}
+.hero h1{font-size:var(--t-3xl);font-weight:500;letter-spacing:-.03em;line-height:1.08;margin:0 0 1.4rem;color:var(--ink);max-width:24ch}
+.hero h1 .accent{color:var(--accent);font-weight:700}
+.hero .teaser{font-size:var(--t-lg);color:var(--ink-2);max-width:64ch;line-height:1.5;margin:0 0 1.6rem;font-weight:400}
+.hero .meta-line{font-size:var(--t-sm);color:var(--mute);margin:0 0 1.8rem;letter-spacing:.02em;display:flex;flex-wrap:wrap;gap:.4rem .9rem;align-items:center}
+.hero .meta-line b{color:var(--ink);font-weight:700}
+.hero .meta-line .dot{color:var(--rule-strong)}
+.hero-cta{display:flex;gap:.75rem;flex-wrap:wrap}
+
+/* ── two-column scholarly layout ──────────────────────────────────────── */
+.wrap{display:grid;grid-template-columns:16rem 1fr;gap:3rem;padding:0 0 2rem;align-items:start}
+
+/* sticky TOC */
+.toc{position:sticky;top:56px;align-self:start;max-height:calc(100vh - 72px);overflow:auto;font-size:var(--t-xs);border-right:1px solid var(--rule);padding:2rem 1.4rem 2rem 0;margin:0}
+.toc .toc-h{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--mute-2);font-weight:700;margin:0 0 .8rem;display:flex;align-items:center;gap:.5rem}
+.toc .toc-h .seal{opacity:.7}
+.toc ol{list-style:none;margin:0;padding:0;counter-reset:none}
+.toc li{margin:0}
+.toc a{display:block;color:var(--mute);text-decoration:none;padding:.28rem .5rem .28rem .6rem;border-left:2px solid transparent;line-height:1.4;transition:color .14s ease,border-color .14s ease,background .14s ease}
+.toc a:hover{color:var(--ink);background:var(--paper-2)}
+.toc a.on{color:var(--accent);border-left-color:var(--accent);background:var(--paper-2)}
+.toc a .n{color:var(--mute-2);font-weight:700;margin-right:.5rem;font-variant-numeric:tabular-nums}
+.toc a.on .n{color:var(--accent)}
+.toc a.sub{padding-left:1.6rem;font-size:var(--t-xs);color:var(--mute-2)}
+.toc a.sub:hover,.toc a.sub.on{color:var(--accent)}
+
+/* main reading column */
+.doc{min-width:0;padding:2rem 0 0;max-width:78ch}
+.doc section{padding:0 0 2.4rem;position:relative}
+.doc section+section{padding-top:.4rem}
+.doc h2{font-size:var(--t-2xl);font-weight:600;letter-spacing:-.02em;line-height:1.14;color:var(--ink);margin:2.6rem 0 1.1rem;scroll-margin-top:64px;padding-top:1.6rem;border-top:1px solid var(--rule);position:relative}
+.doc h2:first-child{border-top:0;padding-top:0;margin-top:0}
+.doc h2 .num{color:var(--mute-2);font-weight:300;margin-right:.7rem;font-variant-numeric:tabular-nums}
+.doc h2::before{content:"";position:absolute;top:-3px;left:0;width:5px;height:5px;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
+.doc h2:first-child::before{display:none}
+.doc h3{font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:2rem 0 .7rem;scroll-margin-top:64px}
+.doc h4{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:1.6rem 0 .6rem;scroll-margin-top:64px}
+.doc p{max-width:72ch;margin:0 0 1.15rem;color:var(--ink-2);font-size:var(--t-base)}
+.doc p.lede{font-size:var(--t-lg);color:var(--ink-2);max-width:64ch;margin:0 0 1.6rem;line-height:1.45}
+.doc strong{color:var(--ink);font-weight:700}
+.doc em{font-style:italic;color:var(--ink-2)}
+.doc a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.doc a:hover{background:var(--accent-bg)}
+.doc ul,.doc ol{max-width:72ch;margin:0 0 1.2rem;padding-left:1.2rem}
+.doc ul{list-style:none;padding-left:1.1rem}
+.doc ul>li{color:var(--ink-2);line-height:1.55;margin:0 0 .65rem;position:relative;padding-left:1rem}
+.doc ul>li::before{content:"";position:absolute;left:0;top:.6em;width:.4rem;height:.4rem;background:var(--accent);border-radius:50%}
+.doc ol{list-style:decimal;padding-left:1.6rem}
+.doc ol>li{color:var(--ink-2);line-height:1.55;margin:0 0 .6rem;padding-left:.3rem}
+.doc ul ul{margin:.5rem 0 .3rem}
+
+/* inline tokens / math spans */
+.doc code{font-family:var(--mono);font-size:.92em;background:var(--paper-3);color:var(--ink);padding:.05em .35em;border-radius:2px;word-break:break-word}
+.doc a code{background:transparent;padding:0}
+.m{font-family:var(--mono);font-style:normal;background:var(--paper-3);color:var(--ink-2);padding:.05em .4em;border:1px solid var(--rule);border-radius:2px;white-space:nowrap}
+
+/* block code / formula */
+.code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.4rem 0;font-size:var(--t-sm);line-height:1.6;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
+.code-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
+.code-head .tab{padding:.4rem .8rem;color:var(--mute)}
+.code-head .lang{padding:.4rem .8rem;border-left:1px solid var(--rule);font-weight:700;color:var(--ink-2);margin-left:auto}
+.code pre{margin:0;padding:1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:var(--t-sm);white-space:pre;color:var(--ink);line-height:1.55}
+.code pre code{font-family:inherit;background:transparent;padding:0;color:inherit;font-size:inherit}
+
+/* display formula block (math) */
+.formula{border:1px solid var(--rule-strong);background:var(--paper-3);margin:1.4rem 0;padding:1rem 1.2rem;overflow-x:auto;font-size:var(--t-sm);line-height:1.7;color:var(--ink)}
+.formula .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.5rem}
+.formula pre{margin:0;white-space:pre;font-family:var(--mono);overflow-x:auto}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:1.4rem 0}
+table.t{width:100%;border-collapse:collapse;font-size:var(--t-sm);border:1px solid var(--rule);min-width:480px}
+table.t th,table.t td{padding:.55rem .8rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+table.t thead th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700;border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+table.t tbody tr:hover td{background:var(--paper-2)}
+table.t td code,table.t th code{background:var(--paper-3);font-size:.9em}
+table.t td:first-child{color:var(--ink);font-weight:600}
+
+/* figures */
+figure.fig{margin:1.8rem 0;text-align:center}
+figure.fig img{display:block;width:100%;max-width:680px;height:auto;margin:0 auto;border:1px solid var(--rule);background:var(--paper);padding:.6rem;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+figure.fig figcaption{margin:.9rem auto 0;font-size:var(--t-xs);color:var(--mute);max-width:60ch;line-height:1.5}
+figure.fig figcaption b{color:var(--ink-2);font-weight:700}
+
+/* references */
+.refs{list-style:none;margin:1.2rem 0;padding:0}
+.refs li{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;margin:0 0 .7rem;padding-left:1.4rem;position:relative;max-width:74ch}
+.refs li::before{content:"›";position:absolute;left:0;top:0;color:var(--mute-2);font-weight:700}
+.refs li em{font-style:italic}
+.refs li code{font-size:.88em}
+
+/* footer (verbatim from index.html) */
+.foot{position:relative;background:var(--paper);padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:13.75rem 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
+.foot-meta .desc{color:var(--mute);line-height:1.5}
+.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
+.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--ink-2);text-decoration:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom a{color:inherit}
+
+/* responsive */
+@media (max-width:980px){
+  .wrap{grid-template-columns:13rem 1fr;gap:2rem}
+}
+@media (max-width:860px){
+  .wrap{grid-template-columns:1fr;gap:0}
+  .toc{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--rule);padding:1.4rem 0;margin-bottom:1rem;overflow:visible;-webkit-column-count:2;column-count:2;column-gap:1.5rem}
+  .toc .toc-h{-webkit-column-span:all;column-span:all}
+  .doc{padding-top:1rem;max-width:none}
+  .foot{grid-template-columns:1fr;gap:1.6rem}
+  .foot-grid{grid-template-columns:repeat(2,1fr)}
+}
+@media (max-width:560px){
+  .hero{padding:3rem 0 2.2rem}
+  .hero h1{font-size:var(--t-2xl);line-height:1.08}
+  .hero-cta{flex-direction:column;align-items:stretch}
+  .hero-cta .btn{justify-content:center}
+  .toc{-webkit-column-count:1;column-count:1}
+  .doc h2{font-size:var(--t-xl)}
+  .code pre,.formula pre{font-size:var(--t-xs)}
+  .statusbar a.nav-sec{display:none}
+}
+@media (max-width:480px){
+  html{font-size:93.75%}
+  .page{padding:0 1rem}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ===== Mithila form controls — coherent native UI across the product ===== */
+select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.45rem 1.7rem .45rem .6rem;border-radius:0;cursor:pointer}
+select:hover{border-color:var(--accent,#3f7a4e)}
+option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
+optgroup{background:var(--paper,#f3eee2);color:var(--mute-2,#8a8170);font-style:normal;font-weight:700}
+input[type=checkbox]{appearance:none;-webkit-appearance:none;width:14px;height:14px;border:1.5px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);cursor:pointer;position:relative;flex:0 0 auto;border-radius:0;margin:0;vertical-align:middle}
+input[type=checkbox]:checked{background:var(--accent,#3f7a4e);border-color:var(--ink,#2b2620)}
+input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:.5px;width:4px;height:8px;border:solid var(--paper,#f3eee2);border-width:0 2px 2px 0;transform:rotate(45deg)}
+input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
+input::placeholder{color:var(--mute,#7a7363)}
+:focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+
+/* Archived-version banner. v1 is served verbatim as the DOI-cited text, so
+   this labels the page without editing the document. */
+.archived-note{
+  border:1px solid var(--absent);background:var(--absent-bg);
+  border-radius:6px;padding:.9rem 1.1rem;margin:1rem 0 1.4rem;
+}
+.archived-note p{margin:0 0 .6rem;font-size:var(--t-sm);line-height:1.55;color:var(--ink-2)}
+.archived-note p:last-child{margin-bottom:0}
+.archived-note a{color:var(--absent);text-decoration:underline}
+</style>
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+    <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+    <a href="/how-it-works" class="nav-sec">how it works</a>
+    <a href="/solutions" class="nav-sec">solutions</a>
+    <a href="/reference" class="nav-sec">reference</a>
+    <a href="/whitepaper" class="nav-sec on">whitepaper</a>
+    <span class="spacer"></span>
+    <a href="/docs">docs</a>
+    <a href="/verify">verify</a>
+    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
+  </div>
+</header>
+
+<div class="page">
+  <header class="hero">
+    <p class="kicker"><span class="seal"></span> Whitepaper v2 &middot; Vortx AI</p>
+    <h1>emem: <span class="accent">an external identity layer for verifiable agent memory</span></h1>
+    <p class="meta-line"><b>Vortx AI</b> <span class="dot">&middot;</span> <b>v2</b> &middot; 2026-07-14 <span class="dot">&middot;</span> Apache-2.0 <span class="dot">&middot;</span> reference responder <code>emem.dev</code></p>
+    <div class="hero-cta">
+      <a class="btn" href="/whitepaper.md">read as markdown</a>
+      <a class="btn ghost" href="/v1/verifier_spec">/v1/verifier_spec</a>
+      <a class="btn ghost" href="/whitepaper/v1">v1 (archived)</a>
+    </div>
+  </header>
+</div>
+
+<div class="page">
+<div class="wrap">
+
+  <nav class="toc" aria-label="Table of contents">
+    <p class="toc-h"><span class="seal"></span> Contents</p>
+    <ol>
+      <li><a href="#abstract"><span class="n">&sect;</span>Abstract</a></li>
+      <li><a href="#s1"><span class="n">1</span>Referential drift</a></li>
+      <li><a href="#s2"><span class="n">2</span>External identity</a></li>
+      <li><a href="#s3"><span class="n">3</span>The token grammar</a></li>
+      <li><a href="#s4"><span class="n">4</span>Addressing: cell64 and tslot</a></li>
+      <li><a href="#s5"><span class="n">5</span>Content addressing</a></li>
+      <li><a href="#s6"><span class="n">6</span>Trust: receipts and attestations</a></li>
+      <li><a href="#s7"><span class="n">7</span>Tamper-provenance</a></li>
+      <li><a href="#s8"><span class="n">8</span>The transparency log</a></li>
+      <li><a href="#s9"><span class="n">9</span>Caller-registered derivations</a></li>
+      <li><a href="#s10"><span class="n">10</span>Substrate: Earth observation</a></li>
+      <li><a href="#s11"><span class="n">11</span>The agent-discoverable surface</a></li>
+      <li><a href="#s12"><span class="n">12</span>Conformance</a></li>
+      <li><a href="#s13"><span class="n">13</span>Privacy</a></li>
+      <li><a href="#s14"><span class="n">14</span>Honest limits</a></li>
+      <li><a href="#s15"><span class="n">15</span>Comparison with adjacent work</a></li>
+      <li><a href="#s16"><span class="n">16</span>Changes from v1</a></li>
+      <li><a href="#s17"><span class="n">17</span>Open questions</a></li>
+      <li><a href="#references"><span class="n">&sect;</span>References</a></li>
+    </ol>
+  </nav>
+
+  <main class="doc">
+
+      <p><strong>Whitepaper v2 / 2026-07-14</strong></p>
+      <p><em>Supersedes <a href="/whitepaper/v1">whitepaper v1</a> (version 0.1.0, 2026-06-14), which remains archived and unedited. v1 is the version cited by <a href="https://doi.org/10.5281/zenodo.20706893">DOI 10.5281/zenodo.20706893</a>; that record resolves to Zenodo's own frozen copy and is unaffected by this document. <a href="#16-changes-from-v1">Section 16</a> lists, claim by claim, what v1 asserted that this responder does not do.</em></p>
+    <section id="abstract">
+      <h2>Abstract</h2>
+      <p>emem is an external identity layer for AI agents: a shared, verifiable memory whose purpose is to stop referential drift. A model that carries its own prose description of a thing carries a description that decays, and two models carrying two descriptions of one thing cannot tell whether they are discussing the same thing. emem moves identity out of the model. Every place resolves to one canonical address (<code>cell64</code>, §4). Every observation there becomes one immutable record whose identifier is the blake3 hash of its own canonical CBOR bytes (<code>fact_cid</code>, §5). A caller hands another party a token; the token dereferences to those exact bytes, and an ed25519 receipt over a domain-separated preimage lets the receiver check them without trusting the sender, the network, or this responder (§6).</p>
+      <p>That guarantee is precise, and its edges matter more than its centre. It holds for <code>emem:fact:</code> tokens, where the identifier is a digest of the stored bytes and the receipt binds <code>(cell, fact_cid)</code> into the signed preimage. It does <strong>not</strong> hold uniformly across the token family: <code>emem:entity:</code> converges two agents on a shared <em>name</em>, not on byte-identical <em>bytes</em>, because an entity's identifier is computed from a deliberately narrow identity preimage rather than from its whole body (§2). §3 gives the grammar and states, per token type, exactly what dereferencing proves. §14 collects every such limit in one place. Where a mechanism proves less than its name suggests, this document says so rather than let the name do the work.</p>
+      <p>The protocol is one trust surface over two layers. <em>Earth memory</em> is an open-data corpus addressed by <code>(cell, band, tslot)</code> whose unit is a signed fact. <em>Agent memory</em> is a content-addressed file store under <code>/memories/*</code> with six file verbs conforming to the Anthropic memory-tool specification, four memory kinds drawn from the CoALA agent-memory ontology, and an ed25519 capability binding on paths under <code>/memories/by_attester/&lt;pubkey_short&gt;/</code>. Both return signed receipts, and one <code>/verify</code> page checks either without trusting the issuer.</p>
+      <p>Every signature this responder issues follows one rule: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream (§6). Two constructions sit outside it, and §6.4 names both. Every read primitive accepts two optional bounds, <code>as_of_tslot</code> (observation time) and <code>as_of_signed_at</code> (transaction time); both enter the signed preimage, so a verifier in year <em>t+k</em> replays the exact query a system answered in year <em>t</em>. Every band declares how its values are produced, in one of five tamper-provenance classes (§7). An append-only log records attestation batches under the RFC 6962 tree construction (§8). Callers may register derivations over parent facts under their own key (§9).</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s1">
+      <a id="1-referential-drift" class="anchor-alias"></a>
+      <h2><span class="num">1</span>Referential drift</h2>
+      <p>An agent that verifies something and then describes it has already begun losing it. The description is a lossy re-encoding, and every subsequent hop re-encodes again: a summary, a compaction pass, a handoff to another model, a paraphrase in a report. Nothing in the pipeline marks the moment the meaning changed, because at every step the text still reads fluently. This is referential drift: the words survive, the referent does not.</p>
+      <p>Three failure modes follow, and all three are routine rather than exotic.</p>
+      <p><strong>Within one agent, across time.</strong> A long task outlives its own context window. The harness compacts, the session ends, the model is swapped mid-project. A verified measurement becomes "roughly 3,700 m", then "high elevation", then an assumption nobody can trace. The agent cannot tell which of its beliefs are still grounded, because a paraphrase and a measurement have the same shape in a transcript.</p>
+      <p><strong>Between two agents.</strong> Agent A reports "the flood line north of the river". Agent B reads it and reasons about a different line, at a different time, from a different source, and neither can detect the mismatch: both prose descriptions are internally coherent. Absent a shared referent, the only way B can check A is to redo A's work, which defeats the point of the handoff.</p>
+      <p><strong>Between an agent and an auditor, later.</strong> "What did we know when we committed the loan?" has no answer if the memory is prose. The forecast that justified the decision has been superseded by a better forecast, and the record of what was believed at decision time is gone.</p>
+      <p>The common cause is that identity lives inside the model. Each model holds its own description of a thing, and descriptions do not compose: there is no operation that takes two paraphrases and decides whether they denote one object. The problem is not that models are careless. It is that a natural-language description is not an identifier, and using one as an identifier is a category error that only surfaces later, when the cost of the mistake has compounded.</p>
+      <p>The fix is not better prose discipline. It is to give the thing an address that lives outside every model, that derives from bytes rather than from who is speaking, and that any party can dereference and check alone. That is what the rest of this document specifies: an address for places (§4), a content identifier for observations (§5), a citeable handle for both (§3), and a signature over the bytes that makes the handle checkable by someone who trusts nobody (§6).</p>
+      <p>The claim is narrow, and worth stating precisely because the surrounding literature is full of larger ones. emem does not stop a model from paraphrasing, and does not make a recorded value true. It gives the model something better to carry than a paraphrase: an 83- or 84-character line that re-hydrates to the exact signed bytes, for anyone, for as long as the bytes exist. What is guaranteed is co-reference and integrity, never truth. Confidence, uncertainty, and provenance travel alongside the value (§7) precisely because the signature speaks to none of them.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s2">
+      <a id="2-external-identity" class="anchor-alias"></a>
+      <h2><span class="num">2</span>External identity</h2>
+      <p>Identity in emem is layered, and the layers differ in strength. Stating them as one thing would be the same error this document exists to correct, so they are separated here and kept separate throughout.</p>
+      <h3>2.1 The address layer: places</h3>
+      <p>A place is named by its <code>cell64</code> (§4). The address is a pure function of latitude and longitude: it derives from the geometry, not from who asked or when. Two agents that resolve the same point converge on the same address by construction, with no coordination and no registry. This is the strongest layer because there is nothing to agree about.</p>
+      <h3>2.2 The content layer: observations</h3>
+      <p>An observation is named by its <code>fact_cid</code>, the blake3 digest of its own canonical CBOR encoding (§5). The bytes that are hashed are the bytes that are stored, so the identifier is a checkable claim about the content: recompute the digest, compare, and a substituted body is detected. This layer is strong for the same reason: identity is derived from the object, so agreement is arithmetic rather than negotiation.</p>
+      <h3>2.3 The object layer: entities</h3>
+      <p>Places and observations are not the only things agents talk about. A bridge, a field, a landmark, a facility is an <em>object</em>, and objects are where co-reference is hardest: "the collapsed span at the ford" and "the Old Bridge" may denote one thing, and no amount of hashing resolves that, because the phrasings share no bytes.</p>
+      <p><code>POST /v1/entity</code> mints an <code>emem:entity:&lt;entity_cid&gt;</code>. The identifier is computed by <code>compute_entity_cid</code> (<code>crates/emem-primitives/src/entity.rs:176</code>) over one of two preimages:</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  with a stable external anchor:
+      blake3("emem.entity.v1|ext|" || best_external_id)
+
+  without one:
+      blake3("emem.entity.v1|loc|" || cell64 || "|" ||
+             normalize_text(kind) || "|" || normalize_text(label))</code></pre></div>
+      <p><code>best()</code> (<code>entity.rs:68</code>) prefers <code>gers:&lt;id&gt;</code>, then <code>osm:&lt;type&gt;/&lt;id&gt;</code>, then <code>wikidata:&lt;qid&gt;</code>. The digest is truncated to its first 16 bytes and base32-encoded, so an <code>entity_cid</code> is 26 characters, not the 52 of a <code>fact_cid</code>.</p>
+      <p>The external-anchor branch is the one that works. Two agents that mint from the same GERS or OSM id converge on the same <code>entity_cid</code> however they phrase the label: the repository's own test asserts that <code>("bridge", "Golden Gate Bridge")</code> and <code>("highway", "golden gate")</code> with the same <code>osm:way/717919508</code> produce equal identifiers (<code>entity.rs:291</code>). Geometry is deliberately excluded from the preimage so that a geocoder's floats cannot perturb the identity (<code>entity.rs:20</code>).</p>
+      <p>The fallback branch is weaker and the responder says so in the response itself. Without an external id, identity is label-based, and convergence requires two agents to agree on a normalized label <em>and</em> a cell. The API returns a <code>convergence</code> field marked <code>weak</code> in exactly that case (<code>crates/emem-api-rest/src/lib.rs:22325</code>).</p>
+      <h3>2.4 What the entity layer does not do</h3>
+      <p>Three limits, all load-bearing, none of which the layer's name suggests.</p>
+      <p><strong>The mint is not signed over its content.</strong> The receipt accompanying a mint is signed over the segment set in §6.2: <code>request_id</code>, <code>served_at</code>, optional axes, <code>primitive</code>, <code>cells</code>, <code>fact_cids</code>. The <code>entity_cid</code> rides the receipt body as <code>intent</code>, and <code>intent</code> is not a preimage segment (<code>crates/emem-attest/src/lib.rs:217</code> lists every tag; there is no <code>INTENT</code>). So the receipt proves this responder served an <code>emem.entity</code> request touching that cell at that time. It does not bind the identifier, the label, the kind, or the external ids. The same applies to <code>POST /v1/entity/alias</code>.</p>
+      <p><strong>An <code>emem:entity:</code> token does not dereference to byte-identical bytes.</strong> Because the identifier covers a narrow identity preimage rather than the whole record, two nodes can hold different bodies under one <code>entity_cid</code>: the stored <code>label</code> is the caller's display form, not the normalized form that was hashed, and in the external-anchor branch <code>cell64</code> is not in the preimage at all. There is no entity analogue of the cell-binding check that protects facts (§3.3). What two agents holding one <code>emem:entity:</code> token share is a canonical <em>name</em>. That is genuinely useful, and it is less than the fact layer provides.</p>
+      <p><strong>There is no merge, and links do not conflict.</strong> Nothing reconciles two <code>entity_cid</code>s later discovered to denote one object. An alias key maps to a growing list of identifiers: if one agent links "the north dam" to entity X and another links the same phrase to entity Y, both survive, and <code>entity_resolve</code> returns both as candidates with no contradiction signal and no precedence.</p>
+      <h3>2.5 Resolution is registration, not similarity</h3>
+      <p><code>POST /v1/entity/resolve</code> is an exact lookup on a normalized key (<code>lib.rs:22369</code>). Normalization is trim, lowercase, and collapse internal whitespace runs (<code>entity.rs:150</code>). There is no embedding, no edit distance, no stemming, no substring match, and no ranking: candidates come back in insertion order. A phrasing resolves only if that exact normalized phrasing was previously registered as an alias, by a mint or by <code>POST /v1/entity/alias</code>.</p>
+      <p>This is worth stating bluntly because the mechanism's value is real but different from what "resolve" implies. Convergence here is <em>registration-based</em>. Agents converge because someone recorded the equivalence, not because the system inferred it. The <code>near</code> parameter does not add inference either: it appends every entity indexed at one exact cell, unranked and unfiltered by the query text.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s3">
+      <a id="3-the-token-grammar" class="anchor-alias"></a>
+      <h2><span class="num">3</span>The token grammar</h2>
+      <p>A token is the citeable handle an agent carries instead of a payload. It is one line of text, safe in a report, a commit message, a note, or an audit log.</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  emem:fact:defi.zb5ff.pOyA.zaf69:mstu4hkloebwpupenqyubj6qacnrejhiwj4pcszsfltooqettr5q</code></pre></div>
+      <p>The family is typed by its <strong>second segment</strong>, and the four types are not equivalent in what dereferencing proves.</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr>
+        <th>Token</th>
+        <th>Shape</th>
+        <th>Dereferences to</th>
+        </tr></thead>
+        <tbody>
+        <tr><td><code>emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</code></td><td>4 segments</td><td>the byte-identical signed fact (§3.2)</td></tr>
+        <tr><td><code>emem:bundle:&lt;bundle_cid&gt;</code></td><td>3 segments</td><td>a signed set of citations</td></tr>
+        <tr><td><code>emem:entity:&lt;entity_cid&gt;</code></td><td>3 segments</td><td>the body this node holds under that name (§2.4)</td></tr>
+        <tr><td><code>emem:cell:&lt;cell64&gt;</code></td><td>3 segments</td><td><strong>nothing: no parser exists</strong> (§3.4)</td></tr>
+        </tbody>
+        </table></div>
+      <p>Three legacy prefixes still resolve as full equivalents, not as degraded forms: <code>memt:</code> for <code>emem:fact:</code>, <code>memb:</code> for <code>emem:bundle:</code>, <code>meme:</code> for <code>emem:entity:</code>. Each is a single fallback on the prefix strip (<code>lib.rs:20574</code>, <code>memory_bundle.rs:190</code>, <code>entity.rs:208</code>); the remainder of the parse is identical. A resolve echoes the canonical spelling back, so a legacy token is migrated by using it.</p>
+      <h3>3.1 Why the second segment, and not a length</h3>
+      <p><code>parse_memory_token</code> (<code>lib.rs:20570</code>) strips the prefix and splits the remainder exactly once, on the first colon. <code>cell64</code> is colon-free by construction, so the split is unambiguous however long the digest is, and the <code>fact_cid</code> is whatever follows. A shape check rejects the rest: the cell must satisfy <code>is_cell64_shape</code>, and the digest must be ASCII-alphanumeric within a length bound.</p>
+      <p>Length is not the discriminator, and cannot be: a <code>fact_cid</code> is 52 characters (the full 32-byte blake3 digest, base32-nopad-lowercase), while an <code>entity_cid</code> and a <code>bundle_cid</code> are 26 (their preimages are truncated to 16 bytes). Three identifier widths in one family is a wart, and it is documented here rather than smoothed over.</p>
+      <h3>3.2 What an <code>emem:fact:</code> token proves</h3>
+      <p>This is the token the anti-drift claim rests on, and it is the one that carries it.</p>
+      <p>The identifier is the digest of the stored bytes. <code>put_many</code> (<code>crates/emem-cache/src/sled_hot.rs:446</code>) encodes the fact to canonical CBOR, hashes <em>those</em> bytes, and inserts <em>those same bytes</em> under the resulting key. Resolution reads them back and returns them inline. The receipt over a resolve is signed with <code>fact_cids</code> populated (<code>lib.rs:20766</code>), so unlike the entity paths, the identifier genuinely enters the signed preimage.</p>
+      <p>The chain a receiver can check alone is therefore: the CID names the bytes; the cell-binding rule refuses a mislabelled anchor (§3.3); the receipt binds <code>(cell, fact_cid)</code> to the responder's key in a domain-separated, length-prefixed preimage (§6); and every step verifies offline.</p>
+      <p>One honest qualification. The responder does not recompute the digest on read and compare it before serving; integrity of the read path rests on the store's keying being honest. The <em>client</em> can and should recompute it, which is the entire point of content addressing. The correct sentence is "a client can detect a substituted body by recomputing the CID", not "the responder guarantees the body matches the CID".</p>
+      <h3>3.3 The cell-binding rule</h3>
+      <p>A token names both a place and a digest, which creates a way to lie that content addressing alone does not catch: cite a real Mumbai fact under a Fuji cell. The resolver refuses it (<code>lib.rs:20728</code>). It reads the cell out of the signed fact body, compares it against the cell in the token, and returns <strong>409 Conflict</strong> on any mismatch rather than resolving with a warning. The <code>cell</code> in a successful response is taken from the signed body, never from the token.</p>
+      <p>This is the only cross-field integrity check in the token family. Bundles and entities have no analogue, and §14 records that.</p>
+      <h3>3.4 <code>emem:cell:</code> does not dereference</h3>
+      <p><code>cell_token</code> (<code>lib.rs:20561</code>) composes the string, and nothing anywhere parses it. It appears in composed output and in reference documentation; it has no resolution path. It is listed here for completeness and because a previous version of this document's supporting material claimed otherwise. A place is addressed directly by its <code>cell64</code>; the <code>emem:cell:</code> wrapper adds nothing that resolves.</p>
+      <h3>3.5 <code>bundle_cid</code> is not a CBOR digest</h3>
+      <p><code>compute_bundle_cid</code> (<code>memory_bundle.rs:139</code>) hashes a pipe- and newline-delimited <strong>text</strong> preimage of the citations, then truncates to 16 bytes:</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  blake3("emem.memory_bundle.v1|" || purpose || "\n" ||
+         (cell "|" band "|" tslot "|" fact_cid "\n")*)[..16]</code></pre></div>
+      <p>It is not <code>blake3(canonical_cbor(body))</code>, which the module's own docstring two lines above the function claims it is. The code is authoritative and the docstring is wrong; both are noted in §16 because a verifier that believes the docstring computes the wrong identifier.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s4">
+      <a id="4-addressing-cell64-and-tslot" class="anchor-alias"></a>
+      <h2><span class="num">4</span>Addressing: cell64 and tslot</h2>
+      <h3>4.1 cell64</h3>
+      <p>A <code>cell64</code> is a 64-bit packed identifier for a square latitude/longitude bucket on WGS-84 (<code>crates/emem-codec/src/geo.rs</code>).</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  bit:  63    60 59      52 51      44 43            22 21            0
+        +-------+-----------+-----------+----------------+----------------+
+        | mode  | resolution|   base    |     lat_q      |     lng_q      |
+        | 0001  |    21     |   0xab    |    21 bits     |    22 bits     |
+        +-------+-----------+-----------+----------------+----------------+</code></pre></div>
+      <p><code>mode = 1</code> marks a geo cell, <code>base = 0xab</code> is the geo aperture marker, and <code>resolution = 21</code> distinguishes the active grid from the pre-0.0.3 305 m grid. A legacy cell64 fails decoding with <code>NotGeoCell</code> rather than silently misplacing a fact by hundreds of metres.</p>
+      <p>The string form is four base-65,536 bigrams joined by <code>.</code>, drawn from a 65,536-entry alphabet (<code>crates/emem-codec/src/alphabet.rs:48</code>); four 16-bit digits are exactly the 64 bits of the address. Bigram widths vary, so the rendered cell is 20 or 21 characters and an <code>emem:fact:</code> token is correspondingly 83 or 84. The alphabet is constructed so adjacent codepoints map to adjacent cells, and the encoding is token-economical: about four BPE tokens under cl100k/o200k.</p>
+      <p>The pitch is ~9.54 m on the latitude axis and ~9.55 m on the longitude axis at the equator, chosen to match the native pitch of Sentinel-1 and Sentinel-2. Latitude pitch is uniform; longitude pitch narrows with cos(lat), so a cell at 60° is about 9.54 m by 4.77 m. Cells are square at the equator and taller than wide elsewhere. The responder declares this itself, with its own warnings, at <code>GET /v1/grid_info</code>; an equal-area hex DGGS is the spec target and is not what this build serves.</p>
+      <h3>4.2 tslot</h3>
+      <p>A <code>tslot</code> is a <code>u64</code> bucket of the Unix timeline at a band's tempo cadence (<code>crates/emem-core/src/tslot.rs</code>).</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  tslot = floor(unix_seconds / tempo.slot_seconds())</code></pre></div>
+      <p>The anchor is the Unix epoch. Pre-1970 timestamps clamp to <code>tslot(0)</code>. The cadence is a property of the band, not of the query: a weather band and a forest-loss band bucket the same instant differently, because asking for "the same time" means different things to a fast and a slow observable.</p>
+      <h3>4.3 Bi-temporality</h3>
+      <p>Every read primitive accepts two independent optional bounds: <code>as_of_tslot</code> bounds <em>observation</em> time (what was on the ground) and <code>as_of_signed_at</code> bounds <em>transaction</em> time (what the memory knew). Set either, both, or neither.</p>
+      <p>The distinction is what makes "what did we know when we decided" answerable. A forecast superseded next week is still the forecast that was acted on, and <code>as_of_signed_at</code> replays it without hindsight. Both bounds enter the signed preimage as a tagged segment when present (§6.2), so the replay is checkable rather than asserted.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s5">
+      <a id="5-content-addressing" class="anchor-alias"></a>
+      <h2><span class="num">5</span>Content addressing</h2>
+      <p>A fact's identifier is the blake3 digest of its own canonical CBOR encoding, base32-encoded without padding and lowercased: 32 bytes, 52 characters. The property that matters is not the hash function but the discipline around it, stated in the encoder's own header (<code>crates/emem-fact/src/cbor.rs:4</code>): <em>two implementations must produce byte-identical CBOR for the same fact</em>. Without that, a content address is a per-implementation opinion.</p>
+      <p>Two rules deliver it, and both are narrower than "canonical CBOR" implies.</p>
+      <p><strong>Struct field order is declaration order, not sorted.</strong> <code>to_canonical_cbor</code> serializes through ciborium and serde, which emit fields in declaration order. It does <em>not</em> apply RFC 8949 §4.2.1 key sorting to struct maps. A generic canonical-CBOR encoder that sorts keys computes a different digest and will not interoperate. For freeform maps, callers must supply pre-sorted keys; the encoder will not sort on their behalf.</p>
+      <p><strong>Floats are canonicalized before hashing.</strong> Every NaN payload folds to one quiet NaN and <code>-0.0</code> becomes <code>0.0</code> (<code>cbor.rs:43</code>). Without this, two encoders that agree on the value disagree on the bytes, and the address splits.</p>
+      <p>These are the kind of details a specification usually omits and an implementer then discovers through a mismatched digest. They are stated here because a content address is a promise about bytes, and a promise about bytes has to descend to bytes.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s6">
+      <a id="6-trust-receipts-and-attestations" class="anchor-alias"></a>
+      <h2><span class="num">6</span>Trust: receipts and attestations</h2>
+      <p>Every answer carries an ed25519 receipt that verifies offline against the responder's published key. No callback, no account, no API key. The receiver checks arithmetic, not reputation.</p>
+      <h3>6.1 One rule</h3>
+      <p>Every object this responder signs uses a single construction: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream.</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  stream    = "emem.preimage.v1\x00" || u32LE(len(domain)) || domain
+              || segment*
+  segment   = tag:u8 || u32LE(len) || bytes
+  list      = tag:u8 || u32LE(count) || (u32LE(len) || bytes)*
+  signature = ed25519(blake3(stream))</code></pre></div>
+      <p>Optional segments are omitted entirely rather than written empty, so presence and absence are unambiguous in the signed bytes. The signature covers the 32-byte digest, not the raw stream.</p>
+      <p>Six object classes ride this rule today: the receipt, the attestation, the transparency-log STH, a witness co-signature, the operator attestation, corpus state stats, and stream ticks. Each declares its domain string and its tag table at <code>GET /v1/verifier_spec</code>.</p>
+      <h3>6.2 The receipt preimage</h3>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  domain "receipt"
+    0x01 request_id      0x06 manifest      (optional)
+    0x02 served_at       0x07 primitive
+    0x03 scope    (opt)  0x08 cells         (list)
+    0x04 as_of    (opt)  0x09 fact_cids     (list)
+    0x05 edges    (opt)</code></pre></div>
+      <p>Two consequences are worth naming. The <code>as_of</code> bound <strong>is</strong> signed, so a bi-temporal replay is checkable rather than asserted. And <code>intent</code> is <strong>not</strong> in the table: it rides the receipt body but never enters the signed bytes, which is why the entity mint and alias paths prove less than their names suggest (§2.4).</p>
+      <h3>6.3 Why v1 exists, and why v0 still verifies</h3>
+      <p>The v0 rule concatenated variable-length fields with no length prefixes and inserted optional fields untagged at a fixed position. Both are exploitable ambiguities rather than aesthetic faults:</p>
+      <ul>
+        <li>Without length prefixes, <code>"abc" || "def"</code> and <code>"abcd" || "ef"</code> hash identically. Field boundaries were unsigned.</li>
+        <li>An untagged optional 64-char hex segment is indistinguishable from any other. A scope digest and an <code>as_of</code> digest occupied the same position and the signature could not tell them apart.</li>
+      </ul>
+      <p>The v0 Merkle construction had a third: leaves and interior nodes were hashed with the same function, and odd layers duplicated their last element, so <code>root([A,B,C]) == root([A,B,C,C])</code>. This is the CVE-2012-2459 pattern. v1 prefixes leaves with <code>0x00</code> and interior nodes with <code>0x01</code>, and verifiers of v1 attestations must additionally reject duplicate leaves; canonical order is sorted, so duplicates are adjacent.</p>
+      <p>Every new receipt is signed under v1 and carries <code>preimage_version: 1</code>. Receipts signed before the cutover carry no such field and continue to verify byte-for-byte under the v0 branch, which is retained for verification and never for emission. Deleting v0 would silently invalidate history, which is the one thing an immutable record may not do.</p>
+      <h3>6.4 The two exceptions, named rather than hidden</h3>
+      <p><strong>Legacy v0 receipts.</strong> Verify-only, never emitted, as above.</p>
+      <p><strong><code>memory_write</code>.</strong> The one construction that is not preimage_v1, because it runs in the opposite direction: the <em>caller</em> signs and this responder verifies.</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  attester_preimage = blake3("emem.memory_write|" || verb || "|"
+                             || path || "|" || body_hash)</code></pre></div>
+      <p><code>verb</code> is one of <code>create | str_replace | insert | delete | rename</code>. The pipe form is deliberately frozen rather than migrated: its shape is pinned by every client that already signs against it, and re-cutting it would invalidate signatures already issued. It is safe despite the separator because the variable field is bracketed: <code>verb</code> comes from a closed, separator-free set, and <code>body_hash</code> is a fixed-length 32-byte digest tail.</p>
+      <p><code>body_hash</code> is <strong>per-verb</strong>, and this is where a reader of v1 goes wrong:</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr>
+        <th>verb</th>
+        <th><code>body_hash</code></th>
+        </tr></thead>
+        <tbody>
+        <tr><td><code>create</code></td><td>blake3 of the <code>file_text</code> UTF-8 bytes, exactly as transmitted</td></tr>
+        <tr><td><code>str_replace</code></td><td>blake3 of the whole file's bytes <strong>after</strong> the edit</td></tr>
+        <tr><td><code>insert</code></td><td>blake3 of the whole file's bytes <strong>after</strong> the insert</td></tr>
+        <tr><td><code>delete</code></td><td><code>blake3("")</code></td></tr>
+        <tr><td><code>rename</code></td><td><code>path</code> is the <strong>new</strong> path; <code>body_hash</code> is blake3 of the <strong>old</strong> path</td></tr>
+        </tbody>
+        </table></div>
+      <p>The responder never hashes the request body. v1 of this document said it did (§16), and a client that implemented v1's rule could not produce a signature this responder accepts.</p>
+      <p><code>rename</code> earns its own line. Hashing the source path is what makes one signature bind both ends of the move. Without it, the signature authorises "move something to <code>new_path</code>" while naming no source, and a captured signature could be replayed to drag a different file to the same destination.</p>
+      <h3>6.5 Capability, not account</h3>
+      <p>A write to <code>/memories/by_attester/&lt;pubkey8&gt;/...</code> is accepted only from the key whose shortcode matches, where <code>pubkey8</code> is the first 8 characters of the base32-nopad lowercased pubkey. A mismatch returns <strong>403 <code>memory_namespace_violation</code></strong>. There is no registration step: any ed25519 keypair works, generated locally, and the namespace is claimed by whoever first writes to it and then held by that key. Bare <code>/memories/...</code> paths accept writes with no attester block, for Anthropic memory-tool back-compatibility.</p>
+      <p>Verification is <code>ed25519_dalek::verify_strict</code>, which rejects malleable signatures.</p>
+      <p>A refusal is designed to be actionable in one turn: the 401 carries the exact 32-byte digest to sign for that exact request, the base32 encoding rules, the per-verb body-hash rule, and a runnable example. An agent gets from refusal to signed write without going to look for documentation.</p>
+      <h3>6.6 The spec cannot drift from the signer</h3>
+      <p><code>GET /v1/verifier_spec</code> is emitted by the responder from the same compiled constants the signer uses: the tag tables are serialized from <code>receipt_tag::*</code> and the domain strings from the modules that sign, so the published spec cannot disagree with the wire. A number re-typed into prose can rot; a symbol serialized from the signer cannot.</p>
+      <p>This document is prose, and prose rots. That is not a hypothetical: it is what happened to v1 (§16), and it is why the machine-readable spec, not this text, is normative where the two ever disagree.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s7">
+      <a id="7-tamper-provenance" class="anchor-alias"></a>
+      <h2><span class="num">7</span>Tamper-provenance</h2>
+      <p>A signature proves who attested a value and that the bytes have not changed. It says nothing about how the value came to exist. A satellite radiance, an index recomputed from that radiance, a neural encoder's embedding, and a human cartographer's judgement are all equally signable and are not equally checkable. Collapsing them into one trust surface would be the interesting lie: everything looks verified, so nothing is.</p>
+      <p>Every band therefore declares a <strong>tamper-provenance class</strong> (<code>crates/emem-core/src/bands.rs:64</code>). There are five.</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr>
+        <th>class</th>
+        <th><code>tamper_evidence</code></th>
+        <th>deterministic</th>
+        <th>rank</th>
+        </tr></thead>
+        <tbody>
+        <tr><td><code>direct_sensor</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>4</td></tr>
+        <tr><td><code>deterministic_index</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>3</td></tr>
+        <tr><td><code>model_output</code></td><td><code>signed_model_checkpoint</code></td><td>no</td><td>2</td></tr>
+        <tr><td><code>human_curated</code></td><td><code>attester_only</code></td><td>no</td><td>1</td></tr>
+        <tr><td><code>unclassified</code></td><td><code>attester_only</code></td><td>no</td><td>0</td></tr>
+        </tbody>
+        </table></div>
+      <p><code>unclassified</code> is not a placeholder. It is the serde default, so a band that fails to declare a class fails <em>closed</em>, at the lowest rank, claiming no tamper-evidence. An unknown band key resolves to it rather than to an optimistic guess.</p>
+      <p>The 43 bands of the active ontology distribute as 22 <code>model_output</code>, 8 <code>deterministic_index</code>, 6 <code>direct_sensor</code>, 5 <code>human_curated</code>, and 2 reserved slots left <code>unclassified</code>. Sentinel-1/2 raw, the DEMs, nightlights, and GMRT are <code>direct_sensor</code>; spectral indices, terrain derivatives, phenology, and surface water are <code>deterministic_index</code>; the foundation encoders, land cover, and climate are <code>model_output</code>; Overture, protected areas, ecoregions, and admin boundaries are <code>human_curated</code>.</p>
+      <h3>7.1 The reader's controls</h3>
+      <p><code>deterministic: true</code> on a read is sugar that folds to a class list: it keeps <code>direct_sensor</code> and <code>deterministic_index</code> and drops the rest. An explicit <code>provenance</code> list intersects with it; an empty intersection is a typed 400 rather than a silent empty result. The filter runs before facts load and before the receipt is signed, so the signed preimage covers exactly what was returned.</p>
+      <p>Three classes carry an in-band <code>caution</code> string, emitted from a single definition site: <code>model_output</code> warns that a learned representation is a hypothesis subject to training bias, domain shift, and encoder revision; <code>human_curated</code> warns about editorial choices and coverage gaps that vary by region; <code>unclassified</code> warns that the production method is undeclared. <code>direct_sensor</code> and <code>deterministic_index</code> carry none.</p>
+      <h3>7.2 What the class attests, and what it does not</h3>
+      <p><code>bands_cid</code> is the blake3 of the canonical CBOR of the band registry. It enters <code>source_versions</code>, which is hashed into <code>manifest_hex</code> and mixed into the receipt preimage as tag <code>0x06</code> (§6.2). So a verifier can reproduce <em>which classification table was in force</em> when an answer was signed, offline.</p>
+      <p>Four limits, each of which the mechanism's name invites a reader to miss.</p>
+      <p><strong>The class is an editorial declaration, not a measurement.</strong> It is a hand-maintained field in a JSON table, per band. Nothing in the codebase re-derives a value to check its label. <code>deterministic: true</code> means "this band is <em>declared</em> recomputable", never "this value <em>was</em> recomputed".</p>
+      <p><strong><code>bands_cid</code> attests the table, not the fact.</strong> It proves which table was in force. It does not prove the classification is correct, nor that the responder applied it faithfully to the value it returned.</p>
+      <p><strong>The manifest segment is optional.</strong> A receipt with no manifest binding still verifies; <code>verify_receipt</code> reports <code>manifest_bound: false</code> rather than failing. Receipts predating the binding are unbound by design, so their provenance is not covered.</p>
+      <p><strong>The class is per-band, so a fact's own lineage is invisible to it.</strong> An <code>indices.ndvi</code> computed over a cloud-contaminated pixel is <code>deterministic_index</code> all the same. The class says the <em>formula</em> is fixed. It says nothing about whether the <em>input</em> was sound.</p>
+      <p>One further caveat is operational rather than architectural: the caution rides <code>band_metadata</code>, which single-cell <code>/v1/recall</code> emits per fact but which fan-out endpoints such as <code>recall_polygon</code> hoist to the response root at their default verbosity. A caller walking <code>facts[]</code> alone on a fan-out endpoint will not see it.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s8">
+      <a id="8-the-transparency-log" class="anchor-alias"></a>
+      <h2><span class="num">8</span>The transparency log</h2>
+      <p>Immutability inside one responder is a promise about a data structure. Immutability a client can <em>check</em> is a promise about a log. emem keeps an append-only Merkle tree over attestation batches and serves proofs against it.</p>
+      <h3>8.1 What it is, precisely</h3>
+      <p>It uses the <strong>RFC 6962 tree construction</strong>, with one substitution that must be stated up front: the hash is <strong>BLAKE3-256, not SHA-256</strong>. RFC 6962 §2.1 mandates SHA-256. This log is therefore not RFC 6962 conformant, and no Certificate Transparency client, auditor, or monitor will interoperate with it. What is borrowed is the construction: leaves are prefixed <code>0x00</code>, interior nodes <code>0x01</code>, and a lone node is <em>promoted</em> rather than paired with itself, so <code>root([A,B,C]) != root([A,B,C,C])</code>. A test pins exactly that.</p>
+      <p>This makes the transparency tree structurally distinct from the <strong>batch root</strong> carried inside a receipt, which uses the older self-pairing construction and is malleable in the way §6.3 describes. The two trees are not the same tree, and §8.4 explains why that matters more than it sounds.</p>
+      <p>A leaf is <code>blake3(0x00 || blake3(attestation_cbor))</code>: the hash of a whole attestation <em>batch</em>, appended from exactly one call site, after verification. Individual facts are not leaves.</p>
+      <p>Five endpoints: <code>GET /v1/log/sth</code>, <code>GET /v1/log/inclusion</code>, <code>GET /v1/log/consistency</code>, <code>POST /v1/log/witness</code>, and <code>GET /v1/log/witnesses</code>. Inclusion and consistency proofs are both real, both pure functions, and both round-trip tested for every leaf at every size from 1 to 33; the inclusion verifier rejects an over-long path, and the consistency verifier rejects a forked history.</p>
+      <p>The STH is signed by the responder's own key over a tagged preimage of <code>(tree_size, root, signed_at, responder_pubkey)</code>. The <code>log_id</code> <strong>is</strong> the responder's pubkey: the log has no identity independent of the server serving it. It is recomputed and re-signed on every request, so there is no issuance cadence and no maximum-merge-delay to reason about.</p>
+      <h3>8.2 What it proves</h3>
+      <p>Exactly one thing: <strong>to a client that pinned an earlier <code>(tree_size, root)</code> and comes back, the log can prove the current tree is an append-only extension of what that client already saw.</strong> That is tamper-evidence against rewriting, for one client, over time.</p>
+      <p>Absent a pin, the endpoints prove nothing. A first-contact client has no baseline, and a signed tree head it has never seen before is just an assertion by the party it is trying to check.</p>
+      <h3>8.3 What it does not prove</h3>
+      <p><strong>It does not prevent split-view equivocation, and cannot today.</strong> The claim that a responder cannot tell two clients two different histories does not hold, for four independently sufficient reasons. Every artefact is served by the accused party: the STH, the proofs, and the witness list all arrive over the same connection from the same server, and an equivocating responder serves each victim a self-consistent view of all three. There is no gossip protocol; detecting a split view is definitionally impossible without an out-of-band channel between the two victims, and none exists. Witness independence is unenforceable (§8.5). And the client must pin and return, which is client-side discipline, not a protocol guarantee.</p>
+      <p><strong>It does not prove the log is complete.</strong> A responder that never appends logs nothing. The log cannot prove absence, non-omission, or that anything in particular was ever offered to it.</p>
+      <p><strong>It does not prove content is true.</strong> It proves a byte sequence was appended in an order.</p>
+      <h3>8.4 The receipt does not chain to the log</h3>
+      <p>This is the gap most worth stating plainly, because the two mechanisms read as one system and are not.</p>
+      <p>A client <strong>cannot currently prove that a fact it was served is in the transparency log.</strong> The receipt preimage has no log binding: there is no <code>sth</code>, <code>root</code>, <code>tree_size</code>, or <code>leaf_index</code> segment in the tag table (§6.2). The Merkle proof a receipt does carry is over the batch root, a different tree. And to query <code>/v1/log/inclusion?entry_hash=</code>, a client would need <code>blake3(attestation_cbor)</code> for a batch it never receives and cannot request, because no endpoint reads an attestation back. There is no <code>fact_cid -&gt; leaf_index</code> index.</p>
+      <p>In practice the log is auditable as a standalone append-only structure, disconnected from the facts anyone is actually served. Closing that gap is tracked as the next increment on this substrate, and until it lands, the honest description is the one in this paragraph rather than the one the word "transparency" suggests.</p>
+      <h3>8.5 Witnesses are scaffolding, not a network</h3>
+      <p>The mechanism is real: a witness signs <code>(tree_size, root, witness_pubkey)</code> over a tagged preimage, deliberately excluding <code>signed_at</code> so the claim is purely "at size N I saw root R". The responder verifies with <code>verify_strict</code> and refuses to record a root it cannot reproduce, returning <strong>409 <code>witness_root_mismatch</code></strong>. Submission is idempotent per <code>(size, witness)</code>.</p>
+      <p>The deployment is not a network. As of this document's date the production responder carries exactly <strong>one</strong> witness, whose co-signature is for tree size 476,131 and dated 2026-07-10, tens of thousands of entries behind the live tree; <code>GET /v1/log/witnesses</code> reports the current state, and that endpoint rather than this sentence is the number to quote. There is <strong>no witness allowlist, registry, or trust anchor anywhere in the codebase</strong>, and no witness client or daemon: <code>POST /v1/log/witness</code> accepts any well-formed ed25519 key, so an operator could mint any number of nominally independent witnesses with a keygen loop. Nothing tells a client that the one witness key is independent of the responder key.</p>
+      <p>A witness co-signature therefore proves only that some key signed a <code>(size, root)</code> pair. It does not prove that key is independent, honest, ran any check, or is not the operator. The 409 guard protects the responder from vouching for foreign roots; it does nothing for the client.</p>
+      <p>Treat witness co-signing as a demonstrated mechanism awaiting an operating network. It is listed here as scaffolding because a reader who took the endpoint's existence for an independence guarantee would be worse off than one who knew nothing about it.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s9">
+      <a id="9-caller-registered-derivations" class="anchor-alias"></a>
+      <h2><span class="num">9</span>Caller-registered derivations</h2>
+      <p>The primitives to §8 describe reading a shared memory. <code>POST /v1/derive</code> is the other direction: a caller registers a value <em>they</em> computed over parent facts, under their own key.</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  sig       = ed25519(blake3("emem.memory_write|derive|/v1/derive|"
+                             || body_hash))
+  body_hash = blake3(cbor(DeriveBody))</code></pre></div>
+      <p>The binding reuses the §6.4 attester scheme verbatim, with <code>verb = "derive"</code>. One scheme, one verifier. The verb is what separates the domains: no memory-file verb is spelled <code>derive</code>, so a signature minted for a file write can never be replayed as a derivation, or the reverse, and tests pin both directions. <code>/v1/derive</code> sits outside the <code>by_attester</code> prefix, so the namespace rule is a no-op and the signature binds content alone.</p>
+      <p>Four rules make a registered derivation worth citing.</p>
+      <p><strong>Parents must resolve.</strong> Every input token is parsed, fetched, and cell-bound (§3.3) before anything is written. Unvalidated lineage is worse than no lineage: it would let a caller mint a token whose ancestry appears to terminate in signed measurements when it terminates in nothing.</p>
+      <p><strong>The value is canonicalized before hashing</strong>, so the digest the caller signs and the bytes that get stored describe the same number. Doing it afterwards would sign one value and store another.</p>
+      <p><strong>Callers may declare only <code>model_output</code> or <code>human_curated</code>.</strong> <code>direct_sensor</code> and <code>deterministic_index</code> assert tamper-evidence this responder cannot check for a value it did not compute; accepting them would be the responder vouching for a stranger's arithmetic.</p>
+      <p><strong>The responder signs the storage, not the truth.</strong> The receipt attests that this attester submitted this derivation over these parents at this time and that this responder stored it. It does not attest that the value is correct. The caller's binding is recorded inside the fact body, hence inside the <code>fact_cid</code>, hence covered by the responder's signature, so a third party holding only the fact can rebuild the signed body and re-check the <em>caller's</em> signature without the original request.</p>
+      <p>Derivatives carry no canonical <code>(cell, band, tslot)</code> key, so they never enter the canonical, multi-attester, or scope indexes, and no default read returns them. This is structural rather than a filter: every keyed read walks one of those indexes. Retrieval requires naming the thing, either by its token or through <code>POST /v1/derived</code>, which requires an attester pubkey. A stranger's derivation cannot pollute the shared memory at a cell, and the author's own token still resolves for anyone holding it.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s10">
+      <a id="10-substrate-earth-observation" class="anchor-alias"></a>
+      <h2><span class="num">10</span>Substrate: Earth observation</h2>
+      <p>Nothing in §2 through §9 is satellite-specific. The record, the receipt, and the token grammar know about addresses, bytes, and keys. Earth observation is the substrate this responder ships with, chosen because it is the hardest honest test available: open, adversarially large, and already full of the drift the protocol exists to stop.</p>
+      <p>Open data from ESA, NASA, USGS, and the EU JRC fills the memory on demand: <strong>46 declared source schemes</strong> and <strong>124 materializer-wired measurements</strong>, live at <code>/v1/sources</code> and <code>/v1/bands</code>, spanning elevation and NDVI through weather, forest change, surface water, and four open foundation-model embeddings. <strong>160 algorithms</strong> and <strong>27 topics</strong> are enumerated at <code>/v1/algorithms</code> and <code>/v1/topics</code>.</p>
+      <h3>10.1 Bands: the 1792-dimension voxel</h3>
+      <p>The band ontology declares <strong>43 cube slots</strong> summing to exactly <strong>1792 dimensions</strong>. Offsets are contiguous, and reserved slots leave room for new bands without breaking existing offsets.</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  offset  dims  key                family       tempo   privacy
+  ------  ----  -----------------  -----------  ------  --------
+       0   128  geotessera         vision       slow    public
+     128    64  overture           human        slow    public
+     192     7  air_quality        climate      ultra   public
+     199   505  _reserved_512      reserved     static  public
+     704    10  sentinel2_raw      optical      fast    public</code></pre></div>
+      <p>The gap between 43 slots and 124 wired names is parametric expansion: every Sentinel-2 reflectance band, every spectral index, every Tessera vintage, and every Open-Meteo variant rides a fixed underlying slot.</p>
+      <p>The ontology is compiled into the binary (<code>include_str!</code> over <code>bands-v0.json</code>) and read through one <code>LazyLock</code> by every consumer. There is no env var, no file load, and no runtime override: a deployment that wants a different ontology recompiles. The module's own header claims a hot-swap capability that does not exist in the code, and §16 records that.</p>
+      <h3>10.2 Beyond satellites</h3>
+      <p>Any observer with a location and a signing key can join the same attest, recall, cite, verify path. <code>POST /v1/attest</code> is the multi-writer endpoint and ships today. Substrate profiles for fixed sensors, drones, robot fleets, industrial machines, and government registries are roadmap work, not claims about this build. Location stays the first key for all of them.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s11">
+      <a id="11-the-agent-discoverable-surface" class="anchor-alias"></a>
+      <h2><span class="num">11</span>The agent-discoverable surface</h2>
+      <p><code>emem-server</code> serves HTTP/REST and MCP JSON-RPC on one port (default <code>0.0.0.0:5051</code>): <strong>108 documented REST paths under <code>/v1/*</code></strong> (112 total in OpenAPI) and <strong>91 MCP tools (14 core, 77 extended)</strong>.</p>
+      <p>Discovery on first contact:</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  1. GET  /.well-known/emem.json         responder pubkey + capabilities
+  2. GET  /.well-known/mcp.json          MCP transport advertisement
+  3. GET  /.well-known/agent-card.json   metadata, recommended tool order
+  4. GET  /v1/manifests                  bands_cid, algorithms_cid,
+                                         sources_cid, schema_cid,
+                                         registry_cid, topics_cid
+  5. GET  /v1/grid_info                  cell pitch, honest warnings
+  6. GET  /v1/verifier_spec              the signing rules, code-generated
+  7. POST /v1/locate {q:"&lt;place&gt;"}       -&gt; cell64
+  8. POST /v1/recall                     -&gt; signed facts + receipt</code></pre></div>
+      <h3>11.1 MCP tools are not read-only</h3>
+      <p>v1 of this document stated that MCP tools are a strict read-only subset of REST and that writes go through REST only. That is false, and the responder refutes it from its own annotations: <strong>8 of 91 tools are write tools</strong>. <code>memory_create</code>, <code>memory_str_replace</code>, <code>memory_insert</code>, <code>memory_delete</code>, and <code>memory_rename</code> are destructive; <code>emem_entity</code>, <code>emem_entity_link</code>, and <code>emem_derive</code> are non-destructive writes. An agent can attest, mint an identity, and register a derivation over MCP without touching REST.</p>
+      <h3>11.2 Tiering is a listing decision, not a capability decision</h3>
+      <p>An MCP host loads every advertised descriptor into the model's context at connect. All 91 cost about 204 KB of every conversation whether or not it ever touches Earth observation. So <code>POST /mcp</code> advertises the 14 tools of the core loop, about 39 KB, and <code>POST /mcp/full</code> advertises all 91.</p>
+      <p>Narrowing discovery removes no capability: <strong><code>tools/call</code> dispatches all 91 by name at either endpoint</strong>, and an explicit <code>{"tier":"core"|"extended"|"all"}</code> overrides the endpoint default. A tool absent from a list is still callable. This matters because a tool an agent cannot see is a tool it concludes does not exist, and the failure mode of a 204 KB dump is the same conclusion reached for a different reason: the agent stops reading.</p>
+      <p><code>emem_tools</code> is itself core and maps the rest. With no arguments it returns the core loop in order plus a bundle and shape menu in about 6 KB. <code>{"name":"emem_ndvi"}</code> returns one tool's input schema and a runnable example in about 2 KB. <code>{"q":"ndvi"}</code> searches.</p>
+      <p>Every tool declares exactly one <strong>shape</strong> and any number of overlapping <strong>bundles</strong> in MCP-standard <code>_meta</code>, as <code>dev.emem/shape</code> and <code>dev.emem/bundles</code>. Shape is the form of the answer, because "which tool do I use" is nearly always a question about the shape of the answer rather than its topic: <code>scalar</code>, <code>timeseries</code>, <code>raster</code>, <code>geometry</code>, <code>vector</code>, <code>identity</code>, <code>token</code>, <code>proof</code>, <code>plan</code>, <code>file</code>, <code>catalog</code>. A bundle is a view by job: <code>tokenisation</code>, <code>verification</code>, <code>agent_to_agent</code>, <code>long_horizon</code>, <code>robotics</code>, <code>satellites</code>, <code>agriculture</code>, <code>forestry</code>, <code>climate_risk</code>. Both filter <code>emem_tools</code>, and bundle filters <code>tools/list</code> itself.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s12">
+      <a id="12-conformance" class="anchor-alias"></a>
+      <h2><span class="num">12</span>Conformance</h2>
+      <p>Two implementations conform when, given byte-identical inputs, they produce byte-identical CIDs over the manifest set at <code>/v1/manifests</code>:</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  bands_cid        blake3 over canonical_cbor(BandsManifest)
+                   (1792 dims, 43 cube slots)
+  algorithms_cid   blake3 over canonical_cbor(AlgorithmsManifest)
+                   (160 entries)
+  sources_cid      blake3 over canonical_cbor(SourcesManifest)
+                   (46 schemes)
+  topics_cid       blake3 over canonical_cbor(TopicsManifest)
+                   (27 topics)
+  schema_cid       blake3 over canonical_cbor(SchemaBundle)
+  registry_cid     blake3 over canonical_cbor(FunctionRegistry)
+                   (20 primary / 2 derivative / 1 negative)</code></pre></div>
+      <p>A receipt binds <code>schema_cid</code> and <code>registry_cid</code> as struct fields, and binds the whole manifest set through the optional <code>manifest</code> segment (§6.2) when <code>source_versions</code> is non-empty.</p>
+      <p><code>GET /v1/verifier_spec</code> is the normative statement of the signing rules, because it is generated from the signer's own compiled constants (§6.6). Where this document and that endpoint disagree, that endpoint is right.</p>
+      <p><code>cargo test --workspace</code> is the de-facto conformance check today. The crate-internal tests in <code>emem-codec/src/geo.rs</code>, <code>tslot_text.rs</code>, and <code>emem-attest/src/lib.rs</code> are the de-facto fixtures. Per-vector fixtures under <code>spec/test_vectors/</code> are not yet extracted, and until they are, "conformance" means "passes our tests", which is weaker than the word implies.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s13">
+      <a id="13-privacy" class="anchor-alias"></a>
+      <h2><span class="num">13</span>Privacy</h2>
+      <p>Four <code>PrivacyClass</code> variants (<code>crates/emem-core/src/privacy.rs</code>): <strong>Public</strong> for open-data bands; <strong>AggregateOnly { min_res }</strong>, where population-density bands snap to a coarser resolution and the receipt carries <code>privacy_snapped: true</code>; <strong>L2OnlyWithModelCid</strong>, for fine-resolution embeddings tied to a specific model checkpoint, which L1 responders must refuse; and <strong>Prohibited</strong>, reserved, declared by no band today.</p>
+      <p>Legal surface, cited in SPEC.md §13: GDPR (Reg 2016/679), UK-GDPR, DPDP-2023, CCPA-CPRA, RFC 9116. The canonical responder logs <code>agent_ip_hash = base32_nopad_lower(blake3(client_ip)[..8])</code> rather than the raw address. POST bodies are not captured. GET query strings are captured for the 30-day journald retention window, which means a place name in a query string is retained for 30 days and a place name in a POST body is not.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s14">
+      <a id="14-honest-limits" class="anchor-alias"></a>
+      <h2><span class="num">14</span>Honest limits</h2>
+      <p>Collected rather than scattered, because a limit mentioned once in passing is a limit a reader misses.</p>
+      <h3>14.1 What a signature does not mean</h3>
+      <p>The signature proves who attested a record and that the bytes have not changed. It does not make the value true, correct, current, or complete. Confidence, uncertainty, and provenance travel with the value precisely because the signature speaks to none of them.</p>
+      <h3>14.2 Identity and tokens</h3>
+      <ul>
+        <li><strong>Entity mints and links are not signed over their content.</strong> The receipt binds the primitive and the cell, not the <code>entity_cid</code>, label, kind, or aliases. <code>intent</code> is a body field, never a preimage segment.</li>
+        <li><strong><code>emem:entity:</code> does not dereference to byte-identical bytes.</strong> The identifier covers a narrow identity preimage; label, geometry, and (in the external-anchor branch) <code>cell64</code> sit outside it, so two nodes may hold different bodies under one identifier. There is no entity analogue of the fact cell-binding check.</li>
+        <li><strong>No entity merge, and links do not conflict.</strong> One alias maps to a growing candidate list with no precedence and no contradiction signal. Anyone may link any phrase to any entity: the endpoint takes no attester.</li>
+        <li><strong><code>entity_resolve</code> is an exact normalized-string lookup</strong>, not a fuzzy or semantic match, and its candidates are unranked despite the tool description's wording.</li>
+        <li><strong><code>emem:cell:</code> does not dereference at all.</strong> It is composed and never parsed.</li>
+        <li><strong><code>bundle_cid</code> is not a CBOR digest</strong> (§3.5), and the family carries three identifier widths: 52 characters for a <code>fact_cid</code>, 26 for an <code>entity_cid</code> and a <code>bundle_cid</code>.</li>
+        <li><strong>The responder does not re-verify a digest on read.</strong> A client can detect a substituted body by recomputing the CID; the responder does not do it for them.</li>
+      </ul>
+      <h3>14.3 The transparency log</h3>
+      <ul>
+        <li><strong>Not RFC 6962 conformant.</strong> RFC 6962's tree construction with BLAKE3-256 substituted for SHA-256. No CT tooling interoperates.</li>
+        <li><strong>It proves append-only-ness only to a client that pinned an earlier STH and returns.</strong> A first-contact client has no baseline.</li>
+        <li><strong>It does not resist split-view equivocation</strong> (§8.3). No gossip exists; every artefact is served by the accused party.</li>
+        <li><strong>Witness co-signing is scaffolding</strong>: one witness, stale, no allowlist, no independence guarantee, self-submittable (§8.5).</li>
+        <li><strong>The receipt does not chain to the log</strong> (§8.4). You cannot prove a fact you were served is in it.</li>
+        <li><strong>It cannot prove completeness.</strong> A responder that never appends logs nothing, and the log cannot prove absence or non-omission.</li>
+      </ul>
+      <h3>14.4 Provenance</h3>
+      <ul>
+        <li><strong>The class is an editorial per-band declaration</strong>, never checked against the fact. <code>deterministic: true</code> means the band is <em>declared</em> recomputable, not that the value <em>was</em> recomputed.</li>
+        <li><strong><code>bands_cid</code> attests the table, not the classification's correctness</strong>, and the manifest segment is optional, so some receipts are unbound.</li>
+        <li><strong>Per-band, not per-fact</strong>: a <code>deterministic_index</code> computed over a cloud-contaminated pixel keeps its class.</li>
+        <li><strong>The caution is not universal per fact</strong>: fan-out endpoints hoist band metadata to the response root at default verbosity.</li>
+        <li><strong>The ontology is compile-time embedded.</strong> The documented hot-swap does not exist.</li>
+      </ul>
+      <h3>14.5 Substrate and grid</h3>
+      <ul>
+        <li><strong>Cells are not equal-area.</strong> Square at the equator, taller than wide above it: longitude pitch narrows with cos(lat), so a cell at 60° is about 9.54 m by 4.77 m. The equal-area hex DGGS is a spec target, not this build.</li>
+        <li><strong>Sub-metre imagery.</strong> None. Sentinel-2 at 10 m is the finest pitch served.</li>
+        <li><strong>Edge and onboard inference.</strong> All inference is in-tenant. No spacecraft-bus encoder firmware ships with the protocol.</li>
+        <li><strong>Federation.</strong> Single primary; replicas are read-only. No multi-host clustering, no SOC 2 attestation.</li>
+        <li><strong>Declared is not wired.</strong> 46 declared source schemes is a catalog count, not a capability count, and several schemes remain declared-but-unwired.</li>
+        <li><strong>JEPA v2 is untrained.</strong> The on-disk artefact is a residual-zero identity baseline; training is gated on upstream vintage availability.</li>
+      </ul>
+      <h3>14.6 Specification</h3>
+      <ul>
+        <li><strong>"Canonical CBOR" here is not RFC 8949 canonical.</strong> Struct keys are in declaration order and are not sorted (§5). A generic canonical encoder computes the wrong digest.</li>
+        <li><strong>Conformance means "passes our tests".</strong> Per-vector fixtures are not yet extracted.</li>
+      </ul>
+      <p>A request that names a missing surface returns a typed Absence or a structured error code. No surface returns <code>verdict=false</code> for an absent capability.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s15">
+      <a id="15-comparison-with-adjacent-work" class="anchor-alias"></a>
+      <h2><span class="num">15</span>Comparison with adjacent work</h2>
+      <p><strong>Certificate Transparency (RFC 6962).</strong> The direct ancestor of §8, and the comparison flatters CT. CT has an operating network of independent logs, monitors, and auditors, plus gossip proposals to close split view. emem borrows the tree construction, substitutes BLAKE3-256, and has one stale witness. The mechanism is homage; the ecosystem is absent.</p>
+      <p><strong>Content-addressed stores (IPFS, IPLD, Git).</strong> The <code>cid = hash(bytes)</code> idea is theirs, and emem's fact layer is a conventional instance of it. What differs is that emem addresses a <em>place and a time</em> as well as bytes: <code>(cell, band, tslot)</code> is a canonical key that lets two parties who have never met arrive at the same address for the same observable without exchanging a CID first. A pure content store cannot answer "what is the elevation here" because "here" is not a hash.</p>
+      <p><strong>Spatial indexes (H3, S2, geohash).</strong> Peers to §4, and H3 is the declared migration target. cell64 is a packed 64-bit lat/lng quantisation, which is worse than H3 on equal-area properties and better on token economy: four bigrams, about four BPE tokens. That trade is only worth making for a memory whose primary consumer is a language model, and it is a trade, not a win.</p>
+      <p><strong>Agent memory frameworks (MemGPT, CoALA, vector stores).</strong> The kind taxonomy in §Abstract is CoALA's. The difference is verifiability: a vector store returns what it holds and asks to be believed. emem returns a receipt, and the receiver checks it without trusting the store. The cost is that emem cannot do similarity over arbitrary prose, which a vector store does well; <code>find_similar</code> operates over declared band embeddings, not over free text.</p>
+      <p><strong>Geospatial data platforms (Earth Engine, Planetary Computer, STAC).</strong> These are the incumbents for the substrate in §10 and are better at it: deeper catalogs, real compute, mature tooling. None of them issues a signed receipt that a third party can check offline, and none gives an agent a token that another agent can dereference to identical bytes. emem is not competing on catalog depth; it is adding an identity and trust layer that the catalogs do not have.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s16">
+      <a id="16-changes-from-v1" class="anchor-alias"></a>
+      <h2><span class="num">16</span>Changes from v1</h2>
+      <p>v1 is archived unedited at <a href="/whitepaper/v1">/whitepaper/v1</a>. It remains the version cited by the DOI. This section exists so a reader of v1 can see exactly which of its claims this responder does not honour, rather than discovering it through a failed signature.</p>
+      <h3>16.1 Claims v1 made that were false or became false</h3>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr>
+        <th>v1 said</th>
+        <th>The code does</th>
+        </tr></thead>
+        <tbody>
+        <tr><td>§1, §4: "Every CID is <code>base32_nopad_lower(blake3(canonical_cbor)[..16])</code>" and <code>FactCid = ...[..16]</code></td><td>A <code>fact_cid</code> is <strong>not truncated</strong>: it is the full 32-byte blake3 digest, base32-encoded to <strong>52</strong> characters. The <code>[..16]</code> rule (26 characters) is what <code>entity_cid</code> and <code>bundle_cid</code> use. An implementation following v1 computes a 26-character identifier that can never match a real <code>fact_cid</code>. This is the most consequential of v1's errors: it breaks content addressing itself.</td></tr>
+        <tr><td>§5.2: the receipt preimage is a `\</td><td><code>-joined concatenation of </code>request_id<code>, </code>served_at<code>, </code>primitive<code>, </code>cells<code>, </code>fact_cids`</td><td>That is the <strong>v0</strong> rule. Every new receipt is signed under <strong>preimage v1</strong>: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify.</td></tr>
+        <tr><td>§5.2: "the <code>as_of</code> block sits outside the preimage ... does not change the signature math"</td><td><code>as_of</code> <strong>is</strong> a tagged segment (<code>0x04</code>) and <strong>is</strong> signed (§6.2).</td></tr>
+        <tr><td>§5.2.1: <code>body_hash = blake3(canonical request body bytes)</code></td><td>The responder never hashes the request body. <code>body_hash</code> is <strong>per-verb</strong> (§6.4). A client implementing v1's rule cannot produce an acceptable signature.</td></tr>
+        <tr><td>§15: "MCP tools are a strict read-only subset of REST; writes go through REST only"</td><td><strong>8 of 91 MCP tools write</strong> (§11.1), including the five memory verbs, <code>emem_entity</code>, <code>emem_entity_link</code>, and <code>emem_derive</code>.</td></tr>
+        <tr><td>§15: 93 documented REST paths under <code>/v1/*</code> (96 total), 81 MCP tools (10 core, 71 extended)</td><td><strong>108</strong> under <code>/v1/*</code> (<strong>112</strong> total), <strong>91</strong> tools (<strong>14</strong> core, <strong>77</strong> extended).</td></tr>
+        </tbody>
+        </table></div>
+      <h3>16.2 Claims in v1's supporting material this document withdraws</h3>
+      <p>These were not in v1's body but circulated in the README, module headers, and tool descriptions alongside it. They are listed because withdrawing a claim quietly is how the original error propagates.</p>
+      <ul>
+        <li>"An RFC 6962 Merkle tree." It is RFC 6962's <strong>construction</strong> with BLAKE3-256 (§8.1).</li>
+        <li>"A responder cannot tell two clients two different histories." It can (§8.3).</li>
+        <li>"With witness co-signing", read as an operating property. It is a callable endpoint with one stale participant (§8.5).</li>
+        <li>"The text to canonical-id resolution decision is itself signed and citeable." It is not (§2.4).</li>
+        <li>Any token "resolves to the byte-identical signed object", applied across the family. True for <code>emem:fact:</code>, false for <code>emem:entity:</code>, vacuous for <code>emem:cell:</code> (§3).</li>
+        <li>"Four provenance classes." There are <strong>five</strong>; <code>unclassified</code> is the fail-safe default (§7).</li>
+        <li>"Hot-swap the ontology without recompiling." The ontology is compiled in (§10.1).</li>
+        <li>"base-1024 bigrams", in 13 user-facing strings including the OpenAPI <code>Cell64</code> schema. The alphabet has <strong>65,536</strong> entries; four base-1024 digits would encode 40 bits and could not address a 64-bit cell (§4.1).</li>
+      </ul>
+      <h3>16.3 What is new since v1</h3>
+      <p>The entity registry and the token grammar (§2, §3); tamper-provenance classes (§7); the transparency log and witness endpoints (§8); caller-registered derivations (§9); the preimage v0 to v1 cutover (§6.3); MCP tiering, shapes, and bundles (§11.2); and the code-generated verifier spec (§6.6).</p>
+      <h3>16.4 Why v1 rotted, and what changed</h3>
+      <p>v1's counts were correct when written. They decayed because a number re-typed into prose has no owner: nothing failed when a tool landed and the paragraph did not move. Three of its five false claims are of that kind. The other two, the preimage and the body-hash rules, decayed because the protocol improved and the prose did not follow.</p>
+      <p>Two mechanisms now exist that did not. <code>GET /v1/verifier_spec</code> is generated from the signer's compiled constants, so the normative description of the signing rules cannot drift from the code that signs (§6.6). And <code>scripts/sync_counts.py</code> verifies every count in this repository against the live responder and the registries, failing rather than warning.</p>
+      <p>Neither mechanism protects prose like this sentence. That is why §12 makes the machine-readable spec normative where it and this document disagree, and why this document tries to state mechanisms rather than totals wherever a total would do.</p>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="s17">
+      <a id="17-open-questions" class="anchor-alias"></a>
+      <h2><span class="num">17</span>Open questions</h2>
+      <ul>
+        <li><strong>Chain the receipt to the log.</strong> A <code>fact_cid -&gt; leaf_index</code> index and a log segment in the receipt preimage would close §8.4 and make "transparency" mean what it sounds like. This is the single highest-value increment on this substrate.</li>
+        <li><strong>An operating witness network.</strong> Independent witnesses, a published trust policy, a refresh cadence, and gossip between clients. Until then, §8.5 stands.</li>
+        <li><strong>Sign the entity decision.</strong> An <code>intent</code> (or <code>object_cid</code>) segment in the preimage would make the mint and alias claims in §2.4 true rather than aspirational.</li>
+        <li><strong>Per-fact provenance.</strong> The class is per-band (§7.2). Per-fact lineage would let a cloud-contaminated index declare itself.</li>
+        <li><strong>Extracted test vectors.</strong> <code>spec/test_vectors/</code> would turn §12's "passes our tests" into conformance a second implementation can claim.</li>
+        <li><strong>H3 migration.</strong> Equal-area cells under a new mode prefix; receipts pin the active manifest CIDs, so historical answers do not drift.</li>
+        <li><strong>Entity reconciliation.</strong> A merge primitive, and a contradiction signal for conflicting links (§2.4).</li>
+      </ul>
+    </section>
+
+    <hr class="band-rule">
+
+    <section id="references">
+      <h2>References</h2>
+      <ol>
+        <li>Laurie, B., Langley, A., Kasper, E. <em>Certificate Transparency.</em> RFC 6962, IETF, 2013.</li>
+        <li>Bormann, C., Hoffman, P. <em>Concise Binary Object Representation (CBOR).</em> RFC 8949, IETF, 2020.</li>
+        <li>O'Connor, J., Aumasson, J.-P., Neves, S., Wilcox-O'Hearn, Z. <em>BLAKE3: one function, fast everywhere.</em> 2020.</li>
+        <li>Bernstein, D. J., Duif, N., Lange, T., Schwabe, P., Yang, B.-Y. <em>High-speed high-security signatures.</em> Journal of Cryptographic Engineering, 2012. (Ed25519)</li>
+        <li>Josefsson, S., Liusvaara, I. <em>Edwards-Curve Digital Signature Algorithm (EdDSA).</em> RFC 8032, IETF, 2017.</li>
+        <li>Sumbaly, R., et al. <em>CVE-2012-2459: Merkle tree duplicate-leaf ambiguity.</em> 2012.</li>
+        <li>Sumers, T., Yao, S., Narasimhan, K., Griffiths, T. <em>Cognitive Architectures for Language Agents (CoALA).</em> 2023.</li>
+        <li>Uber Technologies. <em>H3: A Hexagonal Hierarchical Geospatial Indexing System.</em> 2018.</li>
+        <li>Josefsson, S. <em>The Base16, Base32, and Base64 Data Encodings.</em> RFC 4648, IETF, 2006.</li>
+        <li>Foundation for Public Code / Overture Maps Foundation. <em>GERS: Global Entity Reference System.</em> 2024.</li>
+      </ol>
+    </section>
+
+  </main>
+</div>
+</div>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper">whitepaper</a></li>
+          <li><a href="/docs/diagrams">32 diagrams</a></li>
+          <li><a href="/docs/gallery">live coverage map</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
+          <li><a href="/v1/corpus_state_stats">corpus stats</a></li>
+          <li><a href="/v1/stream">live stream (SSE)</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/demos">demos index</a></li>
+          <li><a href="/demos/ask-the-earth">ask the Earth (10 live calls)</a></li>
+          <li><a href="/demos/state-cube">state cube walk</a></li>
+          <li><a href="/demos/signed-answer">signed answer in 4 steps</a></li>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/v1/benchmark">agent benchmark</a></li>
+          <li><a href="/humans">/humans</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
+          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
+          <li><a href="/docs/errors.html">errors</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="/health">health</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> &middot;
+        <a href="/privacy">privacy &middot; terms</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Tiny vanilla scroll-spy: highlight the TOC link for the section currently
+// in view. No external libs, no inline handlers. Degrades to plain anchor
+// links if IntersectionObserver is unavailable.
+(function(){
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  if (!links.length || !('IntersectionObserver' in window)) return;
+  var byId = {};
+  links.forEach(function(a){
+    var id = a.getAttribute('href').slice(1);
+    if (id) byId[id] = a;
+  });
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.doc section[id]'));
+  var current = null;
+  function setOn(a){
+    if (current === a) return;
+    if (current) current.classList.remove('on');
+    current = a;
+    if (a) a.classList.add('on');
+  }
+  var visible = {};
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) visible[e.target.id] = e.intersectionRatio;
+      else delete visible[e.target.id];
+    });
+    // Pick the topmost visible section in document order.
+    var pick = null;
+    for (var i = 0; i < sections.length; i++){
+      if (visible[sections[i].id] !== undefined){ pick = sections[i].id; break; }
+    }
+    if (pick && byId[pick]) setOn(byId[pick]);
+  }, { rootMargin: '-64px 0px -55% 0px', threshold: [0, 0.25, 0.5, 1] });
+  sections.forEach(function(s){ io.observe(s); });
+})();
+</script>
+
+</body>
+</html>

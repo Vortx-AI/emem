@@ -527,7 +527,7 @@ such a process verify only until restart.
 - `docs/operators/operating.md` — deploy paths (plain HTTP behind a reverse
   proxy, native TLS via Let's Encrypt TLS-ALPN-01), systemd units,
   env knobs.
-- `docs/whitepaper.md` — math + design rationale + triple-consensus
+- `docs/whitepaper-v2.md` — math + design rationale + triple-consensus
   algorithm derivation.
 - `docs/developers/inference.md` — sidecar protocol, per-encoder chip fetchers,
   trained-checkpoint loader contract, VRAM partitioning.

@@ -421,7 +421,6 @@ input::placeholder{color:var(--mute,#7a7363)}
   let currentBbox = null;
   let currentPolygon = null;
   let currentBand = 'indices.ndvi';
-  let lastCid = '';
   let footstepAnim;
 
   const $ = (s) => document.querySelector(s);
@@ -519,14 +518,6 @@ input::placeholder{color:var(--mute,#7a7363)}
     }
     return null;
   }
-  function setCid(cid) {
-    if (!cid || cid === lastCid) return;
-    lastCid = cid;
-    const el = $('#last-cid');
-    el.textContent = cid;
-    el.title = cid + ' : resolves at /verify';
-  }
-
   function fitCanvas() {
     const c = $('#polygon-canvas');
     const r = c.getBoundingClientRect();
@@ -755,7 +746,6 @@ input::placeholder{color:var(--mute,#7a7363)}
         px != null && px > 0.01 ? `${px.toFixed(1)} mm rain` : null,
       ].filter(Boolean);
       setTile('t-weather', tC.toFixed(1), '°C', parts.join(' · ') || 'right now');
-      setCid(bandCid(r, 'weather.temperature_2m') || pluckCid(r));
     } catch (e) { errTile('t-weather', 'weather unavailable here'); }
   }
   async function loadAir(place) {
@@ -1083,7 +1073,6 @@ input::placeholder{color:var(--mute,#7a7363)}
       $('#place-coords').textContent = `${Math.abs(lat).toFixed(2)}°${ns} · ${Math.abs(lng).toFixed(2)}°${ew}`;
     }
     $('#place-cell').textContent = currentCell;
-    setCid(currentCell);
 
     fitCanvas();
     drawPolygon();

@@ -16,7 +16,8 @@
 
 # Protocol
 
-- [Whitepaper](./whitepaper.md)
+- [Whitepaper](./whitepaper-v2.md)
+  - [Whitepaper v1 (archived)](./whitepaper-v1.md)
 - [Protocol](./protocol.md)
 - [Registries](./registries.md)
   - [MCP servers PR](./registries/PR-modelcontextprotocol-servers.md)

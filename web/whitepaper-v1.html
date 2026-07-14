@@ -229,6 +229,16 @@ input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:
 input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+
+/* Archived-version banner. v1 is served verbatim as the DOI-cited text, so
+   this labels the page without editing the document. */
+.archived-note{
+  border:1px solid var(--absent);background:var(--absent-bg);
+  border-radius:6px;padding:.9rem 1.1rem;margin:1rem 0 1.4rem;
+}
+.archived-note p{margin:0 0 .6rem;font-size:var(--t-sm);line-height:1.55;color:var(--ink-2)}
+.archived-note p:last-child{margin-bottom:0}
+.archived-note a{color:var(--absent);text-decoration:underline}
 </style>
 </head>
 <body>
@@ -239,7 +249,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <a href="/how-it-works" class="nav-sec">how it works</a>
     <a href="/solutions" class="nav-sec">solutions</a>
     <a href="/reference" class="nav-sec">reference</a>
-    <a href="/whitepaper.html" class="nav-sec on">whitepaper</a>
+    <a href="/whitepaper" class="nav-sec on">whitepaper</a>
     <span class="spacer"></span>
     <a href="/docs">docs</a>
     <a href="/verify">verify</a>
@@ -250,7 +260,20 @@ input::placeholder{color:var(--mute,#7a7363)}
 <!-- ── hero ──────────────────────────────────────────────────────────── -->
 <div class="page">
   <header class="hero">
-    <p class="kicker"><span class="seal"></span> Whitepaper &middot; Vortx AI</p>
+    <p class="kicker"><span class="seal"></span> Whitepaper &middot; Vortx AI &middot; <b>ARCHIVED v1</b></p>
+    <div class="archived-note">
+      <p><b>This is whitepaper v1, archived and unedited.</b> It is superseded by
+      <a href="/whitepaper">whitepaper v2</a>. It is kept verbatim because it is the version cited by
+      <a href="https://doi.org/10.5281/zenodo.20706893" rel="noopener">DOI 10.5281/zenodo.20706893</a>,
+      and a citation that silently resolves to a different document is worse than a stale one.</p>
+      <p><b>Parts of it are wrong.</b> It states that a <code>fact_cid</code> truncates its digest to 16 bytes
+      (it does not: the full 32 bytes are encoded, giving 52 characters), it describes the superseded v0
+      signature preimage, it says <code>body_hash</code> is a hash of the request body (it is per-verb), and it says
+      MCP tools are read-only (8 of them write). Implementing this document will not produce a signature or a
+      CID this responder accepts. <a href="/whitepaper#16-changes-from-v1">v2 §16</a> lists every such claim.
+      For the normative signing rules, read <a href="/v1/verifier_spec">/v1/verifier_spec</a>, which is generated
+      from the code that signs.</p>
+    </div>
     <h1>emem: a content-addressed protocol for <span class="accent">verifiable agent memory</span></h1>
     <p class="teaser">A memory substrate for AI agents that need a stable, citation-carrying place to ground spatial answers and a writable scratchpad for their own observations. Two layers ride a single trust surface. The lower layer is Earth memory, an open-data corpus addressed by <code>(cell, band, tslot)</code> whose unit is a signed fact. The upper layer is agent memory, a content-addressed file store under <code>/memories/*</code>. Both layers return signed receipts; the same <code>/verify</code> page checks them both without trusting the issuer.</p>
     <p class="meta-line"><b>Vortx AI</b> <span class="dot">&middot;</span> <b>v0.1.0</b> &middot; 2026-06-14 <span class="dot">&middot;</span> Apache-2.0 <span class="dot">&middot;</span> reference responder <code>emem.dev</code></p>

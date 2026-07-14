@@ -30,6 +30,13 @@ echo "==> mdbook build (docs/)"
 ( cd "$REPO/docs" && mdbook build )
 rm -f "$REPO/docs/book/book.toml"
 
+# web/whitepaper-v2.html is generated from docs/whitepaper-v2.md and baked
+# into the binary by include_str!, so it has to be regenerated BEFORE cargo
+# build or the deploy ships a page that disagrees with its own source. v1
+# kept the two as hand-written twins and they drifted; this is the fix.
+echo "==> render whitepaper v2 (docs/whitepaper-v2.md -> web/whitepaper-v2.html)"
+python3 "$REPO/scripts/render_whitepaper.py"
+
 echo "==> cargo build --release -p emem-cli"
 cargo build --release -p emem-cli
 

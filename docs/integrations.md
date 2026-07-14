@@ -100,7 +100,7 @@ Response:
   "cell":         "defi.zb4d7.ze56c.zf24c",
   "fact_cid":     "4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma",
   "grammar":      "emem:fact:<cell64>:<fact_cid>",
-  "docs":         "/whitepaper.md#194-memory-tokens"
+  "docs":         "/whitepaper.md#3-the-token-grammar"
 }
 ```
 
@@ -171,7 +171,7 @@ Legacy memt: tokens keep the old three-part shape (memt:<cell64>:<fact_cid>) and
 The outer separator is `:`. Neither `cell64` nor `fact_cid` may contain
 `:` (the compose endpoint rejects). The full grammar, dereference
 path, and named failure modes (`malformed`, `cid_not_found`, drift on
-re-encode) are in [`/whitepaper.md#194-memory-tokens`](whitepaper.md#194-memory-tokens).
+re-encode) are in [`/whitepaper.md#3-the-token-grammar`](whitepaper-v2.md#3-the-token-grammar).
 
 ## Memory bundles
 
@@ -434,4 +434,4 @@ run through any host's tool layer.
 
 For the four discovery URLs an agent should fetch on cold start, see
 [`docs/agents.md`](agents.md). For the protocol math and trust plane,
-see [`docs/whitepaper.md`](whitepaper.md).
+see [`docs/whitepaper-v2.md`](whitepaper-v2.md).

@@ -164,7 +164,7 @@ hook fails, fix the underlying issue.
 
 - [docs/developers/architecture.md](docs/developers/architecture.md): what shape the protocol takes
 - [docs/protocol.md](docs/protocol.md): wire format, preimages, encodings
-- [docs/whitepaper.md](docs/whitepaper.md): math + design rationale
+- [docs/whitepaper-v2.md](docs/whitepaper-v2.md): math + design rationale (v1 archived at docs/whitepaper-v1.md)
 - [docs/operators/operating.md](docs/operators/operating.md): deployment, env vars, TLS, CSP
 - [docs/developers/developing.md](docs/developers/developing.md): dev workflow + test invariants
 - [docs/agents.md](docs/agents.md): *consumer*-agent guide (how to USE emem)

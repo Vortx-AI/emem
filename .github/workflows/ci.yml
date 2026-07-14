@@ -215,6 +215,22 @@ jobs:
           /tmp/wheelcheck/bin/pip install --quiet dist-emem-langmem/*.whl
           /tmp/wheelcheck/bin/python -c "import emem_langmem; print('emem_langmem', emem_langmem.__version__)"
 
+  whitepaper:
+    name: whitepaper HTML matches its markdown
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # web/whitepaper-v2.html is generated from docs/whitepaper-v2.md and
+      # baked into the binary with include_str!, so a stale commit ships a
+      # page that contradicts its own source. That is exactly how v1's two
+      # hand-written copies drifted apart.
+      - name: rendered page is up to date
+        run: python3 scripts/render_whitepaper.py --check
+
   ts-sdk:
     name: TypeScript SDK build
     runs-on: ubuntu-latest
