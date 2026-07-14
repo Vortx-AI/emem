@@ -765,11 +765,21 @@ the registry, the response is explicit, not silent:
   "facts": [],
   "materialize_notes": [{
     "band": "foo.bar", "status": "skipped",
-    "reason": "no_auto_materializer_registered: no upstream connector wired for band=foo.bar; submit a signed Attestation via /v1/attest_cbor to seed it. Call GET /v1/bands to see all known band keys."
+    "reason": "no_auto_materializer_registered: no upstream connector wired for band=foo.bar; submit a signed Attestation via /v1/attest_cbor to seed it. Call GET /v1/bands to see all known band keys.",
+    "reason_class": "no_materializer", "retryable": false, "absence": false
   }],
   "bands_already_attested_at_cell": ["...keys actually present..."]
 }
 ```
+
+Every skip is typed. `reason_class` is one of `timeout` or `upstream_error`
+(transient, `retryable: true` - retry to warm the cell) or `unknown_band` /
+`no_materializer` (structural, `retryable: false` at this responder).
+`absence` is always `false`: a skip is *unknown*, never a confirmed absence.
+A genuine "no data here" is a signed fact and comes back as
+`status: "materialized"` with an Absence `fact_cid` you can cite and verify -
+which is why a timeout is not minted as an Absence: the upstream never
+answered, so there is nothing observed to sign.
 
 That is the no-silent-fallbacks contract: empty result must distinguish
 "wrong query" from "place is empty."

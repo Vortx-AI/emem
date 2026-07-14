@@ -745,11 +745,8 @@ pub fn router(state: AppState) -> Router {
         .route("/worlds/three.min.js", get(serve_worlds_three_js))
         .route("/worlds/splat-math.js", get(serve_worlds_splat_math_js))
         .route("/worlds/emem-world.js", get(serve_worlds_engine_js))
-        // /splats — hosted navigatable-worlds temporal viewer: static bundle
-        // from EMEM_SPLATS_DIR, plus a POST proxy to the local Gemma bridge.
-        .route("/splats", get(splats_home))
-        .route("/splats/", get(splats_home))
-        .route("/splats/*path", get(serve_splats_file).post(splats_post))
+        // /splats lives in its own sub-router (see splats_router below): the Gemma-agent
+        // proxy legitimately exceeds the 40 s blanket timeout on long grounded answers.
         .route("/skills.md", get(serve_skills_md))
         .route(
             "/skills/emem-locate-and-recall/SKILL.md",
@@ -1298,7 +1295,41 @@ pub fn router(state: AppState) -> Router {
         // axum merges the two route tables and preserves each side's own
         // per-route middleware stack, so /v1/eudr_dds gets the EUDR timeout
         // and every other route keeps the 40 s gateway timeout.
+        .merge(splats_router(state.clone()))
         .merge(eudr_router(state))
+}
+
+/// Dedicated sub-router for the hosted splat viewer + its Gemma-agent proxy.
+/// Same shared cross-cutting layers as the main router, but with a larger
+/// transport timeout (EMEM_SPLATS_TIMEOUT_S, default 180 s): a grounded 12B
+/// answer over a 256-cell farm digest legitimately takes 40-90 s, which the
+/// 40 s blanket was killing as 504 mid-generation. The bridge itself caps its
+/// upstream call (GEMMA_TIMEOUT_S), so sockets cannot pile up indefinitely.
+fn splats_router(state: AppState) -> Router {
+    let timeout_s: u64 = std::env::var("EMEM_SPLATS_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .map(|v: u64| v.clamp(40, 600))
+        .unwrap_or(180);
+    Router::new()
+        .route("/splats", get(splats_home))
+        .route("/splats/", get(splats_home))
+        .route("/splats/*path", get(serve_splats_file).post(splats_post))
+        .layer(axum::middleware::from_fn(security_headers_layer))
+        .layer(axum::middleware::from_fn(rate_limit_layer))
+        .layer(axum::middleware::from_fn(cors_layer))
+        .layer(axum::middleware::from_fn(cache_hint_layer))
+        .layer(axum::middleware::from_fn(agent_access_log_layer))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            StatusCode::GATEWAY_TIMEOUT,
+            std::time::Duration::from_secs(timeout_s),
+        ))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            body_limit_bytes(),
+        ))
+        .layer(tower_http::compression::CompressionLayer::new().gzip(true))
+        .with_state(state)
 }
 
 /// Dedicated sub-router for the single long-running `/v1/eudr_dds` route,
@@ -1371,7 +1402,7 @@ fn body_limit_bytes() -> usize {
 /// hang on a malformed cell) hold connections for minutes and pile into
 /// CLOSE-WAIT until the :443 accept loop stalled — the recurring wedge.
 /// The hot paths now self-bound well under this (ask 30 s budget + cold-band
-/// cap; the cell-field geocode is wrapped at 10 s; per-materializer 30 s),
+/// cap; the cell-field geocode is wrapped at 10 s; per-materializer 14 s),
 /// so 40 s is a backstop, not the common path. This is the single most
 /// effective guard against a slow request taking the whole site down. The
 /// agent-card / OpenAPI quote it under `runtime.gateway_timeout_secs`.
@@ -16815,6 +16846,10 @@ async fn openapi() -> Json<JsonValue> {
         "description": "not found",
         "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
     });
+    let json_conflict = json!({
+        "description": "conflict (the request contradicts a signed fact, e.g. a token whose cell does not match the fact's own cell)",
+        "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
+    });
     let svg_ok = json!({
         "description": "ok (image/svg+xml)",
         "content": { "image/svg+xml": { "schema": { "type": "string", "format": "binary" } } }
@@ -16990,8 +17025,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2, galileo)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2, galileo). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block on the minted citation.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank)."}}}}}},"responses":{"200":json_ok}}},
-            "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Parses emem:fact:<cell>:<fact_cid> (legacy memt: also accepted), fetches the signed fact body by CID, returns the canonical body plus the offline-verify URL. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"404":json_not_found}}},
+            "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry).","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Parses emem:fact:<cell>:<fact_cid> (legacy memt: also accepted), fetches the signed fact body by CID, and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. Binds the cell: a token whose cell contradicts the signed fact's own cell is refused with 409, so a real fact_cid cannot be passed off under a false location. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"404":json_not_found,"409":json_conflict}}},
             "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (emem:entity:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the canonical object other agents already minted (converge, do not re-mint), or dereference an emem:entity: `token` directly to its signed body. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"emem:entity:<entity_cid> (legacy meme: accepted) to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/alias":      {"post":{"summary":"Attest a signed equivalence: bind an alternate label or a stable external id (GERS/OSM/Wikidata) to an existing entity so future entity_resolve calls on that phrasing converge to the same entity_cid. Builds the shared reference graph.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
@@ -17054,7 +17089,7 @@ async fn openapi() -> Json<JsonValue> {
                 "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the upstream-provider's `last_modified`, `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number"},"latency_p99_ms":{"type":"number"},"source_freshness_s":{"type":"integer","description":"Seconds since the upstream provider's last-modified timestamp."},"was_cached":{"type":"boolean"}}},
                 "Receipt":         {"type":"object","description":"Ed25519-signed receipt over the canonical preimage of (request_id, served_at, primitive, cells, fact_cids). The browser-side verifier at /verify reconstructs this preimage from the receipt fields alone — no callback to the issuer. NOTE: the preimage covers ONLY those five fields. The caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` are NOT signed — a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt` — `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when None.","properties":{"index":{"type":"integer"},"siblings":{"type":"array","items":{"type":"string"}}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
-                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. `ok` means a Primary fact was minted and persisted; `absence` means a typed Absence was signed.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string"},"reason":{"type":"string"},"latency_ms":{"type":"number"}}},
+                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request — empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon — pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid) — never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -19665,9 +19700,17 @@ struct MemoryTokenResolveReq {
 
 #[derive(Debug, Serialize)]
 struct MemoryTokenResolveResp {
-    /// Echoed token.
+    /// Echoed token exactly as received.
     token: String,
-    /// Parsed cell64.
+    /// The token rewritten to the canonical grammar
+    /// `emem:fact:<cell64>:<fact_cid>`. A legacy `memt:` handle resolves to
+    /// the same bytes but echoes here in canonical form, so a fleet can
+    /// standardise on one spelling and drop the pre-rename prefix over time.
+    canonical_token: String,
+    /// cell64 the resolved fact is actually anchored at, taken from the
+    /// signed fact body (not from the token). On a well-formed citation this
+    /// equals the token's cell; a token whose cell disagrees is rejected
+    /// before this point (see `cell_matches`).
     cell: String,
     /// Parsed fact CID.
     fact_cid: String,
@@ -19679,16 +19722,34 @@ struct MemoryTokenResolveResp {
     /// store. `true` means the bytes are attached; `false` is paired
     /// with HTTP 404 and is unreachable on a successful response.
     resolved: bool,
+    /// Whether the cell64 embedded in the token matches the cell the signed
+    /// fact is actually anchored at. Always `true` on a 200: a token whose
+    /// cell contradicts the fact is refused with 409 rather than
+    /// dereferenced, so a forged `emem:fact:<wrong-cell>:<real-cid>` handle
+    /// cannot pass a real fact off as being somewhere it is not.
+    cell_matches: bool,
     /// Stable URL the agent can hand to any other peer; the bytes at
     /// that URL are byte-identical to `fact`.
     fact_url: String,
-    /// Tamper-provenance of the resolved fact's band: `class`,
+    /// Tamper-provenance of the resolved fact's band, attached by THIS
+    /// responder from its own band registry at resolve time. It is NOT
+    /// carried in the token string (the token is only cell + fact_cid) - a
+    /// different responder attaches its own registry's block. `class`,
     /// `deterministic` (recomputable from raw source with no model or human
     /// in the loop), `tamper_evidence`, and `trust_rank`. Lets a receiving
     /// agent know how far to trust the value without re-deriving it. Omitted
     /// when the band is unknown to this responder.
     #[serde(skip_serializing_if = "JsonValue::is_null")]
     provenance: JsonValue,
+    /// ed25519 receipt signed by this responder over the resolved
+    /// (cell, fact_cid) under primitive `emem.memory_token_resolve`. This is
+    /// what makes "resolve back to the same signed fact" literal rather than
+    /// rhetorical: the fact body is content-addressed by `fact_cid`, and
+    /// this receipt binds that CID to this responder's key at resolve time.
+    /// Verify it offline the same way as any recall receipt (recompute the
+    /// v1 preimage, check the signature) via `offline_verify_at` /
+    /// `POST /v1/verify_receipt`, with no trust in the wire.
+    receipt: emem_fact::Receipt,
     /// Verification hint: the same data is verifiable offline by
     /// recomputing `blake3(canonical_cbor(fact))` and the ed25519
     /// signature against the responder pubkey at
@@ -19715,6 +19776,7 @@ async fn post_memory_token_resolve(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<MemoryTokenResolveReq>,
 ) -> Result<Json<MemoryTokenResolveResp>, ApiError> {
+    let started = std::time::Instant::now();
     let (cell, cid) = parse_memory_token(&req.token).map_err(|message| {
         ApiError(
             StatusCode::BAD_REQUEST,
@@ -19746,8 +19808,34 @@ async fn post_memory_token_resolve(
         ));
     };
 
+    // Bind the cell to the fact. The token asserts a (cell, fact_cid) pair,
+    // but a fact_cid uniquely identifies a fact that already carries its own
+    // cell in the signed body. If the token's cell contradicts that cell the
+    // handle is forged or corrupt: refuse rather than dereference, so nobody
+    // can wrap a real fact under a false location - the exact
+    // `emem:fact:<fuji-cell>:<mumbai-cid>` mislabel that would otherwise
+    // resolve `resolved:true` with no warning.
+    let fact_cell = match &fact {
+        emem_fact::Fact::Primary(p) => p.cell.as_str(),
+        emem_fact::Fact::Absence(a) => a.cell.as_str(),
+        emem_fact::Fact::Derivative(d) => d.cell.as_str(),
+    };
+    if fact_cell != cell {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "token cell `{cell}` does not match the signed fact's cell `{fact_cell}`: fact_cid `{cid}` is anchored at `{fact_cell}`, not `{cell}`. This citation misrepresents where the fact is; refusing to dereference a mislabeled handle. Re-cite as emem:fact:{fact_cell}:{cid}."
+                ),
+                details: None,
+            },
+        ));
+    }
+
     // Tamper-provenance of the fact's band, so the receiving agent gets the
-    // trust class alongside the signed bytes in one round-trip.
+    // trust class alongside the signed bytes in one round-trip. Attached by
+    // this responder from its own registry; it does not travel in the token.
     let band_key = match &fact {
         emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
         emem_fact::Fact::Absence(a) => Some(a.band.as_str()),
@@ -19757,15 +19845,34 @@ async fn post_memory_token_resolve(
 
     let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
     let fact_url = format!("https://emem.dev/v1/facts/{}", cid);
+    let canonical_token = format!("emem:fact:{cell}:{cid}");
+
+    // Sign the dereference. Recall signs a receipt over the facts it returns;
+    // resolve now does the same over the single (cell, fact_cid) it hands
+    // back, so an agent that receives a token can verify - offline, with no
+    // trust in this server - that the bytes really are what this responder
+    // attests to holding at this cell. Cached: a resolve is a pure lookup of
+    // stored bytes, never a fresh computation.
+    let receipt = s.sign_receipt(
+        "emem.memory_token_resolve",
+        vec![cell.clone()],
+        vec![emem_fact::FactCid::new(cid.clone())],
+        true,
+        started,
+        None,
+    );
 
     Ok(Json(MemoryTokenResolveResp {
         token: req.token.trim().to_string(),
+        canonical_token,
         cell,
         fact_cid: cid,
         fact: fact_json,
         resolved: true,
+        cell_matches: true,
         fact_url,
         provenance,
+        receipt,
         offline_verify_at: "/verify",
     }))
 }
@@ -33698,13 +33805,54 @@ impl MaterializeOutcome {
             }))
         } else {
             self.skip_reason.as_ref().map(|reason| {
+                // Classify the skip so an agent can tell a transient,
+                // retry-worthy failure (upstream slow or down) from a
+                // structural one (band unknown here, or no connector wired) -
+                // and, critically, never read a skip as a confirmed absence.
+                // A confirmed absence is a *signed* fact and surfaces above
+                // as status:"materialized" with an Absence fact_cid; a skip
+                // is the unknown case, with nothing signed to cite.
+                let (reason_class, retryable) = classify_skip_reason(reason);
                 json!({
-                    "band":   self.band,
-                    "status": "skipped",
-                    "reason": reason,
+                    "band":         self.band,
+                    "status":       "skipped",
+                    "reason":       reason,
+                    "reason_class": reason_class,
+                    "retryable":    retryable,
+                    // Unknown, not "confirmed absent". Absence is a signed
+                    // fact (status:materialized), which this explicitly is not.
+                    "absence":      false,
                 })
             })
         }
+    }
+}
+
+/// Classify a materializer skip reason into a stable `reason_class` plus a
+/// `retryable` hint, derived from the reason text the dispatch produced.
+/// Transient classes (`timeout`, `upstream_error`) are worth retrying to
+/// warm the cell; structural classes (`unknown_band`, `no_materializer`)
+/// will not resolve on retry at this responder. None of these is a confirmed
+/// absence: a genuine "no data here" is a signed Absence fact returned as
+/// status:"materialized" with a fact_cid, never a skip. This is why a
+/// dispatch timeout is NOT minted as an Absence - a timeout means the
+/// upstream did not answer, which is unknown, not a verified negative;
+/// signing it as Absence would attest to something never observed.
+fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
+    if reason.contains("unknown_band") {
+        ("unknown_band", false)
+    } else if reason.contains("no_auto_materializer_registered")
+        || reason.contains("no materializer")
+    {
+        ("no_materializer", false)
+    } else if reason.contains("hard cap")
+        || reason.contains("dispatch-level timeout")
+        || reason.contains("timed out")
+        || reason.contains("timeout")
+    {
+        ("timeout", true)
+    } else {
+        ("upstream_error", true)
     }
 }
 

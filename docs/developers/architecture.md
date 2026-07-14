@@ -198,8 +198,8 @@ Three policies drive what materializes:
 Gates:
 
 - `EMEM_AUTO_MATERIALIZE` — `0`/`false` disables. Default on.
-- `EMEM_MATERIALIZER_TIMEOUT_SECS` — default 30 s, clamped 2..=240.
-- `EMEM_TIMEOUT_SECS` — gateway timeout, default 180 s, clamped 1..=600.
+- `EMEM_MATERIALIZER_TIMEOUT_SECS` — default 14 s, clamped 2..=240.
+- `EMEM_TIMEOUT_SECS` — gateway timeout, default 40 s, clamped 1..=600.
 
 The signer of the materialised fact is the responder's own pubkey;
 `derivation.fn_key` declares exactly how it was produced.
@@ -508,7 +508,7 @@ such a process verify only until restart.
 |---------|----------|
 | sled lock contention on `cache.sled/` | server holds exclusive lock; tools like `emem-purge-fnkey` require server stopped first |
 | sidecar OOM during cold-start | 503 to Rust client; JEPA v2 short-circuits, Prithvi / Clay / Galileo propagate 503 |
-| materializer timeout (`EMEM_MATERIALIZER_TIMEOUT_SECS`, default 30 s) | recall returns the original facts plus `materialize_notes[]` entry `{band, status:"skipped", reason}`; no zero-value fallback |
+| materializer timeout (`EMEM_MATERIALIZER_TIMEOUT_SECS`, default 14 s) | recall returns the original facts plus a `materialize_notes[]` entry `{band, status:"skipped", reason, reason_class:"timeout", retryable:true, absence:false}`; no zero-value fallback. A timeout is `unknown`, not a confirmed absence, so nothing is signed - a genuine "no data here" instead returns `status:"materialized"` with a signed Absence `fact_cid`. |
 | attestation rejected | `StorageError::AttestationInvalid` with message (root mismatch or bad signature); cache and log untouched |
 | upstream 502/503 | `FetchError::Transport`; materializer either propagates or signs a `NegativeFact` with `ReasonCid` (e.g. Cop-DEM over water) |
 | `EMEM_SCAN_CELL_LIMIT` hit (default 10 000 rows per prefix walk) | logged `target=emem::storage scan_cell_limit_hit`; legitimate cells hold one fact per (band, tslot), so the cap signals schema mistake or attack |
