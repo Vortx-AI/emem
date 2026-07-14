@@ -234,7 +234,7 @@ The receipt carries the bound so any auditor replays the same query later.
 
 ## Next moves
 
-- [Whitepaper](./whitepaper.html): the math, the bit layouts, the trust proof
+- [Whitepaper](./whitepaper-v2.md): the math, the bit layouts, the trust proof
 - [Protocol](./protocol.html): wire format and signing rules
 - [Agents](./agents.html): how AI agents discover and call the protocol (MCP + REST)
 - [Errors](./errors.html): common error shapes and how to handle each

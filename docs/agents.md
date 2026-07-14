@@ -164,7 +164,7 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 103 paths under
+port 5051. The live surface ships 108 paths under
 `/v1/*` (112 total in `/openapi.json`), 91 MCP tools (14 core, 77 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 91), 18 static MCP
 resources + 8 URI templates, 160 algorithms in the content-addressed
@@ -1090,7 +1090,7 @@ trust-chain anchor; always cite from the per-cell branch.
    ### cell64 grid
 
 The active codec is `cell64-geo-21x22`: 21 lat bits, 22 lng bits, packed
-to a u64 and base-1024 bigram-encoded as four `.`-joined groups (e.g.
+to a u64 and base-65,536 bigram-encoded as four `.`-joined groups (e.g.
 `defi.zb493.xuqA.zcb5f`). `GET /v1/grid_info` reports the actual ground
 resolution: `lat_axis_metres_at_equator: 9.54`,
 `lng_axis_metres_at_equator: 9.55`, `lng_axis_metres_at_lat_60: 4.77`.

@@ -5,7 +5,7 @@ topology, the 14 workspace crates, the data / trust / fetch /
 inference / agent planes, the auto-materialize loop, and the storage
 layout on disk. Companion documents: `protocol.md` for byte-level
 rules, `agents.md` for calling conventions, `operating.md` for
-deploy, `whitepaper.md` for the math.
+deploy, `whitepaper-v2.md` for the math.
 
 ## The shape of the system
 

@@ -370,7 +370,7 @@ first-class; the entire surface is verifiable offline through ed25519.
 
 - [agents.md](agents.md): the read-side rosetta for callers arriving
   from Mem0, Letta, LangGraph, etc.
-- [whitepaper.md](whitepaper.md): the protocol, the trust layer, and
+- [whitepaper-v2.md](whitepaper-v2.md): the protocol, the trust layer, and
   the receipt rules.
 - [protocol.md](protocol.md): the cell64, cid64, tslot bit layouts.
 - [errors.md](errors.md): every typed error code, including

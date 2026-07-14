@@ -1186,8 +1186,10 @@ than discovering it through a failed signature.
 ### 16.2 Claims in v1's supporting material this document withdraws
 
 These were not in v1's body but circulated in the README, module
-headers, and tool descriptions alongside it. They are listed because
-withdrawing a claim quietly is how the original error propagates.
+headers, page copy, and tool descriptions alongside it. They are listed
+because withdrawing a claim quietly is how the original error propagates.
+Each has been corrected at its source as of this document's date; the
+entries below record what was claimed, not what is still claimed.
 
 - "An RFC 6962 Merkle tree." It is RFC 6962's **construction** with
   BLAKE3-256 (§8.1).
@@ -1204,9 +1206,11 @@ withdrawing a claim quietly is how the original error propagates.
   fail-safe default (§7).
 - "Hot-swap the ontology without recompiling." The ontology is compiled
   in (§10.1).
-- "base-1024 bigrams", in 13 user-facing strings including the OpenAPI
-  `Cell64` schema. The alphabet has **65,536** entries; four base-1024
-  digits would encode 40 bits and could not address a 64-bit cell (§4.1).
+- "base-1024 bigrams", which appeared in 14 places including the OpenAPI
+  `Cell64` schema, where the same sentence went on to call the alphabet
+  65,536-entry. The alphabet has **65,536** entries; four base-1024 digits
+  would encode 40 bits and could not address a 64-bit cell (§4.1). Corrected
+  everywhere as of this document's date.
 
 ### 16.3 What is new since v1
 

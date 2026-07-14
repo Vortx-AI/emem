@@ -482,7 +482,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <dt>signature</dt><dd>Ed25519 (64 B)</dd>
       <dt>digest</dt><dd>BLAKE3</dd>
       <dt>encoding</dt><dd>canonical CBOR</dd>
-      <dt>cid</dt><dd>base32-nopad &middot; 16 B truncated</dd>
+      <dt>cid</dt><dd>base32-nopad &middot; full 32 B &middot; 52 chars</dd>
       <dt>in-browser</dt><dd>@noble/curves + @noble/hashes</dd>
       <dt>fallback</dt><dd>POST /v1/verify_receipt</dd>
     </dl>
@@ -594,7 +594,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     <div class="idx"><span class="idx-num">03</span><span class="idx-label">Provenance</span></div>
     <dl>
       <dt>the question</dt><dd>could a human or a model have touched this value?</dd>
-      <dt>four classes</dt><dd>direct_sensor &middot; deterministic_index &middot; model_output &middot; human_curated</dd>
+      <dt>five classes</dt><dd>direct_sensor &middot; deterministic_index &middot; model_output &middot; human_curated &middot; unclassified</dd>
       <dt>recomputable</dt><dd>direct_sensor &middot; deterministic_index (<span id="pv-aside">14 of 43</span> bands)</dd>
       <dt>attested by</dt><dd>bands_cid, already in the receipt preimage (section&nbsp;02)</dd>
       <dt>on the wire</dt><dd>/v1/recall band_metadata &middot; /v1/memory_token/resolve &middot; /v1/bands</dd>
@@ -605,7 +605,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     <h2><span class="num">03</span>Provenance: could a human or a model have touched the value</h2>
     <p class="lede">A signature proves who signed and that the bytes never changed. It does not, on its own, say whether a person could have edited the number before it was signed. So emem tags every band with how its value is produced, and an agent can tell a raw sensor reading from a model&rsquo;s estimate before it decides how far to trust either.</p>
 
-    <p>The tag is one of four classes, plus a fail-safe fifth. A <span class="band">direct_sensor</span> value is the instrument product itself, with no algorithm in the path. A <span class="band">deterministic_index</span> value is a fixed formula over raw pixels, cell coordinates, or a time series, so anyone holding the cited source recomputes the identical number with no learned weights and no human edit. A <span class="band">model_output</span> value came from a trained model or a published statistical product, so trust rests on a signed model checkpoint rather than on recomputation. A <span class="band">human_curated</span> value traces back to geometry a person drew or placed. A band that has not been tagged yet is <span class="band">unclassified</span>: treated as the lowest trust, and it never claims to be reproducible.</p>
+    <p>The tag is one of five classes. A <span class="band">direct_sensor</span> value is the instrument product itself, with no algorithm in the path. A <span class="band">deterministic_index</span> value is a fixed formula over raw pixels, cell coordinates, or a time series, so anyone holding the cited source recomputes the identical number with no learned weights and no human edit. A <span class="band">model_output</span> value came from a trained model or a published statistical product, so trust rests on a signed model checkpoint rather than on recomputation. A <span class="band">human_curated</span> value traces back to geometry a person drew or placed. A band that has not been tagged yet is <span class="band">unclassified</span>: treated as the lowest trust, and it never claims to be reproducible.</p>
 
     <table class="absent-table">
       <tbody>

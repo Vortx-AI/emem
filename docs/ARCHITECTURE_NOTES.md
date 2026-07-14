@@ -225,14 +225,14 @@ write path from scratch.
 - Canonical catalog: `pub const TOOLS: &[ToolDescriptor]` in
   `crates/emem-mcp/src/lib.rs:716`; `ToolDescriptor` struct at :31-68 (name,
   title, description, when_to_use, input_schema, level, category, four MCP
-  hint flags, tier). 89 tools: 14 core, 75 extended. Helpers: `lookup`
+  hint flags, tier). 91 tools: 14 core, 77 extended. Helpers: `lookup`
   (:1738), `tools_at_level` (:1743), `tools_at_tier` (:1792).
 - JSON-RPC dispatch and the REST mirror live in emem-api-rest
   (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:14875`, `mcp_tool_call`
   at :16177).
 - Two endpoints, one dispatcher: `/mcp` (`mcp_jsonrpc`) advertises the core
   tier from `tools/list`, `/mcp/full` (`mcp_jsonrpc_full` at :14883)
-  advertises all 89. Both funnel into `mcp_jsonrpc_inner` (:14891) with a
+  advertises all 91. Both funnel into `mcp_jsonrpc_inner` (:14891) with a
   different `default_tier`; see `MCP_CORE_ENDPOINT_TIER` (:14869) for why the
   split exists and which earlier `nextCursor` attempt it supersedes. An
   explicit `{"tier":...}` beats the endpoint default, and `tools/call`

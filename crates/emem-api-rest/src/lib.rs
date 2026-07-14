@@ -6002,7 +6002,7 @@ async fn topics() -> Json<JsonValue> {
 fn errors_payload() -> JsonValue {
     let entries: &[(&str, &str, &str)] = &[
         ("invalid_cell",                 "cell64 string did not parse",
-         "Re-encode (lat,lng) via POST /v1/locate, or check the bigram boundaries (must be exactly four base-1024 bigrams joined by '.')."),
+         "Re-encode (lat,lng) via POST /v1/locate, or check the bigram boundaries (must be exactly four base-65,536 bigrams joined by '.')."),
         ("invalid_resolution",           "resolution bits out of range",
          "Use the cell64 returned by /v1/locate; that's always at the active resolution. See /v1/grid_info."),
         ("tslot_mismatch",               "tslot in request doesn't match band's expected tempo",
@@ -17890,7 +17890,7 @@ async fn openapi() -> Json<JsonValue> {
                 "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}},
                 "LocateReq":       {"type":"object","description":"Body for POST /v1/locate. Provide `place` (free-text, geocoded via embedded gazetteer → cache → Photon → Nominatim) OR `lat`+`lng`. Mutually exclusive: at least one of (`place`/`q`/`query`/`name`) or (`lat`+`lng`) must be present.","oneOf":[{"required":["place"]},{"required":["q"]},{"required":["query"]},{"required":["name"]},{"required":["lat","lng"]}],"properties":{"place":{"type":"string","description":"Free-text place name. Resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number","description":"WGS-84 latitude. REQUIRED with `lng` unless `place` is provided."},"lng":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."}}},
                 "CompareBandsReq": {"type":"object","required":["cell","a","b"],"description":"Body for POST /v1/compare_bands. Compares two bands at the same cell. Returns scalar delta + percent change for scalar pairs, cosine + L2 for vector pairs. Optional `predicate` folds a consistency check (e.g. \"DEM and GMRT agree within 200 m\") into a signed verdict.","properties":{"cell":{"type":"string","description":"cell64 string. `cell64` accepted as alias."},"a":{"type":"string","description":"Band A key, e.g. 'copdem30m.elevation_mean'."},"b":{"type":"string","description":"Band B key, e.g. 'gmrt.elevation_mean'."},"tslot_a":{"type":"integer","description":"Optional tslot pin for band A. When omitted, the responder picks the latest tslot with an attested fact for band A at this cell."},"tslot_b":{"type":"integer","description":"Optional tslot pin for band B. Same semantics as `tslot_a`."},"predicate":{"type":"object","description":"Optional consistency predicate. Tagged enum: {kind: 'abs_diff_le'|'abs_diff_lt'|'cosine_ge'|'cosine_gt'|'l2_distance_le', threshold: number}.","required":["kind","threshold"],"properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}}}}},
-                "Cell64":          {"type":"string","description":"cell64 wire form: four base-1024 bigrams separated by dots, e.g. `defi.zb4d9.pefa.zf619`. Encoded resolution is ~9.55 m at the equator. Each bigram is either a CVCV quad — consonant `[bcdfghjklmnpqrstvwxyz]` followed by vowel `[aeiouAEIOU]` repeated twice — OR a synthetic 5-char `z[0-9a-f]{4}` slot used for the unused pad cells in the 65,536-entry alphabet. The regex pin matches `pattern` below byte-for-byte and is also surfaced under `Cell64Pattern` so agents can validate before sending.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23,"example":"defi.zb4d9.pefa.zf619"},
+                "Cell64":          {"type":"string","description":"cell64 wire form: four base-65,536 bigrams separated by dots, e.g. `defi.zb4d9.pefa.zf619`. Encoded resolution is ~9.55 m at the equator. Each bigram is either a CVCV quad — consonant `[bcdfghjklmnpqrstvwxyz]` followed by vowel `[aeiouAEIOU]` repeated twice — OR a synthetic 5-char `z[0-9a-f]{4}` slot used for the unused pad cells in the 65,536-entry alphabet. The regex pin matches `pattern` below byte-for-byte and is also surfaced under `Cell64Pattern` so agents can validate before sending.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23,"example":"defi.zb4d9.pefa.zf619"},
                 "Cell64Pattern":   {"type":"string","description":"Reference copy of the cell64 regex for tooling that wants the pattern without round-tripping through Cell64. Same string as Cell64.pattern.","example":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$"},
                 "Tslot":           {"type":"integer","description":"Band-tempo-relative integer offset from the emem epoch. Each band declares its tempo (`fast` / `medium` / `slow` / `static`); tslot is the rounded count of that tempo's unit since the epoch.","minimum":0},
                 "FactCid":         {"type":"string","description":"Content id of a fact: base32-nopad-lowercase encoding of `blake3(canonical_cbor(fact))[..16]`. 26 characters, alphabet `[a-z2-7]`.","example":"bafy2bzaceaqxfn4obg3orodvm6"},
@@ -18715,7 +18715,7 @@ async fn post_locate(Json(req): Json<LocateReq>) -> Result<Json<JsonValue>, ApiE
 // pre-rename prefixes `memt:` / `memb:` / `meme:` remain valid and resolve,
 // so handles minted before the rename keep working.
 //
-// cell64 strings are dot-separated (four base-1024 bigrams), so colons
+// cell64 strings are dot-separated (four base-65,536 bigrams), so colons
 // serve as the outer separator. A fact token parses by splitting on ':':
 // segment 0 is the scheme `emem`, segment 1 is the type `fact`, segment 2
 // is the cell64, segment 3 is the fact_cid. This endpoint composes; to
@@ -20663,7 +20663,7 @@ fn parse_memory_token(token: &str) -> Result<(String, String), String> {
     }
     if !emem_codec::is_cell64_shape(cell) {
         return Err(format!(
-            "memory token cell64 segment `{cell}` is not a valid cell64 shape (expected four `.`-separated base-1024 bigrams)"
+            "memory token cell64 segment `{cell}` is not a valid cell64 shape (expected four `.`-separated base-65,536 bigrams)"
         ));
     }
     // fact_cid is 26-char base32-nopad-lowercase per the protocol; accept
@@ -21135,7 +21135,7 @@ async fn post_derive(
         return Err(bad_request(
             "derive_invalid_cell",
             format!(
-                "`cell` `{cell}` is not a valid cell64 shape (four `.`-separated base-1024 bigrams). Use /v1/locate to get the canonical address for a place."
+                "`cell` `{cell}` is not a valid cell64 shape (four `.`-separated base-65,536 bigrams). Use /v1/locate to get the canonical address for a place."
             ),
         ));
     }
@@ -25931,7 +25931,7 @@ async fn grid_info() -> Json<JsonValue> {
             "kind": "raster, packed lat/lng quantisation (square at equator)",
             "lat_bits": 21,
             "lng_bits": 22,
-            "encoded_string_form": "four base-1024 bigrams joined by '.', e.g. defi.zb592.nemu.zEvE",
+            "encoded_string_form": "four base-65,536 bigrams joined by '.', e.g. defi.zb592.nemu.zEvE",
             "string_length_chars": 18,
             "ground_resolution": {
                 "lat_axis_deg":   8.583e-5,
@@ -48692,7 +48692,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         "agent_hint": {
             "request_field_name": "cell",
             "alias_accepted":     "cell64",
-            "value_format":       "cell64 string (four base-1024 bigrams joined by '.')",
+            "value_format":       "cell64 string (four base-65,536 bigrams joined by '.')",
             "explanation":        "Field name in request bodies is `cell` (or `cell64` as serde alias). The string format is named cell64. Two different things: `cell` is the slot, cell64 is what goes in it — like a `mode: String` field where strings are UTF-8."
         },
         "next": [

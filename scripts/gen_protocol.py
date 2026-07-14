@@ -486,7 +486,7 @@ def cite_economy():
 
 def address_algebra():
     s = Svg(1600, 1040, seed=9); W, H = s.W, s.H
-    rows = [("cell", "64", "four base-1024 bigrams", "defi.zb493.xuqA.zcb5f", INDIGO),
+    rows = [("cell", "64", "four base-65,536 bigrams", "defi.zb493.xuqA.zcb5f", INDIGO),
             ("tslot", "64", "base32-nopad leb128, t. prefix", "t.aaaaagy", TEAL),
             ("cid", "32 B blake3", "base32-nopad-lowercase", "qi3jo4sq…l2hgjtwm", LEAF),
             ("vec", "1792-D fp16", "12-byte prefix in receipts", "full vector via recall", LAC)]

@@ -137,7 +137,7 @@
   "source_scheme_count": 46,
   "topic_count_declared": 27,
   "address_algebra": {
-    "cell": "64-bit cell identifier: 21-bit lat × 22-bit lng on the active grid (~9.54 m × ~9.55 m at the equator, matching Sentinel-1/Sentinel-2 native pitch). Wire form: four base-1024 bigrams separated by dots, Hilbert-ordered so neighbours share string prefixes.",
+    "cell": "64-bit cell identifier: 21-bit lat × 22-bit lng on the active grid (~9.54 m × ~9.55 m at the equator, matching Sentinel-1/Sentinel-2 native pitch). Wire form: four base-65,536 bigrams separated by dots, Hilbert-ordered so neighbours share string prefixes.",
     "tslot": "u64 bucket of the Unix timeline at the band's tempo cadence (slot_seconds = 86400 fast / 2592000 medium / 31536000 slow / 3600 ultra_fast / 0 static). Equal across responders for the same band.",
     "band": "logical channel within a 1792-D embedding contract; loaded from content-addressed `bands_cid` manifest. 43 cube slots; 124 (slot × subkey) materializer-wired band names auto-fetchable on miss."
   },

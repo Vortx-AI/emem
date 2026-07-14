@@ -22,7 +22,7 @@ This site renders the canonical docs straight from the repo at `docs/`. Every pa
 - **[Quickstart](./quickstart.md):** sixty seconds from cold to a signed answer, in five copy-pasteable forms (curl, Python, TypeScript, Go, MCP)
 - **[Memory substrate](./memory.md):** full wire reference for typing, capability binding, bi-temporal reads, semantic search, contradiction detection, SSE events, sled storage
 - **[Agents](./agents.md):** agent integrator's rosetta, every memory operation mapped to its emem primitive
-- **[Whitepaper](./whitepaper.md):** math, trust layer, receipt rules
+- **[Whitepaper](./whitepaper-v2.md):** math, trust layer, receipt rules
 - **[Protocol](./protocol.md):** wire format, `cell64`, `cid64`, `tslot`, receipts
 - **[Registries](./registries.md):** bands (43 cube slots, 124 wired names), algorithms (160), functions, sources (46), topics (27), schema, lcv-1, alphabet
 - **[Errors](./errors.md):** typed error codes including `memory_attestation_invalid`, `memory_namespace_violation`, `invalid_temporal_bound`, `invalid_signed_at_format`

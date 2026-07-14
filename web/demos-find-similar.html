@@ -420,7 +420,7 @@ async function postJson(url, body){
 }
 
 async function resolveToCell(input){
-  // If the input already looks like a cell64 (four base-1024 bigrams separated
+  // If the input already looks like a cell64 (four base-65,536 bigrams separated
   // by dots), skip the locate hop. Otherwise resolve it.
   if (/^[a-z0-9]{4,6}\.[a-z0-9]{4,6}\.[a-z0-9]{4,6}\.[a-z0-9]{4,6}$/i.test(input)) {
     return { cell64: input, via: '(input was already a cell64)' };

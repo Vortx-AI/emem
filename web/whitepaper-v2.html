@@ -747,7 +747,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         </tbody>
         </table></div>
       <h3>16.2 Claims in v1's supporting material this document withdraws</h3>
-      <p>These were not in v1's body but circulated in the README, module headers, and tool descriptions alongside it. They are listed because withdrawing a claim quietly is how the original error propagates.</p>
+      <p>These were not in v1's body but circulated in the README, module headers, page copy, and tool descriptions alongside it. They are listed because withdrawing a claim quietly is how the original error propagates. Each has been corrected at its source as of this document's date; the entries below record what was claimed, not what is still claimed.</p>
       <ul>
         <li>"An RFC 6962 Merkle tree." It is RFC 6962's <strong>construction</strong> with BLAKE3-256 (§8.1).</li>
         <li>"A responder cannot tell two clients two different histories." It can (§8.3).</li>
@@ -756,7 +756,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <li>Any token "resolves to the byte-identical signed object", applied across the family. True for <code>emem:fact:</code>, false for <code>emem:entity:</code>, vacuous for <code>emem:cell:</code> (§3).</li>
         <li>"Four provenance classes." There are <strong>five</strong>; <code>unclassified</code> is the fail-safe default (§7).</li>
         <li>"Hot-swap the ontology without recompiling." The ontology is compiled in (§10.1).</li>
-        <li>"base-1024 bigrams", in 13 user-facing strings including the OpenAPI <code>Cell64</code> schema. The alphabet has <strong>65,536</strong> entries; four base-1024 digits would encode 40 bits and could not address a 64-bit cell (§4.1).</li>
+        <li>"base-1024 bigrams", which appeared in 14 places including the OpenAPI <code>Cell64</code> schema, where the same sentence went on to call the alphabet 65,536-entry. The alphabet has <strong>65,536</strong> entries; four base-1024 digits would encode 40 bits and could not address a 64-bit cell (§4.1). Corrected everywhere as of this document's date.</li>
       </ul>
       <h3>16.3 What is new since v1</h3>
       <p>The entity registry and the token grammar (§2, §3); tamper-provenance classes (§7); the transparency log and witness endpoints (§8); caller-registered derivations (§9); the preimage v0 to v1 cutover (§6.3); MCP tiering, shapes, and bundles (§11.2); and the code-generated verifier spec (§6.6).</p>

@@ -209,7 +209,7 @@ impl ToolCategory {
     }
 }
 
-// Cell64 wire format is four base-1024 bigrams joined by dots; each
+// Cell64 wire format is four base-65,536 bigrams joined by dots; each
 // bigram is either a CVCV quad (consonant from `bcdfghjklmnpqrstvwxyz`
 // + vowel from `aeiouAEIOU`, repeated twice) or the synthetic 5-char
 // `z[0-9a-f]{4}` pad slot. The regex pattern below is inlined into

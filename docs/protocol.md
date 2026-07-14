@@ -1248,10 +1248,16 @@ segment file format and trailer hash are the wire contract.
 ### 9.6 Transparency log {#transparency-log}
 
 The append-only log above proves *durability*; the transparency layer
-proves *append-only-ness to a third party*. It is an
-[RFC 6962](https://www.rfc-editor.org/rfc/rfc6962) Merkle tree over the
+proves *append-only-ness to a third party*. It uses the
+[RFC 6962](https://www.rfc-editor.org/rfc/rfc6962) *tree construction*,
+with BLAKE3-256 substituted for SHA-256, over the
 log's per-record hashes (each record's trailing `blake3(attestation_cbor)`,
 in append order), implemented in `crates/emem-attest/src/translog.rs`.
+RFC 6962 §2.1 mandates SHA-256, so this log is **not RFC 6962
+conformant** and no Certificate Transparency client, auditor or monitor
+interoperates with it; what is borrowed is the construction. The STH
+self-reports `"hash": "blake3-256"` for exactly this reason.
+
 It is a **different tree from the batch-root construction** in section
 6.1: a lone node is *promoted* to its parent unchanged rather than paired
 with itself, so `mth([A,B,C]) != mth([A,B,C,C])` and the hash of the
@@ -1283,11 +1289,25 @@ offline):
   history.
 
 Usage: pin an STH, then re-request `/v1/log/consistency` later to prove
-the log only grew. Witness co-signing of STHs is available: an external
-party counter-signs a `(tree_size, root)` head via `POST /v1/log/witness`
-(listed at `GET /v1/log/witnesses`) so split-view equivocation is
-detectable; the responder records a co-signature only when the signature
-verifies and the root matches its own history at that size. A
+the log only grew. That is the whole of what it
+proves: append-only-ness, to a client that pinned an earlier head and came
+back. A first-contact client has no baseline and the endpoints prove it
+nothing.
+
+Witness co-signing of STHs is available: an external party counter-signs a
+`(tree_size, root)` head via `POST /v1/log/witness` (listed at
+`GET /v1/log/witnesses`); the responder records a co-signature only when
+the signature verifies and the root matches its own history at that size.
+**This does not make split-view equivocation detectable today.** The STH,
+the proofs and the witness list are all served by the party a client would
+be checking, so an equivocating responder serves each client a
+self-consistent view of all three; there is no gossip channel between
+clients, and detecting a split view without one is not possible. There is
+also no witness allowlist or trust anchor: `POST /v1/log/witness` accepts
+any well-formed ed25519 key, so a co-signature proves only that *some* key
+signed a `(size, root)` pair, not that the key is independent of the
+responder. Treat witness co-signing as a mechanism awaiting an operating
+network. A
 `fact_cid -> leaf_index` index, so an inclusion proof can be requested by
 fact rather than by log position, is the next increment on this substrate.
 

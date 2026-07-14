@@ -21,7 +21,7 @@ or status. Messages may evolve; codes are stable.
 
 | Code | HTTP | Where it surfaces | Meaning |
 |---|---|---|---|
-| `invalid_cell` | 422 | * | cell64 string failed grammar check (4 base-1024 bigrams joined by dots, with a valid prefix). |
+| `invalid_cell` | 422 | * | cell64 string failed grammar check (4 base-65,536 bigrams joined by dots, with a valid prefix). |
 | `invalid_resolution` | 422 | /v1/grid_info | resolution argument out of range for the cell tier. |
 | `tslot_mismatch` | 422 | /v1/recall, /v1/trajectory | Requested tslot is not at the band's tempo cadence. |
 | `band_not_in_registry` | 404 | * | Band name is not declared in the band manifest. |
