@@ -1203,6 +1203,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/attest", post(post_attest))
         .route("/v1/attest_cbor", post(post_attest_cbor))
         .route("/v1/verify_receipt", post(post_verify_receipt))
+        .route("/v1/verifier_spec", get(verifier_spec))
+        .route("/.well-known/emem-verifier.json", get(verifier_spec))
         .route("/v1/facts/:cid", get(get_fact))
         .route("/v1/fetch", post(post_fetch))
         .route("/v1/demos", get(list_demos))
@@ -12577,6 +12579,82 @@ fn verify_receipt_shape_hint(detail: &str) -> String {
     )
 }
 
+/// `GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`): the
+/// machine-readable specification of how this responder signs, emitted from
+/// the same `emem-attest` constants the signer uses. The receipt segment
+/// table below is built by reading `emem_attest::receipt_tag::*` and
+/// `emem_attest::PREIMAGE_V1` directly, so the spec cannot drift from the
+/// wire the way a hand-written doc does. An offline verifier can consume this
+/// once and reproduce the preimage for any receipt from this responder.
+///
+/// The receipt v1 construction is the single canonical, single-sourced path
+/// (signer in emem-storage and the `/v1/verify_receipt` verifier both call
+/// `emem_attest::receipt_preimage_v1`). The `other_signed_objects` block
+/// enumerates the remaining signed families honestly, including the three
+/// bespoke pipe-delimited preimages that have not yet been migrated onto the
+/// tagged v1 family (tracked in the roadmap).
+async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
+    use emem_attest::receipt_tag as rt;
+    let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    // Built from the compiled tag constants, not re-typed literals.
+    let seg = |tag: u8, name: &str, kind: &str, optional: bool, note: &str| {
+        let mut o = json!({ "tag": tag, "name": name, "kind": kind, "optional": optional });
+        if !note.is_empty() {
+            o["note"] = json!(note);
+        }
+        o
+    };
+    Json(json!({
+        "schema": "emem.verifier_spec.v1",
+        "generated_from": "emem-attest compiled constants (receipt_tag::*, PREIMAGE_V1); this document is emitted by the responder from the same code that signs, so it cannot drift from the wire.",
+        "signature": {
+            "algorithm": "ed25519",
+            "digest": "blake3-256",
+            "responder_pubkey_b32": responder_pubkey_b32,
+            "pubkey_source": "/.well-known/emem.json",
+        },
+        "preimage_v1": {
+            "preimage_version": emem_attest::PREIMAGE_V1,
+            "domain_separation": "the blake3 stream opens with the 17 bytes \"emem.preimage.v1\\u0000\", then u32-LE(len(domain)) then the domain string (e.g. \"receipt\", \"attestation\"), then the segments",
+            "segment_rule": "scalar segment = tag:u8 || u32-LE len || bytes ; list segment = tag:u8 || u32-LE count || (u32-LE len || bytes)* ; optional scalar segments are omitted entirely (their tag is simply absent, which is unambiguous)",
+            "signed_bytes": "ed25519 signs blake3(stream) — the 32-byte digest, not the raw stream",
+        },
+        "receipt": {
+            "domain": "receipt",
+            "preimage_version": emem_attest::PREIMAGE_V1,
+            "canonical": true,
+            "source_of_truth": "emem_attest::receipt_preimage_v1 — the one function both the signer (emem-storage) and the verifier (POST /v1/verify_receipt, the /verify page's JS) call.",
+            "segments": [
+                seg(rt::REQUEST_ID, "request_id", "scalar", false, ""),
+                seg(rt::SERVED_AT, "served_at", "scalar", false, ""),
+                seg(rt::SCOPE, "scope_hex", "scalar", true, "blake3-hex of the non-empty scope; absent when unscoped"),
+                seg(rt::AS_OF, "as_of_hex", "scalar", true, "blake3-hex of the bi-temporal bound; absent when unbounded"),
+                seg(rt::EDGES, "edges_hex", "scalar", true, "blake3-hex of the edge set; absent when no edges"),
+                seg(rt::MANIFEST, "manifest_hex", "scalar", true, "blake3-hex of cbor(sorted source_versions{registry_cid,schema_cid,bands_cid,sources_cid}); absent when empty. bands_cid rides here, so the band set is transitively attested."),
+                seg(rt::PRIMITIVE, "primitive", "scalar", false, "e.g. emem.recall, emem.memory_token_resolve"),
+                seg(rt::CELLS, "cells", "list", false, ""),
+                seg(rt::FACT_CIDS, "fact_cids", "list", false, ""),
+            ],
+            "legacy_v0": "receipts with preimage_version absent or 0 use the pre-cutover untagged pipe rule blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*). POST /v1/verify_receipt still verifies those; no responder emits v0 anymore.",
+            "verify": {
+                "online": "POST /v1/verify_receipt",
+                "offline": "recompute this preimage, then ed25519-verify the signature against responder_pubkey_b32; /verify carries a JS reference implementation pinned to a Rust golden vector",
+            },
+        },
+        "other_signed_objects": [
+            { "name": "attestation", "domain": "attestation", "construction": "preimage_v1", "segments": "0x01 batch_root, 0x02 registry_cid, 0x03 schema_cid", "note": "tagged v1; numeric tags not yet lifted to named constants" },
+            { "name": "transparency_log_sth", "domain": "emem.translog.sth.v1", "construction": "preimage_v1", "served_at": "GET /v1/log/sth" },
+            { "name": "transparency_log_witness", "domain": "emem.translog.witness.v1", "construction": "preimage_v1", "served_at": "POST /v1/log/witness" },
+            { "name": "corpus_state_stats", "construction": "pipe_delimited_legacy", "preimage": "emem.corpus_state_stats|v<ver>|epoch<n>|t<ts>|cells:<n>|bands:<n>|facts:<n>", "signed": "raw utf-8 bytes (not blake3-wrapped)", "note": "bespoke; migration onto preimage_v1 is on the roadmap" },
+            { "name": "operator_attestation", "construction": "pipe_delimited_legacy", "served_at": "/.well-known/emem.json", "note": "bespoke pipe; migration on roadmap" },
+            { "name": "stream_tick", "construction": "pipe_delimited_legacy", "served_at": "GET /v1/memory/sse (corpus.state tick)", "note": "bespoke pipe; migration on roadmap" },
+        ],
+        "notes": "The receipt table is the single source of truth for offline verification and is generated from the emem-attest tag constants. The three pipe_delimited_legacy families are documented for completeness and are being migrated onto the tagged preimage_v1 family so one spec covers every signature.",
+    }))
+}
+
 async fn post_verify_receipt(
     State(s): State<AppState>,
     body: Result<Json<VerifyReceiptReq>, axum::extract::rejection::JsonRejection>,
@@ -20909,21 +20987,31 @@ fn validate_memory_path(path: &str, allow_directory: bool) -> Result<String, Api
 /// sub-tree is always gated regardless of this policy (see
 /// [`emem_primitives::namespace_requires_attester`]).
 ///
-/// The default is [`Open`](MemoryWritePolicy::Open) — the open namespace
-/// is globally writable, which is what the Anthropic memory-tool contract
-/// expects (its create/str_replace/insert/delete/rename verbs arrive
-/// unattested). Two env switches let an operator tighten this on a public
-/// deployment without a rebuild (B7):
+/// The default in a release build is [`RequireAll`](MemoryWritePolicy::RequireAll):
+/// every memory write needs a valid ed25519 `attester` block, so the global
+/// namespace is closed to unauthenticated writes and no anonymous caller can
+/// plant a `kind=semantic` file that surfaces in another agent's recall
+/// (memory poisoning). Attested writes default to the caller's own
+/// `/memories/by_attester/<pubkey8>/...` space. This is secure-by-default,
+/// not opt-in. Env switches (read once; no rebuild needed):
 ///
-/// - `EMEM_MEMORY_REQUIRE_ATTESTER=1` → [`RequireAll`]: every write, even
-///   to the open namespace, needs a valid `attester` block. Strongest
-///   isolation; breaks unattested memory-tool compatibility by design.
+/// - `EMEM_MEMORY_OPEN=1` → [`Open`]: re-open the global namespace to
+///   unattested writes, which is what the off-the-shelf Anthropic memory-tool
+///   contract expects (its create/str_replace/insert/delete/rename verbs
+///   arrive unattested). An explicit operator opt-OUT of the secure default.
+/// - `EMEM_MEMORY_REQUIRE_ATTESTER=1` → [`RequireAll`]: force the secure
+///   default explicitly (belt-and-suspenders on a public deployment).
 /// - `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1` → [`HardenDestructive`]: unattested
 ///   `create` / `str_replace` / `insert` stay open, but `delete` and
-///   `rename` require an attester. Blocks the anonymous-destruction /
-///   hijack vector on a shared namespace while keeping append-style writes
-///   frictionless. `REQUIRE_ATTESTER` wins if both are set.
+///   `rename` require an attester.
 ///
+/// Precedence when several are set: `REQUIRE_ATTESTER` > `OPEN` >
+/// `HARDEN_DESTRUCTIVE` > default. Under `cfg(test)` the default is
+/// [`Open`] so the in-crate memory fixtures keep exercising the unattested
+/// memory-tool path without each having to sign; production and every
+/// non-test consumer get [`RequireAll`].
+///
+/// [`Open`]: MemoryWritePolicy::Open
 /// [`RequireAll`]: MemoryWritePolicy::RequireAll
 /// [`HardenDestructive`]: MemoryWritePolicy::HardenDestructive
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20950,10 +21038,22 @@ fn memory_write_policy() -> MemoryWritePolicy {
         };
         if on("EMEM_MEMORY_REQUIRE_ATTESTER") {
             MemoryWritePolicy::RequireAll
+        } else if on("EMEM_MEMORY_OPEN") {
+            MemoryWritePolicy::Open
         } else if on("EMEM_MEMORY_HARDEN_DESTRUCTIVE") {
             MemoryWritePolicy::HardenDestructive
         } else {
-            MemoryWritePolicy::Open
+            // Secure-by-default: closed to unattested writes. Tests default
+            // Open so the in-crate memory fixtures keep exercising the
+            // unattested memory-tool path; release builds require an attester.
+            #[cfg(test)]
+            {
+                MemoryWritePolicy::Open
+            }
+            #[cfg(not(test))]
+            {
+                MemoryWritePolicy::RequireAll
+            }
         }
     })
 }

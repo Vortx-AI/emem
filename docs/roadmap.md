@@ -19,6 +19,8 @@ emem is version 1.0.0, its first stable release: the wire format, the receipt pr
 - **Some foundation-model fingerprints are sidecar-gated on the hosted node** today. A cold place returns a signed absence for those, so `triple_consensus` runs partial when cold. Tessera fetches on demand.
 - **Upstream rate limits.** Some sources are rate-limited or slow to fetch (one land-surface-temperature source takes about 30 seconds per place).
 - **No sub-meter imagery** in the default build, and no notebook UI. Drive it from a notebook against REST or MCP.
+- **Agent-memory writes are attested; reads are not yet tenant-scoped.** As of 2026-07-14 the global `/memories/` namespace is closed to unauthenticated writes: every write needs a valid ed25519 `attester` block, so no anonymous caller can plant a fact that surfaces in another agent's recall. Confidentiality is coarser than that: the flat namespace is a shared commons any caller can read, private per-agent state belongs in `/memories/by_attester/<pubkey>/` or the capability-gated `vault`, and full owner-scoped read isolation across the whole namespace is open work (see below). Do not put secrets in the flat namespace.
+- **The corpus is thin and skewed.** Facts materialize lazily, one place at a time, from upstream sources, so coverage today is deep in a few bands and empty in the tail. Check the live count and the specific band before you assume a place is warm; a cold place can time out on first read and return a typed `skipped` note, not a value. Filling this fast is the supply-side work below.
 
 ## Where it is going
 
@@ -80,6 +82,114 @@ None of these profiles ship yet; listing them here is direction, not
 availability. The test each one must pass is the same as the first
 substrate's: observations sign at the source, resolve byte-identically
 anywhere, and verify offline.
+
+### Tenancy: closing the memory layer before scaling ingest
+
+This is the precondition for everything on the supply side. A shared
+memory that any caller can write is a memory any caller can poison, and
+that gate has to hold before bulk ingest or a per-tenant enterprise layer
+is safe to build.
+
+What ships today (2026-07-14): the global namespace is closed to
+unauthenticated writes. Every `memory_create` / `str_replace` / `insert`
+/ `delete` / `rename` requires a valid ed25519 `attester` block
+(`RequireAll` is the release default; an operator can re-open for the
+unattested Anthropic memory-tool contract with `EMEM_MEMORY_OPEN=1`).
+Attested writes default to the caller's own
+`/memories/by_attester/<pubkey8>/...` space, the shortcode is bound to the
+signing key, and the `vault` kind seals bytes under a capability so its
+reads are gated. This closes the memory-poisoning vector: an anonymous
+caller can no longer plant a `kind=semantic` file that surfaces in another
+agent's `memory_search`.
+
+What is open, and gates the enterprise story:
+
+- **Owner-scoped reads.** Reads, listing, and search currently carry no
+  caller identity, so the flat namespace is a shared commons and even the
+  per-attester namespace is world-readable. Real confidentiality needs a
+  caller-identity channel threaded through the read path so a private
+  namespace returns only to its owner. Until it ships, private data belongs
+  in `vault` or `by_attester`, never the flat commons.
+- **Per-tenant isolation.** The four-tuple `Scope {user_id, agent_id,
+  run_id, org_id}` already scopes geospatial facts; extending the same
+  scope to the memory-file layer is the multi-tenant primitive the private
+  ingest layer below is built on.
+
+### The supply side: filling the corpus
+
+Separate demand from supply, because they have different answers. On the
+demand side, meaning agents reading and citing emem, MCP plus REST plus
+OpenAPI is the right surface and is good enough; the work there is
+ergonomics, not more protocols. The supply side, meaning getting the
+world's observations into signed facts, is the real bottleneck, and the
+corpus numbers show it: coverage is deep in a few bands and empty in the
+tail because everything materializes lazily, one place at a time, from
+slow upstream sources. A cold place can burn the per-source timeout and
+return a signed hole instead of a value.
+
+- **A geospatial database tokeniser.** Point emem at a table that has a
+  geometry, a PostGIS column or a lat/lng pair, and each row maps to a
+  `cell64` and becomes a signed, citeable fact. Bulk ingest fills the
+  corpus orders of magnitude faster than per-cell materialization and
+  removes the cold-start timeout, because the data is already local and
+  indexed. Three constraints keep it honest: it is geospatial only, a row
+  without a geometry is not Earth memory and does not belong here; it runs
+  as a private, per-tenant ingest under [geo.qa](https://geo.qa), not on
+  the public commons, which is the tenancy work above at scale; and the
+  signature attests ingestion, not truth. Tokenising a row signs "this
+  responder ingested these bytes, from this source, at this time" and
+  carries the `human_curated` or `model_output` provenance class with its
+  in-band caution. It gives tamper-evidence, ingestion provenance, and
+  cross-agent citability. It does not give ground truth, and the claim
+  will not outrun the receipt. The primitive underneath is "tabular geo
+  source in, signed facts out," so one engine serves Postgres first,
+  Snowflake next, and a plain CSV or Parquet path (which covers Excel
+  exports) as a mode rather than a separate product.
+
+### Client surfaces, ranked by leverage
+
+- **A first-class SDK.** Ships today: typed clients for Python
+  (`pip install ememdev`) and TypeScript (`@emem/client`), plus a
+  LangChain `BaseStore` adapter (`emem-langmem`), each wrapping the REST
+  surface so a signed receipt is the only new thing a caller learns. Open:
+  a warm-and-retry wrapper that hides the cold-start timeout on first read;
+  built-in offline receipt verification in three lines; signing writes by
+  default now that the memory layer requires an attester; and publish
+  automation for the TypeScript and LangChain packages so all three ship
+  on release, not just Python.
+- **Framework adapters as thin wrappers over the SDK.** LangChain,
+  LlamaIndex, CrewAI, the Claude Agent SDK, the OpenAI Agents SDK. Build
+  one SDK and make each adapter a thin layer over it; hand-maintaining six
+  integrations against raw MCP is a maintenance trap. Medium leverage, and
+  only after the SDK ergonomics above land.
+- **A native stdio MCP transport.** The server speaks Streamable HTTP at
+  `/mcp`, which is what Docker-hosted directory listings (Glama) run, and
+  the docs recommend the `mcp-remote` bridge for hosts that need stdio.
+  A native stdio transport would make the one-click, no-bridge listings
+  work directly. Open, and lower priority than the SDK because the bridge
+  already covers it.
+- **Robotics, as a single lighthouse.** Real and aligned with the fleet
+  story, and later. It needs an edge encoder, offline sync, and a
+  non-HTTP transport, because ROS 2 and intermittent-connectivity robots
+  are the wrong shape for an HTTP MCP call. Do not start until the SDK,
+  the signed-write path, and tenancy are solid; when it starts, one
+  flagship design partner beats a generic ROS package. A runnable
+  two-vendor HTTP example ships today at `examples/fleet-memory/`.
+
+### Protocol consistency
+
+- **One verifier spec, generated from code.** Ships today:
+  `GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`) emits
+  the receipt preimage segment table directly from the `emem-attest` tag
+  constants, so the offline-verification spec cannot drift from the signer
+  the way a hand-written doc does. The receipt preimage is the single
+  canonical, single-sourced construction: the signer and the
+  `/v1/verify_receipt` verifier both call one function. Open: fold the
+  three remaining bespoke pipe-delimited preimages (`corpus_state_stats`,
+  `operator_attestation`, `stream.tick`, which today sign a raw string
+  rather than a tagged blake3 stream) onto the same tagged `preimage_v1`
+  family, and lift the attestation, STH, and witness segment tags into
+  named constants, so the one generated spec describes every signature.
 
 ### The substrate: trusted, portable, verifiable memory
 

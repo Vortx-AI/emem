@@ -16,7 +16,16 @@ Quick start:
     print(facts["facts"][0]["value"])
 """
 
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
 from .client import AsyncClient, Client, EmemError, EmemHTTPError
 
 __all__ = ["AsyncClient", "Client", "EmemError", "EmemHTTPError"]
-__version__ = "0.1.0"
+
+# Single source of truth: the installed distribution's version, which comes
+# from pyproject.toml. Keeps __version__ and the client User-Agent from
+# drifting out of sync with what actually ships to PyPI.
+try:
+    __version__ = _pkg_version("ememdev")
+except PackageNotFoundError:  # running from a source checkout, not installed
+    __version__ = "0+unknown"

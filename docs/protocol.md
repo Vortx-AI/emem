@@ -620,35 +620,65 @@ struct Cost {
 
 ### 7.1 Signature preimage
 
-The exact preimage construction is `Server::sign_receipt`,
-`crates/emem-storage/src/server.rs:119-148`. The bytes that go into
-BLAKE3, in order:
+The exact preimage construction is `emem_attest::receipt_preimage_v1`
+(`crates/emem-attest/src/lib.rs (receipt_preimage_v1)`), the single
+function both the signer (`crates/emem-storage/src/server.rs
+(sign_receipt_v1_inner)`) and the verifier (`POST /v1/verify_receipt`)
+call. Every current receipt carries `preimage_version: 1`.
 
-```
-<request_id> | <served_at> | <primitive> |
-<cell_0> , <cell_1> , … <cell_{n-1}> , |
-<fact_cid_0> , <fact_cid_1> , … <fact_cid_{m-1}> ,
-```
+The signed digest is `blake3` over a domain-separated, tagged,
+length-prefixed segment stream:
 
-Details that matter:
+1. The stream opens with the 17 bytes `emem.preimage.v1\x00`, then
+   `u32-LE(len(domain))`, then the domain string. For receipts the
+   domain is `receipt`.
+2. A scalar segment is `tag:u8 || u32-LE len || bytes`.
+3. A list segment is `tag:u8 || u32-LE count || (u32-LE len || bytes)*`.
+4. Optional scalar segments are omitted entirely when absent; their tag
+   simply does not appear, so presence and absence are unambiguous. An
+   empty list is still written as its tag with count 0.
 
-- Header-field separator is `|` (0x7C); list-element separator is
-  `,` (0x2C).
-- **Every** list element (including the last) is followed by a
-  trailing `,`. The loop writes `c.as_bytes()` then `b","`
-  unconditionally; there is no terminator-omit branch
-  (server.rs:139-147).
-- The `|` between the cells block and the fact_cids block appears
-  exactly once, after the cells trailing comma and before the first
-  fact_cid.
-- An empty list contributes only the surrounding `|` bytes.
+The receipt segments, in tag order (constants live in
+`emem_attest::receipt_tag`, `crates/emem-attest/src/lib.rs`):
 
-The signature is `ed25519_dalek::SigningKey::sign(blake3_digest)`
-emitted as a 64-byte `Signature`.
+| Tag | Segment | Kind | Presence |
+|-----|---------|------|----------|
+| `0x01` | `request_id` | scalar | required |
+| `0x02` | `served_at` | scalar | required |
+| `0x03` | `scope_hex` | scalar | optional |
+| `0x04` | `as_of_hex` | scalar | optional |
+| `0x05` | `edges_hex` | scalar | optional |
+| `0x06` | `manifest_hex` | scalar | optional |
+| `0x07` | `primitive` | scalar | required |
+| `0x08` | `cells` | list | required |
+| `0x09` | `fact_cids` | list | required |
 
-   **What the preimage does NOT cover.** The five fields above
-   (`request_id`, `served_at`, `primitive`, `cells`, `fact_cids`) are
-   the complete signed surface. Notably **NOT** in the preimage:
+Each optional digest is the blake3-hex of the canonical CBOR of its
+receipt field: `scope_hex` over the non-empty `Scope`, `as_of_hex` over
+the bounded `as_of`, `edges_hex` over the sorted `edge_cids`, and
+`manifest_hex` over the sorted `source_versions{registry_cid,
+schema_cid, bands_cid, sources_cid}`. `bands_cid` rides inside the
+manifest digest, so the active band set is transitively attested.
+
+The value that ed25519 signs is `blake3(stream)`, the 32-byte digest,
+not the raw stream. The signature is
+`ed25519_dalek::SigningKey::sign(digest)` emitted as a 64-byte
+`Signature`.
+
+The canonical, code-generated segment table is served at
+`GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`); it is
+emitted from the same compiled `emem_attest` constants the signer uses,
+so it cannot drift from the wire. Treat it as the source of truth over
+any prose here.
+
+**Legacy v0.** Receipts with `preimage_version` absent or `0` were
+signed under the pre-cutover untagged pipe rule
+`blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*)`;
+`POST /v1/verify_receipt` still verifies those, but no responder emits
+v0 anymore.
+
+   **What the preimage does NOT cover.** The segments above are the
+   complete signed surface. Notably **NOT** in the preimage:
 
    - The caller's free-text `place` / `q` string. A wrong-place
      geocode produces a clean signature for the wrong cell64; the
@@ -667,17 +697,15 @@ emitted as a 64-byte `Signature`.
    needs *"the user asked X and the responder agreed"*: the receipt
    alone does not testify to the resolution-of-intent step.
 
-   **The `as_of` block sits outside the preimage.** When a read carried
-   a bi-temporal bound (`as_of_tslot` and/or `as_of_signed_at`), the
+   **The `as_of` block enters the preimage.** When a read carried a
+   bi-temporal bound (`as_of_tslot` and/or `as_of_signed_at`), the
    receipt body carries an `as_of: {valid_time?, transaction_time?}`
-   block. The block is metadata describing the temporal window the
-   caller passed; it is *not* hashed into the preimage. Re-signing a
-   different bound would change which fact_cids are returned, and the
-   preimage already binds those, so the temporal claim is anchored
-   transitively. A verifier reading a receipt with `as_of` checks the
-   signature against the §7.1 preimage rule as if `as_of` were absent;
-   the block is for inspection and replay, not for the cryptographic
-   verdict.
+   block, and its blake3-hex over canonical CBOR is hashed in as the
+   optional `0x04` segment (`as_of_hex`). A verifier recomputes that
+   digest from the `as_of` block to reproduce the signed bytes; a
+   current-state read omits the block and the segment alike. The bound
+   is therefore bound both directly (via `as_of_hex`) and transitively
+   (it selects which `fact_cids` the preimage also binds).
 
    **Per-replica fact identity.** Each Primary / Negative /
    Derivative fact body includes `signed_at` (ISO-8601 wall clock at
@@ -695,7 +723,8 @@ emitted as a 64-byte `Signature`.
 
 ### 7.2 Worked example: preimage layout
 
-Given:
+Given a current-state recall receipt (no scope, `as_of`, edges, or
+`source_versions`, so all four optional segments are absent):
 
 - `request_id = "01HZX0K9V3"` (ULID, 26 chars in practice; this short
   example is illustrative)
@@ -704,22 +733,33 @@ Given:
 - `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]`
 - `fact_cids = ["bn7cabcdefghij1234567890ab"]`
 
-The preimage byte sequence is the concatenation, with no extra
-whitespace:
+The blake3 stream is the domain prefix followed by the required
+segments, each tagged and length-prefixed (bytes shown hex):
 
 ```
-01HZX0K9V3|2026-05-08T11:22:33Z|emem.recall|dedi.zaf00.bafi.baba,dedi.zaf00.bafi.babe,|bn7cabcdefghij1234567890ab,
+emem.preimage.v1\x00                    656d656d2e707265696d6167652e763100
+u32-LE(7) "receipt"                     07000000 72656365697074
+0x01 u32-LE(10) "01HZX0K9V3"            01 0a000000 3031485a58304b395633
+0x02 u32-LE(20) "2026-05-08T11:22:33Z"  02 14000000 …
+0x07 u32-LE(11) "emem.recall"           07 0b000000 …
+0x08 u32-LE(2) (20,cell0)(20,cell1)     08 02000000 14000000 … 14000000 …
+0x09 u32-LE(1) (26,fact_cid0)           09 01000000 1a000000 …
 ```
 
-Then `signature = ed25519_sign( blake3(preimage_bytes) )`.
-
-The same logic with empty `cells` and one `fact_cids` would be:
+The signed value is `blake3(stream)`:
 
 ```
-01HZX0K9V3|2026-05-08T11:22:33Z|emem.recall||bn7cabcdefghij1234567890ab,
+eea12d3ae157cd40fb427ca0937e8f71a0af8faed3779ace0869764e872fefe3
 ```
 
-Two `|` characters in succession is the legal "empty list" shape.
+Then `signature = ed25519_sign( blake3(stream) )`. The same receipt
+with empty `cells` still writes the `0x08` segment with count 0
+(`08 00000000`); its digest is
+`da65c4ee7514a370b8158f103a085461850cb5776761781a38d2aeaa278885c0`.
+When a read carries a scope, bi-temporal bound, edges, or
+`source_versions`, the matching optional segment
+(`0x03`/`0x04`/`0x05`/`0x06`) is inserted before `0x07` in tag order,
+each the blake3-hex of the field's canonical CBOR (see §7.1).
 
 ### 7.3 Merkle proof attachment
 
@@ -737,7 +777,9 @@ attestation-tree anchor is missing.
 
 ### 7.4 Offline verification (Python)
 
-A self-contained verifier:
+A self-contained verifier that mirrors `emem_attest::receipt_preimage_v1`
+byte-for-byte. The segment table it encodes is the one served at
+`GET /v1/verifier_spec`.
 
 ```python
 import json, urllib.request
@@ -747,23 +789,74 @@ from nacl.signing import VerifyKey
 receipt = json.load(open("receipt.json"))
 well_known = json.load(urllib.request.urlopen(
     "https://your.emem.host/.well-known/emem.json"))
-pk_bytes = bytes(well_known["responder"])    # [u8; 32]
+pk_bytes = bytes(well_known["responder"])          # [u8; 32]
 
-# Reconstruct the preimage per server.rs:119-148.
-parts  = receipt["request_id"].encode() + b"|"
-parts += receipt["served_at"].encode()  + b"|"
-parts += receipt["primitive"].encode()  + b"|"
-for c in receipt["cells"]:     parts += c.encode() + b","
-parts += b"|"
-for c in receipt["fact_cids"]: parts += c.encode() + b","
+def le32(n): return n.to_bytes(4, "little")
+def seg(tag, s):
+    b = s.encode(); return bytes([tag]) + le32(len(b)) + b
+def seg_list(tag, items):
+    out = bytes([tag]) + le32(len(items))
+    for s in items:
+        b = s.encode(); out += le32(len(b)) + b
+    return out
 
-digest = blake3(parts).digest()
+# Minimal canonical CBOR (mirrors ciborium) for the optional digests.
+def cbor_head(m, n):
+    mt = m << 5
+    if n < 24: return bytes([mt | n])
+    if n < 0x100: return bytes([mt | 24, n])
+    if n < 0x10000: return bytes([mt | 25]) + n.to_bytes(2, "big")
+    if n < 0x100000000: return bytes([mt | 26]) + n.to_bytes(4, "big")
+    return bytes([mt | 27]) + n.to_bytes(8, "big")
+def cbor_text(s): b = s.encode(); return cbor_head(3, len(b)) + b
+def cbor_uint(n): return cbor_head(0, n)
+def b3hex(b): return blake3(b).hexdigest()
+
+def manifest_hex(r):
+    sv = r.get("source_versions") or {}
+    ks = sorted(sv)                                # BTreeMap key order
+    if not ks: return None
+    body = cbor_head(5, len(ks)) + b"".join(cbor_text(k) + cbor_text(str(sv[k])) for k in ks)
+    return b3hex(body)
+def edges_hex(r):
+    e = sorted(map(str, r.get("edge_cids") or []))
+    if not e: return None
+    return b3hex(cbor_head(4, len(e)) + b"".join(cbor_text(x) for x in e))
+def scope_hex(r):
+    sc = r.get("scope") or {}
+    p = [(k, str(sc[k])) for k in ("user_id","agent_id","run_id","org_id") if sc.get(k) is not None]
+    if not p: return None
+    return b3hex(cbor_head(5, len(p)) + b"".join(cbor_text(k) + cbor_text(v) for k, v in p))
+def as_of_hex(r):
+    a = r.get("as_of") or {}
+    body, n = b"", 0
+    if a.get("valid_time") is not None:
+        body += cbor_text("valid_time") + cbor_uint(a["valid_time"]); n += 1
+    if a.get("transaction_time") is not None:
+        body += cbor_text("transaction_time") + cbor_text(str(a["transaction_time"])); n += 1
+    if n == 0: return None
+    return b3hex(cbor_head(5, n) + body)
+
+# Reconstruct the v1 preimage. Optional segments appear only when present.
+stream  = b"emem.preimage.v1\x00" + le32(len("receipt")) + b"receipt"
+stream += seg(0x01, receipt["request_id"])
+stream += seg(0x02, receipt["served_at"])
+for tag, h in ((0x03, scope_hex(receipt)), (0x04, as_of_hex(receipt)),
+               (0x05, edges_hex(receipt)), (0x06, manifest_hex(receipt))):
+    if h: stream += seg(tag, h)
+stream += seg(0x07, receipt["primitive"])
+stream += seg_list(0x08, receipt.get("cells") or [])
+stream += seg_list(0x09, [str(c) for c in (receipt.get("fact_cids") or [])])
+
+digest = blake3(stream).digest()                   # 32 bytes; NOT the raw stream
 VerifyKey(pk_bytes).verify(digest, bytes(receipt["signature"]))
 ```
 
-A verifier that can reproduce the preimage and run `verify_strict` is
-the entire trust-rebinding path; no other call to the responder is
-required.
+Legacy receipts (`preimage_version` absent or `0`) instead use the v0
+pipe rule from §7.1; `POST /v1/verify_receipt` handles both versions and
+is the reference verifier. A verifier that can reproduce this preimage
+and run ed25519 verify is the entire trust-rebinding path; no other call
+to the responder is required.
 
 ### 7.5 Capability binding for memory writes
 

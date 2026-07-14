@@ -20,13 +20,21 @@ All wrapped calls return parsed JSON. HTTP non-2xx responses raise
 from __future__ import annotations
 
 import os
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import Any, Iterable, Mapping, Sequence
 
 import httpx
 
 DEFAULT_BASE_URL = os.environ.get("EMEM_BASE_URL", "https://emem.dev")
 DEFAULT_TIMEOUT = float(os.environ.get("EMEM_TIMEOUT_SECS", "180"))
-USER_AGENT = "emem-py/0.0.8 (+https://emem.dev)"
+
+# Derive the User-Agent version from the installed distribution (pyproject.toml
+# is the single source), so it never drifts from the shipped package version.
+try:
+    _VERSION = _pkg_version("ememdev")
+except PackageNotFoundError:  # running from a source checkout, not installed
+    _VERSION = "0+unknown"
+USER_AGENT = f"emem-py/{_VERSION} (+https://emem.dev)"
 
 
 class EmemError(Exception):

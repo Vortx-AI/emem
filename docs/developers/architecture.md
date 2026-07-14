@@ -274,26 +274,26 @@ again.
 
 ### Receipt signing
 
-`Server::sign_receipt` (`emem-storage/src/server.rs:119-189`)
-constructs the canonical preimage byte-by-byte:
-
-```
-blake3(
-    request_id_bytes
-  | "|"
-  | served_at_bytes          (ISO 8601 UTC, no fractional)
-  | "|"
-  | primitive_bytes          (e.g. "emem.recall")
-  | "|"
-  | for each cell c: c_bytes | ","
-  | "|"
-  | for each fact_cid f: f_bytes | ","
-)
-```
+The signer (`emem-storage/src/server.rs (sign_receipt_v1_inner)`) and
+every verifier call the same function,
+`emem_attest::receipt_preimage_v1` (`emem-attest/src/lib.rs`), so the
+two cannot drift. It builds a v1 tagged, length-prefixed preimage:
+`blake3` over the domain prefix `emem.preimage.v1\x00 ||
+u32-LE(len("receipt")) || "receipt"`, then one segment per field. A
+scalar segment is `tag:u8 || u32-LE len || bytes`; a list segment is
+`tag:u8 || u32-LE count || (u32-LE len || bytes)*`. Segments in tag
+order: `0x01` request_id, `0x02` served_at, optional `0x03` scope_hex /
+`0x04` as_of_hex / `0x05` edges_hex / `0x06` manifest_hex (each omitted
+when absent), `0x07` primitive, `0x08` cells, `0x09` fact_cids. Receipts
+carry `preimage_version: 1`.
 
 The 32-byte digest is signed with the responder's
-`ed25519_dalek::SigningKey`. Verification is
-`vk.verify_strict(preimage, sig)`.
+`ed25519_dalek::SigningKey`; verification is
+`vk.verify_strict(digest, sig)`. The canonical, code-generated segment
+table is served at `GET /v1/verifier_spec`; treat it as the
+non-drifting source of truth. Pre-cutover receipts (`preimage_version`
+absent or 0) use a legacy v0 pipe rule that `POST /v1/verify_receipt`
+still accepts.
 
 `Cost.was_cached` is `true` for recall (everything served already
 lived in sled at sign time), `false` for find_similar (fresh scan),

@@ -369,8 +369,9 @@ question and what the router chose instead.
   (`emem-mcp/src/lib.rs`) in the same commit.
 - A new band, algorithm, or source must update `bands-v0.json`,
   `algorithms-v0.json`, or `sources-v0.json` and add a registry test.
-- Receipts must round-trip: ed25519 signature over canonical CBOR
-  preimage. The check in `emem-fact/tests/round_trip.rs` locks this.
+- Receipts must round-trip: ed25519 signature over the tagged
+  length-prefixed blake3 preimage (v1). The check in
+  `emem-fact/tests/round_trip.rs` locks this.
 
 ## Repo navigation
 
@@ -380,7 +381,7 @@ question and what the router chose instead.
 | MCP tool catalog | `crates/emem-mcp/src/lib.rs` |
 | Cell64 encoding | `crates/emem-codec/src/geo.rs` |
 | CID derivation (canonical CBOR → blake3 → b32-nopad-lower) | `crates/emem-fact/src/cbor.rs` + `crates/emem-fact/src/cid.rs` |
-| Receipt preimage builder | `crates/emem-storage/src/server.rs:119` |
+| Receipt preimage builder (v1, canonical) | `crates/emem-attest/src/lib.rs` (`receipt_preimage_v1`); signer wiring in `crates/emem-storage/src/server.rs` (`sign_receipt_v1_inner`) |
 | Merkle root + path verification | `crates/emem-attest/src/lib.rs` |
 | Lazy materialization plumbing | `crates/emem-storage/src/lib.rs` (`MaterializingStorage::materialize_many`) |
 | Sidecar protocol | `python/jepa_v2_sidecar/server.py` |
