@@ -1,6 +1,6 @@
 # emem Security Policy
 
-_Last updated: 2026-05-14_
+_Last updated: 2026-07-14_
 
 emem is an Apache-2.0, pure-Rust, content-addressed protocol. The
 canonical responder is operated by **Vortx AI Private Limited** (India)
@@ -9,16 +9,41 @@ L0 and L1 read endpoints require no API keys and no accounts; this
 policy covers the protocol implementation and the hosted instance. See
 also [Privacy](/privacy) and [Terms](/terms).
 
+## Supported versions
+
+| Version | Supported |
+|---|---|
+| 1.0.x | Yes. Current. Fixes land here. |
+| 0.0.x | No. Superseded; upgrade rather than report against these. |
+
+There is one canonical responder and it runs the tip of `main`, so the
+hosted instance at `https://emem.dev` is always the supported version.
+For self-hosted nodes, the version and the exact commit are self-reported
+at [`/v1/version`](https://emem.dev/v1/version) and signed into the
+operator attestation, so you can tell what you are running without
+trusting a tag. Registry listings pin older versions by design and are
+not a statement of support.
+
 ## Reporting a vulnerability
 
 If you've found a security issue in emem (the protocol or this
-implementation), please email **avijeet@vortx.ai** rather than opening a
-public GitHub issue. We'll acknowledge within **72 hours**, work with you
+implementation), either email **avijeet@vortx.ai** or open a
+[GitHub security advisory](https://github.com/Vortx-AI/emem/security/advisories/new).
+Both are listed as `Contact:` in
+[`/.well-known/security.txt`](https://emem.dev/.well-known/security.txt)
+and either is fine; please do not open a public issue. We'll acknowledge within **72 hours**, work with you
 on an embargoed fix, and credit you (with permission) in the release
 notes.
 
 For non-sensitive reports (design weaknesses, hardening opportunities,
 spec ambiguities), opening a public issue is welcome.
+
+`security.txt` deliberately carries no `Encryption:` field. RFC 9116
+expects it to name an encryption key, and the only key this responder
+publishes is the ed25519 signing key at `/.well-known/emem.json`. ed25519
+is a signature scheme and cannot encrypt, so advertising it there would
+offer an affordance that does not exist. If you need to send something
+sensitive, say so in a first mail and we will agree a channel.
 
 ## Safe harbor
 
@@ -68,8 +93,8 @@ Out of scope:
 | CSP                      | locked-down default-src 'self' + GA4 origin                 |
 | Other headers            | X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy |
 | Body cap                 | 16 MiB on POST endpoints (413 on overflow)                  |
-| Request timeout          | 30 s (504 on overflow)                                      |
-| Per-IP rate limit        | 60 req/min, 120 burst, `Retry-After: 60`                    |
+| Request timeout          | 40 s (504 on overflow), `EMEM_TIMEOUT_SECS`                 |
+| Per-IP rate limit        | 600 req/min sustained, 1200 burst, `Retry-After: 1`. `EMEM_RATE_LIMIT_RPS` / `EMEM_RATE_LIMIT_BURST` |
 | Identity                 | ed25519 secret stored mode 0600, never logged               |
 | Receipts                 | every read signed; offline-verifiable via /v1/verify_receipt |
 | Storage                  | sled with content-addressed keys, no SQL                     |

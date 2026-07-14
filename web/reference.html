@@ -524,6 +524,11 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="path">query_region</td><td class="desc">aggregate one band across a region's sampled cells</td></tr>
         <tr><td class="path">field_boundaries</td><td class="desc">agricultural field polygons from Fields of The World, overlaid on recall</td></tr>
         <tr><td class="path">verify / verify_receipt</td><td class="desc">recompute the preimage and check the Ed25519 signature over BLAKE3</td></tr>
+        <tr><td class="path">entity</td><td class="desc">mint or return one canonical object identity (<span class="band">emem:entity:</span>); idempotent on a shared GERS/OSM anchor</td></tr>
+        <tr><td class="path">entity/resolve</td><td class="desc">converge a phrasing onto an identity someone already registered, so two agents co-refer instead of re-inventing. Exact lookup on a normalised alias, not a semantic match</td></tr>
+        <tr><td class="path">entity/alias</td><td class="desc">record that two phrasings mean the same object; every added alias then resolves to it</td></tr>
+        <tr><td class="path">derive</td><td class="desc">register a value <em>you</em> computed over parent facts, signed with your own key; returns an <span class="band">emem:fact:</span> token. Parents are fetched and cell-bound first, so the lineage is real</td></tr>
+        <tr><td class="path">derived</td><td class="desc">list your own derivations; requires your attester pubkey. Derivatives never enter a default read at a cell</td></tr>
       </tbody>
     </table>
     </div>
@@ -664,7 +669,28 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">06</span>The full machine contract</h2>
+    <h2><span class="num">06</span>Transparency log</h2>
+    <p class="lede">Immutability inside one responder is a promise about a data structure. The log is the part a client can check for itself.</p>
+
+    <div class="scroll-x">
+    <table class="endpoints">
+      <thead>
+        <tr><th>Path</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="path">GET /v1/log/sth</td><td class="desc">signed tree head: <span class="band">(tree_size, root)</span> signed by the responder. Pin it</td></tr>
+        <tr><td class="path">GET /v1/log/inclusion</td><td class="desc">audit path proving one entry is in the tree, by leaf index or entry hash</td></tr>
+        <tr><td class="path">GET /v1/log/consistency</td><td class="desc">proof that a later tree is an append-only extension of a head you pinned earlier</td></tr>
+        <tr><td class="path">POST /v1/log/witness</td><td class="desc">an external party counter-signs a head it saw; refused unless the root reproduces</td></tr>
+        <tr><td class="path">GET /v1/log/witnesses</td><td class="desc">the co-signatures on record</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>It uses the RFC 6962 tree construction with BLAKE3-256 substituted for SHA-256, so it is <em>not</em> RFC 6962 conformant and CT tooling will not interoperate. What it proves is narrow and worth stating exactly: to a client that pinned an earlier head and came back, that the log only grew. It does not resist split view, because the head, the proofs and the witness list all come from the responder you would be checking, and there is no gossip channel between clients. Witness co-signing is a working mechanism awaiting an operating network: there is no allowlist, so a co-signature proves a key signed a head, not that the key is independent. And a receipt does not yet chain to the log, so you cannot prove a fact you hold is in it. See <a href="/whitepaper#s8">whitepaper v2 &sect;8</a>, which says all of this at length rather than leaving the word "transparency" to do the work.</p>
+
+    <hr class="band-rule">
+
+    <h2><span class="num">07</span>The full machine contract</h2>
     <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 108 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
 
     <p style="font-weight:700;color:var(--ink);margin-top:1.6rem">One algebra, nine verbs</p>

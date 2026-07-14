@@ -1518,7 +1518,7 @@ async fn handle_overload(err: axum::BoxError) -> Response {
     if err.is::<tower::load_shed::error::Overloaded>() {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            [(axum::http::header::RETRY_AFTER, "1")],
+            [(axum::http::header::RETRY_AFTER, RATE_LIMITED_RETRY_AFTER)],
             Json(json!({
                 "schema":  "emem.error.v1",
                 "code":    "overloaded",
@@ -2236,6 +2236,13 @@ fn rate_limit_burst() -> f64 {
 }
 
 const RATE_LIMIT_GC_AFTER: Duration = Duration::from_secs(600);
+
+/// `Retry-After` this responder sends with a 429, as the header value and
+/// as the number the agent-card publishes. One constant, because a header
+/// that says 1 while the docs say 60 costs every rate-limited agent 59
+/// wasted seconds, and that is exactly what shipped.
+const RATE_LIMITED_RETRY_AFTER: &str = "1";
+const RATE_LIMITED_RETRY_AFTER_SECS: u32 = 1;
 
 #[derive(Clone, Copy)]
 struct Bucket {
@@ -3572,12 +3579,16 @@ fn build_security_txt() -> String {
         out.push_str("Canonical: ");
         out.push_str(&origin);
         out.push_str("/.well-known/security.txt\n");
-        // The responder pubkey + manifest CIDs live at
-        // /.well-known/emem.json. Reporters use it to encrypt sensitive
-        // findings or to verify they're talking to the same responder.
-        out.push_str("Encryption: ");
-        out.push_str(&origin);
-        out.push_str("/.well-known/emem.json\n");
+        // No `Encryption:` field. RFC 9116 §2.5.4 requires it to point at
+        // an encryption key, and the only key this responder publishes is
+        // the ed25519 signing key at /.well-known/emem.json. ed25519 is a
+        // signature scheme: you cannot encrypt to it. This field used to
+        // name that URL, which offered reporters an affordance that does
+        // not exist. A reporter who believes they encrypted a finding and
+        // did not is worse off than one who was never offered the option,
+        // so the field is omitted until there is a real age/PGP key to
+        // publish. /.well-known/emem.json is still the way to confirm you
+        // are talking to this responder, which is a different job.
     }
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -6052,7 +6063,7 @@ fn errors_payload() -> JsonValue {
         ("compute_quota_exceeded",       "function call hit per-attester quota",
          "Throttle, or request quota increase via /v1/contributors leaderboard (high-score attesters get larger quotas)."),
         ("rate_limited",                 "per-IP rate limit hit",
-         "Backoff per the `Retry-After` header (default 60 s). Operators tune via EMEM_RATE_LIMIT_RPS."),
+         "Backoff per the `Retry-After` header, which this responder sets to 1. The bucket refills continuously (600 req/min sustained, 1200 burst), so a short sleep is the right response, not a minute. Operators tune via EMEM_RATE_LIMIT_RPS / EMEM_RATE_LIMIT_BURST."),
         ("cache_error",                  "responder's hot cache (sled) had an internal error",
          "Retry; if persistent, the responder's storage may need recovery — operators see the cause in the journald log."),
         ("internal",                     "responder-side bug",
@@ -6413,6 +6424,18 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "gateway_timeout_secs":      timeout_seconds(),
             "materializer_timeout_secs": materializer_timeout_secs(),
             "max_inflight":              max_inflight(),
+            // Declared from the same functions that enforce them. These
+            // were prose-only until now, and prose drifted: SECURITY.md
+            // claimed 60 req/min against an actual 600, and told reporters
+            // Retry-After was 60 when the responder sends 1. A limit an
+            // operator states but does not serve is a limit nobody can
+            // check, so scripts/sync_counts.py now verifies the doc
+            // against these fields.
+            "rate_limit_rps":            rate_limit_rps(),
+            "rate_limit_burst":          rate_limit_burst(),
+            "rate_limit_per_min":        rate_limit_rps() * 60.0,
+            "rate_limit_retry_after_secs": RATE_LIMITED_RETRY_AFTER_SECS,
+            "body_limit_mb":             body_limit_bytes() / (1024 * 1024),
             "cog_decode_concurrency":    emem_fetch::cog::decode_concurrency_limit(),
             "client_timeout_advice":     "Set your HTTP client read timeout to gateway_timeout_secs + 5 s. /v1/ask on a cold cell can fan out 8–24 parallel materialisations whose worst-case is bounded by materializer_timeout_secs; /v1/recall and /v1/locate complete in <2 s when warm. If you need a hard upper bound, request `cell` + a single concrete `band` to skip the temporal_recipe expansion.",
             "concurrency_advice":        "Concurrent recalls are bounded by max_inflight (global) and cog_decode_concurrency (CPU tile decode). Cold COG decode now runs off the async reactor, so a burst no longer starves the runtime into socket resets/504s; if you exceed max_inflight you get a clean 503 + Retry-After to honour, not a dropped connection.",
@@ -15249,19 +15272,44 @@ async fn mcp_jsonrpc_inner(
             };
             let tool_json: Vec<JsonValue> = tools.iter().map(|t| mcp_tool_descriptor(t)).collect();
             let total = emem_mcp::TOOLS.len();
+            // The hint is built from what this request actually did. It
+            // used to be a fixed string claiming "the full catalog is
+            // returned by default" and "{\"tier\":\"core\"} for just the 10
+            // essentials": both false once /mcp defaulted to core and the
+            // loop grew past 10. It was shipping that way on prod.
+            let core_n = emem_mcp::tools_at_tier("core").len();
+            let hint = if effective_tier == "all" {
+                format!(
+                    "Showing all {total} tools. Pass {{\"tier\":\"core\"}} or connect to /mcp for the {core_n}-tool core loop instead."
+                )
+            } else {
+                format!(
+                    "Showing {} of {total} tools (profile: {effective_tier}). This endpoint defaults to the {default_tier} profile. Nothing is hidden: every tool is callable by name via tools/call at either endpoint, standard cursor pagination from here returns the rest, and /mcp/full advertises all {total} up front. Call emem_tools to map the surface without loading it.",
+                    tool_json.len()
+                )
+            };
             let mut result = json!({
                 "tools": tool_json,
+                // `_meta` is the MCP-standard slot for server-defined data,
+                // reverse-DNS namespaced. Requested by the SaSame Protocol
+                // Observatory (Vortx-AI/emem#9) so a longitudinal monitor can
+                // tell an intentional profile choice from tool-surface drift.
+                // `_discovery` below predates it and stays for back-compat.
+                "_meta": {
+                    "dev.emem/profile":        effective_tier,
+                    "dev.emem/profile_default": default_tier,
+                    "dev.emem/tools_shown":    tool_json.len(),
+                    "dev.emem/tools_total":    total,
+                    "dev.emem/profiles": {
+                        "core": core_n,
+                        "all":  total,
+                    },
+                },
                 "_discovery": {
                     "total_tools":  total,
                     "showing":      effective_tier,
                     "showing_count": tool_json.len(),
-                    "hint": format!(
-                        "Showing {} of {} tools (tier: {}). \
-                         The full catalog is returned by default; pass \
-                         {{\"tier\":\"core\"}} for just the 10 essentials. \
-                         All tools are callable via tools/call regardless of tier.",
-                        tool_json.len(), total, effective_tier
-                    ),
+                    "hint": hint,
                 },
             });
             if effective_tier == "core" {

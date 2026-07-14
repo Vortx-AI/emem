@@ -55,7 +55,7 @@
     "directoryCompliance": {
       "annotations": "every tool emits title + annotations.{readOnlyHint,destructiveHint} on tools/list",
       "transport": "MCP Streamable HTTP (2025-03-26) over HTTPS",
-      "toolListing": "tools/list at the advertised /mcp returns a 14-tool core surface (~40 KB); /mcp/full returns all 89 (~200 KB). The split is listing-only: tools/call dispatches any of the 89 by name at either endpoint, and the emem_tools tool maps the full surface on demand. /mcp is advertised deliberately, so a host connecting cold from a directory spends 40 KB of context rather than 200 KB.",
+      "toolListing": "tools/list at the advertised /mcp returns a 14-tool core surface (~40 KB); /mcp/full returns all 91 (~200 KB). The split is listing-only: tools/call dispatches any of the 89 by name at either endpoint, and the emem_tools tool maps the full surface on demand. /mcp is advertised deliberately, so a host connecting cold from a directory spends 40 KB of context rather than 200 KB.",
       "auth": "unauthenticated public-read; writes (emem_attest, emem_challenge) authenticated by ed25519 signature on the request body",
       "originAllowlist": "EMEM_ALLOWED_ORIGINS env var (comma-separated) flips CORS from `*` to a strict allowlist with Vary: Origin"
     }

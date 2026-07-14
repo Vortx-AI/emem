@@ -147,6 +147,44 @@ def fetch_live(responder: str) -> dict | None:
     }
 
 
+def verify_security_limits(responder: str) -> list[str]:
+    """SECURITY.md states runtime limits. The responder enforces them and now
+    declares them at /v1/agent_card under `runtime`. Nothing compared the two,
+    and they diverged badly: the doc claimed a 60 req/min rate limit against an
+    actual 600, and a `Retry-After: 60` against a header that sends 1. A limit
+    stated in prose and nowhere else is a limit nobody can check, and a
+    *security* doc is the worst place to be wrong by 10x.
+    """
+    sec = REPO / "SECURITY.md"
+    if not sec.exists():
+        return ["SECURITY.md is missing (it is include_str!'d into the binary)"]
+    try:
+        with urllib.request.urlopen(f"{responder}/v1/agent_card", timeout=15) as r:
+            rt = json.load(r).get("runtime", {})
+    except Exception as e:
+        print(f"  (security-limit cross-check skipped: {responder} unreachable: {e})")
+        return []
+    if not rt.get("rate_limit_per_min"):
+        return []  # responder predates the self-declared limits
+
+    body = sec.read_text()
+    hits = []
+    checks = [
+        (f'{int(rt["rate_limit_per_min"])} req/min', "per-IP rate limit"),
+        (f'{int(rt["rate_limit_burst"])} burst', "rate-limit burst"),
+        (f'`Retry-After: {rt["rate_limit_retry_after_secs"]}`', "Retry-After"),
+        (f'{rt["gateway_timeout_secs"]} s', "request timeout"),
+        (f'{rt["body_limit_mb"]} MiB', "body cap"),
+    ]
+    for needle, what in checks:
+        if needle not in body:
+            hits.append(
+                f"SECURITY.md: the live responder declares {what} as "
+                f"{needle!r} but SECURITY.md does not say so"
+            )
+    return hits
+
+
 def verify_canon() -> list[str]:
     """Assert CANON matches what the repo (and, if reachable, the responder) say."""
     drift = []
@@ -155,11 +193,13 @@ def verify_canon() -> list[str]:
         if k in CANON and CANON[k] != v:
             drift.append(f"CANON[{k}]={CANON[k]} but repo computes {v}")
 
-    live = fetch_live(os.environ.get("EMEM_RESPONDER", "https://emem.dev"))
+    responder = os.environ.get("EMEM_RESPONDER", "https://emem.dev")
+    live = fetch_live(responder)
     if live:
         for k, v in live.items():
             if v is not None and k in CANON and CANON[k] != v:
                 drift.append(f"CANON[{k}]={CANON[k]} but live /v1/agent_card says {v}")
+    drift.extend(verify_security_limits(responder))
     return drift
 
 
