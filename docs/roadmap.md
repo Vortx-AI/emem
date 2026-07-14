@@ -151,22 +151,32 @@ return a signed hole instead of a value.
 - **A first-class SDK.** In the repo today: typed clients for Python and
   TypeScript, plus a LangChain `BaseStore` adapter (`emem-langmem`) that
   signs its writes, each wrapping the REST surface so a signed receipt is
-  the only new thing a caller learns. **Not yet installable.** The
-  published `ememdev` 1.0.0 wheel contains no Python modules at all: a
-  root-anchored `/src/` pattern in the repo's `.gitignore` was re-anchored
-  by the build backend to the SDK directory, so the wheel built clean and
-  empty and `pip install ememdev` then `import emem` raises
-  `ModuleNotFoundError`. CI tested the source tree over `PYTHONPATH` and
-  never the artefact, so it stayed green throughout. The build is fixed and
-  CI now builds both wheels, asserts they contain modules, and imports one
-  from an installed wheel, and the publish workflow refuses to upload a
-  wheel that holds no modules or that will not import once installed. The
-  version is bumped to 1.0.1, because PyPI versions are immutable and 1.0.0
-  can only be superseded, never replaced. Open: running that publish;
-  `@emem/client` has never been published at all; and then a
-  warm-and-retry wrapper that hides the cold-start timeout on first read,
-  plus publish automation so all three ship on release rather than Python
-  alone.
+  the only new thing a caller learns. **Not yet installable.** Every
+  `ememdev` release on PyPI (0.0.9, 0.1.0 and 1.0.0) is about 2.4 KB of
+  metadata containing no Python modules: a root-anchored `/src/` pattern in
+  the repo's `.gitignore` was re-anchored by the build backend to the SDK
+  directory, so each wheel built clean and empty, and `pip install ememdev`
+  then `import emem` raises `ModuleNotFoundError`. CI tested the source
+  tree over `PYTHONPATH` and never the artefact, so it stayed green
+  throughout. `@emem/client` failed more quietly: it has never been
+  published, and it did not compile, carrying three type errors under
+  `strict` that no CI job ran `tsc` to catch.
+
+  The builds are fixed. Three publish workflows (`publish-pypi.yml`,
+  `publish-pypi-langmem.yml`, `publish-npm.yml`) each build the artefact,
+  look inside it, install it into a fresh environment and import it, and
+  refuse to upload anything that ships no modules or will not import.
+  `ememdev` is bumped to 1.0.1 because PyPI versions are immutable and the
+  empty releases can only be superseded, never replaced.
+
+  Open, and each blocked on a human once. PyPI registers a Trusted
+  Publisher per project, so `ememdev` and `emem-langmem` each need one
+  registered before their first upload. npm cannot register a trusted
+  publisher for a package that does not exist, so the first `@emem/client`
+  publish needs an API token, and the `@emem` scope has to be owned before
+  any of it works. After that first upload each ships from one
+  `workflow_dispatch`. Then a warm-and-retry wrapper that hides the
+  cold-start timeout on first read.
 - **Framework adapters as thin wrappers over the SDK.** LangChain,
   LlamaIndex, CrewAI, the Claude Agent SDK, the OpenAI Agents SDK. Build
   one SDK and make each adapter a thin layer over it; hand-maintaining six

@@ -63,6 +63,7 @@ import type {
   VerifyRequest,
   WaveSolveRequest,
 } from "./types.js";
+import { VERSION } from "./version.js";
 
 // Read env vars without depending on @types/node — works in Node/Bun/Deno
 // where `process.env` exists, and silently falls back in browsers/edge
@@ -78,14 +79,18 @@ const DEFAULT_TIMEOUT_MS = (() => {
   return Number.isFinite(n) && n > 0 ? n * 1000 : 180_000;
 })();
 
-const USER_AGENT = "emem-ts/0.0.8 (+https://emem.dev)";
+const USER_AGENT = `emem-ts/${VERSION} (+https://emem.dev)`;
 
+// `name` is annotated `string` rather than left to infer the literal
+// "EmemError". An inferred literal type makes the property invariant, so
+// EmemHTTPError could not narrow it to its own name and tsc rejected the
+// subclass outright.
 export class EmemError extends Error {
-  override readonly name = "EmemError";
+  override readonly name: string = "EmemError";
 }
 
 export class EmemHTTPError extends EmemError {
-  override readonly name = "EmemHTTPError";
+  override readonly name: string = "EmemHTTPError";
   constructor(
     readonly status: number,
     readonly url: string,
@@ -133,7 +138,10 @@ export class Client {
   private async request<T = Json>(
     method: "GET" | "POST",
     path: string,
-    init: { body?: unknown; query?: Record<string, unknown> } = {},
+    // `| undefined` is explicit on `query` because exactOptionalPropertyTypes
+    // distinguishes an absent key from one present and set to undefined, and
+    // `get` below passes the latter.
+    init: { body?: unknown; query?: Record<string, unknown> | undefined } = {},
   ): Promise<T> {
     const url = new URL(path.startsWith("/") ? path : `/${path}`, `${this.baseUrl}/`);
     if (init.query) {
@@ -160,7 +168,10 @@ export class Client {
       resp = await this.fetchImpl(url.toString(), {
         method,
         headers,
-        body,
+        // `null`, not `undefined`: RequestInit.body is declared
+        // `BodyInit | null`, and exactOptionalPropertyTypes refuses an
+        // explicit undefined for it. Both mean "send no body".
+        body: body ?? null,
         signal: ctrl.signal,
       });
     } finally {

@@ -42,6 +42,32 @@ jobs:
           jq -e '.version | length > 0' server.json >/dev/null
           echo "server.json name=$(jq -r .name server.json) version=$(jq -r .version server.json)"
 
+      # The checks above ask whether fields are PRESENT. They cannot catch a
+      # field that is present and invalid, which is how server.json came to
+      # carry a 225-character `description` against a schema that caps it at
+      # 100: valid JSON, name and version both fine, rejected only by the
+      # registry at publish time. Validate against the schema the file itself
+      # declares, so the file cannot drift from the contract it names.
+      # setup-python provides an interpreter pip can install into. The
+      # runner's system python is externally managed (PEP 668), so a bare
+      # `pip install` there fails, and `python` is not guaranteed on PATH
+      # without this step at all.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: server.json is valid against its declared schema
+        run: |
+          set -euo pipefail
+          SCHEMA=$(jq -r '."$schema" // empty' server.json)
+          if [ -z "$SCHEMA" ]; then
+            echo "::error::server.json declares no \$schema, so there is nothing to validate against."
+            exit 1
+          fi
+          echo "validating against $SCHEMA"
+          python -m pip install --quiet check-jsonschema
+          check-jsonschema --schemafile "$SCHEMA" server.json
+
       - name: install mcp-publisher
         run: |
           set -euo pipefail

@@ -214,3 +214,39 @@ jobs:
           /tmp/wheelcheck/bin/pip install --quiet "langchain-core>=0.3,<1.0" "blake3>=0.3" "cryptography>=41"
           /tmp/wheelcheck/bin/pip install --quiet dist-emem-langmem/*.whl
           /tmp/wheelcheck/bin/python -c "import emem_langmem; print('emem_langmem', emem_langmem.__version__)"
+
+  ts-sdk:
+    name: TypeScript SDK build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: install deps
+        working-directory: sdks/emem-ts
+        run: npm install --no-audit --no-fund
+      # No job ever compiled this package, so three errors under `strict` +
+      # `exactOptionalPropertyTypes` survived in a package advertised as
+      # releasable. `tsc` also emits a full dist/ while erroring, so a green
+      # artefact directory proves nothing; only the exit code does.
+      - name: typecheck
+        working-directory: sdks/emem-ts
+        run: npx tsc --noEmit
+      # package.json and src/version.ts are two hand-written copies of one
+      # string, and they had already drifted three ways (1.0.0 / 0.0.9 /
+      # 0.0.8) with nothing comparing them. The publish workflow checks this
+      # too, but at publish time the bad version is already the thing you
+      # are shipping. Catch the skew on the PR that introduces it.
+      - name: package.json and VERSION agree
+        working-directory: sdks/emem-ts
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').version")
+          SRC=$(node -p "require('fs').readFileSync('src/version.ts','utf8').match(/VERSION = \"([^\"]+)\"/)[1]")
+          echo "package.json=$PKG src/version.ts=$SRC"
+          if [ "$PKG" != "$SRC" ]; then
+            echo "::error::version skew: package.json says $PKG, src/version.ts says $SRC"
+            exit 1
+          fi

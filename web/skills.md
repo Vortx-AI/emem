@@ -375,10 +375,16 @@ verification, or similarity in a Claude Code session. See each
 - `https://emem.dev/agents.md`: consumer-agent ontology + recipes
 - `https://emem.dev/humans`: interactive console where every `/v1/*`
   call prints in a live log pane
-- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint. 89 tools: 14 core, 75
-  extended. `tools/list` advertises the core tier; `https://emem.dev/mcp/full`
-  advertises all 89, and `tools/call` reaches every tool from either. Call
-  `emem_tools` to map the surface or fetch one tool's schema.
+- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint. `tools/list` advertises
+  the loop that the rest of the surface serves: ground a place, cite the fact
+  as `emem:fact:<cell64>:<fact_cid>`, hand that line to another agent, and let
+  them resolve it to the identical signed bytes and check the receipt without
+  trusting you. 91 tools in total (14 core, 77 extended);
+  `https://emem.dev/mcp/full` advertises all 91, and `tools/call` reaches every
+  tool by name from either, so the narrower list costs no capability. Call
+  `emem_tools` to map the surface, filter it by the shape of the answer you
+  need (`{"shape":"raster"}`) or by job (`{"bundle":"robotics"}`), or fetch one
+  tool's schema (`{"name":"emem_ndvi"}`).
 
 ## License
 

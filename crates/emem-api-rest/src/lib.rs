@@ -1118,6 +1118,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
         .route("/v1/memory_token/resolve", post(post_memory_token_resolve))
+        // Caller-registered derivations: attested in, attester-scoped out.
+        // Never reachable from a default read; see post_derive.
+        .route("/v1/derive", post(post_derive))
+        .route("/v1/derived", post(post_derived_list))
         .route("/v1/memory_bundle", post(post_memory_bundle))
         .route("/v1/memory_bundle/:token", get(get_memory_bundle))
         // Entity registry: content-addressed object identity (emem:entity:).
@@ -14908,7 +14912,7 @@ const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, r
 /// `emem_mcp::CORE_LOOP`, so this text and the `emem_tools` catalog cannot
 /// describe different loops. And the closing paragraph depends on which
 /// endpoint the client reached: telling an agent on `/mcp` that it can see
-/// all 88 tools would be false, and telling an agent on `/mcp/full` to go
+/// the whole catalog would be false, and telling an agent on `/mcp/full` to go
 /// find the rest would be noise.
 fn mcp_instructions(default_tier: &str) -> String {
     let mut s = String::with_capacity(4096);
@@ -14948,7 +14952,7 @@ fn mcp_instructions(default_tier: &str) -> String {
 /// not depend on the cursor. `emem_tools` is itself core and describes the
 /// whole surface, `emem_ask` and `emem_intent` reach the data tools
 /// server-side, and a host that wants every tool registered connects to
-/// `/mcp/full`. `tools/call` still dispatches all 88 by name at either
+/// `/mcp/full`. `tools/call` still dispatches every tool by name at either
 /// endpoint, so nothing here removes a capability.
 const MCP_CORE_ENDPOINT_TIER: &str = "core";
 
@@ -16119,7 +16123,7 @@ fn mcp_args_to_query(args: &JsonValue) -> std::collections::HashMap<String, Stri
 /// `emem_mcp` tables `tools/list` reads.
 ///
 /// This exists because the default endpoint advertises the core loop, not
-/// all 88 tools. A tool an agent cannot see is a tool it concludes does
+/// the whole catalog. A tool an agent cannot see is a tool it concludes does
 /// not exist, so exactly one visible tool has to be able to describe the
 /// rest. The catalog defaults to `tier: all` for that reason: narrowing
 /// discovery is the endpoint's job, and this is the escape hatch from it.
@@ -16303,8 +16307,8 @@ fn tools_catalog(args: &JsonValue) -> JsonValue {
 
     // Unfiltered, this answers with the menu and not the meal.
     //
-    // Listing all 88 briefs by default is the same mistake as advertising
-    // all 88 descriptors: it is a dump, just a cheaper one, and it does not
+    // Listing every brief by default is the same mistake as advertising
+    // every descriptor: it is a dump, just a cheaper one, and it does not
     // survive contact with the host's 24 KB cap on a single tool result.
     // The catalog is the one response that must never be truncated, because
     // a truncated catalog silently teaches an agent that a capability does
@@ -16665,6 +16669,28 @@ async fn mcp_tool_call(
             match post_memory_token_resolve(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        // Caller-registered derivation. Routed through `mcp_err`, not the
+        // bare `e.1.message` the read tools use: the refusal's whole value
+        // is in `details.how_to_sign`, which carries the exact digest to
+        // sign. An agent that only saw the message would be back to
+        // reverse-engineering the preimage, which is the failure this
+        // surface exists to avoid.
+        "emem_derive" => {
+            let req: DeriveReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_derive(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err(mcp_err(e)),
+            }
+        }
+        "emem_derive_list" => {
+            let req: DerivedListReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_derived_list(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err(mcp_err(e)),
             }
         }
         "emem_memory_bundle" => {
@@ -17568,6 +17594,14 @@ async fn openapi() -> Json<JsonValue> {
         "description": "conflict (the request contradicts a signed fact, e.g. a token whose cell does not match the fact's own cell)",
         "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" } } } } }
     });
+    let json_bad_request = json!({
+        "description": "invalid argument; `details.code` names which rule refused",
+        "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" }, "details": { "type": "object" } } } } }
+    });
+    let json_unauthorized = json!({
+        "description": "the caller's ed25519 attester binding is missing or does not verify; `details.how_to_sign` carries the exact digest to sign for this request",
+        "content": { "application/json": { "schema": { "type": "object", "properties": { "error": { "type": "string" }, "details": { "type": "object" } } } } }
+    });
     let svg_ok = json!({
         "description": "ok (image/svg+xml)",
         "content": { "image/svg+xml": { "schema": { "type": "string", "format": "binary" } } }
@@ -17745,6 +17779,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry).","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Parses emem:fact:<cell>:<fact_cid> (legacy memt: also accepted), fetches the signed fact body by CID, and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. Binds the cell: a token whose cell contradicts the signed fact's own cell is refused with 409, so a real fact_cid cannot be passed off under a false location. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"404":json_not_found,"409":json_conflict}}},
+            "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output or human_curated; direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
+            "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
             "/.well-known/emem-verifier.json": {"get":{"summary":"Alias of GET /v1/verifier_spec: the code-generated signing/verification specification, at a well-known path so an offline verifier can discover it without reading the OpenAPI document.","operationId":"emem_verifier_spec_well_known","tags":["verify"],"responses":{"200":json_ok}}},
             "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations. The memory algebra's `merge`: one handle that cites many facts.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["triples"],"properties":{"triples":{"type":"array","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
@@ -20748,6 +20784,1008 @@ async fn post_memory_token_resolve(
         provenance,
         receipt,
         offline_verify_at: "/verify",
+    }))
+}
+
+// ── /v1/derive ───────────────────────────────────────────────────────────
+//
+// Register a derivation you computed yourself and get back a citeable,
+// resolvable token whose lineage terminates in emem-signed facts.
+//
+// `DerivativeFact` already expressed "this value is a function over these
+// parent fact CIDs"; it had no public write surface, so an agent building a
+// world out of emem's facts had no token that could name what it built and
+// shipped "trust me" instead of a citation.
+//
+// Two properties make opening that door safe, and they are the design:
+//
+//  1. It is attested. A derivation with no valid `attester` block is
+//     refused, on the same preimage discipline as a memory write.
+//  2. It is attester-scoped, structurally rather than by a filter. A
+//     derivative fact has no canonical key (`fact_canonical_key` returns
+//     `None` for the variant), so it is never written to the canonical
+//     index, the multi-attester index, or the scope index. Every keyed
+//     read (recall, recall_polygon, state, query_region, memory_search,
+//     find_similar) reads through one of those indexes, so a stranger's
+//     claim cannot surface in another agent's default read. It is
+//     reachable only by naming it: by its token, or through
+//     `/v1/derived`, which requires the attester's pubkey.
+//
+// That is the point rather than a limitation. The caller's need is
+// citation and resolution: their world must hand a stranger a token that
+// resolves and verifies. It does not need this responder to assert their
+// claim as fact.
+//
+// What the responder's signature means here is narrow and is documented
+// on the response itself (see `signature_attests`): this attester
+// submitted this derivation, over these inputs, at this time, and the
+// responder stored it. Not that the value is true.
+
+/// sled tree backing `/v1/derived`, the attester-scoped listing of
+/// caller-registered derivations. Derivative facts are content-addressed
+/// in the fact store but hold no canonical key, so without this index
+/// there would be no way to enumerate one's own derivations. Key layout is
+/// `<pubkey_b32> 0x00 <cell> 0x00 <band> 0x00 <fact_cid>`, which makes
+/// "this attester's rows" a prefix scan and keeps every other attester's
+/// rows outside the range being read.
+const DERIVED_TREE: &str = "emem.derived_by_attester";
+
+/// sled tree mapping `<pubkey_b32> 0x00 <body_hash_hex>` to the `fact_cid`
+/// that submission produced, so re-registering an identical derivation
+/// returns the token already minted for it.
+///
+/// Without this, idempotence would hinge on wall-clock resolution:
+/// `signed_at` is part of the fact, so two identical submissions inside
+/// the same second content-address to ONE cid while two a second apart
+/// produce TWO. "Idempotent, but only if you retry fast enough" is not a
+/// contract anyone can code against, and an agent retrying a timed-out
+/// request would silently leak a second token for the same claim. The
+/// body_hash is the caller's own identifier for the derivation (it is
+/// exactly what their signature covers), so it is the honest dedup key.
+const DERIVED_BY_BODY_TREE: &str = "emem.derived_by_body_hash";
+
+/// NUL separator for [`DERIVED_TREE`] key segments. Not a legal byte in a
+/// cell64, a band key, a CID, or base32, so the segments cannot collide.
+const DERIVED_KEY_SEP: u8 = 0;
+
+/// Build a [`DERIVED_TREE`] key or key-prefix. Passing `None` for a
+/// trailing segment yields the prefix that scans every value of it.
+fn derived_index_key(pubkey_b32: &str, cell: Option<&str>, band: Option<&str>) -> Vec<u8> {
+    let mut k = Vec::with_capacity(96);
+    k.extend_from_slice(pubkey_b32.as_bytes());
+    k.push(DERIVED_KEY_SEP);
+    if let Some(cell) = cell {
+        k.extend_from_slice(cell.as_bytes());
+        k.push(DERIVED_KEY_SEP);
+        // A band can only narrow a scan that already pinned a cell: the
+        // cell segment comes first, so there is no prefix that fixes the
+        // band while leaving the cell free.
+        if let Some(band) = band {
+            k.extend_from_slice(band.as_bytes());
+            k.push(DERIVED_KEY_SEP);
+        }
+    }
+    k
+}
+
+/// A typed 400 with a machine-readable `details.code`. The derive surface
+/// refuses a lot, on purpose, and every refusal has to name itself so a
+/// caller can branch on it instead of string-matching prose.
+fn bad_request(code: &'static str, message: String) -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: format!("{code}: {message}"),
+            details: Some(json!({"code": code})),
+        },
+    )
+}
+
+/// Convert caller JSON into the CBOR value that gets hashed and stored.
+///
+/// Map keys are sorted by the bytewise lexicographic order of their
+/// *encoded* form (RFC 8949 §4.2.1), not by Rust's string ordering: the
+/// two disagree whenever key lengths differ, since a CBOR text head
+/// encodes the length ahead of the bytes (`"b"` precedes `"aa"` under the
+/// RFC, and follows it under a plain string sort). Sorting here makes
+/// `body_hash` a function of the JSON's meaning rather than of the key
+/// order the caller's serialiser happened to emit, which is what lets two
+/// clients sign the same derivation and agree.
+///
+/// Integers are preferred over floats when the JSON number is integral,
+/// matching every other CBOR producer in the codebase.
+fn json_to_canonical_cbor(v: &JsonValue) -> ciborium::Value {
+    match v {
+        JsonValue::Null => ciborium::Value::Null,
+        JsonValue::Bool(b) => ciborium::Value::Bool(*b),
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                ciborium::Value::Integer(i.into())
+            } else if let Some(u) = n.as_u64() {
+                ciborium::Value::Integer(u.into())
+            } else if let Some(f) = n.as_f64() {
+                ciborium::Value::Float(f)
+            } else {
+                // serde_json cannot produce a number that is none of the
+                // three; treat it as absent rather than guess a value.
+                ciborium::Value::Null
+            }
+        }
+        JsonValue::String(s) => ciborium::Value::Text(s.clone()),
+        JsonValue::Array(a) => {
+            ciborium::Value::Array(a.iter().map(json_to_canonical_cbor).collect())
+        }
+        JsonValue::Object(m) => {
+            let mut entries: Vec<(ciborium::Value, ciborium::Value)> = m
+                .iter()
+                .map(|(k, v)| (ciborium::Value::Text(k.clone()), json_to_canonical_cbor(v)))
+                .collect();
+            entries.sort_by_cached_key(|(k, _)| {
+                emem_fact::cbor::to_canonical_cbor(k).unwrap_or_default()
+            });
+            ciborium::Value::Map(entries)
+        }
+    }
+}
+
+/// Caller-supplied attester binding on a derivation. Same shape and same
+/// verifier as a memory write; only the preimage's verb differs.
+#[derive(Debug, Clone, Deserialize)]
+struct DeriveReq {
+    /// The caller's derivation recipe key, e.g. `"same_doy_ndvi_delta@1"`.
+    /// Free-form: this names the caller's function, not an entry in this
+    /// responder's registry, and the responder never executes it.
+    fn_key: String,
+    /// Parent tokens, each `emem:fact:<cell64>:<fact_cid>`. Every one must
+    /// resolve to a fact this responder actually holds; order is
+    /// significant and signed.
+    inputs: Vec<String>,
+    /// cell64 to anchor the derivative at.
+    cell: String,
+    /// Band key the derivative pertains to.
+    band: String,
+    /// Inclusive `[start, end]` tslot window.
+    tslot_window: [u64; 2],
+    /// Operator: `"delta"`, `"mean"`, `"trend"`, ...
+    op: String,
+    /// The derived value.
+    value: JsonValue,
+    /// Caller's confidence, 0..1.
+    confidence: f32,
+    /// `"model_output"` or `"human_curated"`.
+    provenance_class: String,
+    /// Optional blake3 of the code that computed the value.
+    #[serde(default)]
+    code_cid: Option<String>,
+    /// ed25519 caller binding. Absent is refused: the response carries the
+    /// exact digest to sign.
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
+}
+
+/// One resolved parent, echoed so the caller can see the lineage the
+/// responder actually bound rather than the one it sent.
+#[derive(Debug, Clone, Serialize)]
+struct DeriveParent {
+    /// The token as the caller supplied it.
+    token: String,
+    /// cell64 the parent fact is anchored at, read from its signed body.
+    cell: String,
+    /// Parent fact CID.
+    fact_cid: String,
+    /// Parent's band key.
+    band: String,
+    /// Fact variant: `"primary"`, `"derivative"`, or `"absence"`. A
+    /// derivative parent means the DAG has depth; walk it by resolving
+    /// that token in turn.
+    kind: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct DeriveResp {
+    /// Schema marker.
+    schema: &'static str,
+    /// CID of the stored derivative fact.
+    fact_cid: String,
+    /// `emem:fact:<cell64>:<fact_cid>`. Resolves through the existing
+    /// `POST /v1/memory_token/resolve` like any other fact token: a
+    /// derivation is not a new token family, it is a fact.
+    token: String,
+    /// The parents this responder resolved and bound, in caller order.
+    parents: Vec<DeriveParent>,
+    /// The base32 pubkey recorded on the fact as the claimant, and the key
+    /// `POST /v1/derived` needs to list this derivation.
+    attester_pubkey_b32: String,
+    /// Exactly what this responder's signature covers. Stated on the
+    /// response because a caller reading `receipt.signature` would
+    /// otherwise be entitled to read it as an endorsement of the value.
+    signature_attests: &'static str,
+    /// `true` when this call matched a derivation the same attester had
+    /// already registered, so the token is the one minted then and no new
+    /// fact was written.
+    deduplicated: bool,
+    /// The idempotence contract, stated on the response because a retrying
+    /// agent needs to know whether it just leaked a second token.
+    idempotency: &'static str,
+    /// How to read this fact back. Named because a derivative is absent
+    /// from every default read path by construction, which is surprising
+    /// unless said out loud.
+    visibility: JsonValue,
+    /// ed25519 receipt over the stored derivative, signed under primitive
+    /// `emem.derive`.
+    receipt: emem_fact::Receipt,
+    /// Where to check the receipt without trusting this responder.
+    offline_verify_at: &'static str,
+}
+
+/// The sentence the responder's signature actually supports. Kept as one
+/// constant so the response, the docs and the tests cannot drift.
+const DERIVE_SIGNATURE_ATTESTS: &str =
+    "This attester submitted this derivation, over these parent facts, at this time, and this \
+     responder stored it. It does NOT attest that the value is true: the responder did not \
+     compute it and cannot recompute it. The parents are checked to exist here, so the lineage \
+     is real even though the arithmetic over it is the caller's claim.";
+
+/// `POST /v1/derive`: register a caller-computed derivation over facts
+/// this responder holds.
+async fn post_derive(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<DeriveReq>,
+) -> Result<Json<DeriveResp>, ApiError> {
+    let started = std::time::Instant::now();
+
+    // ── Shape ────────────────────────────────────────────────────────
+    let fn_key = req.fn_key.trim().to_string();
+    let cell = req.cell.trim().to_string();
+    let band = req.band.trim().to_string();
+    let op = req.op.trim().to_string();
+    let provenance_class = req.provenance_class.trim().to_string();
+
+    for (name, v) in [
+        ("fn_key", &fn_key),
+        ("cell", &cell),
+        ("band", &band),
+        ("op", &op),
+    ] {
+        if v.is_empty() {
+            return Err(bad_request(
+                "derive_invalid_argument",
+                format!("`{name}` must be a non-empty string"),
+            ));
+        }
+    }
+    if !emem_codec::is_cell64_shape(&cell) {
+        return Err(bad_request(
+            "derive_invalid_cell",
+            format!(
+                "`cell` `{cell}` is not a valid cell64 shape (four `.`-separated base-1024 bigrams). Use /v1/locate to get the canonical address for a place."
+            ),
+        ));
+    }
+    if req.inputs.is_empty() {
+        return Err(bad_request(
+            "derive_no_inputs",
+            "`inputs` must name at least one parent token. A derivation with no parents is not a derivation: it is a primary claim, and this responder does not accept caller-submitted primaries here.".to_string(),
+        ));
+    }
+    if req.tslot_window[0] > req.tslot_window[1] {
+        return Err(bad_request(
+            "derive_invalid_tslot_window",
+            format!(
+                "`tslot_window` is inclusive [start, end] and must be ordered; got [{}, {}]",
+                req.tslot_window[0], req.tslot_window[1]
+            ),
+        ));
+    }
+    if !req.confidence.is_finite() || !(0.0..=1.0).contains(&req.confidence) {
+        return Err(bad_request(
+            "derive_invalid_confidence",
+            format!(
+                "`confidence` must be a finite number in [0, 1]; got {}",
+                req.confidence
+            ),
+        ));
+    }
+
+    // ── Provenance class ─────────────────────────────────────────────
+    // The responder did not compute this value, so it must not file it
+    // under a class that says a sensor produced it or that anyone can
+    // recompute it from the cited raw source.
+    if !emem_primitives::is_caller_provenance_class(&provenance_class) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "derive_provenance_class_refused: `{provenance_class}` is not a class a caller may declare. Allowed: {}. This responder did not compute your value and cannot recompute it, so it will not record it as sensor-derived or as a deterministic index; either would be this responder vouching for arithmetic it never saw. Declare `model_output` if a model produced it, `human_curated` if a person did.",
+                    emem_primitives::CALLER_PROVENANCE_CLASSES.join(", ")
+                ),
+                details: Some(json!({
+                    "code": "derive_provenance_class_refused",
+                    "declared": provenance_class,
+                    "allowed": emem_primitives::CALLER_PROVENANCE_CLASSES,
+                    "refused_because": "direct_sensor and deterministic_index are responder-only classes: they assert tamper-evidence this responder cannot check for a value it did not produce.",
+                })),
+            },
+        ));
+    }
+
+    // ── Parents must actually resolve ────────────────────────────────
+    // Unvalidated `parents` is fake lineage, which is worse than no
+    // lineage: it would let a caller mint a token whose ancestry looks
+    // like it terminates in signed measurements when it terminates in
+    // nothing. Every input is parsed, fetched, and cell-bound before any
+    // of this is written.
+    let mut parsed: Vec<(String, String, String)> = Vec::with_capacity(req.inputs.len());
+    for (i, token) in req.inputs.iter().enumerate() {
+        let (p_cell, p_cid) = parse_memory_token(token).map_err(|message| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("derive_input_unparseable: inputs[{i}] `{token}`: {message}"),
+                    details: Some(json!({
+                        "code": "derive_input_unparseable",
+                        "index": i,
+                        "input": token,
+                    })),
+                },
+            )
+        })?;
+        parsed.push((token.clone(), p_cell, p_cid));
+    }
+
+    let want: Vec<emem_fact::FactCid> = parsed
+        .iter()
+        .map(|(_, _, cid)| emem_fact::FactCid::new(cid.clone()))
+        .collect();
+    let got = s
+        .storage
+        .get_facts_many(&want)
+        .await
+        .map_err(ApiError::from)?;
+
+    let mut parents: Vec<DeriveParent> = Vec::with_capacity(parsed.len());
+    let mut parent_cids: Vec<emem_fact::FactCid> = Vec::with_capacity(parsed.len());
+    for (i, ((token, p_cell, p_cid), fact)) in parsed.iter().zip(got).enumerate() {
+        let Some(fact) = fact else {
+            return Err(ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!(
+                        "derive_parent_unresolved: inputs[{i}] `{token}` names fact_cid `{p_cid}`, which this responder does not hold. Every parent must resolve here before a derivation over it can be registered: lineage that cannot be walked is not lineage. Materialise it first (/v1/recall at the cell, or /v1/backfill for a past tslot), or register the derivation at the responder that holds the parent."
+                    ),
+                    details: Some(json!({
+                        "code": "derive_parent_unresolved",
+                        "index": i,
+                        "input": token,
+                        "fact_cid": p_cid,
+                        "cell": p_cell,
+                    })),
+                },
+            ));
+        };
+        let (f_cell, f_band, kind) = match &fact {
+            emem_fact::Fact::Primary(p) => (p.cell.as_str(), p.band.as_str(), "primary"),
+            emem_fact::Fact::Absence(a) => (a.cell.as_str(), a.band.as_str(), "absence"),
+            emem_fact::Fact::Derivative(d) => (d.cell.as_str(), d.band.as_str(), "derivative"),
+        };
+        // Same cell-binding rule the token resolver enforces: a token whose
+        // cell contradicts the signed fact's own cell is forged or corrupt.
+        // Accepting one here would anchor a derivation's lineage at a place
+        // the parent was never measured.
+        if f_cell != p_cell {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "derive_parent_cell_mismatch: inputs[{i}] `{token}` claims cell `{p_cell}` but fact_cid `{p_cid}` is anchored at `{f_cell}`. Refusing to build lineage on a mislabeled citation. Re-cite as emem:fact:{f_cell}:{p_cid}."
+                    ),
+                    details: Some(json!({
+                        "code": "derive_parent_cell_mismatch",
+                        "index": i,
+                        "input": token,
+                        "token_cell": p_cell,
+                        "fact_cell": f_cell,
+                    })),
+                },
+            ));
+        }
+        parents.push(DeriveParent {
+            token: token.clone(),
+            cell: f_cell.to_string(),
+            fact_cid: p_cid.clone(),
+            band: f_band.to_string(),
+            kind,
+        });
+        parent_cids.push(emem_fact::FactCid::new(p_cid.clone()));
+    }
+
+    // ── The canonical body the caller signs ──────────────────────────
+    // Canonicalize the value BEFORE hashing so the digest the caller signs
+    // and the bytes that get stored describe the same number. Doing it
+    // afterwards would sign one value and store another.
+    let mut value = json_to_canonical_cbor(&req.value);
+    emem_fact::cbor::canonicalize_value(&mut value);
+
+    let body = emem_primitives::DeriveBody {
+        fn_key: fn_key.clone(),
+        inputs: req.inputs.clone(),
+        cell: cell.clone(),
+        band: band.clone(),
+        tslot_window: req.tslot_window,
+        op: op.clone(),
+        value: value.clone(),
+        confidence: req.confidence,
+        provenance_class: provenance_class.clone(),
+        code_cid: req.code_cid.clone(),
+    };
+    let body_hash = body.body_hash().map_err(|message| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("derive_uncanonicalisable_body: {message}"),
+                details: None,
+            },
+        )
+    })?;
+
+    // ── The attester binding ─────────────────────────────────────────
+    let attester = validate_derive_attester(&body_hash, req.attester.as_ref())?;
+
+    // ── Idempotence ──────────────────────────────────────────────────
+    // The same attester re-registering the identical derivation gets the
+    // token already minted for it, rather than a second one naming the
+    // same claim. Keyed on (pubkey, body_hash), so it dedups a caller
+    // against themselves only: two attesters making the same claim are
+    // two claims, and each is entitled to its own citeable token.
+    let body_hash_hex = data_encoding::HEXLOWER.encode(&body_hash);
+    let dedup_key = {
+        let mut k = attester.pubkey_b32.as_bytes().to_vec();
+        k.push(DERIVED_KEY_SEP);
+        k.extend_from_slice(body_hash_hex.as_bytes());
+        k
+    };
+    if let Some(existing) = lookup_derived_by_body(&s, &dedup_key).await? {
+        return Ok(Json(derive_response(
+            &s,
+            existing,
+            cell,
+            parents,
+            attester.pubkey_b32,
+            true,
+            started,
+        )));
+    }
+
+    // ── Build + store ────────────────────────────────────────────────
+    // `signer` is the RESPONDER's key, not the caller's. The only signing
+    // identity this responder has is its own, and minting a fact that
+    // claims the caller's key signed it would be a forgery: the caller
+    // signed the derive preimage, not the fact's canonical CBOR. So the
+    // caller's binding is recorded in `derivation.args`, inside the fact
+    // body, hence inside the fact_cid, hence covered by the responder's
+    // signature, where a verifier can rebuild the DeriveBody from the
+    // fact's own fields and re-check the caller's ed25519 signature
+    // without holding the original request.
+    let signed_at = emem_storage::server::iso8601_now();
+    let args = ciborium::Value::Map(vec![
+        (
+            ciborium::Value::Text("attester_pubkey_b32".into()),
+            ciborium::Value::Text(attester.pubkey_b32.clone()),
+        ),
+        (
+            ciborium::Value::Text("attester_sig_b32".into()),
+            ciborium::Value::Text(attester.sig_b32.clone()),
+        ),
+        (
+            ciborium::Value::Text("body_hash_hex".into()),
+            ciborium::Value::Text(data_encoding::HEXLOWER.encode(&body_hash)),
+        ),
+        (
+            ciborium::Value::Text("code_cid".into()),
+            match &req.code_cid {
+                Some(c) => ciborium::Value::Text(c.clone()),
+                None => ciborium::Value::Null,
+            },
+        ),
+        (
+            ciborium::Value::Text("inputs".into()),
+            ciborium::Value::Array(
+                req.inputs
+                    .iter()
+                    .map(|t| ciborium::Value::Text(t.clone()))
+                    .collect(),
+            ),
+        ),
+        (
+            ciborium::Value::Text("preimage".into()),
+            ciborium::Value::Text(format!(
+                "blake3(\"emem.memory_write|{}|{}|\" || body_hash)",
+                emem_primitives::DERIVE_VERB,
+                emem_primitives::DERIVE_PATH
+            )),
+        ),
+        (
+            ciborium::Value::Text("provenance_class".into()),
+            ciborium::Value::Text(provenance_class.clone()),
+        ),
+        (
+            ciborium::Value::Text("submitted_via".into()),
+            ciborium::Value::Text("emem.derive.v1".into()),
+        ),
+    ]);
+
+    let fact = emem_fact::Fact::Derivative(emem_fact::DerivativeFact {
+        cell: cell.clone(),
+        band: band.clone(),
+        tslot_window: req.tslot_window,
+        op: op.clone(),
+        parents: parent_cids,
+        value,
+        confidence: req.confidence,
+        derivation: emem_fact::Derivation {
+            fn_key: fn_key.clone(),
+            args: Some(args),
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    });
+
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![fact],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("derive_attestation_failed: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let fact_cid = cids
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: "derive_store_returned_no_cid".into(),
+                    details: None,
+                },
+            )
+        })?
+        .as_str()
+        .to_string();
+
+    // Two index writes, both best-effort exactly like the bundle
+    // resolver's tree: the token already resolves without either.
+    //
+    //  - DERIVED_TREE is the attester-scoped listing. Derivative facts
+    //    carry no canonical key, so this is the ONLY way to enumerate
+    //    them, and it is keyed by pubkey first: reading it without naming
+    //    an attester is not a supported query.
+    //  - DERIVED_BY_BODY_TREE is what makes a retry return this same
+    //    token instead of minting a twin.
+    if let Some(db) = s.storage.hot_sled_db() {
+        if let Ok(tree) = db.open_tree(DERIVED_TREE) {
+            let mut key = derived_index_key(&attester.pubkey_b32, Some(&cell), Some(&band));
+            key.extend_from_slice(fact_cid.as_bytes());
+            let _ = tree.insert(key, fact_cid.as_bytes());
+            let _ = tree.flush();
+        }
+        if let Ok(tree) = db.open_tree(DERIVED_BY_BODY_TREE) {
+            let _ = tree.insert(dedup_key, fact_cid.as_bytes());
+            let _ = tree.flush();
+        }
+    }
+
+    Ok(Json(derive_response(
+        &s,
+        fact_cid,
+        cell,
+        parents,
+        attester.pubkey_b32.clone(),
+        false,
+        started,
+    )))
+}
+
+/// Look up a previously registered derivation by `(pubkey, body_hash)`.
+///
+/// Returns `Some(fact_cid)` only when the index hit AND the fact is still
+/// resolvable, so a stale index row (a store rebuilt underneath, a fact
+/// evicted) falls through to a fresh registration rather than handing back
+/// a token that resolves to nothing.
+async fn lookup_derived_by_body(
+    s: &AppState,
+    dedup_key: &[u8],
+) -> Result<Option<String>, ApiError> {
+    let Some(db) = s.storage.hot_sled_db() else {
+        return Ok(None);
+    };
+    let Ok(tree) = db.open_tree(DERIVED_BY_BODY_TREE) else {
+        return Ok(None);
+    };
+    let Ok(Some(raw)) = tree.get(dedup_key) else {
+        return Ok(None);
+    };
+    let cid = String::from_utf8_lossy(&raw).to_string();
+    let found = s
+        .storage
+        .get_facts_many(&[emem_fact::FactCid::new(cid.clone())])
+        .await
+        .map_err(ApiError::from)?;
+    Ok(match found.into_iter().next() {
+        Some(Some(_)) => Some(cid),
+        _ => None,
+    })
+}
+
+/// Build the `/v1/derive` response for a stored derivation, whether it was
+/// just minted or recovered from the dedup index. One builder so the two
+/// paths cannot describe the same fact differently.
+fn derive_response(
+    s: &AppState,
+    fact_cid: String,
+    cell: String,
+    parents: Vec<DeriveParent>,
+    attester_pubkey_b32: String,
+    deduplicated: bool,
+    started: std::time::Instant,
+) -> DeriveResp {
+    // The receipt cites the derivative AND its parents, so the one
+    // signature commits to the whole edge set the caller registered: a
+    // verifier reading the receipt sees which facts the lineage claims
+    // without re-resolving the token first.
+    let mut cited = vec![emem_fact::FactCid::new(fact_cid.clone())];
+    cited.extend(
+        parents
+            .iter()
+            .map(|p| emem_fact::FactCid::new(p.fact_cid.clone())),
+    );
+    let receipt = s.sign_receipt(
+        "emem.derive",
+        vec![cell.clone()],
+        cited,
+        deduplicated,
+        started,
+        None,
+    );
+
+    DeriveResp {
+        schema: "emem.derive.v1",
+        token: format!("emem:fact:{cell}:{fact_cid}"),
+        fact_cid,
+        parents,
+        signature_attests: DERIVE_SIGNATURE_ATTESTS,
+        attester_pubkey_b32: attester_pubkey_b32.clone(),
+        visibility: json!({
+            "in_default_reads": false,
+            "why": "A derivative fact has no canonical (cell, band, tslot) key, so it is never written to the canonical index. recall, recall_polygon, state, query_region, memory_search and find_similar all read through that index and will not return it. This is deliberate: registering a derivation gives you a citation, not a write into the commons another agent reads as ground truth.",
+            "retrievable_by": [
+                "POST /v1/memory_token/resolve with the token above (or emem_memory_token_resolve)",
+                "GET /v1/facts/<fact_cid>",
+                format!("POST /v1/derived with attester_pubkey_b32 = {attester_pubkey_b32}"),
+            ],
+        }),
+        deduplicated,
+        idempotency: "Idempotent per (attester, derivation body). Re-registering an identical derivation returns this same token rather than minting a twin, so a retry after a timeout is safe. `deduplicated: true` means this call matched a registration you had already made; the fact's signed_at is the FIRST submission's. A different attester making the same claim gets their own token: two claimants are two claims.",
+        receipt,
+        offline_verify_at: "/verify",
+    }
+}
+
+/// Validate the derive attester binding. Mirrors
+/// [`validate_attester_binding`]'s contract: a refusal carries the exact
+/// digest to sign rather than a description of the shape, because an agent
+/// that cannot answer "which bytes, which encoding" from the tool contract
+/// has to either guess against a live store or give up.
+fn validate_derive_attester(
+    body_hash: &[u8; 32],
+    attester: Option<&MemoryAttester>,
+) -> Result<MemoryAttester, ApiError> {
+    let verb = emem_primitives::DERIVE_VERB;
+    let path = emem_primitives::DERIVE_PATH;
+    match attester {
+        None => Err(ApiError(
+            StatusCode::UNAUTHORIZED,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "derive_attestation_required: a derivation is a claim, so this responder records whose claim it is. Supply an `attester: {pubkey_b32, sig_b32}` block. `details.how_to_sign` carries the exact 32-byte digest to sign for this exact request, the encoding rules, and a worked example; there is no registration and no API key. Re-send this identical body with the signature attached.".into(),
+                details: Some(json!({
+                    "code": "derive_attestation_required",
+                    "how_to_sign": derive_attester_recipe(body_hash),
+                })),
+            },
+        )),
+        Some(att) => match emem_primitives::verify_attester(verb, path, body_hash, att) {
+            AttestationVerdict::Ok => Ok(att.clone()),
+            AttestationVerdict::BadPubkey => Err(ApiError(
+                StatusCode::UNAUTHORIZED,
+                ErrorBody {
+                    code: ErrorCode::BadSignature,
+                    message: "derive_attestation_invalid: attester.pubkey_b32 is not a valid 32-byte ed25519 key. Expected RFC 4648 base32, no padding, lowercase: 52 characters. See `details.how_to_sign.encoding`.".into(),
+                    details: Some(json!({
+                        "code": "derive_attestation_invalid",
+                        "reason": "bad_pubkey",
+                        "how_to_sign": derive_attester_recipe(body_hash),
+                    })),
+                },
+            )),
+            AttestationVerdict::BadSignature => Err(ApiError(
+                StatusCode::UNAUTHORIZED,
+                ErrorBody {
+                    code: ErrorCode::BadSignature,
+                    message: format!(
+                        "derive_attestation_invalid: attester.sig_b32 does not verify over the expected preimage. This responder expected blake3 digest {} for this derivation. Compare it with the digest you signed: `details.how_to_sign` shows how it was built, including exactly which fields entered body_hash and in what order.",
+                        data_encoding::HEXLOWER.encode(&emem_primitives::attester_preimage(verb, path, body_hash))
+                    ),
+                    details: Some(json!({
+                        "code": "derive_attestation_invalid",
+                        "reason": "bad_signature",
+                        "how_to_sign": derive_attester_recipe(body_hash),
+                    })),
+                },
+            )),
+            // `/v1/derive` is not under the `by_attester` sub-tree, so the
+            // namespace rule cannot fire. Map it rather than panic: the
+            // verdict enum is shared and may grow a caller for this arm.
+            AttestationVerdict::NamespaceMismatch => Err(ApiError(
+                StatusCode::FORBIDDEN,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: "derive_namespace_violation: the attester binding verified but was refused by the namespace rule.".into(),
+                    details: Some(json!({"code": "derive_namespace_violation"})),
+                },
+            )),
+        },
+    }
+}
+
+/// Everything a caller needs to produce a valid `attester` block for a
+/// derivation, with the actual bytes filled in. The sibling of
+/// [`attester_recipe`], differing only in what `body_hash` is built from:
+/// a memory write hashes bytes the caller transmitted verbatim, while a
+/// derivation hashes the canonical CBOR of its semantic fields, so the
+/// same digest is reconstructible later from the stored fact.
+fn derive_attester_recipe(body_hash: &[u8; 32]) -> JsonValue {
+    let verb = emem_primitives::DERIVE_VERB;
+    let path = emem_primitives::DERIVE_PATH;
+    let digest = emem_primitives::attester_preimage(verb, path, body_hash);
+    json!({
+        "sign_this": {
+            "digest_hex": data_encoding::HEXLOWER.encode(&digest),
+            "what_it_is": "The 32-byte blake3 digest this responder will verify your signature against, for this exact derivation. Sign these raw bytes with ed25519. Do NOT sign the hex text of them, and do NOT hash them again.",
+        },
+        "how_it_was_built": {
+            "preimage": format!("blake3(\"emem.memory_write|\" || \"{verb}\" || \"|\" || \"{path}\" || \"|\" || body_hash)"),
+            "body_hash_hex": data_encoding::HEXLOWER.encode(body_hash),
+            "body_hash_is": "blake3 of the CBOR encoding of the derivation body, described exactly under `body_cbor_rules`.",
+            "body_cbor_rules": {
+                "outer": "A definite-length CBOR map of exactly 10 entries (head 0xaa).",
+                "key_order": [
+                    "fn_key", "inputs", "cell", "band", "tslot_window",
+                    "op", "value", "confidence", "provenance_class", "code_cid",
+                ],
+                "key_order_note": "This is the struct's DECLARATION order and it is NOT sorted. Do not apply RFC 8949 §4.2.1 key sorting to the outer map: a generic canonical-CBOR encoder will sort these keys and produce the wrong digest. Emit them in the order listed.",
+                "inputs": "Array of the parent token strings in your order. Order is significant and signed.",
+                "tslot_window": "Array of exactly two unsigned integers, [start, end].",
+                "confidence": "CBOR float32: the byte 0xfa followed by 4 bytes of IEEE-754 binary32, big-endian. NOT float64. The stored fact holds confidence as a 32-bit float, and the body must match the fact bit-for-bit or a verifier could not rebuild this digest from the fact later.",
+                "value": "Encoded with RFC 8949 §4.2 deterministic rules: shortest float form that round-trips (f16/f32/f64), definite lengths, and any nested map's keys sorted by their ENCODED bytes. Floats are canonicalized first, so every NaN collapses to one quiet NaN and -0.0 becomes 0.0.",
+                "code_cid": "CBOR null (0xf6) when you omit it; a text string when you send it.",
+            },
+            "note": "body_hash enters the preimage as 32 raw bytes, not as this hex text. The hex is shown so you can check your own digest.",
+            "shortcut": "You do not have to implement any of the CBOR rules above. Send this request with no `attester` block: the 401 returns `sign_this.digest_hex` for it. Sign that and re-send the byte-identical body with the signature attached. The digest is a pure function of the request, so nothing about it is secret and nothing about it expires. The rules are published for verifiers rebuilding the digest from a stored fact, and for clients that would rather sign in one round-trip.",
+            "domain_note": "The literal `emem.memory_write` prefix is this responder's one caller-attested-write domain, shared with the memory-file verbs. The VERB is what separates them: no file verb is spelled `derive`, so a signature cannot cross between a derivation and a file write.",
+        },
+        "encoding": {
+            "alphabet": "RFC 4648 base32, no padding, lowercase, for both fields",
+            "pubkey_b32": "52 chars = 32 raw bytes of the ed25519 public key",
+            "sig_b32": "103 chars = 64 raw bytes of the ed25519 signature over the digest above",
+            "verification": "ed25519 verify_strict, which rejects malleable signatures",
+        },
+        "registration": "None. Any ed25519 keypair works; generate one locally. The pubkey is recorded on the derived fact as the claimant and is the key you pass to POST /v1/derived to list your own derivations.",
+        // Deliberately the two-round-trip shortcut rather than a local
+        // CBOR build: the rules above exist for verifiers rebuilding the
+        // digest from a stored fact, and an agent that reimplements them
+        // to make one call has taken on the float32 and key-order traps
+        // for nothing. The digest is a pure function of the body, so
+        // asking for it leaks nothing and cannot expire.
+        "worked_example": "import base64, httpx\nfrom cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey\nfrom cryptography.hazmat.primitives import serialization\n\nsk = Ed25519PrivateKey.generate()          # persist the 32-byte seed; it is your claimant identity\npk = sk.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)\nb32 = lambda b: base64.b32encode(b).decode().rstrip('=').lower()\n\nbody = {\"fn_key\": \"same_doy_ndvi_delta@1\", \"inputs\": [parent_token], \"cell\": cell,\n        \"band\": \"indices.ndvi\", \"tslot_window\": [a, b], \"op\": \"delta\",\n        \"value\": 0.25, \"confidence\": 0.9, \"provenance_class\": \"model_output\"}\n\n# 1. Send it unsigned. The 401 hands back the digest for this exact body.\nr = httpx.post(\"https://emem.dev/v1/derive\", json=body)\ndigest = bytes.fromhex(r.json()[\"details\"][\"how_to_sign\"][\"sign_this\"][\"digest_hex\"])\n\n# 2. Sign the raw digest and re-send the BYTE-IDENTICAL body with the block attached.\nbody[\"attester\"] = {\"pubkey_b32\": b32(pk), \"sig_b32\": b32(sk.sign(digest))}\nprint(httpx.post(\"https://emem.dev/v1/derive\", json=body).json()[\"token\"])",
+        "what_the_signature_means": DERIVE_SIGNATURE_ATTESTS,
+        "spec": "GET /v1/verifier_spec, under caller_signed_objects",
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct DerivedListReq {
+    /// Base32 pubkey of the attester whose derivations to list. Required:
+    /// there is no "all attesters" reading of this endpoint, because a
+    /// read that does not name whose claims it wants is the read this
+    /// surface exists to prevent.
+    attester_pubkey_b32: String,
+    /// Optional cell64 filter.
+    #[serde(default)]
+    cell: Option<String>,
+    /// Optional band filter. Only narrows when `cell` is also set: the
+    /// index is keyed cell-before-band.
+    #[serde(default)]
+    band: Option<String>,
+    /// Max rows, 1..=1000, default 100.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct DerivedListRow {
+    cell: String,
+    band: String,
+    fact_cid: String,
+    token: String,
+    op: String,
+    fn_key: String,
+    tslot_window: [u64; 2],
+    signed_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct DerivedListResp {
+    schema: &'static str,
+    attester_pubkey_b32: String,
+    derivations: Vec<DerivedListRow>,
+    /// True when the scan stopped at `limit` and more rows exist.
+    truncated: bool,
+    /// Why this endpoint is the only enumeration path.
+    scoping: &'static str,
+    receipt: emem_fact::Receipt,
+}
+
+/// `POST /v1/derived`: list the derivations registered by one attester.
+///
+/// The explicit opt-in half of the tenancy design. A derivative fact holds
+/// no canonical key and therefore cannot be reached by any keyed read; this
+/// endpoint reaches it, and it cannot be called without naming whose
+/// claims you are asking for. That is a stronger guarantee than a filter on
+/// recall, where a future `attester: None` would silently mean "everyone".
+async fn post_derived_list(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<DerivedListReq>,
+) -> Result<Json<DerivedListResp>, ApiError> {
+    let started = std::time::Instant::now();
+    let pubkey_b32 = req.attester_pubkey_b32.trim().to_lowercase();
+    if pubkey_b32.is_empty() {
+        return Err(bad_request(
+            "derived_attester_required",
+            "`attester_pubkey_b32` is required. Derivations are attester-scoped: this endpoint lists one key's claims, and there is no query that returns every caller's.".to_string(),
+        ));
+    }
+    if data_encoding::BASE32_NOPAD
+        .decode(pubkey_b32.to_uppercase().as_bytes())
+        .map(|b| b.len() != 32)
+        .unwrap_or(true)
+    {
+        return Err(bad_request(
+            "derived_attester_malformed",
+            format!(
+                "`attester_pubkey_b32` `{pubkey_b32}` is not a 32-byte ed25519 key in RFC 4648 base32, no padding, lowercase (52 characters)."
+            ),
+        ));
+    }
+    let limit = req.limit.unwrap_or(100).clamp(1, 1000);
+    let cell = req.cell.as_deref().map(str::trim).filter(|c| !c.is_empty());
+    let band = req.band.as_deref().map(str::trim).filter(|b| !b.is_empty());
+    if band.is_some() && cell.is_none() {
+        return Err(bad_request(
+            "derived_band_needs_cell",
+            "`band` narrows a scan that already pinned a `cell`: the index is keyed cell-before-band, so filtering by band alone would mean walking every row. Pass `cell` too, or drop `band` and filter client-side.".to_string(),
+        ));
+    }
+
+    let db = s.storage.hot_sled_db().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: "derived_index_unavailable: this responder has no durable store mounted, so it cannot enumerate derivations. Resolve them by token instead.".into(),
+                details: None,
+            },
+        )
+    })?;
+    let tree = db.open_tree(DERIVED_TREE).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("derived_index_open_failed: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    let prefix = derived_index_key(&pubkey_b32, cell, band);
+    let mut cids: Vec<emem_fact::FactCid> = Vec::new();
+    let mut truncated = false;
+    for row in tree.scan_prefix(&prefix) {
+        let (_, v) = row.map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("derived_index_scan_failed: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+        if cids.len() == limit {
+            truncated = true;
+            break;
+        }
+        cids.push(emem_fact::FactCid::new(
+            String::from_utf8_lossy(&v).to_string(),
+        ));
+    }
+
+    let facts = s
+        .storage
+        .get_facts_many(&cids)
+        .await
+        .map_err(ApiError::from)?;
+    let mut derivations = Vec::with_capacity(cids.len());
+    let mut cited: Vec<emem_fact::FactCid> = Vec::with_capacity(cids.len());
+    let mut cells: Vec<String> = Vec::new();
+    for (cid, fact) in cids.iter().zip(facts) {
+        // Only the derivative variant can appear here; a row pointing at
+        // anything else means the index disagrees with the store, so skip
+        // rather than invent a shape for it.
+        let Some(emem_fact::Fact::Derivative(d)) = fact else {
+            continue;
+        };
+        if !cells.contains(&d.cell) {
+            cells.push(d.cell.clone());
+        }
+        derivations.push(DerivedListRow {
+            token: format!("emem:fact:{}:{}", d.cell, cid.as_str()),
+            cell: d.cell.clone(),
+            band: d.band.clone(),
+            fact_cid: cid.as_str().to_string(),
+            op: d.op.clone(),
+            fn_key: d.derivation.fn_key.clone(),
+            tslot_window: d.tslot_window,
+            signed_at: d.signed_at.clone(),
+        });
+        cited.push(cid.clone());
+    }
+
+    let receipt = s.sign_receipt("emem.derived_list", cells, cited, true, started, None);
+    Ok(Json(DerivedListResp {
+        schema: "emem.derived_list.v1",
+        attester_pubkey_b32: pubkey_b32,
+        derivations,
+        truncated,
+        scoping: "Derivations are attester-scoped. They carry no canonical (cell, band, tslot) key, so no default read path returns them; this endpoint and token resolution are the only ways to reach one.",
+        receipt,
     }))
 }
 
@@ -56637,5 +57675,638 @@ mod tests {
         let ask: Intent = serde_json::from_str(r#"{"type":"ask","description":"x"}"#)
             .expect("ask variant must parse");
         assert!(matches!(ask, Intent::Ask { .. }));
+    }
+
+    // ── /v1/derive ───────────────────────────────────────────────────
+    //
+    // The properties under test are the ones that make opening a public
+    // write surface onto `DerivativeFact` safe rather than reckless:
+    // every derivation is attested, every parent really exists, the
+    // responder never claims a caller's value is true, and nothing a
+    // stranger registers can reach another agent's default read.
+
+    const DERIVE_CELL: &str = "damO.zb000.xUti.zde78";
+
+    fn derive_keypair(seed: [u8; 32]) -> (ed25519_dalek::SigningKey, String) {
+        let sk = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let pubkey_b32 = data_encoding::BASE32_NOPAD
+            .encode(sk.verifying_key().as_bytes())
+            .to_lowercase();
+        (sk, pubkey_b32)
+    }
+
+    /// Sign a derive request the way a caller would: build the same
+    /// canonical body the responder will, hash it, sign the preimage.
+    fn sign_derive(sk: &ed25519_dalek::SigningKey, req: &DeriveReq) -> MemoryAttester {
+        use ed25519_dalek::Signer;
+        let mut value = json_to_canonical_cbor(&req.value);
+        emem_fact::cbor::canonicalize_value(&mut value);
+        let body = emem_primitives::DeriveBody {
+            fn_key: req.fn_key.clone(),
+            inputs: req.inputs.clone(),
+            cell: req.cell.clone(),
+            band: req.band.clone(),
+            tslot_window: req.tslot_window,
+            op: req.op.clone(),
+            value,
+            confidence: req.confidence,
+            provenance_class: req.provenance_class.clone(),
+            code_cid: req.code_cid.clone(),
+        };
+        MemoryAttester {
+            pubkey_b32: data_encoding::BASE32_NOPAD
+                .encode(sk.verifying_key().as_bytes())
+                .to_lowercase(),
+            sig_b32: data_encoding::BASE32_NOPAD
+                .encode(&sk.sign(&body.preimage().expect("preimage")).to_bytes())
+                .to_lowercase(),
+        }
+    }
+
+    fn derive_req(inputs: Vec<String>) -> DeriveReq {
+        DeriveReq {
+            fn_key: "same_doy_ndvi_delta@1".into(),
+            inputs,
+            cell: DERIVE_CELL.into(),
+            band: "indices.ndvi".into(),
+            tslot_window: [10, 20],
+            op: "delta".into(),
+            value: json!(0.14),
+            confidence: 0.9,
+            provenance_class: "model_output".into(),
+            code_cid: None,
+            attester: None,
+        }
+    }
+
+    /// Seed two primary NDVI facts and return their tokens: the lineage a
+    /// real derivation would terminate in.
+    async fn seed_derive_parents(s: &AppState) -> Vec<String> {
+        let a = seed_ndvi_fact(
+            s,
+            DERIVE_CELL,
+            10,
+            [11u8; 32],
+            0.40,
+            0.95,
+            "2026-01-01T00:00:00Z",
+        )
+        .await;
+        let b = seed_ndvi_fact(
+            s,
+            DERIVE_CELL,
+            20,
+            [11u8; 32],
+            0.54,
+            0.95,
+            "2026-01-02T00:00:00Z",
+        )
+        .await;
+        vec![
+            format!("emem:fact:{DERIVE_CELL}:{a}"),
+            format!("emem:fact:{DERIVE_CELL}:{b}"),
+        ]
+    }
+
+    /// An unattested derivation is refused, and the refusal is
+    /// ACTIONABLE: it carries the exact digest to sign. This is the P4
+    /// complaint applied in advance: an agent that can only be told the
+    /// preimage's shape has to guess against a live store or give up, so
+    /// the responder hands over the bytes it will verify against. Signing
+    /// that digest and re-sending the identical body must then succeed.
+    #[tokio::test]
+    async fn derive_refuses_unattested_and_the_refusal_carries_the_signable_digest() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+
+        let err = post_derive(State(s.clone()), EmemJson(derive_req(inputs.clone())))
+            .await
+            .expect_err("unattested derive must be refused");
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+        let details = err.1.details.expect("refusal carries details");
+        assert_eq!(details["code"], json!("derive_attestation_required"));
+
+        let digest_hex = details["how_to_sign"]["sign_this"]["digest_hex"]
+            .as_str()
+            .expect("the refusal names the exact digest to sign")
+            .to_string();
+        let digest = data_encoding::HEXLOWER
+            .decode(digest_hex.as_bytes())
+            .expect("digest_hex is hex");
+        assert_eq!(digest.len(), 32, "a blake3 digest is 32 bytes");
+
+        // Sign exactly what the refusal handed back and re-send.
+        use ed25519_dalek::Signer;
+        let (sk, pubkey_b32) = derive_keypair([7u8; 32]);
+        let mut req = derive_req(inputs);
+        req.attester = Some(MemoryAttester {
+            pubkey_b32: pubkey_b32.clone(),
+            sig_b32: data_encoding::BASE32_NOPAD
+                .encode(&sk.sign(&digest).to_bytes())
+                .to_lowercase(),
+        });
+        let Json(resp) = post_derive(State(s), EmemJson(req))
+            .await
+            .expect("signing the digest the responder handed back must be sufficient");
+        assert_eq!(resp.attester_pubkey_b32, pubkey_b32);
+    }
+
+    /// A signature over a different derivation must not register this one.
+    /// The refusal quotes the digest that WAS expected so the caller can
+    /// diff it rather than guess which component disagreed.
+    #[tokio::test]
+    async fn derive_refuses_a_signature_over_a_different_body() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, _) = derive_keypair([8u8; 32]);
+
+        // Sign one value, submit another.
+        let signed_over = derive_req(inputs.clone());
+        let mut sent = derive_req(inputs);
+        sent.value = json!(0.99);
+        sent.attester = Some(sign_derive(&sk, &signed_over));
+
+        let err = post_derive(State(s), EmemJson(sent))
+            .await
+            .expect_err("a signature over different content must not verify");
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+        let details = err.1.details.expect("details");
+        assert_eq!(details["reason"], json!("bad_signature"));
+        assert!(
+            details["how_to_sign"]["sign_this"]["digest_hex"].is_string(),
+            "a bad signature still gets told which digest was expected"
+        );
+    }
+
+    /// Unvalidated `parents` would be fake lineage: a token whose ancestry
+    /// looks like it terminates in signed measurements when it terminates
+    /// in nothing. Every input must resolve HERE, and the refusal names
+    /// which one did not.
+    #[tokio::test]
+    async fn derive_refuses_a_parent_that_does_not_resolve_and_names_it() {
+        let s = test_app_state();
+        let mut inputs = seed_derive_parents(&s).await;
+        let ghost = format!("emem:fact:{DERIVE_CELL}:{}", "z".repeat(52));
+        inputs.push(ghost.clone());
+
+        let (sk, _) = derive_keypair([9u8; 32]);
+        let mut req = derive_req(inputs);
+        let att = sign_derive(&sk, &req);
+        req.attester = Some(att);
+
+        let err = post_derive(State(s), EmemJson(req))
+            .await
+            .expect_err("a derivation over a fact this responder does not hold must be refused");
+        assert_eq!(err.0, StatusCode::NOT_FOUND);
+        assert_eq!(err.1.code, ErrorCode::CidNotFound);
+        let details = err.1.details.expect("details");
+        assert_eq!(details["code"], json!("derive_parent_unresolved"));
+        assert_eq!(
+            details["index"],
+            json!(2),
+            "the refusal names WHICH parent failed, not just that one did"
+        );
+        assert_eq!(details["input"], json!(ghost));
+    }
+
+    /// The responder did not compute the value and cannot recompute it, so
+    /// it must not file the claim under a class that says a sensor
+    /// produced it or that it is deterministically recomputable. Both
+    /// sensor-side classes are refused; both caller classes are accepted.
+    #[tokio::test]
+    async fn derive_refuses_the_responder_only_provenance_classes() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, _) = derive_keypair([10u8; 32]);
+
+        for class in ["direct_sensor", "deterministic_index", "unclassified"] {
+            let mut req = derive_req(inputs.clone());
+            req.provenance_class = class.into();
+            let att = sign_derive(&sk, &req);
+            req.attester = Some(att);
+            let err = post_derive(State(s.clone()), EmemJson(req))
+                .await
+                .err()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "`{class}` must be refused: this responder did not compute the value and \
+                         must not record it as sensor-derived or deterministically recomputable"
+                    )
+                });
+            assert_eq!(err.0, StatusCode::BAD_REQUEST, "{class}");
+            let details = err.1.details.expect("details");
+            assert_eq!(
+                details["code"],
+                json!("derive_provenance_class_refused"),
+                "{class}"
+            );
+            assert_eq!(details["declared"], json!(class));
+        }
+
+        // Both caller classes are accepted: the refusal is about the two
+        // classes that would have the responder vouch for arithmetic it
+        // never saw, not about derivations in general.
+        for (i, class) in ["model_output", "human_curated"].iter().enumerate() {
+            let mut req = derive_req(inputs.clone());
+            req.provenance_class = (*class).into();
+            // Distinct values keep the fact CIDs distinct; an identical
+            // repeat would be a duplicate merkle leaf, not a policy failure.
+            req.value = json!(0.10 + i as f64);
+            let att = sign_derive(&sk, &req);
+            req.attester = Some(att);
+            let Json(ok) = post_derive(State(s.clone()), EmemJson(req))
+                .await
+                .unwrap_or_else(|e| panic!("`{class}` must be accepted: {}", e.1.message));
+            assert!(!ok.fact_cid.is_empty());
+        }
+    }
+
+    /// The property the whole tenancy design rests on: a derivation
+    /// registered by a stranger at a cell does NOT come back from a
+    /// default recall at that cell. Verified against the real recall
+    /// primitive and against the storage indexes underneath it, because
+    /// this must hold structurally rather than by a filter someone can
+    /// later forget to apply.
+    #[tokio::test]
+    async fn derived_fact_is_absent_from_default_recall() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, pubkey_b32) = derive_keypair([12u8; 32]);
+
+        let mut req = derive_req(inputs);
+        let att = sign_derive(&sk, &req);
+        req.attester = Some(att);
+        let Json(resp) = post_derive(State(s.clone()), EmemJson(req))
+            .await
+            .expect("derive");
+
+        // The default read at the very cell the derivation was anchored at.
+        let recalled = emem_primitives::recall(
+            &emem_primitives::RecallReq {
+                cell: DERIVE_CELL.to_string(),
+                ..Default::default()
+            },
+            &s,
+        )
+        .await
+        .expect("recall");
+
+        assert!(
+            !recalled
+                .facts
+                .iter()
+                .any(|f| matches!(f, emem_fact::Fact::Derivative(_))),
+            "a caller-registered derivative must never surface in a default recall: that is \
+             memory poisoning at the fact layer"
+        );
+        assert!(
+            !recalled
+                .receipt
+                .fact_cids
+                .iter()
+                .any(|c| c.as_str() == resp.fact_cid),
+            "the derived fact_cid must not be cited by a default recall's receipt either"
+        );
+        // The parents, which ARE this responder's own signed measurements,
+        // must still be there: the guard is about the derivative, not a
+        // blanket suppression of the cell.
+        assert!(
+            !recalled.facts.is_empty(),
+            "the primary facts at the cell are unaffected"
+        );
+
+        // Underneath recall: the canonical index is what every keyed read
+        // path walks, so absence there is what makes absence in recall,
+        // recall_polygon, state, query_region, memory_search and
+        // find_similar a structural property rather than six filters.
+        let scanned = s.storage.scan_cell(DERIVE_CELL, None).await.expect("scan");
+        assert!(
+            !scanned.iter().any(|(_, c)| c.as_str() == resp.fact_cid),
+            "the derivative must hold no canonical key"
+        );
+        let indexed = s.storage.iter_index(None).await.expect("iter_index");
+        assert!(
+            !indexed.iter().any(|(_, c)| c.as_str() == resp.fact_cid),
+            "the derivative must not appear in a corpus-wide index scan (find_similar)"
+        );
+
+        // But it IS reachable by explicitly naming the attester.
+        let Json(listed) = post_derived_list(
+            State(s.clone()),
+            EmemJson(DerivedListReq {
+                attester_pubkey_b32: pubkey_b32.clone(),
+                cell: None,
+                band: None,
+                limit: None,
+            }),
+        )
+        .await
+        .expect("derived list");
+        assert_eq!(listed.derivations.len(), 1);
+        assert_eq!(listed.derivations[0].fact_cid, resp.fact_cid);
+
+        // And another attester's listing does not see it.
+        let (_, other_pubkey) = derive_keypair([13u8; 32]);
+        let Json(other) = post_derived_list(
+            State(s),
+            EmemJson(DerivedListReq {
+                attester_pubkey_b32: other_pubkey,
+                cell: None,
+                band: None,
+                limit: None,
+            }),
+        )
+        .await
+        .expect("derived list");
+        assert!(
+            other.derivations.is_empty(),
+            "one attester's derivations must not appear under another's key"
+        );
+    }
+
+    /// The round trip the caller actually needs: register a derivation,
+    /// hand the token to a stranger, have it resolve to the identical
+    /// signed bytes, and have the receipt verify without trusting the
+    /// wire. Also pins the lineage: the stored fact's parents are the
+    /// fact CIDs of the input tokens, so a verifier can walk down to this
+    /// responder's own signed measurements.
+    #[tokio::test]
+    async fn derive_round_trip_resolves_to_identical_bytes_and_verifies() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, pubkey_b32) = derive_keypair([14u8; 32]);
+
+        let mut req = derive_req(inputs.clone());
+        req.code_cid = Some("blake3:abc123".into());
+        let att = sign_derive(&sk, &req);
+        req.attester = Some(att);
+        let Json(resp) = post_derive(State(s.clone()), EmemJson(req))
+            .await
+            .expect("derive");
+
+        assert_eq!(
+            resp.token,
+            format!("emem:fact:{DERIVE_CELL}:{}", resp.fact_cid)
+        );
+        assert_eq!(resp.parents.len(), 2);
+        assert!(resp.parents.iter().all(|p| p.kind == "primary"));
+        assert_eq!(resp.visibility["in_default_reads"], json!(false));
+
+        // Resolve the token the way a stranger would.
+        let Json(resolved) = post_memory_token_resolve(
+            State(s.clone()),
+            EmemJson(MemoryTokenResolveReq {
+                token: resp.token.clone(),
+            }),
+        )
+        .await
+        .expect("the token a derive returns must resolve through the ordinary resolver");
+        assert!(resolved.resolved);
+        assert_eq!(resolved.fact_cid, resp.fact_cid);
+
+        // Identical bytes: the resolved body re-encodes to the CID it was
+        // fetched by. This is what "resolve to identical bytes" means
+        // literally rather than rhetorically.
+        let fact: emem_fact::Fact =
+            serde_json::from_value(resolved.fact.clone()).expect("fact body round-trips");
+        let emem_fact::Fact::Derivative(d) = &fact else {
+            panic!("a derive token must resolve to a derivative fact");
+        };
+        assert_eq!(d.cell, DERIVE_CELL);
+        assert_eq!(d.band, "indices.ndvi");
+        assert_eq!(d.op, "delta");
+        assert_eq!(d.tslot_window, [10, 20]);
+
+        // Lineage: parents are the parsed input tokens' CIDs, in order.
+        let want_parents: Vec<String> = inputs
+            .iter()
+            .map(|t| parse_memory_token(t).unwrap().1)
+            .collect();
+        let got_parents: Vec<String> = d.parents.iter().map(|c| c.as_str().to_string()).collect();
+        assert_eq!(got_parents, want_parents, "parents preserve caller order");
+
+        // The claimant is recorded on the fact, so a verifier reading the
+        // signed body alone knows whose claim it is.
+        let args = d.derivation.args.as_ref().expect("derivation.args");
+        let ciborium::Value::Map(entries) = args else {
+            panic!("args is a map");
+        };
+        let get = |k: &str| {
+            entries.iter().find_map(|(ek, ev)| match (ek, ev) {
+                (ciborium::Value::Text(t), ciborium::Value::Text(v)) if t == k => Some(v.clone()),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            get("attester_pubkey_b32").as_deref(),
+            Some(pubkey_b32.as_str())
+        );
+        assert_eq!(get("provenance_class").as_deref(), Some("model_output"));
+        assert!(
+            get("attester_sig_b32").is_some(),
+            "the caller's signature is stored on the fact"
+        );
+
+        // The responder signed it with its OWN key: the fact does not
+        // pretend the caller signed its canonical CBOR.
+        assert_eq!(
+            d.signer, s.identity.pubkey,
+            "signer is the responder, not the caller: the caller signed the derive preimage, not \
+             the fact body, and claiming otherwise would be a forgery"
+        );
+
+        // The receipt verifies through the real verifier.
+        let Json(verdict) = post_verify_receipt(
+            State(s),
+            Ok(Json(VerifyReceiptReq {
+                receipt: resp.receipt.clone(),
+                pubkey_b32: None,
+                current_responder_epoch: None,
+                facts: None,
+            })),
+        )
+        .await
+        .expect("verify_receipt");
+        assert_eq!(verdict["valid"], json!(true), "{verdict}");
+
+        // The receipt cites the derivative AND its parents, so one
+        // signature commits to the whole registered edge set.
+        assert!(resp
+            .receipt
+            .fact_cids
+            .iter()
+            .any(|c| c.as_str() == resp.fact_cid));
+        for p in &want_parents {
+            assert!(
+                resp.receipt.fact_cids.iter().any(|c| c.as_str() == p),
+                "receipt cites parent {p}"
+            );
+        }
+    }
+
+    /// Re-registering an identical derivation returns the SAME token, so a
+    /// retry after a timeout is safe.
+    ///
+    /// Without the dedup index this would depend on the wall clock:
+    /// `signed_at` is part of the fact, so two identical submissions in
+    /// the same second content-address to one CID and two a second apart
+    /// produce two. "Idempotent if you retry fast enough" is not a
+    /// contract, and the accidental version of it is the kind of thing
+    /// that only shows up in production.
+    #[tokio::test]
+    async fn derive_is_idempotent_per_attester_and_body() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, _) = derive_keypair([16u8; 32]);
+
+        let mut first = derive_req(inputs.clone());
+        let att = sign_derive(&sk, &first);
+        first.attester = Some(att.clone());
+        let Json(a) = post_derive(State(s.clone()), EmemJson(first))
+            .await
+            .expect("first");
+        assert!(!a.deduplicated, "the first registration is not a dedup hit");
+
+        // The identical body, identical signature, submitted again. Force
+        // a distinct wall-clock second so this proves the dedup index is
+        // doing the work rather than `signed_at` happening to collide.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        let mut second = derive_req(inputs);
+        second.attester = Some(att);
+        let Json(b) = post_derive(State(s.clone()), EmemJson(second))
+            .await
+            .expect("a replay is accepted");
+
+        assert_eq!(
+            a.fact_cid, b.fact_cid,
+            "a retry must return the token already minted, not a twin naming the same claim"
+        );
+        assert!(b.deduplicated, "the replay reports itself as a dedup hit");
+
+        // And the listing shows ONE derivation, not two.
+        let (_, pubkey_b32) = derive_keypair([16u8; 32]);
+        let Json(listed) = post_derived_list(
+            State(s),
+            EmemJson(DerivedListReq {
+                attester_pubkey_b32: pubkey_b32,
+                cell: None,
+                band: None,
+                limit: None,
+            }),
+        )
+        .await
+        .expect("list");
+        assert_eq!(
+            listed.derivations.len(),
+            1,
+            "a retry must not leave two rows naming the same claim"
+        );
+    }
+
+    /// Dedup is scoped to the attester. Two keys making the same claim are
+    /// two claims, and each is entitled to its own citeable token; folding
+    /// them together would let the first registrant's token silently stand
+    /// in for someone else's assertion.
+    #[tokio::test]
+    async fn derive_dedup_does_not_cross_attesters() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+
+        let mut cids = vec![];
+        for seed in [[17u8; 32], [18u8; 32]] {
+            let (sk, _) = derive_keypair(seed);
+            let mut req = derive_req(inputs.clone());
+            let att = sign_derive(&sk, &req);
+            req.attester = Some(att);
+            let Json(r) = post_derive(State(s.clone()), EmemJson(req))
+                .await
+                .expect("derive");
+            assert!(!r.deduplicated);
+            cids.push(r.fact_cid);
+        }
+        assert_ne!(
+            cids[0], cids[1],
+            "two attesters claiming the same thing get two tokens"
+        );
+    }
+
+    /// A parent token whose cell contradicts the fact it names is a forged
+    /// citation; building lineage on it would anchor a derivation at a
+    /// place the parent was never measured.
+    #[tokio::test]
+    async fn derive_refuses_a_mislabeled_parent_token() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (_, real_cid) = parse_memory_token(&inputs[0]).unwrap();
+        let elsewhere = "defi.zb4d9.pefa.zf619";
+
+        let (sk, _) = derive_keypair([15u8; 32]);
+        let mut req = derive_req(vec![format!("emem:fact:{elsewhere}:{real_cid}")]);
+        let att = sign_derive(&sk, &req);
+        req.attester = Some(att);
+
+        let err = post_derive(State(s), EmemJson(req))
+            .await
+            .expect_err("a real cid under a false cell must not become lineage");
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert_eq!(
+            err.1.details.expect("details")["code"],
+            json!("derive_parent_cell_mismatch")
+        );
+    }
+
+    /// `/v1/derived` has no all-attesters form. The pubkey is the
+    /// contract, not a filter that can be omitted into meaning
+    /// "everyone".
+    #[tokio::test]
+    async fn derived_list_requires_a_well_formed_attester() {
+        let s = test_app_state();
+        for (bad, why) in [("", "empty"), ("not-base32", "malformed")] {
+            let err = post_derived_list(
+                State(s.clone()),
+                EmemJson(DerivedListReq {
+                    attester_pubkey_b32: bad.into(),
+                    cell: None,
+                    band: None,
+                    limit: None,
+                }),
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err.0, StatusCode::BAD_REQUEST, "{why} pubkey is refused");
+        }
+    }
+
+    /// The canonical body must not depend on the caller's JSON key
+    /// ordering: two clients serialising the same object differently have
+    /// to produce the same digest, or the signature is unreproducible.
+    #[test]
+    fn derive_value_hash_ignores_json_key_order() {
+        let a = json_to_canonical_cbor(&json!({"b": 1, "a": 2}));
+        let b = json_to_canonical_cbor(&json!({"a": 2, "b": 1}));
+        assert_eq!(
+            emem_fact::cbor::to_canonical_cbor(&a).unwrap(),
+            emem_fact::cbor::to_canonical_cbor(&b).unwrap()
+        );
+    }
+
+    /// RFC 8949 §4.2.1 orders map keys by their ENCODED bytes, which puts
+    /// shorter keys first; a plain string sort would put "aa" before "b".
+    /// Getting this wrong would make two conformant clients disagree on
+    /// the digest for the same object.
+    #[test]
+    fn derive_map_keys_sort_by_encoded_length_first() {
+        let v = json_to_canonical_cbor(&json!({"aa": 1, "b": 2}));
+        let ciborium::Value::Map(entries) = v else {
+            panic!("map");
+        };
+        let keys: Vec<String> = entries
+            .iter()
+            .map(|(k, _)| match k {
+                ciborium::Value::Text(t) => t.clone(),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(keys, vec!["b".to_string(), "aa".to_string()]);
     }
 }

@@ -439,6 +439,168 @@ Worked example (90-day NDVI mean over three monthly composites):
 }
 ```
 
+#### Caller-registered derivations (`POST /v1/derive`)
+
+A responder computes derivatives of its own. A caller can also register
+one: a value it computed itself over facts the responder holds. The
+result is an ordinary `DerivativeFact` with an ordinary
+`emem:fact:<cell64>:<fact_cid>` token, which is the point. A world model
+built out of emem facts can hand a stranger one string that resolves,
+verifies, and names its parents, instead of asserting a conclusion and
+asking to be believed. A verifier walks `parents` down to the
+responder's own signed measurements.
+
+Three rules make that safe to expose.
+
+**1. Every parent must resolve here.** Each `inputs[]` entry is parsed,
+fetched, and checked against the cell it claims. A token naming a fact
+this responder does not hold is refused with `404
+derive_parent_unresolved` naming the index that failed; a real
+`fact_cid` under a false cell is refused with `409
+derive_parent_cell_mismatch`. Unvalidated parents would be fake lineage,
+which is worse than none: it would let a token's ancestry *look* like it
+terminates in signed measurements when it terminates in nothing.
+
+**2. The provenance class must be a caller class.** `model_output` or
+`human_curated`, declared by the caller and validated by the responder.
+`direct_sensor` and `deterministic_index` are refused with `400
+derive_provenance_class_refused`. Those two classes assert
+tamper-evidence (a sensor produced this, or anyone can recompute it
+from the cited raw source) and the responder can assert neither about
+arithmetic it never saw.
+
+**3. It must be attested, and the signature means something narrow.**
+
+> **What the responder's signature attests:** that this attester
+> submitted this derivation, over these parent facts, at this time, and
+> that the responder stored it. It does **not** attest that the value is
+> true. The responder did not compute it and cannot recompute it.
+
+`signer` on the fact is the **responder's** key, because the responder's
+own identity is the only one it can sign with, and minting a fact that
+claimed the caller's key had signed the fact's canonical CBOR would be a
+forgery: the caller signed the derive preimage, not the fact body. The
+caller's binding is recorded inside `derivation.args`, hence inside the
+`fact_cid`, hence covered by the responder's signature:
+
+```jsonc
+"derivation": {
+  "fn_key": "same_doy_ndvi_delta@1",     // the CALLER's recipe; never executed here
+  "args": {
+    "attester_pubkey_b32": "...",        // whose claim this is
+    "attester_sig_b32": "...",           // the caller's own ed25519 signature
+    "body_hash_hex": "...",              // what that signature covers
+    "inputs": ["emem:fact:...", "..."],  // the parent tokens as submitted
+    "provenance_class": "model_output",
+    "code_cid": null,
+    "preimage": "blake3(\"emem.memory_write|derive|/v1/derive|\" || body_hash)",
+    "submitted_via": "emem.derive.v1"
+  }
+}
+```
+
+Every field of the signed body is recoverable from the stored fact, so a
+third party holding only the fact can rebuild `body_hash`, rebuild the
+preimage, and re-check the **caller's** signature without the original
+HTTP request. That is the difference between recording "some key signed
+something" and proving "this key signed *this* derivation".
+
+##### The preimage
+
+The binding reuses the memory-write attester scheme unchanged (§ see
+`crates/emem-primitives/src/memory_acl.rs`), with `verb = "derive"` and
+`path = "/v1/derive"`:
+
+```text
+sig       = ed25519(blake3("emem.memory_write|derive|/v1/derive|" || body_hash))
+body_hash = blake3(cbor(DeriveBody))
+```
+
+One scheme, one verifier. The verb is what separates the domains: no
+memory-file verb is spelled `derive`, so a signature minted for a file
+write cannot be replayed as a derivation or the reverse. The literal
+`emem.memory_write` prefix is the domain for every caller-attested write
+at this responder, not only file writes; it is spelled that way because
+renaming it would invalidate every memory-write signature already
+issued.
+
+`cbor(DeriveBody)` is a **definite-length 10-entry map whose keys appear
+in declaration order**:
+
+| # | key | encoding |
+|---|---|---|
+| 1 | `fn_key` | text |
+| 2 | `inputs` | array of text, in caller order (order is signed) |
+| 3 | `cell` | text |
+| 4 | `band` | text |
+| 5 | `tslot_window` | array of two unsigned ints |
+| 6 | `op` | text |
+| 7 | `value` | RFC 8949 §4.2 deterministic; floats canonicalised first |
+| 8 | `confidence` | **CBOR float32** (`0xfa` + IEEE-754 binary32) |
+| 9 | `provenance_class` | text |
+| 10 | `code_cid` | text, or CBOR null when omitted |
+
+Two traps worth stating plainly, because a generic encoder gets both
+wrong:
+
+- The outer map is **not** RFC 8949 §4.2.1 key-sorted. It is declaration
+  order. A canonical-CBOR library pointed at this map will sort the keys
+  and compute the wrong digest.
+- `confidence` is a **float32**, not a float64, because
+  `DerivativeFact::confidence` is an `f32` and the signed body has to
+  match the stored fact bit-for-bit or the reconstruction above breaks.
+
+Nested maps *inside* `value` are sorted by their encoded key bytes, per
+§4.2.1, so the digest does not depend on the caller's JSON key order.
+
+**You do not have to implement any of this.** Send the request with no
+`attester` block. The `401 derive_attestation_required` response carries
+`details.how_to_sign.sign_this.digest_hex`: the exact 32 bytes the
+responder will verify against, plus the full byte-level rules and a
+worked example. Sign that digest, re-send the byte-identical body with
+the signature attached. The digest is a pure function of the request, so
+nothing about it is secret and nothing about it expires. The rules above
+are published for verifiers rebuilding a digest from a stored fact, and
+for clients that would rather sign in one round-trip.
+
+##### Tenancy: derived facts are attester-scoped
+
+A caller-registered derivative is untrusted input, so it must never
+reach another agent's default read. It does not, and not because of a
+filter:
+
+> `fact_canonical_key` returns `None` for the `Derivative` variant
+> (`crates/emem-cache/src/sled_hot.rs`), so a derivative is stored
+> content-addressed but is **never written to the canonical index**, the
+> multi-attester index, or the scope index.
+
+Every keyed read walks one of those indexes. So `recall`,
+`recall_polygon`, `state`, `query_region`, `memory_search` and
+`find_similar` cannot return a caller's derivation at all. The absence
+is structural rather than six filters someone has to remember to apply.
+This is the point rather than a limitation: registering a derivation
+buys citation and resolution, not an assertion into the commons.
+
+Two reads reach a derivation, and both require naming it:
+
+1. **Its token.** `POST /v1/memory_token/resolve` (or `GET
+   /v1/facts/<fact_cid>`). A derivation is not a new token family, it
+   is a fact.
+2. **`POST /v1/derived`**, which requires `attester_pubkey_b32`. There is
+   no all-attesters form. A required pubkey is a stronger guarantee than
+   an optional filter on `recall`, where a future `attester: None` could
+   silently come to mean "everyone".
+
+`POST /v1/derive` is **idempotent per `(attester, body_hash)`**. A
+repeat submission returns the token already minted for it, flagged
+`deduplicated: true`, so retrying a timed-out call is safe. This is an
+explicit index rather than a consequence of content-addressing: because
+`signed_at` rides on the fact, two identical submissions inside one
+second would collapse to a single CID while two a second apart would
+not, and "idempotent if you retry fast enough" is not a contract a
+caller can code against. Dedup is scoped to the attester: two keys
+making the same claim are two claims, and each gets its own token.
+
 ### 5.3 NegativeFact
 
 `fact.rs:98-117`.

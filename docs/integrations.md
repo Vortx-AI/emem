@@ -331,7 +331,7 @@ four lines:
 ```
 
 That endpoint advertises the 14 core tools from `tools/list`, so the host
-registers about 38 KB of descriptors rather than 194 KB for all 89. The rest
+registers about 39 KB of descriptors rather than 204 KB for all 91. The rest
 stay callable by name, and `emem_tools` searches them or returns one tool's
 schema on demand. Use `https://emem.dev/mcp/full` instead to register the
 whole catalog.
@@ -360,18 +360,40 @@ per session, then read directly:
    the session. The card lists the tools, their JSON schemas, and trigger /
    anti-trigger phrases for tool selection. Note that `tools/list` on `/mcp`
    answers with the core tier; pass `{"tier":"all"}` or use `/mcp/full` for
-   the complete catalog.
-2. **locate.** `POST /v1/locate { "q": "<place>" }` to bridge a place
+   the complete catalog. `emem_tools` narrows by the shape of the answer
+   (`{"shape":"raster"}`) or by job (`{"bundle":"robotics"}`), which is
+   what an agent actually searches on.
+2. **name.** `POST /v1/entity { "place": "<place>" }` (`emem_entity`) mints
+   or returns one canonical object identity, `emem:entity:<entity_cid>`,
+   so two agents co-refer instead of each inventing a description.
+   `/v1/entity/resolve` converges a fuzzy phrasing onto an identity someone
+   already registered.
+3. **locate.** `POST /v1/locate { "q": "<place>" }` to bridge a place
    name (or lat/lng) to a `cell64`. The response reports which layer of
    the geocoder cascade answered, so the agent can score confidence.
-3. **recall.** `POST /v1/recall { "cell": "<cell64>", "bands": [...] }`
-   for typed scalar facts at that cell, signed.
-4. **reason.** Compose `find_similar`, `compare`, `trajectory`,
-   `recall_polygon`, `hunt`, or one of the nine domain shortcut tools
-   (`emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`,
-   `emem_forest`, `emem_weather`, `emem_elevation`, `emem_at`).
-5. **verify.** Surface the `fact_cid` to the user verbatim. Two agents
-   disagreeing about a number paste the CID and stop arguing.
+4. **recall.** `POST /v1/recall { "cell": "<cell64>", "bands": [...] }`
+   for typed scalar facts at that cell, signed. Pass
+   `deterministic: true` to keep only facts recomputable from the cited
+   raw source.
+5. **ground, if a value is missing.** Compose `find_similar`, `compare`,
+   `trajectory`, `recall_polygon`, `hunt`, or one of the nine domain
+   shortcut tools (`emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`,
+   `emem_water`, `emem_forest`, `emem_weather`, `emem_elevation`,
+   `emem_at`). These populate the memory; they are not the point of it.
+6. **cite.** `POST /v1/memory_token { "cell": "<cell64>", "fact_cid":
+   "<fact_cid>" }` (`emem_memory_token`) composes
+   `emem:fact:<cell64>:<fact_cid>`, the line the agent keeps instead of the
+   payload. The `fact_cid` comes off the recall receipt's `fact_cids`.
+   `/v1/memory_bundle` collapses many facts into one `emem:bundle:` token.
+7. **resolve and verify.** Whoever receives the token calls
+   `POST /v1/memory_token/resolve` (`emem_memory_token_resolve`) and gets
+   the byte-identical signed body back, then checks the receipt with
+   `POST /v1/verify_receipt` (`emem_verify_receipt`) or in a browser at
+   `/verify`. Neither step trusts the sender, and neither needs a key. This
+   is the step that makes the rest worth anything.
+8. **detect drift.** `POST /v1/memory_contradictions`
+   (`emem_memory_contradictions`) surfaces where signed sources disagree at
+   the same address, rather than averaging the disagreement away.
 
 ## emem as the memory tier in a multi-memory agent
 

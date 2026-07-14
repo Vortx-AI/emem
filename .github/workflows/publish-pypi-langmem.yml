@@ -1,0 +1,132 @@
+name: publish-pypi-langmem
+
+# Publish the `emem-langmem` LangChain/LangGraph integration
+# (sdks/emem-langmem) to PyPI via Trusted Publishing (OpenID Connect). No
+# API token is stored anywhere: the job mints a short-lived OIDC credential
+# that PyPI verifies against the pending/registered publisher
+# (owner=Vortx-AI, repo=emem, workflow=publish-pypi-langmem.yml,
+# environment=pypi-langmem).
+#
+# This is a second file rather than an input on publish-pypi.yml. PyPI
+# scopes a trusted publisher to one workflow filename, so a shared file
+# would mean the publisher registered for ememdev also satisfies
+# emem-langmem, and one mistaken dispatch could push either package. A file
+# per project keeps each OIDC credential unable to publish the other.
+#
+# Triggers:
+#   * workflow_dispatch  - manual "Run workflow" button (use for the first
+#                          publish of a version)
+#   * release published  - cut a GitHub Release and the version in
+#                          sdks/emem-langmem/pyproject.toml is published
+#
+# Versions are immutable on PyPI; bump sdks/emem-langmem/pyproject.toml
+# before publishing a new release. `src/emem_langmem/__init__.py` does not
+# need bumping: it resolves `__version__` from the installed distribution
+# metadata, so pyproject.toml is the only place a version is written.
+#
+# emem-langmem has never been published. Its sibling ememdev has, three
+# times, and all three are empty: 0.0.9, 0.1.0 and 1.0.0 are ~2.4 KB of
+# metadata with no Python modules, because a root-anchored `/src/` in the
+# repo .gitignore was re-anchored by hatchling onto the SDK build root.
+# emem-langmem builds from the same layout and was one publish away from
+# the same fate. The .gitignore is fixed; the gates below prove it stays
+# fixed rather than assuming it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build, inspect and import the wheel, then stop without publishing.'
+        type: boolean
+        default: false
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    name: build + publish emem-langmem to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-langmem
+      url: https://pypi.org/p/emem-langmem
+    permissions:
+      contents: read
+      id-token: write   # REQUIRED for OIDC Trusted Publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: build sdist + wheel
+        working-directory: sdks/emem-langmem
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      # A wheel that builds clean and holds nothing is the failure that
+      # actually happened, and `python -m build` exits 0 for it. Look inside
+      # the artefact before it leaves the machine.
+      - name: the wheel contains its modules
+        run: |
+          python - <<'PY'
+          import glob, sys, zipfile
+
+          whls = sorted(glob.glob("sdks/emem-langmem/dist/*.whl"))
+          if not whls:
+              sys.exit("no wheel was built")
+          for whl in whls:
+              names = zipfile.ZipFile(whl).namelist()
+              modules = [n for n in names if n.endswith(".py")]
+              print(f"{whl}: {len(modules)} module(s) -> {modules}")
+              if not modules:
+                  sys.exit(f"refusing to publish {whl}: it ships no Python modules")
+              # The package is the import surface, not just any .py file:
+              # a stray module at the wheel root would satisfy the check
+              # above while `import emem_langmem` still failed.
+              if not any(n.startswith("emem_langmem/") for n in modules):
+                  sys.exit(f"refusing to publish {whl}: no emem_langmem/ package in it")
+          PY
+
+      # Importing from the built wheel is the only check that matches what a
+      # user gets from `pip install`. The repo's CI tests this SDK over
+      # PYTHONPATH against the source tree, which passes even when the
+      # package is empty.
+      #
+      # Dependencies (langchain-core, httpx, blake3, cryptography) are
+      # deliberately left to pip to resolve from the wheel's own metadata
+      # rather than pre-installed here. `import emem_langmem` pulls
+      # langchain-core and cryptography at module import, so this doubles as
+      # a check that the dependency list in pyproject.toml is complete.
+      - name: an installed wheel imports
+        run: |
+          python -m venv /tmp/wheelcheck
+          /tmp/wheelcheck/bin/pip install --quiet sdks/emem-langmem/dist/*.whl
+          /tmp/wheelcheck/bin/python - <<'PY'
+          import emem_langmem
+          from emem_langmem import EmemSigner, EmemStore
+
+          print("import emem_langmem OK, version", emem_langmem.__version__)
+          if emem_langmem.__version__ in ("", "0+unknown"):
+              raise SystemExit(
+                  "the installed wheel reports no version: distribution metadata is missing"
+              )
+          assert EmemStore and EmemSigner
+          PY
+
+      - name: dry run stops here
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "dry_run requested: built, inspected and imported the wheel, not publishing."
+
+      - name: publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/emem-langmem/dist/
+          # PyPI versions are immutable, so a re-run against an
+          # already-published version skips rather than fails. That is what
+          # keeps the empty ememdev releases on the index permanently: they
+          # can never be replaced, only superseded. Bump pyproject.toml.
+          skip-existing: true

@@ -1,0 +1,196 @@
+name: publish-npm
+
+# Publish the `@emem/client` TypeScript SDK (sdks/emem-ts) to npm.
+#
+# Triggers:
+#   * workflow_dispatch  - manual "Run workflow" button, and the only way
+#                          to run the token-authenticated bootstrap below
+#   * release published  - cut a GitHub Release and the version in
+#                          sdks/emem-ts/package.json is published via OIDC
+#
+# AUTH: two modes, because npm cannot bootstrap a new package with OIDC.
+#
+#   token  Required for the FIRST publish only. npm's trusted publisher is
+#          configured on a package's settings page, and a package that has
+#          never been published has no settings page, so there is no way to
+#          register a publisher up front. This is the one real difference
+#          from PyPI, which accepts a "pending publisher" for a name that
+#          does not exist yet. Reads NPM_TOKEN (see below).
+#   oidc   Every publish after the first. No stored credential: the job
+#          mints a short-lived OIDC token that npm verifies against the
+#          registered publisher (owner=Vortx-AI, repo=emem,
+#          workflow=publish-npm.yml, environment=npm). npm also attaches a
+#          provenance attestation automatically in this mode.
+#
+# Once the trusted publisher is registered, NPM_TOKEN can be deleted from
+# the repository secrets. It exists to solve the first-publish chicken and
+# egg problem and nothing else.
+#
+# @emem/client has never been published. It also did not compile: three
+# type errors under `strict` + `exactOptionalPropertyTypes`, and `tsc`
+# writes a full dist/ even when it errors. Nothing in CI ever built this
+# package, so nothing noticed. The build gates below assume a green tsc
+# proves nothing about what ends up in the tarball, and look inside it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      auth:
+        description: 'Auth mode. Use token for the first ever publish, oidc after a trusted publisher is registered.'
+        type: choice
+        options: [oidc, token]
+        default: oidc
+      dry_run:
+        description: 'Build, inspect and smoke-test the tarball, then stop without publishing.'
+        type: boolean
+        default: false
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    name: build + publish @emem/client to npm
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@emem/client
+    permissions:
+      contents: read
+      id-token: write   # REQUIRED for OIDC trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22.14.0 is the floor npm documents for trusted publishing, but
+      # it ships npm 10.9.2, and trusted publishing needs npm >= 11.5.1. The
+      # setup-node action pins Node only, so npm is upgraded separately
+      # below. registry-url writes the .npmrc that maps the registry and
+      # wires NODE_AUTH_TOKEN for the token path.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: npm >= 11.5.1 for trusted publishing
+        run: |
+          npm install -g npm@latest
+          node --version
+          npm --version
+
+      - name: install deps
+        working-directory: sdks/emem-ts
+        run: npm install --no-audit --no-fund
+
+      # tsconfig sets noEmitOnError, so a type error fails here instead of
+      # quietly emitting a dist/ that later steps would happily package.
+      - name: build
+        working-directory: sdks/emem-ts
+        run: npm run build
+
+      # package.json and src/version.ts are two hand-written copies of one
+      # string. They were already out of step (package.json 1.0.0, VERSION
+      # 0.0.9, User-Agent 0.0.8) with nothing comparing them.
+      - name: package.json and VERSION agree
+        working-directory: sdks/emem-ts
+        run: |
+          set -euo pipefail
+          PKG=$(node -p "require('./package.json').version")
+          # dist/version.js is ESM (package.json sets type=module), so it is
+          # imported rather than required.
+          SRC=$(node --input-type=module -e "import('./dist/version.js').then(m => console.log(m.VERSION))")
+          echo "package.json=$PKG dist/version.js=$SRC"
+          if [ "$PKG" != "$SRC" ]; then
+            echo "::error::version skew: package.json says $PKG, dist/version.js says $SRC"
+            exit 1
+          fi
+
+      # The failure this repo already shipped once: an artefact that builds
+      # clean and holds nothing. `npm pack` exits 0 for an empty tarball the
+      # same way `python -m build` did for the empty ememdev wheels. Look
+      # inside before it leaves the machine.
+      #
+      # npm's `files` allowlist in package.json cannot be overridden by a
+      # .gitignore, which is what saves dist/ here: the repo root ignores
+      # `dist/` unanchored, and that is the same shape of rule that
+      # hatchling re-anchored onto sdks/emem-py/src to produce the empty
+      # ememdev wheels. Verified by packing, not by reading the docs.
+      - name: the tarball contains its modules
+        working-directory: sdks/emem-ts
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node - <<'JS'
+          const pack = require('/tmp/pack.json')[0];
+          const files = pack.files.map(f => f.path);
+          console.log(`${pack.name}@${pack.version}: ${pack.entryCount} entries, ${pack.unpackedSize} bytes`);
+          for (const f of files) console.log('  ', f);
+
+          const js = files.filter(f => f.startsWith('dist/') && f.endsWith('.js'));
+          const dts = files.filter(f => f.startsWith('dist/') && f.endsWith('.d.ts'));
+          const fail = m => { console.error(`::error::refusing to publish: ${m}`); process.exitCode = 1; };
+
+          if (js.length === 0) fail('the tarball ships no dist/*.js runtime modules');
+          if (dts.length === 0) fail('the tarball ships no dist/*.d.ts type declarations');
+
+          // main/module/types are a promise to the consumer's resolver. An
+          // entrypoint that is not in the tarball is a package that throws
+          // ERR_MODULE_NOT_FOUND on first import.
+          const pkg = require('./package.json');
+          for (const [field, p] of [['main', pkg.main], ['module', pkg.module], ['types', pkg.types]]) {
+            if (!p) continue;
+            const rel = p.replace(/^\.\//, '');
+            if (!files.includes(rel)) fail(`package.json "${field}" points at ${p}, which is not in the tarball`);
+          }
+          JS
+
+      # Importing the packed tarball out of a fresh project is the only
+      # check that matches `npm install @emem/client`. Typechecking the
+      # source tree, which is all CI would ever do, passes whether or not
+      # the published package contains anything.
+      - name: an installed tarball imports
+        run: |
+          set -euo pipefail
+          cd sdks/emem-ts
+          TARBALL=$(npm pack --json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8'))[0].filename")
+          TARBALL=$(realpath "$TARBALL")
+          EXPECTED=$(node -p "require('./package.json').version")
+          SMOKE=$(mktemp -d)
+          cd "$SMOKE"
+          npm init -y >/dev/null
+          node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p))"
+          npm install --no-audit --no-fund "$TARBALL"
+          EXPECTED="$EXPECTED" node --input-type=module -e '
+            import { Client, EmemError, EmemHTTPError, VERSION } from "@emem/client";
+            if (VERSION !== process.env.EXPECTED) {
+              throw new Error(`installed VERSION ${VERSION} != package.json ${process.env.EXPECTED}`);
+            }
+            const em = new Client();
+            if (typeof em.recall !== "function") throw new Error("Client.recall missing from the published build");
+            if (new EmemHTTPError(404, "u", "b").name !== "EmemHTTPError") throw new Error("EmemHTTPError name broken");
+            void EmemError;
+            console.log("import @emem/client OK, version", VERSION, "baseUrl", em.baseUrl);
+          '
+
+      - name: dry run stops here
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "dry_run requested: built, inspected and smoke-tested the tarball, not publishing."
+
+      # --access public because npm defaults every scoped package to
+      # restricted, and a restricted publish to a free account fails
+      # outright. package.json also carries publishConfig.access=public, so
+      # this flag is belt and braces rather than the only thing holding it.
+      - name: publish (oidc trusted publisher)
+        if: ${{ !inputs.dry_run && (inputs.auth || 'oidc') == 'oidc' }}
+        working-directory: sdks/emem-ts
+        run: npm publish --access public
+
+      - name: publish (token bootstrap, first publish only)
+        if: ${{ !inputs.dry_run && inputs.auth == 'token' }}
+        working-directory: sdks/emem-ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::auth=token was selected but the NPM_TOKEN secret is empty or unset."
+            exit 1
+          fi
+          npm publish --access public

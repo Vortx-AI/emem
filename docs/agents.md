@@ -165,8 +165,8 @@ new attestations land:
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 103 paths under
-`/v1/*` (110 total in `/openapi.json`), 89 MCP tools (14 core, 75 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 89), 18 static MCP
+`/v1/*` (112 total in `/openapi.json`), 91 MCP tools (14 core, 77 extended, with
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 91), 18 static MCP
 resources + 8 URI templates, 160 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 source schemes, and 27 data
 connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
@@ -193,8 +193,8 @@ log. See "Watching humans use the API" below.
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 110 documented, 106 under `/v1/*` |
-| MCP tools | 89 (14 core / 75 extended) |
+| REST paths (OpenAPI) | 112 documented, 108 under `/v1/*` |
+| MCP tools | 91 (14 core / 77 extended) |
 | Algorithms (composition recipes) | 160 |
 | Band-cube slots | 43 |
 | MCP resources | 18 static + 8 URI templates |
@@ -565,6 +565,31 @@ without historical fetch return `status: "present_only"`; check
    ### MCP tools
 
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
+
+`tools/list` at `/mcp` advertises the 14 tools of the loop (about 39 KB of
+descriptors); `/mcp/full` advertises all 91 (about 204 KB), and
+`{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
+`tools/call` dispatches every tool by name at both endpoints regardless of
+tier, so a tool absent from your list is still callable and the narrower
+list costs no capability.
+
+`emem_tools` is the way in when you do not know the name. With no arguments
+it returns the loop, a bundle menu, and a shape menu in about 6 KB. Every
+tool declares its selection vocabulary in MCP-standard `_meta`: one
+`dev.emem/shape`, and any number of `dev.emem/bundles`.
+
+| Filter | Meaning | Values |
+|---|---|---|
+| `{"shape":"raster"}` | the form of the answer, exactly one per tool | `scalar`, `timeseries`, `raster`, `geometry`, `vector`, `identity`, `token`, `proof`, `plan`, `file`, `catalog` |
+| `{"bundle":"robotics"}` | the job, a view that overlaps | `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
+| `{"q":"ndvi"}` | free-text search over the catalog | any string |
+| `{"name":"emem_ndvi"}` | one tool's exact input schema and a runnable example, about 2 KB | any tool name |
+
+Shape is usually the real question. "Which tool do I use" is nearly always
+about the shape of the answer rather than its topic, and `scalar` (one
+number at one address) and `raster` (a gridded field over an area) answer
+very different ones. `{"bundle":"robotics"}` also works on `tools/list`
+itself, which returns that bundle and nothing else.
 
 Most MCP tools are read-only (`readOnlyHint: true`); the agent-memory file verbs (`memory_create`, `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`) and the entity write surface (`emem_entity`, `emem_entity_link`) are writes and say so in their hints. Inputs are JSON; MCP
 tools omit top-level `anyOf`/`oneOf` (Claude.ai's MCP frontend accepts

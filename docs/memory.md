@@ -289,6 +289,65 @@ Blobs are never deleted. `memory_delete` drops the path index but
 audit replay walks `memory_file_history` in order to reconstruct what
 was written when.
 
+## Registering your own derivations
+
+`POST /v1/derive` (`emem_derive`) lets a caller register a value **it**
+computed over facts this responder holds, and get back an ordinary
+`emem:fact:` token for it. The registered fact names its parents by CID,
+so what used to be "here is my conclusion, trust me" becomes a handle a
+stranger resolves and walks down to signed measurements.
+
+Three things about it are worth knowing before you reach for it, because
+each one is a deliberate refusal rather than a gap.
+
+**The signature is narrow.** A derive receipt attests that *this
+attester submitted this derivation, over these parent facts, at this
+time, and the responder stored it*. It does not attest that the value is
+true. The responder did not compute it and cannot recompute it. This is
+the same discipline as tokenising a row: signing "I ingested these bytes,
+from this source, at this time" is not signing "this is true".
+
+**It must be attested, and the refusal tells you how.** Send it without
+an `attester` block and the 401 hands back the exact 32-byte digest to
+sign for that exact body, the encoding rules, and a worked example. Sign
+the digest, re-send the identical body. No registration, no API key, any
+locally generated keypair. The preimage reuses the memory-write scheme
+with `verb = "derive"`, so there is one signing story to learn, not two:
+
+```text
+sig = ed25519(blake3("emem.memory_write|derive|/v1/derive|" || body_hash))
+```
+
+**Derived facts are attester-scoped and absent from every default
+read.** A derivative carries no canonical `(cell, band, tslot)` key, so
+it is never written to the canonical index that `recall`,
+`recall_polygon`, `state`, `query_region`, `memory_search` and
+`find_similar` all read through. Register a derivation at a cell and
+recall that cell: it is not there. That is the design, not an oversight.
+A stranger's claim surfacing in another agent's default read would be
+memory poisoning at the fact layer, which is worse than any leak the
+`by_attester` namespace closes. What you get is citation and resolution:
+your world hands over a token that resolves and verifies. It does not
+need emem to assert your claim as fact.
+
+Reaching one back requires naming it, either way:
+
+| Want | Call |
+|---|---|
+| The bytes behind a token you hold | `POST /v1/memory_token/resolve` |
+| Everything one key has registered | `POST /v1/derived` with `attester_pubkey_b32` |
+
+`/v1/derived` has no all-attesters form. Naming whose claims you want is
+the contract, not a filter you may omit.
+
+Registration is idempotent per `(your key, derivation body)`: re-posting
+an identical derivation returns the token already minted for it, so a
+retry after a timeout is safe rather than a way to accumulate twins.
+
+See [protocol.md § 5.2](protocol.md) for the exact `DeriveBody` wire
+encoding, the two traps a generic CBOR encoder falls into, and how a
+verifier rebuilds the caller's signature from a stored fact alone.
+
 ## What the substrate is not
 
 - **It is not a chat memory.** Mem0 and LangMem own that pattern.

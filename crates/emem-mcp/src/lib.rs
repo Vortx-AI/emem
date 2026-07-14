@@ -342,6 +342,31 @@ const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token
 "token":{"type":"string","description":"A `emem:fact:<cell64>:<fact_cid>` citation handle to dereference."}
 }}"#;
 
+// Caller-registered derivation. Turns a citation list into a DAG: the
+// registered fact names its parents by CID, so a verifier walks the
+// lineage down to this responder's signed measurements instead of taking
+// the caller's word. Attested in, attester-scoped out.
+const SCHEMA_DERIVE: &str = r#"{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{
+"fn_key":{"type":"string","description":"Your derivation recipe key, e.g. `same_doy_ndvi_delta@1`. Free-form: it names YOUR function, not an entry in this responder's registry, and the responder never runs it."},
+"inputs":{"type":"array","items":{"type":"string"},"minItems":1,"description":"Parent tokens, each `emem:fact:<cell64>:<fact_cid>`. EVERY one must resolve to a fact this responder already holds, or the call is refused naming the one that did not: lineage that cannot be walked is not lineage. Order is significant and is signed."},
+"cell":{"type":"string","description":"cell64 to anchor the derivative at."},
+"band":{"type":"string","description":"Band key the derivative pertains to, e.g. `indices.ndvi`."},
+"tslot_window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] tslot window the derivation spans."},
+"op":{"type":"string","description":"Operator: delta | mean | trend | rate | anomaly."},
+"value":{"description":"The value you computed. Any JSON value."},
+"confidence":{"type":"number","minimum":0,"maximum":1,"description":"YOUR confidence in the value. The responder records it; it does not check it."},
+"provenance_class":{"type":"string","enum":["model_output","human_curated"],"description":"How the value was produced. `direct_sensor` and `deterministic_index` are refused: this responder did not compute your value and will not record it as sensor-derived or as recomputable from a raw source."},
+"code_cid":{"type":"string","description":"Optional blake3 of the code that computed the value. Recorded, never fetched or executed, so a verifier can ask you for the named artifact."},
+"attester":{"type":"object","description":"ed25519 caller binding: {pubkey_b32, sig_b32}, where sig signs blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash) and body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} as a definite-length 10-entry map in THAT order: declaration order, deliberately not RFC 8949 key-sorted; confidence rides as float32). Required. You do not need to implement any of that: send the call with no `attester` and the refusal returns the exact 32-byte digest to sign for that exact body, the full encoding rules, and a runnable example. Sign the digest, re-send the identical body with the signature. No registration, no API key; any locally generated keypair works.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
+}}"#;
+
+const SCHEMA_DERIVE_LIST: &str = r#"{"type":"object","required":["attester_pubkey_b32"],"properties":{
+"attester_pubkey_b32":{"type":"string","description":"The base32 pubkey whose derivations to list. Required: there is no query that returns every caller's derivations, because derivations are attester-scoped by design."},
+"cell":{"type":"string","description":"Optional cell64 filter."},
+"band":{"type":"string","description":"Optional band filter. Only narrows when `cell` is also set (the index is keyed cell-before-band)."},
+"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}
+}}"#;
+
 // Multi-fact memory-bundle composer. N (cell, band, tslot?) triples in,
 // one signed envelope out. The composed `bundle_token` is `emem:bundle:<bundle_cid>`
 // — a single rebindable string that cites the whole set.
@@ -951,6 +976,33 @@ pub const TOOLS: &[ToolDescriptor] = &[
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
+    },
+    ToolDescriptor {
+        name: "emem_derive",
+        title: "Register your own derivation over emem facts",
+        description: "Register a value YOU computed from facts this responder holds, and get back a citeable `emem:fact:` token whose lineage terminates in emem-signed measurements. The registered fact names its parents by CID, so a stranger walks the DAG down to signed sensor data instead of trusting your summary. Requires an ed25519 `attester` block. What the responder signs is narrow and it says so on the response: that YOU submitted this derivation, over these parents, at this time, and it stored it. NOT that the value is true. Algebra: derive.",
+        when_to_use: "Call when you have computed something from emem facts (a delta, a zone classification, a per-plot verdict, a model output) and need to hand another agent a token for it rather than a claim. Every input token must already resolve here; recall or backfill the parents first. Provenance class is model_output or human_curated; the sensor classes are refused, since this responder did not compute your value. Note the tenancy rule: a derived fact carries no canonical (cell, band, tslot) key, so it will NOT appear in anyone's emem_recall at that cell. That is the point: you are getting citation and resolution, not an injection into the shared commons. Read it back with emem_memory_token_resolve, or list your own with emem_derive_list. Idempotent per (your key, derivation body): re-registering an identical derivation returns the same token rather than a twin, so retrying a timed-out call is safe.",
+        input_schema: SCHEMA_DERIVE,
+        example_args: r#"{"fn_key":"same_doy_ndvi_delta@1","inputs":["emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"],"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi","tslot_window":[19723,20634],"op":"delta","value":0.14,"confidence":0.9,"provenance_class":"model_output"}"#,
+        level: "L0", category: ToolCategory::Write,
+        // Idempotent by construction: a (pubkey, body_hash) index maps a
+        // repeat submission back to the token already minted for it. Left
+        // to content-addressing alone this would have hinged on wall-clock
+        // resolution, since `signed_at` rides on the fact: identical
+        // within a second, distinct across one. A retry must be safe.
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_derive_list",
+        title: "List one attester's registered derivations",
+        description: "List the derivations registered by one ed25519 key, optionally filtered to a cell (and then a band). The explicit opt-in read for caller-registered derivatives: they hold no canonical key, so no default read path returns them, and this is the only way to enumerate one rather than resolve it by token.",
+        when_to_use: "Call to enumerate your own derivations (pass your pubkey_b32), or to inspect what a specific attester has claimed when you already have a reason to trust or audit that key. There is no all-attesters form: naming whose claims you want is the contract, not a filter you can omit.",
+        input_schema: SCHEMA_DERIVE_LIST,
+        example_args: r#"{"attester_pubkey_b32":"n2vqbtqx4dmz3xk6yqhkdmnjmfqvnqzq2qgz7ymkflgnvzptdcaa","cell":"defi.zb493.xoso.zcb6a"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
     },
     ToolDescriptor {
         name: "emem_memory_bundle",
@@ -1864,13 +1916,15 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
     ),
     (
         "identity_and_citation",
-        "The rest of the loop's naming and citing surface: converge on an identity someone already registered, bundle many facts into one handle, and walk the edges between them.",
+        "The rest of the loop's naming and citing surface: converge on an identity someone already registered, bundle many facts into one handle, walk the edges between them, and register work you derived yourself so it becomes a handle with its lineage attached.",
         &[
             "emem_entity_resolve",
             "emem_entity_link",
             "emem_memory_bundle",
             "emem_memory_bundle_resolve",
             "emem_edges_recall",
+            "emem_derive",
+            "emem_derive_list",
         ],
     ),
     (
@@ -2084,7 +2138,8 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         "A citation handle that resolves anywhere to the byte-identical signed object.",
         &[
             "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle",
-            "emem_memory_bundle_resolve", "emem_edges_recall",
+            "emem_memory_bundle_resolve", "emem_edges_recall", "emem_derive",
+            "emem_derive_list",
         ],
     ),
     (
@@ -2136,11 +2191,11 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
 pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
     (
         "tokenisation",
-        "Turn something into a citeable, verifiable handle, and turn a handle back into the signed bytes. The point of emem: what you hand another agent instead of a paraphrase.",
+        "Turn something into a citeable, verifiable handle, and turn a handle back into the signed bytes. The point of emem: what you hand another agent instead of a paraphrase. emem_derive extends that to work you did yourself, so what you built is a handle too, with its lineage attached.",
         &[
             "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle",
             "emem_memory_bundle_resolve", "emem_entity", "emem_entity_resolve",
-            "emem_entity_link", "emem_locate",
+            "emem_entity_link", "emem_locate", "emem_derive", "emem_derive_list",
         ],
     ),
     (
@@ -2163,12 +2218,13 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
     ),
     (
         "long_horizon",
-        "Work that outlives one context window. Park state as durable notes, cite what you found so a later run resolves the identical bytes, walk what changed since, and detect when the world moved under a conclusion you already drew.",
+        "Work that outlives one context window. Park state as durable notes, cite what you found so a later run resolves the identical bytes, walk what changed since, and detect when the world moved under a conclusion you already drew. Register a conclusion you derived and a later run resolves it with its lineage intact, instead of recomputing it and hoping the two agree.",
         &[
             "memory_create", "memory_view", "memory_str_replace", "memory_insert",
             "memory_list_by_kind", "emem_memory_search", "emem_edges_recall",
             "emem_trajectory", "emem_temporal_route", "emem_state_diff",
-            "emem_memory_contradictions", "emem_backfill",
+            "emem_memory_contradictions", "emem_backfill", "emem_derive",
+            "emem_derive_list",
         ],
     ),
     (

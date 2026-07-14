@@ -11,6 +11,11 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    // tsc emits JavaScript for a file that failed to typecheck unless this
+    // is set. The build errored with three type errors and still wrote a
+    // full dist/, which is how a broken artefact reaches a publish step
+    // that only greps for output files.
+    "noEmitOnError": true,
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true,

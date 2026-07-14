@@ -10,6 +10,7 @@ pub mod binary_embedding;
 pub mod cbor_ops;
 pub mod compare;
 pub mod compare_bands;
+pub mod derive;
 pub mod diff;
 pub mod edges;
 pub mod entity;
@@ -30,6 +31,9 @@ pub mod verify;
 
 pub use compare::{compare, CompareReq, CompareResp};
 pub use compare_bands::{compare_bands, CompareBandsReq, CompareBandsResp};
+pub use derive::{
+    is_caller_provenance_class, DeriveBody, CALLER_PROVENANCE_CLASSES, DERIVE_PATH, DERIVE_VERB,
+};
 pub use diff::{diff, DiffReq, DiffResp};
 pub use edges::{edges_recall, EdgesRecallReq, EdgesRecallResp};
 pub use find_similar::{find_similar, FindSimilarReq, FindSimilarResp, Neighbor};

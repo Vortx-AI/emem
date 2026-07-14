@@ -43,7 +43,7 @@ This site renders the canonical docs straight from the repo at `docs/`. Every pa
 The same content surfaces are reachable to agents via:
 
 - `GET /openapi.json`: full REST surface (browseable at [/docs/api/](/docs/api/) via ReDoc)
-- `POST /mcp` `tools/list` returns the 14 core tools by default, so a host's context carries about 38 KB of descriptors instead of 194 KB; `POST /mcp/full` advertises all 89 (14 core, 75 extended), and `{"tier":"core"|"extended"|"all"}` overrides either default. `tools/call` dispatches all 89 by name at both endpoints, and `emem_tools` maps the surface for you
+- `POST /mcp` `tools/list` returns the 14 core tools by default, so a host's context carries about 39 KB of descriptors instead of 204 KB; `POST /mcp/full` advertises all 91 (14 core, 77 extended), and `{"tier":"core"|"extended"|"all"}` overrides either default. `tools/call` dispatches all 91 by name at both endpoints, so narrowing discovery removes no capability. `emem_tools` maps the surface: every tool declares one `dev.emem/shape` (the form of the answer: `scalar`, `raster`, `identity`, `token`, `proof`, and so on) and any number of overlapping `dev.emem/bundles` (the job: `tokenisation`, `verification`, `agent_to_agent`, `robotics`, …) in MCP-standard `_meta`, and both are filters
 - `POST /mcp` `resources/list`: 18 resources + 8 URI templates (memory anchors include `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`)
 - `GET /llms.txt`, `GET /humans/llms.txt`, `GET /skills.md`
 - `GET /agent.json`, `GET /ai-plugin.json`

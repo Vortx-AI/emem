@@ -50,4 +50,4 @@ export type {
   WaveSolveRequest,
 } from "./types.js";
 
-export const VERSION = "0.0.9";
+export { VERSION } from "./version.js";

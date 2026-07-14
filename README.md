@@ -70,7 +70,7 @@ In practice your agent runs four verbs: locate a place, recall its signed facts,
   <img src="docs/diagrams/png/36-memory-outlives-the-context-window.png" width="820" alt="Memory outlives the context window: as the conversation is compacted turn after turn, payloads fall out of context, the one-line emem:fact token survives, and after compaction it re-hydrates from the shared memory to the exact signed bytes." />
 </p>
 
-> **If you are an agent reading this**, four moves cover most sessions. Start at [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). Connecting to `/mcp` loads the 14 core tools rather than all 89, so call `emem_tools` when you need a capability you cannot see in your list, or connect to `/mcp/full` to have every tool registered up front. Recall with `emem_recall` or ask in plain language with `emem_ask`; every answer comes back signed. Before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer; you, your successor, or a different agent entirely can resolve and re-check it later.
+> **If you are an agent reading this**, the runnable version is [below](#if-you-are-an-agent), and [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt) is the machine-readable entry point. The habit that matters most: before your context gets compacted or your turn ends, put the `emem:fact:` token for anything you verified into your notes or your final answer. You, your successor, or a different agent entirely can resolve and re-check it later.
 
 ## See the memory
 
@@ -120,6 +120,32 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 Packaged Claude skills live under `claude-skills/`; `llms-install.md` is a plain-text install guide an agent can follow by itself. TypeScript SDK: `sdks/emem-ts/` (not on npm yet).
 </details>
+
+## If you are an agent
+
+Reads need no key, and four moves cover most sessions.
+
+**Connect to `https://emem.dev/mcp`.** It advertises the 14 tools of the loop, not the whole catalog. A host loads every descriptor it is handed, and all 91 cost about 204 KB of context whether or not the session ever touches Earth observation. Narrowing discovery removes nothing: `tools/call` dispatches all 91 by name at either endpoint, so a tool missing from your list is still callable. Use `/mcp/full` to have every tool registered up front.
+
+**Do not know which tool? Call `emem_tools`.** With no arguments it returns the loop, a bundle menu, and a shape menu in about 6 KB. Ask by the shape of the answer you need, which is usually the real question, rather than by topic:
+
+```bash
+curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"emem_tools","arguments":{"shape":"raster"}}}'
+```
+
+Every tool carries exactly one shape (`scalar`, `timeseries`, `raster`, `geometry`, `vector`, `identity`, `token`, `proof`, `plan`, `file`, `catalog`) and any number of overlapping bundles (`tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk`). `{"bundle":"robotics"}` returns just that bundle; `{"name":"emem_ndvi"}` returns one tool's input schema and a runnable example in about 2 KB; `{"q":"ndvi"}` searches the text.
+
+**Ground a place, then cite it.** `emem_locate` maps a place to its `cell64`. `emem_recall` returns the signed facts there, and its receipt carries the `fact_cid`. `emem_memory_token` composes the two into one handle:
+
+```
+emem:fact:defi.zb5b3.mAmi.leco:nzyep244xoxx6uvw4ope5dghy3eniawczovvzrrp7almuydzdbta
+```
+
+**Hand the token to another agent.** They call `emem_memory_token_resolve` on that line, get the byte-identical signed fact back, and `emem_verify_receipt` checks the ed25519 signature without trusting you or the server. That is the whole claim, and it is the only one worth making: the same token resolves to the same bytes for anyone, and the receipt verifies on its own.
+
+Writes are the one place a key appears, and it is still not an API key. Memory writes need an `attester` block signed by an ed25519 keypair you generate locally, with no registration step. A refused write answers with the exact digest to sign, the base32 encoding rules, and a worked example, so an agent gets from refusal to signed write in one turn without going to look for docs.
 
 ## Build with it
 
@@ -177,7 +203,7 @@ Version 1.0.0: the wire format, receipt preimage, and address space are settled 
 | Limits, roadmap, open research | [docs/roadmap.md](docs/roadmap.md) |
 | Benchmarks, with methods | [docs/benchmarks.md](docs/benchmarks.md) |
 | Industry use cases | https://emem.dev/solutions |
-| Wire spec · OpenAPI (106 paths) · MCP (89 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
+| Wire spec · OpenAPI (108 paths) · MCP (91 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
 | Live proof in a regulated workflow | https://eudr.dev |
 | Companion open model | [TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA) |
 
