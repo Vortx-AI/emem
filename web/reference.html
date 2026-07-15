@@ -642,14 +642,14 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="method post">POST</td><td class="path">/v1/heat_solve</td><td>emem_heat_solve</td><td class="desc">2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil (CFL-stable)</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/wave_solve</td><td>emem_wave_solve</td><td class="desc">1-D shallow-water equation along a seaward bathymetry gradient</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict</td><td>emem_jepa_predict</td><td class="desc">closed-form NDVI AR(2) seasonal model with fixed coefficients</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict_v2</td><td>emem_jepa_predict_v2</td><td class="desc">Tessera-embedding dynamics; short-circuits to an identity baseline (untrained_baseline)</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict_v2</td><td>emem_jepa_predict_v2</td><td class="desc">Tessera-embedding dynamics; trained on synthetic sequences, receipt carries training_synthetic</td></tr>
       </tbody>
     </table>
     </div>
 
     <p><span class="band">/v1/heat_solve</span> integrates 2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil, kept CFL-stable (for example, urban-heat spread). <span class="band">/v1/wave_solve</span> integrates a 1-D shallow-water equation along a seaward bathymetry gradient (for example, coastal swell), and rejects a land-locked profile rather than returning a meaningless field.</p>
 
-    <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients: deterministic and reproducible. <span class="band">/v1/jepa_predict_v2</span> runs Tessera-embedding dynamics; when it cannot improve on the last observed vintage it short-circuits to that identity baseline and the receipt carries <span class="band">untrained_baseline</span>. The v2 forecast is an untrained baseline, never a learned prediction.</p>
+    <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients: deterministic and reproducible. <span class="band">/v1/jepa_predict_v2</span> runs a trained transformer over Tessera-embedding dynamics (28,328 parameters, fitted 2026-05-28). It was trained and validated entirely on synthetic sequences, so the receipt carries <span class="band">training_synthetic</span> rather than <span class="band">untrained_baseline</span>, letting a verifier see how little real corpus history grounds it. On the 34 real NDVI pairs held for evaluation it does not beat a predict-the-last-value baseline: MSE 0.021124 against 0.019858, a skill score of -0.064. Treat it as a research surface, not a forecast.</p>
   </div>
 </section>
 

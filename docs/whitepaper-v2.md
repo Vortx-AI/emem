@@ -1128,8 +1128,19 @@ because the signature speaks to none of them.
 - **Declared is not wired.** 46 declared source schemes is a catalog
   count, not a capability count, and several schemes remain
   declared-but-unwired.
-- **JEPA v2 is untrained.** The on-disk artefact is a residual-zero
-  identity baseline; training is gated on upstream vintage availability.
+- **JEPA v2 is trained, and does not beat persistence on real data.** This
+  entry previously said the artefact was an untrained residual-zero
+  identity baseline. That is false and `/v1/capabilities` refutes it:
+  `jepa_predict_v2` reports `trained: true`. The deployed artefact carries
+  `trained_at 2026-05-28` and 28,328 parameters. It was fitted on 12,000
+  wholly synthetic sequences from a seasonality generator and validated on
+  2,000 more, also synthetic (`synthetic_fraction_train: 1.0`), where it
+  beats a Markov-1 "predict the last lag" baseline by 62.7% on NDVI MSE.
+  On the 34 real NDVI pairs held for evaluation it does not beat that
+  baseline: MSE 0.021124 against the baseline's 0.019858, a skill score of
+  -0.064. The artefact's own `honesty_caveats` state the real corpus is
+  too sparse to train end-to-end. Treat `jepa_predict_v2` as a research
+  surface, not a forecast.
 
 ### 14.6 Specification
 
