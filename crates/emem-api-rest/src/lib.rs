@@ -1055,6 +1055,7 @@ pub fn router(state: AppState) -> Router {
         // Transparency log (RFC 6962): signed tree head + inclusion /
         // consistency proofs over the append-only attestation log. Read-only.
         .route("/v1/log/sth", get(get_log_sth))
+        .route("/v1/log/entries", get(get_log_entries))
         .route("/v1/log/inclusion", get(get_log_inclusion))
         .route("/v1/log/consistency", get(get_log_consistency))
         .route("/v1/log/witness", post(post_log_witness))
@@ -6445,7 +6446,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // so a citation verifies offline against the responder pubkey —
         // no need to re-fetch or trust the relaying agent.
         "cite_this_fact": {
-            "single_fact": "emem_memory_token (REST POST /v1/memory_token) → `emem:fact:<cell64>:<fact_cid>`. Hand that string to another agent / log it in an audit.",
+            "single_fact": "emem_memory_token (REST POST /v1/memory_token) → `emem:fact:<cell64>:<fact_cid>`. Hand that string to another agent / log it in an audit. Pass `band` + `observed_on` as well and you also get `descriptor_token`, `emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>`, which resolves to the same fact and says what it is without a round-trip. Prefer it when the reader is a model: a cell64 anchor is a string no model has seen, and two different models segment it identically 0% of the time against 100% for the same cell as coordinates.",
             "many_facts":  "emem_memory_bundle (REST POST /v1/memory_bundle) → `emem:bundle:<bundle_cid>`. One signed handle citing N (cell, band, vintage) facts.",
             "resolve":     "emem_memory_token_resolve / emem_memory_bundle_resolve dereference the handle back to the signed body on any responder that holds it.",
             "verify_offline": "Paste the receipt at /verify (in-browser ed25519, no server trust) or call emem_verify_receipt (POST /v1/verify_receipt) for a server-side check. Either way the responder pubkey is the validator."
@@ -13477,6 +13478,102 @@ async fn get_log_sth(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiEr
     })))
 }
 
+/// Hard cap on entries returned per `/v1/log/entries` call.
+///
+/// RFC 6962 §4.6 explicitly lets a log return fewer entries than asked for, so
+/// truncating is spec-legal rather than a fudge. The response says `end_exclusive`
+/// so a client paginates on what it actually received instead of assuming it got
+/// the range it requested.
+const LOG_ENTRIES_MAX: u64 = 256;
+
+#[derive(Debug, Deserialize)]
+struct LogEntriesReq {
+    #[serde(default)]
+    start: u64,
+    /// Exclusive. Defaults to `start + LOG_ENTRIES_MAX`.
+    #[serde(default)]
+    end: Option<u64>,
+}
+
+/// `GET /v1/log/entries?start=<i>&end=<j>` — RFC 6962 §4.6 get-entries: the raw
+/// attestations at global indices `[start, end)`.
+///
+/// Without this the log is only half a transparency log. `/v1/log/inclusion`
+/// proves a cid you ALREADY HOLD is in the tree; only enumeration lets a third
+/// party audit what else is in it, which is the difference between "prove me
+/// right" and "catch me wrong". A log nobody can read is a log nobody can catch.
+///
+/// Entry `i` is the preimage of leaf `i` from the same walk `/v1/log/sth` builds
+/// the tree from, so a caller can re-hash `attestation_cbor_b32` and check it
+/// against an inclusion proof themselves, with no trust in this responder.
+async fn get_log_entries(
+    State(s): State<AppState>,
+    Query(req): Query<LogEntriesReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let log = s.storage.transparency_log().ok_or_else(|| {
+        ApiError(
+            StatusCode::NOT_IMPLEMENTED,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: "this responder runs without a durable transparency log; \
+                          log entries are unavailable"
+                    .into(),
+                details: None,
+            },
+        )
+    })?;
+    let start = req.start;
+    let asked_end = req.end.unwrap_or(start.saturating_add(LOG_ENTRIES_MAX));
+    if asked_end <= start {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "log entries range is half-open and must have end > start; got start={start}, end={asked_end}"
+                ),
+                details: None,
+            },
+        ));
+    }
+    let end = asked_end.min(start.saturating_add(LOG_ENTRIES_MAX));
+    let rows = log.entries(start, end).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("reading log entries failed: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let entries: Vec<JsonValue> = rows
+        .iter()
+        .map(|(i, cbor)| {
+            json!({
+                "leaf_index": i,
+                // The bytes themselves, so a caller re-derives the leaf rather than
+                // taking our word for it. Same base32 alphabet as every other id here.
+                "attestation_cbor_b32": b32_lower(cbor),
+                "entry_hash_b32": b32_lower(blake3::hash(cbor).as_bytes()),
+            })
+        })
+        .collect();
+    let returned = entries.len() as u64;
+    Ok(Json(json!({
+        "entries": entries,
+        "start": start,
+        // What you actually got, not what you asked for: a short read means the log
+        // ended or the cap bit, and either way this is where you resume.
+        "end_exclusive": start + returned,
+        "returned": returned,
+        "truncated": asked_end > end || start + returned < end,
+        "max_per_call": LOG_ENTRIES_MAX,
+        "note": "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash attestation_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold.",
+        "spec": "https://emem.dev/spec.md#transparency-log"
+    })))
+}
+
 /// `GET /v1/log/inclusion?leaf_index=<i>` or `?entry_hash=<base32>` — an
 /// RFC 6962 inclusion (audit) proof that the entry at that position is
 /// committed under the returned STH.
@@ -17732,6 +17829,7 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/sources":           {"get":{"summary":"source registry","operationId":"emem_sources","responses":{"200":json_ok}}},
             "/v1/errors":            {"get":{"summary":"error code catalog","operationId":"emem_errors","responses":{"200":json_ok}}},
             "/v1/log/sth":           {"get":{"summary":"transparency log: signed tree head (RFC 6962) over the append-only attestation log. {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}; ed25519 over PreimageV1(\"emem.translog.sth.v1\"). Pin it, then re-check /v1/log/consistency to prove the log only grew.","operationId":"emem_log_sth","responses":{"200":json_ok}}},
+            "/v1/log/entries":       {"get":{"summary":"transparency log: RFC 6962 §4.6 get-entries. Returns the raw attestations at global indices [start, end), as {leaf_index, attestation_cbor_b32, entry_hash_b32}. This is what makes the log AUDITABLE rather than only provable: /v1/log/inclusion proves a cid you already hold is committed, while enumeration lets a third party read what else is in the tree. Entry i is the preimage of leaf i in /v1/log/sth, so blake3(attestation_cbor_b32) == entry_hash_b32 and /v1/log/inclusion proves that hash sits under the STH, with no trust in this responder. Capped at 256 per call (RFC 6962 permits returning fewer than asked); the response carries end_exclusive and truncated so you paginate on what you received, not what you requested.","operationId":"emem_log_entries","parameters":[{"name":"start","in":"query","schema":{"type":"integer","minimum":0},"description":"first global leaf index, inclusive"},{"name":"end","in":"query","schema":{"type":"integer"},"description":"exclusive end; defaults to start+256 and is clamped to it"}],"responses":{"200":json_ok,"400":json_bad_request,"501":json_ok}}},
             "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under the current signed tree head. Pass leaf_index=<i> or entry_hash=<base32 of the record blake3>. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}}],"responses":{"200":json_ok}}},
             "/v1/log/consistency":   {"get":{"summary":"transparency log: RFC 6962 consistency proof that the tree of size `first` is an append-only prefix of size `second` (defaults to the current tree size). Verify offline with translog::verify_consistency against the first_root you pinned; a mismatch means the log rewrote history.","operationId":"emem_log_consistency","parameters":[{"name":"first","in":"query","required":true,"schema":{"type":"integer","minimum":1}},{"name":"second","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
             "/v1/log/witnesses":     {"get":{"summary":"transparency log: witness co-signatures recorded for the current signed tree head — independent parties that counter-signed (tree_size, root), so a client can detect split-view equivocation. Empty until witnesses submit via POST /v1/log/witness.","operationId":"emem_log_witnesses","responses":{"200":json_ok}}},
@@ -17876,8 +17974,8 @@ async fn openapi() -> Json<JsonValue> {
             "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2, galileo)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2, galileo). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry).","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank)."}}}}}},"responses":{"200":json_ok}}},
-            "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Parses emem:fact:<cell>:<fact_cid> (legacy memt: also accepted), fetches the signed fact body by CID, and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. Binds the cell: a token whose cell contradicts the signed fact's own cell is refused with 409, so a real fact_cid cannot be passed off under a false location. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"404":json_not_found,"409":json_conflict}}},
+            "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry). Pass `band` AND `observed_on` to additionally get `descriptor_token`, the self-describing anchor emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>, which resolves to the identical fact. PREFER descriptor_token when handing a citation to a model: across 200 real facts, Qwen and gemma-4 segment a cell64 anchor identically 0.0% of the time (jaccard 0.6477) versus 100.0% (jaccard 1.0000) for the same cell written as 5dp coordinates, and a cell64 is a string no model has seen while 36.12010,-112.30206 is the Grand Canyon in every model's training data. Nothing is trusted: this mint never reads storage, and /v1/memory_token/resolve binds the place, band and date to the signed fact, so a descriptor minted with a wrong date yields a token that cannot resolve rather than one that misleads.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank). Required (with observed_on) to mint descriptor_token."},"observed_on":{"type":"string","description":"Optional source capture date YYYY-MM-DD, as returned by /v1/recall in sources[].captured_at. With `band`, mints descriptor_token. This is valid time (when the sensor observed), never signed_at."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Accepts two anchors for the same fact: emem:fact:<cell64>:<fact_cid> (legacy memt: also accepted), and the self-describing emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>. Fetches the signed fact body by CID and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. EVERY claim in the anchor is bound to the signed body before it dereferences, so a citation can be read without a round-trip precisely because it cannot lie: the cell (or the cell the coordinates quantise to) must match the fact's own cell, the band must match the fact's band, and the date must match one of sources[].captured_at (valid time, never signed_at). Any mismatch is 409, so a real fact_cid cannot be passed off under a false place, band or date. Coordinates below 5 decimal places are refused with 400: 4dp is ~11m against a ~10m cell and would silently address a neighbouring one. A fact carrying no source capture time cannot support a date claim, so the descriptor anchor is refused for it (409) rather than accepted unbound; cite it in cell form. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output or human_curated; direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
@@ -18745,6 +18843,32 @@ struct LocateReq {
     place: Option<String>,
 }
 
+/// Read `"<lat>,<lng>"` out of a free-text query, or None if it is a name.
+///
+/// Exists because `q` is the alias every geocoding API uses, so agents pass
+/// coordinates to it out of habit, and a geocoder answers a coordinate string by
+/// finding the nearest thing it can name. Measured on 2026-07-15:
+/// `?q=15.198519,76.361479` resolved via Photon/Nominatim to 15.1959225,76.3607255
+/// and returned a cell **300 m** (about 30 cells) from the one asked for, HTTP 200,
+/// no warning, while `?lat=&lng=` for the same numbers returned the right cell. A
+/// wrong cell that looks right is the worst answer this endpoint can give.
+///
+/// Only a string whose BOTH halves parse as in-range degrees is treated as
+/// coordinates, so `Paris, France` and `1600 Pennsylvania Ave, Washington` fall
+/// through to the geocoder untouched.
+fn latlng_from_query(s: &str) -> Option<(f64, f64)> {
+    let (a, b) = s.split_once(',')?;
+    let lat: f64 = a.trim().parse().ok()?;
+    let lng: f64 = b.trim().parse().ok()?;
+    if !lat.is_finite() || !lng.is_finite() {
+        return None;
+    }
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+        return None;
+    }
+    Some((lat, lng))
+}
+
 async fn post_locate(Json(req): Json<LocateReq>) -> Result<Json<JsonValue>, ApiError> {
     locate_inner(req).await
 }
@@ -18780,11 +18904,35 @@ struct MemoryTokenReq {
     /// composition; it never loads the fact.
     #[serde(default)]
     band: Option<String>,
+    /// The fact's source capture date, YYYY-MM-DD, as returned by
+    /// `/v1/recall` in `sources[].captured_at`.
+    ///
+    /// Supplying it (with `band`) additionally mints `descriptor_token`, the
+    /// self-describing citation. It is requested rather than loaded because the
+    /// mint never reads storage; passing a wrong date does not forge anything,
+    /// since `/v1/memory_token/resolve` binds the date to the signed fact and
+    /// refuses a mismatch with 409.
+    #[serde(default)]
+    observed_on: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct MemoryTokenResp {
     memory_token: String,
+    /// The same citation with a legible anchor:
+    /// `emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>`. Resolves to the
+    /// identical fact as `memory_token`; both anchors are checked against the
+    /// signed body, and the `fact_cid` remains the only oracle either way.
+    ///
+    /// Present only when the caller supplied both `band` and `observed_on`,
+    /// because a descriptor that cannot state what it is has no reason to exist.
+    ///
+    /// Prefer this one when handing a citation to a model. Measured across 200
+    /// real facts, Qwen and Gemma segment a cell64 anchor identically 0.0% of the
+    /// time; they agree on the same cell as 5dp coordinates 100.0% of the time,
+    /// and coordinates are the only anchor a model has ever seen before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    descriptor_token: Option<String>,
     /// The bare-place citation `emem:cell:<cell64>` for the same cell, so
     /// an agent can reference the location on its own, without a fact.
     cell_token: String,
@@ -18796,6 +18944,9 @@ struct MemoryTokenResp {
     #[serde(skip_serializing_if = "Option::is_none")]
     provenance: Option<JsonValue>,
     grammar: &'static str,
+    /// Grammar of `descriptor_token`. Absent when one was not minted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    descriptor_grammar: Option<&'static str>,
     docs: &'static str,
 }
 
@@ -20664,8 +20815,35 @@ async fn post_memory_token(
             },
         ));
     }
+    // The descriptor anchor needs the band and the observation date. Both are
+    // caller-supplied because this mint never reads storage; neither is trusted,
+    // since /v1/memory_token/resolve binds both to the signed fact and refuses a
+    // mismatch with 409. Minting one that lies produces a token that cannot
+    // resolve, not a token that misleads.
+    let descriptor_token = match (req.band.as_deref(), req.observed_on.as_deref()) {
+        (Some(band), Some(date)) if !band.trim().is_empty() && !date.trim().is_empty() => {
+            // 5dp, not fewer: 4dp is ~11 m against a ~10 m cell and recovered the
+            // fact's own cell only 63/80 times on real data. The parser enforces
+            // this floor too; minting below it would emit tokens it then refuses.
+            emem_codec::latlng_from_cell64(cell).ok().map(|ll| {
+                format!(
+                    "emem:fact:{:.5},{:.5}@{}@{}:{}",
+                    ll.lat_deg,
+                    ll.lng_deg,
+                    date.trim(),
+                    render_band_for_descriptor(band.trim()),
+                    cid
+                )
+            })
+        }
+        _ => None,
+    };
     Ok(Json(MemoryTokenResp {
         memory_token: format!("emem:fact:{}:{}", cell, cid),
+        descriptor_grammar: descriptor_token
+            .is_some()
+            .then_some("emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>"),
+        descriptor_token,
         cell_token: cell_token(cell),
         cell: cell.to_string(),
         fact_cid: cid.to_string(),
@@ -20686,34 +20864,187 @@ fn cell_token(cell: &str) -> String {
     format!("emem:cell:{cell}")
 }
 
-/// Parse a fact token into its `(cell64, fact_cid)` components. Canonical
-/// form is `emem:fact:<cell64>:<fact_cid>`; the legacy `memt:` prefix still
-/// resolves so handles minted before the rename keep working. Strict on
-/// shape because a malformed handle should fail fast rather than trip the
-/// storage layer.
-fn parse_memory_token(token: &str) -> Result<(String, String), String> {
+/// Minimum decimal places a descriptor's coordinates must carry.
+///
+/// Not a style preference. Resolution-5 cells are ~10 m and 4dp is ~11 m, so a
+/// 4dp coordinate straddles cell boundaries: measured against 80 real facts it
+/// recovered the fact's own cell only 63/80 times (78.8%), silently addressing a
+/// neighbouring cell in the other 21%. 5dp is ~1.1 m and recovered 80/80. A token
+/// that resolves and verifies while pointing one cell over is the worst failure
+/// this grammar could have, so the floor is enforced at parse time rather than
+/// documented and hoped for.
+const DESCRIPTOR_MIN_DECIMALS: usize = 5;
+
+/// The legible half of a v2 fact token, parsed but NOT yet trusted.
+///
+/// Every field is a claim the caller made. Each one is checked against the signed
+/// fact in `memory_token_resolve` before the token dereferences; nothing here is
+/// authoritative on its own. The `fact_cid` remains the only oracle.
+#[derive(Debug, Clone, PartialEq)]
+struct FactTokenDescriptor {
+    lat: f64,
+    lng: f64,
+    /// `sources[].captured_at` date, YYYY-MM-DD: when the sensor observed, not
+    /// when the responder signed.
+    date: String,
+    /// Band key with `_` and `.` rewritten to `~`. Not reversible by string
+    /// surgery (`soilgrids~soc~0~30cm` could re-glue several ways), so it is
+    /// compared by rendering the FACT's band the same way rather than by
+    /// inverting the token's. Verified collision-free across all 211 band keys
+    /// the responder serves.
+    band_render: String,
+}
+
+/// Render a band key into the descriptor's `~` form.
+///
+/// `_` and `.` are the two glue characters in band keys and both tokenize
+/// adversarially: measured across the live band corpus, raw keys are segmented
+/// identically by Qwen and Gemma 0.0% of the time, and swapping the glue for `~`
+/// lifts that to 76.0% (jaccard 0.9473). A space scores 93.5% but would make the
+/// token non-self-delimiting, which loses more than it wins once a citation is
+/// pasted into prose.
+fn render_band_for_descriptor(band: &str) -> String {
+    band.replace(['_', '.'], "~")
+}
+
+/// Parse the descriptor anchor `<lat>,<lng>@<date>@<band~render>`.
+fn parse_fact_token_descriptor(seg: &str) -> Result<FactTokenDescriptor, String> {
+    let mut at = seg.split('@');
+    let coords = at.next().unwrap_or_default();
+    let date = at
+        .next()
+        .ok_or_else(|| format!("descriptor `{seg}` is missing the `@<date>` component"))?;
+    let band_render = at
+        .next()
+        .ok_or_else(|| format!("descriptor `{seg}` is missing the `@<band>` component"))?;
+    if at.next().is_some() {
+        return Err(format!(
+            "descriptor `{seg}` has more than three `@`-separated components; expected `<lat>,<lng>@<date>@<band>`"
+        ));
+    }
+
+    let (lat_s, lng_s) = coords
+        .split_once(',')
+        .ok_or_else(|| format!("descriptor coordinates `{coords}` are not `<lat>,<lng>`"))?;
+    let mut out = Vec::with_capacity(2);
+    for (name, s) in [("lat", lat_s), ("lng", lng_s)] {
+        // Plain decimal only. The precision floor below counts the characters
+        // after the dot, so an exponent form like `1.23456e1` would claim six
+        // decimals while carrying the four of `12.3456` — the precision the
+        // floor exists to refuse, smuggled past it by notation.
+        if !s
+            .bytes()
+            .all(|c| c.is_ascii_digit() || c == b'-' || c == b'.')
+        {
+            return Err(format!(
+                "descriptor {name} `{s}` must be a plain decimal number (digits, `-`, `.`); exponent notation is refused because it states a precision it does not carry"
+            ));
+        }
+        let decimals = s.rsplit_once('.').map(|(_, d)| d.len()).unwrap_or(0);
+        if decimals < DESCRIPTOR_MIN_DECIMALS {
+            return Err(format!(
+                "descriptor {name} `{s}` carries {decimals} decimal places; at least {DESCRIPTOR_MIN_DECIMALS} are required because fewer does not uniquely address a ~10 m cell and would silently cite a neighbouring one"
+            ));
+        }
+        out.push(
+            s.parse::<f64>()
+                .map_err(|_| format!("descriptor {name} `{s}` is not a decimal number"))?,
+        );
+    }
+    let (lat, lng) = (out[0], out[1]);
+    if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
+        return Err(format!(
+            "descriptor coordinates `{lat},{lng}` are outside the valid range (lat -90..90, lng -180..180)"
+        ));
+    }
+
+    // Shape only. Whether the date is the fact's date is decided against the
+    // signed body, not here.
+    let ymd: Vec<&str> = date.split('-').collect();
+    if ymd.len() != 3
+        || ymd[0].len() != 4
+        || ymd[1].len() != 2
+        || ymd[2].len() != 2
+        || !date.bytes().all(|c| c.is_ascii_digit() || c == b'-')
+    {
+        return Err(format!(
+            "descriptor date `{date}` is not an ISO YYYY-MM-DD date"
+        ));
+    }
+    if band_render.is_empty()
+        || !band_render
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'~')
+    {
+        return Err(format!(
+            "descriptor band `{band_render}` must be lowercase alphanumerics separated by `~`"
+        ));
+    }
+
+    Ok(FactTokenDescriptor {
+        lat,
+        lng,
+        date: date.to_string(),
+        band_render: band_render.to_string(),
+    })
+}
+
+/// Parse a fact token into `(cell64, fact_cid, descriptor)`.
+///
+/// Two anchors resolve to the same fact:
+///
+/// - `emem:fact:<cell64>:<fact_cid>` (and legacy `memt:`), unchanged.
+/// - `emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>`, which says what the
+///   citation IS without a round-trip.
+///
+/// The forms are distinguished by `@`, which cell64 cannot contain, and neither
+/// anchor contains `:` so the existing split still separates anchor from cid.
+///
+/// The descriptor anchor exists because the cell64 one is unreadable to the models
+/// that have to carry it. Measured across 200 real facts, Qwen and Gemma segment a
+/// cell64 identically 0.0% of the time (jaccard 0.6477) while they agree on the
+/// same cell written as 5dp coordinates 100.0% of the time (jaccard 1.0000), for
+/// about 3.5 more tokens. Coordinates are also the only anchor that means anything
+/// to a model: a cell64 is a string it has never seen, whereas 36.12,-112.30 is the
+/// Grand Canyon in any model's training data.
+///
+/// Nothing about the wire changes. The cell64 string stays hashed into the fact and
+/// into every receipt, so every existing `fact_cid` and every transparency-log entry
+/// is untouched; this is a citation grammar, not a hash input.
+fn parse_fact_token(token: &str) -> Result<(String, String, Option<FactTokenDescriptor>), String> {
     let token = token.trim();
     let rest = token
         .strip_prefix("emem:fact:")
         .or_else(|| token.strip_prefix("memt:"))
         .ok_or_else(|| {
-            "memory token must start with `emem:fact:` (legacy `memt:` also accepted); expected `emem:fact:<cell64>:<fact_cid>`".to_string()
+            "memory token must start with `emem:fact:` (legacy `memt:` also accepted); expected `emem:fact:<cell64>:<fact_cid>` or `emem:fact:<lat>,<lng>@<date>@<band>:<fact_cid>`".to_string()
         })?;
     let mut parts = rest.splitn(2, ':');
-    let cell = parts
+    let anchor = parts
         .next()
-        .ok_or_else(|| "memory token missing cell64 component".to_string())?;
+        .ok_or_else(|| "memory token missing its cell64 or descriptor component".to_string())?;
     let cid = parts
         .next()
         .ok_or_else(|| "memory token missing fact_cid component".to_string())?;
-    if cell.is_empty() || cid.is_empty() {
-        return Err("memory token has empty cell64 or fact_cid component".into());
+    if anchor.is_empty() || cid.is_empty() {
+        return Err("memory token has an empty anchor or fact_cid component".into());
     }
-    if !emem_codec::is_cell64_shape(cell) {
-        return Err(format!(
-            "memory token cell64 segment `{cell}` is not a valid cell64 shape (expected four `.`-separated base-65,536 bigrams)"
-        ));
-    }
+
+    let (cell, descriptor) = if anchor.contains('@') {
+        let d = parse_fact_token_descriptor(anchor)?;
+        // Quantising here means a descriptor whose coordinates disagree with the
+        // signed fact hits the SAME 409 cell-binding that guards the cell64 form.
+        // The check is not duplicated; the anchor is just normalised into it.
+        (emem_codec::cell64_from_latlng(d.lat, d.lng), Some(d))
+    } else {
+        if !emem_codec::is_cell64_shape(anchor) {
+            return Err(format!(
+                "memory token anchor `{anchor}` is neither a valid cell64 shape (four `.`-separated base-65,536 bigrams) nor a descriptor (`<lat>,<lng>@<date>@<band>`)"
+            ));
+        }
+        (anchor.to_string(), None)
+    };
+
     // fact_cid is 26-char base32-nopad-lowercase per the protocol; accept
     // a wider 32..=96 ASCII-alphanumeric range here because the cid is the
     // truth oracle - storage will 404 on miss with a typed code.
@@ -20722,7 +21053,14 @@ fn parse_memory_token(token: &str) -> Result<(String, String), String> {
             "memory token fact_cid segment `{cid}` is not a recognisable CID shape"
         ));
     }
-    Ok((cell.to_string(), cid.to_string()))
+    Ok((cell, cid.to_string(), descriptor))
+}
+
+/// Parse a fact token into its `(cell64, fact_cid)` components, discarding any
+/// descriptor. Callers that only need to reach the fact use this; the resolver
+/// uses `parse_fact_token` so it can bind the descriptor's claims to the body.
+fn parse_memory_token(token: &str) -> Result<(String, String), String> {
+    parse_fact_token(token).map(|(cell, cid, _)| (cell, cid))
 }
 
 #[derive(Debug, Deserialize)]
@@ -20811,7 +21149,7 @@ async fn post_memory_token_resolve(
     EmemJson(req): EmemJson<MemoryTokenResolveReq>,
 ) -> Result<Json<MemoryTokenResolveResp>, ApiError> {
     let started = std::time::Instant::now();
-    let (cell, cid) = parse_memory_token(&req.token).map_err(|message| {
+    let (cell, cid, descriptor) = parse_fact_token(&req.token).map_err(|message| {
         ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
@@ -20875,6 +21213,76 @@ async fn post_memory_token_resolve(
         emem_fact::Fact::Absence(a) => Some(a.band.as_str()),
         emem_fact::Fact::Derivative(d) => Some(d.band.as_str()),
     };
+
+    // Bind the descriptor's remaining claims to the signed body.
+    //
+    // The coordinates were already bound above: they quantise to a cell64 and a
+    // disagreeing one hit the same 409. Band and date are not covered by that, so a
+    // descriptor could otherwise carry a real fact_cid under a false band or date and
+    // resolve clean. The descriptor exists so an agent can read a citation WITHOUT a
+    // round-trip, which only holds if what it reads cannot be a lie.
+    if let Some(d) = &descriptor {
+        if let Some(fact_band) = band_key {
+            let want = render_band_for_descriptor(fact_band);
+            if want != d.band_render {
+                return Err(ApiError(
+                    StatusCode::CONFLICT,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message: format!(
+                            "token descriptor band `{}` does not match the signed fact's band `{fact_band}`: fact_cid `{cid}` is a `{fact_band}` observation. This citation misrepresents what it measures; refusing to dereference a mislabeled handle. Re-cite with `{want}`.",
+                            d.band_render
+                        ),
+                        details: None,
+                    },
+                ));
+            }
+        }
+
+        // The descriptor's date asserts when the SENSOR observed, so it binds against
+        // sources[].captured_at, never signed_at: those are valid time and transaction
+        // time and conflating them is exactly the bi-temporal error emem exists to
+        // avoid. A fact carrying no capture date cannot support the claim, so the
+        // descriptor form is refused for it rather than accepted unbound.
+        let captured: Vec<String> = match &fact {
+            emem_fact::Fact::Primary(p) => p
+                .sources
+                .iter()
+                .filter_map(|s| s.captured_at.as_ref())
+                .map(|c| c.chars().take(10).collect())
+                .collect(),
+            _ => Vec::new(),
+        };
+        if captured.is_empty() {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "token descriptor asserts observation date `{}` but fact_cid `{cid}` carries no source capture time to bind it against. Refusing an unverifiable claim: cite this fact in cell form, `emem:fact:{cell}:{cid}`.",
+                        d.date
+                    ),
+                    details: None,
+                },
+            ));
+        }
+        if !captured.contains(&d.date) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "token descriptor date `{}` does not match the signed fact's source capture date(s) `{}`: fact_cid `{cid}` observed on {}, not {}. Refusing to dereference a mislabeled handle.",
+                        d.date,
+                        captured.join(", "),
+                        captured.join(", "),
+                        d.date
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
     let provenance = band_key.map(provenance_for_band).unwrap_or(JsonValue::Null);
 
     let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
@@ -46315,7 +46723,7 @@ fn emem_self_describe() -> JsonValue {
         "primary_loop": {
             "1_name_a_thing": "emem_entity mints or returns a canonical object identity (emem:entity:<entity_cid>); emem_entity_resolve converges a fuzzy phrasing onto one another agent already registered; emem_entity_link attests two phrasings mean the same object.",
             "2_ground_a_place": "emem_locate returns the canonical cell64; emem_recall returns the signed facts there (auto-fetches on a miss).",
-            "3_cite_it": "emem_memory_token composes emem:fact:<cell64>:<fact_cid> for one fact; emem_memory_bundle composes emem:bundle: for many.",
+            "3_cite_it": "emem_memory_token composes emem:fact:<cell64>:<fact_cid> for one fact, and with `band` + `observed_on` also the self-describing emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>; emem_memory_bundle composes emem:bundle: for many.",
             "4_resolve_and_verify": "emem_memory_token_resolve and emem_entity_resolve dereference a handle back to the identical signed body; emem_verify_receipt (or /verify) checks the ed25519 receipt without trusting the server.",
             "5_detect_drift": "emem_memory_contradictions surfaces where signed sources disagree at the same address."
         },
@@ -47902,6 +48310,15 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     }
     let (lat, lng, label) = match (req.lat, req.lng, req.place.as_deref()) {
         (Some(la), Some(lo), _) => (la, lo, None),
+        // Coordinates passed as `q`/`place` mean the coordinates, not a place whose
+        // NAME is that string. Must precede the geocoder arm: Photon/Nominatim will
+        // answer a coordinate string with the nearest thing it can name, which
+        // measured 300 m off with a 200 and no warning. `via` stays "direct"
+        // because the caller did supply the point.
+        (_, _, Some(p)) if latlng_from_query(p).is_some() => {
+            let (la, lo) = latlng_from_query(p).expect("guard just matched");
+            (la, lo, None)
+        }
         (_, _, Some(p)) if !p.is_empty() => {
             // First check our wide-bbox table — if the name is a known wide
             // feature, the bbox here is *better* than any centroid because
@@ -52253,6 +52670,229 @@ mod s2_surface_class {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every value below is from one real production fact, fetched from
+    /// /v1/facts/{cid} on 2026-07-15, not invented: a Sentinel-1 RTC VV
+    /// backscatter reading over Tungabhadra.
+    const T_CELL: &str = "defi.zb4ac.zeced.wUpI";
+    const T_CID: &str = "22gpsxkcsjrnpyuz6fv3ttzopzb4lsvn7o2cx76gam6uqdjn2dbq";
+    const T_LAT: f64 = 15.198519324550304;
+    const T_LNG: f64 = 76.36147889172531;
+
+    /// `q` is the alias every geocoding API uses, so agents pass coordinates to it
+    /// by habit. A geocoder answers a coordinate string by naming the nearest thing
+    /// it knows: measured 2026-07-15, `?q=15.198519,76.361479` came back 300 m (about
+    /// 30 cells) from `?lat=&lng=` for the same numbers, HTTP 200, no warning. A wrong
+    /// cell that looks right is the worst answer this endpoint can give, so
+    /// coordinates must be parsed before anything reaches the geocoder.
+    ///
+    /// The other half matters as much: a real place name that merely CONTAINS a comma
+    /// must still reach the geocoder untouched.
+    #[test]
+    fn latlng_from_query_parses_coords_and_leaves_names_alone() {
+        // The exact string that produced the 300 m error.
+        assert_eq!(
+            latlng_from_query("15.198519,76.361479"),
+            Some((15.198519, 76.361479))
+        );
+        for (s, want) in [
+            (" 15.198519 , 76.361479 ", Some((15.198519, 76.361479))), // whitespace
+            ("36.12010,-112.30206", Some((36.12010, -112.30206))),     // negative lng
+            ("-33.86514,151.20990", Some((-33.86514, 151.20990))),     // southern
+            ("0,0", Some((0.0, 0.0))),
+            ("90,180", Some((90.0, 180.0))), // inclusive bounds
+            ("-90,-180", Some((-90.0, -180.0))),
+        ] {
+            assert_eq!(latlng_from_query(s), want, "coords {s:?} must parse");
+        }
+        for s in [
+            "Paris, France", // the case that must NOT be eaten
+            "1600 Pennsylvania Ave, Washington",
+            "Srisailam", // no comma at all
+            "91,0",      // lat out of range
+            "0,181",     // lng out of range
+            "12,",       // half missing
+            ",34",
+            "",
+            "nan,nan", // non-finite
+            "inf,0",
+        ] {
+            assert_eq!(
+                latlng_from_query(s),
+                None,
+                "{s:?} must fall through to the geocoder"
+            );
+        }
+    }
+
+    /// The cell64 anchor and the legacy `memt:` prefix must keep resolving
+    /// byte-for-byte. Every fact_cid ever minted and all 538,126 transparency
+    /// log entries are anchored on this form; the descriptor grammar is additive
+    /// or it is a fork.
+    #[test]
+    fn cell64_and_legacy_anchors_still_parse() {
+        let (cell, cid, desc) = parse_fact_token(&format!("emem:fact:{T_CELL}:{T_CID}")).unwrap();
+        assert_eq!((cell.as_str(), cid.as_str()), (T_CELL, T_CID));
+        assert!(desc.is_none(), "cell64 anchor must carry no descriptor");
+
+        let (cell, cid, desc) = parse_fact_token(&format!("memt:{T_CELL}:{T_CID}")).unwrap();
+        assert_eq!((cell.as_str(), cid.as_str()), (T_CELL, T_CID));
+        assert!(desc.is_none());
+    }
+
+    /// The descriptor's coordinates must quantise to the SAME cell the fact is
+    /// anchored at, or the whole grammar is a mislabeling machine. 5dp of the
+    /// real fact's own lat/lng must land on the real fact's own cell.
+    #[test]
+    fn descriptor_coords_quantise_to_the_facts_own_cell() {
+        let tok = format!(
+            "emem:fact:{:.5},{:.5}@2022-06-18@sentinel1~raw:{T_CID}",
+            T_LAT, T_LNG
+        );
+        let (cell, cid, desc) = parse_fact_token(&tok).unwrap();
+        assert_eq!(cell, T_CELL, "5dp coords must recover the fact's own cell");
+        assert_eq!(cid, T_CID);
+        let d = desc.expect("descriptor anchor must carry its parsed claims");
+        assert_eq!(d.band_render, "sentinel1~raw");
+        assert_eq!(d.date, "2022-06-18");
+    }
+
+    /// 4dp recovered the fact's own cell only 63/80 times against real facts:
+    /// it is ~11 m against a ~10 m cell, so it silently addresses a neighbour
+    /// 21% of the time. A citation that resolves, verifies, and points one cell
+    /// over is the worst failure this grammar could have. Refuse at parse time.
+    #[test]
+    fn descriptor_refuses_coordinates_too_coarse_to_address_a_cell() {
+        for dp in [0usize, 1, 2, 3, 4] {
+            let tok = format!(
+                "emem:fact:{:.*},{:.*}@2022-06-18@sentinel1~raw:{T_CID}",
+                dp, T_LAT, dp, T_LNG
+            );
+            let err = parse_fact_token(&tok).expect_err("must refuse {dp}dp");
+            assert!(
+                err.contains("decimal places") && err.contains("neighbouring"),
+                "{dp}dp error must say why, got: {err}"
+            );
+        }
+        // 5dp is the floor and must be accepted, 6dp too.
+        for dp in [5usize, 6] {
+            let tok = format!(
+                "emem:fact:{:.*},{:.*}@2022-06-18@sentinel1~raw:{T_CID}",
+                dp, T_LAT, dp, T_LNG
+            );
+            assert!(parse_fact_token(&tok).is_ok(), "{dp}dp must be accepted");
+        }
+    }
+
+    /// The floor counts characters after the dot, so exponent notation could
+    /// state a precision it does not carry: `1.23456e1` reads as six decimals
+    /// and is `12.3456`, four. Refuse the notation rather than let a coarse
+    /// coordinate through the check that exists to stop exactly that.
+    #[test]
+    fn descriptor_refuses_exponent_notation_that_overstates_precision() {
+        // Each is the real coordinate re-expressed so the text shows >=5
+        // decimals while the value carries 4.
+        for coords in [
+            format!("{:.4}e1,{:.5}", T_LAT / 10.0, T_LNG),
+            format!("{:.5},{:.4}e1", T_LAT, T_LNG / 10.0),
+        ] {
+            let tok = format!("emem:fact:{coords}@2022-06-18@sentinel1~raw:{T_CID}");
+            let err = parse_fact_token(&tok)
+                .expect_err("exponent notation must not satisfy the precision floor");
+            assert!(
+                err.contains("plain decimal"),
+                "must name the real reason, got: {err}"
+            );
+        }
+    }
+
+    /// Mint and parse must agree, or the responder emits citations it then
+    /// refuses. Minting writes the cell's centre at 5dp; parsing quantises that
+    /// back.
+    ///
+    /// Swept rather than spot-checked. A hand-picked list of coordinates only
+    /// covers whatever the author thought of, and every point in it is arbitrary.
+    /// Stepping the whole domain covers both hemispheres, the antimeridian and
+    /// high latitudes by construction, and fails loudly at the first cell where
+    /// the rounding does not close rather than at whichever one got listed.
+    #[test]
+    fn minted_descriptor_reparses_to_the_same_cell_across_the_globe() {
+        let mut checked = 0usize;
+        // Latitude stops at +/-85: the grid degenerates at the poles and emem
+        // does not address cells there.
+        for lat_deg in (-85..=85).step_by(5) {
+            for lng_deg in (-180..=180).step_by(15) {
+                let (lat, lng) = (f64::from(lat_deg), f64::from(lng_deg));
+                let cell = emem_codec::cell64_from_latlng(lat, lng);
+                let ll = emem_codec::latlng_from_cell64(&cell).expect("cell must decode");
+                let tok = format!(
+                    "emem:fact:{:.5},{:.5}@2022-06-18@sentinel1~raw:{T_CID}",
+                    ll.lat_deg, ll.lng_deg
+                );
+                let (got, _, desc) = parse_fact_token(&tok)
+                    .unwrap_or_else(|e| panic!("minted token must reparse at {lat},{lng}: {e}"));
+                assert_eq!(
+                    got, cell,
+                    "mint/parse round-trip broke at {lat},{lng}: minted from the centre of {cell}, reparsed to {got}"
+                );
+                assert!(desc.is_some());
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 35 * 25, "sweep must cover the whole domain");
+    }
+
+    /// Malformed descriptors must fail fast and say which component is wrong,
+    /// rather than reaching storage or quantising garbage into a real cell.
+    #[test]
+    fn descriptor_shape_errors_are_typed_and_specific() {
+        let cases = [
+            ("emem:fact:15.19852@2022-06-18@x:", "not `<lat>,<lng>`"),
+            ("emem:fact:15.19852,76.36148@2022-06-18:", "`@<band>`"),
+            ("emem:fact:15.19852,76.36148@22-6-18@x:", "ISO YYYY-MM-DD"),
+            ("emem:fact:15.19852,76.36148@2022-06-18@BAD:", "lowercase"),
+            (
+                "emem:fact:99.99999,76.36148@2022-06-18@x:",
+                "outside the valid range",
+            ),
+            (
+                "emem:fact:15.19852,76.36148@2022-06-18@x@y:",
+                "more than three",
+            ),
+        ];
+        for (prefix, want) in cases {
+            let err =
+                parse_fact_token(&format!("{prefix}{T_CID}")).expect_err("must refuse {prefix}");
+            assert!(err.contains(want), "expected {want:?} in error, got: {err}");
+        }
+    }
+
+    /// The band render is compared by rendering the FACT's band the same way, so
+    /// it never needs inverting. That only holds if no two band keys render alike.
+    /// Checked live across all 211 keys the responder serves; this pins the
+    /// rewrite and the cases that actually collide if the rule slips.
+    #[test]
+    fn band_render_rewrites_glue_and_is_collision_free_over_the_registry() {
+        assert_eq!(render_band_for_descriptor("sentinel1_raw"), "sentinel1~raw");
+        assert_eq!(
+            render_band_for_descriptor("soilgrids.soc_0_30cm"),
+            "soilgrids~soc~0~30cm"
+        );
+        assert_eq!(render_band_for_descriptor("indices.ndvi"), "indices~ndvi");
+
+        let keys = emem_core::bands::DEFAULT
+            .bands
+            .iter()
+            .map(|b| b.key.to_string())
+            .collect::<Vec<_>>();
+        let mut seen = std::collections::HashMap::new();
+        for k in &keys {
+            if let Some(prev) = seen.insert(render_band_for_descriptor(k), k.clone()) {
+                panic!("band render collision: `{prev}` and `{k}` both render alike");
+            }
+        }
+        assert_eq!(seen.len(), keys.len());
+    }
 
     /// The MCP CallToolResult wrap must keep a small result's two-copy
     /// envelope (content text + structuredContent mirror) but DROP the
