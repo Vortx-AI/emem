@@ -185,6 +185,51 @@ def verify_security_limits(responder: str) -> list[str]:
     return hits
 
 
+def verify_band_classes() -> list[str]:
+    """The whitepaper's §7 inventory states a per-class band census in prose.
+    Nothing compared it to the band manifest, and it drifted the moment a band
+    was reclassified: the doc said 22 `model_output` / 8 `deterministic_index`
+    while the manifest said 23 / 7. A provenance census is exactly the kind of
+    claim a reader checks first, and §16.4 criticises this species of rot by
+    name, so it should not be maintained by hand.
+    """
+    bands = REPO / "crates/emem-core/data/bands-v0.json"
+    paper = REPO / "docs/whitepaper-v2.md"
+    if not bands.exists() or not paper.exists():
+        return [f"missing {bands.name if not bands.exists() else paper.name}"]
+
+    counts: dict[str, int] = {}
+    for band in json.loads(bands.read_text())["bands"]:
+        cls = band.get("provenance_class", "unclassified")
+        counts[cls] = counts.get(cls, 0) + 1
+
+    # The census wraps across source lines, so collapse whitespace, then scope
+    # to the inventory sentence itself. Searching the whole document would let a
+    # stray numeral elsewhere satisfy the check.
+    prose = re.sub(r"\s+", " ", paper.read_text())
+    total = sum(counts.values())
+    sentence = re.search(
+        rf"The {total} bands of the active ontology distribute as .*?\.", prose
+    )
+    if not sentence:
+        return [
+            f"whitepaper §7 has no '{total} bands of the active ontology' census "
+            f"(bands-v0.json has {total} bands)"
+        ]
+
+    drift = []
+    census = sentence.group(0)
+    for cls, n in sorted(counts.items()):
+        # Allow prose between the count and the class ("2 reserved slots left
+        # `unclassified`"), but keep it inside the one sentence.
+        if not re.search(rf"\b{n}\b[^.]{{0,40}}`{re.escape(cls)}`", census):
+            drift.append(
+                f"whitepaper §7 census does not say {n} `{cls}`; "
+                f"bands-v0.json has {n}"
+            )
+    return drift
+
+
 def verify_canon() -> list[str]:
     """Assert CANON matches what the repo (and, if reachable, the responder) say."""
     drift = []
@@ -200,6 +245,7 @@ def verify_canon() -> list[str]:
             if v is not None and k in CANON and CANON[k] != v:
                 drift.append(f"CANON[{k}]={CANON[k]} but live /v1/agent_card says {v}")
     drift.extend(verify_security_limits(responder))
+    drift.extend(verify_band_classes())
     return drift
 
 

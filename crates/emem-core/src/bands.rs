@@ -69,11 +69,20 @@ pub enum ProvenanceClass {
     /// Sentinel-1 RTC backscatter, DMSP/VIIRS nightlights). Tamper-evident:
     /// the value is the sensor product itself.
     DirectSensor,
-    /// A deterministic formula or fixed rule computed over raw satellite
-    /// pixels, cell coordinates, or a time series (e.g. NDVI/NDRE/NDMI,
-    /// Horn slope, Fourier position encodings, JRC surface-water rules).
-    /// Tamper-evident: any party holding the cited source recomputes the
-    /// identical value. No learned weights, no human edit.
+    /// A deterministic formula computed over raw satellite pixels or over
+    /// fixed coordinates/time (e.g. NDVI/NDRE/NDMI from Sentinel-2 L2A).
+    /// Recomputable from source: a party holding the cited source and
+    /// applying the responder's documented formula, in the documented order
+    /// and in f64, reproduces the value. The live members of this class use
+    /// only IEEE-754 correctly-rounded operations, so that agreement is
+    /// bit-exact. Two caveats travel with that. An algebraically equivalent
+    /// rearrangement need not agree in the last bits: Sentinel-2 reflectance
+    /// scaling (`DN * 1e-4`) is applied per band before the ratio, and
+    /// folding it through the ratio instead shifts the result by a few ULP.
+    /// And the cited source is pinned by URL, id and capture time, not by a
+    /// content hash, so this is a claim about the formula and not a guarantee
+    /// that the upstream bytes are unchanged. No learned weights, no human
+    /// edit.
     DeterministicIndex,
     /// Output of a trained model or a published ML / statistical product
     /// (e.g. Tessera / Clay / Prithvi / Galileo embeddings, ESA WorldCover,
@@ -94,10 +103,14 @@ pub enum ProvenanceClass {
 }
 
 impl ProvenanceClass {
-    /// Whether any third party can recompute the identical value directly
-    /// from the cited raw satellite source (or fixed coordinates/time),
-    /// with no learned model and no human edit in the loop. This is the
-    /// core tamper-evidence property: `true` for [`Self::DirectSensor`] and
+    /// Whether a third party can recompute the value from the cited raw
+    /// satellite source (or fixed coordinates/time), with no learned model
+    /// and no human edit in the loop. "Recompute" means applying the
+    /// responder's documented formula in the documented order and precision;
+    /// it does not promise that an algebraically equivalent rearrangement
+    /// agrees in the last bits, and it does not attest that the cited source
+    /// still holds the bytes that were read. This is the core tamper-evidence
+    /// property: `true` for [`Self::DirectSensor`] and
     /// [`Self::DeterministicIndex`], `false` for the rest.
     pub fn is_deterministic(self) -> bool {
         matches!(self, Self::DirectSensor | Self::DeterministicIndex)

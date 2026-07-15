@@ -700,7 +700,7 @@
             -1.0,
             1.0
           ],
-          "formula": "NDVI = (B08 − B04) / (B08 + B04)"
+          "formula": "NDVI = (B08 − B04) / (B08 + B04), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits."
         },
         {
           "index": 1,
@@ -711,7 +711,7 @@
             -1.0,
             1.0
           ],
-          "formula": "NDRE = (B08 − B05) / (B08 + B05)"
+          "formula": "NDRE = (B08 − B05) / (B08 + B05), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits."
         },
         {
           "index": 2,
@@ -722,7 +722,7 @@
             -1.0,
             1.0
           ],
-          "formula": "NDMI = (B08 − B11) / (B08 + B11)"
+          "formula": "NDMI = (B08 − B11) / (B08 + B11), each band first scaled to reflectance as DN * 1e-4 in f64, applied per band before the ratio. Folding the scaling through the ratio is algebraically equal but can differ in the last bits."
         }
       ]
     },
@@ -982,7 +982,7 @@
     },
     {
       "key": "surface_water",
-      "provenance_class": "deterministic_index",
+      "provenance_class": "model_output",
       "family": "water",
       "offset": 1546,
       "dims": 12,

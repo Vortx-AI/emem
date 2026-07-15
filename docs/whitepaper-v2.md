@@ -607,13 +607,15 @@ that fails to declare a class fails *closed*, at the lowest rank,
 claiming no tamper-evidence. An unknown band key resolves to it rather
 than to an optimistic guess.
 
-The 43 bands of the active ontology distribute as 22 `model_output`, 8
+The 43 bands of the active ontology distribute as 23 `model_output`, 7
 `deterministic_index`, 6 `direct_sensor`, 5 `human_curated`, and 2
 reserved slots left `unclassified`. Sentinel-1/2 raw, the DEMs,
 nightlights, and GMRT are `direct_sensor`; spectral indices, terrain
-derivatives, phenology, and surface water are `deterministic_index`; the
-foundation encoders, land cover, and climate are `model_output`; Overture,
-protected areas, ecoregions, and admin boundaries are `human_curated`.
+derivatives, and phenology are `deterministic_index`, of which only
+spectral indices are wired to a materializer and the remaining six are
+declared slots with no connector; the foundation encoders, land cover,
+surface water, and climate are `model_output`; Overture, protected areas,
+ecoregions, and admin boundaries are `human_curated`.
 
 ### 7.1 The reader's controls
 
@@ -639,7 +641,7 @@ into the receipt preimage as tag `0x06` (§6.2). So a verifier can
 reproduce *which classification table was in force* when an answer was
 signed, offline.
 
-Four limits, each of which the mechanism's name invites a reader to miss.
+Six limits, each of which the mechanism's name invites a reader to miss.
 
 **The class is an editorial declaration, not a measurement.** It is a
 hand-maintained field in a JSON table, per band. Nothing in the codebase
@@ -659,6 +661,25 @@ their provenance is not covered.
 `indices.ndvi` computed over a cloud-contaminated pixel is
 `deterministic_index` all the same. The class says the *formula* is
 fixed. It says nothing about whether the *input* was sound.
+
+**The cited source is not content-pinned.** `Source.hash` and
+`Source.cid` are `None` on every fact the responder materializes
+(`crates/emem-fact/src/fact.rs:207-212`; the only writer of `hash` in the
+tree is a CLI demo). A fact pins its source by URL, scheme, id and
+capture time, not by a digest of the bytes read. If an upstream object is
+reprocessed in place, the receipt still verifies and the recomputation no
+longer agrees. `recomputable_from_source` is a claim about the formula,
+not about the immutability of the source.
+
+**"Recomputable" is not "bit-identical from the published formula."** The
+published form of NDVI is `(B08 - B04) / (B08 + B04)`. The responder
+scales each band to reflectance (`DN * 1e-4`) before taking the ratio.
+The two are algebraically equal and differ in the last bits: on a
+measured Cambridge cell, `0.03959249826348693` against
+`0.03959249826348692`, a difference of 2 ULP. Bit-exact agreement
+requires the scaling convention, not just the formula. The convention now
+travels in the band manifest's `formula` field, so a third party can
+reproduce the bits from published information alone.
 
 One further caveat is operational rather than architectural: the caution
 rides `band_metadata`, which single-cell `/v1/recall` emits per fact but
