@@ -48365,6 +48365,13 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // under rate limits and a global regex takes ~30 s on the public
     // instance, so it is unfit for a synchronous geocoder fallback.
     let mut via = "direct";
+    // Provenance replayed from a cache hit: the tier the ORIGINAL lookup came
+    // from, and the importance it earned there. Held here rather than in the
+    // cache branch because the confidence verdict is built much further down,
+    // and a cache hit must not mint a verdict of its own: it means somebody
+    // asked before, not that the answer was good.
+    let mut cache_origin_via: Option<String> = None;
+    let mut cache_importance: Option<f64> = None;
     let mut polygon_bbox: Option<(f64, f64, f64, f64)> = None;
     let mut polygon_source: Option<&'static str> = None;
     // Overture-divisions provenance, captured when one of the
@@ -48677,6 +48684,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     lo,
                                     &lab,
                                     Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
+                                    None,
+                                    via,
                                 );
                             }
                         }
@@ -48694,6 +48703,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                         lo,
                                         &lab,
                                         Some([bb.0, bb.1, bb.2, bb.3]),
+                                        None,
+                                        via,
                                     );
                                 }
                             }
@@ -48776,13 +48787,21 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 via = "pois";
                 let lab = poi.label();
                 (poi.lat, poi.lng, Some(lab))
-            } else if let Some((la, lo, lab, bb_cached)) = nominatim_cache_get(p) {
+            } else if let Some((la, lo, lab, bb_cached, cached_imp, cached_origin)) =
+                nominatim_cache_get(p)
+            {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
                 // from cache if we stored one, so recall_polygon at a
                 // cached place doesn't lose the polygon and degrade to a
                 // single-cell fan-out. (Pre-fix: cache stored only lat/lng,
                 // forcing every cached recall_polygon to centre_cell_bbox.)
                 via = "cache";
+                // Carry the original lookup's provenance forward so the
+                // confidence verdict below replays what it earned instead of
+                // inventing one. `via` still reports "cache" because the cache
+                // is what served this, which is what the field documents.
+                cache_origin_via = cached_origin;
+                cache_importance = cached_imp;
                 // Bug 4: when the query is an admin-boundary query, the
                 // cache may carry a stale POI bbox from before this fix
                 // landed (e.g. "Karnal district" → courthouse node). Treat
@@ -48822,6 +48841,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     lo,
                                     &lab,
                                     Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
+                                    None,
+                                    via,
                                 );
                                 if force_admin_override {
                                     via = "overture_admin_fallback";
@@ -48845,6 +48866,8 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                         lo,
                                         &lab,
                                         Some([bb.0, bb.1, bb.2, bb.3]),
+                                        None,
+                                        via,
                                     );
                                 }
                             }
@@ -49068,7 +49091,15 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     via = "overture_admin_fallback";
                 }
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
-                nominatim_cache_put(p, hit.lat, hit.lng, &hit.label, hit_bbox_arr);
+                nominatim_cache_put(
+                    p,
+                    hit.lat,
+                    hit.lng,
+                    &hit.label,
+                    hit_bbox_arr,
+                    Some(hit.importance),
+                    via,
+                );
                 if polygon_bbox.is_none() {
                     if let Some(bb) = hit.bbox {
                         polygon_bbox = Some(bb);
@@ -49403,8 +49434,22 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             let label_text = label.as_deref().unwrap_or("");
             let mismatch_text = query_class != QueryFeatureClass::Unknown
                 && label_text_class_mismatch(query_class, label_text);
-            let (is_high_conf_else, reason_else) =
-                locate_confidence(via, 1.0, mismatch_text, false, 0);
+            // A cache hit replays the tier and score the original lookup
+            // earned; every other tier here judges on the tier itself and
+            // ignores importance. Passing a hardcoded 1.0 through the
+            // `via == "cache"` arm is what promoted every cached row to
+            // high confidence regardless of what it was.
+            let judged_via: &str = match (via, cache_origin_via.as_deref()) {
+                ("cache", Some(origin)) => origin,
+                _ => via,
+            };
+            let (is_high_conf_else, reason_else) = locate_confidence(
+                judged_via,
+                cache_importance.unwrap_or(0.0),
+                mismatch_text,
+                false,
+                0,
+            );
             m.insert(
                 "selected".into(),
                 json!({
@@ -49415,7 +49460,14 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     "label":              label,
                     "class":              JsonValue::Null,
                     "type":               JsonValue::Null,
-                    "importance":         1.0,
+                    // null, not a number, when nothing measured one. The tiers
+                    // that judge on the tier itself do not produce a score, and
+                    // emitting 1.0 for them published a fabricated relevance as
+                    // if it had been earned.
+                    "importance":         match cache_importance {
+                        Some(i) => json!(i),
+                        None => JsonValue::Null,
+                    },
                     "is_high_confidence": is_high_conf_else,
                     "confidence_reason":  reason_else,
                     "class_mismatch":     mismatch_text,
@@ -49664,7 +49716,15 @@ fn locate_confidence(
         "admin3" => (true, "admin3_region_match"),
         "pois" => (true, "well_known_poi_match"),
         "direct" => (true, "direct_lat_lng"),
-        "cache" => (true, "ttl_cache_hit"),
+        // A cache hit is not evidence. It means somebody asked before, not
+        // that the answer was good, so it cannot mint a verdict of its own:
+        // the caller replays the tier and importance the original lookup
+        // earned by passing them here as `via`/`importance`. Reaching this arm
+        // means the row predates the cache recording its provenance, and an
+        // unknown provenance is not a high-confidence one. These rows are
+        // exactly the names the embedded gazetteer could not answer, which is
+        // where a wrong place is most likely and least noticeable.
+        "cache" => (false, "ttl_cache_hit_unknown_provenance"),
         "overture_admin_fallback" => (true, "overture_division_match"),
         "photon" | "nominatim" => {
             if importance >= 0.5 {
@@ -50117,6 +50177,29 @@ struct CachedPlace {
     /// Unix-time rather than Instant so the cache is durable across
     /// process restarts.
     inserted_unix_s: i64,
+    /// The geocoder importance the ORIGINAL lookup earned, and the tier
+    /// that earned it.
+    ///
+    /// Stored because a cache hit is not evidence: it means somebody asked
+    /// before, not that the answer was good. Without these the cache replayed
+    /// a hardcoded importance of 1.0 through the `via == "cache"` arm of
+    /// `locate_confidence`, which promoted every cached row to
+    /// `is_high_confidence: true` regardless of what it was. A low-importance
+    /// fuzzy hit ("Lahaul" -> "Lahage (village), Occitanie, France") was
+    /// correctly refused on the first call, cached, and trusted on every call
+    /// after: the same query answered differently depending only on whether
+    /// someone had asked before. `/v1/locate`'s own contract tells agents to
+    /// branch on `is_high_confidence`, so laundering it defeats the one guard
+    /// the API asks callers to use.
+    ///
+    /// `None` on rows written before this field existed. Unknown provenance
+    /// is treated as low confidence rather than assumed good: these entries
+    /// are exactly the obscure names the embedded gazetteer could not answer,
+    /// which is where a wrong place is most likely and least noticeable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    importance: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    origin_via: Option<String>,
 }
 
 /// 30 d TTL — place-name → centroid is stable. Nominatim's caching
@@ -50284,7 +50367,25 @@ fn now_unix_s() -> i64 {
         .unwrap_or(0)
 }
 
-fn nominatim_cache_get(query: &str) -> Option<(f64, f64, String, Option<[f64; 4]>)> {
+/// What a cached geocode replays: the place, then the provenance the original
+/// lookup earned as `(importance, origin_via)`.
+///
+/// `origin_via` is `None` on rows written before the cache recorded it, which
+/// is the fail-closed case. `importance` is `None` for the tiers that do not
+/// produce one at all: the embedded gazetteer, the admin tables, POIs and
+/// Overture divisions earn their verdict from the tier itself, and
+/// `locate_confidence` never reads importance for them. Only photon/nominatim
+/// gate on the score, and only they carry one.
+type CachedGeocode = (
+    f64,
+    f64,
+    String,
+    Option<[f64; 4]>,
+    Option<f64>,
+    Option<String>,
+);
+
+fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
     let q = query.trim().to_ascii_lowercase();
     let raw = geocoder_db().get(q.as_bytes()).ok()??;
     let entry: CachedPlace = serde_json::from_slice(&raw).ok()?;
@@ -50296,7 +50397,14 @@ fn nominatim_cache_get(query: &str) -> Option<(f64, f64, String, Option<[f64; 4]
         let _ = geocoder_db().remove(q.as_bytes());
         return None;
     }
-    Some((entry.lat, entry.lng, entry.label, entry.polygon_bbox))
+    Some((
+        entry.lat,
+        entry.lng,
+        entry.label,
+        entry.polygon_bbox,
+        entry.importance,
+        entry.origin_via,
+    ))
 }
 
 fn nominatim_cache_put(
@@ -50305,6 +50413,8 @@ fn nominatim_cache_put(
     lng: f64,
     label: &str,
     polygon_bbox: Option<[f64; 4]>,
+    importance: Option<f64>,
+    origin_via: &str,
 ) {
     let q = query.trim().to_ascii_lowercase();
     let entry = CachedPlace {
@@ -50313,6 +50423,8 @@ fn nominatim_cache_put(
         label: label.to_string(),
         polygon_bbox,
         inserted_unix_s: now_unix_s(),
+        importance,
+        origin_via: Some(origin_via.to_string()),
     };
     let bytes = match serde_json::to_vec(&entry) {
         Ok(b) => b,
@@ -58273,6 +58385,44 @@ mod tests {
         // A strong, unambiguous hit IS confident (sanity of the policy).
         let (hc3, _r3) = locate_confidence("nominatim", 0.8, false, false, 1);
         assert!(hc3, "a high-importance unambiguous hit is confident");
+    }
+
+    /// A cache hit must not launder a refused answer into a trusted one.
+    ///
+    /// The policy above is only worth having if serving the same answer twice
+    /// cannot change its verdict. It could: `via == "cache"` returned
+    /// `(true, "ttl_cache_hit")` unconditionally, and the caller passed a
+    /// hardcoded importance of 1.0, so a weak hit refused on the first lookup
+    /// came back high-confidence on every lookup after. Live, "Lahaul"
+    /// resolved to "Lahage (village), Occitanie, France" and was served with
+    /// `is_high_confidence: true, importance: 1.0` from cache. `/v1/locate`'s
+    /// own contract tells agents to branch on `is_high_confidence` before
+    /// trusting a place, so laundering it defeats the guard the API asks
+    /// callers to use.
+    #[test]
+    fn a_cache_hit_replays_the_verdict_it_earned_and_cannot_mint_one() {
+        // The weak hit from the test above, now served from cache. The
+        // caller replays the origin tier and score, so the verdict must hold.
+        let (fresh, _) = locate_confidence("nominatim", 0.1, false, false, 1);
+        let (cached, reason) = locate_confidence("nominatim", 0.1, false, false, 1);
+        assert!(
+            !fresh && !cached,
+            "a weak hit stays weak when it comes from cache"
+        );
+        assert_eq!(reason, "single_low_importance_result");
+
+        // A strong hit likewise keeps its verdict through the cache.
+        let (strong, _) = locate_confidence("nominatim", 0.8, false, false, 1);
+        assert!(strong, "replaying provenance must not punish a good hit");
+
+        // And the "cache" arm itself, reached only when the row predates the
+        // cache recording provenance, must fail closed rather than assume.
+        let (unknown, why) = locate_confidence("cache", 1.0, false, false, 0);
+        assert!(
+            !unknown,
+            "a cache row of unknown provenance must not claim confidence"
+        );
+        assert_eq!(why, "ttl_cache_hit_unknown_provenance");
     }
 
     /// Pin the Tessera UTM (lat,lng,tile) → (row,col) mapping against the
