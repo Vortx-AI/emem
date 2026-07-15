@@ -10,10 +10,19 @@
 //! both source fact CIDs.
 //!
 //! Behaviour by value type:
-//! - both scalar           → `metric = "delta"`,  `value = b - a`
-//! - both vector (eq dim)  → `metric = "cosine"`, `value = cos(a, b)`,
+//! - both scalar             → `metric = "delta"`,  `value = b - a`
+//! - one vector band, two
+//!   tslots (`a == b`)       → `metric = "cosine"`, `value = cos(a, b)`,
 //!   `l2_distance` and per-dim diff also reported
-//! - mismatched / wrong    → returns Internal error (so the agent can
+//! - two different vector
+//!   bands                   → 400 InvalidArgument. No two bands share a
+//!   vector space, so a cosine between them means nothing even at equal
+//!   width: `clay_v1` and `prithvi_eo2` are both 384-D but encode
+//!   different chips at different receptive fields, and `dem`
+//!   ([elevation, slope, aspect]) against `indices` ([ndvi, ndre, ndmi])
+//!   is 3-D on both sides and pure noise. This arm used to truncate to
+//!   `min(len)` and serve the number anyway.
+//! - mismatched / wrong      → returns Internal error (so the agent can
 //!   branch on `incomparable_band_types`)
 //!
 //! tslot resolution:
@@ -342,7 +351,51 @@ pub async fn compare_bands(
 
     let (metric, value, absolute_diff, per_dim_delta) =
         if let (Some(av), Some(bv)) = (as_vec_f32(va), as_vec_f32(vb)) {
-            let n = av.len().min(bv.len());
+            // The `else` arm below already promises a 400 on "vector-length
+            // mismatch", but it could never fire: this arm matched first and
+            // truncated to min(len), cosining a prefix of two vectors whose
+            // dimensions do not correspond. A 128-D Tessera vector against a
+            // 1024-D Prithvi one returned a confident number about nothing.
+            // Honour the documented contract instead.
+            if av.len() != bv.len() {
+                return Err(StorageError::Protocol {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "compare_bands: bands ({}, {}) are vectors of different lengths \
+                         ({} vs {}); a cosine over the shared prefix would compare \
+                         dimensions that do not correspond, so no value is returned",
+                        req.a,
+                        req.b,
+                        av.len(),
+                        bv.len()
+                    ),
+                });
+            }
+            // Equal length is necessary and NOT sufficient. Nothing in the band
+            // manifest asserts that two bands share a vector space, and none do:
+            // clay_v1 and prithvi_eo2 are both 384-D by storage coincidence, but
+            // one encodes a 10-band 256x256 chip at a 2.56 km receptive field and
+            // the other a 6-band 224x224 chip at 6.7 km, so their axes have no
+            // correspondence. `dem` is [elevation, slope, aspect] and `indices` is
+            // [ndvi, ndre, ndmi]; both are 3-D and a cosine between them is noise
+            // wearing a number's clothes. The documented use of the vector arm is
+            // one band across two tslots ("how did the GeoTessera embedding change
+            // between vintage 2017 and 2024"), which is same-space by construction.
+            // Cross-band vector cosine is refused rather than served.
+            if req.a != req.b {
+                return Err(StorageError::Protocol {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "compare_bands: ({}, {}) are different vector bands, and no two \
+                         bands share an embedding space; a cosine between them has no \
+                         meaning even at equal width. Compare one vector band across two \
+                         tslots (a == b, tslot_a != tslot_b), or compare scalar keys \
+                         such as `{}.<dim>` and `{}.<dim>`",
+                        req.a, req.b, req.a, req.b
+                    ),
+                });
+            }
+            let n = av.len();
             if n == 0 {
                 return Err(StorageError::Protocol {
                     code: ErrorCode::Internal,
@@ -526,16 +579,52 @@ mod tests {
             }
         }
 
+        /// Insert a vector fact at (cell, band, tslot). Mirrors
+        /// [`Self::insert_scalar`] but stores a CBOR array, which is what
+        /// `as_vec_f32` decodes and therefore what routes a request down
+        /// the cosine arm.
+        fn insert_vector(&self, cell: &str, band: &str, tslot: u64, value: &[f64]) -> FactCid {
+            self.insert_value(
+                cell,
+                band,
+                tslot,
+                CborValue::Array(value.iter().copied().map(CborValue::Float).collect()),
+                &format!("vec{}", value.len()),
+            )
+        }
+
         /// Insert a scalar fact at (cell, band, tslot). Each call mints
         /// a fresh FactCid so the index is uniquely keyed by tslot.
         fn insert_scalar(&self, cell: &str, band: &str, tslot: u64, value: f64) -> FactCid {
-            let cid_str = format!("test-cid-{}-{}-{}", band.replace('.', "_"), tslot, value);
+            self.insert_value(
+                cell,
+                band,
+                tslot,
+                CborValue::Float(value),
+                &value.to_string(),
+            )
+        }
+
+        fn insert_value(
+            &self,
+            cell: &str,
+            band: &str,
+            tslot: u64,
+            value: CborValue,
+            cid_discriminant: &str,
+        ) -> FactCid {
+            let cid_str = format!(
+                "test-cid-{}-{}-{}",
+                band.replace('.', "_"),
+                tslot,
+                cid_discriminant
+            );
             let cid = FactCid::new(&cid_str);
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell.into(),
                 band: band.into(),
                 tslot,
-                value: CborValue::Float(value),
+                value,
                 unit: None,
                 confidence: 1.0,
                 uncertainty: None,
@@ -738,6 +827,63 @@ mod tests {
     /// "EmptyHistory"`. The comparison is NOT performed (no metric,
     /// no value, no zeroed-out delta) — silence is labelled silence,
     /// not a synthetic zero.
+    /// The vector arm used to truncate to `min(len)` and serve a cosine over
+    /// a prefix of two vectors whose dimensions do not correspond, despite an
+    /// error message one arm below promising a 400 on "vector-length
+    /// mismatch". Equal width is not sufficient either: no two bands share a
+    /// space, so cross-band cosine is refused outright.
+    #[tokio::test]
+    async fn vector_cosine_refuses_cross_band_and_unequal_width() {
+        let storage = Arc::new(MockStorage::new());
+        // Same width, different bands: this is the clay_v1 vs prithvi_eo2 case
+        // (both 384-D, unrelated spaces). Must refuse, not return a number.
+        storage.insert_vector("cell-v", "clay_v1", 0, &[1.0, 0.0, 0.0]);
+        storage.insert_vector("cell-v", "prithvi_eo2", 0, &[0.0, 1.0, 0.0]);
+        // Different widths, different bands.
+        storage.insert_vector("cell-v", "geotessera", 0, &[1.0, 2.0]);
+        // Same band across two tslots: the documented, same-space use.
+        storage.insert_vector("cell-v", "geotessera", 7, &[2.0, 4.0]);
+
+        let srv = test_server(storage);
+        let ask = |a: &str, b: &str| CompareBandsReq {
+            cell: "cell-v".into(),
+            a: a.into(),
+            b: b.into(),
+            tslot_a: None,
+            tslot_b: None,
+            predicate: None,
+        };
+
+        let err = compare_bands(&ask("clay_v1", "prithvi_eo2"), &srv)
+            .await
+            .expect_err("equal-width cross-band cosine must be refused");
+        assert!(
+            format!("{err:?}").contains("different vector bands"),
+            "want a same-space refusal, got: {err:?}"
+        );
+
+        let err = compare_bands(&ask("clay_v1", "geotessera"), &srv)
+            .await
+            .expect_err("unequal-width cosine must be refused, not truncated");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("different lengths") || msg.contains("different vector bands"),
+            "want a width/space refusal, got: {msg}"
+        );
+
+        // The legitimate use still works: one band, two vintages. [1,2] vs
+        // [2,4] are parallel, so cosine is 1.
+        let ok = compare_bands(&ask("geotessera", "geotessera"), &srv)
+            .await
+            .expect("same band across two tslots is the documented vector use");
+        assert_eq!(ok.metric.as_deref(), Some("cosine"));
+        let cos = ok.value.expect("cosine value");
+        assert!(
+            (cos - 1.0).abs() < 1e-6,
+            "parallel vectors → cos 1, got {cos}"
+        );
+    }
+
     #[tokio::test]
     async fn empty_history_surfaces_under_bands_with_no_history() {
         let storage = Arc::new(MockStorage::new());
