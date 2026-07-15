@@ -229,6 +229,13 @@ ensemble score plus a discrete agreement label (`one_or_none`,
 `two_of_three`, `all_three`, or a domain-specific uplift like
 `hansen_confirmed`). See `protocol.md` for the formula DSL at the wire level.
 
+The single `consensus_threshold` is applied to every encoder, and the
+encoders do not share a cosine scale, so the label under-counts encoders
+with a tight spread. On the deployed Prithvi checkpoint the change score
+tops out near 0.1155 against a 0.15 gate, which makes `all_three`
+unreachable. Responses carry a `gate_calibration` string saying so; read
+the per-encoder `change` values rather than the label.
+
 ### Expr AST
 
 Some algorithms carry an in-process `evaluation` block, an `Expr` AST that

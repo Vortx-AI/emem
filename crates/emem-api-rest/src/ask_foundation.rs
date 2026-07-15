@@ -622,7 +622,13 @@ async fn similarity_fanout(cell: String, k: usize, s: AppState) -> JsonValue {
     }
     // Cross-encoder consensus — cells that appear in ≥2 encoder
     // result lists are flagged as "all_three" / "two_of_three"
-    // neighbours, matching the triple-consensus pattern.
+    // neighbours. This shares vocabulary with the triple-consensus
+    // algorithm but NOT its mechanism: agreement here is k-NN
+    // neighbour-list membership across encoders, with no threshold. It is
+    // therefore unaffected by the uncalibrated 0.15 change gate that makes
+    // `all_three` unreachable in `triple_consensus::fuse` (see
+    // `triple_consensus::GATE_CALIBRATION_NOTE`). Do not read one as
+    // evidence about the other.
     let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for r in &encoder_results {
         if let Some(arr) = r.get("neighbors").and_then(|x| x.as_array()) {
@@ -701,6 +707,7 @@ async fn change_fanout(cell: String, s: AppState) -> JsonValue {
         "algorithm_key":        "clay_prithvi_tessera_triple_consensus@1",
         "encoders_available":   available,
         "consensus_threshold":  gate,
+        "gate_calibration":     crate::triple_consensus::GATE_CALIBRATION_NOTE,
         "consensus_min_models": min_models,
         "agent_hint":           "Apply the formula in `algorithms_for_question` for clay_prithvi_tessera_triple_consensus@1; the receipt cites the encoder fact CIDs alongside any topic-anchored scalar bands. For domain-specific variants see deforestation_triple@1 (forest), wetland_change_triple@1 (water), urban_expansion_triple@1 (urban), or coastal_erosion_triple@1 (coast).",
     })

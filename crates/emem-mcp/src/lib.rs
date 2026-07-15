@@ -191,8 +191,23 @@ pub enum ToolCategory {
 
 impl ToolCategory {
     /// MCP `annotations.readOnlyHint` value derived from category.
-    /// Read, Introspect, Plan, and Verify never mutate server-side state.
-    /// Write does (signs and persists facts).
+    /// Read, Introspect, Plan, and Verify never author caller-supplied
+    /// state, and cannot change an answer that already exists: facts are
+    /// content-addressed, so re-deriving one yields the same `fact_cid`.
+    /// Write authors state a caller handed us.
+    ///
+    /// They are NOT side-effect free, and this hint overstates that. A
+    /// Read against a cold cell auto-materializes: it fetches upstream,
+    /// signs a fact, and persists it, which spends GPU time and grows the
+    /// corpus. `emem_triple_consensus` goes further, materializing a prior
+    /// vintage through `two_vintages`. Under a strict reading of the MCP
+    /// spec ("the tool does not modify its environment") those are not
+    /// read-only, and a client auto-approving on this hint will write
+    /// without asking. Narrowing it is a live decision, not an oversight:
+    /// 59 of the 66 categorised tools are Read, so flipping the hint would
+    /// make every client prompt on `emem_recall`, which is the protocol's
+    /// primary loop. Recorded here so the trade-off is explicit rather
+    /// than assumed.
     pub const fn read_only_hint(self) -> bool {
         matches!(
             self,
@@ -858,7 +873,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_triple_consensus",
         title: "Clay+Prithvi+Tessera change-consensus ensemble",
-        description: "Three-encoder change ensemble: compute the cosine change between the two most-recent DISTINCT vintages for each of the Clay, Prithvi, and Tessera embeddings at the cell, then vote each encoder's change against `consensus_threshold` (registry default 0.15). Returns each encoder's change magnitude, its vote, and the consensus verdict (how many of the three agree change happened). Degrades to a signed `inconclusive` when the GPU sidecar is unreachable or a cell lacks two distinct vintages for the encoders. The response carries a machine-readable `degraded` boolean, a `degraded_reason` (closed set: `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`, `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`, `insufficient_encoders`), and `degraded_message`; each `encoders_absent[]` entry also carries its own `reason_code`. A 2-of-3 result reports `degraded:true` even though it still carries a real ensemble number. This is an experiment over model outputs: each leg carries a `model_output` caution (learned representation, not a measurement), so corroborate with a deterministic band before load-bearing use.",
+        description: "Three-encoder change ensemble: compute the cosine change between the two most-recent DISTINCT vintages for each of the Clay, Prithvi, and Tessera embeddings at the cell, then vote each encoder's change against `consensus_threshold` (registry default 0.15). Returns each encoder's change magnitude, its vote, and the consensus verdict (how many of the three agree change happened). Two caveats ride every response. First, the gate is NOT calibrated per encoder: 0.15 is a threshold for spectral change, applied unchanged to cosine distances in three embedding spaces with different scales, and the deployed Prithvi checkpoint's change tops out near 0.1155, under the gate. Prithvi therefore never votes, `all_three` is arithmetically unreachable, and `two_of_three` means Clay plus Tessera; read `encoders_used[].change` per encoder instead of the vote, and see the `gate_calibration` field. Second, this tool MATERIALIZES a missing prior vintage, so despite its Read category it signs and persists facts and spends GPU time. Degrades to a signed `inconclusive` when the GPU sidecar is unreachable or a cell lacks two distinct vintages for the encoders. The response carries a machine-readable `degraded` boolean, a `degraded_reason` (closed set: `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`, `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`, `insufficient_encoders`), and `degraded_message`; each `encoders_absent[]` entry also carries its own `reason_code`. A 2-of-3 result reports `degraded:true` even though it still carries a real ensemble number. This is an experiment over model outputs: each leg carries a `model_output` caution (learned representation, not a measurement), so corroborate with a deterministic band before load-bearing use.",
         when_to_use: "Call when the user wants a robust, model-agnostic 'did this place change' answer backed by three independent foundation encoders rather than one — e.g. cross-checking a single-encoder alert, or auditing change with consensus voting. Gate on `degraded`/`degraded_reason` — a `degraded:true` partial consensus is lower-confidence than a full triple. Surface the per-encoder change + the vote count. When only one encoder has two vintages the verdict is honest about the thin evidence. For a single-encoder vector delta use `emem_state_diff`; for the NDVI+embedding proxy use `emem_deforestation_alert`.",
         input_schema: SCHEMA_TRIPLE_CONSENSUS,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","consensus_threshold":0.15}"#,

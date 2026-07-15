@@ -17755,7 +17755,7 @@ async fn openapi() -> Json<JsonValue> {
             // registry algorithms actually computable. Each signs its
             // result and returns an honest `inconclusive` verdict (no
             // fabricated number) when the inputs are not materializable.
-            "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. The gate is not calibrated per encoder and the encoders do not share a cosine scale: the deployed Prithvi checkpoint's change caps near 0.1155 under a 0.15 gate, so it never votes and `all_three` cannot occur. Read `encoders_used[].change` rather than `agreement`; every response carries a `gate_calibration` string saying so. Materializes a missing prior vintage, so this signs and persists facts. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently — a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict — confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
@@ -27494,6 +27494,37 @@ fn served_via_from_sidecar(
     }
 }
 
+/// Pull the sidecar's self-reported checkpoint hash, or refuse to sign.
+///
+/// Every foundation-model band is [`emem_core::bands::ProvenanceClass::ModelOutput`],
+/// whose `tamper_evidence()` is `signed_model_checkpoint`: the receipt's
+/// whole trust basis is that a verifier can name the checkpoint that
+/// produced the value. This used to `unwrap_or("")`, which signed a
+/// `Source` id ending in a bare `@` and a `ServedVia` carrying no hash,
+/// while the receipt still declared `signed_model_checkpoint`. A missing
+/// checkpoint is the one gap this class cannot absorb, because it leaves
+/// nothing at all behind the claim, so it is an error now rather than an
+/// empty string. The hash is still self-reported by the sidecar: this
+/// makes its absence loud, not its presence trustworthy.
+fn checkpoint_hash_or_refuse(model: &JsonValue) -> Result<String, String> {
+    model
+        .get("blake2b_hex")
+        .and_then(|v| v.as_str())
+        .filter(|h| !h.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            let id = model
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<unidentified model>");
+            format!(
+                "sidecar reported no model.blake2b_hex for {id}: refusing to sign a \
+                 model_output fact whose declared tamper-evidence is \
+                 signed_model_checkpoint with no checkpoint to name"
+            )
+        })
+}
+
 /// Pull the sidecar's self-declared `model.honesty_warnings` (a JSON
 /// array of strings) into a `Vec<String>`. Generic — picks up whatever
 /// the sidecar emits (`single_timestep_of_4`, `frozen_pretrained_encoder`,
@@ -27600,8 +27631,14 @@ async fn materialize_prithvi_eo2_at(
 
     // Receipt-shape input provenance: every asset URL the chip was
     // sourced from + the scene id + the model checkpoint hash. A
-    // verifier with the same inputs and the same checkpoint reproduces
-    // the embedding bit-for-identical.
+    // verifier with the same inputs, the same checkpoint and the same
+    // batch shape reproduces the embedding. Measured bit-identical
+    // across repeats, concurrency and a 15-minute gap, but that is an
+    // observed property of this single-chip path rather than an enforced
+    // one: the sidecar never calls torch.use_deterministic_algorithms,
+    // and embedding the same chip inside a batch already moves the
+    // result (~3e-5, ~3e-2 with TF32 enabled). This holds today because
+    // EMEM_SIDECAR_MAX_BATCH is unset.
     let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 1);
     for url in &chip.asset_urls {
         sources.push(Source {
@@ -27613,12 +27650,7 @@ async fn materialize_prithvi_eo2_at(
             url: Some(url.clone()),
         });
     }
-    let model_blake2b = resp
-        .model
-        .get("blake2b_hex")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let model_blake2b = checkpoint_hash_or_refuse(&resp.model)?;
     sources.push(Source {
         scheme: "model.prithvi_eo2_300m_tl".into(),
         id: format!("ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL@{model_blake2b}"),
@@ -27770,12 +27802,7 @@ async fn materialize_clay_v1_at(
             url: Some(url.clone()),
         });
     }
-    let model_blake2b = resp
-        .model
-        .get("blake2b_hex")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let model_blake2b = checkpoint_hash_or_refuse(&resp.model)?;
     sources.push(Source {
         scheme: "model.clay_v1_5".into(),
         id: format!("made-with-clay/Clay@{model_blake2b}"),
@@ -28012,12 +28039,7 @@ async fn materialize_galileo_base(
             });
         }
     }
-    let model_blake2b = resp
-        .model
-        .get("blake2b_hex")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let model_blake2b = checkpoint_hash_or_refuse(&resp.model)?;
     sources.push(Source {
         scheme: "model.galileo_v1".into(),
         id: format!("nasaharvest/galileo@{model_blake2b}"),
@@ -57614,6 +57636,37 @@ mod tests {
     }
 
     /// The generic sidecar honesty-warning extractor pulls a string array
+    /// A model_output fact declares `signed_model_checkpoint` as its
+    /// tamper-evidence, so signing one without a checkpoint to name leaves
+    /// nothing behind the claim. This used to `unwrap_or("")` and sign a
+    /// `Source` id ending in a bare `@`. Absence must be an error.
+    #[test]
+    fn checkpoint_hash_refused_when_absent_or_empty() {
+        let good = serde_json::json!({"id": "clay_v1_5", "blake2b_hex": "deadbeef"});
+        assert_eq!(checkpoint_hash_or_refuse(&good).unwrap(), "deadbeef");
+
+        // Absent, empty, and wrong-typed all refuse rather than degrade to "".
+        for bad in [
+            serde_json::json!({"id": "clay_v1_5"}),
+            serde_json::json!({"id": "clay_v1_5", "blake2b_hex": ""}),
+            serde_json::json!({"id": "clay_v1_5", "blake2b_hex": 42}),
+            serde_json::json!({}),
+        ] {
+            let err = checkpoint_hash_or_refuse(&bad)
+                .expect_err("must refuse to sign without a checkpoint hash");
+            assert!(err.contains("refusing to sign"), "unhelpful error: {err}");
+        }
+
+        // The refusal names the model when it can, so an operator can tell
+        // which sidecar went quiet.
+        let err =
+            checkpoint_hash_or_refuse(&serde_json::json!({"id": "galileo_base_v1"})).unwrap_err();
+        assert!(
+            err.contains("galileo_base_v1"),
+            "error should name it: {err}"
+        );
+    }
+
     /// out of `model.honesty_warnings` and tolerates absence / wrong type.
     #[test]
     fn sidecar_honesty_warnings_extraction() {

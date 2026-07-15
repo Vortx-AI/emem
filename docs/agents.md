@@ -654,14 +654,29 @@ in `docs/ATTESTING.md`; the schema is in `/openapi.json`.
 
 The 160-entry algorithm registry includes the standard agronomic and
 hydrological indices (NDVI, NBR, NDWI, walkability, heat index, RUSLE).
-The differentiator is the **triple-encoder consensus pattern**: when
-three independent foundation encoders flag the same cell, the answer
+The intended differentiator is the **triple-encoder consensus pattern**:
+when three independent foundation encoders flag the same cell, the answer
 ships with `agreement: all_three`, `two_of_three`, or `one_or_none`.
+`independent_receptive_field_agreement` is the mathematical claim behind
+it. Clay, Prithvi, and Tessera see different inputs (10-band S2 256×256
+vs. 6-band HLS 224×224 vs. annual learned embedding) and were trained on
+different corpora, so joint agreement at a cell should be unlikely under
+noise.
 
-`independent_receptive_field_agreement` is the mathematical claim. Clay,
-Prithvi, and Tessera see different inputs (10-band S2 256×256 vs. 6-band
-HLS 224×224 vs. annual learned embedding) and were trained on different
-corpora. Joint agreement at a cell is unlikely under noise.
+**The pattern does not currently deliver that claim, and `all_three`
+cannot occur.** The 0.15 gate is Healey et al. 2018's threshold for
+*spectral* change, applied unchanged to cosine distances in three
+embedding spaces that do not share a scale. Measured over 8 maximally
+dissimilar chips, Clay's cosine spans 0.11 to 0.95 (sd 0.204) so its
+change score clears the gate readily, while the deployed Prithvi
+checkpoint spans 0.88 to 0.99 (sd 0.030) and its score tops out near
+0.1155. Prithvi never crosses 0.15, so it is a permanent no-change vote:
+`agreement: all_three` is arithmetically unreachable and `two_of_three`
+means Clay plus Tessera. The response declares this in `gate_calibration`.
+Read `encoders_used[].change` per encoder rather than trusting the vote.
+Calibrating a per-encoder gate needs a labelled change corpus this
+responder does not have, so the limit is declared rather than papered over
+with an invented threshold.
 
 Each tuned threshold carries a `learned_from` citation; the
 `parameters` block on every `AlgorithmSpec` is typed and accessor-driven
@@ -669,7 +684,7 @@ Each tuned threshold carries a `learned_from` citation; the
 
 | Algorithm | Recipe | Gate | Notes |
 |---|---|---|---|
-| `clay_prithvi_tessera_triple_consensus@1` | Year-on-year change vector from all three encoders | 0.15 | Base recipe; tunable via `parameters.consensus_threshold` |
+| `clay_prithvi_tessera_triple_consensus@1` | Year-on-year change vector from all three encoders | 0.15 | Base recipe; tunable via `parameters.consensus_threshold`. Gate is uncalibrated across encoders: Prithvi's score caps near 0.1155, so `all_three` cannot occur. See `gate_calibration` |
 | `deforestation_triple@1` | Triple consensus + Hansen GFC mask uplift | 0.20 | Verdict `hansen_confirmed` when GFC agrees |
 | `wetland_change_triple@1` | JRC GSW recurrence delta substitutes the Tessera leg | 0.10 | For monsoon / coastal wetland flux |
 | `urban_expansion_triple@1` | Overture buildings delta + S2 B11 SWIR corroboration | 0.20 | Co-registered building footprint truth |

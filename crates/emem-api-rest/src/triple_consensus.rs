@@ -11,6 +11,22 @@
 //!      classifier (gate 0.15) reports `all_three` / `two_of_three` /
 //!      `one_or_none`.
 //!
+//!      **The gate is not calibrated per encoder, and `all_three` is not
+//!      currently reachable.** 0.15 is Healey et al. 2018's threshold for
+//!      *spectral* change; `d` here is a cosine distance in an encoder's
+//!      own embedding space, and those spaces do not share a scale.
+//!      Measured over 8 maximally dissimilar chips, Clay's cosine spans
+//!      0.11 to 0.95 (sd 0.204) so its `d` clears 0.15 easily, while the
+//!      deployed Prithvi checkpoint spans 0.88 to 0.99 (sd 0.030) and its
+//!      `d` tops out near 0.1155. Prithvi therefore never crosses the gate
+//!      and is a permanent no-change vote, which makes `all_three`
+//!      arithmetically unreachable and `two_of_three` in practice
+//!      "Clay and Tessera". The response says so in `gate_calibration`
+//!      rather than letting a caller infer consensus from a vote that
+//!      cannot be cast. Calibrating per encoder needs a labelled change
+//!      corpus this responder does not yet have, so the limit is declared
+//!      rather than papered over with an invented per-encoder threshold.
+//!
 //!   2. [`deforestation_alert`] — `carbon.deforestation_alert_proxy@1`.
 //!      `alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(
 //!      embedding_change/0.20)`, where `ndvi_drop = max(0,
@@ -97,6 +113,20 @@ pub(crate) fn covered_vintages(stack: &[f32], dim: usize) -> Vec<Vec<f32>> {
     }
     out
 }
+
+/// Why `agreement` must not be read as consensus. Rides the response as
+/// `gate_calibration` so an agent sees the limit in-band rather than having
+/// to measure the encoders itself, which is how it was found.
+pub(crate) const GATE_CALIBRATION_NOTE: &str = "uncalibrated_per_encoder: \
+consensus_threshold is Healey et al. 2018's LandTrendr gate for SPECTRAL \
+change, applied unchanged to cosine distances in three embedding spaces that \
+do not share a scale. Measured over 8 maximally dissimilar chips, Clay's \
+cosine spans 0.11 to 0.95 (sd 0.204) so its d clears 0.15 readily, while the \
+deployed Prithvi checkpoint spans 0.88 to 0.99 (sd 0.030) and its d tops out \
+near 0.1155, under the gate. Prithvi never votes, so agreement=all_three is \
+arithmetically unreachable and two_of_three means Clay plus Tessera. Read \
+encoders_used[].change per encoder rather than trusting the vote. Calibrating \
+per encoder needs a labelled change corpus this responder does not have.";
 
 /// `d = clamp(1 - cos(v_now, v_prev), 0, 1)` — one encoder's year-over-year
 /// change magnitude. `None` when the two vintages share no finite dims.
@@ -327,6 +357,11 @@ pub(crate) fn fuse(
     if n_used < min_models {
         return (None, "insufficient_encoders", false);
     }
+    // One gate for every encoder. The encoders do not share a cosine scale,
+    // so this under-counts votes from encoders with a tight spread: the
+    // deployed Prithvi checkpoint's `d` tops out near 0.1155 against a 0.15
+    // gate, so it never votes and `all_three` cannot occur. See the module
+    // header; the response declares this in `gate_calibration`.
     let n_over_gate = changes.iter().filter(|c| **c > gate).count();
     let agreement = if n_used == n_encoders_total && n_used == 3 && n_over_gate == 3 {
         "all_three"
@@ -545,6 +580,10 @@ pub async fn triple_consensus(
             "n_encoders_used": n_used,
             "consensus_min_models": min_models,
             "consensus_threshold": gate,
+            // This path reports no agreement, but it still hands the caller a
+            // gate to reason about, so it owes them the same caveat as the
+            // computed path.
+            "gate_calibration": GATE_CALIBRATION_NOTE,
             "honest_note": honest_note,
             "responder_pubkey_b32": pubkey,
             "receipt": receipt,
@@ -592,6 +631,7 @@ pub async fn triple_consensus(
         "n_encoders_used": n_used,
         "consensus_min_models": min_models,
         "consensus_threshold": gate,
+        "gate_calibration": GATE_CALIBRATION_NOTE,
         "formula": "d_e = clamp(1 - cos(v_now, v_prev), 0, 1) per encoder; ensemble = sqrt(mean(d_e^2)) over available encoders; agreement gates on consensus_threshold",
         "citation": alg.map(|a| a.citation.clone()).unwrap_or_default(),
         "honest_note": honest_note,
