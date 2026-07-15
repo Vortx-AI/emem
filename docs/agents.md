@@ -324,8 +324,12 @@ Key fields:
 - `signature` is 64 bytes Ed25519 over a BLAKE3 digest of a canonical
   preimage (see "Verify a receipt offline").
 - `fact_cid` is content-addressed:
-  `base32_nopad_lc(blake3(canonical_cbor(fact)))`, 52 chars. Identical fact bytes at
-  any responder produces the same CID.
+  `base32_nopad_lc(blake3(canonical_cbor(fact)))`, 52 chars. The hashed body
+  includes the signer and the signing moment, so a fact_cid names one signed
+  attestation, not the observation behind it: two responders that measure the
+  same value mint different CIDs, and a CID resolves at the responder that
+  signed it (or a replica holding those bytes). `emem:entity:` is the layer
+  that carries identity across responders.
 - `bands_already_attested_at_cell` is the no-silent-fallback escape
   hatch: if your band returned empty but the cell carries data under a
   different name, this list shows what is there.

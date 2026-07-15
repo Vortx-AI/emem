@@ -41,7 +41,11 @@ verifies the receipt offline. emem is a protocol, not a single endpoint.
 The most common flow. Resolve a place name to a `cell64`, then recall
 one or more bands at that cell. The recall response carries a Receipt;
 the `fact_cids[0]` is the durable handle that re-fetches the same
-bytes from any responder, in any year.
+bytes from the responder that signed them, in any year. A fact_cid
+digests the signer and the signing moment along with the value, so it
+names one attestation rather than the observation behind it: a second
+responder measuring the same thing mints a different cid. Use
+`emem:entity:` for identity that crosses responders.
 
 ### curl
 

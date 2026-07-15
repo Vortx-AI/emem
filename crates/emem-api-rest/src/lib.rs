@@ -3245,6 +3245,71 @@ async fn serve_verify_html() -> Response {
 /// The browser HTML embeds a 20 s client-side redirect to `/` with an
 /// explicit cancel; programmatic callers don't run that script and so
 /// see the 404 stay a 404.
+/// Every path documented in the OpenAPI spec, harvested once.
+///
+/// The spec is the canonical machine-readable route list and is already
+/// reconciled by `scripts/sync_counts.py`, so suggesting from it means there is
+/// no second list to drift out of step with the router.
+fn documented_paths() -> &'static [String] {
+    static PATHS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    PATHS.get_or_init(|| {
+        let spec = openapi_spec();
+        let mut v: Vec<String> = spec
+            .get("paths")
+            .and_then(|p| p.as_object())
+            .map(|o| o.keys().cloned().collect())
+            .unwrap_or_default();
+        v.sort();
+        v
+    })
+}
+
+/// Levenshtein edit distance, iterative two-row.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if a.is_empty() {
+        return b.len();
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        cur[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let sub = prev[j] + usize::from(ca != cb);
+            cur[j + 1] = sub.min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
+/// The documented paths closest to `path`, nearest first, at most three.
+///
+/// Measured motivation: an agent with full source access still guessed
+/// `/v1/memory_token_resolve` for `/v1/memory_token/resolve` and a bare
+/// `/<fact_cid>` for `/v1/facts/{cid}`. Both are one cheap edit away from the
+/// real route, and answering "did you mean" costs one pass over ~113 strings
+/// on a path that was already going to 404.
+fn suggest_paths(path: &str) -> Vec<String> {
+    // A bare 32-byte digest is the single most likely near miss: it is what a
+    // content-addressed store invites you to paste after the domain.
+    if let Some(seg) = path.strip_prefix('/') {
+        if !seg.contains('/') && looks_like_cid(seg) {
+            return vec![format!("/v1/facts/{seg}")];
+        }
+    }
+    // Tolerate roughly a quarter of the path being wrong, so a genuine typo is
+    // caught while an unrelated path suggests nothing rather than noise.
+    let budget = (path.len() / 4).max(2);
+    let mut scored: Vec<(usize, &String)> = documented_paths()
+        .iter()
+        .map(|p| (edit_distance(path, p), p))
+        .filter(|(d, _)| *d <= budget)
+        .collect();
+    scored.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)));
+    scored.into_iter().take(3).map(|(_, p)| p.clone()).collect()
+}
+
 async fn serve_404(req: axum::http::Request<axum::body::Body>) -> Response {
     let accept = req
         .headers()
@@ -3257,16 +3322,32 @@ async fn serve_404(req: axum::http::Request<axum::body::Body>) -> Response {
         *resp.status_mut() = StatusCode::NOT_FOUND;
         return resp;
     }
+    let path = req.uri().path();
+    let suggestions = suggest_paths(path);
+    // Say only what was actually done. The previous wording claimed no "fact
+    // CID matched", which this handler never checked: a live cid pasted bare
+    // returned a 404 asserting it did not exist, which reads as a dangling
+    // reference rather than a wrong route.
+    let message = if suggestions.is_empty() {
+        format!(
+            "no route matched {path}. Call GET /openapi.json for the wired \
+             endpoints, or open the 404 HTML view with `Accept: text/html` for \
+             the canonical landing."
+        )
+    } else {
+        format!(
+            "no route matched {path}. Did you mean {}? A fact CID is not \
+             addressable at the domain root: resolve one at /v1/facts/{{cid}}. \
+             Call GET /openapi.json for the full list of wired endpoints.",
+            suggestions.join(" or ")
+        )
+    };
     let body = json!({
         "schema":  "emem.error.v1",
         "code":    "not_found",
-        "message": format!(
-            "no route, static surface, demo, doc, or fact CID matched {}. \
-             Call GET /openapi.json for the wired endpoints, or open the 404 \
-             HTML view with `Accept: text/html` for the canonical landing.",
-            req.uri().path()
-        ),
-        "path":    req.uri().path(),
+        "message": message,
+        "path":    path,
+        "did_you_mean": suggestions,
     });
     (StatusCode::NOT_FOUND, Json(body)).into_response()
 }
@@ -17746,7 +17827,10 @@ fn enrich_openapi_post_error_responses(spec: &mut JsonValue) {
     }
 }
 
-async fn openapi() -> Json<JsonValue> {
+/// Builds the OpenAPI document. Kept sync and separate from the route so the
+/// 404 handler can harvest the canonical path list from it (see
+/// `documented_paths`) rather than maintaining a second list that drifts.
+fn openapi_spec() -> JsonValue {
     // OpenAI Custom GPTs and several other platforms refuse a tool spec
     // without an absolute base URL. Emit `public_origin()` (driven by
     // EMEM_PUBLIC_URL or EMEM_TLS_DOMAINS) so a self-hosted operator on
@@ -18065,7 +18149,12 @@ async fn openapi() -> Json<JsonValue> {
     enrich_openapi_op_descriptions(&mut spec);
     enrich_openapi_response_schemas(&mut spec);
     enrich_openapi_post_error_responses(&mut spec);
-    Json(spec)
+    spec
+}
+
+/// `GET /openapi.json`.
+async fn openapi() -> Json<JsonValue> {
+    Json(openapi_spec())
 }
 
 /// `GET /v1/openapi.action.json` — curated subset of `/openapi.json` sized
@@ -21103,6 +21192,18 @@ struct MemoryTokenResolveResp {
     /// Stable URL the agent can hand to any other peer; the bytes at
     /// that URL are byte-identical to `fact`.
     fact_url: String,
+    /// The key that signed this fact, base32-nopad lowercase: the same text
+    /// form as `pubkey_b32` in `/health` and `/.well-known/emem.json`.
+    ///
+    /// `fact.signer` carries the identical 32 bytes, but as a JSON array,
+    /// so comparing it to a `pubkey_b32` string is always false. That is a
+    /// trap for exactly the check worth making: a fact_cid digests its signer,
+    /// so a cid resolves only at the responder that minted it, and a client
+    /// pinning a responder must confirm the fact it got back was signed by the
+    /// key it pinned. Emitting the comparable form here keeps that a string
+    /// equality rather than an encoding exercise a fail-closed gate can
+    /// quietly get wrong.
+    signer_b32: String,
     /// Tamper-provenance of the resolved fact's band, attached by THIS
     /// responder from its own band registry at resolve time. It is NOT
     /// carried in the token string (the token is only cell + fact_cid) - a
@@ -21288,6 +21389,11 @@ async fn post_memory_token_resolve(
     let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
     let fact_url = format!("https://emem.dev/v1/facts/{}", cid);
     let canonical_token = format!("emem:fact:{cell}:{cid}");
+    let signer_b32 = b32_lower(match &fact {
+        emem_fact::Fact::Primary(p) => &p.signer.0,
+        emem_fact::Fact::Derivative(d) => &d.signer.0,
+        emem_fact::Fact::Absence(a) => &a.signer.0,
+    });
 
     // Sign the dereference. Recall signs a receipt over the facts it returns;
     // resolve now does the same over the single (cell, fact_cid) it hands
@@ -21313,6 +21419,7 @@ async fn post_memory_token_resolve(
         resolved: true,
         cell_matches: true,
         fact_url,
+        signer_b32,
         provenance,
         receipt,
         offline_verify_at: "/verify",
@@ -52782,6 +52889,78 @@ mod tests {
             );
             assert!(parse_fact_token(&tok).is_ok(), "{dp}dp must be accepted");
         }
+    }
+
+    /// A client that pins a responder must be able to confirm the fact came
+    /// back signed by the key it pinned. `fact.signer` is a JSON byte array and
+    /// `pubkey_b32` is base32 text, so the obvious `==` is always false;
+    /// `signer_b32` is the form that makes the check a string compare. Pin the
+    /// encoding here so it cannot drift from `/health`'s `pubkey_b32`.
+    #[test]
+    fn signer_b32_is_the_same_text_form_as_the_responder_pubkey() {
+        // The 32 raw bytes of a real prod key, and the base32 /health emits.
+        let raw: [u8; 32] = [
+            255, 254, 72, 239, 8, 57, 144, 88, 50, 189, 59, 5, 171, 89, 152, 150, 76, 49, 228, 100,
+            142, 79, 43, 250, 36, 191, 48, 224, 42, 206, 101, 84,
+        ];
+        let want = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka";
+        assert_eq!(
+            b32_lower(&raw),
+            want,
+            "signer_b32 must match the pubkey_b32 text form byte for byte"
+        );
+        // And the trap it exists to remove: the array form never compares equal.
+        assert_ne!(
+            format!("{raw:?}"),
+            want,
+            "if these ever matched, the field would be redundant"
+        );
+    }
+
+    /// The 404 suggester is judged against the routes an agent with full source
+    /// access actually guessed wrong, not against invented ones.
+    #[test]
+    fn a_wrong_route_suggests_the_real_one() {
+        // The underscore-for-slash miss, and the resolve route it should name.
+        let s = suggest_paths("/v1/memory_token_resolve");
+        assert!(
+            s.contains(&"/v1/memory_token/resolve".to_string()),
+            "must name the real resolve route, got: {s:?}"
+        );
+        // A bare digest is what a content-addressed store invites you to paste.
+        assert_eq!(
+            suggest_paths(&format!("/{T_CID}")),
+            vec![format!("/v1/facts/{T_CID}")],
+            "a bare fact cid must point at the route that resolves it"
+        );
+    }
+
+    /// Suggestions must stay silent rather than guess, or the 404 trades one
+    /// misleading answer for another.
+    #[test]
+    fn an_unrelated_path_suggests_nothing() {
+        for path in ["/wp-admin/setup.php", "/../../etc/passwd", "/"] {
+            assert!(
+                suggest_paths(path).is_empty(),
+                "{path} must not attract a suggestion"
+            );
+        }
+    }
+
+    #[test]
+    fn edit_distance_is_symmetric_and_counts_single_edits() {
+        assert_eq!(edit_distance("", "abc"), 3);
+        assert_eq!(edit_distance("abc", ""), 3);
+        assert_eq!(edit_distance("abc", "abc"), 0);
+        // one substitution, one deletion, one insertion
+        assert_eq!(edit_distance("abc", "abd"), 1);
+        assert_eq!(edit_distance("abc", "ac"), 1);
+        assert_eq!(edit_distance("ac", "abc"), 1);
+        assert_eq!(
+            edit_distance("/v1/memory_token_resolve", "/v1/memory_token/resolve"),
+            1,
+            "underscore for slash is a single substitution"
+        );
     }
 
     /// The floor counts characters after the dot, so exponent notation could
