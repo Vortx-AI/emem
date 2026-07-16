@@ -1,6 +1,6 @@
 # Contributing to emem
 
-emem is a Cargo workspace. Rust 1.91, edition 2021, 14 crates, one binary
+emem is a Cargo workspace. Rust 1.91, edition 2021, 16 crates, one binary
 (`emem-server`) at the centre. The agent-facing surface is a single axum
 router in `crates/emem-api-rest/src/lib.rs`; everything else feeds into it.
 
@@ -38,6 +38,16 @@ old receipts. Run `cargo test -p emem-fact` and replay a receipt from
 no-auth open data (Copernicus, JRC, Hansen, ESA, OSM, met.no, Open-Meteo,
 Tessera, …). Keyed providers go behind an operator-registered connector,
 opt-in.
+
+**Docs follow the house prose convention.** Short sentences, plain words,
+no em or en dashes (use a comma, a colon, or a full stop). State what
+ships and what is open in the same paragraph; never present roadmap as
+capability. Every number in prose must trace to a registry or a
+measurement (`python3 scripts/sync_counts.py` checks the known ones), and
+every claim must be verifiable against the code as written. A withdrawn
+claim is recorded, not silently deleted; the whitepaper's section 18 is
+the pattern. A CI doc-lint for the mechanical parts is roadmap work; until
+it lands, review enforces this by hand.
 
 ## Adding a band
 

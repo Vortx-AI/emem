@@ -242,6 +242,7 @@ Version 1.0.0: the wire format, receipt preimage, and address space are settled 
 | What | Where |
 |---|---|
 | How it works, with live consoles | https://emem.dev/how-it-works |
+| The whitepaper, canonical | [docs/whitepaper.md](docs/whitepaper.md) |
 | The formal memory model and algebra | [docs/model.md](docs/model.md) |
 | Agent integration handbook | https://emem.dev/agents.md |
 | Limits, roadmap, open research | [docs/roadmap.md](docs/roadmap.md) |
