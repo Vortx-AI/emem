@@ -4,10 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ememdev"
-# 1.0.1 because 1.0.0 on PyPI is an empty package: it shipped dist-info and
-# no modules, so `import emem` raised ModuleNotFoundError. PyPI versions are
-# immutable, so the only fix is to supersede it.
-version = "1.0.1"
+# 1.1.0 adds the offline signing surface (ememdev.signing / ememdev.identity)
+# and the `ememdev` CLI, so an agent can produce a memory-write attester block
+# without a framework. 1.0.1 first superseded the empty 1.0.0 on PyPI (it
+# shipped dist-info and no modules, so `import emem` raised ModuleNotFoundError;
+# PyPI versions are immutable, so the only fix was to supersede it).
+version = "1.1.0"
 description = "Python client for emem.dev, the agent-native Earth memory protocol"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -39,6 +41,18 @@ classifiers = [
 dependencies = [
     "httpx>=0.27,<1.0",
 ]
+
+# The base client is httpx-only. Signing memory writes needs ed25519 + blake3,
+# which are only pulled when you ask for them. `ememdev.signing` and the
+# `ememdev` CLI's sign/write commands raise a clear install hint without this.
+[project.optional-dependencies]
+signing = [
+    "blake3>=0.3",
+    "cryptography>=41",
+]
+
+[project.scripts]
+ememdev = "ememdev.__main__:main"
 
 [project.urls]
 Homepage = "https://emem.dev"

@@ -15,16 +15,22 @@ lists; this README does not restate a count that would go stale.
 pip install ememdev
 ```
 
-The distribution is named `ememdev`; the import package is `emem` (so
-`pip install ememdev`, then `from ememdev import Client`). To work from a
-checkout instead:
+The distribution and the import package are both named `ememdev` (so
+`pip install ememdev`, then `from ememdev import Client`); the shorter name
+`emem` on PyPI belongs to an unrelated project. To work from a checkout
+instead:
 
 ```bash
 pip install -e sdks/emem-py
 ```
 
 Requires Python 3.9+. The only runtime dependency is
-[`httpx`](https://www.python-httpx.org/).
+[`httpx`](https://www.python-httpx.org/). To sign memory writes (below),
+add the `signing` extra, which pulls `blake3` and `cryptography`:
+
+```bash
+pip install "ememdev[signing]"
+```
 
 ## Quick start
 
@@ -65,6 +71,50 @@ You can also pass `base_url=` and `timeout=` directly to the constructor.
 Geocoder + read primitives, physics solvers, boring lat/lng shortcuts, and
 introspection — see the inline docstring on `emem.client` for the full
 endpoint → method mapping.
+
+## Writing a signed note
+
+Reads are anonymous. Writes into the agent memory namespace are gated by an
+ed25519 `attester` block, and that signature is the one thing the MCP client
+cannot produce for you. `ememdev[signing]` produces it, from a persistent
+identity, so leaving a signed note is one command rather than a hand-rolled
+crypto script.
+
+The identity is resolved once and reused every session, because the key is
+what owns your namespace at `/memories/by_attester/<pubkey8>/...`. Resolution
+order: `EMEM_AGENT_KEY` (a 64-char hex seed or a key-file path), then
+`~/.emem/agent_ed25519.pem` (override the directory with `EMEM_HOME`), minted
+`0600` on first use if absent.
+
+From the command line, for an agent that already speaks to emem over MCP:
+
+```bash
+ememdev whoami          # your pubkey and namespace_root
+
+# emit just the attester block, sign nothing else (no network):
+ememdev sign  --verb create --path /memories/by_attester/<you>/note.md --stdin < note.md
+
+# or sign a create and POST it to /mcp in one step:
+ememdev write --path /memories/by_attester/<you>/note.md --body-file note.md
+```
+
+Or in Python:
+
+```python
+from ememdev import load_or_create_signer
+
+signer = load_or_create_signer()             # persistent identity
+path = f"{signer.namespace_root}/note.md"
+body = b"a durable, signed, citeable note"
+attester = signer.attester_block("create", path, body)
+# POST {path, file_text, kind, attester} to /mcp memory_create.
+```
+
+`str_replace` and `insert` sign the whole file *after* the edit, and `rename`
+binds both ends of the move (`signer.rename_attester_block(old, new)`); see the
+`ememdev.signing` docstring for the per-verb body rule. A write into another
+key's namespace is refused with a 403, and `sign`/`write` refuse it locally
+first.
 
 ## Receipts
 

@@ -30,7 +30,37 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from .client import AsyncClient, Client, EmemError, EmemHTTPError
 
-__all__ = ["AsyncClient", "Client", "EmemError", "EmemHTTPError"]
+__all__ = [
+    "AsyncClient",
+    "Client",
+    "EmemError",
+    "EmemHTTPError",
+    # Signing surface, resolved lazily below so `import ememdev` needs no
+    # crypto. Available with the `signing` extra: pip install ememdev[signing].
+    "EmemSigner",
+    "load_signer",
+    "load_or_create_signer",
+]
+
+# Keep the base import dependency-light: the client is httpx-only, and the
+# signer pulls blake3 + cryptography. Resolve the signing names on first
+# access (PEP 562) so `from ememdev import EmemSigner` works when the extra
+# is installed and gives a clear install hint when it is not.
+_SIGNING_EXPORTS = {
+    "EmemSigner": ("ememdev.signing", "EmemSigner"),
+    "load_signer": ("ememdev.identity", "load_signer"),
+    "load_or_create_signer": ("ememdev.identity", "load_or_create_signer"),
+}
+
+
+def __getattr__(name: str):
+    target = _SIGNING_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    module, attr = target
+    return getattr(importlib.import_module(module), attr)
 
 # Single source of truth: the installed distribution's version, which comes
 # from pyproject.toml. Keeps __version__ and the client User-Agent from
