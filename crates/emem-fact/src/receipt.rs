@@ -49,6 +49,13 @@ pub struct Receipt {
     /// carried this field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub as_of: Option<AsOfReceipt>,
+    /// Present only on field responses (docs/plans/field-tokens.md): the
+    /// (aoi_cid, derivation_cid) pair whose digest enters the preimage as
+    /// the FIELD segment. Absent for every per-cell receipt, so receipts
+    /// signed before this field existed deserialize and re-serialize
+    /// byte-identically, the same rule `as_of` follows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<FieldBinding>,
     /// Multi-tenant scope (`{user_id, agent_id, run_id, org_id}`) the
     /// responder honoured when serving this response. Recorded so an
     /// offline verifier reconstructs the same `blake3(canonical_cbor(
@@ -349,5 +356,25 @@ mod as_of_receipt_tests {
             transaction_time: Some("2026-05-29T00:00:00Z".into()),
         };
         assert_ne!(v.blake3_digest(), t.blake3_digest());
+    }
+}
+
+/// The field binding a field receipt carries: the content id of the
+/// request geometry and the content id of the signed derivation record.
+/// The preimage digest over the pair is `emem_attest::field_binding_v1`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FieldBinding {
+    pub aoi_cid: String,
+    pub derivation_cid: String,
+}
+
+impl FieldBinding {
+    /// Hex of the field-binding digest, the exact bytes of the receipt's
+    /// FIELD preimage segment.
+    pub fn blake3_hex(&self) -> String {
+        data_encoding::HEXLOWER.encode(&emem_attest::field_binding_v1(
+            &self.aoi_cid,
+            &self.derivation_cid,
+        ))
     }
 }

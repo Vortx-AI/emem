@@ -297,6 +297,7 @@ impl Server {
             as_of_hex.as_deref(),
             edges_hex.as_deref(),
             manifest_hex.as_deref(),
+            None,
             primitive,
             cells.iter().map(|s| s.as_str()),
             fact_cids.iter().map(|c| c.as_str()),
@@ -341,6 +342,7 @@ impl Server {
                 was_cached,
             },
             as_of,
+            field: None,
             scope,
             edge_cids: edges.to_vec(),
             preimage_version: emem_attest::PREIMAGE_V1,
@@ -589,6 +591,7 @@ mod tests {
             .filter(|a| !a.is_unbounded())
             .map(|a| a.blake3_hex());
         let edges_hex = Server::edges_blake3_hex(&r.edge_cids);
+        let field_hex = r.field.as_ref().map(|f| f.blake3_hex());
         emem_attest::receipt_preimage_v1(
             &r.request_id,
             &r.served_at,
@@ -596,6 +599,7 @@ mod tests {
             as_of_hex.as_deref(),
             edges_hex.as_deref(),
             manifest_hex.as_deref(),
+            field_hex.as_deref(),
             &r.primitive,
             r.cells.iter().map(|s| s.as_str()),
             r.fact_cids.iter().map(|c| c.as_str()),
@@ -676,6 +680,7 @@ mod tests {
             &r.request_id,
             &r.served_at,
             Some("deadbeef"),
+            None,
             None,
             None,
             None,

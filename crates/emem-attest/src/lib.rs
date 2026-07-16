@@ -224,6 +224,30 @@ pub mod receipt_tag {
     pub const PRIMITIVE: u8 = 0x07;
     pub const CELLS: u8 = 0x08;
     pub const FACT_CIDS: u8 = 0x09;
+    /// Field responses (docs/plans/field-tokens.md): the digest of the
+    /// (aoi_cid, derivation_cid) binding. Appended after FACT_CIDS so a
+    /// receipt without a field binding hashes byte-identically to every
+    /// receipt signed before this tag existed. Append-only, like all of
+    /// these.
+    pub const FIELD: u8 = 0x0a;
+}
+
+/// Segment tags for the field-binding sub-preimage, hashed into the
+/// receipt's FIELD segment: `blake3(domain("field") || tagged(aoi_cid)
+/// || tagged(derivation_cid))`. Own module for the same no-drift reason
+/// as [`receipt_tag`].
+pub mod field_tag {
+    pub const AOI_CID: u8 = 0x01;
+    pub const DERIVATION_CID: u8 = 0x02;
+}
+
+/// The field-binding digest a field receipt carries in its FIELD
+/// segment. One rule, used by the signer and every verifier.
+pub fn field_binding_v1(aoi_cid: &str, derivation_cid: &str) -> [u8; 32] {
+    let mut p = PreimageV1::new("field");
+    p.seg(field_tag::AOI_CID, aoi_cid.as_bytes());
+    p.seg(field_tag::DERIVATION_CID, derivation_cid.as_bytes());
+    p.finalize()
 }
 
 /// Canonical v1 receipt preimage digest. The single source of truth for
@@ -238,6 +262,7 @@ pub fn receipt_preimage_v1<'a, C, F>(
     as_of_hex: Option<&str>,
     edges_hex: Option<&str>,
     manifest_hex: Option<&str>,
+    field_hex: Option<&str>,
     primitive: &str,
     cells: C,
     fact_cids: F,
@@ -264,6 +289,11 @@ where
     p.seg(receipt_tag::PRIMITIVE, primitive.as_bytes());
     p.seg_list(receipt_tag::CELLS, cells);
     p.seg_list(receipt_tag::FACT_CIDS, fact_cids);
+    // FIELD comes last: a receipt without one must hash byte-identically
+    // to every receipt signed before the tag existed.
+    if let Some(f) = field_hex {
+        p.seg(receipt_tag::FIELD, f.as_bytes());
+    }
     p.finalize()
 }
 
@@ -538,6 +568,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             "recall",
             ["c1"],
             ["f1"],
@@ -547,6 +578,7 @@ mod tests {
             "t",
             None,
             Some(&hex64),
+            None,
             None,
             None,
             "recall",
@@ -561,13 +593,36 @@ mod tests {
         // cells=["a,b"] fact_cids=["c"] vs cells=["a"] fact_cids=["b,c"]
         // could be massaged into colliding byte streams under v0's
         // comma-join. v1 length-prefixes every list item.
-        let a = receipt_preimage_v1("rid", "t", None, None, None, None, "recall", ["a,b"], ["c"]);
-        let b = receipt_preimage_v1("rid", "t", None, None, None, None, "recall", ["a"], ["b,c"]);
+        let a = receipt_preimage_v1(
+            "rid",
+            "t",
+            None,
+            None,
+            None,
+            None,
+            None,
+            "recall",
+            ["a,b"],
+            ["c"],
+        );
+        let b = receipt_preimage_v1(
+            "rid",
+            "t",
+            None,
+            None,
+            None,
+            None,
+            None,
+            "recall",
+            ["a"],
+            ["b,c"],
+        );
         assert_ne!(a, b);
         // Item-boundary shift within one list must also split.
         let c = receipt_preimage_v1(
             "rid",
             "t",
+            None,
             None,
             None,
             None,
@@ -579,6 +634,7 @@ mod tests {
         let d = receipt_preimage_v1(
             "rid",
             "t",
+            None,
             None,
             None,
             None,
@@ -642,6 +698,61 @@ mod v1_wire_anchor {
     /// produce THIS stream and hash. If this test changes, the JS vectors
     /// must be regenerated or browser verification of v1 receipts breaks.
     #[test]
+    fn field_segment_changes_digest_and_absent_field_is_pre_field_identical() {
+        // The invariant the whole FIELD design leans on: a receipt with no
+        // field binding hashes exactly as it did before the tag existed,
+        // which is what a hand-built stream without the segment computes.
+        let mut p = PreimageV1::new("receipt");
+        p.seg(receipt_tag::REQUEST_ID, b"rid");
+        p.seg(receipt_tag::SERVED_AT, b"t");
+        p.seg(receipt_tag::PRIMITIVE, b"recall");
+        p.seg_list(receipt_tag::CELLS, ["c1"]);
+        p.seg_list(receipt_tag::FACT_CIDS, ["f1"]);
+        let hand_built = p.finalize();
+        let without = receipt_preimage_v1(
+            "rid",
+            "t",
+            None,
+            None,
+            None,
+            None,
+            None,
+            "recall",
+            ["c1"],
+            ["f1"],
+        );
+        assert_eq!(
+            hand_built, without,
+            "absent FIELD must not change the digest"
+        );
+
+        let fh: String = field_binding_v1("aoi", "deriv")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let with = receipt_preimage_v1(
+            "rid",
+            "t",
+            None,
+            None,
+            None,
+            None,
+            Some(&fh),
+            "recall",
+            ["c1"],
+            ["f1"],
+        );
+        assert_ne!(without, with, "a FIELD segment must change the digest");
+
+        // And the binding digest itself must length-prefix its parts: the
+        // v0 boundary-shift collision must not reappear here.
+        assert_ne!(
+            field_binding_v1("abc", "def"),
+            field_binding_v1("abcd", "ef")
+        );
+    }
+
+    #[test]
     fn raw_stream_matches_receipt_preimage_v1() {
         let mut raw: Vec<u8> = Vec::new();
         raw.extend_from_slice(b"emem.preimage.v1\x00");
@@ -685,6 +796,7 @@ mod v1_wire_anchor {
             None,
             Some("bb"),
             Some("cc"),
+            None,
             "emem.recall",
             ["cellA", "cellB"],
             ["fc1"],

@@ -13004,6 +13004,7 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 seg(rt::PRIMITIVE, "primitive", "scalar", false, "e.g. emem.recall, emem.memory_token_resolve"),
                 seg(rt::CELLS, "cells", "list", false, ""),
                 seg(rt::FACT_CIDS, "fact_cids", "list", false, ""),
+                seg(rt::FIELD, "field_hex", "scalar", true, "field responses only (docs/plans/field-tokens.md): hex of blake3(domain(\"field\") || tagged(aoi_cid) || tagged(derivation_cid)); appended last so receipts without a field binding hash byte-identically to pre-FIELD receipts"),
             ],
             "legacy_v0": "receipts with preimage_version absent or 0 use the pre-cutover untagged pipe rule blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*). POST /v1/verify_receipt still verifies those; no responder emits v0 anymore.",
             "verify": {
@@ -13216,6 +13217,7 @@ async fn post_verify_receipt(
         Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
     };
 
+    let field_hex = r.field.as_ref().map(|f| f.blake3_hex());
     let msg: [u8; 32] = if r.preimage_version >= emem_attest::PREIMAGE_V1 {
         emem_attest::receipt_preimage_v1(
             &r.request_id,
@@ -13224,6 +13226,7 @@ async fn post_verify_receipt(
             as_of_hex.as_deref(),
             edges_hex.as_deref(),
             manifest_hex_opt.as_deref(),
+            field_hex.as_deref(),
             &r.primitive,
             r.cells.iter().map(|s| s.as_str()),
             r.fact_cids.iter().map(|c| c.as_str()),
@@ -13444,6 +13447,7 @@ async fn post_verify_receipt(
         "fact_cids_count": r.fact_cids.len(),
         "scope_bound": scope_hex.is_some(),
         "as_of_bound": as_of_hex.is_some(),
+        "field_bound": field_hex.is_some(),
         "edges_bound": edges_hex.is_some(),
         "manifest_bound": manifest_hex_opt.is_some(),
         "merkle_proof_valid": merkle_proof_valid,
@@ -55736,6 +55740,7 @@ mod tests {
                 was_cached: true,
             },
             as_of: None,
+            field: None,
             scope: None,
             edge_cids: Vec::new(),
             preimage_version: 0,
