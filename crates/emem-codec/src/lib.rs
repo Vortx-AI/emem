@@ -18,6 +18,7 @@ pub mod alphabet;
 pub mod cell64;
 pub mod cid64;
 pub mod geo;
+pub mod grid;
 pub mod hilbert;
 pub mod tslot_text;
 pub mod vec64;
