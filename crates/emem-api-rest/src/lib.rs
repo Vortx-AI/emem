@@ -50700,6 +50700,36 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
 /// so a rural-village lookup returns in ~100 ms instead of ~30 s and
 /// without the regex-injection escaping Overpass demands.
 ///
+/// Class prior for a Photon candidate, keyed on `osm_key`.
+///
+/// Photon exposes no `importance` field, so this is synthesised, and since
+/// `photon_lookup_candidates` re-ranks on it, it is the ONLY thing deciding
+/// which candidate `/v1/locate` returns from this tier.
+///
+/// `boundary` outranks `place`. That is what the comment on this table always
+/// claimed ("admin polygons are usually the unambiguous match for a
+/// rural-village query") and the opposite of what its numbers did: boundary
+/// sat at 0.55, under place at 0.6, so the re-rank demoted every admin match
+/// beneath any village on the page. Live, `Lahaul` resolved to
+/// `Lahage (village), Occitanie, France`. Photon had ranked `Lahaul`
+/// (boundary, Himachal Pradesh) first and correctly; we sorted a French
+/// village 2000 km away over the top of it and served that as the answer.
+///
+/// The prior holds because of what actually reaches this tier: the embedded
+/// gazetteer, the POI table and the admin tables all answer before Photon, so
+/// a query arrives here only when it is a name none of them carried, which is
+/// the rural/administrative case the prior is for. It is not a general claim
+/// that districts beat cities.
+fn photon_class_prior(osm_key: &str) -> f64 {
+    match osm_key {
+        "boundary" => 0.65,
+        "place" => 0.6,
+        "natural" | "water" => 0.5,
+        "leisure" | "amenity" => 0.4,
+        _ => 0.3,
+    }
+}
+
 /// API: `GET https://photon.komoot.io/api/?q=<query>&limit=<n>` returning a
 /// GeoJSON FeatureCollection. Each feature carries:
 ///   - `geometry.coordinates` `[lng, lat]`
@@ -50793,17 +50823,7 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             let min_lat = arr[3].as_f64()?;
             Some((min_lat, max_lat, min_lon, max_lon))
         });
-        // Importance heuristic by osm_key: places (villages, towns, hamlets)
-        // outrank water/leisure features when the user types a bare name.
-        // Boundary outranks everything because admin polygons are usually
-        // the unambiguous match for a rural-village query.
-        let importance = match osm_key {
-            "boundary" => 0.55,
-            "place" => 0.6,
-            "natural" | "water" => 0.5,
-            "leisure" | "amenity" => 0.4,
-            _ => 0.3,
-        };
+        let importance = photon_class_prior(osm_key);
         let osm_id = props["osm_id"]
             .as_i64()
             .map(|i| i.to_string())
@@ -50831,6 +50851,14 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
     // index. Return Ok(vec![]) so locate_inner can try Nominatim before
     // declaring "place not found", and so transport failures (Err) stay
     // distinct from "no such place" (Ok empty).
+    // Descending by the class prior. `sort_by` is stable, and that is
+    // load-bearing rather than incidental: candidates of the same class all
+    // synthesise the same number, so ties are broken by Photon's own
+    // ordering, which is the better ranker and the only real relevance
+    // signal in play. `Keylong` returns the Himachal town and an Irish
+    // locality, both `place`; Photon puts the town first and this keeps it
+    // there. Do not swap in `sort_unstable_by`: it would scramble
+    // equal-class candidates and make rank 0 arbitrary.
     out.sort_by(|a, b| {
         b.importance
             .partial_cmp(&a.importance)
@@ -58554,6 +58582,69 @@ mod tests {
             "a cache row carrying no verdict must not claim confidence"
         );
         assert_eq!(why, "ttl_cache_hit_unknown_provenance");
+    }
+
+    /// The class prior must not sort a French village over an Indian district.
+    ///
+    /// `/v1/locate` for "Lahaul" returned `Lahage (village), Occitanie,
+    /// France`. Photon was not wrong; we were. Its own ranking, live:
+    ///
+    /// ```text
+    ///   #0  Lahaul            boundary/administrative  IN Himachal Pradesh
+    ///   #1  Lahaul and Spiti  boundary/administrative  IN Himachal Pradesh
+    ///   #2  Lahage            place/village            FR Occitanie
+    /// ```
+    ///
+    /// `photon_lookup_candidates` re-ranks on a synthesised prior that scored
+    /// boundary 0.55 and place 0.6, so #2 was promoted over #0 and served.
+    /// The comment above the table said boundary outranked everything; the
+    /// table said otherwise, and the table is what ran.
+    #[test]
+    fn the_photon_prior_ranks_an_admin_match_over_a_stray_village() {
+        // Exactly the osm_keys the live API returns for these three.
+        let lahaul = photon_class_prior("boundary");
+        let lahage = photon_class_prior("place");
+        assert!(
+            lahaul > lahage,
+            "an admin boundary must outrank a village at this tier: \
+             boundary={lahaul} place={lahage}"
+        );
+
+        // Junk classes stay below both: "Keylong Top" is highway/path and
+        // "Keylong House" is building/house, and neither is the town.
+        for junk in ["highway", "building", "amenity", "leisure"] {
+            assert!(
+                photon_class_prior(junk) < lahage,
+                "{junk} must not outrank a populated place"
+            );
+        }
+
+        // Same-class candidates tie, which hands the decision back to
+        // Photon's ordering via the stable sort. Both Keylongs are `place`.
+        assert_eq!(
+            photon_class_prior("place"),
+            photon_class_prior("place"),
+            "equal classes must tie so Photon's own rank breaks it"
+        );
+    }
+
+    /// Ties must leave Photon's ordering intact, because that ordering is the
+    /// only real relevance signal we have at this tier.
+    #[test]
+    fn equal_class_candidates_keep_photons_own_order() {
+        // "Keylong" returns the Himachal town then an Irish locality, both
+        // place-class. Mirror the sort `photon_lookup_candidates` runs.
+        let mut cands = [
+            ("Keylong, IN", photon_class_prior("place")),
+            ("Keylong, IE", photon_class_prior("place")),
+            ("Keylong Top (path), IN", photon_class_prior("highway")),
+        ];
+        cands.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        assert_eq!(
+            cands[0].0, "Keylong, IN",
+            "a stable sort must keep Photon's rank 0 on top of an equal-class tie"
+        );
+        assert_eq!(cands[2].0, "Keylong Top (path), IN", "junk sinks");
     }
 
     fn a_row(label: &str) -> CachedPlace {
