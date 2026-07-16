@@ -48365,12 +48365,11 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // under rate limits and a global regex takes ~30 s on the public
     // instance, so it is unfit for a synchronous geocoder fallback.
     let mut via = "direct";
-    // Provenance replayed from a cache hit: the tier the ORIGINAL lookup came
-    // from, and the importance it earned there. Held here rather than in the
-    // cache branch because the confidence verdict is built much further down,
-    // and a cache hit must not mint a verdict of its own: it means somebody
-    // asked before, not that the answer was good.
-    let mut cache_origin_via: Option<String> = None;
+    // The verdict a cache hit replays, and the importance it earned, held here
+    // because the confidence block is built much further down. A cache hit must
+    // not mint a verdict of its own: it means somebody asked before, not that
+    // the answer was good.
+    let mut cache_verdict: Option<(bool, String)> = None;
     let mut cache_importance: Option<f64> = None;
     let mut polygon_bbox: Option<(f64, f64, f64, f64)> = None;
     let mut polygon_source: Option<&'static str> = None;
@@ -48685,7 +48684,6 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     &lab,
                                     Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
                                     None,
-                                    via,
                                 );
                             }
                         }
@@ -48704,7 +48702,6 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                         &lab,
                                         Some([bb.0, bb.1, bb.2, bb.3]),
                                         None,
-                                        via,
                                     );
                                 }
                             }
@@ -48787,7 +48784,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 via = "pois";
                 let lab = poi.label();
                 (poi.lat, poi.lng, Some(lab))
-            } else if let Some((la, lo, lab, bb_cached, cached_imp, cached_origin)) =
+            } else if let Some((la, lo, lab, bb_cached, cached_imp, cached_verdict)) =
                 nominatim_cache_get(p)
             {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
@@ -48796,11 +48793,12 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // single-cell fan-out. (Pre-fix: cache stored only lat/lng,
                 // forcing every cached recall_polygon to centre_cell_bbox.)
                 via = "cache";
-                // Carry the original lookup's provenance forward so the
-                // confidence verdict below replays what it earned instead of
-                // inventing one. `via` still reports "cache" because the cache
-                // is what served this, which is what the field documents.
-                cache_origin_via = cached_origin;
+                // Carry the earned verdict forward so the confidence block
+                // below replays it instead of recomputing one from inputs that
+                // no longer exist on this path. `via` still reports "cache",
+                // because the cache is what served this and that is what the
+                // field documents.
+                cache_verdict = cached_verdict;
                 cache_importance = cached_imp;
                 // Bug 4: when the query is an admin-boundary query, the
                 // cache may carry a stale POI bbox from before this fix
@@ -48842,7 +48840,6 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     &lab,
                                     Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
                                     None,
-                                    via,
                                 );
                                 if force_admin_override {
                                     via = "overture_admin_fallback";
@@ -48867,7 +48864,6 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                         &lab,
                                         Some([bb.0, bb.1, bb.2, bb.3]),
                                         None,
-                                        via,
                                     );
                                 }
                             }
@@ -49098,7 +49094,6 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     &hit.label,
                     hit_bbox_arr,
                     Some(hit.importance),
-                    via,
                 );
                 if polygon_bbox.is_none() {
                     if let Some(bb) = hit.bbox {
@@ -49370,6 +49365,16 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         disambiguation_required,
         alternatives.len(),
     );
+    // Record it onto the cached row while the evidence still exists. This is
+    // the only point where the candidate list has been walked, so it is the
+    // only point where the verdict is real; a later read has no way to
+    // reconstruct it. Skipped when the answer came from the cache, which would
+    // just rewrite the value it replayed.
+    if via != "cache" {
+        if let Some(q) = req.place.as_deref() {
+            nominatim_cache_note_verdict(q, is_high_conf, confidence_reason);
+        }
+    }
     // Always emit the `alternatives[]` array — even when length is 1 —
     // so a downstream agent can read a stable shape. Previously the
     // single-hit path emitted nothing, hiding the OSM class/type that
@@ -49434,22 +49439,25 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             let label_text = label.as_deref().unwrap_or("");
             let mismatch_text = query_class != QueryFeatureClass::Unknown
                 && label_text_class_mismatch(query_class, label_text);
-            // A cache hit replays the tier and score the original lookup
-            // earned; every other tier here judges on the tier itself and
-            // ignores importance. Passing a hardcoded 1.0 through the
-            // `via == "cache"` arm is what promoted every cached row to
-            // high confidence regardless of what it was.
-            let judged_via: &str = match (via, cache_origin_via.as_deref()) {
-                ("cache", Some(origin)) => origin,
-                _ => via,
+            // A cache hit replays the verdict its fresh lookup earned. It is
+            // not recomputed here: `alternatives` is empty on this path by
+            // construction, so `disambiguation_required` and the candidate
+            // count are gone, and a recompute would skip the ambiguity check
+            // and fall through to the importance gate. Passing a hardcoded 1.0
+            // through the `via == "cache"` arm is what promoted every cached
+            // row to high confidence regardless of what it was.
+            let (is_high_conf_else, reason_else) = match &cache_verdict {
+                Some((hc, reason)) => (*hc, reason.as_str()),
+                // Reached by the tiers that carry no verdict because they need
+                // none: direct lat/lng, the embedded gazetteer, and the admin
+                // tiers all judge on `via` itself and never read the score. It
+                // is passed as 0.0 rather than 1.0 so that the day something
+                // importance-scored is routed through here, it fails closed and
+                // is refused, instead of sailing through the `>= 0.5` gate on a
+                // number nothing measured. That hardcoded 1.0 is what promoted
+                // every cached row to high confidence in the first place.
+                None => locate_confidence(via, 0.0, mismatch_text, false, 0),
             };
-            let (is_high_conf_else, reason_else) = locate_confidence(
-                judged_via,
-                cache_importance.unwrap_or(0.0),
-                mismatch_text,
-                false,
-                0,
-            );
             m.insert(
                 "selected".into(),
                 json!({
@@ -49717,13 +49725,12 @@ fn locate_confidence(
         "pois" => (true, "well_known_poi_match"),
         "direct" => (true, "direct_lat_lng"),
         // A cache hit is not evidence. It means somebody asked before, not
-        // that the answer was good, so it cannot mint a verdict of its own:
-        // the caller replays the tier and importance the original lookup
-        // earned by passing them here as `via`/`importance`. Reaching this arm
-        // means the row predates the cache recording its provenance, and an
-        // unknown provenance is not a high-confidence one. These rows are
-        // exactly the names the embedded gazetteer could not answer, which is
-        // where a wrong place is most likely and least noticeable.
+        // that the answer was good, so it cannot mint a verdict of its own.
+        // The cache path does not reach this arm: it replays the verdict stored
+        // on the row, because the candidate set that decides ambiguity is gone
+        // by then and cannot be recomputed from anything the row holds.
+        // Reaching this arm means a row was served carrying no stored verdict,
+        // and an unknown provenance is not a high-confidence one.
         "cache" => (false, "ttl_cache_hit_unknown_provenance"),
         "overture_admin_fallback" => (true, "overture_division_match"),
         "photon" | "nominatim" => {
@@ -50177,29 +50184,36 @@ struct CachedPlace {
     /// Unix-time rather than Instant so the cache is durable across
     /// process restarts.
     inserted_unix_s: i64,
-    /// The geocoder importance the ORIGINAL lookup earned, and the tier
-    /// that earned it.
+    /// The geocoder importance the ORIGINAL lookup earned.
     ///
-    /// Stored because a cache hit is not evidence: it means somebody asked
-    /// before, not that the answer was good. Without these the cache replayed
-    /// a hardcoded importance of 1.0 through the `via == "cache"` arm of
-    /// `locate_confidence`, which promoted every cached row to
-    /// `is_high_confidence: true` regardless of what it was. A low-importance
-    /// fuzzy hit ("Lahaul" -> "Lahage (village), Occitanie, France") was
-    /// correctly refused on the first call, cached, and trusted on every call
-    /// after: the same query answered differently depending only on whether
-    /// someone had asked before. `/v1/locate`'s own contract tells agents to
-    /// branch on `is_high_confidence`, so laundering it defeats the one guard
-    /// the API asks callers to use.
+    /// Reported on `selected.importance` for a cache hit. Before it was stored
+    /// the cache path emitted a hardcoded 1.0, publishing a relevance score
+    /// nothing had measured.
     ///
-    /// `None` on rows written before this field existed. Unknown provenance
-    /// is treated as low confidence rather than assumed good: these entries
-    /// are exactly the obscure names the embedded gazetteer could not answer,
-    /// which is where a wrong place is most likely and least noticeable.
+    /// `None` when the tier that resolved this row does not produce a score
+    /// (the gazetteer and admin tiers judge on the tier itself), in which case
+    /// the field is served as null rather than as a fabricated number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     importance: Option<f64>,
+    /// The confidence verdict the original lookup earned, stored whole.
+    ///
+    /// Storing the verdict's *inputs* (importance + tier) was not enough and
+    /// the gap was invisible: the refusal for an ambiguous name comes from
+    /// `disambiguation_required`, which depends on the candidate set the
+    /// upstream returned and is gone by the time the row is read. Replaying
+    /// only (tier, importance) skipped that check and fell through to the
+    /// importance gate, so "Lahaul" was refused on the fresh lookup
+    /// (`ambiguous_top_two_candidates`) and trusted on the very next one
+    /// (`geocoder_high_importance`, importance 0.6) — the same laundering,
+    /// one layer down.
+    ///
+    /// The verdict is a pure function of the query, and the query is this
+    /// row's key, so the verdict is what belongs here. Nothing about a later
+    /// read can legitimately change it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    origin_via: Option<String>,
+    is_high_confidence: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    confidence_reason: Option<String>,
 }
 
 /// 30 d TTL — place-name → centroid is stable. Nominatim's caching
@@ -50367,22 +50381,31 @@ fn now_unix_s() -> i64 {
         .unwrap_or(0)
 }
 
-/// What a cached geocode replays: the place, then the provenance the original
-/// lookup earned as `(importance, origin_via)`.
+/// What a cached geocode replays: the place, the importance for display, and
+/// the confidence verdict the original lookup earned.
 ///
-/// `origin_via` is `None` on rows written before the cache recorded it, which
-/// is the fail-closed case. `importance` is `None` for the tiers that do not
-/// produce one at all: the embedded gazetteer, the admin tables, POIs and
-/// Overture divisions earn their verdict from the tier itself, and
-/// `locate_confidence` never reads importance for them. Only photon/nominatim
-/// gate on the score, and only they carry one.
+/// The verdict is stored whole rather than recomputed from stored inputs,
+/// because on this path it CANNOT be recomputed. `alternatives` is empty for a
+/// cache hit by construction (the branch is documented "deterministic
+/// single-result"), so the candidate set that decides `disambiguation_required`
+/// no longer exists, and a recompute silently skips the ambiguity check and
+/// falls through to the importance gate. That is exactly how "Lahaul" came back
+/// `ambiguous_top_two_candidates` / refused on the fresh lookup and
+/// `geocoder_high_importance` / trusted on the very next one.
+///
+/// The verdict is a pure function of the query and the query is this row's key,
+/// so nothing about a later read can legitimately change it.
+///
+/// `verdict` is `None` on rows written before the cache recorded it. Those are
+/// treated as a miss and re-resolved rather than served, so the flag heals on
+/// first touch instead of over the 30 day TTL.
 type CachedGeocode = (
     f64,
     f64,
     String,
     Option<[f64; 4]>,
     Option<f64>,
-    Option<String>,
+    Option<(bool, String)>,
 );
 
 fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
@@ -50397,26 +50420,92 @@ fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
         let _ = geocoder_db().remove(q.as_bytes());
         return None;
     }
-    // A row written before the cache recorded provenance cannot be judged, and
-    // the TTL is 30 days: serving it as unknown-confidence for a month would
-    // punish every good place that happens to be cached, to fix the few that
-    // are wrong. Treat it as a miss instead. The lookup re-resolves it once and
-    // rewrites it WITH provenance, so the cache heals on first touch rather
-    // than over the TTL, and each legacy row costs exactly one upstream call.
-    if entry.origin_via.is_none() {
-        let _ = geocoder_db().remove(q.as_bytes());
-        return None;
-    }
+    // A row carrying no verdict cannot be judged, and the TTL is 30 days:
+    // serving it as unknown-confidence for a month would punish every good
+    // place that happens to be cached, to catch the few that are wrong. Treat
+    // it as a miss instead. The lookup re-resolves it once and notes the
+    // verdict, so the flag heals on first touch and each such row costs exactly
+    // one upstream call.
+    let verdict = match (entry.is_high_confidence, entry.confidence_reason) {
+        (Some(hc), Some(reason)) => Some((hc, reason)),
+        _ => {
+            let _ = geocoder_db().remove(q.as_bytes());
+            return None;
+        }
+    };
     Some((
         entry.lat,
         entry.lng,
         entry.label,
         entry.polygon_bbox,
         entry.importance,
-        entry.origin_via,
+        verdict,
     ))
 }
 
+/// Record the confidence verdict a fresh lookup earned onto its cached row.
+///
+/// Separate from `nominatim_cache_put` because of ordering: the row is written
+/// while the upstream response is being read, and `disambiguation_required` is
+/// only decided afterwards, once the candidate list has been walked. Writing
+/// the verdict at put time would persist `false` for every ambiguous name,
+/// which is the bug this exists to close.
+fn nominatim_cache_note_verdict(query: &str, is_high_confidence: bool, reason: &str) {
+    let q = query.trim().to_ascii_lowercase();
+    let Ok(Some(raw)) = geocoder_db().get(q.as_bytes()) else {
+        return;
+    };
+    let Ok(mut entry) = serde_json::from_slice::<CachedPlace>(&raw) else {
+        return;
+    };
+    entry.is_high_confidence = Some(is_high_confidence);
+    entry.confidence_reason = Some(reason.to_string());
+    if let Ok(bytes) = serde_json::to_vec(&entry) {
+        let _ = geocoder_db().insert(q.as_bytes(), bytes);
+    }
+}
+
+/// Decide the row to write, given what the cache already holds for this query.
+///
+/// The merge is not an optimisation. Four of `nominatim_cache_put`'s five call
+/// sites are re-puts that exist only to attach a polygon bbox to a place
+/// already resolved, and two of those sit on the cache-hit path itself.
+/// Spelled as a whole-row overwrite, they passed `importance: None` and reset
+/// the verdict, so a cache hit that needed polygon enrichment erased the
+/// verdict it had just replayed. `via` is `"cache"` there, so
+/// `nominatim_cache_note_verdict` never rewrote it, and the next read found a
+/// row with no verdict, dropped it, and re-resolved upstream. The row could
+/// never hold a verdict for two consecutive requests, and every other lookup
+/// paid a full Photon call against a hard 1 req/sec policy.
+///
+/// Pure, and separate from the sled access, so the rule can be tested. The
+/// storage cannot be: `geocoder_db()` is a process-global handle on
+/// `EMEM_DATA/geocoder.sled`, which defaults to the live server's own data
+/// directory, so a test that touched it would open a second writer on the
+/// running server's store.
+fn merge_cached_place(prior: Option<CachedPlace>, fresh: CachedPlace) -> CachedPlace {
+    // Only a row describing the same place has anything to contribute. f64
+    // equality is exact here rather than approximate: a cache-path re-put
+    // writes back the very bits it read, and serde_json round-trips f64
+    // losslessly, so same-place really is bit-identical.
+    let prior =
+        prior.filter(|e| e.lat == fresh.lat && e.lng == fresh.lng && e.label == fresh.label);
+    let Some(prior) = prior else { return fresh };
+    CachedPlace {
+        // `None` from a caller means "I do not have this", never "erase it".
+        polygon_bbox: fresh.polygon_bbox.or(prior.polygon_bbox),
+        importance: fresh.importance.or(prior.importance),
+        // The verdict survives a bbox being attached. It is dropped only when
+        // the place itself changed, which the filter above already handled: a
+        // judgement about the old answer says nothing about a new one.
+        is_high_confidence: prior.is_high_confidence,
+        confidence_reason: prior.confidence_reason,
+        ..fresh
+    }
+}
+
+/// Write a resolved place to the cache, merging onto an existing row when it
+/// describes the same place.
 fn nominatim_cache_put(
     query: &str,
     lat: f64,
@@ -50424,19 +50513,27 @@ fn nominatim_cache_put(
     label: &str,
     polygon_bbox: Option<[f64; 4]>,
     importance: Option<f64>,
-    origin_via: &str,
 ) {
     let q = query.trim().to_ascii_lowercase();
-    let entry = CachedPlace {
+    let prior = geocoder_db()
+        .get(q.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|raw| serde_json::from_slice::<CachedPlace>(&raw).ok());
+    let fresh = CachedPlace {
         lat,
         lng,
         label: label.to_string(),
         polygon_bbox,
         inserted_unix_s: now_unix_s(),
         importance,
-        origin_via: Some(origin_via.to_string()),
+        // On a fresh resolution this is decided later in the same request, once
+        // the candidate list has been walked: see nominatim_cache_note_verdict.
+        // A row that never receives one is re-resolved rather than served.
+        is_high_confidence: None,
+        confidence_reason: None,
     };
-    let bytes = match serde_json::to_vec(&entry) {
+    let bytes = match serde_json::to_vec(&merge_cached_place(prior, fresh)) {
         Ok(b) => b,
         Err(_) => return,
     };
@@ -58397,42 +58494,152 @@ mod tests {
         assert!(hc3, "a high-importance unambiguous hit is confident");
     }
 
-    /// A cache hit must not launder a refused answer into a trusted one.
+    /// A cache hit must not launder a refused answer into a trusted one, and
+    /// the verdict is not rebuildable from what a cached row can hold.
     ///
-    /// The policy above is only worth having if serving the same answer twice
-    /// cannot change its verdict. It could: `via == "cache"` returned
-    /// `(true, "ttl_cache_hit")` unconditionally, and the caller passed a
-    /// hardcoded importance of 1.0, so a weak hit refused on the first lookup
-    /// came back high-confidence on every lookup after. Live, "Lahaul"
-    /// resolved to "Lahage (village), Occitanie, France" and was served with
-    /// `is_high_confidence: true, importance: 1.0` from cache. `/v1/locate`'s
-    /// own contract tells agents to branch on `is_high_confidence` before
-    /// trusting a place, so laundering it defeats the guard the API asks
-    /// callers to use.
+    /// Two live failures, same query both times: "Lahaul" resolving to
+    /// "Lahage (village), Occitanie, France".
+    ///
+    /// First, `via == "cache"` returned `(true, "ttl_cache_hit")`
+    /// unconditionally while the caller passed a hardcoded importance of 1.0,
+    /// so anything served from cache was confident.
+    ///
+    /// Then, after storing `(tier, importance)` on the row and recomputing
+    /// from those: still laundered. The refusal was
+    /// `ambiguous_top_two_candidates`, which is a fact about the *candidate
+    /// set*, and `alternatives` is empty on the cache path by construction
+    /// (documented there as "deterministic single-result"). The recompute
+    /// therefore passed `disambiguation_required = false, n_alternatives = 0`,
+    /// skipped the ambiguity check, and importance 0.6 sailed through the
+    /// `>= 0.5` gate. Live: first touch refused with
+    /// `ambiguous_top_two_candidates`, second touch trusted with
+    /// `geocoder_high_importance`.
+    ///
+    /// The first version of this test replayed `locate_confidence` with
+    /// identical arguments and asserted the answers matched, which only
+    /// asserts a pure function is pure. It passed throughout both bugs. The
+    /// assertion below is the one with teeth: it pins that the recompute a
+    /// cache row can actually perform *disagrees* with the fresh verdict, so
+    /// the row must store the verdict itself, not its inputs.
     #[test]
     fn a_cache_hit_replays_the_verdict_it_earned_and_cannot_mint_one() {
-        // The weak hit from the test above, now served from cache. The
-        // caller replays the origin tier and score, so the verdict must hold.
-        let (fresh, _) = locate_confidence("nominatim", 0.1, false, false, 1);
-        let (cached, reason) = locate_confidence("nominatim", 0.1, false, false, 1);
+        // The live shape. Importance alone clears the gate; only the candidate
+        // set refuses it.
+        let (fresh, fresh_why) = locate_confidence("photon", 0.6, false, true, 2);
+        assert!(!fresh, "an ambiguous top-two must be refused when fresh");
+        assert_eq!(fresh_why, "ambiguous_top_two_candidates");
+
+        // The same row, recomputed with what a cache hit can see: the
+        // candidate set is gone. This is the trap, asserted rather than
+        // described, so that anyone who deletes the stored verdict and goes
+        // back to recomputing fails here.
+        let (recomputed, recomputed_why) = locate_confidence("photon", 0.6, false, false, 0);
         assert!(
-            !fresh && !cached,
-            "a weak hit stays weak when it comes from cache"
+            recomputed,
+            "a recompute without the candidate set trusts what the fresh \
+             lookup refused; this is why the verdict is stored on the row"
         );
-        assert_eq!(reason, "single_low_importance_result");
+        assert_eq!(recomputed_why, "geocoder_high_importance");
 
-        // A strong hit likewise keeps its verdict through the cache.
-        let (strong, _) = locate_confidence("nominatim", 0.8, false, false, 1);
-        assert!(strong, "replaying provenance must not punish a good hit");
+        // The policy still refuses a weak hit on its own merits.
+        let (weak, weak_why) = locate_confidence("nominatim", 0.1, false, false, 1);
+        assert!(!weak, "a low-importance single hit is refused");
+        assert_eq!(weak_why, "single_low_importance_result");
 
-        // And the "cache" arm itself, reached only when the row predates the
-        // cache recording provenance, must fail closed rather than assume.
+        // And the "cache" arm itself, reachable only if a row carrying no
+        // stored verdict were served, fails closed rather than assuming.
         let (unknown, why) = locate_confidence("cache", 1.0, false, false, 0);
         assert!(
             !unknown,
-            "a cache row of unknown provenance must not claim confidence"
+            "a cache row carrying no verdict must not claim confidence"
         );
         assert_eq!(why, "ttl_cache_hit_unknown_provenance");
+    }
+
+    fn a_row(label: &str) -> CachedPlace {
+        CachedPlace {
+            lat: 32.5713,
+            lng: 77.0345,
+            label: label.to_string(),
+            polygon_bbox: None,
+            inserted_unix_s: 0,
+            importance: None,
+            is_high_confidence: None,
+            confidence_reason: None,
+        }
+    }
+
+    /// Attaching a bbox to a cached row must not erase the verdict on it.
+    ///
+    /// Storing the verdict is only worth anything if it survives to the next
+    /// read. It did not. Two of the re-put call sites sit on the cache-hit
+    /// path, and spelled as a whole-row overwrite they reset the verdict to
+    /// `None` on the very row they had just replayed it from. Because `via` is
+    /// `"cache"` there, nothing rewrote it, so the next read saw a verdict-less
+    /// row, dropped it, and re-resolved upstream: the row could never hold a
+    /// verdict across two consecutive requests, and every other lookup paid a
+    /// full Photon call against a hard 1 req/sec policy.
+    #[test]
+    fn attaching_a_bbox_preserves_the_verdict_and_score_already_earned() {
+        let mut prior = a_row("Lahage (village), Occitanie, France");
+        prior.importance = Some(0.6);
+        prior.is_high_confidence = Some(false);
+        prior.confidence_reason = Some("ambiguous_top_two_candidates".into());
+
+        // The re-put as the cache-hit path makes it: same place, a bbox to
+        // attach, and no importance of its own to offer.
+        let mut fresh = a_row("Lahage (village), Occitanie, France");
+        fresh.polygon_bbox = Some([1.0, 2.0, 3.0, 4.0]);
+        fresh.inserted_unix_s = 999;
+
+        let merged = merge_cached_place(Some(prior), fresh);
+        assert_eq!(
+            merged.is_high_confidence,
+            Some(false),
+            "a refusal must survive a bbox being attached to its row"
+        );
+        assert_eq!(
+            merged.confidence_reason.as_deref(),
+            Some("ambiguous_top_two_candidates")
+        );
+        assert_eq!(
+            merged.importance,
+            Some(0.6),
+            "`None` from a caller means 'I do not have this', not 'erase it'"
+        );
+        assert_eq!(merged.polygon_bbox, Some([1.0, 2.0, 3.0, 4.0]));
+        assert_eq!(merged.inserted_unix_s, 999, "the fresh write still wins");
+    }
+
+    /// A verdict is about one answer, so a different answer does not inherit it.
+    ///
+    /// The mirror of the test above: preserving too eagerly would be its own
+    /// laundering, letting a place that re-resolved somewhere new keep the
+    /// judgement earned by the old one.
+    #[test]
+    fn a_row_that_resolves_somewhere_new_does_not_inherit_the_old_verdict() {
+        let mut prior = a_row("Lahage (village), Occitanie, France");
+        prior.importance = Some(0.6);
+        prior.is_high_confidence = Some(true);
+        prior.confidence_reason = Some("geocoder_high_importance".into());
+
+        // Same query, but it now resolves to a different place.
+        let mut fresh = a_row("Lahaul and Spiti, Himachal Pradesh, India");
+        fresh.lat = 32.5713;
+        fresh.lng = 77.5;
+
+        let merged = merge_cached_place(Some(prior), fresh);
+        assert_eq!(
+            merged.is_high_confidence, None,
+            "a verdict earned by the old answer says nothing about the new one"
+        );
+        assert_eq!(merged.confidence_reason, None);
+        assert_eq!(merged.importance, None, "nor does its score carry over");
+
+        // And with nothing cached at all, the fresh row passes through whole.
+        let untouched = merge_cached_place(None, a_row("Keylong"));
+        assert_eq!(untouched.label, "Keylong");
+        assert_eq!(untouched.is_high_confidence, None);
     }
 
     /// Pin the Tessera UTM (lat,lng,tile) → (row,col) mapping against the
