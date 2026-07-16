@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 320" font-family="Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="900" height="320" fill="#ffffff"/>
+  <text x="60" y="38" font-size="20" font-weight="bold" fill="#1a1a1a">The change at a pinned reference is not one event</text>
+  <text x="60" y="60" font-size="13" fill="#666666">&#916;z = &#916;_env + &#916;_sensor + &#916;_geo + &#916;_encoder + &#949; &#183; only the first term is the world</text>
+
+  <!-- the bar -->
+  <rect x="60"  y="95" width="300" height="44" fill="#2e7d32" rx="3"/>
+  <rect x="364" y="95" width="130" height="44" fill="#90a4ae" rx="3"/>
+  <rect x="498" y="95" width="130" height="44" fill="#a5b4bc" rx="3"/>
+  <rect x="632" y="95" width="130" height="44" fill="#b8c4ca" rx="3"/>
+  <rect x="766" y="95" width="74"  height="44" fill="#cdd6da" rx="3"/>
+
+  <text x="210" y="122" font-size="15" font-weight="bold" fill="#ffffff" text-anchor="middle">&#916;_env</text>
+  <text x="429" y="122" font-size="14" fill="#ffffff" text-anchor="middle">&#916;_sensor</text>
+  <text x="563" y="122" font-size="14" fill="#ffffff" text-anchor="middle">&#916;_geo</text>
+  <text x="697" y="122" font-size="14" fill="#1a1a1a" text-anchor="middle">&#916;_encoder</text>
+  <text x="803" y="122" font-size="14" fill="#1a1a1a" text-anchor="middle">&#949;</text>
+
+  <!-- glosses -->
+  <text x="210" y="162" font-size="12" fill="#2e7d32" text-anchor="middle" font-weight="bold">the world changed</text>
+  <text x="429" y="162" font-size="12" fill="#666666" text-anchor="middle">the instrument changed</text>
+  <text x="563" y="162" font-size="12" fill="#666666" text-anchor="middle">the pixels moved</text>
+  <text x="697" y="162" font-size="12" fill="#666666" text-anchor="middle">the model changed</text>
+  <text x="803" y="162" font-size="12" fill="#666666" text-anchor="middle">noise</text>
+
+  <!-- brackets -->
+  <path d="M 60 180 L 60 190 L 360 190 L 360 180" stroke="#2e7d32" fill="none" stroke-width="1.5"/>
+  <text x="210" y="210" font-size="12" fill="#2e7d32" text-anchor="middle">the signal a memory of the world exists to keep</text>
+
+  <path d="M 364 180 L 364 190 L 840 190 L 840 180" stroke="#888888" fill="none" stroke-width="1.5"/>
+  <text x="602" y="210" font-size="12" fill="#666666" text-anchor="middle">pinned or separated by the substrate, by construction</text>
+  <text x="602" y="228" font-size="11" fill="#8a8a8a" text-anchor="middle">encoder checkpoint hash &#183; signed scene selection &#183; bi-temporal bounds &#183; cloud/QA class</text>
+
+  <!-- footer -->
+  <line x1="60" y1="252" x2="840" y2="252" stroke="#e0e0e0" stroke-width="1"/>
+  <text x="60" y="278" font-size="12" fill="#1a1a1a">Splitting a specific &#916;z among the terms is the open primitive <tspan font-family="monospace">change_attribution@1</tspan>:</text>
+  <text x="60" y="296" font-size="12" fill="#666666">a derivative fact with parent cids under a signed receipt, so the attribution is as checkable as the readings it explains.</text>
+</svg>

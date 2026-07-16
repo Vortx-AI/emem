@@ -409,27 +409,25 @@ archived unedited as the DOI-cited record; v2 carries the framing and
 the honesty discipline. A submittable paper is one document, and what
 the prose still lacks is exactly the scaffolding a reviewer scans for.
 
-- **One canonical paper.** Merge with v2's spine (referential drift in
-  both directions, external identity) and v1's protocol depth (cell64,
-  tslot, the band voxel, algorithms, primitives) folded into the design
-  sections. The old files stay where they are, marked superseded, since
-  v1 is the frozen citation target behind the DOI.
-- **The scaffolding.** Formal definitions: the address map, the cid as
-  blake3 over canonical CBOR, the tagged length-prefixed preimage
-  stream, the bi-temporal read predicate, and the change decomposition
-  already stated in the whitepaper's sections 1.1 and 10.3. A figure
-  set: architecture, addressing, the preimage, the token lifecycle, the
-  log, the decomposition. A reference list that covers agent memory, EO
-  foundation models, content addressing, provenance standards, and
-  verifiable data structures, every identifier checked to exist before
-  it is cited. An evaluation section that lifts the measured numbers
-  from [benchmarks.md](benchmarks.md) verbatim and keeps their
-  sample-versus-full honesty split. The honest-limits list restructured
-  once as an explicit adversary model: what a malicious sender, a
-  malicious responder, and a network attacker each can and cannot do,
-  with split-view equivocation and the first-contact baseline named.
-  And a LaTeX source for the submission itself, since the repo renders
-  HTML today and preprint servers compile LaTeX.
+- **One canonical paper.** Done, at [whitepaper.md](whitepaper.md)
+  (2026-07-16): v2's spine (referential drift in both directions,
+  external identity) with v1's protocol depth folded into the design
+  sections, and the old files marked superseded in place, since v1 is
+  the frozen citation target behind the DOI.
+- **The scaffolding, mostly shipped with it.** Shipped: a definitions
+  and notation section (the address map, the cid rule, the tagged
+  preimage stream, the bi-temporal read predicate, the change
+  decomposition with reference stability stated formally); six figures
+  with captions; a reference list of 26 entries, every arXiv identifier
+  verified against the arXiv API before inclusion; an evaluation
+  section lifted verbatim from [benchmarks.md](benchmarks.md) keeping
+  its sample-versus-full honesty split; and the honest-limits list
+  restated as an adversary model (malicious sender, malicious
+  responder, network attacker, malicious writer, with split-view
+  equivocation and the first-contact baseline named). Still open: a
+  transparency-log figure, and the LaTeX source for the submission
+  itself, since the repo renders HTML today and preprint servers
+  compile LaTeX.
 
 ### The substrate: trusted, portable, verifiable memory
 

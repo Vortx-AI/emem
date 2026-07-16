@@ -1,17 +1,14 @@
 # emem: an external identity layer for verifiable agent memory
 
-**Whitepaper v2 / 2026-07-16**
+**Canonical whitepaper / 2026-07-16**
 
-*Superseded as the canonical paper by [whitepaper.md](whitepaper.md)
-(2026-07-16), which carries this document forward with v1's protocol
-depth, formal notation, figures, an evaluation, and a threat model.
-This file remains the served v2 record.*
-
-*Supersedes [whitepaper v1](/whitepaper/v1) (version 0.1.0, 2026-06-14),
-which remains archived and unedited. v1 is the version cited by
+*This is the one canonical paper. It carries whitepaper v2's framing and
+honesty discipline as the spine and folds in whitepaper v1's protocol
+depth; both parents remain in the repository, superseded but unedited.
+[v1](/whitepaper/v1) (version 0.1.0, 2026-06-14) is the version cited by
 [DOI 10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893);
 that record resolves to Zenodo's own frozen copy and is unaffected by
-this document. [Section 16](#16-changes-from-v1) lists, claim by claim,
+this document. [Section 18](#18-changes-from-v1) lists, claim by claim,
 what v1 asserted that this responder does not do.*
 
 ---
@@ -39,7 +36,7 @@ preimage. It does **not** hold uniformly across the token family:
 byte-identical *bytes*, because an entity's identifier is computed from a
 deliberately narrow identity preimage rather than from its whole body
 (§2). §3 gives the grammar and states, per token type, exactly what
-dereferencing proves. §14 collects every such limit in one place. Where a
+dereferencing proves. §16 collects every such limit in one place. Where a
 mechanism proves less than its name suggests, this document says so
 rather than let the name do the work.
 
@@ -128,6 +125,32 @@ the bytes exist. What is guaranteed is co-reference and integrity, never
 truth. Confidence, uncertainty, and provenance travel alongside the value
 (§7) precisely because the signature speaks to none of them.
 
+The paper's contributions, stated once:
+
+- **A failure model for agent memory.** Referential drift in two
+  directions: the paraphrase that decays in language, and the readout
+  that moves at a pinned reference, with a stated decomposition for the
+  second (§1.1, §1.2).
+- **An addressing discipline.** `(cell, band, tslot)` plus
+  content-derived identifiers, so a place, an observation, and an
+  object each have exactly one name (§2, §4, §5).
+- **A receipt a stranger can check.** One domain-separated,
+  length-prefixed signing rule across every signed object, with the
+  verifier specification generated from the signer's own constants
+  (§6).
+- **A token grammar with per-type semantics.** What dereferencing an
+  `emem:fact:`, `emem:entity:`, and `emem:cell:` token each proves, and
+  what it does not (§3).
+- **Two memory layers on one trust surface.** An Earth-memory corpus
+  and an agent file memory, returning the same receipts (§10, §11).
+- **An honest evaluation.** Measured latencies and throughput with the
+  method stated per number, typed failure modes, and the limits
+  restated as an adversary model (§14, §15, §16).
+
+![emem architecture: one Rust binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
+*Figure 1: one binary, signed end to end. The same handlers answer MCP
+and REST, reads need no auth, and every write is logged.*
+
 ### 1.1 Drift has two directions
 
 Everything above describes drift in language: the reference decays while
@@ -153,6 +176,73 @@ separates a change in the world from a change in what the memory knew
 receipt makes whatever split is computed checkable by a third party (§6).
 Attributing a given delta among the terms is open work, specified in
 §10.3 and carried on the roadmap; nothing in this build computes it.
+
+![the observed change at a pinned reference decomposes into environment, sensor, geometry, encoder, and noise terms; only the first is the world](/docs/diagrams/37-change-decomposition.svg)
+*Figure 2: the decomposition. Only Δ_env is about the world; the
+substrate pins or separates the other four by construction, and
+splitting a specific delta is the open primitive of §10.3.*
+
+### 1.2 Definitions and notation
+
+The rest of the paper uses a small amount of notation, fixed here. All
+of it formalizes what ships; none of it introduces a new mechanism.
+
+**Addresses.** The address map takes a WGS-84 point to a 64-bit cell,
+`A(lat, lng) = cell64`, quantizing latitude into 2^21 buckets and
+longitude into 2^22 (§4.1). Time quantizes per band:
+`tslot(t, b) = floor(unix(t) / slot_seconds(tempo(b)))`, so one instant
+buckets differently for a weather band and a forest-loss band (§4.2). A
+stored observation is addressed by the triple `(cell, band, tslot)`.
+
+**Identifiers.** For a record `x` with canonical CBOR encoding
+`cbor(x)` (§5), the content identifier is
+`cid(x) = base32_nopad_lower(blake3(cbor(x)))`: 32 bytes, 52
+characters. `entity_cid` and `bundle_cid` truncate the digest to its
+first 16 bytes (26 characters) before encoding; `cid64`, the display
+prefix used in logs, truncates to 8 (13 characters) and is a prefix of
+the full identifier, never a separate hash. Manifest identifiers
+(`bands_cid`, `registry_cid`, `schema_cid`, `sources_cid`) encode the
+full digest of each manifest's canonical CBOR.
+
+**Signatures.** Every responder signature is
+`sig = ed25519_sign(sk, blake3(P))`, where the preimage `P` is a
+domain-separated, tagged, length-prefixed segment stream:
+
+```text
+  P = "emem.preimage.v1\0" || len(d) || d || Σ_i ( tag_i || len(s_i) || s_i )
+```
+
+with `d` the domain string (for a receipt, `"receipt"`) and each
+segment `s_i` one named field (§6.2). The tags are compiled constants,
+and `GET /v1/verifier_spec` serializes those same constants, so the
+normative description of the preimage cannot drift from the signer
+(§6.6).
+
+**Bi-temporal reads.** A read carries two optional bounds and returns
+exactly the facts satisfying
+
+```text
+  tslot(f) <= as_of_tslot   ∧   signed_at(f) <= as_of_signed_at
+```
+
+each conjunct applying only when its bound is set (§4.3). Both bounds
+enter the signed preimage, so the bound pair is part of what the
+receipt proves, and a verifier replays the exact query years later.
+
+**Readout change.** For one cell and band, let `z_t` be the stored
+readout at tslot `t`, a scalar or an embedding. The observed change
+between two visits decomposes as
+`Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε` (§1.1), each term a
+partial difference: the change that remains when only that factor
+varies and the others are held fixed. For a memory readout `M(r, t)` at
+reference `r` and an identity kind `k` with an equivalence relation
+`≡_k` over readouts, reference stability is
+`S_k = Pr[ M(r, t1) ≡_k M(r, t2) ]` and world-side referential drift is
+`D_k = 1 - S_k`. Uncorrected, `D_k` measures the instruments; corrected
+for the four nuisance terms, it measures the world. Because the
+equivalence is a choice, `D` is a vector with one component per
+identity kind, not a scalar; the identity kinds themselves are open
+work (§10.3, §19).
 
 ---
 
@@ -282,6 +372,11 @@ audit log.
 The family is typed by its **second segment**, and the four types are not
 equivalent in what dereferencing proves.
 
+![two agents, one memory: agent A hands agent B one line of text and agent B verifies it without trusting agent A](/docs/diagrams/35-two-agents-one-memory.svg)
+*Figure 3: the token lifecycle. Recall returns a signed fact and its
+receipt; the token is the one-line citation; the receiver resolves it to
+the identical bytes and verifies the receipt offline.*
+
 | Token | Shape | Dereferences to |
 |---|---|---|
 | `emem:fact:<cell64>:<fact_cid>` | 4 segments | the byte-identical signed fact (§3.2) |
@@ -348,7 +443,7 @@ warning. The `cell` in a successful response is taken from the signed
 body, never from the token.
 
 This is the only cross-field integrity check in the token family. Bundles
-and entities have no analogue, and §14 records that.
+and entities have no analogue, and §16 records that.
 
 ### 3.4 `emem:cell:` does not dereference
 
@@ -372,7 +467,7 @@ bytes:
 
 It is not `blake3(canonical_cbor(body))`, which the module's own
 docstring two lines above the function claims it is. The code is
-authoritative and the docstring is wrong; both are noted in §16 because a
+authoritative and the docstring is wrong; both are noted in §18 because a
 verifier that believes the docstring computes the wrong identifier.
 
 ---
@@ -396,6 +491,10 @@ bucket on WGS-84 (`crates/emem-codec/src/geo.rs`).
 and `resolution = 21` distinguishes the active grid from the pre-0.0.3
 305 m grid. A legacy cell64 fails decoding with `NotGeoCell` rather than
 silently misplacing a fact by hundreds of metres.
+
+![cell + band + tslot to canonical CBOR to blake3 to 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
+*Figure 4: the address algebra. Three integers become one handle the
+rest of the protocol cites.*
 
 The string form is four base-65,536 bigrams joined by `.`, drawn from a
 65,536-entry alphabet (`crates/emem-codec/src/alphabet.rs:48`); four
@@ -427,6 +526,23 @@ The cadence is a property of the band, not of the query: a weather band
 and a forest-loss band bucket the same instant differently, because
 asking for "the same time" means different things to a fast and a slow
 observable.
+
+The tempo classes are declared once per band in `bands-v0.json`:
+
+```text
+  Tempo       slot_seconds   typical bands
+  ----------  -------------  --------------------------------------
+  Static      0              copdem30m, gmrt, koppen
+  Slow        31_536_000     geotessera vintages, soilgrids
+  Medium      2_592_000      ndvi_monthly, modis composites
+  Fast        86_400         s2 raw, s1 raw, modis lst_day_8day
+  UltraFast   3_600          weather, air_quality
+```
+
+A band cannot be served at a tempo finer than its declared cadence, and
+the slot is recoverable: a receipt that cites `(cell, band, tslot)`
+lets a verifier recover the wall-clock window by multiplying the tslot
+by the band's declared `slot_seconds`.
 
 ### 4.3 Bi-temporality
 
@@ -473,6 +589,18 @@ implementer then discovers through a mismatched digest. They are stated
 here because a content address is a promise about bytes, and a promise
 about bytes has to descend to bytes.
 
+The encoding carries four tags, and the identifier family has three
+widths, stated once (§1.2 gives the rule). Tags: 65000 for a packed
+cell, 65001 for a tslot, 65002 for a vec64 identifier, and IPLD tag 42
+for external CIDs. Widths: a `fact_cid` is the full 32-byte digest (52
+characters), `entity_cid` and `bundle_cid` are 16-byte prefixes (26
+characters), and `cid64` is an 8-byte display prefix (13 characters)
+for logs, never a key. The 16-byte truncation is a deliberate trade: a
+birthday collision needs on the order of 2^64 objects, and the
+canonical responder holds about 10^5 today. base32 without padding,
+lowercased, is URL-safe, case-stable, and collision-free inside path
+segments, which is where these identifiers spend their lives.
+
 ---
 
 ## 6. Trust: receipts and attestations
@@ -480,6 +608,11 @@ about bytes has to descend to bytes.
 Every answer carries an ed25519 receipt that verifies offline against the
 responder's published key. No callback, no account, no API key. The
 receiver checks arithmetic, not reputation.
+
+![receipt preimage, ed25519 signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
+*Figure 5: the trust plane. What a responder signs, and how anyone
+re-checks it without trusting the server; the `/verify` page recomputes
+these steps in the browser.*
 
 ### 6.1 One rule
 
@@ -579,7 +712,7 @@ digest tail.
 | `rename` | `path` is the **new** path; `body_hash` is blake3 of the **old** path |
 
 The responder never hashes the request body. v1 of this document said it
-did (§16), and a client that implemented v1's rule could not produce a
+did (§18), and a client that implemented v1's rule could not produce a
 signature this responder accepts.
 
 `rename` earns its own line. Hashing the source path is what makes one
@@ -616,7 +749,7 @@ the published spec cannot disagree with the wire. A number re-typed into
 prose can rot; a symbol serialized from the signer cannot.
 
 This document is prose, and prose rots. That is not a hypothetical: it is
-what happened to v1 (§16), and it is why the machine-readable spec, not
+what happened to v1 (§18), and it is why the machine-readable spec, not
 this text, is normative where the two ever disagree.
 
 ---
@@ -923,8 +1056,14 @@ Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **124 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and four open
-foundation-model embeddings. **160 algorithms** and **27 topics** are
-enumerated at `/v1/algorithms` and `/v1/topics`.
+foundation-model embeddings (Tessera, Clay v1.5, Prithvi-EO-2.0, and
+Galileo; references at the end). **160 algorithms** and **27 topics**
+are enumerated at `/v1/algorithms` and `/v1/topics`.
+
+![the encoder runs at the source and emits an embedding; emem stores and signs the embedding on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
+*Figure 6: the representation is the interface. emem signs the
+embedding agents actually read, not the pixels, and the frozen encoder
+checkpoint pins the Δ_encoder term of §1.1 by construction.*
 
 ### 10.1 Bands: the 1792-dimension voxel
 
@@ -950,7 +1089,7 @@ The ontology is compiled into the binary (`include_str!` over
 `bands-v0.json`) and read through one `LazyLock` by every consumer. There
 is no env var, no file load, and no runtime override: a deployment that
 wants a different ontology recompiles. The module's own header claims a
-hot-swap capability that does not exist in the code, and §16 records
+hot-swap capability that does not exist in the code, and §18 records
 that.
 
 ### 10.2 Beyond satellites
@@ -995,6 +1134,71 @@ explains. The label-free indices this substrate already materializes
 material such an estimator would read; the estimator itself, and a
 calibrated cross-encoder, cross-sensor stability model, do not exist in
 this build. The roadmap carries the item.
+
+### 10.4 The derived layer: algorithms
+
+The algorithm registry holds 160 content-addressed entries in three
+kinds: *solo* (one input band to one derived value), *combined*
+(multi-band composites like a flood-risk score), and *embedding*
+(operations over a foundation vector, such as similarity or novelty).
+Each entry declares its inputs, a plain-math formula, its output, a
+citation, and three provenance fields: `parameters` (typed, tunable
+thresholds), `learned_from` (every tuned number cites the work it was
+estimated against), and `prerequisites` (seed data whose absence
+becomes a typed signed absence rather than a crash).
+
+Deterministic entries carry an evaluation AST of fifteen variants
+(arithmetic, `Linear`, `Clamp`, `Where`, `WeightedBlend`, and the usual
+scalar maps). The AST evaluates against a recall snapshot in-process
+and enumerates its own required bands, so the dispatcher can run every
+algorithm whose inputs are present and skip the rest with a named
+reason. A worked example: `flood_risk@2` blends surface-water
+recurrence, elevation, and SAR backscatter as
+`0.55 * (swr/100) + 0.25 * dem_agreement * (relu(50 - cop)/50) + 0.20 *
+sigmoid((-15 - s1)/2)`, cites Pekel et al. 2016 for the water layer,
+and round-trips byte-stably through canonical CBOR.
+
+Two rules keep the registry honest. The *sensor tier rule*: an
+algorithm claiming delivery resolution of 10 m must anchor on at least
+one Sentinel-1, Sentinel-2, or Landsat input; coarser sources are
+context, never the sole variance source for a fine-resolution claim.
+And the ensemble caveat of §10.3 applies to the registry's central
+change algorithm: the three encoders vote through per-encoder cosine
+deltas behind a shared gate (default 0.15, adopted from the LandTrendr
+ensemble convention in Healey et al. 2018), the design rationale being
+that independent receptive fields (chip-scale, multi-temporal,
+per-pixel) alias differently, so agreement is evidence of land-surface
+change rather than encoder artifact. The gate is not per-encoder
+calibrated, the output says so, and §14 reports what the ensemble
+actually did on a live sample.
+
+### 10.5 Read primitives
+
+`recall` is *ensure*, not *get*: a miss with a registered connector
+materializes on demand (upstream range read, compute, sign as the
+responder, persist, return), bounded by a 30-second materializer
+timeout and a 180-second gateway timeout, and a miss with no connector
+returns a typed signed absence. A recall that names an unknown band
+returns `bands_already_attested_at_cell`, the band keys actually
+present, so a caller learns its name is wrong rather than that the
+cell is empty. The responder signs materialized facts as itself, with
+`derivation.fn_key` declaring exactly how each value was produced.
+
+`find_similar` runs k-nearest-neighbour over a declared embedding band
+in three modes: full-precision cosine, binary Hamming, and a triaged
+Hamming-then-rerank. The binary sibling band packs each embedding
+through a seeded, content-addressed rotation: a keyed blake3 stream
+seeds Gaussian samples, Gram-Schmidt orthonormalizes them, and each
+rotated dimension contributes its sign bit. The rotation matrix has a
+content address of its own, so a verifier rebuilds it from the seed
+text and byte-compares the packed vector. Results deduplicate per cell
+(keeping the best vintage), a claim filter drops undecidable cells
+rather than scoring them false, and `returned_k` is reported next to
+`requested_k` rather than padded.
+
+The remaining read surfaces (`diff`, `compare`, `trajectory`,
+`query_region`) return raw deltas and series with receipts; none of
+them attributes a change, which is exactly the §10.3 gap.
 
 ---
 
@@ -1119,19 +1323,143 @@ body is not.
 
 ---
 
-## 14. Honest limits
+## 14. Evaluation
+
+Every number in this section is lifted from
+[benchmarks.md](benchmarks.md), which states the method next to each
+measurement; nothing is restated that was not measured there. Two
+honesty rules carry over. Numbers marked SAMPLE come from the small
+committed fixture and are illustrative, never the published result.
+And single-node numbers make no scaling claim.
+
+### 14.1 System performance
+
+Measured against the production responder on its own serving host over
+loopback (30 vCPU, 216 GB RAM, network-attached block storage, public
+background load included), 2026-07-11:
+
+```text
+  Measurement                          Result
+  -----------------------------------  --------------------------------
+  Warm recall latency                  p50 2.5 ms · p95 6.1 ms · p99 9.1 ms
+  Warm recall, deterministic filter    p50 2.4 ms (no measurable overhead)
+  Cold recall (auto-materialize)       0.5 s to 1.6 s (n=3, upstream-bound)
+  Receipt verification, server side    p50 1.0 ms · p99 4.2 ms
+  Receipt verification, offline        p50 0.13 ms · p99 0.17 ms
+  Token dereference                    p50 1.2 ms · p99 3.0 ms
+  Sustained read throughput            632 requests/s (8 clients, warm)
+```
+
+The shape matters more than the absolute values: offline verification
+is an order of magnitude cheaper than a warm read, so checking a
+receipt is never the expensive step, and the cold path is dominated by
+the upstream fetch, not by signing or persistence.
+
+### 14.2 Memory-benchmark scorecard
+
+`emem-membench` loads a LongMemEval-style corpus (Wu et al. 2024)
+through the real write API and scores retrieval, test-time learning,
+long-range understanding, and conflict resolution from the responder's
+own output, embedding the responder's signed receipt in the scorecard
+so a run is independently verifiable. The committed SAMPLE run (16
+items, lexical fallback retrieval because the offline build ships no
+embedder) scores a topline of 0.68; it is labelled
+`dataset_provenance: "sample"` and is not a published benchmark
+number. The open evaluation work, a full-dataset run with the semantic
+read path, is tracked in the roadmap.
+
+### 14.3 The change ensemble on a live sample
+
+The 15 named places used by the site's own demos, run through the
+triple-encoder ensemble against the production responder on
+2026-07-11: 9 computed with all three encoders, 5 degraded to 2-of-3
+with a typed reason, 1 failed at the geocoder. Ensemble change indices
+ranged 0.047 to 0.579, and no place cleared the all-legs agreement
+rule, the expected null result for stable landmarks compared year over
+year. The two highest means came from single encoders firing without
+corroboration, which is the case the agreement rule exists to hold
+back. What this sample does not show, and a real evaluation still
+needs, is a change-rich sample (burn scars, clearings, construction)
+scored against ground truth.
+
+### 14.4 Failure modes, typed
+
+Failure surfaces are enumerated closed sets on the wire rather than
+prose: absence reasons (`outside_coverage`, `gpu_unavailable`,
+`no_auto_materializer_registered`, and kin), ensemble degradation
+reasons (`partial_consensus_2_of_3`, `single_vintage`,
+`gpu_sidecar_unavailable`), and typed request errors that teach the
+accepted vocabulary in the message. A missing value is a signed
+absence, never a bare 404, so the failure modes are themselves
+testable claims.
+
+---
+
+## 15. Threat model
+
+§16 lists the limits one by one; this section restates them as an
+adversary model, since the useful question is always "who is lying,
+and what do they gain." The receiver's trust base is small: the
+correctness of blake3 and ed25519, the canonical-CBOR discipline of
+§5, and the binding of a responder identity to a public key first seen
+at contact. Everything else is checkable arithmetic.
+
+**A malicious sender** (an agent handing over a token) gains nothing
+from tampering: the identifier is the digest of the bytes, so altered
+bytes stop resolving, and the receipt binds `(cell, fact_cid)` under
+the responder's signature. What a sender can still do is select: cite
+the facts that favour it and omit the rest. The defence is that the
+address space is canonical, so the receiver can recall the same cell
+itself and see everything the sender left out.
+
+**A malicious responder** can sign a false value; the signature
+attests attribution, never truth (§16.1), and the provenance class
+plus contradiction scoring are the mitigations, not the signature.
+What a responder cannot do is rewrite history undetectably for anyone
+who holds a prior receipt: the cited bytes are content-addressed, so a
+changed answer is a different identifier. What it *can* still do today
+is equivocate, presenting different histories to different clients,
+because the receipt does not chain to the transparency log (§8.4) and
+the witness set is scaffolding, not a network (§8.5). Split-view
+detection is exactly what the log's staged work buys, and until it
+lands the honest statement is: one responder, one key, trust anchored
+at first contact.
+
+**A network attacker** who can intercept or replay gains nothing
+against verification, which is offline and keyless; it can deny
+service, and it can matter at first contact, when the responder's key
+is learned. Key pinning after first contact, and the operator
+attestation that binds the key to a build (§6), are the current
+posture; a key-transparency mechanism is future work.
+
+**A malicious writer** on the multi-writer path can attest false facts
+under its own key. It cannot write into another attester's namespace
+(the capability binding refuses), cannot overwrite (later records
+supersede, disagreement is kept and scored), and cannot sign as anyone
+but itself. The unauthenticated-write hole was closed in 2026-07: every
+memory write requires a valid attester block, so an anonymous caller
+can no longer plant a fact that surfaces in another agent's recall.
+
+The one adversary this design does not address is a coercive one that
+controls the responder key and every future receipt: against that,
+only federation (several independent accounts of the same world,
+cross-checked) helps, and that is roadmap, not build (§16).
+
+---
+
+## 16. Honest limits
 
 Collected rather than scattered, because a limit mentioned once in
 passing is a limit a reader misses.
 
-### 14.1 What a signature does not mean
+### 16.1 What a signature does not mean
 
 The signature proves who attested a record and that the bytes have not
 changed. It does not make the value true, correct, current, or complete.
 Confidence, uncertainty, and provenance travel with the value precisely
 because the signature speaks to none of them.
 
-### 14.2 Identity and tokens
+### 16.2 Identity and tokens
 
 - **Entity mints and links are not signed over their content.** The
   receipt binds the primitive and the cell, not the `entity_cid`, label,
@@ -1157,7 +1485,7 @@ because the signature speaks to none of them.
   detect a substituted body by recomputing the CID; the responder does
   not do it for them.
 
-### 14.3 The transparency log
+### 16.3 The transparency log
 
 - **Not RFC 6962 conformant.** RFC 6962's tree construction with
   BLAKE3-256 substituted for SHA-256. No CT tooling interoperates.
@@ -1172,7 +1500,7 @@ because the signature speaks to none of them.
 - **It cannot prove completeness.** A responder that never appends logs
   nothing, and the log cannot prove absence or non-omission.
 
-### 14.4 Provenance
+### 16.4 Provenance
 
 - **The class is an editorial per-band declaration**, never checked
   against the fact. `deterministic: true` means the band is *declared*
@@ -1186,7 +1514,7 @@ because the signature speaks to none of them.
 - **The ontology is compile-time embedded.** The documented hot-swap does
   not exist.
 
-### 14.5 Substrate and grid
+### 16.5 Substrate and grid
 
 - **Cells are not equal-area.** Square at the equator, taller than wide
   above it: longitude pitch narrows with cos(lat), so a cell at 60° is
@@ -1219,7 +1547,7 @@ because the signature speaks to none of them.
   and its strongest verdict unreachable; nothing decomposes a delta into
   environment, sensor, geometry, and encoder terms (§10.3).
 
-### 14.6 Specification
+### 16.6 Specification
 
 - **"Canonical CBOR" here is not RFC 8949 canonical.** Struct keys are in
   declaration order and are not sorted (§5). A generic canonical encoder
@@ -1233,7 +1561,7 @@ capability.
 
 ---
 
-## 15. Comparison with adjacent work
+## 17. Comparison with adjacent work
 
 **Certificate Transparency (RFC 6962).** The direct ancestor of §8, and
 the comparison flatters CT. CT has an operating network of independent
@@ -1256,13 +1584,36 @@ on token economy: four bigrams, about four BPE tokens. That trade is only
 worth making for a memory whose primary consumer is a language model, and
 it is a trade, not a win.
 
-**Agent memory frameworks (MemGPT, CoALA, vector stores).** The kind
-taxonomy in §Abstract is CoALA's. The difference is verifiability: a
-vector store returns what it holds and asks to be believed. emem returns
-a receipt, and the receiver checks it without trusting the store. The
-cost is that emem cannot do similarity over arbitrary prose, which a
-vector store does well; `find_similar` operates over declared band
-embeddings, not over free text.
+**Agent memory frameworks (MemGPT, Mem0, Zep, CoALA, vector stores).**
+The kind taxonomy in the abstract is CoALA's, from the line of work on
+agentic memory that Generative Agents opened. The engineering peers,
+MemGPT's paged context, Mem0's extraction pipeline, Zep's temporal
+knowledge graph, compete on recall quality and latency. The difference
+here is verifiability: a memory store returns what it holds and asks to
+be believed, while emem returns a receipt the receiver checks without
+trusting the store. The cost is real and stated: emem cannot do
+similarity over arbitrary prose, which those systems do well;
+`find_similar` operates over declared band embeddings, not free text.
+
+**Earth-observation foundation models (TESSERA, Clay, Prithvi-EO,
+Galileo, AlphaEarth).** These are the representation layer, not rivals:
+emem freezes four of them and signs what they emit (§10). AlphaEarth
+Foundations is the strongest statement of the adjacent idea, a global
+annual embedding field; like the others it ships unsigned artifacts
+with no per-place identity that returns a checkable record and no
+receipt. The papers in this family report classification and retrieval
+scores; none measures whether an embedding preserves the identity of a
+place across years, or decomposes why a readout moved, which is the gap
+§1.1 and §10.3 name.
+
+**Provenance and marking standards (C2PA, EU AI Act Article 50).**
+Content credentials sign generated and edited *outputs*, and the EU AI
+Act now requires machine-readable marking of synthetic media. Both
+attest who produced content and when, not whether it is a true account
+of the world, and neither covers the measured *input* state an agent
+reads before it acts. emem sits on that other side: signed provenance
+for measured world-state, with the same offline-check property the
+marking standards require of outputs.
 
 **Geospatial data platforms (Earth Engine, Planetary Computer, STAC).**
 These are the incumbents for the substrate in §10 and are better at it:
@@ -1274,14 +1625,14 @@ layer that the catalogs do not have.
 
 ---
 
-## 16. Changes from v1
+## 18. Changes from v1
 
 v1 is archived unedited at [/whitepaper/v1](/whitepaper/v1). It remains
 the version cited by the DOI. This section exists so a reader of v1 can
 see exactly which of its claims this responder does not honour, rather
 than discovering it through a failed signature.
 
-### 16.1 Claims v1 made that were false or became false
+### 18.1 Claims v1 made that were false or became false
 
 | v1 said | The code does |
 |---|---|
@@ -1289,10 +1640,10 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 91 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
-| §15: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
+| §17: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 91 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §17: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
-### 16.2 Claims in v1's supporting material this document withdraws
+### 18.2 Claims in v1's supporting material this document withdraws
 
 These were not in v1's body but circulated in the README, module
 headers, page copy, and tool descriptions alongside it. They are listed
@@ -1321,7 +1672,7 @@ entries below record what was claimed, not what is still claimed.
   release gates that now prevent a repeat.
 - "46 declared sources and 124 wired measurements", read together as one
   capability count. Declared is a catalog count and several schemes remain
-  unwired (§14.5); the README now scopes the two numbers apart.
+  unwired (§16.5); the README now scopes the two numbers apart.
 - The homepage FAQ listing three foundation-model embeddings where the
   substrate wires four (Clay was omitted). The page is compiled into the
   binary, so that correction lands with the next server deploy rather
@@ -1332,7 +1683,7 @@ entries below record what was claimed, not what is still claimed.
   would encode 40 bits and could not address a 64-bit cell (§4.1). Corrected
   everywhere as of this document's date.
 
-### 16.3 What is new since v1
+### 18.3 What is new since v1
 
 The entity registry and the token grammar (§2, §3); tamper-provenance
 classes (§7); the transparency log and witness endpoints (§8);
@@ -1340,7 +1691,7 @@ caller-registered derivations (§9); the preimage v0 to v1 cutover (§6.3);
 MCP tiering, shapes, and bundles (§11.2); and the code-generated verifier
 spec (§6.6).
 
-### 16.4 Why v1 rotted, and what changed
+### 18.4 Why v1 rotted, and what changed
 
 v1's counts were correct when written. They decayed because a number
 re-typed into prose has no owner: nothing failed when a tool landed and
@@ -1362,7 +1713,7 @@ totals wherever a total would do.
 
 ---
 
-## 17. Open questions
+## 19. Open questions
 
 - **Chain the receipt to the log.** A `fact_cid -> leaf_index` index and
   a log segment in the receipt preimage would close §8.4 and make
@@ -1416,3 +1767,38 @@ totals wherever a total would do.
    4648, IETF, 2006.
 10. Foundation for Public Code / Overture Maps Foundation. *GERS: Global
     Entity Reference System.* 2024.
+11. Packer, C., et al. *MemGPT: Towards LLMs as Operating Systems.*
+    arXiv:2310.08560, 2023.
+12. Chhikara, P., et al. *Mem0: Building Production-Ready AI Agents
+    with Scalable Long-Term Memory.* arXiv:2504.19413, 2025.
+13. Rasmussen, P., et al. *Zep: A Temporal Knowledge Graph Architecture
+    for Agent Memory.* arXiv:2501.13956, 2025.
+14. Park, J. S., et al. *Generative Agents: Interactive Simulacra of
+    Human Behavior.* arXiv:2304.03442, 2023.
+15. Wu, D., et al. *LongMemEval: Benchmarking Chat Assistants on
+    Long-Term Interactive Memory.* arXiv:2410.10813, 2024.
+16. Benet, J. *IPFS: Content Addressed, Versioned, P2P File System.*
+    arXiv:1407.3561, 2014.
+17. Feng, Z., et al. *TESSERA: Temporal Embeddings of Surface Spectra
+    for Earth Representation and Analysis.* arXiv:2506.20380, 2025.
+18. Szwarcman, D., et al. *Prithvi-EO-2.0: A Versatile Multi-Temporal
+    Foundation Model for Earth Observation Applications.*
+    arXiv:2412.02732, 2024.
+19. Tseng, G., et al. *Galileo: Learning Global and Local Features of
+    Many Remote Sensing Modalities.* arXiv:2502.09356, 2025.
+20. Brown, C. F., et al. *AlphaEarth Foundations: An embedding field
+    model for accurate and efficient global mapping from sparse label
+    data.* arXiv:2507.22291, 2025.
+21. Clay Foundation. *Clay Foundation Model, v1.5.*
+    https://clay-foundation.github.io/model/, 2024.
+22. Coalition for Content Provenance and Authenticity. *C2PA Technical
+    Specification.* https://c2pa.org/specifications/, 2024.
+23. European Union. *Artificial Intelligence Act, Article 50:
+    transparency obligations.* Regulation (EU) 2024/1689, 2024.
+24. Healey, S. P., et al. *Mapping forest change using stacked
+    generalization: An ensemble approach.* Remote Sensing of
+    Environment 204, 717-728, 2018.
+25. Pekel, J.-F., Cottam, A., Gorelick, N., Belward, A. S.
+    *High-resolution mapping of global surface water and its long-term
+    changes.* Nature 540, 418-422, 2016.
+26. Google. *S2 Geometry Library.* https://s2geometry.io/, 2017.

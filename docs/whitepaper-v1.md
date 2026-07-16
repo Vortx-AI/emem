@@ -2,6 +2,13 @@
 
 **Version 0.1.0 / 2026-06-14**
 
+*Archived unedited as the record behind
+[DOI 10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893).
+Superseded by [whitepaper.md](whitepaper.md), the canonical paper, whose
+section 18 lists claim by claim what this version asserted that later
+builds do not do. Known errors live there; do not implement from this
+file.*
+
 ---
 
 ## Abstract

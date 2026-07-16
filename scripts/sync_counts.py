@@ -370,6 +370,10 @@ STALE_PHRASES = {
     # a historical record, not drift to sweep. v2 §16 lists what it got wrong.
     "docs/whitepaper-v2.md": ["Forty-one band cube", "41 cube", "35 cube",
                               "118 materializer", "75 MCP"],
+    # The canonical merged paper carries the same counts as v2 and rots the
+    # same way; watch it with the same phrase list.
+    "docs/whitepaper.md": ["Forty-one band cube", "41 cube", "35 cube",
+                           "118 materializer", "75 MCP"],
     "docs/registries.md": ["118 materializer", "(43)", "(86)"],
     "web/skills.md": ["75 tools", "71 paths", "87 paths"],
     "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer"],
