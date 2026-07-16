@@ -50214,7 +50214,33 @@ struct CachedPlace {
     is_high_confidence: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     confidence_reason: Option<String>,
+    /// The `LOCATE_RESOLVER_VERSION` that produced this row. `None` on rows
+    /// written before the field existed, which are re-resolved like any other
+    /// superseded generation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    resolver_version: Option<u32>,
 }
+
+/// Which generation of the resolution logic minted a cached row.
+///
+/// **Bump this whenever a change alters which place a query resolves to.**
+/// The TTL is 30 days and this cache stores the *answer*, not the inputs, so
+/// fixing the resolver does not fix the answers it already wrote: a row keeps
+/// serving the superseded result until it expires. That is not theoretical.
+/// The Photon class prior scored `boundary` below `place` and resolved
+/// "Lahaul" to "Lahage (village), Occitanie, France". Correcting the prior
+/// fixed every fresh lookup and changed nothing a caller saw, because the
+/// wrong answer was cached and cache hits do not re-resolve. It would have
+/// outlived the fix by a month.
+///
+/// A row from any other generation is treated as a miss and re-resolved, so
+/// the correction lands on first touch. Cost is one upstream call per stale
+/// row, once, which is what `nominatim_cache_get` already does for a row with
+/// no stored verdict.
+///
+/// 1: pre-versioning rows (implied, `None` on disk).
+/// 2: Photon class prior ranks `boundary` (0.65) over `place` (0.6).
+const LOCATE_RESOLVER_VERSION: u32 = 2;
 
 /// 30 d TTL — place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -50420,6 +50446,15 @@ fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
         let _ = geocoder_db().remove(q.as_bytes());
         return None;
     }
+    // A row minted by superseded resolution logic is a stale ANSWER, not
+    // stale metadata: re-ranking cannot be replayed from what the row holds,
+    // and serving it would keep the old result alive for the rest of the 30
+    // day TTL. Drop it and re-resolve, so a resolver fix reaches callers on
+    // first touch rather than next month.
+    if entry.resolver_version != Some(LOCATE_RESOLVER_VERSION) {
+        let _ = geocoder_db().remove(q.as_bytes());
+        return None;
+    }
     // A row carrying no verdict cannot be judged, and the TTL is 30 days:
     // serving it as unknown-confidence for a month would punish every good
     // place that happens to be cached, to catch the few that are wrong. Treat
@@ -50484,12 +50519,18 @@ fn nominatim_cache_note_verdict(query: &str, is_high_confidence: bool, reason: &
 /// directory, so a test that touched it would open a second writer on the
 /// running server's store.
 fn merge_cached_place(prior: Option<CachedPlace>, fresh: CachedPlace) -> CachedPlace {
-    // Only a row describing the same place has anything to contribute. f64
-    // equality is exact here rather than approximate: a cache-path re-put
-    // writes back the very bits it read, and serde_json round-trips f64
-    // losslessly, so same-place really is bit-identical.
-    let prior =
-        prior.filter(|e| e.lat == fresh.lat && e.lng == fresh.lng && e.label == fresh.label);
+    // Only a row describing the same place, minted by the same resolution
+    // logic, has anything to contribute. A verdict earned under a superseded
+    // resolver is a judgement about an answer we no longer give. f64 equality
+    // is exact here rather than approximate: a cache-path re-put writes back
+    // the very bits it read, and serde_json round-trips f64 losslessly, so
+    // same-place really is bit-identical.
+    let prior = prior.filter(|e| {
+        e.lat == fresh.lat
+            && e.lng == fresh.lng
+            && e.label == fresh.label
+            && e.resolver_version == fresh.resolver_version
+    });
     let Some(prior) = prior else { return fresh };
     CachedPlace {
         // `None` from a caller means "I do not have this", never "erase it".
@@ -50532,6 +50573,7 @@ fn nominatim_cache_put(
         // A row that never receives one is re-resolved rather than served.
         is_high_confidence: None,
         confidence_reason: None,
+        resolver_version: Some(LOCATE_RESOLVER_VERSION),
     };
     let bytes = match serde_json::to_vec(&merge_cached_place(prior, fresh)) {
         Ok(b) => b,
@@ -58657,7 +58699,35 @@ mod tests {
             importance: None,
             is_high_confidence: None,
             confidence_reason: None,
+            resolver_version: Some(LOCATE_RESOLVER_VERSION),
         }
+    }
+
+    /// A row minted by a superseded resolver must not survive the merge.
+    ///
+    /// Fixing the Photon prior fixed every fresh lookup and changed nothing a
+    /// caller saw: "Lahaul" kept returning "Lahage (village), Occitanie,
+    /// France" from cache, because this cache stores the answer and a cache
+    /// hit does not re-resolve. The wrong answer would have outlived the fix
+    /// by the length of the 30 day TTL.
+    #[test]
+    fn a_row_from_a_superseded_resolver_does_not_donate_to_the_new_one() {
+        let mut prior = a_row("Lahage (village), Occitanie, France");
+        prior.resolver_version = Some(1); // pre-fix generation
+        prior.importance = Some(0.6);
+        prior.is_high_confidence = Some(false);
+        prior.confidence_reason = Some("ambiguous_top_two_candidates".into());
+
+        // Same place text, but re-resolved by the current logic.
+        let fresh = a_row("Lahage (village), Occitanie, France");
+        let merged = merge_cached_place(Some(prior), fresh);
+        assert_eq!(
+            merged.is_high_confidence, None,
+            "a verdict earned under a superseded resolver judged an answer we \
+             no longer give; it must not carry over"
+        );
+        assert_eq!(merged.importance, None);
+        assert_eq!(merged.resolver_version, Some(LOCATE_RESOLVER_VERSION));
     }
 
     /// Attaching a bbox to a cached row must not erase the verdict on it.
