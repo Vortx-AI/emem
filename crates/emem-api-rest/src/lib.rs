@@ -3880,7 +3880,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // Compliant against https://a2a-protocol.org/dev/specification/
         "protocolVersion":    "1.2.0",
         "name":               "emem",
-        "description":        "Shared, verifiable memory for AI agents that stops referential drift: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:<entity_cid>), so different models reason from the same world object instead of divergent descriptions. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
+        "description":        "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:<entity_cid>), so different models reason from the same world object instead of divergent descriptions. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
         "url":                format!("{origin}/mcp"),
         "preferredTransport": "HTTP+JSON",
         "version":            env!("CARGO_PKG_VERSION"),
@@ -4103,7 +4103,7 @@ async fn serve_example_gemini() -> Response {
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
         "description": format!(
-            "Shared, verifiable memory for AI agents that stops referential drift: one canonical, citeable identity per place, fact, and object (emem:entity:<entity_cid>), so different models reason from the same world object. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys."
+            "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap: one canonical, citeable identity per place, fact, and object (emem:entity:<entity_cid>), so different models reason from the same world object. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys."
         ),
         "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
         "license": "Apache-2.0",
@@ -6226,7 +6226,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     Json(json!({
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
-        "purpose": "Shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift. Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (emem:entity:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt any agent verifies offline.",
+        "purpose": "Shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap. Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (emem:entity:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt any agent verifies offline.",
         // Read this FIRST. The fastest path from zero to a signed answer.
         // `discover_first` below builds the full mental model; this block
         // is the 3-call shortcut a fresh agent should try before anything
@@ -15129,7 +15129,7 @@ fn iso8601_now_utc() -> String {
 /// secondary populators. Keep it in sync with the `agent_card` purpose.
 /// What emem is. Editorial framing, so it is prose; the loop that follows
 /// it is not, and is serialized from `emem_mcp::CORE_LOOP`.
-const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single emem:fact: token that resolves to the byte-identical signed body and verifies offline with no shared trust, so two models grounded on the same token reason about the same observation rather than two paraphrases of it. An emem:entity: token converges you on the same canonical name for an object, which is weaker: the identity is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes.";
+const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single emem:fact: token that resolves to the byte-identical signed body and verifies offline with no shared trust, so two models grounded on the same token reason about the same observation rather than two paraphrases of it. An emem:entity: token converges you on the same canonical name for an object, which is weaker: the identity is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes. Drift runs in both directions: these tokens pin the language side, the paraphrase that mutates while the world stands still. The world side, a readout that moves at a pinned reference, is the roadmap's change-attribution work, not a shipped capability.";
 
 /// The `initialize` instructions an MCP host puts in front of the model.
 ///
@@ -46826,7 +46826,7 @@ fn is_meta_self_question(q: &str) -> bool {
 fn emem_self_describe() -> JsonValue {
     json!({
         "schema": "emem.self_describe.v1",
-        "summary": "emem is a shared, verifiable memory for AI agents: a vendor-neutral identity layer that stops referential drift. Every place, fact, and object gets one canonical, citeable, content-addressed identity that any agent resolves to the identical signed bytes, so different models reason from the same world object instead of divergent descriptions.",
+        "summary": "emem is a shared, verifiable memory for AI agents: a vendor-neutral identity layer that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap. Every place, fact, and object gets one canonical, citeable, content-addressed identity that any agent resolves to the identical signed bytes, so different models reason from the same world object instead of divergent descriptions.",
         "primary_loop": {
             "1_name_a_thing": "emem_entity mints or returns a canonical object identity (emem:entity:<entity_cid>); emem_entity_resolve converges a fuzzy phrasing onto one another agent already registered; emem_entity_link attests two phrasings mean the same object.",
             "2_ground_a_place": "emem_locate returns the canonical cell64; emem_recall returns the signed facts there (auto-fetches on a miss).",
