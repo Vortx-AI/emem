@@ -251,6 +251,6 @@ write path from scratch.
 ## Counts that CI does not guard
 
 `scripts/sync_counts.py --check` verifies the canonical counts (89 tools,
-110 /v1 paths, 46 sources, 43 slots, 124 wired bands, 161 algorithms, 27
+111 /v1 paths, 46 sources, 43 slots, 124 wired bands, 161 algorithms, 27
 topics, 16 crates) against the registries and the live responder, but no CI
 workflow runs it. Run it manually after editing any doc that quotes a count.

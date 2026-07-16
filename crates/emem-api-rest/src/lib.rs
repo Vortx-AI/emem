@@ -1135,6 +1135,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
         .route("/v1/memory_token/resolve", post(post_memory_token_resolve))
+        .route(
+            "/v1/memory_token/resolve_many",
+            post(post_memory_token_resolve_many),
+        )
         // Caller-registered derivations: attested in, attester-scoped out.
         // Never reachable from a default read; see post_derive.
         .route("/v1/derive", post(post_derive))
@@ -6394,6 +6398,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "state_diff":       "/v1/state_diff",
             "memory_token":     "/v1/memory_token",
             "memory_token_resolve": "/v1/memory_token/resolve",
+            "memory_token_resolve_many": "/v1/memory_token/resolve_many",
             "memory_contradictions": "/v1/memory_contradictions",
             "edges":            "/v1/edges",
             "edges_recall":     "/v1/edges/recall",
@@ -16960,8 +16965,8 @@ async fn mcp_tool_call(
         "emem_memory_token_resolve" => {
             let req: MemoryTokenResolveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_memory_token_resolve(State(s.clone()), EmemJson(req)).await {
-                Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+            match resolve_one_token(&s, &req.token).await {
+                Ok(v) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
@@ -18078,6 +18083,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry). Pass `band` AND `observed_on` to additionally get `descriptor_token`, the self-describing anchor emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>, which resolves to the identical fact. PREFER descriptor_token when handing a citation to a model: across 200 real facts, Qwen and gemma-4 segment a cell64 anchor identically 0.0% of the time (jaccard 0.6477) versus 100.0% (jaccard 1.0000) for the same cell written as 5dp coordinates, and a cell64 is a string no model has seen while 36.12010,-112.30206 is the Grand Canyon in every model's training data. Nothing is trusted: this mint never reads storage, and /v1/memory_token/resolve binds the place, band and date to the signed fact, so a descriptor minted with a wrong date yields a token that cannot resolve rather than one that misleads.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank). Required (with observed_on) to mint descriptor_token."},"observed_on":{"type":"string","description":"Optional source capture date YYYY-MM-DD, as returned by /v1/recall in sources[].captured_at. With `band`, mints descriptor_token. This is valid time (when the sensor observed), never signed_at."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Accepts two anchors for the same fact: emem:fact:<cell64>:<fact_cid> (legacy memt: also accepted), and the self-describing emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>. Fetches the signed fact body by CID and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. EVERY claim in the anchor is bound to the signed body before it dereferences, so a citation can be read without a round-trip precisely because it cannot lie: the cell (or the cell the coordinates quantise to) must match the fact's own cell, the band must match the fact's band, and the date must match one of sources[].captured_at (valid time, never signed_at). Any mismatch is 409, so a real fact_cid cannot be passed off under a false place, band or date. Coordinates below 5 decimal places are refused with 400: 4dp is ~11m against a ~10m cell and would silently address a neighbouring one. A fact carrying no source capture time cannot support a date claim, so the descriptor anchor is refused for it (409) rather than accepted unbound; cite it in cell form. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
+            "/v1/memory_token/resolve_many":{"post":{"summary":"batch dereference: up to 256 fact tokens in one call, resolved independently through the same pipeline as the single resolve. Partial by design: a bad or unheld token yields a typed per-item error ({ok:false, status, error}) and never fails the batch. One batch receipt binds the union of resolved (cell, fact_cid) pairs; each item carries its own receipt so any single resolution forwards on its own. Fully-resolved responses carry Cache-Control: immutable (content-addressed bodies never change and receipts never expire); a batch with failures is not cached, since a 404 can become resolvable when the fact arrives.","operationId":"emem_memory_token_resolve_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"emem:fact: tokens (legacy memt: accepted), 1 to 256 per call"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output or human_curated; direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
@@ -21263,12 +21269,31 @@ fn provenance_for_band(band_key: &str) -> JsonValue {
 /// `emem:fact:<cell>:<fact_cid>` (or legacy `memt:<cell>:<fact_cid>`)
 /// citation handle. Saves the agent from parsing the token + chaining
 /// `GET /v1/facts/<cid>`.
+/// Cache posture for token dereferences: the body is content-addressed
+/// (same token, same bytes, forever) and a receipt never expires, so a
+/// cached resolve stays verifiable indefinitely. Applied to successful
+/// resolutions only; a 404 can become resolvable when the fact arrives,
+/// and a partially-failed batch must not be pinned in caches either.
+const RESOLVE_IMMUTABLE_CACHE: &str = "public, max-age=31536000, immutable";
+
 async fn post_memory_token_resolve(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<MemoryTokenResolveReq>,
-) -> Result<Json<MemoryTokenResolveResp>, ApiError> {
+) -> Result<impl axum::response::IntoResponse, ApiError> {
+    let resp = resolve_one_token(&s, &req.token).await?;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, RESOLVE_IMMUTABLE_CACHE)],
+        Json(resp),
+    ))
+}
+
+/// The whole resolve pipeline for one token: parse, fetch by cid, bind
+/// every anchor claim to the signed body, sign the dereference. Shared
+/// verbatim by the single and the batch endpoint so the two can never
+/// disagree about what a token means.
+async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResolveResp, ApiError> {
     let started = std::time::Instant::now();
-    let (cell, cid, descriptor) = parse_fact_token(&req.token).map_err(|message| {
+    let (cell, cid, descriptor) = parse_fact_token(token).map_err(|message| {
         ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
@@ -21428,8 +21453,8 @@ async fn post_memory_token_resolve(
         None,
     );
 
-    Ok(Json(MemoryTokenResolveResp {
-        token: req.token.trim().to_string(),
+    Ok(MemoryTokenResolveResp {
+        token: token.trim().to_string(),
         canonical_token,
         cell,
         fact_cid: cid,
@@ -21441,7 +21466,99 @@ async fn post_memory_token_resolve(
         provenance,
         receipt,
         offline_verify_at: "/verify",
-    }))
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct MemoryTokenResolveManyReq {
+    tokens: Vec<String>,
+}
+
+/// Cap per batch, mirroring `recall_many`'s 256. A caller with more
+/// tokens pages; a cap named in the error beats a silent truncation.
+const RESOLVE_MANY_MAX: usize = 256;
+
+/// `POST /v1/memory_token/resolve_many` — a whole handoff in one call.
+/// Every item resolves independently through [`resolve_one_token`], so a
+/// bad token yields a typed per-item error and never fails the batch:
+/// partial results by design, the same philosophy the roadmap demands of
+/// the polygon path. One batch receipt binds the union of resolved
+/// (cell, fact_cid) pairs; each item also carries its own receipt, so a
+/// receiver can forward any single resolution without re-fetching.
+async fn post_memory_token_resolve_many(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<MemoryTokenResolveManyReq>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    let started = std::time::Instant::now();
+    if req.tokens.is_empty() || req.tokens.len() > RESOLVE_MANY_MAX {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "tokens must hold 1 to {RESOLVE_MANY_MAX} entries; got {}. Page a longer list.",
+                    req.tokens.len()
+                ),
+                details: None,
+            },
+        ));
+    }
+
+    let mut items: Vec<JsonValue> = Vec::with_capacity(req.tokens.len());
+    let mut cells: Vec<String> = Vec::new();
+    let mut cids: Vec<emem_fact::FactCid> = Vec::new();
+    let mut failed = 0usize;
+    for t in &req.tokens {
+        match resolve_one_token(&s, t).await {
+            Ok(r) => {
+                cells.push(r.cell.clone());
+                cids.push(emem_fact::FactCid::new(r.fact_cid.clone()));
+                items.push(json!({ "ok": true, "resolution": r }));
+            }
+            Err(e) => {
+                failed += 1;
+                items.push(json!({
+                    "ok": false,
+                    "token": t,
+                    "status": e.0.as_u16(),
+                    "error": e.1,
+                }));
+            }
+        }
+    }
+    cells.sort();
+    cells.dedup();
+    let resolved = req.tokens.len() - failed;
+    let receipt = s.sign_receipt(
+        "emem.memory_token_resolve_many",
+        cells,
+        cids,
+        true,
+        started,
+        None,
+    );
+    let body = Json(json!({
+        "schema": "emem.memory_token_resolve_many.v1",
+        "requested": req.tokens.len(),
+        "resolved": resolved,
+        "failed": failed,
+        "items": items,
+        "receipt": receipt,
+        "max_tokens": RESOLVE_MANY_MAX,
+        "note": "partial by design: each item resolves independently and a failure is typed per item, never a batch 4xx. The batch receipt binds the resolved (cell, fact_cid) union; each item carries its own receipt too.",
+    }));
+    // Immutable only when everything resolved: a batch holding a 404
+    // could re-resolve fully later and must not be pinned in a cache.
+    Ok(if failed == 0 {
+        (
+            [(axum::http::header::CACHE_CONTROL, RESOLVE_IMMUTABLE_CACHE)],
+            body,
+        )
+            .into_response()
+    } else {
+        body.into_response()
+    })
 }
 
 // ── /v1/derive ───────────────────────────────────────────────────────────
@@ -59595,14 +59712,9 @@ mod tests {
         assert_eq!(resp.visibility["in_default_reads"], json!(false));
 
         // Resolve the token the way a stranger would.
-        let Json(resolved) = post_memory_token_resolve(
-            State(s.clone()),
-            EmemJson(MemoryTokenResolveReq {
-                token: resp.token.clone(),
-            }),
-        )
-        .await
-        .expect("the token a derive returns must resolve through the ordinary resolver");
+        let resolved = resolve_one_token(&s, &resp.token)
+            .await
+            .expect("the token a derive returns must resolve through the ordinary resolver");
         assert!(resolved.resolved);
         assert_eq!(resolved.fact_cid, resp.fact_cid);
 
