@@ -50397,6 +50397,16 @@ fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
         let _ = geocoder_db().remove(q.as_bytes());
         return None;
     }
+    // A row written before the cache recorded provenance cannot be judged, and
+    // the TTL is 30 days: serving it as unknown-confidence for a month would
+    // punish every good place that happens to be cached, to fix the few that
+    // are wrong. Treat it as a miss instead. The lookup re-resolves it once and
+    // rewrites it WITH provenance, so the cache heals on first touch rather
+    // than over the TTL, and each legacy row costs exactly one upstream call.
+    if entry.origin_via.is_none() {
+        let _ = geocoder_db().remove(q.as_bytes());
+        return None;
+    }
     Some((
         entry.lat,
         entry.lng,
