@@ -1132,11 +1132,13 @@ returns per-term evidence for one cell, the observed Tessera
 year-over-year change, the label-free index pairs with raw deltas, the
 sources each visit was observed through, the encoder pinning proof, and
 the scene-class per visit, every item carrying its fact cids under a
-signed receipt, with `split` null and an in-band note saying why. What
-does not exist is the split itself: the estimator and the calibrated
-cross-encoder, cross-sensor stability model it needs are open work, and
-so is storing the ledger as a derivative fact. The roadmap carries
-both.
+signed receipt, with `split` null and an in-band note saying why. The ledger
+also persists: each run stores itself as a derivative fact (band
+`change_attribution.ledger`, parents = every fact read) and returns its
+`emem:fact:` token, so an attribution is cited and dereferenced like
+any reading. What does not exist is the split itself: the estimator
+and the calibrated cross-encoder, cross-sensor stability model it
+needs are open work. The roadmap carries it.
 
 ### 10.4 The derived layer: algorithms
 
@@ -1724,11 +1726,10 @@ totals wherever a total would do.
   a log segment in the receipt preimage would close §8.4 and make
   "transparency" mean what it sounds like. This is the single highest-value
   increment on this substrate.
-- **The change-attribution split.** The §10.3 ledger ships; the numeric
-  split needs an estimator and a calibrated cross-encoder, cross-sensor
-  stability model, and the ledger itself is not yet stored as a
-  derivative fact. The output shape is settled; the attribution logic is
-  not.
+- **The change-attribution split.** The §10.3 ledger ships and persists
+  as a derivative fact; the numeric split needs an estimator and a
+  calibrated cross-encoder, cross-sensor stability model. The output
+  shape is settled; the attribution logic is not.
 - **An operating witness network.** Independent witnesses, a published
   trust policy, a refresh cadence, and gossip between clients. Until
   then, §8.5 stands.

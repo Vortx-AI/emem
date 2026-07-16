@@ -13623,7 +13623,7 @@
         "explanation": "Not a scalar score: the response is a per-term evidence ledger for the decomposition Dz = D_env + D_sensor + D_geo + D_encoder + eps, and `split` is null. The range shown covers the observed embedding-change component only. Every evidence item carries its fact cids, so the whole ledger verifies offline through the receipt."
       },
       "when_to_use": "After a change surface (diff, state_diff, triple_consensus, did_change) reported that a readout moved and the question is why: world, instrument, pixels, model, or noise. Cite the per-term evidence; do not expect a numeric split.",
-      "primitive": "POST /v1/change_attribution {cell} -> per-term evidence ledger with a signed receipt over every fact read",
+      "primitive": "POST /v1/change_attribution {cell} -> per-term evidence ledger, persisted as a derivative fact with its own emem:fact: token, under a signed receipt over every fact read plus the ledger cid",
       "deterministic": true,
       "citation": "emem whitepaper sections 1.1 and 10.3 (the decomposition and its estimators); Healey, S. P. et al. 2018, RSE 204:717-728 (why uncalibrated cross-encoder gates must not vote, the same limit that keeps split null here)",
       "documentation_only": true,

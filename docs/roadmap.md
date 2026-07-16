@@ -70,10 +70,11 @@ The test we hold every item to: does it make emem's memories more trusted, porta
   deltas, the sources each visit was observed through, the encoder
   pinning proof, and the scene class per visit, every item carrying its
   fact cids under a signed receipt, with `split` explicitly null and an
-  in-band note saying why. Open: the estimator, the calibrated
-  cross-encoder and cross-sensor stability model the numeric split
-  needs, and storing the ledger itself as a derivative fact so the
-  attribution is as citeable as the readings it explains.
+  in-band note saying why. The ledger also persists: each run stores
+  itself as a derivative fact and returns its own `emem:fact:` token,
+  so an attribution is cited and dereferenced like any reading. Open:
+  the estimator and the calibrated cross-encoder and cross-sensor
+  stability model the numeric split needs.
 - **The inputs are fields, not points.** Attribution over an area needs
   the native-resolution raster surface further down this page; the two
   items share one keystone.

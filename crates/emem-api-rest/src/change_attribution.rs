@@ -38,10 +38,25 @@
 //! from uncalibrated evidence would be exactly the failure mode the
 //! decomposition exists to prevent.
 //!
-//! Persistence: the ledger rides a signed receipt whose `fact_cids` are
-//! every fact the ledger read, so the evidence set is citeable and
-//! offline-checkable. The ledger itself is not yet stored as a derivative
-//! fact; that persistence step is on the roadmap next to the split.
+//! Persistence: the ledger is STORED as a `DerivativeFact` under the
+//! responder's own key (band `change_attribution.ledger`, op
+//! `attribution_ledger`, parents = every fact the ledger read), on the
+//! same attest-and-put path `/v1/derive` uses. The stored fact's value
+//! is the ledger itself in canonical CBOR, so its `fact_cid`
+//! content-addresses the attribution and the returned
+//! `emem:fact:<cell>:<cid>` token dereferences to the byte-identical
+//! ledger later, like any other fact. A derivative is deliberately
+//! outside the canonical `(cell, band, tslot)` index, so it is reached
+//! by citation, not by recall; the receipt binds the input cids plus
+//! the ledger's own cid. If the store write fails the response still
+//! carries the computed ledger and says `persistence` failed honestly
+//! rather than turning good evidence into a 500.
+//!
+//! The tslot window on the stored fact comes from the env-evidence
+//! pairs only (all S2-derived, one tempo family); tslots from different
+//! tempos are indices on different clocks and are never min/maxed
+//! together. When no env pair exists the window collapses to the
+//! Tessera fact's tslot on both ends.
 
 use std::time::Instant;
 
@@ -50,7 +65,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 
-use emem_fact::{Fact, FactCid};
+use emem_fact::{Derivation, DerivativeFact, Fact, FactCid};
 use emem_primitives::cbor_ops::{as_f64, as_vec_f32, cosine_finite};
 use emem_primitives::RecallReq;
 
@@ -197,6 +212,32 @@ fn embedding_change(now: &[f32], prev: &[f32]) -> Option<f64> {
     Some((1.0 - c).clamp(0.0, 1.0))
 }
 
+/// JSON to CBOR for the stored ledger value. serde_json's default map is
+/// a BTreeMap, so object keys arrive here sorted, which is exactly the
+/// pre-sorted-keys discipline canonical CBOR requires for freeform maps
+/// (whitepaper §5). Floats pass through; canonicalization of NaN and
+/// negative zero happens in `to_canonical_cbor` at hash time.
+fn json_to_cbor(j: &JsonValue) -> ciborium::Value {
+    match j {
+        JsonValue::Null => ciborium::Value::Null,
+        JsonValue::Bool(b) => ciborium::Value::Bool(*b),
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                ciborium::Value::Integer(i.into())
+            } else {
+                ciborium::Value::Float(n.as_f64().unwrap_or(f64::NAN))
+            }
+        }
+        JsonValue::String(s) => ciborium::Value::Text(s.clone()),
+        JsonValue::Array(a) => ciborium::Value::Array(a.iter().map(json_to_cbor).collect()),
+        JsonValue::Object(m) => ciborium::Value::Map(
+            m.iter()
+                .map(|(k, v)| (ciborium::Value::Text(k.clone()), json_to_cbor(v)))
+                .collect(),
+        ),
+    }
+}
+
 pub async fn change_attribution(
     req: ChangeAttributionReq,
     s: &AppState,
@@ -205,6 +246,10 @@ pub async fn change_attribution(
     let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
 
     let mut all_cids: Vec<String> = Vec::new();
+    let mut tessera_tslot: Option<u64> = None;
+    // Window bounds from the env-evidence pairs only: one tempo family,
+    // so the min/max is meaningful. See the module header.
+    let mut env_tslots: Vec<u64> = Vec::new();
 
     // ── observed: Tessera year-over-year embedding change, plus the
     //    encoder-term pinning evidence from the same fact. ─────────────
@@ -227,6 +272,7 @@ pub async fn change_attribution(
                 _ => None,
             });
             if let Some((i, p)) = primary {
+                tessera_tslot = Some(p.tslot);
                 let cid = resp
                     .receipt
                     .fact_cids
@@ -288,6 +334,8 @@ pub async fn change_attribution(
                         all_cids.push(c.clone());
                     }
                 }
+                env_tslots.push(pair.now.tslot);
+                env_tslots.push(pair.prev.tslot);
                 env_evidence.push(json!({
                     "band": pair.band,
                     "value_now": pair.now.value,
@@ -340,21 +388,13 @@ pub async fn change_attribution(
     };
 
     let n_env = env_evidence.len();
-    let receipt = s.sign_receipt(
-        "emem.change_attribution",
-        vec![cell.clone()],
-        all_cids.iter().cloned().map(FactCid::new).collect(),
-        false,
-        started,
-        None,
-    );
     let resolved_env = crate::resolved_envelope(vec![("cell".into(), resolved)]);
 
-    Ok(json!({
+    // The ledger body is assembled once and used twice: stored verbatim
+    // as the derivative fact's value, and inlined in the response. The
+    // stored bytes and the response body are therefore the same claim.
+    let ledger_body = json!({
         "schema": "emem.change_attribution.v1",
-        "algorithm_key": "change_attribution@1",
-        "cell": cell,
-        "resolved_from": resolved_env,
         "decomposition": "Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε",
         "observed": {
             "embedding": observed_embedding,
@@ -380,11 +420,101 @@ pub async fn change_attribution(
         },
         "split": JsonValue::Null,
         "attribution_note": ATTRIBUTION_NOTE,
-        "n_env_evidence_bands": n_env,
-        "persistence": "response_receipt_only: the receipt's fact_cids cite every fact this ledger read; storing the ledger itself as a derivative fact is the open persistence step, next to the numeric split",
-        "input_fact_cids": all_cids,
-        "receipt": receipt,
-    }))
+    });
+
+    // ── persist the ledger as a derivative fact, /v1/derive's path. ───
+    let window = ledger_window(&env_tslots, tessera_tslot);
+    let signed_at = emem_storage::server::iso8601_now();
+    let ledger_fact = DerivativeFact {
+        cell: cell.clone(),
+        band: "change_attribution.ledger".to_string(),
+        tslot_window: window,
+        op: "attribution_ledger".to_string(),
+        parents: all_cids.iter().cloned().map(FactCid::new).collect(),
+        value: json_to_cbor(&ledger_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "change_attribution@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let (persistence, ledger_fact_json, ledger_cid) =
+        match emem_fact::Attestation::build_and_sign_v1(
+            vec![Fact::Derivative(ledger_fact)],
+            vec![],
+            s.manifests.registry_cid.clone(),
+            s.manifests.schema_cid.clone(),
+            &s.identity.signing,
+            s.identity.epoch,
+            signed_at,
+            None,
+        ) {
+            Ok(att) => match s.storage.put_attestation(&att).await {
+                Ok(cids) if !cids.is_empty() => {
+                    let cid = cids[0].as_str().to_string();
+                    let token = format!("emem:fact:{cell}:{cid}");
+                    (
+                        json!("stored_derivative_fact"),
+                        json!({ "fact_cid": cid, "token": token, "band": "change_attribution.ledger", "note": "reached by citation, not by recall: a derivative is outside the canonical (cell, band, tslot) index by design" }),
+                        Some(cid),
+                    )
+                }
+                Ok(_) => (
+                    json!("persist_failed: store returned no cid"),
+                    json!(null),
+                    None,
+                ),
+                Err(e) => (json!(format!("persist_failed: {e}")), json!(null), None),
+            },
+            Err(e) => (
+                json!(format!("persist_failed: attestation build: {e}")),
+                json!(null),
+                None,
+            ),
+        };
+
+    // The receipt binds the inputs read plus, when stored, the ledger's
+    // own cid, so one signature covers the evidence and the attribution.
+    let mut receipt_cids: Vec<FactCid> = all_cids.iter().cloned().map(FactCid::new).collect();
+    if let Some(c) = &ledger_cid {
+        receipt_cids.push(FactCid::new(c.clone()));
+    }
+    let receipt = s.sign_receipt(
+        "emem.change_attribution",
+        vec![cell.clone()],
+        receipt_cids,
+        false,
+        started,
+        None,
+    );
+
+    let mut out = ledger_body;
+    out["algorithm_key"] = json!("change_attribution@1");
+    out["cell"] = json!(cell);
+    out["resolved_from"] = json!(resolved_env);
+    out["n_env_evidence_bands"] = json!(n_env);
+    out["persistence"] = persistence;
+    out["ledger_fact"] = ledger_fact_json;
+    out["input_fact_cids"] = json!(all_cids);
+    out["receipt"] = serde_json::to_value(&receipt).unwrap_or(JsonValue::Null);
+    Ok(out)
+}
+
+/// The stored fact's tslot window: min/max over the env-evidence pair
+/// tslots (one tempo family). With no env pair, both ends collapse to
+/// the Tessera fact's tslot; with neither, to zero, which is honest
+/// (nothing time-bound was read).
+fn ledger_window(env_tslots: &[u64], tessera_tslot: Option<u64>) -> [u64; 2] {
+    if let (Some(min), Some(max)) = (env_tslots.iter().min(), env_tslots.iter().max()) {
+        [*min, *max]
+    } else if let Some(t) = tessera_tslot {
+        [t, t]
+    } else {
+        [0, 0]
+    }
 }
 
 pub async fn post_change_attribution(
@@ -408,6 +538,36 @@ mod tests {
         assert_eq!(embedding_change(&a, &c), Some(1.0));
         let nan = vec![f32::NAN, f32::NAN, f32::NAN];
         assert_eq!(embedding_change(&a, &nan), None);
+    }
+
+    #[test]
+    fn ledger_window_uses_env_pairs_then_tessera_then_zero() {
+        assert_eq!(
+            ledger_window(&[20500, 20470, 20510, 20471], None),
+            [20470, 20510]
+        );
+        assert_eq!(ledger_window(&[], Some(55)), [55, 55]);
+        assert_eq!(ledger_window(&[], None), [0, 0]);
+    }
+
+    #[test]
+    fn json_to_cbor_keeps_sorted_keys_and_types() {
+        let j = serde_json::json!({"b": 1, "a": [1.5, null, "x"], "c": {"z": true, "y": 2}});
+        let c = json_to_cbor(&j);
+        let ciborium::Value::Map(m) = c else {
+            panic!("not a map")
+        };
+        let keys: Vec<&str> = m
+            .iter()
+            .map(|(k, _)| match k {
+                ciborium::Value::Text(t) => t.as_str(),
+                _ => panic!("non-text key"),
+            })
+            .collect();
+        // serde_json's BTreeMap ordering is what canonical CBOR requires
+        // of freeform maps; if this ever fails, preserve_order got
+        // enabled somewhere and the stored ledger cids would drift.
+        assert_eq!(keys, vec!["a", "b", "c"]);
     }
 
     #[test]
