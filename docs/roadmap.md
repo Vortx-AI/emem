@@ -15,7 +15,7 @@ emem is version 1.0.0, its first stable release: the wire format, the receipt pr
 - **Thousands of places, not billions.** The memory grows every day it is used, but it is early. Check the live count before you assume coverage.
 - **It grounds facts about physical places,** not arbitrary text. It is not a general-purpose citation store for any document.
 - **Place ids are compact, not yet token-optimal.** A `cell64` measures 12 to 13 BPE tokens today. The id format is built for a tokenizer-optimized alphabet that would cut that further; the shipped alphabet does not achieve it yet.
-- **The learned predictor is an honest baseline.** `jepa_predict_v2` returns the last known reading until its dynamics head is fully trained, and says so.
+- **The learned predictor is an honest baseline.** `jepa_predict_v2` carries a dynamics head trained on wholly synthetic sequences; on real NDVI pairs it does not beat persistence (skill -0.064), so the endpoint serves the persistence baseline and says so with an `untrained_baseline` warning. Treat it as a research surface, not a forecast; the measurements live in the whitepaper's honest limits (section 14.5).
 - **Some foundation-model fingerprints are sidecar-gated on the hosted node** today. A cold place returns a signed absence for those, so `triple_consensus` runs partial when cold. Tessera fetches on demand.
 - **Upstream rate limits.** Some sources are rate-limited or slow to fetch (one land-surface-temperature source takes about 30 seconds per place).
 - **No sub-meter imagery** in the default build, and no notebook UI. Drive it from a notebook against REST or MCP.
@@ -24,7 +24,7 @@ emem is version 1.0.0, its first stable release: the wire format, the receipt pr
 
 ## Where it is going
 
-emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. **The multi-host federation routing does not ship in 1.0.0.** What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
+emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. One account of the world is a claim; several independent ones that verify against each other are a record. **The multi-host federation routing does not ship in 1.0.0.** What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
 
 The staged work from here, building on those pieces:
 
@@ -40,7 +40,39 @@ Federate later; the fact ids will not move. Near-term work is tracked in [issues
 
 emem works end to end today. This is the honest list of what it does not do yet, kept in one place so a contributor or an agent can see where the edges are and pick one up. Two threads run through all of it. The first is the substrate: memory an agent can trust, carry between vendors, and verify without a callback. The second is the worlds at [`/worlds`](https://emem.dev/worlds), which are not the product but the proof, the most direct way to show a memory can be both generated and checkable at the same time. Each item says what already ships and what is still open, so nothing here is a promise dressed up as a feature.
 
-The test we hold every item to: does it make emem's memories more trusted, portable, and verifiable? If yes, it belongs here. Recall makes an agent convenient; verifiable memory makes it accountable, and accountability is the part still missing between today's demos and agents a regulated business will let run on their own.
+The test we hold every item to: does it make emem's memories more trusted, portable, and verifiable? If yes, it belongs here. Recall makes an agent convenient; verifiable memory makes it accountable, and accountability is the part still missing between today's demos and agents a regulated business will let run on their own. The same test carries the longer thesis: generating a plausible answer is cheap and getting cheaper, and what stays scarce is a shared account of the physical world that is measured, signed, and checkable by someone who was not there. Every item below exists so an agent inherits that account instead of re-observing it.
+
+### Change attribution: why did this place's readout move
+
+- **A change-attribution primitive.** When the readout at a pinned
+  reference moves between two visits, the move is not one event. It
+  decomposes as `Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε`: the
+  world changed, the instrument changed, the pixels moved, the model
+  changed, noise. Only the first term is about the world, and a memory
+  that cannot tell them apart either raises false alarms (a sensor swap
+  read as a wildfire) or hides real events (a flood read as a
+  registration error). What ships today pins most of that ledger by
+  construction: an embedding fact carries its encoder checkpoint and its
+  versioned recipe, so a model swap can never pose as change on the
+  ground; bi-temporal recall keeps "the world changed" and "what the
+  memory knew changed" as separate bounds; every change points at a
+  specific immutable fact by cid; and the receipt makes whatever split
+  is computed checkable by a third party. What does not exist is the
+  split itself: `emem_diff` returns a raw delta (`nd.delta@1`),
+  `state_diff` returns residual, L2, and cosine, and `triple_consensus`
+  reports agreement across three encoders behind a gate it documents as
+  uncalibrated (Prithvi's deltas top out near 0.1155, so the strongest
+  verdict is unreachable). Nothing attributes. Open: the estimator, a
+  calibrated cross-encoder and cross-sensor stability model, and the
+  primitive itself as `change_attribution@1`: a `runtime_evaluable`
+  recipe in the algorithm registry, an executor modelled on
+  `triple_consensus`, a tool on the `burn_severity` pattern, and output
+  as a derivative fact with parent cids under a signed receipt, so the
+  attribution is as citeable and offline-checkable as the readings it
+  explains.
+- **The inputs are fields, not points.** Attribution over an area needs
+  the native-resolution raster surface further down this page; the two
+  items share one keystone.
 
 ### Next substrates: everything that observes a location
 
@@ -145,6 +177,16 @@ return a signed hole instead of a value.
   source in, signed facts out," so one engine serves Postgres first,
   Snowflake next, and a plain CSV or Parquet path (which covers Excel
   exports) as a mode rather than a separate product.
+- **Scheduled densification for priority areas.** Coverage is deep in a
+  few bands and empty in the tail because everything materializes
+  lazily, one place at a time. Open: a background warmer that takes a
+  declared priority area and fills it across a window before anyone
+  asks. This is the supply-side face of the memory preparer under
+  partial results further down, and it is gated on the same design:
+  cells times tslots is strictly larger than the cold polygon that
+  already does not fit, so a warmer that pretends to be synchronous is
+  just a slower 504. Settle partial results first; the warmer is then a
+  cell list on `emem_backfill` plus a schedule.
 
 ### Client surfaces, ranked by leverage
 
@@ -239,7 +281,13 @@ one function before the caller sees it.
   is bulk bytes over a bounding box with no cell and no `fact_cid`, since
   that is the first emem response that would not be a signed fact addressed
   by cell. Worth answering deliberately rather than stapling a signature
-  onto a byte pipe.
+  onto a byte pipe. As of 2026-07-16 this is a committed item, not just a
+  reported gap. The shape is `POST /v1/band_raster` plus field tokens:
+  `emem:raster:<aoi_cid>:<band>:<tslot>` names one field and `emem:cube:`
+  names a stack of them across a window, where `aoi_cid`
+  content-addresses the geometry so the same area always yields the same
+  token. The receipt question above stays as the named design gate; it
+  gets a deliberate answer before any of this ships.
 - **Partial results instead of a timeout.** Open. A cold NDVI polygon
   cannot finish inside the 40 s gateway: worst case is roughly 31
   sequential upstream round trips for a single cell, and `recall_polygon`
@@ -306,18 +354,21 @@ one function before the caller sees it.
 ### The substrate: trusted, portable, verifiable memory
 
 - **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `emem:fact:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo), reported alongside the offline verification those frameworks do not provide.
-- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `emem:bundle:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors.
+- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `emem:bundle:` token that resolves and re-checks anywhere. Open: a written import and export profile so that bundle carries between memory stores from different vendors, and the bundle as the unit of agent-to-agent handoff end to end: the self-teaching `how_to_sign` refusal extended to bundle writes, a `resolve_many` that pulls a whole handoff in one verified call, and immutable cache headers on resolved tokens so a client-side token store is trivial to build.
+- **Typed identity kinds for objects.** An entity's `kind` is a free-text string today, which is enough to mint an identity and not enough to say what changed. One address carries several identities at once, and they change on different clocks: the coordinate never moves, the land cover cycles over years, the land use moves once over decades, the administrative status changes by decree. "Did this place change" has no answer until you say which of those you mean. Open: a small closed set of identity kinds (physical, material, ecological, functional, administrative), so "same place, different object" and "same object, changed state" stop colliding, and so change attribution can say what kind of thing changed instead of raising one alarm bit.
 - **Signed state for agent-to-agent work.** Ships today: emem answers the A2A task surface at `/a2a/tasks` and serves a signed card at [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json). Open: an attestation that rides an agent card so two agents from two companies verify each other's claimed memory offline before acting on it, closing the trust gap the A2A spec leaves to implementers.
 - **Quantitative evaluation in the open.** Ships today: every receipt carries its own cost block (`latency_p50_ms`, `was_cached`), `emem-membench` scores retrieval accuracy against a running responder with no hardcoded numbers, and [benchmarks.md](benchmarks.md) publishes dated, single-node latency and throughput measurements with the method next to each number. Open: multi-node scaling, storage per fact, cache-hit ratio under realistic mixes, and head-to-head comparisons against spatial databases and geospatial data infrastructures on identical queries.
 - **Substrate generality.** The signed fact, the receipt preimage, the provenance class, and the token grammar operate on any canonical address; nothing in them is satellite-specific. Ships today: Earth observation as the first substrate over cell64. Open: a written profile for a second sensing domain with its own canonical address space, plus the formal memory model started in [model.md](model.md): the observation tuple, the property table with mechanisms, and the shipped memory algebra, with machine-checked proofs, uncertainty propagation, semantic compression, and a conformance profile as the open work.
 - **The cell build graph.** Ships today, at the leaf level: every derived observation names its versioned rule (`derivation.fn_key` in the content-addressed algorithm registry), its hashed inputs (`sources[]`), and its content-addressed output, and recall-on-miss is a demand-driven build with cache semantics in the receipt. Determinism means derived layers are evictable without breaking citations: rebuilding yields the same bytes and the same cid. Open: multi-hop derivation as signed objects (facts to gaussians to meshes to navigation surfaces; the worlds bake prototypes the first hop), the one-traversal lineage graph, and a target language, so a cell compiles like a Bazel or Nix package but verifiably across trust domains. The consequence for long-running agents: the world owns the state, not the session. What exists, what is still valid (`/v1/temporal_route`), and what replaced what are all one call away, recall with a band list is already a single-hop `ensure`, and a thousand agents coordinate through shared content-addressed artifacts instead of messages. The atom underneath it stays the existing observation, band is its type field, not the object, and the open generalisation is artifact-typed values (a mesh signed and cited exactly like an NDVI reading), with derivation discovery on top: rules stay declared and signed, which chain applies at a cell is learned, and the planner answers `prove(goal)` with an artifact plus its validity chain. The compiler and execution-substrate view is written down in [model.md](model.md).
+- **Re-runnable derivations.** `/v1/derive` records a `code_cid` for a caller-registered derivation but never fetches or runs it, so a registered derivation is a signed assertion, and it is forced to the `model_output` class no matter how deterministic its code is. Open: a sandbox tier for pure functions that re-runs the `code_cid` against the parent tokens and, when the output reproduces byte-for-byte, earns the derivation `deterministic_index`. That makes a derived artifact independently recomputable from raw source bytes by a stranger, which is a property no unsigned map or proprietary reconstruction service offers.
+- **Derivations you can find by standing at the place.** A registered derivation is reachable only by its token today; `recall` at the same cell does not surface it, so a co-located agent recomputes what a peer already derived instead of co-referring to it, which is referential drift by another route. Open: opt-in place-indexing of registered derivations, typed clearly as derivative and attributed to their attester, plus the reverse-lineage index ("what is downstream of this parent fact_cid") so that when an upstream source moves, staleness propagates to everything built on it. Knowing what to invalidate when an instrument or source changes is the sensor term of change attribution, operationalized.
 - **An audit trail for regulated work.** Ships today: bi-temporal recall (`as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew) and a signed absence for what was never there. Open: the profile that turns those into a procurement-grade record of what an agent knew and when, aimed at the data-provenance gap that content-only provenance standards do not cover.
 
 ### The worlds: making the proof denser, live, and portable
 
 - **The responder URL in baked provenance.** Done. A bake fetches from a fast local node but the sidecar now records the public responder the artifacts are served from, so the re-check recipe points somewhere a reader can actually reach. The signing key is unchanged, so every receipt still verifies. See `--public-responder` in `examples/3d-worlds/make_splats.py`, wired through `scripts/bake_worlds.sh`.
 - **Provenance-preserving densification.** The exporter now does this. `python3 examples/3d-worlds/make_splats.py --densify F` subdivides each grid quad and writes `emem.splat_provenance.v2`, in which every splat is labelled `measured` (its own `fact_cid`) or `derived` (its up to four source cells, their `fact_cids`, and bilinear weights that sum to 1), so a derived continuous value is exactly re-derivable as `sum_i weight_i * source_i` and every source stays signature-checkable. Categorical bands (a loss year, a class code) are inherited from the nearest signed cell rather than averaged, and a node on an original cell stays that exact signed cell, so densifying never invents a value or drops a measured fact. `--check-derived` re-verifies a whole sidecar offline. The live `/worlds` viewer now densifies in lockstep with the exporter (the `splat-math.js` and Python paths are pinned to 1e-6 by a golden fixture), with a detail control and a pick panel that resolves any derived splat to its signed sources. Still open: carrying the same labelling into a standard splat container (next item).
-- **A world that rolls forward.** Open. `emem_jepa_predict_v2` predicts a cell's next step from its attested history. Applied across a whole baked world it becomes a sequence of scene frames, each one a signed forecast that says it is a forecast, carrying the model id and the lags it read. A generated frame nobody has to take on faith.
+- **A world that rolls forward.** Open. `emem_jepa_predict_v2` is built to predict a cell's next step from its attested history; today it serves the persistence baseline with a warning, per the honest limit at the top of this page, so this item is a design, not a capability. Applied across a whole baked world, a predictor with real skill becomes a sequence of scene frames, each one a signed forecast that says it is a forecast, carrying the model id and the lags it read. A generated frame nobody has to take on faith. Rolling forward also wants a subscription surface, a token that resolves to the current value and says when it changed, instead of a caller polling recall in a loop; open, filed from the agent channel.
 - **Riding the splat standard.** Open. The worlds emit a bespoke 32-byte splat plus a PLY. As gaussian splatting consolidates on glTF and compressed transport formats, emem's provenance should ride inside the standard as a custom block, so any viewer renders the geometry and only emem-aware clients light up the click-to-verify layer.
 - **Planet scale.** Open. The cell ids are already hierarchical, so a world can become a tile pyramid: coarse gaussians far out, finer tiles baked on demand as a camera or an agent drills in, cached the way recalls already are.
 - **Generative where the memory is empty.** A first cut is live, the rest is the furthest-out item here. Where no fact exists, generate a plausible value from the embedding field and its neighbours, but stamp it with its own class of id, its model, its conditioning cells, and a confidence, so an agent can ask for measured cells only, or measured plus inferred, and always know which is which. The dense worlds at [`/splats`](https://emem.dev/splats) show the shape of it: every splat is labelled `measured`, `interpolated`, or `synthesized`, the measured trust root stays ed25519-signed, and the invented layers peel back off, so a viewer can drop to grounded-only in one step. Open is generalising that labelling beyond a splat scene to arbitrary bands, and giving each generated value the same signed envelope a measured fact gets. Grounded where grounded, generative where not, and labelled either way.

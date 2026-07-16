@@ -7,7 +7,10 @@ identity layer that stops referential drift: every place resolves to one
 canonical address (`cell64`), every observation to one signed fact
 (`fact_cid`), and every object to one citeable identity
 (`emem:entity:<entity_cid>`, minted by `emem_entity`), so different models reason
-from the same world object instead of divergent descriptions. Two layers,
+from the same world object instead of divergent descriptions. Drift runs in
+both directions: the paraphrase that drifts from its referent, which the token
+pins, and the readout that drifts at a pinned reference, which the roadmap's
+change-attribution work decomposes. Two layers,
 one trust surface. Every read returns an ed25519-signed receipt verifiable
 offline at `/verify`.
 
@@ -168,7 +171,8 @@ port 5051. The live surface ships 108 paths under
 `/v1/*` (112 total in `/openapi.json`), 91 MCP tools (14 core, 77 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 91), 18 static MCP
 resources + 8 URI templates, 160 algorithms in the content-addressed
-registry, 43 bands in the manifest, 46 source schemes, and 27 data
+registry, 43 bands in the manifest, 46 declared source schemes (several
+not yet wired), and 27 data
 connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
 Version 1.0.0, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
 
@@ -199,7 +203,7 @@ log. See "Watching humans use the API" below.
 | Band-cube slots | 43 |
 | MCP resources | 18 static + 8 URI templates |
 | Materializer-wired band names | 124 |
-| Source schemes | 46 |
+| Source schemes | 46 declared (several not yet wired) |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
 | Version | 1.0.0 |

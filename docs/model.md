@@ -142,6 +142,13 @@ state of the cells it touched: which observations exist, at which
 versions, derived from what, still valid until when. A different agent,
 months later, under a different model, continues from the world.
 
+The state the session inherits still lacks one operator: the derivative.
+Two states of one cell say what changed; nothing yet says why it moved,
+how much of the delta is the world and how much is the instrument, the
+registration, or the encoder. That operator is specified as change
+attribution on the roadmap, and it slots into this graph as one more
+derived, signed object over parent facts.
+
 The mechanisms for that are the ones above, read as an execution
 substrate. What already exists: every recall returns
 `bands_already_attested_at_cell`, so "what has been computed here" is

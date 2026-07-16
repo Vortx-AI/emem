@@ -11,7 +11,7 @@
 
 ## Description
 
-emem is a shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift. Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), and every object to one citeable identity (emem:entity:<entity_cid>, minted by emem_entity), so different models reason from the same world object instead of divergent descriptions. Earth memory and agent memory on one signed trust surface: every read returns an ed25519 receipt, every write is content-addressed, every byte is reproducible on any peer. 91 MCP tools (14 core, 77 extended), plus 18 MCP resources + 8 URI templates (e.g. `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`).
+emem is a shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift, both the paraphrase that drifts from its referent (the token pins it) and, on the roadmap, the readout that drifts at a pinned reference (change attribution decomposes it). Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), and every object to one citeable identity (emem:entity:<entity_cid>, minted by emem_entity), so different models reason from the same world object instead of divergent descriptions. Earth memory and agent memory on one signed trust surface: every read returns an ed25519 receipt, every write is content-addressed, every byte is reproducible on any peer. 91 MCP tools (14 core, 77 extended), plus 18 MCP resources + 8 URI templates (e.g. `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`).
 
 ## Key capabilities
 

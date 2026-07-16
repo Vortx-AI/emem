@@ -6,7 +6,7 @@
 
 **The verifiable memory protocol for the physical world, built for AI agents to cite.**
 
-*Every real-world observation becomes a shared, verifiable Memory Token that persists across long-horizon AI tasks.*
+*Agents inherit a measured, signed account of the physical world instead of re-observing it; every observation becomes a shared, verifiable Memory Token that persists across long-horizon AI tasks.*
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![Rust 1.91](https://img.shields.io/badge/Rust-1.91-orange.svg)](https://www.rust-lang.org)
@@ -102,7 +102,7 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" | jq '.facts[0].value'
 ```
 
-**Python**: `pip install ememdev` ([PyPI](https://pypi.org/project/ememdev/)).
+**Python and TypeScript**: typed clients live in [`sdks/`](sdks/), wrapping the same REST surface. Installable packages are pending their first verified publish; the status, and the honest account of why earlier PyPI releases shipped empty, live in [docs/roadmap.md](docs/roadmap.md).
 
 <details>
 <summary>Copy-paste configs for 12 clients, packaged Claude skills, TypeScript SDK</summary>
@@ -167,13 +167,23 @@ Or skip the menu: `emem_ask` takes a plain-language question and returns a signe
 3. Every record names its source, its versioned algorithm, and its provenance class, so you know whether a value is recomputable from raw data or trusted through a model or a person.
 4. A missing value is a signed absence with a typed reason, never a bare 404.
 5. Nothing is overwritten. Later records supersede; disagreement between writers is kept and scored as evidence.
-6. An append-only transparency log (RFC 6962) with witness co-signing records every attestation batch, so a responder cannot tell two clients two different histories. Pin a signed tree head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), then prove the log only grew.
+6. An append-only transparency log (RFC 6962 construction, BLAKE3) with witness co-signing records every attestation batch. Pin a signed tree head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), then prove the log only grew since your pin. The receipt does not yet chain to the log; the whitepaper's honest limits say exactly what that does and does not prove.
 
 The signature proves who attested a record and that the bytes never changed, not that the value is objectively true; confidence, uncertainty, and provenance travel with it. Deeper: [how it works](https://emem.dev/how-it-works) with live consoles, [the formal model](docs/model.md), [the wire spec](https://emem.dev/spec.md).
 
+## The world drifts too
+
+Generating a plausible answer is cheap. The scarce thing is a shared account of the physical world that is measured, signed, and checkable by someone who was not there. Drift threatens that account from two directions. In language, the reference drifts: a paraphrase mutates while the world stands still, and the token pins it; that is everything above. In the world, the readout drifts: the reference stands still, the signal at it moves, and not every move is the world. Between two visits to one address, the observed change is a sum:
+
+```
+Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε
+```
+
+The world changed; the instrument changed; the pixels moved; the model changed; noise. Only the first term is about the world, and the substrate already pins the rest of the ledger. An embedding record carries its model checkpoint, so a model swap can never pose as change on the ground. Bitemporal recall keeps "the world changed" and "what the memory knew changed" as separate questions. Every change points at a specific immutable record by its id, and the receipt lets someone who was not there check the split. Attributing a specific change among those terms is roadmap work, not shipped; the design and its honest gaps live in [docs/roadmap.md](docs/roadmap.md).
+
 ## Substrates: today and next
 
-**Today: satellite Earth observation.** Open data from ESA, NASA, USGS, and the EU JRC fills the memory on demand: 46 declared sources and 124 wired measurements (live catalogs at [`/v1/sources`](https://emem.dev/v1/sources) and [`/v1/bands`](https://emem.dev/v1/bands)), from elevation and NDVI to weather, forest change, and four open foundation-model embeddings.
+**Today: satellite Earth observation.** Open data from ESA, NASA, USGS, and the EU JRC fills the memory on demand: 124 wired measurements, drawn from a catalog of 46 declared source schemes of which several are declared but not yet fetchable (live lists at [`/v1/sources`](https://emem.dev/v1/sources) and [`/v1/bands`](https://emem.dev/v1/bands)), from elevation and NDVI to weather, forest change, and four open foundation-model embeddings.
 
 **Next: everything else that observes a location.** Nothing in the record, receipt, or token grammar is satellite-specific; any observer with a location and a signing key can join the same attest, recall, cite, verify path. The multi-writer endpoint (`POST /v1/attest`) ships today; written substrate profiles for CCTV and fixed sensors, drones, robot fleets, industrial machines, government registries, and open data programs are roadmap work, tracked with the rest in [docs/roadmap.md](docs/roadmap.md). Location stays the first key for all of them.
 
@@ -191,7 +201,7 @@ Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks
 
 ## Honest limits
 
-Version 1.0.0: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. The complete edge list, the staged path to federation, and the open research live in [docs/roadmap.md](docs/roadmap.md).
+Version 1.0.0: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. And the change attribution described above is a design the substrate was built to carry, not a shipped capability. The complete edge list, the staged path to federation, and the open research live in [docs/roadmap.md](docs/roadmap.md).
 
 ## Learn more
 

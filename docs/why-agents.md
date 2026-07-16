@@ -2,7 +2,9 @@
 
 emem is a shared memory for AI agents that connects facts and gets
 better over time. Every answer is signed, so anyone can check it
-without trusting the server.
+without trusting the server. Recall is bi-temporal because the world
+itself changes: what was on the ground and what the memory knew are
+separate questions, with separate answers.
 
 That sentence is abstract. Here is one agent doing one job, end to end.
 

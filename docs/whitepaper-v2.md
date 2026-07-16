@@ -1,6 +1,6 @@
 # emem: an external identity layer for verifiable agent memory
 
-**Whitepaper v2 / 2026-07-14**
+**Whitepaper v2 / 2026-07-16**
 
 *Supersedes [whitepaper v1](/whitepaper/v1) (version 0.1.0, 2026-06-14),
 which remains archived and unedited. v1 is the version cited by
@@ -58,6 +58,14 @@ tamper-provenance classes (§7). An append-only log records attestation
 batches under the RFC 6962 tree construction (§8). Callers may register
 derivations over parent facts under their own key (§9).
 
+The framing this document commits to follows from the guarantee rather
+than preceding it. Generating a plausible account of the world is cheap
+and getting cheaper; what stays scarce is a shared account that is
+measured, signed, and checkable by someone who was not there. emem is
+built to be that account: a substrate agents inherit rather than
+re-derive, measured at canonical addresses, signed fact by fact,
+bi-temporal, and checkable offline.
+
 ---
 
 ## 1. Referential drift
@@ -114,6 +122,32 @@ that re-hydrates to the exact signed bytes, for anyone, for as long as
 the bytes exist. What is guaranteed is co-reference and integrity, never
 truth. Confidence, uncertainty, and provenance travel alongside the value
 (§7) precisely because the signature speaks to none of them.
+
+### 1.1 Drift has two directions
+
+Everything above describes drift in language: the reference decays while
+the world stands still, and the token pins it. The world runs the same
+failure in the other direction. The reference stands still, the readout
+at it moves, and not every move is the world. A crop grows, but also a
+satellite is swapped, a scene registers five metres off, an encoder is
+upgraded, a cloud passes. Between two visits to one pinned address, the
+observed change decomposes as
+
+```text
+Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε
+```
+
+the world changed, the instrument changed, the pixels moved, the model
+changed, noise. Only the first term is about the world, and a memory that
+cannot tell the terms apart either raises false alarms or hides real
+events. The protocol already pins or separates every term but the first:
+an embedding fact carries its encoder checkpoint and versioned recipe, so
+Δ_encoder is checkable rather than hidden (§10.1); bi-temporality
+separates a change in the world from a change in what the memory knew
+(§4.3); every change points at a specific immutable fact (§5); and the
+receipt makes whatever split is computed checkable by a third party (§6).
+Attributing a given delta among the terms is open work, specified in
+§10.3 and carried on the roadmap; nothing in this build computes it.
 
 ---
 
@@ -923,6 +957,40 @@ fleets, industrial machines, and government registries are roadmap work,
 not claims about this build. Location stays the first key for all of
 them.
 
+### 10.3 Change attribution: what a readout change means
+
+The §1.1 decomposition becomes concrete on this substrate. Take one cell,
+one band, two tslots, and ask why the value moved.
+
+- **Δ_encoder, pinned.** An embedding fact names its model checkpoint and
+  its versioned recipe (`derivation.fn_key` in the content-addressed
+  algorithm registry), so an encoder upgrade is a visible property of the
+  record, never a silent shift that masquerades as change on the ground.
+- **Δ_sensor and Δ_geo, recorded but not attributed.** Scene selection is
+  signed into provenance (`scenes_tried`, the chosen scene id, the SCL
+  cloud class), and the processing-baseline guard pins the upstream's
+  radiometric convention. What was observed through is on the record; no
+  computation splits its contribution out of a delta.
+- **Δ_env against the rest.** The bi-temporal bounds (§4.3) keep "the
+  world changed" and "the memory learned" as separate questions with
+  separate answers.
+
+What ships as change surfaces today, stated plainly: `emem_diff` returns
+a raw delta (`nd.delta@1`); `state_diff` returns residual, L2, and cosine
+between two vintages of one encoder; `triple_consensus` reports
+year-over-year agreement across three encoders behind a gate its own
+output documents as uncalibrated. None of them attributes.
+
+The open primitive is `change_attribution@1`: given a cell and two
+readings, return the decomposition with each term estimated, as a
+derivative fact with parent cids under a signed receipt, so the
+attribution is as citeable and offline-checkable as the readings it
+explains. The label-free indices this substrate already materializes
+(NDVI, dNBR, SAR coherence, the SCL cloud class among them) are the raw
+material such an estimator would read; the estimator itself, and a
+calibrated cross-encoder, cross-sensor stability model, do not exist in
+this build. The roadmap carries the item.
+
 ---
 
 ## 11. The agent-discoverable surface
@@ -1141,6 +1209,10 @@ because the signature speaks to none of them.
   -0.064. The artefact's own `honesty_caveats` state the real corpus is
   too sparse to train end-to-end. Treat `jepa_predict_v2` as a research
   surface, not a forecast.
+- **Change attribution does not exist.** `emem_diff` and `state_diff`
+  return raw deltas; `triple_consensus`'s agreement gate is uncalibrated
+  and its strongest verdict unreachable; nothing decomposes a delta into
+  environment, sensor, geometry, and encoder terms (§10.3).
 
 ### 14.6 Specification
 
@@ -1238,6 +1310,17 @@ entries below record what was claimed, not what is still claimed.
   fail-safe default (§7).
 - "Hot-swap the ontology without recompiling." The ontology is compiled
   in (§10.1).
+- "`pip install ememdev`", presented as a working install path. Every
+  wheel published to PyPI (0.0.9, 0.1.0, 1.0.0) contained no Python
+  modules; the roadmap's SDK entry carries the full account and the
+  release gates that now prevent a repeat.
+- "46 declared sources and 124 wired measurements", read together as one
+  capability count. Declared is a catalog count and several schemes remain
+  unwired (§14.5); the README now scopes the two numbers apart.
+- The homepage FAQ listing three foundation-model embeddings where the
+  substrate wires four (Clay was omitted). The page is compiled into the
+  binary, so that correction lands with the next server deploy rather
+  than with this document.
 - "base-1024 bigrams", which appeared in 14 places including the OpenAPI
   `Cell64` schema, where the same sentence went on to call the alphabet
   65,536-entry. The alphabet has **65,536** entries; four base-1024 digits
@@ -1280,6 +1363,10 @@ totals wherever a total would do.
   a log segment in the receipt preimage would close §8.4 and make
   "transparency" mean what it sounds like. This is the single highest-value
   increment on this substrate.
+- **A change-attribution primitive.** The §10.3 decomposition needs an
+  estimator and a calibrated cross-encoder, cross-sensor stability model.
+  The output shape is settled (a derivative fact with parent cids under a
+  signed receipt); the attribution logic is not.
 - **An operating witness network.** Independent witnesses, a published
   trust policy, a refresh cadence, and gossip between clients. Until
   then, §8.5 stands.
@@ -1294,6 +1381,10 @@ totals wherever a total would do.
   pin the active manifest CIDs, so historical answers do not drift.
 - **Entity reconciliation.** A merge primitive, and a contradiction
   signal for conflicting links (§2.4).
+- **Typed identity kinds.** An entity's `kind` is free text (§2.3). A
+  small closed set (physical, material, ecological, functional,
+  administrative) is the prerequisite for saying what kind of thing
+  changed at an address, not only that something did.
 
 ---
 

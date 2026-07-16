@@ -2,7 +2,9 @@
 
 Most memory stores let an agent save a note and search it later. emem
 does that too. These three things are what a plain vector store does
-not give you. Each is framed as a benefit first, then the surface that
+not give you. They are three faces of one job, keeping a shared account
+of a world that changes checkable by parties who do not trust each
+other. Each is framed as a benefit first, then the surface that
 delivers it.
 
 ## 1. It surfaces disagreement, with a severity score
