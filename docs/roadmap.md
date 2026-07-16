@@ -249,6 +249,26 @@ one function before the caller sees it.
   materializing can proceed; a 504 teaches it to stop calling emem. That is
   an API change and it deserves a design.
 
+  The same decision blocks a memory preparer: one call that says "warm this
+  area across this window" so an agent can build its memory before it needs
+  to reason over it. Nothing is missing from the read path, since
+  `emem_recall` already materializes on a miss, so this is throughput and
+  latency rather than capability. Two tools each cover half of it.
+  `emem_backfill` walks every tslot for one `(cell, band)` across a window;
+  `emem_recall_many` fans out over a list of up to 256 cells at one time
+  selection. Nothing composes them, so an area across a window is the
+  caller's own loop today. It also cannot simply be added: cells times
+  tslots is strictly larger than the cold polygon above that already does
+  not fit, so a synchronous preparer is impossible by construction rather
+  than by tuning, and building one before this question is settled would
+  ship a route whose honest answer is usually a 504. Settle partial results
+  first and the preparer is a cell list on `emem_backfill` rather than a new
+  tool. That ordering is also why none of the fetch verbs (`emem_backfill`,
+  `emem_fetch`, `emem_data_availability`, the coverage pair) need promoting
+  into the core 14 before then: the core loop already reads and
+  materializes, and a preparer that cannot finish is not worth the context
+  it costs to advertise.
+
 ### Protocol consistency
 
 - **One verifier spec, generated from code.** Ships today:
