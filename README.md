@@ -238,7 +238,7 @@ Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks
 
 ## Honest limits
 
-Version 1.0.0: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. And the change attribution described above is a design the substrate was built to carry, not a shipped capability. The complete edge list, the staged path to federation, and the open research live in [docs/roadmap.md](docs/roadmap.md).
+Version 1.1.0, under the stability promise 1.0.0 made: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. And the change attribution described above is a design the substrate was built to carry, not a shipped capability. The complete edge list, the staged path to federation, and the open research live in [docs/roadmap.md](docs/roadmap.md).
 
 ## Learn more
 

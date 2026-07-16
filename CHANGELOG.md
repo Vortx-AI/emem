@@ -7,6 +7,76 @@ to verify.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-16
+
+A stable, additive upgrade: every receipt signed under 1.0.0 verifies
+unchanged, the new preimage segment is append-only (a receipt without a
+field binding hashes byte-identically to before), and every new request
+field defaults to yesterday's behaviour when absent.
+
+### Added
+- **Field tokens** (docs/plans/field-tokens.md, complete): `POST
+  /v1/band_raster` returns a native-resolution Sentinel-2 window as a
+  content-addressed canonical grid artifact whose receipt attests a
+  DERIVATION, never a byte pipe; the signed derivation record persists
+  and pins the scene, recipe, georeferencing, and best-effort per-cell
+  anchors. `GET /v1/artifacts/{cid}` serves the bytes immutable and
+  evictable-by-design; `POST /v1/raster/resolve` dereferences
+  `emem:raster:` tokens with every claim bound to the signed record
+  (mismatch is a typed 409). New receipt machinery: the FIELD preimage
+  segment (`receipt_tag::FIELD`), `field_binding_v1`, `Receipt.field`,
+  `sign_receipt_field`, the verifier-spec row, and `field_bound` on
+  `/v1/verify_receipt`. MCP tools `emem_band_raster` and
+  `emem_raster_resolve`.
+- **Change attribution** (`change_attribution@1`): `POST
+  /v1/change_attribution` and `emem_change_attribution` return the
+  per-term evidence LEDGER for why a readout moved (`split` null by
+  design, with the in-band note saying why), and each run persists as a
+  derivative fact with its own `emem:fact:` token.
+- **Partial results** (docs/plans/partial-results.md, complete):
+  `recall_polygon` and `recall_many` accept `budget_ms` and answer
+  first-class partial 200s with a typed `pending[]`, `converged`, and
+  monotone identical-request retry; expiry detaches fetches so they
+  persist. `emem_backfill` grew the preparer form (a `cells` list under
+  the same contract), and the densification warmer loops the preparer
+  on a schedule, off by default (`EMEM_WARM_INTERVAL_SECS` +
+  `$EMEM_DATA/warm_priority.json`).
+- **Batch dereference**: `POST /v1/memory_token/resolve_many` resolves
+  up to 256 fact tokens in one call, partial by design with per-item
+  receipts and one batch receipt; token dereferences now carry
+  `Cache-Control: immutable` on full success.
+- **The canonical grid codec** (`emem-codec::grid`), the evictable
+  artifact store (`emem-storage::artifacts`), a doc-lint CI gate
+  (`scripts/doc_lint.py`), the canonical merged whitepaper
+  (`docs/whitepaper.md`), a ten-minute tutorial, and the agent-handoff
+  example (a session checkpoint a successor identity resumes and
+  verifies).
+- **Python SDK signing surface** (`ememdev[signing]` + the `ememdev`
+  CLI: whoami / sign / write) and the counts moved to 94 MCP tools,
+  162 algorithms, 114 documented paths.
+
+### Changed
+- The Python module renamed `emem` to `ememdev` to match the install
+  name; the PyPI name `emem` belongs to an unrelated project and a
+  shared top-level module would collide on disk.
+- Positioning: referential drift is one concept with two directions
+  (the token pins the paraphrase side; the attribution ledger reports
+  the world side), stated across the docs, the MCP preamble, and the
+  served strings. The memory layer's scope and the hosted-privacy map
+  are stated plainly: no client-controlled private memory exists on the
+  hosted node until owner-scoped reads ship.
+
+### Fixed
+- DMSP-OLS nightlights decoding accepts the uncompressed TIFFs NOAA
+  actually ships (was 97% of materialize failures in one window).
+- The Lahaul-class geocode mis-rank (boundary now outranks village) and
+  the geocode cache is resolver-versioned so fixes land immediately.
+- The wheel-import gates in ci and publish workflows follow the module
+  rename; the npm pack guard fails with evidence instead of a
+  TypeError; two test-only preimage call sites missed by the FIELD
+  sweep.
+
+
 ## [1.0.0] - 2026-07-09
 
 First stable release. The wire format is settled: canonical CBOR, the ed25519

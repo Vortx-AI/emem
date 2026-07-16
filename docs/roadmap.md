@@ -9,7 +9,7 @@ picture.
 
 ## Honest limits
 
-emem is version 1.0.0, its first stable release: the wire format, the receipt preimage, and the cell64 address space are settled and will not break under a 1.x. What it does not do yet, so you can plan around it:
+emem is at version 1.1.0, under the stability promise its first stable release made: the wire format, the receipt preimage, and the cell64 address space are settled and will not break under a 1.x. Receipts signed under 1.0.0 verify unchanged, and the new FIELD preimage segment is append-only, so a receipt without one hashes byte-identically to before. What it does not do yet, so you can plan around it:
 
 - **Single host.** No federation, no global routing, no SOC 2 yet. One responder, one signing key. Durability today is the hosted node plus any node you run; content addressing means any node that holds the bytes can re-serve and re-verify them, so run your own if the facts matter to you.
 - **Thousands of places, not billions.** The memory grows every day it is used, but it is early. Check the live count before you assume coverage.
@@ -24,7 +24,7 @@ emem is version 1.0.0, its first stable release: the wire format, the receipt pr
 
 ## Where it is going
 
-emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. One account of the world is a claim; several independent ones that verify against each other are a record. **The multi-host federation routing does not ship in 1.0.0.** What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
+emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. One account of the world is a claim; several independent ones that verify against each other are a record. **The multi-host federation routing does not ship yet in the 1.x line.** What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
 
 The staged work from here, building on those pieces:
 
