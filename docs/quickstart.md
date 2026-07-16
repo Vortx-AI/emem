@@ -24,7 +24,7 @@ curl -sX POST https://emem.dev/v1/recall \
 ### Python
 
 ```python
-from emem import Client
+from ememdev import Client
 
 with Client() as em:
     cell  = em.locate("South Mumbai")["cell64"]
@@ -148,7 +148,7 @@ in your browser with `@noble/curves` + `@noble/hashes`. No server call.
 ## Memory tokens: share one signed fact in one string
 
 ```python
-from emem import Client
+from ememdev import Client
 em = Client()
 cell  = em.locate("Mount Fuji")["cell64"]
 facts = em.recall(cell, bands=["copdem30m.elevation_mean"])

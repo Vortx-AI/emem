@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 import pytest
 
-from emem.client import AsyncClient, Client
+from ememdev.client import AsyncClient, Client
 
 
 # ── public-method enumeration helpers ──────────────────────────────

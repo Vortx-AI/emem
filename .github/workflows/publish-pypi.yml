@@ -78,7 +78,7 @@ jobs:
         run: |
           python -m venv /tmp/wheelcheck
           /tmp/wheelcheck/bin/pip install --quiet sdks/emem-py/dist/*.whl
-          /tmp/wheelcheck/bin/python -c "import emem; print('import emem OK, version', emem.__version__)"
+          /tmp/wheelcheck/bin/python -c "import ememdev; print('import ememdev OK, version', ememdev.__version__)"
 
       - name: publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

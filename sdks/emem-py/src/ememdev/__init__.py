@@ -1,4 +1,9 @@
-"""emem — Python client for the emem.dev Earth memory protocol.
+"""ememdev: Python client for the emem.dev Earth memory protocol.
+
+The distribution and the module are both named ``ememdev``, on purpose:
+the shorter name ``emem`` on PyPI belongs to an unrelated project by
+another company, and a module named ``emem`` would collide with it on
+disk if both were installed.
 
 This package wraps the REST surface of the hosted instance at
 https://emem.dev in a thin, typed client. Every call returns the raw JSON
@@ -13,7 +18,7 @@ time a route lands.
 
 Quick start:
 
-    from emem import Client
+    from ememdev import Client
 
     em = Client()  # defaults to https://emem.dev
     cell = em.locate("Mount Fuji")["cell64"]

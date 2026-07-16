@@ -16,7 +16,7 @@ pip install ememdev
 ```
 
 The distribution is named `ememdev`; the import package is `emem` (so
-`pip install ememdev`, then `from emem import Client`). To work from a
+`pip install ememdev`, then `from ememdev import Client`). To work from a
 checkout instead:
 
 ```bash
@@ -29,7 +29,7 @@ Requires Python 3.9+. The only runtime dependency is
 ## Quick start
 
 ```python
-from emem import Client
+from ememdev import Client
 
 with Client() as em:
     cell = em.locate("Mount Fuji")["cell64"]
@@ -41,7 +41,7 @@ with Client() as em:
 
 ```python
 import asyncio
-from emem import AsyncClient
+from ememdev import AsyncClient
 
 async def main() -> None:
     async with AsyncClient() as em:

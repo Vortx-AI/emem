@@ -47,7 +47,7 @@ Documentation = "https://emem.dev/agents.md"
 Issues = "https://github.com/Vortx-AI/emem/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/emem"]
+packages = ["src/ememdev"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/emem", "README.md", "LICENSE"]
+include = ["src/ememdev", "README.md", "LICENSE"]

@@ -11,7 +11,7 @@ Or against a local responder:
 
 from __future__ import annotations
 
-from emem import Client
+from ememdev import Client
 
 
 def main() -> None:
