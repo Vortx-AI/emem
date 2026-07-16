@@ -1,10 +1,13 @@
 # Partial results: the answer is the store, not a job queue
 
-**Status: design for owner sign-off, 2026-07-16. Nothing here ships.
-This is the deliberate answer the roadmap's partial-results item said
-the API change deserves, and it gates three other items: the memory
-preparer, scheduled densification, and the channel's retryable-errors
-ask.**
+**Status: signed off by the owner 2026-07-16, build step 1 ships the
+same day: `recall_polygon` accepts `budget_ms` and answers a
+first-class partial 200 with a typed `pending[]` (`materializing` when
+the budget expired mid-fetch, the fetch detached so it persists;
+`upstream_failed` with the remedy stated), `converged`, `progress`,
+and a retry hint. Open, in the build order below: the same contract on
+`recall_many`, the preparer form of `emem_backfill`, and the
+densification warmer.**
 
 ## The problem, restated from the roadmap
 

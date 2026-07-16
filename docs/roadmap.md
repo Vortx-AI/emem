@@ -386,9 +386,11 @@ one function before the caller sees it.
   [plans/partial-results.md](plans/partial-results.md): partiality as a
   first-class 200 with a typed `pending[]` and monotone convergence by
   identical-request retry, no job queue, because materialization
-  already persists and the store is the state. It awaits the owner's
-  sign-off, and the preparer and the densification warmer both build on
-  it once it lands.
+  already persists and the store is the state. The owner signed off
+  the same day and step 1 ships: `recall_polygon` takes `budget_ms` and
+  answers partially with a typed `pending[]` and monotone
+  identical-request retry. The same contract on `recall_many`, the
+  preparer, and the warmer are the remaining steps, in that order.
 
   The same decision blocks a memory preparer: one call that says "warm this
   area across this window" so an agent can build its memory before it needs

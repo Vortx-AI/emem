@@ -10897,6 +10897,15 @@ struct RecallPolygonReq {
     /// Optional uniform tslot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tslot: Option<u64>,
+    /// Optional soft materialization budget in milliseconds
+    /// (docs/plans/partial-results.md). Absent, behaviour is unchanged.
+    /// Present, the fan-out fills cells until the budget expires, then
+    /// answers with what is ready plus a typed `pending[]`; the
+    /// identical request retried returns strictly more from cache,
+    /// because everything materialized persists. A fully warm request
+    /// ignores the budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    budget_ms: Option<u64>,
     /// Bi-temporal valid-time bound — forwarded to every per-cell
     /// recall in the fan-out. See `RecallReq::as_of_tslot`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -11477,16 +11486,43 @@ async fn post_recall_polygon(
             )
         });
     }
+    // The budget bounds MATERIALIZATION work: the clock starts where the
+    // fan-out starts, and expiry detaches the remaining tasks instead of
+    // aborting them, so their fetches finish and PERSIST with nobody
+    // listening. That persistence is the whole partial-results design:
+    // the identical retry finds those cells warm (the store is the job
+    // queue, docs/plans/partial-results.md).
+    let deadline = req
+        .budget_ms
+        .map(|ms| tokio::time::Instant::now() + std::time::Duration::from_millis(ms));
+    let mut budget_expired = false;
     let mut indexed_recall: Vec<RecallOut> = Vec::with_capacity(cells.len());
-    while let Some(j) = recall_set.join_next().await {
-        if let Ok(triple) = j {
-            indexed_recall.push(triple);
+    loop {
+        let joined = match deadline {
+            Some(d) => match tokio::time::timeout_at(d, recall_set.join_next()).await {
+                Ok(j) => j,
+                Err(_) => {
+                    budget_expired = true;
+                    recall_set.detach_all();
+                    break;
+                }
+            },
+            None => recall_set.join_next().await,
+        };
+        match joined {
+            Some(Ok(triple)) => indexed_recall.push(triple),
+            Some(Err(_)) => {}
+            None => break,
         }
     }
     indexed_recall.sort_by_key(|(i, _, _)| *i);
     let mut by_cell = serde_json::Map::with_capacity(cells.len());
     let mut total_facts = 0usize;
+    let mut collected_cells: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(cells.len());
+    let mut pending: Vec<JsonValue> = Vec::new();
     for (_, cell, r) in indexed_recall {
+        collected_cells.insert(cell.clone());
         match r {
             Ok((resp, notes)) => {
                 total_facts += resp.facts.len();
@@ -11500,6 +11536,15 @@ async fn post_recall_polygon(
                 }
             }
             Err(e) => {
+                // A failed cell is retryable work, stated as such: the
+                // pending entry IS the remedy (partial-results design,
+                // folding the channel's W6 ask).
+                pending.push(json!({
+                    "cell": cell,
+                    "bands": req.bands,
+                    "state": "upstream_failed",
+                    "reason": e.1.message,
+                }));
                 by_cell.insert(
                     cell,
                     json!({
@@ -11511,13 +11556,26 @@ async fn post_recall_polygon(
             }
         }
     }
+    if budget_expired {
+        for cell in &cells {
+            if !collected_cells.contains(cell) {
+                pending.push(json!({
+                    "cell": cell,
+                    "bands": req.bands,
+                    "state": "materializing",
+                    "reason": "the budget expired while this cell's fetch was in flight; the fetch was detached, not aborted, so it persists on completion and the identical retry finds it warm",
+                }));
+            }
+        }
+    }
 
     // Two-stage drill on water: re-fan around each coarse-pass cell
     // whose surface_water.recurrence > 25 %. The Katihar test (May
     // 2026) showed a 200 m manmade lake fell entirely between the
     // 2 km uniform-stride samples; a coarse-then-drill scan around any
     // recurrence-positive cell catches sub-stride water bodies.
-    if drill && total_facts > 0 {
+    let budget_left = deadline.is_none_or(|d| tokio::time::Instant::now() < d);
+    if drill && total_facts > 0 && budget_left {
         let coarse_stride_km = if cells.len() > 1 {
             (area_km2 / cells.len() as f64).sqrt()
         } else {
@@ -11674,6 +11732,28 @@ async fn post_recall_polygon(
         ],
         "agent_hint": "POST /v1/recall_polygon collapses /v1/locate → polygon_sample_cells → /v1/recall_many into one call. The bbox source is declared so an agent can detect when the geocoder fell back from polygon (Nominatim bbox) to a single-cell centroid (place-name drift mitigation: fail loud, not silent). Set `cells_per_sqkm` for a uniform spatial resolution; set `drill_on_water: true` to find sub-stride water features.",
     });
+    if let Some(m) = out.as_object_mut() {
+        let converged = pending.is_empty();
+        m.insert("converged".into(), json!(converged));
+        if req.budget_ms.is_some() || !converged {
+            m.insert("budget_ms".into(), json!(req.budget_ms));
+            m.insert(
+                "progress".into(),
+                json!({
+                    "ready": collected_cells.len(),
+                    "pending": pending.len(),
+                }),
+            );
+            m.insert("pending".into(), json!(pending));
+            m.insert(
+                "retry".into(),
+                json!({
+                    "how": "repeat the identical request; every retry returns strictly more from cache, because everything materialized persists",
+                    "suggested_after_ms": 4000,
+                }),
+            );
+        }
+    }
     if !materialize_notes_all.is_empty() {
         if let Some(m) = out.as_object_mut() {
             m.insert(
@@ -18037,7 +18117,7 @@ fn openapi_spec() -> JsonValue {
                 "post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
             },
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
-            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
+            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","responses":{"200":json_ok}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},

@@ -648,6 +648,7 @@ const SCHEMA_NEIGHBORHOOD_CONSISTENCY: &str = r#"{"type":"object","required":["c
 }}"#;
 
 const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
+"budget_ms":{"type":"integer","description":"Optional soft materialization budget in ms. On expiry the response is a partial 200: converged false, a typed pending[] naming each cell and its remedy, and a retry hint; the identical call retried returns strictly more from cache, because everything materialized persists. Absent = unchanged behaviour."},
 "place":{"type":"string","description":"Free-text place name; resolved through the layered geocoder. REQUIRED unless `polygon_bbox` is provided."},
 "polygon_bbox":{"type":"object","properties":{
   "min_lat":{"type":"number"},"max_lat":{"type":"number"},
