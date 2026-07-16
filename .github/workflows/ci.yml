@@ -221,7 +221,7 @@ jobs:
         run: |
           python -m venv /tmp/wheelcheck
           /tmp/wheelcheck/bin/pip install --quiet dist-emem-py/*.whl
-          /tmp/wheelcheck/bin/python -c "import emem; print('emem', emem.__version__)"
+          /tmp/wheelcheck/bin/python -c "import ememdev; print('ememdev', ememdev.__version__)"
           /tmp/wheelcheck/bin/pip install --quiet "langchain-core>=0.3,<1.0" "blake3>=0.3" "cryptography>=41"
           /tmp/wheelcheck/bin/pip install --quiet dist-emem-langmem/*.whl
           /tmp/wheelcheck/bin/python -c "import emem_langmem; print('emem_langmem', emem_langmem.__version__)"
