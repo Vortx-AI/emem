@@ -16965,7 +16965,7 @@ async fn mcp_tool_call(
         "emem_memory_token_resolve" => {
             let req: MemoryTokenResolveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match resolve_one_token(&s, &req.token).await {
+            match resolve_one_token(s, &req.token).await {
                 Ok(v) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
