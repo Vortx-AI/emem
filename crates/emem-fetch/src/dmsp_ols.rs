@@ -543,9 +543,17 @@ fn sample_tiff_bytes(buf: &[u8], lat: f64, lng: f64) -> Result<u8, DmspOlsError>
             "expected uint8 single-band (got bps={bits_per_sample}, spp={samples_per_pixel})"
         )));
     }
-    if compression != 5 {
+    // NOAA ships the v4 web composites UNCOMPRESSED: the inflated
+    // F182013.avg_vis.tif is 725,954,782 bytes for 43201x16801 uint8, which
+    // is the raw pixel count plus a header, and its Compression tag reads 1.
+    // Requiring 5 here refused the only format this dataset actually comes
+    // in, so no nightlights read has ever succeeded: /v1/recall returns
+    // `facts: []` plus a materialize_note of `upstream_error`, retryable and
+    // forever failing. 3138 of those in one 2.5 h window, 97% of every
+    // materialize failure on the box.
+    if !(compression == 1 || compression == 5) {
         return Err(DmspOlsError::Decode(format!(
-            "expected LZW compression (5), got {compression}"
+            "expected uncompressed (1) or LZW (5) compression, got {compression}"
         )));
     }
     if !(predictor == 1 || predictor == 2) {
@@ -593,15 +601,22 @@ fn sample_tiff_bytes(buf: &[u8], lat: f64, lng: f64) -> Result<u8, DmspOlsError>
             "strip {strip_idx} bytes past end"
         )));
     }
-    // LZW-decompress the whole strip. DMSP-OLS strips are at most one
-    // image-row tall on this dataset (16800 strips × 1 row × 43200 cols
-    // = 43200 bytes per strip uncompressed) so the decoded buffer is
-    // small. We use the same `weezl::with_tiff_size_switch` mode that
-    // `cog::sample_pixel` uses for LZW.
-    let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-    let mut decoded = dec
-        .decode(&buf[strip_off..strip_off + strip_len])
-        .map_err(|e| DmspOlsError::Decode(format!("lzw: {e}")))?;
+    // Materialise the strip's pixel bytes. Strips are one image-row tall on
+    // this dataset (RowsPerStrip=1), so either branch stays small.
+    let strip = &buf[strip_off..strip_off + strip_len];
+    let mut decoded = match compression {
+        // Uncompressed: the strip already IS the pixels. This is what NOAA
+        // actually serves; see the Compression check above.
+        1 => strip.to_vec(),
+        // LZW, via the same `weezl::with_tiff_size_switch` mode
+        // `cog::sample_pixel` uses. Kept because the check above admits it
+        // and other v4 mirrors have shipped LZW.
+        _ => {
+            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
+            dec.decode(strip)
+                .map_err(|e| DmspOlsError::Decode(format!("lzw: {e}")))?
+        }
+    };
     let strip_rows_actual = (height - strip_idx as u32 * rps).min(rps) as usize;
     let row_in_strip = (row - strip_idx as u32 * rps) as usize;
     let row_bytes = width as usize;
@@ -918,5 +933,137 @@ mod tests {
             out[c] = out[c].wrapping_add(out[c - 1]);
         }
         assert_eq!(out, vec![0, 1, 1, 1, 1, 1]);
+    }
+
+    /// Build a minimal little-endian striped TIFF over `pixels`, one row per
+    /// strip, with the V4 grid's georeferencing. `compression` is written to
+    /// the tag as-is; the pixel bytes are stored uncompressed, so this only
+    /// produces a *valid* file for compression 1.
+    fn synthetic_tiff(width: u32, height: u32, pixels: &[u8], compression: u16) -> Vec<u8> {
+        assert_eq!(pixels.len(), (width * height) as usize);
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"II");
+        buf.extend_from_slice(&42u16.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes()); // IFD offset, patched below
+        let pixel_start = buf.len() as u32;
+        buf.extend_from_slice(pixels);
+
+        // Per-strip offset/count arrays (one row each).
+        let so_off = buf.len() as u32;
+        for r in 0..height {
+            buf.extend_from_slice(&(pixel_start + r * width).to_le_bytes());
+        }
+        let sbc_off = buf.len() as u32;
+        for _ in 0..height {
+            buf.extend_from_slice(&width.to_le_bytes());
+        }
+        // ModelPixelScale (3 doubles) and ModelTiepoint (6 doubles).
+        let scale_off = buf.len() as u32;
+        for v in [DMSP_OLS_PIXEL_DEG, DMSP_OLS_PIXEL_DEG, 0.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        let tie_off = buf.len() as u32;
+        for v in [0.0, 0.0, 0.0, DMSP_OLS_LEFT_LNG, DMSP_OLS_TOP_LAT, 0.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+
+        let ifd_off = buf.len() as u32;
+        // type 3 = SHORT, 4 = LONG, 12 = DOUBLE.
+        let entries: [(u16, u16, u32, u32); 9] = [
+            (256, 4, 1, width),
+            (257, 4, 1, height),
+            (258, 3, 1, 8),
+            (259, 3, 1, compression as u32),
+            (273, 4, height, so_off),
+            (277, 4, 1, 1),
+            (278, 4, 1, 1),
+            (279, 4, height, sbc_off),
+            (33550, 12, 3, scale_off),
+        ];
+        buf.extend_from_slice(&((entries.len() + 1) as u16).to_le_bytes());
+        for (tag, typ, cnt, val) in entries {
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&typ.to_le_bytes());
+            buf.extend_from_slice(&cnt.to_le_bytes());
+            if typ == 3 && cnt == 1 {
+                buf.extend_from_slice(&(val as u16).to_le_bytes());
+                buf.extend_from_slice(&0u16.to_le_bytes());
+            } else {
+                buf.extend_from_slice(&val.to_le_bytes());
+            }
+        }
+        buf.extend_from_slice(&33922u16.to_le_bytes());
+        buf.extend_from_slice(&12u16.to_le_bytes());
+        buf.extend_from_slice(&6u32.to_le_bytes());
+        buf.extend_from_slice(&tie_off.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes()); // next IFD = none
+
+        let ifd_bytes = ifd_off.to_le_bytes();
+        buf[4..8].copy_from_slice(&ifd_bytes);
+        buf
+    }
+
+    /// An uncompressed avg_vis TIFF must sample, because that is the only
+    /// format this dataset ships in.
+    ///
+    /// The sampler required `Compression == 5` and refused anything else.
+    /// NOAA's v4 web composites are Compression 1: the inflated
+    /// F182013.avg_vis.tif is 725,954,782 bytes for 43201x16801 uint8, which
+    /// is the raw pixel count plus a header, and its tag reads 1. So every
+    /// nightlights read failed with "expected LZW compression (5), got 1".
+    /// The protocol stayed honest about it, which is why this went unnoticed:
+    /// /v1/recall returns `facts: []` and a materialize_note of
+    /// `upstream_error, retryable: true` rather than a fabricated DN, so the
+    /// band simply looked perpetually unavailable instead of broken. Live:
+    /// 3138 failures in a single 2.5 h window, 97% of all materialize
+    /// failures on the box.
+    ///
+    /// `lzw_predictor_2_decodes_known_pattern` above never called
+    /// `sample_tiff_bytes`; it round-trips weezl against itself, so it
+    /// asserts that a third-party LZW library works and stayed green
+    /// throughout. This one drives the real sampler.
+    #[test]
+    fn an_uncompressed_tiff_samples_because_that_is_what_noaa_ships() {
+        // 4x3 grid anchored at the V4 top-left, pixel values = index.
+        let (w, h) = (4u32, 3u32);
+        let pixels: Vec<u8> = (0..(w * h) as u8).collect();
+        let tiff = synthetic_tiff(w, h, &pixels, 1);
+
+        // Sample the centre of each pixel and expect its own value back.
+        for row in 0..h {
+            for col in 0..w {
+                let lng = DMSP_OLS_LEFT_LNG + (col as f64) * DMSP_OLS_PIXEL_DEG;
+                let lat = DMSP_OLS_TOP_LAT - (row as f64) * DMSP_OLS_PIXEL_DEG;
+                let got = sample_tiff_bytes(&tiff, lat, lng)
+                    .unwrap_or_else(|e| panic!("uncompressed sample at ({row},{col}) failed: {e}"));
+                assert_eq!(
+                    got,
+                    (row * w + col) as u8,
+                    "wrong DN at row {row} col {col}"
+                );
+            }
+        }
+    }
+
+    /// A compression we cannot decode must still be refused, by name.
+    ///
+    /// The fix widened the gate from "LZW only" to "uncompressed or LZW".
+    /// It must not have widened it to "anything": a Deflate or PackBits
+    /// strip read as raw bytes would sample compressed data as if it were
+    /// pixels and sign the result as a real DN.
+    #[test]
+    fn an_undecodable_compression_is_refused_rather_than_read_as_pixels() {
+        let (w, h) = (4u32, 3u32);
+        let pixels: Vec<u8> = (0..(w * h) as u8).collect();
+        // 8 = Deflate. We write the tag without deflating, so if the sampler
+        // ever accepted it, it would return byte 0 rather than erroring.
+        let tiff = synthetic_tiff(w, h, &pixels, 8);
+        let err = sample_tiff_bytes(&tiff, DMSP_OLS_TOP_LAT, DMSP_OLS_LEFT_LNG)
+            .expect_err("Deflate must be refused, not silently read as raw pixels");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("got 8"),
+            "the refusal must name the compression it saw, got: {msg}"
+        );
     }
 }
