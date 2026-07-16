@@ -305,7 +305,7 @@ trail to a regulator who never trusted the operator).
 | LlamaIndex               | MCP via adapter   | none | [`examples/llamaindex/`](../examples/llamaindex) |
 | AutoGen                  | MCP tool          | none | [`examples/autogen/`](../examples/autogen) |
 | CrewAI                   | MCP tool          | none | [`examples/crewai/`](../examples/crewai) |
-| Pydantic AI              | MCP tool          | none | [`examples/pydantic-ai/`](../examples/pydantic-ai) |
+| Pydantic AI              | MCP tool          | none | standard MCP client config over `https://emem.dev/mcp`; no example directory yet |
 | Mastra (TypeScript)      | MCP tool          | none | [`examples/mastra/`](../examples/mastra) |
 | Agno                     | MCP tool          | none | [`examples/agno/`](../examples/agno) |
 | stdio bridge             | `mcp-remote`      | none | (any runtime without native Streamable HTTP)  |

@@ -291,12 +291,15 @@ the existing ones are found.
   signals the README does not have to restate (latest release, CI
   state), and aggregate, non-identifying usage counts if and only if
   they are consistent with the privacy policy.
-- **A doc-lint gate.** The prose convention and the claim discipline are
-  enforced by hand today. Open: a CI check that fails on the banned
-  characters and filler-word list, verifies internal links resolve, and
-  parses every token example in the docs, with the convention written
-  down in CONTRIBUTING.md so outside contributors inherit it rather than
-  rediscover it in review.
+- **A doc-lint gate.** Ships as of 2026-07-16: `scripts/doc_lint.py`
+  runs in CI and fails on em and en dashes (legacy files ride a visible
+  burn-down list inside the script that can only shrink), on the
+  banned-vocabulary and buzzword lists, and on relative doc links that
+  do not resolve; the convention itself is written down in
+  CONTRIBUTING.md. On its first run it caught eight broken source links
+  and one integrations row pointing at an example directory that does
+  not exist. Open: parsing every token example in the docs, and burning
+  the legacy dash list down to empty.
 
 ### What agents building on emem actually hit
 

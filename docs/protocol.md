@@ -149,7 +149,7 @@ The tests in `geo.rs:139-241` pin the contract.
 - **Antimeridian** (geo.rs:178-180): `lng = 179.99` round-trips;
   `lng = -181` wraps to `+179`.
 - **Polar clamp** (geo.rs:76): `lat = 95` clamps to `90`.
-- **Square at equator** (geo.rs:207-225): bucket extent is 8–12 m on
+- **Square at equator** (geo.rs:207-225): bucket extent is 8 to 12 m on
   both axes; lat and lng agree to within 5%.
 
 ### 1.7 Legacy 16-bit grid: rejected
@@ -191,7 +191,7 @@ Defined in `tslot.rs:24-37, 43-54`. Five variants:
 | Variant | `slot_seconds()` | Cadence | Sample bands |
 |---------|------------------|---------|--------------|
 | `Static` | 0 | never changes | DEM, Köppen, lcv-1 |
-| `Slow` | 31_536_000 | 365 d | Tessera (2017–2024 vintages + `multi_year` 1024-D + `bin128`), soil |
+| `Slow` | 31_536_000 | 365 d | Tessera (2017..2024 vintages + `multi_year` 1024-D + `bin128`), soil |
 | `Medium` | 2_592_000 | 30 d | NDVI composites |
 | `Fast` | 86_400 | 1 d | raw S2 NDVI |
 | `UltraFast` | 3_600 | 1 h | weather, traffic |
@@ -1271,7 +1271,7 @@ shape it dedups to avoid) cannot answer consistency queries.
   natural append-ordered source.
 
 Three read-only endpoints, all strictly additive (they never mutate state
-and the responder is never trusted to self-certify — every proof verifies
+and the responder is never trusted to self-certify; every proof verifies
 offline):
 
 - `GET /v1/log/sth` returns a **Signed Tree Head**: `{tree_size, root_b32,

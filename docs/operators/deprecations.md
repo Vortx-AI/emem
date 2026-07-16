@@ -7,7 +7,7 @@ that removes them, and the migration path. Machine-parseable twin at
 The policy: a surface stays announced for at least one minor version
 before removal. Anything pinned by a content-addressed manifest CID
 (bands, algorithms, functions, sources, schema) is **never silently
-removed** — instead a new CID is published and old CIDs remain
+removed**: instead a new CID is published and old CIDs remain
 resolvable for offline verification.
 
 ## Currently announced

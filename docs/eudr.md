@@ -1,6 +1,6 @@
 # EUDR: Due Diligence Statements + Visual Evidence
 
-`POST /v1/eudr_dds` produces a signed Annex II–shaped Due Diligence Statement under
+`POST /v1/eudr_dds` produces a signed Annex II shaped Due Diligence Statement under
 [Regulation (EU) 2023/1115](https://eur-lex.europa.eu/eli/reg/2023/1115/oj) for one or more
 operator-supplied plots. The endpoint covers the geolocation + deforestation parts of
 Annex II; Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin

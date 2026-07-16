@@ -242,6 +242,23 @@ jobs:
       - name: rendered page is up to date
         run: python3 scripts/render_whitepaper.py --check
 
+  doc-lint:
+    name: prose convention holds
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The convention CONTRIBUTING.md states, enforced instead of
+      # remembered: no em/en dashes (legacy files ride a burn-down list
+      # inside the script), no AGI-family vocabulary, no buzzword tells,
+      # and every relative doc link resolving. Judgment calls stay with
+      # review; this holds the mechanical floor.
+      - name: doc lint
+        run: python3 scripts/doc_lint.py
+
   ts-sdk:
     name: TypeScript SDK build
     runs-on: ubuntu-latest

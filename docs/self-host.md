@@ -140,7 +140,7 @@ EMEM_TLS_CONTACT=mailto:ops@example.com \
 ./target/release/emem-server
 ```
 
-First boot: ~15–30 s while ACME validates. Subsequent boots: ~2 s
+First boot: ~15 to 30 s while ACME validates. Subsequent boots: ~2 s
 because the certificate is cached in `EMEM_DATA/tls-acme/`. Use
 `EMEM_TLS_STAGING=1` while testing; Let's Encrypt prod rate-limits.
 
@@ -201,4 +201,4 @@ HF account. Useful for small evaluations without operating a VM.
 
 For the long version (process model, backup/restore, sled tuning, jepa
 sidecar, geocoder warmup, all the things that bit us in production), see
-[Operators / Operating](./operators/operating.html).
+[Operators / Operating](./operators/operating.md).

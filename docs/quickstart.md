@@ -235,11 +235,11 @@ The receipt carries the bound so any auditor replays the same query later.
 ## Next moves
 
 - [Whitepaper](./whitepaper-v2.md): the math, the bit layouts, the trust proof
-- [Protocol](./protocol.html): wire format and signing rules
-- [Agents](./agents.html): how AI agents discover and call the protocol (MCP + REST)
-- [Errors](./errors.html): common error shapes and how to handle each
-- [Registries](./registries.html): bands, algorithms, sources, topics
-- [Developers / Architecture](./developers/architecture.html): what runs inside the box
+- [Protocol](./protocol.md): wire format and signing rules
+- [Agents](./agents.md): how AI agents discover and call the protocol (MCP + REST)
+- [Errors](./errors.md): common error shapes and how to handle each
+- [Registries](./registries.md): bands, algorithms, sources, topics
+- [Developers / Architecture](./developers/architecture.md): what runs inside the box
 
 ## Where things live
 
@@ -247,5 +247,5 @@ The receipt carries the bound so any auditor replays the same query later.
 - **MCP endpoint**: `https://emem.dev/mcp` (Streamable HTTP, JSON-RPC 2.0)
 - **OpenAPI**: `https://emem.dev/openapi.json`
 - **GitHub**: `https://github.com/Vortx-AI/emem` (code, issues, roadmap)
-- **Self-host**: `docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest` (see [self-host.md](./self-host.html))
+- **Self-host**: `docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest` (see [self-host.md](./self-host.md))
 - **Status**: `GET /health`, single-line JSON; check it from your monitor

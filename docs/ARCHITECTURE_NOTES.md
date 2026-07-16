@@ -145,7 +145,7 @@ per-batch trees and the fsynced log are the natural leaf source.
 
 **Phase 1 shipped.** `crates/emem-attest/src/translog.rs` implements the
 RFC 6962 tree (Merkle-tree-hash, inclusion and consistency proofs, and
-their verifiers) — a genuine promote-lone-node construction, distinct from
+their verifiers): a genuine promote-lone-node construction, distinct from
 the batch-root tree in section 6.1, so consistency proofs are sound.
 `AttestationLog::leaf_hashes()` (`merkle_log.rs`) reads the append-ordered
 leaves; `GET /v1/log/{sth,inclusion,consistency}` serve a responder-signed

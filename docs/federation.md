@@ -27,7 +27,7 @@ visible in production:
   accept backlog saturates). The `emem-watchdog` turns that into a
   ~2-minute self-heal, but a single process is a single failure domain.
 
-Vertical tuning (done in Phases 0–1) lowered the constant factors. The
+Vertical tuning (done in Phases 0 and 1) lowered the constant factors. The
 ceiling itself (one writer, one failure domain, one machine's RAM/disk/GPU)
 is structural. Scale-out removes it.
 
@@ -173,7 +173,7 @@ GET /v1/fetch/<fact_cid>:
 Properties: read-only, verify-before-cache, no write-path or schema
 change, no new distributed state. It exercises content addressing +
 offline verification across a process boundary (the whole trust model)
-without committing to sharding or routing. Everything in §4b–§4d builds on
+without committing to sharding or routing. Everything in §4b through §4d builds on
 the verify primitive this establishes.
 
 ## 7. Non-goals (for now)
