@@ -13,9 +13,9 @@
 //! the API crate. We duplicate the loader here. The two helpers stay
 //! pin-compatible by both reading the same on-disk model directory.
 //!
-//! For long files we chunk by approximate token count (≤512 sub-words),
-//! embed each chunk, and mean-pool the chunk embeddings into a single
-//! 768-D vector. The mean-pool path matches BGE's recommended use for
+//! For long files we tokenize once, window the ids at the model's real
+//! 512-token limit, embed each window, and mean-pool into a single 768-D
+//! vector. The mean-pool path matches BGE's recommended use for
 //! sentence-level retrieval and keeps the Lance schema flat (one row
 //! per file, not one per chunk).
 
@@ -29,11 +29,22 @@ use tokenizers::Tokenizer;
 /// model swap that changes the dim must update both.
 pub const TEXT_EMBED_DIM: usize = 768;
 
-/// Approximate per-chunk sub-word budget. BGE has a 512-token context
-/// window; we leave 8 tokens of headroom for `[CLS]`/`[SEP]` + padding
-/// shifts. The chunker splits on whitespace and packs greedily by
-/// `char.len() ≈ token count` (BGE's WordPiece averages ~4 chars/token
-/// on English; the 504 chosen here is the conservative budget).
+/// BGE's context window, in real sub-word tokens. This is a hard limit:
+/// the position embedding is a `[512, hidden]` table, so a longer sequence
+/// does not degrade, it fails the graph outright with
+/// `Attempting to broadcast an axis by a dimension other than 1. 512 by N`.
+const MODEL_MAX_TOKENS: usize = 512;
+
+/// Real tokens per window, leaving room for the `[CLS]` and `[SEP]` this
+/// module adds around each one.
+const WINDOW_TOKENS: usize = MODEL_MAX_TOKENS - 2;
+
+/// Approximate per-chunk sub-word budget, and the assumed character cost
+/// of a token. Used ONLY to cut text into snippet-sized pieces, never to
+/// decide what the model can accept: see `embed_document`, which windows
+/// real token ids. BGE's WordPiece averages ~4 chars/token on English,
+/// which is what these encode; text that is not English prose can run far
+/// denser, and that assumption is exactly what broke embedding here.
 const CHUNK_BUDGET_TOKENS: usize = 504;
 const CHARS_PER_TOKEN_APPROX: usize = 4;
 
@@ -122,23 +133,51 @@ impl TextEmbedder {
         })
     }
 
-    /// Embed a single chunk of text. Returns a 768-D L2-normalised
-    /// vector. The chunk must already be short enough to tokenize
-    /// inside the model's context (caller uses `chunk_text` to split).
-    fn embed_chunk(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
+    /// The `[CLS]` / `[SEP]` ids this module wraps each window in.
+    ///
+    /// Read from the tokenizer rather than hardcoded, so a model whose
+    /// vocabulary numbers them differently is a typed error at the first
+    /// embed instead of a silently wrong vector.
+    fn special_ids(&self) -> Result<(u32, u32), EmbedError> {
+        let cls = self
+            .tokenizer
+            .token_to_id("[CLS]")
+            .ok_or_else(|| EmbedError::Tokenizer("tokenizer has no [CLS] token".into()))?;
+        let sep = self
+            .tokenizer
+            .token_to_id("[SEP]")
+            .ok_or_else(|| EmbedError::Tokenizer("tokenizer has no [SEP] token".into()))?;
+        Ok((cls, sep))
+    }
+
+    /// Embed one window of real token ids, which must already be at most
+    /// `WINDOW_TOKENS` long. `[CLS]` and `[SEP]` are added here.
+    ///
+    /// Takes ids rather than text because the length that matters to the
+    /// model is measured in tokens, and only the tokenizer knows it. The
+    /// previous version took text and trusted a character-count estimate
+    /// to have kept it short enough, which is the bug this closes.
+    fn embed_window(&self, window: &[u32], cls: u32, sep: u32) -> Result<Vec<f32>, EmbedError> {
         use ort::value::Tensor;
 
-        let enc = self
-            .tokenizer
-            .encode(text, true)
-            .map_err(|e| EmbedError::Tokenizer(format!("encode: {e}")))?;
-        let n = enc.get_ids().len();
-        if n == 0 {
+        if window.is_empty() {
             return Ok(vec![0.0_f32; TEXT_EMBED_DIM]);
         }
-        let ids: Vec<i64> = enc.get_ids().iter().map(|&x| x as i64).collect();
-        let mask: Vec<i64> = enc.get_attention_mask().iter().map(|&x| x as i64).collect();
-        let tt: Vec<i64> = enc.get_type_ids().iter().map(|&x| x as i64).collect();
+        if window.len() > WINDOW_TOKENS {
+            return Err(EmbedError::Shape(format!(
+                "window of {} tokens exceeds the {WINDOW_TOKENS}-token budget; \
+                 embed_document must window before calling this",
+                window.len()
+            )));
+        }
+        let mut ids: Vec<i64> = Vec::with_capacity(window.len() + 2);
+        ids.push(cls as i64);
+        ids.extend(window.iter().map(|&x| x as i64));
+        ids.push(sep as i64);
+        let n = ids.len();
+        // One segment, nothing padded: every position is real.
+        let mask: Vec<i64> = vec![1; n];
+        let tt: Vec<i64> = vec![0; n];
 
         let ids_t = Tensor::from_array(([1, n], ids))
             .map_err(|e| EmbedError::Ort(format!("ids tensor: {e}")))?;
@@ -178,32 +217,44 @@ impl TextEmbedder {
         Ok(l2_normalised(v))
     }
 
-    /// Embed a full document. Splits into ≤504-token chunks (approx),
-    /// embeds each, mean-pools to a single 768-D L2-normalised vector.
-    /// For documents that fit in one chunk this is identical to
-    /// `embed_chunk`.
+    /// Embed a full document: tokenize once, window the ids at the model's
+    /// real context limit, embed each window, mean-pool to one 768-D
+    /// L2-normalised vector.
+    ///
+    /// The document is measured in tokens rather than characters because
+    /// the limit it has to respect is counted in tokens. Windowing text by
+    /// a `chars / 4` estimate held for English prose and broke on
+    /// everything else: a chunk of base32 CIDs, tables, code or URLs packs
+    /// far more sub-words into the same 2016 characters, so the model was
+    /// handed 769 and 946-token sequences against a 512 limit and threw.
+    /// Every memory file dense enough to overrun failed on every pass,
+    /// forever, and was never indexed at all. Notably that included every
+    /// message in the agent-to-agent channel, whose whole substance is
+    /// content-addressed CIDs.
     pub fn embed_document(&self, text: &str) -> Result<Vec<f32>, EmbedError> {
-        let chunks = chunk_text(text);
-        if chunks.is_empty() {
+        let enc = self
+            .tokenizer
+            .encode(text, false)
+            .map_err(|e| EmbedError::Tokenizer(format!("encode: {e}")))?;
+        let ids = enc.get_ids();
+        if ids.is_empty() {
             return Ok(vec![0.0_f32; TEXT_EMBED_DIM]);
         }
-        if chunks.len() == 1 {
-            return self.embed_chunk(&chunks[0]);
+        let (cls, sep) = self.special_ids()?;
+        let windows: Vec<&[u32]> = ids.chunks(WINDOW_TOKENS).collect();
+        if windows.len() == 1 {
+            return self.embed_window(windows[0], cls, sep);
         }
         let mut sum = vec![0.0_f32; TEXT_EMBED_DIM];
-        let mut n: usize = 0;
-        for c in &chunks {
-            let v = self.embed_chunk(c)?;
+        for w in &windows {
+            let v = self.embed_window(w, cls, sep)?;
             for (i, x) in v.iter().enumerate() {
                 sum[i] += *x;
             }
-            n += 1;
         }
-        if n > 1 {
-            let nf = n as f32;
-            for x in &mut sum {
-                *x /= nf;
-            }
+        let nf = windows.len() as f32;
+        for x in &mut sum {
+            *x /= nf;
         }
         Ok(l2_normalised(sum))
     }
@@ -225,9 +276,15 @@ impl TextEmbedder {
     }
 }
 
-/// Split a long string into pieces small enough to tokenize inside the
-/// model's 512-token context. Greedy whitespace-aware splitter: never
-/// breaks mid-word and packs by approximate token count.
+/// Split a long string into roughly snippet-sized pieces on whitespace,
+/// never breaking mid-word.
+///
+/// This is a TEXT splitter, used to pick which part of a file to show as a
+/// search snippet. It is deliberately not what protects the model: its
+/// budget is characters over an assumed 4 chars/token, an estimate that is
+/// wrong by 50% or more on anything but English prose. `embed_document`
+/// windows real token ids instead. Do not reintroduce a caller that trusts
+/// these chunks to fit the context.
 pub fn chunk_text(text: &str) -> Vec<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -250,10 +307,10 @@ pub fn chunk_text(text: &str) -> Vec<String> {
             current.push(' ');
             current_chars += 1;
         }
-        // A pathologically long single word still goes in its own chunk
-        // — tokenizers handle the WordPiece split internally even if it
-        // overruns; the chunker's job is only to keep most chunks below
-        // the budget.
+        // A pathologically long single word still goes in its own chunk.
+        // Harmless now: the model is protected by token windowing, not by
+        // this. It was not harmless when this text went straight to the
+        // encoder.
         current.push_str(word);
         current_chars += w_chars;
     }
@@ -357,5 +414,58 @@ mod tests {
         let v = l2_normalised(vec![3.0, 4.0]);
         let mag: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!((mag - 1.0).abs() < 1e-6, "mag = {mag}");
+    }
+
+    /// A memory file made of content-addressed CIDs must embed.
+    ///
+    /// This is the shape that broke: `chunk_text` budgets characters at an
+    /// assumed 4 chars/token, so it called a 2016-character block one chunk,
+    /// and the encoder turned it into 769 sub-words against a 512-token
+    /// limit. ONNX refused the graph, the indexer logged
+    /// "embed/index failed; file will be retried on next pass", and retried
+    /// it forever. Live, 24 files were stuck in that loop, including every
+    /// message in the agent-to-agent channel, whose substance is base32
+    /// CIDs. `chunk_text_splits_long_strings` above stayed green throughout,
+    /// because it measures the characters that were never the problem.
+    ///
+    /// Needs the real tokenizer to mean anything, since the whole bug is a
+    /// disagreement between estimated and real token counts, so it is
+    /// ignored by default rather than skipped silently on a runner with no
+    /// model.
+    #[test]
+    #[ignore = "needs the on-disk bge-base-en-v1.5 model — run with --ignored"]
+    fn a_document_of_cids_embeds_rather_than_overrunning_the_context() {
+        let embedder = match TextEmbedder::open_default() {
+            Ok(e) => e,
+            Err(e) => panic!("model not available: {e}"),
+        };
+        // A real token from the channel, repeated: dense base32 with no
+        // English structure for WordPiece to latch onto.
+        let cid_doc = "emem:fact:defi.zb572.towe.zae65:zeal26ciu76uuksgdvacjsytza ".repeat(200);
+
+        // First, pin the disagreement rather than assert it from memory:
+        // the text splitter thinks this is few chunks, the tokenizer knows
+        // better.
+        let enc = embedder.tokenizer.encode(cid_doc.as_str(), false).unwrap();
+        let real_tokens = enc.get_ids().len();
+        for c in chunk_text(&cid_doc) {
+            let n = embedder.tokenizer.encode(c.as_str(), false).unwrap();
+            if n.get_ids().len() > MODEL_MAX_TOKENS {
+                // This is the bug, still present in the text splitter and
+                // now harmless. If this stops being true the test below is
+                // no longer proving anything, so say so loudly.
+                let v = embedder.embed_document(&cid_doc).expect(
+                    "a CID-dense document must embed; the encoder is fed \
+                     token windows, not chars/4 guesses",
+                );
+                assert_eq!(v.len(), TEXT_EMBED_DIM);
+                return;
+            }
+        }
+        panic!(
+            "expected chunk_text to produce a chunk over {MODEL_MAX_TOKENS} real tokens \
+             ({real_tokens} tokens across the document); if the splitter got token-aware, \
+             rewrite this test against whatever now overruns"
+        );
     }
 }
