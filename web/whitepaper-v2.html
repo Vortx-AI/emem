@@ -300,7 +300,8 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <main class="doc">
 
-      <p><strong>Whitepaper v2 / 2026-07-14</strong></p>
+      <p><strong>Whitepaper v2 / 2026-07-16</strong></p>
+      <p><em>Superseded as the canonical paper by <a href="whitepaper.md">whitepaper.md</a> (2026-07-16), which carries this document forward with v1's protocol depth, formal notation, figures, an evaluation, and a threat model. This file remains the served v2 record.</em></p>
       <p><em>Supersedes <a href="/whitepaper/v1">whitepaper v1</a> (version 0.1.0, 2026-06-14), which remains archived and unedited. v1 is the version cited by <a href="https://doi.org/10.5281/zenodo.20706893">DOI 10.5281/zenodo.20706893</a>; that record resolves to Zenodo's own frozen copy and is unaffected by this document. <a href="#16-changes-from-v1">Section 16</a> lists, claim by claim, what v1 asserted that this responder does not do.</em></p>
     <section id="abstract">
       <h2>Abstract</h2>
@@ -308,6 +309,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <p>That guarantee is precise, and its edges matter more than its centre. It holds for <code>emem:fact:</code> tokens, where the identifier is a digest of the stored bytes and the receipt binds <code>(cell, fact_cid)</code> into the signed preimage. It does <strong>not</strong> hold uniformly across the token family: <code>emem:entity:</code> converges two agents on a shared <em>name</em>, not on byte-identical <em>bytes</em>, because an entity's identifier is computed from a deliberately narrow identity preimage rather than from its whole body (§2). §3 gives the grammar and states, per token type, exactly what dereferencing proves. §14 collects every such limit in one place. Where a mechanism proves less than its name suggests, this document says so rather than let the name do the work.</p>
       <p>The protocol is one trust surface over two layers. <em>Earth memory</em> is an open-data corpus addressed by <code>(cell, band, tslot)</code> whose unit is a signed fact. <em>Agent memory</em> is a content-addressed file store under <code>/memories/*</code> with six file verbs conforming to the Anthropic memory-tool specification, four memory kinds drawn from the CoALA agent-memory ontology, and an ed25519 capability binding on paths under <code>/memories/by_attester/&lt;pubkey_short&gt;/</code>. Both return signed receipts, and one <code>/verify</code> page checks either without trusting the issuer.</p>
       <p>Every signature this responder issues follows one rule: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream (§6). Two constructions sit outside it, and §6.4 names both. Every read primitive accepts two optional bounds, <code>as_of_tslot</code> (observation time) and <code>as_of_signed_at</code> (transaction time); both enter the signed preimage, so a verifier in year <em>t+k</em> replays the exact query a system answered in year <em>t</em>. Every band declares how its values are produced, in one of five tamper-provenance classes (§7). An append-only log records attestation batches under the RFC 6962 tree construction (§8). Callers may register derivations over parent facts under their own key (§9).</p>
+      <p>The framing this document commits to follows from the guarantee rather than preceding it. Generating a plausible account of the world is cheap and getting cheaper; what stays scarce is a shared account that is measured, signed, and checkable by someone who was not there. emem is built to be that account: a substrate agents inherit rather than re-derive, measured at canonical addresses, signed fact by fact, bi-temporal, and checkable offline.</p>
     </section>
 
     <hr class="band-rule">
@@ -323,6 +325,10 @@ input::placeholder{color:var(--mute,#7a7363)}
       <p>The common cause is that identity lives inside the model. Each model holds its own description of a thing, and descriptions do not compose: there is no operation that takes two paraphrases and decides whether they denote one object. The problem is not that models are careless. It is that a natural-language description is not an identifier, and using one as an identifier is a category error that only surfaces later, when the cost of the mistake has compounded.</p>
       <p>The fix is not better prose discipline. It is to give the thing an address that lives outside every model, that derives from bytes rather than from who is speaking, and that any party can dereference and check alone. That is what the rest of this document specifies: an address for places (§4), a content identifier for observations (§5), a citeable handle for both (§3), and a signature over the bytes that makes the handle checkable by someone who trusts nobody (§6).</p>
       <p>The claim is narrow, and worth stating precisely because the surrounding literature is full of larger ones. emem does not stop a model from paraphrasing, and does not make a recorded value true. It gives the model something better to carry than a paraphrase: an 83- or 84-character line that re-hydrates to the exact signed bytes, for anyone, for as long as the bytes exist. What is guaranteed is co-reference and integrity, never truth. Confidence, uncertainty, and provenance travel alongside the value (§7) precisely because the signature speaks to none of them.</p>
+      <h3>1.1 Drift has two directions</h3>
+      <p>Everything above describes drift in language: the reference decays while the world stands still, and the token pins it. The world runs the same failure in the other direction. The reference stands still, the readout at it moves, and not every move is the world. A crop grows, but also a satellite is swapped, a scene registers five metres off, an encoder is upgraded, a cloud passes. Between two visits to one pinned address, the observed change decomposes as</p>
+      <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε</code></pre></div>
+      <p>the world changed, the instrument changed, the pixels moved, the model changed, noise. Only the first term is about the world, and a memory that cannot tell the terms apart either raises false alarms or hides real events. The protocol already pins or separates every term but the first: an embedding fact carries its encoder checkpoint and versioned recipe, so Δ_encoder is checkable rather than hidden (§10.1); bi-temporality separates a change in the world from a change in what the memory knew (§4.3); every change points at a specific immutable fact (§5); and the receipt makes whatever split is computed checkable by a third party (§6). Attributing a given delta among the terms is open work, specified in §10.3 and carried on the roadmap; nothing in this build computes it.</p>
     </section>
 
     <hr class="band-rule">
@@ -604,6 +610,15 @@ input::placeholder{color:var(--mute,#7a7363)}
       <p>The ontology is compiled into the binary (<code>include_str!</code> over <code>bands-v0.json</code>) and read through one <code>LazyLock</code> by every consumer. There is no env var, no file load, and no runtime override: a deployment that wants a different ontology recompiles. The module's own header claims a hot-swap capability that does not exist in the code, and §16 records that.</p>
       <h3>10.2 Beyond satellites</h3>
       <p>Any observer with a location and a signing key can join the same attest, recall, cite, verify path. <code>POST /v1/attest</code> is the multi-writer endpoint and ships today. Substrate profiles for fixed sensors, drones, robot fleets, industrial machines, and government registries are roadmap work, not claims about this build. Location stays the first key for all of them.</p>
+      <h3>10.3 Change attribution: what a readout change means</h3>
+      <p>The §1.1 decomposition becomes concrete on this substrate. Take one cell, one band, two tslots, and ask why the value moved.</p>
+      <ul>
+        <li><strong>Δ_encoder, pinned.</strong> An embedding fact names its model checkpoint and its versioned recipe (<code>derivation.fn_key</code> in the content-addressed algorithm registry), so an encoder upgrade is a visible property of the record, never a silent shift that masquerades as change on the ground.</li>
+        <li><strong>Δ_sensor and Δ_geo, recorded but not attributed.</strong> Scene selection is signed into provenance (<code>scenes_tried</code>, the chosen scene id, the SCL cloud class), and the processing-baseline guard pins the upstream's radiometric convention. What was observed through is on the record; no computation splits its contribution out of a delta.</li>
+        <li><strong>Δ_env against the rest.</strong> The bi-temporal bounds (§4.3) keep "the world changed" and "the memory learned" as separate questions with separate answers.</li>
+      </ul>
+      <p>What ships as change surfaces today, stated plainly: <code>emem_diff</code> returns a raw delta (<code>nd.delta@1</code>); <code>state_diff</code> returns residual, L2, and cosine between two vintages of one encoder; <code>triple_consensus</code> reports year-over-year agreement across three encoders behind a gate its own output documents as uncalibrated. None of them attributes.</p>
+      <p>The open primitive is <code>change_attribution@1</code>: given a cell and two readings, return the decomposition with each term estimated, as a derivative fact with parent cids under a signed receipt, so the attribution is as citeable and offline-checkable as the readings it explains. The label-free indices this substrate already materializes (NDVI, dNBR, SAR coherence, the SCL cloud class among them) are the raw material such an estimator would read; the estimator itself, and a calibrated cross-encoder, cross-sensor stability model, do not exist in this build. The roadmap carries the item.</p>
     </section>
 
     <hr class="band-rule">
@@ -706,6 +721,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <li><strong>Federation.</strong> Single primary; replicas are read-only. No multi-host clustering, no SOC 2 attestation.</li>
         <li><strong>Declared is not wired.</strong> 46 declared source schemes is a catalog count, not a capability count, and several schemes remain declared-but-unwired.</li>
         <li><strong>JEPA v2 is trained, and does not beat persistence on real data.</strong> This entry previously said the artefact was an untrained residual-zero identity baseline. That is false and <code>/v1/capabilities</code> refutes it: <code>jepa_predict_v2</code> reports <code>trained: true</code>. The deployed artefact carries <code>trained_at 2026-05-28</code> and 28,328 parameters. It was fitted on 12,000 wholly synthetic sequences from a seasonality generator and validated on 2,000 more, also synthetic (<code>synthetic_fraction_train: 1.0</code>), where it beats a Markov-1 "predict the last lag" baseline by 62.7% on NDVI MSE. On the 34 real NDVI pairs held for evaluation it does not beat that baseline: MSE 0.021124 against the baseline's 0.019858, a skill score of -0.064. The artefact's own <code>honesty_caveats</code> state the real corpus is too sparse to train end-to-end. Treat <code>jepa_predict_v2</code> as a research surface, not a forecast.</li>
+        <li><strong>Change attribution does not exist.</strong> <code>emem_diff</code> and <code>state_diff</code> return raw deltas; <code>triple_consensus</code>'s agreement gate is uncalibrated and its strongest verdict unreachable; nothing decomposes a delta into environment, sensor, geometry, and encoder terms (§10.3).</li>
       </ul>
       <h3>14.6 Specification</h3>
       <ul>
@@ -758,6 +774,9 @@ input::placeholder{color:var(--mute,#7a7363)}
         <li>Any token "resolves to the byte-identical signed object", applied across the family. True for <code>emem:fact:</code>, false for <code>emem:entity:</code>, vacuous for <code>emem:cell:</code> (§3).</li>
         <li>"Four provenance classes." There are <strong>five</strong>; <code>unclassified</code> is the fail-safe default (§7).</li>
         <li>"Hot-swap the ontology without recompiling." The ontology is compiled in (§10.1).</li>
+        <li>"<code>pip install ememdev</code>", presented as a working install path. Every wheel published to PyPI (0.0.9, 0.1.0, 1.0.0) contained no Python modules; the roadmap's SDK entry carries the full account and the release gates that now prevent a repeat.</li>
+        <li>"46 declared sources and 124 wired measurements", read together as one capability count. Declared is a catalog count and several schemes remain unwired (§14.5); the README now scopes the two numbers apart.</li>
+        <li>The homepage FAQ listing three foundation-model embeddings where the substrate wires four (Clay was omitted). The page is compiled into the binary, so that correction lands with the next server deploy rather than with this document.</li>
         <li>"base-1024 bigrams", which appeared in 14 places including the OpenAPI <code>Cell64</code> schema, where the same sentence went on to call the alphabet 65,536-entry. The alphabet has <strong>65,536</strong> entries; four base-1024 digits would encode 40 bits and could not address a 64-bit cell (§4.1). Corrected everywhere as of this document's date.</li>
       </ul>
       <h3>16.3 What is new since v1</h3>
@@ -775,12 +794,14 @@ input::placeholder{color:var(--mute,#7a7363)}
       <h2><span class="num">17</span>Open questions</h2>
       <ul>
         <li><strong>Chain the receipt to the log.</strong> A <code>fact_cid -&gt; leaf_index</code> index and a log segment in the receipt preimage would close §8.4 and make "transparency" mean what it sounds like. This is the single highest-value increment on this substrate.</li>
+        <li><strong>A change-attribution primitive.</strong> The §10.3 decomposition needs an estimator and a calibrated cross-encoder, cross-sensor stability model. The output shape is settled (a derivative fact with parent cids under a signed receipt); the attribution logic is not.</li>
         <li><strong>An operating witness network.</strong> Independent witnesses, a published trust policy, a refresh cadence, and gossip between clients. Until then, §8.5 stands.</li>
         <li><strong>Sign the entity decision.</strong> An <code>intent</code> (or <code>object_cid</code>) segment in the preimage would make the mint and alias claims in §2.4 true rather than aspirational.</li>
         <li><strong>Per-fact provenance.</strong> The class is per-band (§7.2). Per-fact lineage would let a cloud-contaminated index declare itself.</li>
         <li><strong>Extracted test vectors.</strong> <code>spec/test_vectors/</code> would turn §12's "passes our tests" into conformance a second implementation can claim.</li>
         <li><strong>H3 migration.</strong> Equal-area cells under a new mode prefix; receipts pin the active manifest CIDs, so historical answers do not drift.</li>
         <li><strong>Entity reconciliation.</strong> A merge primitive, and a contradiction signal for conflicting links (§2.4).</li>
+        <li><strong>Typed identity kinds.</strong> An entity's <code>kind</code> is free text (§2.3). A small closed set (physical, material, ecological, functional, administrative) is the prerequisite for saying what kind of thing changed at an address, not only that something did.</li>
       </ul>
     </section>
 
