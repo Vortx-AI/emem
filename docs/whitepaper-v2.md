@@ -151,8 +151,9 @@ an embedding fact carries its encoder checkpoint and versioned recipe, so
 separates a change in the world from a change in what the memory knew
 (§4.3); every change points at a specific immutable fact (§5); and the
 receipt makes whatever split is computed checkable by a third party (§6).
-Attributing a given delta among the terms is open work, specified in
-§10.3 and carried on the roadmap; nothing in this build computes it.
+An attribution ledger ships (§10.3): per-term evidence under a signed
+receipt. Splitting a delta numerically among the terms is still open
+work; nothing in this build computes the split.
 
 ---
 
@@ -923,7 +924,7 @@ Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **124 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and four open
-foundation-model embeddings. **160 algorithms** and **27 topics** are
+foundation-model embeddings. **161 algorithms** and **27 topics** are
 enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ### 10.1 Bands: the 1792-dimension voxel
@@ -986,23 +987,25 @@ between two vintages of one encoder; `triple_consensus` reports
 year-over-year agreement across three encoders behind a gate its own
 output documents as uncalibrated. None of them attributes.
 
-The open primitive is `change_attribution@1`: given a cell and two
-readings, return the decomposition with each term estimated, as a
-derivative fact with parent cids under a signed receipt, so the
-attribution is as citeable and offline-checkable as the readings it
-explains. The label-free indices this substrate already materializes
-(NDVI, dNBR, SAR coherence, the SCL cloud class among them) are the raw
-material such an estimator would read; the estimator itself, and a
-calibrated cross-encoder, cross-sensor stability model, do not exist in
-this build. The roadmap carries the item.
+What ships as of 2026-07-16 is the LEDGER: `POST /v1/change_attribution`
+(tool `emem_change_attribution`, registry key `change_attribution@1`)
+returns per-term evidence for one cell, the observed Tessera
+year-over-year change, the label-free index pairs with raw deltas, the
+sources each visit was observed through, the encoder pinning proof, and
+the scene-class per visit, every item carrying its fact cids under a
+signed receipt, with `split` null and an in-band note saying why. What
+does not exist is the split itself: the estimator and the calibrated
+cross-encoder, cross-sensor stability model it needs are open work, and
+so is storing the ledger as a derivative fact. The roadmap carries
+both.
 
 ---
 
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **108 documented REST paths under `/v1/*`** (112 total
-in OpenAPI) and **91 MCP tools (14 core, 77 extended)**.
+`0.0.0.0:5051`): **110 documented REST paths under `/v1/*`** (114 total
+in OpenAPI) and **92 MCP tools (14 core, 78 extended)**.
 
 Discovery on first contact:
 
@@ -1035,7 +1038,7 @@ without touching REST.
 An MCP host loads every advertised descriptor into the model's context at
 connect. All 91 cost about 204 KB of every conversation whether or not it
 ever touches Earth observation. So `POST /mcp` advertises the 14 tools of
-the core loop, about 39 KB, and `POST /mcp/full` advertises all 91.
+the core loop, about 39 KB, and `POST /mcp/full` advertises all 92.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
 91 by name at either endpoint**, and an explicit
@@ -1214,10 +1217,12 @@ because the signature speaks to none of them.
   -0.064. The artefact's own `honesty_caveats` state the real corpus is
   too sparse to train end-to-end. Treat `jepa_predict_v2` as a research
   surface, not a forecast.
-- **Change attribution does not exist.** `emem_diff` and `state_diff`
-  return raw deltas; `triple_consensus`'s agreement gate is uncalibrated
-  and its strongest verdict unreachable; nothing decomposes a delta into
-  environment, sensor, geometry, and encoder terms (§10.3).
+- **The change-attribution split does not exist.** The ledger ships
+  (§10.3): per-term evidence with fact cids under a signed receipt. But
+  `emem_diff` and `state_diff` still return raw deltas,
+  `triple_consensus`'s agreement gate is uncalibrated with its strongest
+  verdict unreachable, and nothing decomposes a delta numerically into
+  environment, sensor, geometry, and encoder terms.
 
 ### 14.6 Specification
 
@@ -1289,7 +1294,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 91 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 92 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §15: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 16.2 Claims in v1's supporting material this document withdraws
@@ -1368,10 +1373,11 @@ totals wherever a total would do.
   a log segment in the receipt preimage would close §8.4 and make
   "transparency" mean what it sounds like. This is the single highest-value
   increment on this substrate.
-- **A change-attribution primitive.** The §10.3 decomposition needs an
-  estimator and a calibrated cross-encoder, cross-sensor stability model.
-  The output shape is settled (a derivative fact with parent cids under a
-  signed receipt); the attribution logic is not.
+- **The change-attribution split.** The §10.3 ledger ships; the numeric
+  split needs an estimator and a calibrated cross-encoder, cross-sensor
+  stability model, and the ledger itself is not yet stored as a
+  derivative fact. The output shape is settled; the attribution logic is
+  not.
 - **An operating witness network.** Independent witnesses, a published
   trust policy, a refresh cadence, and gossip between clients. Until
   then, §8.5 stands.

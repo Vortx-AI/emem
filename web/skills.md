@@ -383,8 +383,8 @@ verification, or similarity in a Claude Code session. See each
   the loop that the rest of the surface serves: ground a place, cite the fact
   as `emem:fact:<cell64>:<fact_cid>`, hand that line to another agent, and let
   them resolve it to the identical signed bytes and check the receipt without
-  trusting you. 91 tools in total (14 core, 77 extended);
-  `https://emem.dev/mcp/full` advertises all 91, and `tools/call` reaches every
+  trusting you. 92 tools in total (14 core, 78 extended);
+  `https://emem.dev/mcp/full` advertises all 92, and `tools/call` reaches every
   tool by name from either, so the narrower list costs no capability. Call
   `emem_tools` to map the surface, filter it by the shape of the answer you
   need (`{"shape":"raster"}`) or by job (`{"bundle":"robotics"}`), or fetch one

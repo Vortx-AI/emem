@@ -611,6 +611,10 @@ const SCHEMA_TRIPLE_CONSENSUS: &str = r#"{"type":"object","required":["cell"],"p
 "consensus_threshold":{"type":"number","description":"Override the registry consensus gate (default 0.15); clamped to (0,1)."}
 }}"#;
 
+const SCHEMA_CHANGE_ATTRIBUTION: &str = r#"{"type":"object","required":["cell"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name."}
+}}"#;
+
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
 "step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."}
@@ -877,6 +881,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user wants a robust, model-agnostic 'did this place change' answer backed by three independent foundation encoders rather than one — e.g. cross-checking a single-encoder alert, or auditing change with consensus voting. Gate on `degraded`/`degraded_reason` — a `degraded:true` partial consensus is lower-confidence than a full triple. Surface the per-encoder change + the vote count. When only one encoder has two vintages the verdict is honest about the thin evidence. For a single-encoder vector delta use `emem_state_diff`; for the NDVI+embedding proxy use `emem_deforestation_alert`.",
         input_schema: SCHEMA_TRIPLE_CONSENSUS,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","consensus_threshold":0.15}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_change_attribution",
+        title: "Change attribution ledger: why did this place's readout move",
+        description: "The first runnable surface of the change decomposition Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε: a per-term evidence LEDGER for the readout change at a cell, with NO numeric split. `observed` carries the Tessera year-over-year embedding change. `terms.env` carries label-free index pairs (NDVI, NBR, NDWI) with raw deltas and both fact cids, evidence a future estimator would read. `terms.sensor` records what each visit was observed through (source scheme and scene id per band) and whether that path changed. `terms.geo` is declared not estimated (no registration-residual surface exists). `terms.encoder` is pinned by construction: both vintages are slices of one signed multi-year fact under one recipe, named by fn_key. `terms.noise` reports the S2 scene-classification class per visit, so a cloud flip is visible. `split` is null and `attribution_note` says why: splitting a delta numerically needs a calibrated cross-encoder, cross-sensor stability model this responder does not have, and inventing magnitudes would fabricate the exact confusion the decomposition exists to prevent. The receipt's fact_cids cite every fact the ledger read, so the whole evidence set verifies offline. Bands read cold may materialize, so this can sign and persist facts.",
+        when_to_use: "Call when a change surface (emem_diff, emem_state_diff, emem_triple_consensus, did_change) reported that a place's readout moved and the question is WHY: world, instrument, pixels, model, or noise. Read the per-term evidence and cite its fact cids; do not expect a numeric split (`split` is null by design, see `attribution_note`). Bands with fewer than two distinct tslots at the cell appear under evidence_absent with a typed reason rather than a fabricated pair. For the raw delta itself use emem_diff; for the multi-encoder change vote use emem_triple_consensus.",
+        input_schema: SCHEMA_CHANGE_ATTRIBUTION,
+        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
@@ -1981,6 +1996,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_compare",
             "emem_compare_bands",
             "emem_diff",
+            "emem_change_attribution",
             "emem_trajectory",
             "emem_temporal_route",
             "emem_query_region",
@@ -2115,6 +2131,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_recall", "emem_recall_many", "emem_recall_polygon", "emem_at",
             "emem_ask", "emem_state", "emem_state_multi", "emem_diff", "emem_compare",
             "emem_compare_bands", "emem_query_region", "emem_hunt", "emem_state_diff",
+            "emem_change_attribution",
             "emem_eudr_dds", "emem_heat_solve", "emem_wave_solve", "emem_backfill",
             "emem_fetch",
         ],

@@ -45,6 +45,7 @@
 use std::sync::{Arc, LazyLock};
 
 mod ask_foundation;
+mod change_attribution;
 mod clay_chip;
 mod embedding_analytics;
 mod eo_runtime;
@@ -1173,6 +1174,12 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/v1/triple_consensus",
             post(triple_consensus::post_triple_consensus),
+        )
+        // The attribution ledger: per-term evidence for a readout change,
+        // no numeric split. See crates/emem-api-rest/src/change_attribution.rs.
+        .route(
+            "/v1/change_attribution",
+            post(change_attribution::post_change_attribution),
         )
         .route(
             "/v1/deforestation_alert",
@@ -3880,7 +3887,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // Compliant against https://a2a-protocol.org/dev/specification/
         "protocolVersion":    "1.2.0",
         "name":               "emem",
-        "description":        "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:<entity_cid>), so different models reason from the same world object instead of divergent descriptions. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
+        "description":        "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap): one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:<entity_cid>), so different models reason from the same world object instead of divergent descriptions. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
         "url":                format!("{origin}/mcp"),
         "preferredTransport": "HTTP+JSON",
         "version":            env!("CARGO_PKG_VERSION"),
@@ -4103,7 +4110,7 @@ async fn serve_example_gemini() -> Response {
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
         "description": format!(
-            "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap: one canonical, citeable identity per place, fact, and object (emem:entity:<entity_cid>), so different models reason from the same world object. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys."
+            "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap): one canonical, citeable identity per place, fact, and object (emem:entity:<entity_cid>), so different models reason from the same world object. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys."
         ),
         "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
         "license": "Apache-2.0",
@@ -6226,7 +6233,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     Json(json!({
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
-        "purpose": "Shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap. Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (emem:entity:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt any agent verifies offline.",
+        "purpose": "Shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap). Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (emem:entity:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt any agent verifies offline.",
         // Read this FIRST. The fastest path from zero to a signed answer.
         // `discover_first` below builds the full mental model; this block
         // is the 3-call shortcut a fresh agent should try before anything
@@ -6395,6 +6402,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             // returns an honest `inconclusive` when inputs aren't
             // materializable.
             "triple_consensus": "/v1/triple_consensus",
+            "change_attribution": "/v1/change_attribution",
             "deforestation_alert": "/v1/deforestation_alert",
             "spi":              "/v1/spi",
             "burn_severity":    "/v1/burn_severity",
@@ -15129,7 +15137,7 @@ fn iso8601_now_utc() -> String {
 /// secondary populators. Keep it in sync with the `agent_card` purpose.
 /// What emem is. Editorial framing, so it is prose; the loop that follows
 /// it is not, and is serialized from `emem_mcp::CORE_LOOP`.
-const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single emem:fact: token that resolves to the byte-identical signed body and verifies offline with no shared trust, so two models grounded on the same token reason about the same observation rather than two paraphrases of it. An emem:entity: token converges you on the same canonical name for an object, which is weaker: the identity is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes. Drift runs in both directions: these tokens pin the language side, the paraphrase that mutates while the world stands still. The world side, a readout that moves at a pinned reference, is the roadmap's change-attribution work, not a shipped capability.";
+const MCP_PREAMBLE: &str = "emem is a shared, verifiable memory for AI agents, robots, and sensing platforms: an external identity layer whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single emem:fact: token that resolves to the byte-identical signed body and verifies offline with no shared trust, so two models grounded on the same token reason about the same observation rather than two paraphrases of it. An emem:entity: token converges you on the same canonical name for an object, which is weaker: the identity is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes. Drift runs in both directions: these tokens pin the language side, the paraphrase that mutates while the world stands still. The world side, a readout that moves at a pinned reference, has an evidence ledger: emem_change_attribution reports why a readout moved, term by term, with fact ids. The numeric split of a delta among the terms is still roadmap, not shipped.";
 
 /// The `initialize` instructions an MCP host puts in front of the model.
 ///
@@ -16792,6 +16800,15 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        "emem_change_attribution" => {
+            let req: change_attribution::ChangeAttributionReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match change_attribution::post_change_attribution(State(s.clone()), EmemJson(req)).await
+            {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_triple_consensus" => {
             let req: triple_consensus::TripleConsensusReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -17937,6 +17954,7 @@ fn openapi_spec() -> JsonValue {
             // registry algorithms actually computable. Each signs its
             // result and returns an honest `inconclusive` verdict (no
             // fabricated number) when the inputs are not materializable.
+            "/v1/change_attribution": {"post":{"summary":"The attribution ledger for a readout change at a cell: per-term evidence for Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, with NO numeric split. Reports the observed Tessera year-over-year embedding change, label-free index pairs (NDVI, NBR, NDWI) with raw deltas as environment evidence, the sources each visit was observed through (sensor record), the encoder pinning proof (one signed multi-year fact, one recipe), and the S2 scene-class per visit (noise evidence). `split` is null and `attribution_note` says why: a calibrated cross-encoder, cross-sensor stability model does not exist in this build. The receipt's fact_cids cite every fact the ledger read.","operationId":"emem_change_attribution","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. The gate is not calibrated per encoder and the encoders do not share a cosine scale: the deployed Prithvi checkpoint's change caps near 0.1155 under a 0.15 gate, so it never votes and `all_three` cannot occur. Read `encoders_used[].change` rather than `agreement`; every response carries a `gate_calibration` string saying so. Materializes a missing prior vintage, so this signs and persists facts. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently — a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict — confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
@@ -46826,7 +46844,7 @@ fn is_meta_self_question(q: &str) -> bool {
 fn emem_self_describe() -> JsonValue {
     json!({
         "schema": "emem.self_describe.v1",
-        "summary": "emem is a shared, verifiable memory for AI agents: a vendor-neutral identity layer that stops referential drift, the paraphrase side today and the world-readout side (change attribution) on the roadmap. Every place, fact, and object gets one canonical, citeable, content-addressed identity that any agent resolves to the identical signed bytes, so different models reason from the same world object instead of divergent descriptions.",
+        "summary": "emem is a shared, verifiable memory for AI agents: a vendor-neutral identity layer that stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap). Every place, fact, and object gets one canonical, citeable, content-addressed identity that any agent resolves to the identical signed bytes, so different models reason from the same world object instead of divergent descriptions.",
         "primary_loop": {
             "1_name_a_thing": "emem_entity mints or returns a canonical object identity (emem:entity:<entity_cid>); emem_entity_resolve converges a fuzzy phrasing onto one another agent already registered; emem_entity_link attests two phrasings mean the same object.",
             "2_ground_a_place": "emem_locate returns the canonical cell64; emem_recall returns the signed facts there (auto-fetches on a miss).",

@@ -159,7 +159,7 @@ Packaged Claude skills live under `claude-skills/`; `llms-install.md` is a plain
 
 Reads need no key, and four moves cover most sessions.
 
-**Connect to `https://emem.dev/mcp`.** It advertises the 14 tools of the loop, not the whole catalog. A host loads every descriptor it is handed, and all 91 cost about 204 KB of context whether or not the session ever touches Earth observation. Narrowing discovery removes nothing: `tools/call` dispatches all 91 by name at either endpoint, so a tool missing from your list is still callable. Use `/mcp/full` to have every tool registered up front.
+**Connect to `https://emem.dev/mcp`.** It advertises the 14 tools of the loop, not the whole catalog. A host loads every descriptor it is handed, and all 92 cost about 206 KB of context whether or not the session ever touches Earth observation. Narrowing discovery removes nothing: `tools/call` dispatches all 92 by name at either endpoint, so a tool missing from your list is still callable. Use `/mcp/full` to have every tool registered up front.
 
 **Do not know which tool? Call `emem_tools`.** With no arguments it returns the loop, a bundle menu, and a shape menu in about 6 KB. Ask by the shape of the answer you need, which is usually the real question, rather than by topic:
 
@@ -213,7 +213,7 @@ Generating a plausible answer is cheap. The scarce thing is a shared account of 
 Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε
 ```
 
-The world changed; the instrument changed; the pixels moved; the model changed; noise. Only the first term is about the world, and the substrate already pins the rest of the ledger. An embedding record carries its model checkpoint, so a model swap can never pose as change on the ground. Bitemporal recall keeps "the world changed" and "what the memory knew changed" as separate questions. Every change points at a specific immutable record by its id, and the receipt lets someone who was not there check the split. Attributing a specific change among those terms is roadmap work, not shipped; the design and its honest gaps live in [docs/roadmap.md](docs/roadmap.md).
+The world changed; the instrument changed; the pixels moved; the model changed; noise. Only the first term is about the world, and the substrate already pins the rest of the ledger. An embedding record carries its model checkpoint, so a model swap can never pose as change on the ground. Bitemporal recall keeps "the world changed" and "what the memory knew changed" as separate questions. Every change points at a specific immutable record by its id, and the receipt lets someone who was not there check the split. A first attribution ledger ships at `/v1/change_attribution`: per-term evidence with the fact ids it read, and no numeric split. The split itself is still roadmap work; the design and its honest gaps live in [docs/roadmap.md](docs/roadmap.md).
 
 ## Substrates: today and next
 

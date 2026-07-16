@@ -62,14 +62,18 @@ The test we hold every item to: does it make emem's memories more trusted, porta
   `state_diff` returns residual, L2, and cosine, and `triple_consensus`
   reports agreement across three encoders behind a gate it documents as
   uncalibrated (Prithvi's deltas top out near 0.1155, so the strongest
-  verdict is unreachable). Nothing attributes. Open: the estimator, a
-  calibrated cross-encoder and cross-sensor stability model, and the
-  primitive itself as `change_attribution@1`: a `runtime_evaluable`
-  recipe in the algorithm registry, an executor modelled on
-  `triple_consensus`, a tool on the `burn_severity` pattern, and output
-  as a derivative fact with parent cids under a signed receipt, so the
-  attribution is as citeable and offline-checkable as the readings it
-  explains.
+  verdict is unreachable). Nothing splits a delta among the terms.
+  Ships as of 2026-07-16, the LEDGER: `POST /v1/change_attribution`
+  (tool `emem_change_attribution`, registry key `change_attribution@1`)
+  reports per-term evidence for one cell, the observed Tessera
+  year-over-year change, the label-free index pairs with their raw
+  deltas, the sources each visit was observed through, the encoder
+  pinning proof, and the scene class per visit, every item carrying its
+  fact cids under a signed receipt, with `split` explicitly null and an
+  in-band note saying why. Open: the estimator, the calibrated
+  cross-encoder and cross-sensor stability model the numeric split
+  needs, and storing the ledger itself as a derivative fact so the
+  attribution is as citeable as the readings it explains.
 - **The inputs are fields, not points.** Attribution over an area needs
   the native-resolution raster surface further down this page; the two
   items share one keystone.
