@@ -520,6 +520,7 @@ mod tests {
             None,
             edges_hex.as_deref(),
             manifest_hex_opt.as_deref(),
+            None,
             &r.primitive,
             r.cells.iter().map(|s| s.as_str()),
             r.fact_cids.iter().map(|c| c.as_str()),
