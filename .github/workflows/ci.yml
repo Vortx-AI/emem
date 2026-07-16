@@ -62,7 +62,18 @@ jobs:
     # ort/ONNX, no target cache) measured 70.9 min on the last green main
     # run and got cancelled at a 60-min cap on 2026-07-11, so the cap is
     # sized from that measurement plus headroom, not from optimism.
-    timeout-minutes: 90
+    #
+    # Re-sized 2026-07-15, same reasoning against a newer measurement. The
+    # macOS job had grown into its own cap: 86.1 min on the last green main
+    # run (5d38a95) against a 90-min limit is 4 min of headroom, and the next
+    # push (db9d663) took 90.5 min and was cancelled at the cap. Ubuntu over
+    # the same pair moved 30.2 -> 29.4 min, so this is the cold macOS build
+    # drifting plus runner variance, not a test that got slower: a 96%-full
+    # cap fails on whichever commit happens to draw a slow runner, which
+    # reads as "your change broke CI" and is not true. Per-OS now, because
+    # one number cannot be both a real backstop for ubuntu (~30 min) and
+    # honest headroom for macOS (~90).
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 120 || 60 }}
     # macOS test is BLOCKING again (was temporarily non-blocking). A GitHub
     # macOS image/Xcode update had broken linking of the `ort` (ONNX
     # Runtime) prebuilt static lib against the clang runtime — `ld: library
