@@ -8,6 +8,9 @@
 
 *Agents inherit a measured, signed account of the physical world instead of re-observing it; every observation becomes a shared, verifiable Memory Token that persists across long-horizon AI tasks.*
 
+[![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/tag/Vortx-AI/emem?label=release)](https://github.com/Vortx-AI/emem/tags)
+[![last commit](https://img.shields.io/github/last-commit/Vortx-AI/emem)](https://github.com/Vortx-AI/emem/commits/main)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![Rust 1.91](https://img.shields.io/badge/Rust-1.91-orange.svg)](https://www.rust-lang.org)
 [![MCP: Streamable HTTP](https://img.shields.io/badge/MCP-Streamable%20HTTP-black)](https://emem.dev/mcp)

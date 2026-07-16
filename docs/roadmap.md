@@ -358,8 +358,13 @@ one function before the caller sees it.
   `emem:raster:<aoi_cid>:<band>:<tslot>` names one field and `emem:cube:`
   names a stack of them across a window, where `aoi_cid`
   content-addresses the geometry so the same area always yields the same
-  token. The receipt question above stays as the named design gate; it
-  gets a deliberate answer before any of this ships.
+  token. The receipt question above now has its deliberate answer written
+  down in [plans/field-tokens.md](plans/field-tokens.md): the receipt
+  attests a derivation, not an array; the artifact is content-addressed,
+  the signed object is a small derivation record with pinned sources and
+  sampled per-cell anchors bridging to the existing trust, and
+  verification has a spot-check tier and a full recompute tier. The
+  design awaits the owner's sign-off, and nothing ships before it.
 - **Partial results instead of a timeout.** Open. A cold NDVI polygon
   cannot finish inside the 40 s gateway: worst case is roughly 31
   sequential upstream round trips for a single cell, and `recall_polygon`
