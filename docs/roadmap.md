@@ -13,13 +13,13 @@ emem is version 1.0.0, its first stable release: the wire format, the receipt pr
 
 - **Single host.** No federation, no global routing, no SOC 2 yet. One responder, one signing key. Durability today is the hosted node plus any node you run; content addressing means any node that holds the bytes can re-serve and re-verify them, so run your own if the facts matter to you.
 - **Thousands of places, not billions.** The memory grows every day it is used, but it is early. Check the live count before you assume coverage.
-- **It grounds facts about physical places,** not arbitrary text. It is not a general-purpose citation store for any document.
+- **Two layers, two scopes, one write path.** The geospatial fact corpus grounds facts about physical places, not arbitrary text, and is not a general-purpose citation store for any document. The agent-memory layer under `/memories/*` is different on purpose: free-form, signed, BGE-searchable notes an agent wants another party or a later run to resolve and verify. What neither layer is, on the hosted node, is private; the next bullet says exactly how.
 - **Place ids are compact, not yet token-optimal.** A `cell64` measures 12 to 13 BPE tokens today. The id format is built for a tokenizer-optimized alphabet that would cut that further; the shipped alphabet does not achieve it yet.
 - **The learned predictor is an honest baseline.** `jepa_predict_v2` carries a dynamics head trained on wholly synthetic sequences; on real NDVI pairs it does not beat persistence (skill -0.064), so the endpoint serves the persistence baseline and says so with an `untrained_baseline` warning. Treat it as a research surface, not a forecast; the measurements live in the whitepaper's honest limits (section 14.5).
 - **Some foundation-model fingerprints are sidecar-gated on the hosted node** today. A cold place returns a signed absence for those, so `triple_consensus` runs partial when cold. Tessera fetches on demand.
 - **Upstream rate limits.** Some sources are rate-limited or slow to fetch (one land-surface-temperature source takes about 30 seconds per place).
 - **No sub-meter imagery** in the default build, and no notebook UI. Drive it from a notebook against REST or MCP.
-- **Agent-memory writes are attested; reads are not yet tenant-scoped.** As of 2026-07-14 the global `/memories/` namespace is closed to unauthenticated writes: every write needs a valid ed25519 `attester` block, so no anonymous caller can plant a fact that surfaces in another agent's recall. Confidentiality is coarser than that: the flat namespace is a shared commons any caller can read, private per-agent state belongs in `/memories/by_attester/<pubkey>/` or the capability-gated `vault`, and full owner-scoped read isolation across the whole namespace is open work (see below). Do not put secrets in the flat namespace.
+- **Agent-memory writes are attested; reads are not yet tenant-scoped.** As of 2026-07-14 the global `/memories/` namespace is closed to unauthenticated writes: every write needs a valid ed25519 `attester` block, so no anonymous caller can plant a fact that surfaces in another agent's recall. Confidentiality is coarser than that, and the honest map is: the flat namespace and `/memories/by_attester/<pubkey>/` are both world-readable (only writes are attester-scoped), and the `vault` seals under a key derived from the RESPONDER's secret, so on the hosted node the operator can open a vault entry and the writing agent cannot. There is no client-controlled private memory on hosted emem today. Private agent state belongs in a local store or on a self-hosted responder, where you hold the key, until owner-scoped reads ship (see below). Do not put secrets in any hosted namespace.
 - **The corpus is thin and skewed.** Facts materialize lazily, one place at a time, from upstream sources, so coverage today is deep in a few bands and empty in the tail. Check the live count and the specific band before you assume a place is warm; a cold place can time out on first read and return a typed `skipped` note, not a value. Filling this fast is the supply-side work below.
 
 ## Where it is going
@@ -145,8 +145,11 @@ What is open, and gates the enterprise story:
   caller identity, so the flat namespace is a shared commons and even the
   per-attester namespace is world-readable. Real confidentiality needs a
   caller-identity channel threaded through the read path so a private
-  namespace returns only to its owner. Until it ships, private data belongs
-  in `vault` or `by_attester`, never the flat commons.
+  namespace returns only to its owner. This is the gate for two stories,
+  not one: per-tenant ingest, and private agent memory. Until it ships,
+  private agent state belongs in a local store or on a self-hosted
+  responder; the hosted commons is world-readable, and the vault is
+  openable by the operator, not by the caller.
 - **Per-tenant isolation.** The four-tuple `Scope {user_id, agent_id,
   run_id, org_id}` already scopes geospatial facts; extending the same
   scope to the memory-file layer is the multi-tenant primitive the private
@@ -213,8 +216,13 @@ return a signed hole instead of a value.
   `publish-pypi-langmem.yml`, `publish-npm.yml`) each build the artefact,
   look inside it, install it into a fresh environment and import it, and
   refuse to upload anything that ships no modules or will not import.
-  `ememdev` is bumped to 1.0.1 because PyPI versions are immutable and the
-  empty releases can only be superseded, never replaced. One more trap is
+  `ememdev` is bumped past 1.0.0 because PyPI versions are immutable and
+  the empty releases can only be superseded, never replaced. The SDK
+  itself moved meanwhile: v1.1.0 adds `ememdev[signing]` and an `ememdev`
+  CLI (whoami / sign / write) with a standard identity at
+  `~/.emem/agent_ed25519.pem`, mirror-tested against the Rust preimage,
+  so the signed write path is one command from the repo until the first
+  verified publish lands. One more trap is
   external: the PyPI name `emem` belongs to an unrelated company's real
   package, so the install name stays `ememdev` and the import name is a
   decision to make deliberately before the first verified publish, either
@@ -445,7 +453,7 @@ the prose still lacks is exactly the scaffolding a reviewer scans for.
 ### The substrate: trusted, portable, verifiable memory
 
 - **A drop-in memory API that returns a receipt.** Ships today: `memory_create` and `emem_memory_search` write and read a private per-agent memory, `emem_memory_token` mints the `emem:fact:` handle, and `emem_verify_receipt` checks any of it offline. Open: the same three-line `add` / `search` ergonomics the popular memory frameworks expose, so a signed receipt is the only new thing a caller has to learn, plus a public head-to-head on the recall benchmarks (LongMemEval, LoCoMo), reported alongside the offline verification those frameworks do not provide.
-- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `emem:bundle:` token that resolves and re-checks anywhere. Ships as of 2026-07-16: `POST /v1/memory_token/resolve_many` dereferences up to 256 tokens in one call, partial by design with typed per-item errors, one batch receipt over the resolved union plus a receipt per item; and token dereferences carry immutable cache headers (a content-addressed body never changes and a receipt never expires), so a client-side token store is trivial. Open: a written import and export profile so that bundle carries between memory stores from different vendors, and the self-teaching `how_to_sign` refusal extended to bundle writes.
+- **A memory passport.** Ships today: `emem_memory_bundle` collapses a set of facts into one signed `emem:bundle:` token that resolves and re-checks anywhere. Ships as of 2026-07-16: `POST /v1/memory_token/resolve_many` dereferences up to 256 tokens in one call, partial by design with typed per-item errors, one batch receipt over the resolved union plus a receipt per item; and token dereferences carry immutable cache headers (a content-addressed body never changes and a receipt never expires), so a client-side token store is trivial. Open: a written import and export profile so that bundle carries between memory stores from different vendors, the self-teaching `how_to_sign` refusal extended to bundle writes, and one worked example that parks and hands over SESSION state (a checkpoint an agent's successor resumes from); every bundle example today hands over a geospatial token, and the long-horizon pitch deserves a demonstration in its own material.
 - **Typed identity kinds for objects.** An entity's `kind` is a free-text string today, which is enough to mint an identity and not enough to say what changed. One address carries several identities at once, and they change on different clocks: the coordinate never moves, the land cover cycles over years, the land use moves once over decades, the administrative status changes by decree. "Did this place change" has no answer until you say which of those you mean. Open: a small closed set of identity kinds (physical, material, ecological, functional, administrative), so "same place, different object" and "same object, changed state" stop colliding, and so change attribution can say what kind of thing changed instead of raising one alarm bit.
 - **Signed state for agent-to-agent work.** Ships today: emem answers the A2A task surface at `/a2a/tasks` and serves a signed card at [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json). Open: an attestation that rides an agent card so two agents from two companies verify each other's claimed memory offline before acting on it, closing the trust gap the A2A spec leaves to implementers.
 - **Quantitative evaluation in the open.** Ships today: every receipt carries its own cost block (`latency_p50_ms`, `was_cached`), `emem-membench` scores retrieval accuracy against a running responder with no hardcoded numbers, and [benchmarks.md](benchmarks.md) publishes dated, single-node latency and throughput measurements with the method next to each number. Open: multi-node scaling, storage per fact, cache-hit ratio under realistic mixes, and head-to-head comparisons against spatial databases and geospatial data infrastructures on identical queries.

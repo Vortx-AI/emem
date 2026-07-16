@@ -352,7 +352,12 @@ verifier rebuilds the caller's signature from a stored fact alone.
 
 - **It is not a chat memory.** Mem0 and LangMem own that pattern.
   emem doesn't extract entities from free-form messages, doesn't keep
-  per-session conversation history, doesn't dedupe paraphrases.
+  per-session conversation history, doesn't dedupe paraphrases. What
+  the `/memories/*` verbs are for is narrower and stronger: shared,
+  signed notes that another party, or a later run of you, can resolve
+  to identical bytes and verify. Private single-agent scratch stays
+  local until owner-scoped reads ship; the hosted namespace is a
+  world-readable commons.
 - **It is not a knowledge graph.** Zep / Graphiti own that pattern.
   emem's contradiction detection looks at one `(cell, band, tslot)` at
   a time; it doesn't reason over multi-hop entity relations.

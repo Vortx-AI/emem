@@ -407,7 +407,7 @@ already in place:
 | Tier             | Holds                                                | emem's role                                                       |
 |------------------|------------------------------------------------------|-------------------------------------------------------------------|
 | working          | current conversation, last few turns                 | none; that is the runtime's job                                   |
-| long-term store  | user preferences, project state, prior conversations | none; emem is not a personal-memory layer                         |
+| long-term store  | user preferences, project state, prior conversations | shared, signed notes via the `/memories/*` verbs, resolvable and verifiable by another agent or a later run; NOT a private store on hosted (the namespace is world-readable until owner-scoped reads ship) |
 | **planetary**    | *what is at this place on Earth*                     | **emem**: signed, content-addressed, shared across all agents     |
 
 The split keeps responsibilities clean:
