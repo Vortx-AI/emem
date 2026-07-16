@@ -630,6 +630,11 @@ pub fn router(state: AppState) -> Router {
     // EMEM_MEMORY_CONSOLIDATION_ENABLED=1.
     spawn_memory_background_tasks(state.clone());
 
+    // The densification warmer: the preparer on a timer with a declared
+    // priority list. Off unless the operator sets an interval; see
+    // spawn_warm_priority_loop for the file format.
+    spawn_warm_priority_loop(state.clone());
+
     // Start the capability cache poller. It refreshes every 30 s and
     // backs `cached_gpu_available()` / `cached_extension_available()`
     // so per-request handlers (topics, explain_algorithm) don't have
@@ -10711,6 +10716,13 @@ struct RecallManyReq {
     /// Optional tslot, applied uniformly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tslot: Option<u64>,
+    /// Optional soft materialization budget in milliseconds, the same
+    /// contract recall_polygon carries (docs/plans/partial-results.md):
+    /// on expiry the response is a first-class partial 200 with a typed
+    /// `pending[]` and monotone identical-request retry. Absent,
+    /// behaviour is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    budget_ms: Option<u64>,
 }
 
 /// `POST /v1/recall_many` — bulk recall in one round trip. The
@@ -10822,16 +10834,40 @@ async fn post_recall_many(
             (idx, cell, out)
         });
     }
+    // Same budget semantics as recall_polygon: expiry DETACHES the
+    // remaining tasks, their fetches persist with nobody listening, and
+    // the identical retry finds those cells warm.
+    let deadline = req
+        .budget_ms
+        .map(|ms| tokio::time::Instant::now() + std::time::Duration::from_millis(ms));
+    let mut budget_expired = false;
     let mut indexed_recall: Vec<RecallManyOut> = Vec::with_capacity(req.cells.len());
-    while let Some(j) = recall_set.join_next().await {
-        if let Ok(triple) = j {
-            indexed_recall.push(triple);
+    loop {
+        let joined = match deadline {
+            Some(d) => match tokio::time::timeout_at(d, recall_set.join_next()).await {
+                Ok(j) => j,
+                Err(_) => {
+                    budget_expired = true;
+                    recall_set.detach_all();
+                    break;
+                }
+            },
+            None => recall_set.join_next().await,
+        };
+        match joined {
+            Some(Ok(triple)) => indexed_recall.push(triple),
+            Some(Err(_)) => {}
+            None => break,
         }
     }
     indexed_recall.sort_by_key(|(i, _, _)| *i);
     let mut by_cell = serde_json::Map::with_capacity(req.cells.len());
     let mut total_facts = 0usize;
+    let mut collected_cells: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(req.cells.len());
+    let mut pending: Vec<JsonValue> = Vec::new();
     for (_, cell, r) in indexed_recall {
+        collected_cells.insert(cell.clone());
         match r {
             Ok(resp) => {
                 total_facts += resp.facts.len();
@@ -10841,12 +10877,30 @@ async fn post_recall_many(
                 by_cell.insert(cell, cell_json);
             }
             Err(ApiError(_status, body)) => {
+                pending.push(json!({
+                    "cell": cell,
+                    "bands": req.bands,
+                    "state": "upstream_failed",
+                    "reason": body.message,
+                }));
                 by_cell.insert(
                     cell,
                     serde_json::to_value(&body).unwrap_or_else(|_| {
                         json!({"code": "internal", "message": "error body failed to serialize"})
                     }),
                 );
+            }
+        }
+    }
+    if budget_expired {
+        for cell in &req.cells {
+            if !collected_cells.contains(cell) {
+                pending.push(json!({
+                    "cell": cell,
+                    "bands": req.bands,
+                    "state": "materializing",
+                    "reason": "the budget expired while this cell's fetch was in flight; the fetch was detached, not aborted, so it persists on completion and the identical retry finds it warm",
+                }));
             }
         }
     }
@@ -10862,6 +10916,25 @@ async fn post_recall_many(
         "by_cell": JsonValue::Object(by_cell),
         "note": "Each cell carries its own signed receipt under by_cell.<cell>.receipt. There is no aggregate receipt — verifying any one cell verifies that cell only. To audit the bulk call, verify each cell's receipt independently via /v1/verify_receipt.",
     });
+    if let Some(map) = out.as_object_mut() {
+        let converged = pending.is_empty();
+        map.insert("converged".into(), json!(converged));
+        if req.budget_ms.is_some() || !converged {
+            map.insert("budget_ms".into(), json!(req.budget_ms));
+            map.insert(
+                "progress".into(),
+                json!({ "ready": collected_cells.len(), "pending": pending.len() }),
+            );
+            map.insert("pending".into(), json!(pending));
+            map.insert(
+                "retry".into(),
+                json!({
+                    "how": "repeat the identical request; every retry returns strictly more from cache, because everything materialized persists",
+                    "suggested_after_ms": 4000,
+                }),
+            );
+        }
+    }
     if !resolved_map.is_empty() {
         if let Some(map) = out.as_object_mut() {
             map.insert("resolved_from".into(), JsonValue::Object(resolved_map));
@@ -12553,7 +12626,15 @@ struct ContradictionsQuery {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BackfillReq {
+    /// One cell (the original form). Ignored when `cells` is present.
+    #[serde(default)]
     cell: String,
+    /// The preparer form (docs/plans/partial-results.md): up to 64
+    /// cells, each backfilled across the same band and window, under
+    /// the partial-results contract. "Warm this area before I reason
+    /// over it" is a loop over this one idempotent call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cells: Option<Vec<String>>,
     band: String,
     #[serde(default)]
     start_unix: Option<i64>,
@@ -12561,17 +12642,244 @@ struct BackfillReq {
     end_unix: Option<i64>,
     #[serde(default)]
     max_facts: Option<usize>,
+    /// Optional soft budget in milliseconds for the preparer form; the
+    /// same contract recall_polygon and recall_many carry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    budget_ms: Option<u64>,
 }
 
 async fn post_backfill(
     State(s): State<AppState>,
     EmemJson(mut req): EmemJson<BackfillReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // The preparer form: a cell list times a window, partial by design.
+    if let Some(cells) = req.cells.take() {
+        return backfill_prepare(cells, req, &s).await.map(Json);
+    }
+    if req.cell.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "backfill: pass `cell` (single form) or `cells` (preparer form)".into(),
+                details: None,
+            },
+        ));
+    }
     let (cell, rc) = resolve_cell_field(&req.cell).await?;
     req.cell = cell;
     let resp = backfill_inner(req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
     Ok(Json(attach_resolved(resp, env)))
+}
+
+/// The memory preparer: fan `backfill_inner` across up to 64 cells
+/// under the partial-results contract. Expiry detaches, detached work
+/// persists, the identical retry converges. This is the call the
+/// densification warmer loops on a schedule.
+/// The densification warmer (docs/plans/partial-results.md step 4 and
+/// the roadmap's supply-side bullet): loop the memory preparer over a
+/// declared priority list on a schedule, so coverage grows where an
+/// operator said it matters instead of only where queries land.
+///
+/// Off by default. `EMEM_WARM_INTERVAL_SECS` > 0 enables it; each pass
+/// re-reads `$EMEM_DATA/warm_priority.json` so the list is editable
+/// without a restart. The file is a JSON array of entries:
+/// `[{"cells": ["defi..."], "band": "indices.ndvi",
+///    "start_unix": 0, "end_unix": 0}]` (window fields optional).
+/// Every pass runs each entry through the preparer with a per-pass
+/// budget (`EMEM_WARM_BUDGET_MS`, default 30000), which is the honesty
+/// requirement the roadmap set: the warmer never pretends to be
+/// synchronous, it just takes another honest bite every interval, and
+/// convergence is the store filling up.
+fn spawn_warm_priority_loop(s: AppState) {
+    let interval_secs = std::env::var("EMEM_WARM_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    if interval_secs == 0 {
+        return;
+    }
+    #[derive(Debug, serde::Deserialize)]
+    struct WarmEntry {
+        cells: Vec<String>,
+        band: String,
+        #[serde(default)]
+        start_unix: Option<i64>,
+        #[serde(default)]
+        end_unix: Option<i64>,
+    }
+    let budget_ms = std::env::var("EMEM_WARM_BUDGET_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(30_000);
+    tokio::spawn(async move {
+        loop {
+            // Sleep first: the warmer never competes with boot.
+            tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
+            let base =
+                std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
+            let path = format!("{base}/warm_priority.json");
+            let bytes = match tokio::fs::read(&path).await {
+                Ok(b) => b,
+                Err(_) => continue, // no list declared; nothing to warm
+            };
+            let entries: Vec<WarmEntry> = match serde_json::from_slice(&bytes) {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::warn!(target: "emem::warm", error = %e, path = %path,
+                        "warm_priority.json does not parse; skipping this pass");
+                    continue;
+                }
+            };
+            for entry in entries {
+                let req = BackfillReq {
+                    cell: String::new(),
+                    cells: None,
+                    band: entry.band.clone(),
+                    start_unix: entry.start_unix,
+                    end_unix: entry.end_unix,
+                    max_facts: None,
+                    budget_ms: Some(budget_ms),
+                };
+                match backfill_prepare(entry.cells, req, &s).await {
+                    Ok(v) => {
+                        tracing::info!(target: "emem::warm",
+                            band = %entry.band,
+                            converged = v.get("converged").and_then(|c| c.as_bool()).unwrap_or(false),
+                            ready = v.pointer("/progress/ready").and_then(|n| n.as_u64()).unwrap_or(0),
+                            pending = v.pointer("/progress/pending").and_then(|n| n.as_u64()).unwrap_or(0),
+                            "warm pass entry done");
+                    }
+                    Err(e) => {
+                        tracing::warn!(target: "emem::warm", band = %entry.band,
+                            error = %e.1.message, "warm pass entry failed");
+                    }
+                }
+            }
+        }
+    });
+}
+
+async fn backfill_prepare(
+    cells: Vec<String>,
+    req: BackfillReq,
+    s: &AppState,
+) -> Result<JsonValue, ApiError> {
+    const PREPARE_MAX_CELLS: usize = 64;
+    if cells.is_empty() || cells.len() > PREPARE_MAX_CELLS {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "backfill preparer: `cells` must hold 1 to {PREPARE_MAX_CELLS} entries (got {}); page a longer list",
+                    cells.len()
+                ),
+                details: None,
+            },
+        ));
+    }
+    let concurrency = env_usize("EMEM_RECALL_MANY_CONCURRENCY", 16, 1, 256);
+    let sema = std::sync::Arc::new(tokio::sync::Semaphore::new(concurrency));
+    type PrepOut = (usize, String, Result<JsonValue, ApiError>);
+    let mut set: tokio::task::JoinSet<PrepOut> = tokio::task::JoinSet::new();
+    for (idx, raw) in cells.iter().enumerate() {
+        let raw = raw.clone();
+        let mut one = BackfillReq {
+            cell: String::new(),
+            cells: None,
+            band: req.band.clone(),
+            start_unix: req.start_unix,
+            end_unix: req.end_unix,
+            max_facts: req.max_facts,
+            budget_ms: None,
+        };
+        let s_clone = s.clone();
+        let sema = sema.clone();
+        set.spawn(async move {
+            let _permit = sema.acquire().await.ok();
+            let out = match resolve_cell_field(&raw).await {
+                Ok((cell, _)) => {
+                    one.cell = cell;
+                    backfill_inner(one, &s_clone).await
+                }
+                Err(e) => Err(e),
+            };
+            (idx, raw, out)
+        });
+    }
+    let deadline = req
+        .budget_ms
+        .map(|ms| tokio::time::Instant::now() + std::time::Duration::from_millis(ms));
+    let mut budget_expired = false;
+    let mut done: Vec<PrepOut> = Vec::with_capacity(cells.len());
+    loop {
+        let joined = match deadline {
+            Some(d) => match tokio::time::timeout_at(d, set.join_next()).await {
+                Ok(j) => j,
+                Err(_) => {
+                    budget_expired = true;
+                    set.detach_all();
+                    break;
+                }
+            },
+            None => set.join_next().await,
+        };
+        match joined {
+            Some(Ok(triple)) => done.push(triple),
+            Some(Err(_)) => {}
+            None => break,
+        }
+    }
+    done.sort_by_key(|(i, _, _)| *i);
+    let mut by_cell = serde_json::Map::with_capacity(cells.len());
+    let mut collected: std::collections::HashSet<String> =
+        std::collections::HashSet::with_capacity(cells.len());
+    let mut pending: Vec<JsonValue> = Vec::new();
+    for (_, raw, r) in done {
+        collected.insert(raw.clone());
+        match r {
+            Ok(v) => {
+                by_cell.insert(raw, v);
+            }
+            Err(e) => {
+                pending.push(json!({
+                    "cell": raw,
+                    "band": req.band,
+                    "state": "upstream_failed",
+                    "reason": e.1.message,
+                }));
+            }
+        }
+    }
+    if budget_expired {
+        for raw in &cells {
+            if !collected.contains(raw) {
+                pending.push(json!({
+                    "cell": raw,
+                    "band": req.band,
+                    "state": "materializing",
+                    "reason": "the budget expired while this cell's backfill was in flight; detached, not aborted, so completed tslots persist and the identical retry resumes from them",
+                }));
+            }
+        }
+    }
+    let converged = pending.is_empty();
+    Ok(json!({
+        "schema": "emem.backfill_prepare.v1",
+        "band": req.band,
+        "cells_requested": cells.len(),
+        "converged": converged,
+        "progress": { "ready": by_cell.len(), "pending": pending.len() },
+        "by_cell": JsonValue::Object(by_cell),
+        "pending": pending,
+        "retry": {
+            "how": "repeat the identical request; every retry returns strictly more from cache, because every backfilled tslot persists",
+            "suggested_after_ms": 4000,
+        },
+        "note": "the memory preparer: warm an area across a window before reasoning over it. Partial by design; the store is the state (docs/plans/partial-results.md).",
+    }))
 }
 
 /// `GET /v1/schema` — serve the active CDDL/JSON schema bundle. REST
@@ -18057,7 +18365,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/find_similar":      {"post":{"summary":"k-NN over band vectors","operationId":"emem_find_similar","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FindSimilarReq"}}}},"responses":{"200":json_ok}}},
             "/v1/diff":              {"post":{"summary":"derivative fact between two tslots (algebra: diff)","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":json_ok}}},
             "/v1/trajectory":        {"post":{"summary":"time series","operationId":"emem_trajectory","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TrajectoryReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/backfill":          {"post":{"summary":"materialize history in a window","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/backfill":          {"post":{"summary":"materialize history in a window The preparer form: pass cells (up to 64) instead of cell to warm an area across the window under the partial-results contract (budget_ms, typed pending[], converged); the densification warmer loops exactly this on a schedule when the operator declares warm_priority.json and EMEM_WARM_INTERVAL_SECS.","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":json_ok}}},
             "/v1/heat_solve":        {"post":{"summary":"2-D explicit-FD heat-equation solver (forecast LST N hours ahead from a 3×3 cell stencil)","operationId":"emem_heat_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HeatSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/wave_solve":        {"post":{"summary":"1-D explicit-FD shallow-water wave-equation solver (propagate offshore swell to the coast along a bathymetric profile)","operationId":"emem_wave_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WaveSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/jepa_predict":      {"post":{"summary":"constrained JEPA-pattern AR(2) seasonal NDVI predictor (closed-form coefficients, NOT a learned MLP)","operationId":"emem_jepa_predict","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/JepaPredictReq"}}}},"responses":{"200":json_ok}}},
@@ -18116,7 +18424,7 @@ fn openapi_spec() -> JsonValue {
                 ],"responses":{"200":json_ok}},
                 "post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
             },
-            "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","responses":{"200":json_ok}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},

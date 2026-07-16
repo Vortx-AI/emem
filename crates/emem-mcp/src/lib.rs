@@ -679,6 +679,8 @@ const SCHEMA_FETCH: &str = r#"{"type":"object","required":["cid"],"properties":{
 }}"#;
 
 const SCHEMA_BACKFILL: &str = r#"{"type":"object","required":["cell","band"],"properties":{
+"cells":{"type":"array","items":{"type":"string"},"maxItems":64,"description":"The preparer form: up to 64 cells, each backfilled across the same band and window under the partial-results contract (budget_ms, pending[], converged). Warm an area before reasoning over it; the identical call retried resumes from what persisted."},
+"budget_ms":{"type":"integer","description":"Optional soft budget in ms for the preparer form."},
 "cell":{"type":"string","description":"cell64 or place name (auto-resolved)."},
 "band":{"type":"string","description":"Band key. Must be a band whose materializer supports historical fetch — see `emem_coverage_matrix` field `history_available_from`/`history_available_to`."},
 "start_unix":{"type":"integer","description":"Window start as Unix epoch seconds (UTC). Defaults to the band's `history_available_from`."},
@@ -727,6 +729,7 @@ const SCHEMA_BORING_LATLNG: &str = r#"{"type":"object","properties":{
 }}"#;
 
 const SCHEMA_RECALL_MANY: &str = r#"{"type":"object","required":["cells"],"properties":{
+"budget_ms":{"type":"integer","description":"Optional soft materialization budget in ms; on expiry the response is a partial 200 with converged false, a typed pending[] and a retry hint. The identical call retried returns strictly more from cache. Absent = unchanged behaviour."},
 "cells":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"List of cell64 strings, max 256. Each cell is recalled in parallel and the responses are merged into a single signed envelope."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter — same shape as emem_recall.bands."},
 "band":{"type":"string","description":"Optional single band override (alias for bands:[band])."},

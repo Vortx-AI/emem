@@ -5,9 +5,14 @@ same day: `recall_polygon` accepts `budget_ms` and answers a
 first-class partial 200 with a typed `pending[]` (`materializing` when
 the budget expired mid-fetch, the fetch detached so it persists;
 `upstream_failed` with the remedy stated), `converged`, `progress`,
-and a retry hint. Open, in the build order below: the same contract on
-`recall_many`, the preparer form of `emem_backfill`, and the
-densification warmer.**
+and a retry hint. All four build steps ship the same day: the same
+contract on `recall_many`; the preparer form of `emem_backfill` (pass
+`cells`, up to 64, same band and window, same contract); and the
+densification warmer, off by default, enabled by
+`EMEM_WARM_INTERVAL_SECS` over an operator-declared
+`$EMEM_DATA/warm_priority.json` re-read every pass, taking one
+budgeted bite per interval, which is exactly the never-pretend-to-be-
+synchronous honesty the roadmap required of it.**
 
 ## The problem, restated from the roadmap
 

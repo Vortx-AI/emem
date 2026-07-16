@@ -185,16 +185,17 @@ return a signed hole instead of a value.
   source in, signed facts out," so one engine serves Postgres first,
   Snowflake next, and a plain CSV or Parquet path (which covers Excel
   exports) as a mode rather than a separate product.
-- **Scheduled densification for priority areas.** Coverage is deep in a
-  few bands and empty in the tail because everything materializes
-  lazily, one place at a time. Open: a background warmer that takes a
-  declared priority area and fills it across a window before anyone
-  asks. This is the supply-side face of the memory preparer under
-  partial results further down, and it is gated on the same design:
-  cells times tslots is strictly larger than the cold polygon that
-  already does not fit, so a warmer that pretends to be synchronous is
-  just a slower 504. Settle partial results first; the warmer is then a
-  cell list on `emem_backfill` plus a schedule.
+- **Scheduled densification for priority areas.** Ships as of
+  2026-07-16, exactly the shape this bullet predicted: partial results
+  settled first, and the warmer is a cell list on `emem_backfill` plus
+  a schedule. The preparer form takes up to 64 cells across a band and
+  window under the partial-results contract, and the warmer loops it
+  every `EMEM_WARM_INTERVAL_SECS` over `$EMEM_DATA/warm_priority.json`
+  (re-read each pass, so the list edits without a restart), one
+  budgeted bite per interval, never pretending to be synchronous. Off
+  by default; coverage grows where an operator declared it matters,
+  and convergence is the store filling up. Open: declaring areas as
+  bboxes rather than cell lists, once the sampling helper is shared.
 
 ### Client surfaces, ranked by leverage
 
@@ -389,8 +390,11 @@ one function before the caller sees it.
   already persists and the store is the state. The owner signed off
   the same day and step 1 ships: `recall_polygon` takes `budget_ms` and
   answers partially with a typed `pending[]` and monotone
-  identical-request retry. The same contract on `recall_many`, the
-  preparer, and the warmer are the remaining steps, in that order.
+  identical-request retry. All four steps ship: `recall_many` carries the same
+  contract, `emem_backfill` grew the preparer form (a `cells` list,
+  the same band and window, the same contract), and the densification
+  warmer loops the preparer on a schedule, off by default until the
+  operator declares a priority list.
 
   The same decision blocks a memory preparer: one call that says "warm this
   area across this window" so an agent can build its memory before it needs
