@@ -615,6 +615,16 @@ const SCHEMA_CHANGE_ATTRIBUTION: &str = r#"{"type":"object","required":["cell"],
 "cell":{"type":"string","description":"cell64 or place name."}
 }}"#;
 
+const SCHEMA_BAND_RASTER: &str = r#"{"type":"object","required":["bbox","band"],"properties":{
+"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest."},
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12."},
+"observed_on":{"type":"string","description":"Optional target capture date YYYY-MM-DD; the scene actually chosen is pinned in the derivation record either way."}
+}}"#;
+
+const SCHEMA_RASTER_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
+"token":{"type":"string","description":"emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>"}
+}}"#;
+
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
 "step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."}
@@ -892,6 +902,28 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when a change surface (emem_diff, emem_state_diff, emem_triple_consensus, did_change) reported that a place's readout moved and the question is WHY: world, instrument, pixels, model, or noise. Read the per-term evidence and cite its fact cids; do not expect a numeric split (`split` is null by design, see `attribution_note`). Bands with fewer than two distinct tslots at the cell appear under evidence_absent with a typed reason rather than a fabricated pair. For the raw delta itself use emem_diff; for the multi-encoder change vote use emem_triple_consensus.",
         input_schema: SCHEMA_CHANGE_ATTRIBUTION,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_band_raster",
+        title: "Band raster: a field as a signed derivation",
+        description: "Return a native-resolution Sentinel-2 window over a bounding box as a FIELD, not a set of points: the pixels become one content-addressed grid artifact (deterministic f32 encoding; fetch the bytes at the returned artifact url, Cache-Control immutable), and what the receipt attests is the DERIVATION, never a byte pipe. A persisted derivation record pins the chosen scene (id, asset, capture time, cloud cover), the recipe (band_raster@1), the grid georeferencing in the scene's UTM CRS, and best-effort per-cell anchors that bridge the artifact to existing signed facts; the receipt's FIELD preimage segment binds (aoi_cid, derivation_cid), reported by /v1/verify_receipt as field_bound. Bounds are refusals with the cap named: six raw S2 bands (B02/B03/B04/B08/B11/B12) and 512 px per side at native resolution (about 5.1 km at 10 m). Anchors never materialize a fact, so a cold AOI costs one scene read, nothing more. The artifact is evictable BY DESIGN: the record persists like any fact and pins everything needed to rebuild identical bytes, so eviction turns a dereference into a recompute, never a broken citation. Returns two tokens: emem:raster: (resolve with emem_raster_resolve) and the record's own emem:fact: handle. This signs and persists the derivation record.",
+        when_to_use: "Call when an agent needs an area's actual field of values rather than per-cell scalars: change analysis over a scene window, input to a model that reads grids, or exporting verifiable pixels a third party can re-derive. For one cell's value use emem_recall; for an RGB visual use emem_cell_scene_rgb, which is a view, not a signed artifact; for areas beyond the 512 px cap, page the bbox.",
+        input_schema: SCHEMA_BAND_RASTER,
+        example_args: r#"{"bbox":{"min_lat":12.95,"min_lng":77.55,"max_lat":12.97,"max_lng":77.57},"band":"s2.B04"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_raster_resolve",
+        title: "Dereference an emem:raster: field token",
+        description: "Resolve emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid> back to its signed derivation record and the artifact's status. Every claim in the token binds to the signed record before anything dereferences, the same rule fact tokens follow: the cid must be a band_raster@1 derivation and the token's aoi_cid, band, and tslot must each match the record's own body, so a real derivation_cid cannot be passed off under a false area, band, or date (mismatch is a typed 409). The response carries the full record (scene pin, grid georeferencing, anchors) and the artifact url; bytes come from GET /v1/artifacts/{cid}, immutable. An evicted artifact is not an error: the record pins the rebuild, and calling emem_band_raster with the record's own bbox, band, and capture date re-derives identical bytes. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.",
+        when_to_use: "Call when you receive an emem:raster: token from another agent and want the verified field behind it: first this, to get the bound record and artifact url, then fetch the bytes and re-hash them against artifact_cid for the spot-check tier of verification. For emem:fact: tokens use emem_memory_token_resolve.",
+        input_schema: SCHEMA_RASTER_RESOLVE,
+        example_args: r#"{"token":"emem:raster:<aoi_cid>:s2.B04:20650:<derivation_cid>"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
@@ -1986,6 +2018,8 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_backfill",
             "emem_cell_scene_rgb",
             "emem_cell_geojson",
+            "emem_band_raster",
+            "emem_raster_resolve",
         ],
     ),
     (
@@ -2144,7 +2178,8 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     (
         "raster",
         "A gridded field over an area, rather than points. This is what a world model consumes.",
-        &["emem_cell_scene_rgb", "emem_coverage_map"],
+        &["emem_cell_scene_rgb", "emem_coverage_map", "emem_band_raster",
+        ],
     ),
     (
         "geometry",
@@ -2171,7 +2206,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle",
             "emem_memory_bundle_resolve", "emem_edges_recall", "emem_derive",
-            "emem_derive_list",
+            "emem_derive_list", "emem_raster_resolve",
         ],
     ),
     (

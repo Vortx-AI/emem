@@ -368,8 +368,13 @@ one function before the caller sees it.
   the FIELD preimage segment, the evictable artifact store, the
   canonical grid encoding, and the `POST /v1/band_raster` executor all
   ship (six raw S2 bands, 512 px per side, best-effort anchors, the
-  derivation record persisted on the ledger envelope). Open: the
-  `emem:raster:` and `emem:cube:` resolve surface and the MCP tool.
+  derivation record persisted on the ledger envelope). The
+  `emem:raster:` resolve surface (`POST /v1/raster/resolve`, every
+  token claim bound to the signed record, mismatch a typed 409) and
+  the `emem_band_raster` plus `emem_raster_resolve` tools ship the
+  same day. Open: `emem:cube:` stays unminted until a multi-tslot
+  surface exists to mint one, and a dedicated anchors spot-check
+  verifier endpoint.
 - **Partial results instead of a timeout.** Open. A cold NDVI polygon
   cannot finish inside the 40 s gateway: worst case is roughly 31
   sequential upstream round trips for a single cell, and `recall_polygon`

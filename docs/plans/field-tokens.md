@@ -4,8 +4,14 @@
 1 through 3 of the build order ship: the FIELD preimage segment with
 its byte-identity invariant pinned, the evictable artifact store, the
 canonical grid encoding, and the `POST /v1/band_raster` executor with
-`GET /v1/artifacts/{cid}`. Open: the `emem:raster:` / `emem:cube:`
-token resolve surface and the MCP tool. One envelope delta from the
+`GET /v1/artifacts/{cid}`. Step 4 ships for rasters: `POST
+/v1/raster/resolve` dereferences `emem:raster:` with every token claim
+bound to the signed record before anything dereferences, mismatch a
+typed 409. Step 5 ships: `emem_band_raster` and `emem_raster_resolve`
+are MCP tools. Open: `emem:cube:` stays unminted until a multi-tslot
+surface exists to mint one, and the numeric anchors spot-check has no
+dedicated verifier endpoint yet (re-hash the artifact and compare
+anchors client-side; the record carries everything needed). One envelope delta from the
 text below, chosen for reuse: the derivation record rides as the value
 of a `DerivativeFact` (the attribution-ledger envelope), so
 persistence, the merkle log, and `emem:fact:` resolution came free;

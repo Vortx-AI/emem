@@ -51,12 +51,12 @@ CANON = {
     # 91 = 90 primitives + emem_tools, the catalog tool. It is core
     # because /mcp advertises the core loop rather than the full surface,
     # so exactly one visible tool has to be able to describe the rest.
-    "mcp_tools": 92,
+    "mcp_tools": 94,
     "mcp_core": 14,
-    "mcp_extended": 78,
+    "mcp_extended": 80,
     "algorithms": 162,
-    "rest_paths_v1": 113,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 117,  # all paths in OpenAPI
+    "rest_paths_v1": 114,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 118,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 124,
     "source_schemes": 46,

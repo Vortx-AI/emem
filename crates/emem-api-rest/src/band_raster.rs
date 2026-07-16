@@ -459,6 +459,180 @@ pub async fn get_artifact(AxumPath(cid): AxumPath<String>) -> impl IntoResponse 
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RasterResolveReq {
+    /// `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>`
+    pub token: String,
+}
+
+fn conflict(message: String) -> ApiError {
+    ApiError(
+        StatusCode::CONFLICT,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message,
+            details: None,
+        },
+    )
+}
+
+/// Parse the raster token into its four claims. Pure, unit-tested.
+fn parse_raster_token(token: &str) -> Result<(String, String, u64, String), String> {
+    let rest = token
+        .trim()
+        .strip_prefix("emem:raster:")
+        .ok_or_else(|| "a raster token starts with emem:raster:".to_string())?;
+    let parts: Vec<&str> = rest.split(':').collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "emem:raster: takes exactly aoi_cid:band:tslot:derivation_cid; got {} segments",
+            parts.len()
+        ));
+    }
+    let is_cid = |s: &str| {
+        s.len() == 52
+            && s.bytes()
+                .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+    };
+    if !is_cid(parts[0]) {
+        return Err("aoi_cid is not a 52-character base32 cid".to_string());
+    }
+    if !is_cid(parts[3]) {
+        return Err("derivation_cid is not a 52-character base32 cid".to_string());
+    }
+    let tslot: u64 = parts[2]
+        .parse()
+        .map_err(|_| format!("tslot `{}` is not an unsigned integer", parts[2]))?;
+    Ok((
+        parts[0].to_string(),
+        parts[1].to_string(),
+        tslot,
+        parts[3].to_string(),
+    ))
+}
+
+/// `POST /v1/raster/resolve` — dereference an `emem:raster:` token.
+///
+/// Every claim in the token binds to the signed derivation record
+/// before anything dereferences (the fact-token rule, applied to
+/// fields): the cid must be a `band_raster@1` derivation, and the
+/// token's aoi_cid, band, and tslot must each match the record's own
+/// body, so a real derivation_cid cannot be passed off under a false
+/// area, band, or date. The response carries the record and the
+/// artifact's status; the bytes themselves come from
+/// `GET /v1/artifacts/{cid}` (immutable), and an evicted artifact is a
+/// rebuild recipe, not an error.
+pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let (aoi, band, tslot, derivation_cid) = parse_raster_token(&req.token).map_err(bad_request)?;
+
+    let cid_obj = FactCid::new(derivation_cid.clone());
+    let facts = s
+        .storage
+        .get_facts_many(&[cid_obj])
+        .await
+        .map_err(ApiError::from)?;
+    let Some(Some(fact)) = facts.into_iter().next() else {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "no derivation record for cid={derivation_cid} on this responder. The record persists independently of the artifact; if you minted this token elsewhere, resolve it there."
+                ),
+                details: None,
+            },
+        ));
+    };
+    let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
+    if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative")
+        || fact_json
+            .get("derivation")
+            .and_then(|d| d.get("fn_key"))
+            .and_then(|f| f.as_str())
+            != Some("band_raster@1")
+    {
+        return Err(conflict(format!(
+            "cid {derivation_cid} is not a band_raster@1 field derivation; an emem:raster: token cannot dereference it. Cite it in emem:fact: form instead."
+        )));
+    }
+    let body = fact_json.get("value").cloned().unwrap_or(json!({}));
+    let bind = |claim: &str, token_v: &str, record_v: Option<&str>| -> Result<(), ApiError> {
+        match record_v {
+            Some(r) if r == token_v => Ok(()),
+            Some(r) => Err(conflict(format!(
+                "token {claim} `{token_v}` contradicts the signed record's `{r}`; refusing to dereference a forged or corrupt handle"
+            ))),
+            None => Err(conflict(format!(
+                "the signed record carries no {claim}; refusing an unbindable claim"
+            ))),
+        }
+    };
+    bind(
+        "aoi_cid",
+        &aoi,
+        body.get("aoi_cid").and_then(|v| v.as_str()),
+    )?;
+    bind("band", &band, body.get("band").and_then(|v| v.as_str()))?;
+    let record_tslot = body.get("tslot").and_then(|v| v.as_u64());
+    if record_tslot != Some(tslot) {
+        return Err(conflict(format!(
+            "token tslot {tslot} contradicts the signed record's {record_tslot:?}"
+        )));
+    }
+
+    let artifact_cid = body
+        .pointer("/artifact/artifact_cid")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let artifact_present =
+        !artifact_cid.is_empty() && matches!(ARTIFACTS.get(&artifact_cid), Ok(Some(_)));
+
+    let cell = fact_json
+        .get("cell")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    let receipt = s.sign_receipt_field(
+        "emem.raster_resolve",
+        vec![cell],
+        vec![FactCid::new(derivation_cid.clone())],
+        true,
+        started,
+        FieldBinding {
+            aoi_cid: aoi.clone(),
+            derivation_cid: derivation_cid.clone(),
+        },
+    );
+
+    Ok(json!({
+        "schema": "emem.raster_resolve.v1",
+        "token": req.token.trim(),
+        "resolved": true,
+        "aoi_cid": aoi,
+        "band": band,
+        "tslot": tslot,
+        "derivation_cid": derivation_cid,
+        "derivation": body,
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "present": artifact_present,
+            "url": format!("/v1/artifacts/{artifact_cid}"),
+            "if_evicted": "the record above pins the scene, recipe, and geometry; POST /v1/band_raster with the same bbox, band, and observed_on rebuilds the identical bytes",
+        },
+        "receipt": receipt,
+        "offline_verify_at": "/verify",
+    }))
+}
+
+pub async fn post_raster_resolve(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<RasterResolveReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(raster_resolve(req, &s).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -482,6 +656,21 @@ mod tests {
             max_lng: 77.7,
         };
         assert_ne!(one, aoi_cid(&b).unwrap());
+    }
+
+    #[test]
+    fn raster_token_parses_and_refuses_precisely() {
+        let cid = "a".repeat(20) + &"b".repeat(32); // 52 lowercase chars
+        let tok = format!("emem:raster:{cid}:s2.B04:20650:{cid}");
+        let (aoi, band, tslot, dcid) = parse_raster_token(&tok).unwrap();
+        assert_eq!(aoi, cid);
+        assert_eq!(band, "s2.B04");
+        assert_eq!(tslot, 20650);
+        assert_eq!(dcid, cid);
+        assert!(parse_raster_token("emem:fact:x:y").is_err());
+        assert!(parse_raster_token(&format!("emem:raster:{cid}:s2.B04:notanum:{cid}")).is_err());
+        assert!(parse_raster_token(&format!("emem:raster:SHOUT:s2.B04:1:{cid}")).is_err());
+        assert!(parse_raster_token(&format!("emem:raster:{cid}:s2.B04:1")).is_err());
     }
 
     #[test]

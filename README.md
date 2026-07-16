@@ -162,7 +162,7 @@ Packaged Claude skills live under `claude-skills/`; `llms-install.md` is a plain
 
 Reads need no key, and four moves cover most sessions.
 
-**Connect to `https://emem.dev/mcp`.** It advertises the 14 tools of the loop, not the whole catalog. A host loads every descriptor it is handed, and all 92 cost about 206 KB of context whether or not the session ever touches Earth observation. Narrowing discovery removes nothing: `tools/call` dispatches all 92 by name at either endpoint, so a tool missing from your list is still callable. Use `/mcp/full` to have every tool registered up front.
+**Connect to `https://emem.dev/mcp`.** It advertises the 14 tools of the loop, not the whole catalog. A host loads every descriptor it is handed, and all 94 cost about 210 KB of context whether or not the session ever touches Earth observation. Narrowing discovery removes nothing: `tools/call` dispatches all 94 by name at either endpoint, so a tool missing from your list is still callable. Use `/mcp/full` to have every tool registered up front.
 
 **Do not know which tool? Call `emem_tools`.** With no arguments it returns the loop, a bundle menu, and a shape menu in about 6 KB. Ask by the shape of the answer you need, which is usually the real question, rather than by topic:
 
