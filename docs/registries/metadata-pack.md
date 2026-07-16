@@ -9,7 +9,7 @@ numbers move.
 ## Where emem already is
 
 - **The official MCP Registry**: published and current.
-  `io.github.Vortx-AI/emem` version 1.0.0, `isLatest: true`. Publishing
+  `io.github.Vortx-AI/emem`, current at the latest released version. Publishing
   is automated: `.github/workflows/mcp-publish.yml` pushes `server.json`
   on every `v*` tag over GitHub OIDC, no human in the loop. Keep
   `server.json`'s version in step with the workspace version before
@@ -22,10 +22,10 @@ numbers move.
 
 - Name: emem. Publisher: Vortx AI. Namespace: `io.github.Vortx-AI/emem`.
 - Endpoint: `https://emem.dev/mcp`, MCP Streamable HTTP (2025-03-26).
-  `/mcp` advertises the 14-tool core loop; `/mcp/full` lists all 91;
+  `/mcp` advertises the 14-tool core loop; `/mcp/full` lists all 94;
   `tools/call` dispatches every tool by name at either endpoint.
-- 91 MCP tools (14 core, 77 extended), 18 static resources + 8 URI
-  templates, 108 REST paths under `/v1/*`.
+- 94 MCP tools (14 core, 80 extended), 18 static resources + 8 URI
+  templates, 114 REST paths under `/v1/*`.
 - Auth posture: reads are open, no key, no account; writes are
   authenticated by an ed25519 signature on the request body.
 - The claim to lead with: every read returns a signed receipt that
@@ -40,7 +40,7 @@ numbers move.
 > [emem](https://emem.dev) ([repo](https://github.com/Vortx-AI/emem)):
 > shared, verifiable memory of the physical world for AI agents. Every
 > place resolves to one signed, content-addressed record; every read
-> returns an ed25519 receipt that verifies offline. 91 MCP tools, 124
+> returns an ed25519 receipt that verifies offline. 94 MCP tools, 124
 > wired Earth-observation measurements (Sentinel-1/2, MODIS, ERA5,
 > JRC GSW, Hansen GFC, SoilGrids, Open-Meteo), no API key to read.
 > Streamable HTTP at `https://emem.dev/mcp`.

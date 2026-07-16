@@ -128,12 +128,12 @@ removed when its no-key path closed.
 
 ## emem-algorithms (algorithms-v0.json)
 
-160 composition recipes split across three kinds:
+162 composition recipes split across three kinds:
 
 | Kind        | Count | What it composes                                                       |
 |-------------|-------|------------------------------------------------------------------------|
-| `solo`      | 23    | single band -> derived classification or scalar                        |
-| `combined`  | 111   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
+| `solo`      | 24    | single band -> derived classification or scalar                        |
+| `combined`  | 113   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
 | `embedding` | 25    | operations on a foundation embedding (cosine, novelty, change)         |
 
 ### Per-algorithm fields

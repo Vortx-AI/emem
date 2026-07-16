@@ -376,7 +376,10 @@ STALE_PHRASES = {
                            "118 materializer", "75 MCP"],
     "docs/registries.md": ["118 materializer", "(43)", "(86)"],
     "web/skills.md": ["75 tools", "71 paths", "87 paths"],
-    "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer"],
+    "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer",
+                     "91 MCP", "108 documented", "160 algorithms"],
+    "web/humans-llms.txt": ["91 MCP", "77 extended"],
+    "docs/registries.md": ["160 composition", "| 111 "],
 }
 
 

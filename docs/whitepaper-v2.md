@@ -1028,7 +1028,7 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **8 of 91 tools are write
+responder refutes it from its own annotations: **8 of 94 tools are write
 tools**. `memory_create`, `memory_str_replace`, `memory_insert`,
 `memory_delete`, and `memory_rename` are destructive; `emem_entity`,
 `emem_entity_link`, and `emem_derive` are non-destructive writes. An

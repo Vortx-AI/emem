@@ -252,7 +252,7 @@ Version 1.1.0, under the stability promise 1.0.0 made: the wire format, receipt 
 | Limits, roadmap, open research | [docs/roadmap.md](docs/roadmap.md) |
 | Benchmarks, with methods | [docs/benchmarks.md](docs/benchmarks.md) |
 | Industry use cases | https://emem.dev/solutions |
-| Wire spec · OpenAPI (108 paths) · MCP (91 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
+| Wire spec · OpenAPI (118 paths) · MCP (94 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
 | Live proof in a regulated workflow | https://eudr.dev |
 | Companion open model | [TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA) |
 

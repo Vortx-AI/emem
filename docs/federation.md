@@ -1,6 +1,6 @@
 # Federation & scale-out (design)
 
-> Status: **design**. None of the multi-host routing below ships in 1.0.0.
+> Status: **design**. None of the multi-host routing below ships yet in the 1.x line.
 > What ships today is the substrate that makes it safe: content
 > addressing, signed receipts, multi-attester contradiction scoring, and a
 > deterministic refinement loop. This document is the plan for turning one

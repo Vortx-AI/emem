@@ -1,4 +1,4 @@
-# emem protocol (v1.0.0)
+# emem protocol (v1.1.0)
 
 > The wire spec below is the concrete encoding; the formal object, the
 > property table, and the memory algebra live in [the memory model](model.md).
@@ -1424,7 +1424,7 @@ attestation cites these CIDs.
 ## 13. Test vectors
 
 The directory `spec/test_vectors/` is the conformance fixture root.
-1.0.0 ships the directory framework only; populating each
+The 1.x line ships the directory framework only; populating each
 sub-directory with JSON-per-vector fixtures (extracted from the
 existing crate tests) is coming soon:
 
