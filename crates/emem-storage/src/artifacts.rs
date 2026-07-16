@@ -164,8 +164,14 @@ mod tests {
     use super::*;
 
     fn store(max: u64) -> (ArtifactStore, PathBuf) {
-        let dir =
-            std::env::temp_dir().join(format!("emem-artifacts-test-{}-{max}", std::process::id()));
+        // Unique per call: two tests sharing a pid+cap keyed directory
+        // raced each other's cleanup and one saw NotFound mid-put.
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "emem-artifacts-test-{}-{max}-{n}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         (ArtifactStore::open(&dir, max).unwrap(), dir)
     }
