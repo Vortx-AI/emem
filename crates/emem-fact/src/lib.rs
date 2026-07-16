@@ -20,5 +20,5 @@ pub use fact::{
     Derivation, DerivativeFact, Fact, FactKind, NegativeFact, PrimaryFact, ServedVia, Source,
     Uncertainty,
 };
-pub use receipt::{AsOfReceipt, Cost, MerkleProof, Receipt};
+pub use receipt::{AsOfReceipt, Cost, FieldBinding, MerkleProof, Receipt};
 pub use scope::Scope;

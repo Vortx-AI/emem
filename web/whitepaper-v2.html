@@ -596,7 +596,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <a id="10-substrate-earth-observation" class="anchor-alias"></a>
       <h2><span class="num">10</span>Substrate: Earth observation</h2>
       <p>Nothing in §2 through §9 is satellite-specific. The record, the receipt, and the token grammar know about addresses, bytes, and keys. Earth observation is the substrate this responder ships with, chosen because it is the hardest honest test available: open, adversarially large, and already full of the drift the protocol exists to stop.</p>
-      <p>Open data from ESA, NASA, USGS, and the EU JRC fills the memory on demand: <strong>46 declared source schemes</strong> and <strong>124 materializer-wired measurements</strong>, live at <code>/v1/sources</code> and <code>/v1/bands</code>, spanning elevation and NDVI through weather, forest change, surface water, and four open foundation-model embeddings. <strong>161 algorithms</strong> and <strong>27 topics</strong> are enumerated at <code>/v1/algorithms</code> and <code>/v1/topics</code>.</p>
+      <p>Open data from ESA, NASA, USGS, and the EU JRC fills the memory on demand: <strong>46 declared source schemes</strong> and <strong>124 materializer-wired measurements</strong>, live at <code>/v1/sources</code> and <code>/v1/bands</code>, spanning elevation and NDVI through weather, forest change, surface water, and four open foundation-model embeddings. <strong>162 algorithms</strong> and <strong>27 topics</strong> are enumerated at <code>/v1/algorithms</code> and <code>/v1/topics</code>.</p>
       <h3>10.1 Bands: the 1792-dimension voxel</h3>
       <p>The band ontology declares <strong>43 cube slots</strong> summing to exactly <strong>1792 dimensions</strong>. Offsets are contiguous, and reserved slots leave room for new bands without breaking existing offsets.</p>
       <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  offset  dims  key                family       tempo   privacy
@@ -626,7 +626,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <section id="s11">
       <a id="11-the-agent-discoverable-surface" class="anchor-alias"></a>
       <h2><span class="num">11</span>The agent-discoverable surface</h2>
-      <p><code>emem-server</code> serves HTTP/REST and MCP JSON-RPC on one port (default <code>0.0.0.0:5051</code>): <strong>111 documented REST paths under <code>/v1/*</code></strong> (115 total in OpenAPI) and <strong>92 MCP tools (14 core, 78 extended)</strong>.</p>
+      <p><code>emem-server</code> serves HTTP/REST and MCP JSON-RPC on one port (default <code>0.0.0.0:5051</code>): <strong>113 documented REST paths under <code>/v1/*</code></strong> (117 total in OpenAPI) and <strong>92 MCP tools (14 core, 78 extended)</strong>.</p>
       <p>Discovery on first contact:</p>
       <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  1. GET  /.well-known/emem.json         responder pubkey + capabilities
   2. GET  /.well-known/mcp.json          MCP transport advertisement

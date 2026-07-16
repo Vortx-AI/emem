@@ -217,7 +217,7 @@ fn embedding_change(now: &[f32], prev: &[f32]) -> Option<f64> {
 /// pre-sorted-keys discipline canonical CBOR requires for freeform maps
 /// (whitepaper §5). Floats pass through; canonicalization of NaN and
 /// negative zero happens in `to_canonical_cbor` at hash time.
-fn json_to_cbor(j: &JsonValue) -> ciborium::Value {
+pub(crate) fn json_to_cbor(j: &JsonValue) -> ciborium::Value {
     match j {
         JsonValue::Null => ciborium::Value::Null,
         JsonValue::Bool(b) => ciborium::Value::Bool(*b),

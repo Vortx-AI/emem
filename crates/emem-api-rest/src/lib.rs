@@ -45,6 +45,7 @@
 use std::sync::{Arc, LazyLock};
 
 mod ask_foundation;
+mod band_raster;
 mod change_attribution;
 mod clay_chip;
 mod embedding_analytics;
@@ -1185,6 +1186,9 @@ pub fn router(state: AppState) -> Router {
             "/v1/change_attribution",
             post(change_attribution::post_change_attribution),
         )
+        // A field as a signed derivation: docs/plans/field-tokens.md.
+        .route("/v1/band_raster", post(band_raster::post_band_raster))
+        .route("/v1/artifacts/:cid", get(band_raster::get_artifact))
         .route(
             "/v1/deforestation_alert",
             post(triple_consensus::post_deforestation_alert),
@@ -3767,7 +3771,7 @@ fn iso8601_utc(secs: u64) -> String {
 /// Convert civil (Y, M, D) → days since 1970-01-01 (the inverse of
 /// `civil_from_days`). Same Hinnant reference; works for any year in the
 /// proleptic Gregorian calendar without pulling chrono.
-fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+pub(crate) fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y } as i64;
     let m = m as i64;
     let d = d as i64;
@@ -6408,6 +6412,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             // materializable.
             "triple_consensus": "/v1/triple_consensus",
             "change_attribution": "/v1/change_attribution",
+            "band_raster": "/v1/band_raster",
             "deforestation_alert": "/v1/deforestation_alert",
             "spi":              "/v1/spi",
             "burn_severity":    "/v1/burn_severity",
@@ -17964,6 +17969,8 @@ fn openapi_spec() -> JsonValue {
             // result and returns an honest `inconclusive` verdict (no
             // fabricated number) when the inputs are not materializable.
             "/v1/change_attribution": {"post":{"summary":"The attribution ledger for a readout change at a cell: per-term evidence for Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, with NO numeric split. Reports the observed Tessera year-over-year embedding change, label-free index pairs (NDVI, NBR, NDWI) with raw deltas as environment evidence, the sources each visit was observed through (sensor record), the encoder pinning proof (one signed multi-year fact, one recipe), and the S2 scene-class per visit (noise evidence). `split` is null and `attribution_note` says why: a calibrated cross-encoder, cross-sensor stability model does not exist in this build. Each run persists as a derivative fact and returns its own emem:fact: token under ledger_fact; the receipt binds the input cids plus the stored ledger cid.","operationId":"emem_change_attribution","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/band_raster": {"post":{"summary":"a field as a signed derivation (docs/plans/field-tokens.md): native-resolution Sentinel-2 window over a bbox, returned as a content-addressed canonical grid artifact plus a persisted derivation record. The receipt attests the derivation, never a byte pipe: its FIELD preimage segment binds (aoi_cid, derivation_cid), the record pins the scene (id, asset, capture time), the recipe (band_raster@1), the grid georeferencing, and best-effort per-cell anchors bridging to existing signed facts. Bands: s2.B02/B03/B04/B08/B11/B12; window cap 512 px per side, refused with the cap named. The artifact is evictable (GET /v1/artifacts/{cid}); the derivation record persists and pins the rebuild.","operationId":"emem_band_raster","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"string","description":"optional target capture date YYYY-MM-DD; the chosen scene is pinned either way"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
+            "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
             "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. The gate is not calibrated per encoder and the encoders do not share a cosine scale: the deployed Prithvi checkpoint's change caps near 0.1155 under a 0.15 gate, so it never votes and `all_three` cannot occur. Read `encoders_used[].change` rather than `agreement`; every response carries a `gate_calibration` string saying so. Materializes a missing prior vintage, so this signs and persists facts. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently — a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict — confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
@@ -31699,7 +31706,7 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
 ///
 /// Hard cap: 80 % cloud / 90 days. Beyond that, return Err so the caller
 /// signs an honest Absence.
-async fn s2_search_with_fallback(
+pub(crate) async fn s2_search_with_fallback(
     cli: &reqwest::Client,
     lng: f64,
     lat: f64,
@@ -36528,7 +36535,7 @@ async fn sign_and_persist_many(
 /// Bumped 45 → 90 s alongside the materializer/gateway doubling so
 /// cold STAC paths under the new 30 s materializer cap get two
 /// retries' worth of headroom on the same client.
-fn s2_http_client() -> reqwest::Client {
+pub(crate) fn s2_http_client() -> reqwest::Client {
     static C: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     C.get_or_init(|| {
         reqwest::Client::builder()

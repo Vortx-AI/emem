@@ -13632,6 +13632,36 @@
       "honest_runtime_note": "The scalar evaluation-AST evaluator cannot express a multi-band evidence ledger, so this key stays documentation_only for /v1/ask's AST dispatch. The runnable surface is POST /v1/change_attribution {cell}. It attributes by evidence, never by magnitude: `split` is null, and the in-band attribution_note explains that a numeric decomposition needs a calibrated cross-encoder, cross-sensor stability model this responder does not have. Bands with fewer than two distinct tslots at the cell are reported under evidence_absent with a typed reason (single_vintage, outside_coverage, recall_failed) rather than backfilled or fabricated."
     },
     {
+      "key": "band_raster@1",
+      "kind": "solo",
+      "domain": "optical",
+      "inputs": [
+        {
+          "band": "s2.B04",
+          "role": "any_allowlisted_s2_band",
+          "explanation": "One raw Sentinel-2 reflectance band (B02/B03/B04/B08/B11/B12) read at native resolution from the pinned scene's COG over the request bbox."
+        }
+      ],
+      "formula": "artifact = canonical_grid_f32(sample_window(scene_cog(band), bbox_native_window)); artifact_cid = blake3(artifact); derivation record pins {aoi_cid, band, tslot, scene id + asset + capture time, grid georeferencing, best-effort anchors}; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment",
+      "output": {
+        "kind": "scalar",
+        "unit": "artifact",
+        "range": [
+          0,
+          1
+        ],
+        "explanation": "Not a scalar: the output is a content-addressed grid artifact plus a persisted derivation record (emem.field_derivation.v1). The range is a registry formality. Verification has two tiers: spot-check (re-hash the artifact, read anchors[] back out of the grid, compare anchor fact cids) and full recompute (fetch the pinned scene, rerun this recipe, compare digests)."
+      },
+      "when_to_use": "When an agent needs a field, not a set of points: a native-resolution window over an area, citeable as one emem:raster: token and verifiable as a derivation. For per-cell values use recall; for an RGB visual use cell_scene_rgb, which is a view, not a signed artifact.",
+      "primitive": "POST /v1/band_raster {bbox, band, observed_on?} -> canonical grid artifact + persisted derivation record + FIELD-bound receipt; GET /v1/artifacts/{cid} serves the bytes, immutable",
+      "deterministic": true,
+      "citation": "docs/plans/field-tokens.md (the signed design); emem whitepaper section 5 (the canonicalization discipline the grid encoding mirrors)",
+      "documentation_only": true,
+      "runtime_path": "/v1/band_raster",
+      "partial_runtime": true,
+      "honest_runtime_note": "The AST evaluator cannot express a windowed COG read, so this key stays documentation_only for /v1/ask dispatch; POST /v1/band_raster is the runnable surface. Bounds are refusals, not timeouts: six raw S2 bands, 512 px per side. Anchors are best-effort by owner decision (a required anchor would force cold-AOI materialization, the gateway-timeout trap the partial-results item names); the artifact is evictable and the derivation record persists, so eviction turns a dereference into a recompute, never a broken citation."
+    },
+    {
       "key": "deforestation_triple@1",
       "kind": "combined",
       "domain": "forest",

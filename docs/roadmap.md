@@ -364,7 +364,12 @@ one function before the caller sees it.
   the signed object is a small derivation record with pinned sources and
   sampled per-cell anchors bridging to the existing trust, and
   verification has a spot-check tier and a full recompute tier. The
-  design awaits the owner's sign-off, and nothing ships before it.
+  owner signed off on 2026-07-16 and the build began the same day:
+  the FIELD preimage segment, the evictable artifact store, the
+  canonical grid encoding, and the `POST /v1/band_raster` executor all
+  ship (six raw S2 bands, 512 px per side, best-effort anchors, the
+  derivation record persisted on the ledger envelope). Open: the
+  `emem:raster:` and `emem:cube:` resolve surface and the MCP tool.
 - **Partial results instead of a timeout.** Open. A cold NDVI polygon
   cannot finish inside the 40 s gateway: worst case is roughly 31
   sequential upstream round trips for a single cell, and `recall_polygon`

@@ -1058,7 +1058,7 @@ demand: **46 declared source schemes** and **124 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and four open
 foundation-model embeddings (Tessera, Clay v1.5, Prithvi-EO-2.0, and
-Galileo; references at the end). **161 algorithms** and **27 topics**
+Galileo; references at the end). **162 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ![the encoder runs at the source and emits an embedding; emem stores and signs the embedding on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
@@ -1210,7 +1210,7 @@ them attributes a change, which is exactly the §10.3 gap.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **111 documented REST paths under `/v1/*`** (115 total
+`0.0.0.0:5051`): **113 documented REST paths under `/v1/*`** (117 total
 in OpenAPI) and **92 MCP tools (14 core, 78 extended)**.
 
 Discovery on first contact:

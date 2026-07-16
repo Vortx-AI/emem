@@ -1,8 +1,16 @@
 # Field tokens: what the receipt attests when the answer is an array
 
-**Status: design for owner sign-off, 2026-07-16. Nothing here ships;
-this is the deliberate answer the roadmap's raster item required before
-any of it may ship.**
+**Status: signed off by the owner 2026-07-16, build in progress. Steps
+1 through 3 of the build order ship: the FIELD preimage segment with
+its byte-identity invariant pinned, the evictable artifact store, the
+canonical grid encoding, and the `POST /v1/band_raster` executor with
+`GET /v1/artifacts/{cid}`. Open: the `emem:raster:` / `emem:cube:`
+token resolve surface and the MCP tool. One envelope delta from the
+text below, chosen for reuse: the derivation record rides as the value
+of a `DerivativeFact` (the attribution-ledger envelope), so
+persistence, the merkle log, and `emem:fact:` resolution came free;
+the record body carries the aoi_cid exactly as specified. The anchors
+question resolved best-effort, for the reason section 6 predicted.**
 
 ## The question
 

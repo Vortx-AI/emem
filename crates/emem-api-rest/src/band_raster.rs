@@ -1,0 +1,495 @@
+//! `band_raster@1` — a field as a signed derivation, not a byte pipe.
+//!
+//! docs/plans/field-tokens.md, built in the order it states. The receipt
+//! for a raster attests a DERIVATION: this responder computed the
+//! artifact whose blake3 is `artifact_cid`, from a pinned upstream
+//! scene, via this versioned recipe, over this content-addressed
+//! geometry and time slot. The pixels themselves live in the evictable
+//! artifact store; the signed derivation record persists as a
+//! `DerivativeFact` (the attribution-ledger envelope) and carries
+//! everything a stranger needs to rebuild the identical bytes.
+//!
+//! Verification tiers, per the design: spot-check (re-hash the artifact,
+//! read the sampled `anchors[]` back out of the grid, and where an
+//! anchor carries a fact_cid compare against the ordinary per-cell
+//! fact) and full recompute (fetch the pinned scene, rerun the recipe,
+//! compare digests). Anchors are BEST-EFFORT by owner decision: a
+//! required anchor would force cold-AOI materialization and recreate
+//! the exact gateway-timeout trap the partial-results roadmap item
+//! warns about, so an anchor cites an existing fact when the store
+//! holds one and never materializes to invent the bridge.
+//!
+//! Honest bounds, stated in refusals rather than discovered in
+//! timeouts: the AOI is a bbox, the band allowlist is the raw
+//! Sentinel-2 reflectance set below, and the window caps at
+//! `MAX_SIDE_PX` per side.
+
+use std::sync::LazyLock;
+use std::time::Instant;
+
+use axum::extract::{Path as AxumPath, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::Json;
+use serde::Deserialize;
+use serde_json::{json, Value as JsonValue};
+
+use emem_cache::CanonicalKey;
+use emem_codec::grid::{encode_grid, grid_value_at, GridHeader};
+use emem_fact::{Derivation, DerivativeFact, Fact, FactCid, FieldBinding};
+use emem_storage::artifacts::ArtifactStore;
+
+use crate::change_attribution::json_to_cbor;
+use crate::{ApiError, AppState, EmemJson, ErrorBody};
+use emem_core::ErrorCode;
+
+/// Hard cap per window side. 512 px at 10 m is a 5.12 km square, well
+/// past the 2 km AOI the roadmap's reporting agent needed, and small
+/// enough that a cold scene read stays inside the gateway budget.
+const MAX_SIDE_PX: u32 = 512;
+
+/// The raw Sentinel-2 bands this executor serves, with the Element84
+/// STAC asset aliases each may appear under. An allowlist, not a
+/// routing guess: any other band is a typed refusal naming this list.
+const S2_BANDS: [(&str, &[&str]); 6] = [
+    ("s2.B02", &["blue", "B02"]),
+    ("s2.B03", &["green", "B03"]),
+    ("s2.B04", &["red", "B04"]),
+    ("s2.B08", &["nir", "B08"]),
+    ("s2.B11", &["swir16", "B11"]),
+    ("s2.B12", &["swir22", "B12"]),
+];
+
+/// The evictable blob store, module-owned like the koppen cache:
+/// `$EMEM_DATA/artifacts`, capped by `EMEM_ARTIFACTS_MAX_BYTES`
+/// (default 4 GiB).
+pub(crate) static ARTIFACTS: LazyLock<ArtifactStore> = LazyLock::new(|| {
+    let base = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
+    let cap = std::env::var("EMEM_ARTIFACTS_MAX_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(4 * 1024 * 1024 * 1024);
+    ArtifactStore::open(format!("{base}/artifacts"), cap)
+        .expect("artifact store root must be creatable under EMEM_DATA")
+});
+
+/// Media type of the canonical grid encoding (emem-codec `grid.rs`).
+const GRID_MEDIA_TYPE: &str = "application/x.emem-grid-f32.v1";
+
+#[derive(Debug, Deserialize, serde::Serialize)]
+pub struct BBox {
+    pub min_lat: f64,
+    pub min_lng: f64,
+    pub max_lat: f64,
+    pub max_lng: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BandRasterReq {
+    pub bbox: BBox,
+    /// One of the `S2_BANDS` keys, e.g. `"s2.B04"`.
+    pub band: String,
+    /// Optional target capture date `YYYY-MM-DD`; defaults to now. The
+    /// scene actually chosen is pinned in the derivation record either
+    /// way.
+    #[serde(default)]
+    pub observed_on: Option<String>,
+}
+
+/// `YYYY-MM-DD` into (year, month, day); the repo's `days_from_civil`
+/// turns it into Unix time without a date crate.
+fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
+    let mut it = s.split('-');
+    let y: i32 = it.next()?.parse().ok()?;
+    let m: u32 = it.next()?.parse().ok()?;
+    let d: u32 = it.next()?.parse().ok()?;
+    if it.next().is_some() || !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    Some((y, m, d))
+}
+
+fn bad_request(message: String) -> ApiError {
+    ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message,
+            details: None,
+        },
+    )
+}
+
+fn upstream_error(message: String) -> ApiError {
+    ApiError(
+        StatusCode::BAD_GATEWAY,
+        ErrorBody {
+            code: ErrorCode::SourceFetchFailed,
+            message,
+            details: None,
+        },
+    )
+}
+
+/// `aoi_cid`: the full blake3 of the bbox's canonical CBOR, base32, 52
+/// chars: the same identifier discipline every fact uses, so the same
+/// area always names the same field.
+fn aoi_cid(b: &BBox) -> Result<String, ApiError> {
+    let bytes = emem_fact::cbor::to_canonical_cbor(b)
+        .map_err(|e| bad_request(format!("bbox does not canonicalize: {e}")))?;
+    Ok(data_encoding::BASE32_NOPAD
+        .encode(blake3::hash(&bytes).as_bytes())
+        .to_lowercase())
+}
+
+pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let b = &req.bbox;
+    if !(b.min_lat < b.max_lat && b.min_lng < b.max_lng) {
+        return Err(bad_request(
+            "bbox must satisfy min_lat < max_lat and min_lng < max_lng".into(),
+        ));
+    }
+    if b.min_lat < -90.0 || b.max_lat > 90.0 || b.min_lng < -180.0 || b.max_lng > 180.0 {
+        return Err(bad_request("bbox exceeds WGS-84 bounds".into()));
+    }
+    let Some((band_key, aliases)) = S2_BANDS.iter().find(|(k, _)| *k == req.band) else {
+        let names: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
+        return Err(bad_request(format!(
+            "band `{}` is not rasterizable; this executor serves {}",
+            req.band,
+            names.join(", ")
+        )));
+    };
+
+    // ── scene selection, pinned. ───────────────────────────────────────
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let target_unix: Option<i64> = match &req.observed_on {
+        Some(d) => Some(
+            parse_ymd(d)
+                .map(|(y, m, dd)| crate::days_from_civil(y, m, dd) * 86_400 + 43_200)
+                .ok_or_else(|| bad_request(format!("observed_on `{d}` is not YYYY-MM-DD")))?,
+        ),
+        None => None,
+    };
+    let centre_lat = (b.min_lat + b.max_lat) / 2.0;
+    let centre_lng = (b.min_lng + b.max_lng) / 2.0;
+    let cli = crate::s2_http_client();
+    let (item, _cloud, _days) =
+        crate::s2_search_with_fallback(&cli, centre_lng, centre_lat, target_unix, now_unix)
+            .await
+            .map_err(upstream_error)?;
+    let epsg = item
+        .epsg
+        .ok_or_else(|| upstream_error("stac item missing proj:epsg".into()))?;
+    let url = aliases
+        .iter()
+        .find_map(|a| item.assets.get(*a).cloned())
+        .ok_or_else(|| upstream_error(format!("scene {} has no asset for {band_key}", item.id)))?;
+
+    // ── window math in the scene's CRS. ────────────────────────────────
+    let utm_c = emem_fetch::proj::latlng_to_utm_with_epsg(centre_lat, centre_lng, epsg)
+        .ok_or_else(|| upstream_error(format!("epsg {epsg} is not a UTM code")))?;
+    let utm_min = emem_fetch::proj::latlng_to_utm_with_epsg(b.min_lat, b.min_lng, epsg)
+        .ok_or_else(|| upstream_error("bbox corner outside the scene's UTM zone".into()))?;
+    let utm_max = emem_fetch::proj::latlng_to_utm_with_epsg(b.max_lat, b.max_lng, epsg)
+        .ok_or_else(|| upstream_error("bbox corner outside the scene's UTM zone".into()))?;
+    let prof = emem_fetch::cog::open_profile(&cli, &url)
+        .await
+        .map_err(|e| upstream_error(format!("open COG: {e}")))?;
+    let native_m = prof.pixel_scale.0.abs();
+    if !(native_m > 0.0 && native_m.is_finite()) {
+        return Err(upstream_error(format!(
+            "COG has implausible pixel scale {:?}",
+            prof.pixel_scale
+        )));
+    }
+    let width_px = (((utm_max.easting - utm_min.easting).abs() / native_m).ceil() as u32).max(1);
+    let height_px = (((utm_max.northing - utm_min.northing).abs() / native_m).ceil() as u32).max(1);
+    if width_px > MAX_SIDE_PX || height_px > MAX_SIDE_PX {
+        return Err(bad_request(format!(
+            "window is {width_px}x{height_px} px at the band's native {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink the bbox or page it."
+        )));
+    }
+
+    let raw = emem_fetch::cog::sample_window(
+        &cli,
+        &url,
+        &prof,
+        utm_c.easting,
+        utm_c.northing,
+        width_px,
+        height_px,
+    )
+    .await
+    .map_err(|e| upstream_error(format!("sample_window: {e}")))?;
+
+    // The window's own origin in pixel space is what sample_window used:
+    // centred on the point, half the dims each way. Its world origin
+    // (centre of the first pixel) inverts world_to_pixel exactly.
+    let (centre_col, centre_row) = prof.world_to_pixel(utm_c.easting, utm_c.northing);
+    let col0 = centre_col - (width_px as i64) / 2;
+    let row0 = centre_row - (height_px as i64) / 2;
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let (sx, sy) = prof.pixel_scale;
+    let x0 = tx + (col0 as f64 - ti) * sx;
+    let y0 = ty - (row0 as f64 - tj) * sy.abs();
+
+    // ── the canonical artifact. ────────────────────────────────────────
+    let header = GridHeader {
+        width: width_px,
+        height: height_px,
+        epsg,
+        nodata: f32::NAN,
+        lat0: y0,
+        lng0: x0,
+        dlat: -sy.abs(),
+        dlng: sx,
+    };
+    let values: Vec<f32> = raw.iter().map(|v| *v as f32).collect();
+    let artifact_bytes =
+        encode_grid(&header, &values).map_err(|e| upstream_error(format!("grid encode: {e:?}")))?;
+    let byte_len = artifact_bytes.len();
+    let artifact_cid = ARTIFACTS
+        .put(&artifact_bytes)
+        .map_err(|e| upstream_error(format!("artifact store: {e}")))?;
+
+    // ── anchors: corners inset one pixel, plus the centre. Best-effort
+    //    fact bridge; never materializes. ────────────────────────────────
+    let scene_date = item.datetime.get(..10).unwrap_or("").to_string();
+    let scene_unix = parse_ymd(&scene_date)
+        .map(|(y, m, d)| crate::days_from_civil(y, m, d) * 86_400)
+        .unwrap_or(now_unix);
+    let tslot = (scene_unix.max(0) as u64) / 86_400;
+
+    let inset_lat = (b.max_lat - b.min_lat) * 0.02;
+    let inset_lng = (b.max_lng - b.min_lng) * 0.02;
+    let anchor_points = [
+        (b.min_lat + inset_lat, b.min_lng + inset_lng),
+        (b.min_lat + inset_lat, b.max_lng - inset_lng),
+        (b.max_lat - inset_lat, b.min_lng + inset_lng),
+        (b.max_lat - inset_lat, b.max_lng - inset_lng),
+        (centre_lat, centre_lng),
+    ];
+    let mut anchors: Vec<JsonValue> = Vec::with_capacity(anchor_points.len());
+    let mut anchor_fact_cids: Vec<FactCid> = Vec::new();
+    let keys: Vec<CanonicalKey> = anchor_points
+        .iter()
+        .map(|(lat, lng)| CanonicalKey {
+            cell: emem_codec::geo::cell64_from_latlng(*lat, *lng),
+            band: band_key.to_string(),
+            tslot,
+        })
+        .collect();
+    let looked_up = s
+        .storage
+        .lookup_canonical_many(&keys)
+        .await
+        .unwrap_or_else(|_| vec![None; keys.len()]);
+    for (((lat, lng), key), existing) in anchor_points.iter().zip(&keys).zip(&looked_up) {
+        let utm_a = emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, epsg);
+        let (row, col) = match utm_a {
+            Some(u) => {
+                let (c, r) = prof.world_to_pixel(u.easting, u.northing);
+                ((r - row0).max(0) as u32, (c - col0).max(0) as u32)
+            }
+            None => (0, 0),
+        };
+        let value = grid_value_at(&header, &values, row, col);
+        if let Some(cid) = existing {
+            anchor_fact_cids.push(cid.clone());
+        }
+        anchors.push(json!({
+            "cell": key.cell,
+            "row": row,
+            "col": col,
+            "value": value,
+            "fact_cid": existing.as_ref().map(|c| c.as_str()),
+        }));
+    }
+
+    // ── the derivation record, persisted on the ledger envelope. ──────
+    let aoi = aoi_cid(b)?;
+    let record_body = json!({
+        "schema": "emem.field_derivation.v1",
+        "aoi": { "bbox": { "min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng } },
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot": tslot,
+        "fn_key": "band_raster@1",
+        "sources": [{
+            "scheme": "sentinel2.l2a",
+            "id": item.id,
+            "asset": url,
+            "captured_at": item.datetime,
+            "cloud_cover": item.cloud_cover,
+        }],
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "grid": {
+                "width": width_px, "height": height_px, "epsg": epsg,
+                "x0": x0, "y0": y0, "dx": sx, "dy": -sy.abs(),
+                "crs_note": "header origin and steps are in the scene's UTM CRS named by epsg; the request bbox is WGS-84",
+            },
+        },
+        "anchors": anchors,
+        "anchor_policy": "best_effort: an anchor cites an existing per-cell fact when the store holds one; it never materializes one, so a cold AOI costs no upstream fetches beyond the scene read",
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
+    let derivation_fact = DerivativeFact {
+        cell: centre_cell.clone(),
+        band: "field.derivation".to_string(),
+        tslot_window: [tslot, tslot],
+        op: "band_raster".to_string(),
+        parents: anchor_fact_cids.clone(),
+        value: json_to_cbor(&record_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "band_raster@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(derivation_fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| upstream_error("store returned no cid for the derivation".into()))?;
+
+    // ── the field receipt: (aoi_cid, derivation_cid) in the preimage. ──
+    let binding = FieldBinding {
+        aoi_cid: aoi.clone(),
+        derivation_cid: derivation_cid.clone(),
+    };
+    let mut receipt_cids = anchor_fact_cids;
+    receipt_cids.push(FactCid::new(derivation_cid.clone()));
+    let receipt = s.sign_receipt_field(
+        "emem.band_raster",
+        vec![centre_cell.clone()],
+        receipt_cids,
+        false,
+        started,
+        binding,
+    );
+
+    Ok(json!({
+        "schema": "emem.band_raster.v1",
+        "algorithm_key": "band_raster@1",
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot": tslot,
+        "grid": { "width": width_px, "height": height_px, "epsg": epsg, "native_m": native_m },
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "url": format!("/v1/artifacts/{artifact_cid}"),
+            "eviction_note": "the artifact is evictable; the derivation record persists and pins everything needed to rebuild the identical bytes",
+        },
+        "derivation": record_body,
+        "derivation_cid": derivation_cid,
+        "tokens": {
+            "raster": format!("emem:raster:{aoi}:{band_key}:{tslot}:{derivation_cid}"),
+            "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
+        },
+        "receipt": receipt,
+    }))
+}
+
+pub async fn post_band_raster(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<BandRasterReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(band_raster(req, &s).await?))
+}
+
+/// `GET /v1/artifacts/:cid` — the raw canonical bytes, immutable forever
+/// (content-addressed). A miss is a typed 404 that says how to rebuild,
+/// because eviction is a design property, not an error.
+pub async fn get_artifact(AxumPath(cid): AxumPath<String>) -> impl IntoResponse {
+    match ARTIFACTS.get(&cid) {
+        Ok(Some(bytes)) => (
+            StatusCode::OK,
+            [
+                (axum::http::header::CONTENT_TYPE, GRID_MEDIA_TYPE),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=31536000, immutable",
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "code": "artifact_evicted_or_unknown",
+                "message": "no artifact bytes under this cid on this responder. If you hold the derivation record, it pins the scene, recipe, and geometry needed to rebuild the identical bytes; POST /v1/band_raster with the same bbox, band, and observed_on re-derives and re-stores them.",
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "code": "invalid_argument", "message": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aoi_cid_is_stable_and_order_sensitive() {
+        let a = BBox {
+            min_lat: 12.9,
+            min_lng: 77.5,
+            max_lat: 13.0,
+            max_lng: 77.6,
+        };
+        let one = aoi_cid(&a).unwrap();
+        let two = aoi_cid(&a).unwrap();
+        assert_eq!(one, two, "same bbox must always name the same field");
+        assert_eq!(one.len(), 52);
+        let b = BBox {
+            min_lat: 12.9,
+            min_lng: 77.5,
+            max_lat: 13.0,
+            max_lng: 77.7,
+        };
+        assert_ne!(one, aoi_cid(&b).unwrap());
+    }
+
+    #[test]
+    fn band_allowlist_is_the_documented_six() {
+        let keys: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
+        assert_eq!(
+            keys,
+            vec!["s2.B02", "s2.B03", "s2.B04", "s2.B08", "s2.B11", "s2.B12"]
+        );
+    }
+}

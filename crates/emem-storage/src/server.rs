@@ -252,6 +252,34 @@ impl Server {
             None,
             None,
             &[],
+            None,
+        )
+    }
+
+    /// Field sibling of [`Server::sign_receipt`]: the (aoi_cid,
+    /// derivation_cid) binding enters the v1 preimage as the tagged FIELD
+    /// segment and rides the receipt body so an offline verifier rebuilds
+    /// the same digest (docs/plans/field-tokens.md).
+    pub fn sign_receipt_field(
+        &self,
+        primitive: &'static str,
+        cells: Vec<String>,
+        fact_cids: Vec<FactCid>,
+        was_cached: bool,
+        started: Instant,
+        field: emem_fact::FieldBinding,
+    ) -> Receipt {
+        self.sign_receipt_v1_inner(
+            primitive,
+            cells,
+            fact_cids,
+            was_cached,
+            started,
+            None,
+            None,
+            None,
+            &[],
+            Some(field),
         )
     }
 
@@ -272,6 +300,7 @@ impl Server {
         scope: Option<emem_fact::Scope>,
         bound: Option<&AsOfBound>,
         edges: &[EdgeCid],
+        field: Option<emem_fact::FieldBinding>,
     ) -> Receipt {
         let request_id = ulid::Ulid::new().to_string();
         let served_at = iso8601_now();
@@ -287,6 +316,7 @@ impl Server {
         });
         let as_of_hex = as_of.as_ref().map(|a| a.blake3_hex());
         let edges_hex = Self::edges_blake3_hex(edges);
+        let field_hex = field.as_ref().map(|f| f.blake3_hex());
         let source_versions = self.manifest_versions_snapshot();
         let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
 
@@ -297,7 +327,7 @@ impl Server {
             as_of_hex.as_deref(),
             edges_hex.as_deref(),
             manifest_hex.as_deref(),
-            None,
+            field_hex.as_deref(),
             primitive,
             cells.iter().map(|s| s.as_str()),
             fact_cids.iter().map(|c| c.as_str()),
@@ -342,7 +372,7 @@ impl Server {
                 was_cached,
             },
             as_of,
-            field: None,
+            field,
             scope,
             edge_cids: edges.to_vec(),
             preimage_version: emem_attest::PREIMAGE_V1,
@@ -375,6 +405,7 @@ impl Server {
             scope,
             None,
             &[],
+            None,
         )
     }
 
@@ -426,6 +457,7 @@ impl Server {
             scope,
             Some(bound),
             &[],
+            None,
         )
     }
 
@@ -473,6 +505,7 @@ impl Server {
             scope,
             Some(bound),
             edges,
+            None,
         )
     }
 }
