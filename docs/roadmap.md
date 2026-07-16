@@ -209,7 +209,13 @@ return a signed hole instead of a value.
   look inside it, install it into a fresh environment and import it, and
   refuse to upload anything that ships no modules or will not import.
   `ememdev` is bumped to 1.0.1 because PyPI versions are immutable and the
-  empty releases can only be superseded, never replaced.
+  empty releases can only be superseded, never replaced. One more trap is
+  external: the PyPI name `emem` belongs to an unrelated company's real
+  package, so the install name stays `ememdev` and the import name is a
+  decision to make deliberately before the first verified publish, either
+  rename the module to match the install name or document the divergence
+  loudly. A developer who guesses `pip install emem` installs someone
+  else's library.
 
   Open, and each blocked on a human once. PyPI registers a Trusted
   Publisher per project, so `ememdev` and `emem-langmem` each need one
@@ -237,6 +243,51 @@ return a signed hole instead of a value.
   the signed-write path, and tenancy are solid; when it starts, one
   flagship design partner beats a generic ROS package. A runnable
   two-vendor HTTP example ships today at `examples/fleet-memory/`.
+
+### Distribution: being findable and installable
+
+Adoption is a distribution problem before it is a content problem, and
+the two leaks sit at the top of the funnel: a developer cannot install
+the SDK yet (above), and an agent browsing a registry does not find the
+server. Nothing here ships a new capability; all of it decides whether
+the existing ones are found.
+
+- **Registry listings and a server card.** emem is absent from the MCP
+  registries where servers get found: the official registry, mcp.so,
+  Smithery, glama.ai, PulseMCP, and awesome-mcp-servers. Open: one
+  metadata pack (name, Streamable HTTP transport, `https://emem.dev/mcp`,
+  tool list, repo) prepared once and submitted everywhere; the seeds
+  already exist under `docs/registries/`. With it, a
+  `.well-known/mcp.json` server card generated from the same source of
+  truth as the live tool surface, so the card cannot drift, stating the
+  honest auth posture: reads open, writes ed25519-attested.
+- **Framework integrations as published packages.** The LangChain,
+  LlamaIndex, CrewAI, Agno, AutoGen, and Mastra examples exist as config
+  files. The channel that compounds is being an installable, listed
+  integration inside the frameworks developers already use.
+  `emem-langmem`, the BaseStore adapter that signs its writes, publishes
+  first, then the framework directories. Gated on the first verified SDK
+  publish above.
+- **A launch that lands after the leaks are fixed.** One top-of-funnel
+  moment, led by the demonstrable claim (the same token resolves to the
+  same bytes for anyone, and the receipt verifies offline), not by
+  satellites. The assets are the one-call win at the top of the README,
+  a sixty-second recording of the cite-then-verify loop across two
+  processes, the worlds, and one completable tutorial that ends in a
+  token the reader can paste anywhere and a `/verify` link. Deliberately
+  gated on the SDK publish and the registry listings: a launch that
+  drives installs to an empty wheel burns the one spike.
+- **A public reliability signal.** Registries and evaluators weight
+  liveness. Open: an uptime signal for the hosted node, freshness
+  signals the README does not have to restate (latest release, CI
+  state), and aggregate, non-identifying usage counts if and only if
+  they are consistent with the privacy policy.
+- **A doc-lint gate.** The prose convention and the claim discipline are
+  enforced by hand today. Open: a CI check that fails on the banned
+  characters and filler-word list, verifies internal links resolve, and
+  parses every token example in the docs, with the convention written
+  down in CONTRIBUTING.md so outside contributors inherit it rather than
+  rediscover it in review.
 
 ### What agents building on emem actually hit
 
@@ -350,6 +401,35 @@ one function before the caller sees it.
   ambiguity length-prefixing exists to prevent needs two adjacent
   variable-length fields, and there are none. Revisit if the binding ever
   grows a second one.
+
+### The paper: one canonical, submittable whitepaper
+
+Two whitepapers overlap today. v1 carries the protocol depth and is
+archived unedited as the DOI-cited record; v2 carries the framing and
+the honesty discipline. A submittable paper is one document, and what
+the prose still lacks is exactly the scaffolding a reviewer scans for.
+
+- **One canonical paper.** Merge with v2's spine (referential drift in
+  both directions, external identity) and v1's protocol depth (cell64,
+  tslot, the band voxel, algorithms, primitives) folded into the design
+  sections. The old files stay where they are, marked superseded, since
+  v1 is the frozen citation target behind the DOI.
+- **The scaffolding.** Formal definitions: the address map, the cid as
+  blake3 over canonical CBOR, the tagged length-prefixed preimage
+  stream, the bi-temporal read predicate, and the change decomposition
+  already stated in the whitepaper's sections 1.1 and 10.3. A figure
+  set: architecture, addressing, the preimage, the token lifecycle, the
+  log, the decomposition. A reference list that covers agent memory, EO
+  foundation models, content addressing, provenance standards, and
+  verifiable data structures, every identifier checked to exist before
+  it is cited. An evaluation section that lifts the measured numbers
+  from [benchmarks.md](benchmarks.md) verbatim and keeps their
+  sample-versus-full honesty split. The honest-limits list restructured
+  once as an explicit adversary model: what a malicious sender, a
+  malicious responder, and a network attacker each can and cannot do,
+  with split-view equivocation and the first-contact baseline named.
+  And a LaTeX source for the submission itself, since the repo renders
+  HTML today and preprint servers compile LaTeX.
 
 ### The substrate: trusted, portable, verifiable memory
 

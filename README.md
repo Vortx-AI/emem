@@ -25,6 +25,40 @@
 
 A shared memory of the physical world. Location is the first key: every place on Earth has a stable 64-bit address, and every observation recorded there, an elevation, a temperature, a forest-loss year, is one signed, immutable record at that address. Any agent can read it, any keyholder can add to it, and anyone can check any of it offline. No account to read.
 
+## One call, one verified fact
+
+Reading needs no key and no account. This returns the elevation at one 10-metre cell of Bengaluru, as a signed record:
+
+```bash
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"place":"Bengaluru","bands":["copdem30m.elevation_mean"]}'
+```
+
+The response carries the value (918 metres), the record's content id (`fact_cid`), and an ed25519 receipt. One more paste checks that receipt against the responder's published key, so you are not trusting the server or this README:
+
+```bash
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"place":"Bengaluru","bands":["copdem30m.elevation_mean"]}' \
+  | jq '{receipt: .receipt}' \
+  | curl -s -X POST https://emem.dev/v1/verify_receipt \
+      -H 'content-type: application/json' --data-binary @- \
+  | jq '{signature_valid, merkle_proof_valid}'
+```
+
+`"signature_valid": true`. That is the whole trust model in two commands: every reading is a signed record, and anyone can check one. If that worked, the star button helps other builders find this. The line an agent keeps instead of the payload is next.
+
+## The ladder
+
+Six steps, each adding one idea, and every step works before the next exists:
+
+1. **Read.** Recall signed facts for any place, no key, no account: [two minutes](#use-it-in-two-minutes).
+2. **Cite.** Keep the 84-character token, drop the payload: [the Memory Token](#the-memory-token).
+3. **Verify.** Re-check a token's bytes and signature offline, trusting nobody: [why you can trust it](#why-you-can-trust-it).
+4. **Write.** Attest your own facts with a local ed25519 key, no registration: [if you are an agent](#if-you-are-an-agent).
+5. **Self-host.** Run the exact hosted binary; a receipt minted on one node verifies on the other: [run your own node](#run-your-own-node).
+6. **Federate.** Several independent responders, one address space. Next, not now: [docs/roadmap.md](docs/roadmap.md).
+
 ## The Memory Token
 
 ```
@@ -102,7 +136,7 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" | jq '.facts[0].value'
 ```
 
-**Python and TypeScript**: typed clients live in [`sdks/`](sdks/), wrapping the same REST surface. Installable packages are pending their first verified publish; the status, and the honest account of why earlier PyPI releases shipped empty, live in [docs/roadmap.md](docs/roadmap.md).
+**Python and TypeScript**: typed clients live in [`sdks/`](sdks/), wrapping the same REST surface. Installable packages are pending their first verified publish; the status, and the honest account of why earlier PyPI releases shipped empty, live in [docs/roadmap.md](docs/roadmap.md). When it lands, the pip name is `ememdev`. Do not guess the short name: `emem` on PyPI is an unrelated project by another company.
 
 <details>
 <summary>Copy-paste configs for 12 clients, packaged Claude skills, TypeScript SDK</summary>
