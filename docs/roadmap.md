@@ -382,7 +382,13 @@ one function before the caller sees it.
   the cloud-mask probe (both in flight) shrink the window but do not change
   the shape. An agent handed 40 of 64 cells plus a list of what is still
   materializing can proceed; a 504 teaches it to stop calling emem. That is
-  an API change and it deserves a design.
+  an API change and it deserves a design; the design is now written, in
+  [plans/partial-results.md](plans/partial-results.md): partiality as a
+  first-class 200 with a typed `pending[]` and monotone convergence by
+  identical-request retry, no job queue, because materialization
+  already persists and the store is the state. It awaits the owner's
+  sign-off, and the preparer and the densification warmer both build on
+  it once it lands.
 
   The same decision blocks a memory preparer: one call that says "warm this
   area across this window" so an agent can build its memory before it needs
