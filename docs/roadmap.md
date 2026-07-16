@@ -252,15 +252,20 @@ the SDK yet (above), and an agent browsing a registry does not find the
 server. Nothing here ships a new capability; all of it decides whether
 the existing ones are found.
 
-- **Registry listings and a server card.** emem is absent from the MCP
-  registries where servers get found: the official registry, mcp.so,
-  Smithery, glama.ai, PulseMCP, and awesome-mcp-servers. Open: one
-  metadata pack (name, Streamable HTTP transport, `https://emem.dev/mcp`,
-  tool list, repo) prepared once and submitted everywhere; the seeds
-  already exist under `docs/registries/`. With it, a
-  `.well-known/mcp.json` server card generated from the same source of
-  truth as the live tool surface, so the card cannot drift, stating the
-  honest auth posture: reads open, writes ed25519-attested.
+- **Registry listings and a server card.** More ships here than the
+  first draft of this item claimed. Ships today: the official MCP
+  Registry listing (`io.github.Vortx-AI/emem`, published automatically
+  on every `v*` tag by `.github/workflows/mcp-publish.yml` over OIDC,
+  current at the workspace version), and the server card at
+  `/.well-known/mcp.json`, generated from the same tool registry as
+  `tools/list` so it cannot drift, stating the honest auth posture:
+  reads open, writes ed25519-attested. Open: the third-party
+  directories (mcp.so, Smithery, glama.ai, PulseMCP,
+  awesome-mcp-servers), each needing a human account or PR. The
+  canonical copy for those submissions is
+  [registries/metadata-pack.md](registries/metadata-pack.md); the older
+  files in that directory carry April counts and are history, not
+  copy.
 - **Framework integrations as published packages.** The LangChain,
   LlamaIndex, CrewAI, Agno, AutoGen, and Mastra examples exist as config
   files. The channel that compounds is being an installable, listed
