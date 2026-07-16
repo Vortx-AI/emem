@@ -160,6 +160,7 @@ pub struct FactContestedRecord {
     pub lower_confidence: bool,
 }
 
+pub mod artifacts;
 pub mod attesters;
 pub mod merkle_log;
 pub mod server;
