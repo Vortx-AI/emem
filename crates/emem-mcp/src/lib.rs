@@ -2285,7 +2285,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
     ),
     (
         "long_horizon",
-        "Work that outlives one context window. Park state as durable notes, cite what you found so a later run resolves the identical bytes, walk what changed since, and detect when the world moved under a conclusion you already drew. Register a conclusion you derived and a later run resolves it with its lineage intact, instead of recomputing it and hoping the two agree.",
+        "Work that outlives one context window. Park state as durable notes, cite what you found so a later run resolves the identical bytes, walk what changed since, and detect when the world moved under a conclusion you already drew. Register a conclusion you derived and a later run resolves it with its lineage intact, instead of recomputing it and hoping the two agree. Runnable proof: examples/agent-handoff/ in the repo parks a checkpoint and a second identity resumes from it, verified.",
         &[
             "memory_create", "memory_view", "memory_str_replace", "memory_insert",
             "memory_list_by_kind", "emem_memory_search", "emem_edges_recall",
