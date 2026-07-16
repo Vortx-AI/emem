@@ -9,6 +9,7 @@
 [Introduction](./intro.md)
 [Why an agent benefits from emem](./why-agents.md)
 [Quickstart (60 seconds)](./quickstart.md)
+[Your first verified memory (10 minutes)](./tutorials/first-verified-memory.md)
 [What only emem does](./only-emem.md)
 [Connect & evolve](./connect-and-evolve.md)
 

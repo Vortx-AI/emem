@@ -245,6 +245,7 @@ Version 1.0.0: the wire format, receipt preimage, and address space are settled 
 | The whitepaper, canonical | [docs/whitepaper.md](docs/whitepaper.md) |
 | The formal memory model and algebra | [docs/model.md](docs/model.md) |
 | Agent integration handbook | https://emem.dev/agents.md |
+| Ten minutes to a verified, shareable fact | [docs/tutorials/first-verified-memory.md](docs/tutorials/first-verified-memory.md) |
 | Limits, roadmap, open research | [docs/roadmap.md](docs/roadmap.md) |
 | Benchmarks, with methods | [docs/benchmarks.md](docs/benchmarks.md) |
 | Industry use cases | https://emem.dev/solutions |
