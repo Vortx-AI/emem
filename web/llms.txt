@@ -43,7 +43,7 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [skills.md](https://emem.dev/skills.md): composed recipes (locate+recall, find_similar+verify, recall_polygon+solve) as a flat cookbook.
 - [reference](https://emem.dev/reference): the read surface: client setup, endpoint tables, primitives summary, the 12-event hunter table.
 - [topics](https://emem.dev/v1/topics): the 27 topic routes that ask uses to map a question to bands.
-- [algorithms](https://emem.dev/v1/algorithms): 160 composition recipes (flood_risk, walkability, eudr_compliance, …).
+- [algorithms](https://emem.dev/v1/algorithms): 162 composition recipes (flood_risk, walkability, eudr_compliance, …).
 - [errors](https://emem.dev/docs/errors.html): the structured error codes and their resolution hints.
 
 ## Optional

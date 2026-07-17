@@ -19,7 +19,7 @@
 - `GET /v1/coverage_matrix?limit=200` · per-band facts_count, last_attested_unix_s, family, tempo_seconds, history bounds
 - `GET /v1/data_availability` · per-band tempo_seconds + history_available_{from,to}_unix
 - `GET /v1/bands` · band registry (43 cube slots, 124 materializer-wired band names)
-- `GET /v1/algorithms` · algorithm registry (160 composition recipes; each carries `parameters` + `learned_from` provenance)
+- `GET /v1/algorithms` · algorithm registry (162 composition recipes; each carries `parameters` + `learned_from` provenance)
 - `GET /v1/algorithms/{key}` · per-key drill-down with formula, inputs, citation, accuracy_band
 - `GET /v1/sources` · fetch-source registry (46 declared schemes)
 - `GET /v1/manifests` · the manifest CIDs (registry, bands, algorithms, sources, schema, topics, lcv-1, alphabet)

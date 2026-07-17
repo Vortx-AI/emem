@@ -454,7 +454,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms |
-| `/v1/algorithms` | 160 composition recipes (paginated) |
+| `/v1/algorithms` | 162 composition recipes (paginated) |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |
