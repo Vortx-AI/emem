@@ -380,6 +380,8 @@ STALE_PHRASES = {
                      "91 MCP", "108 documented", "160 algorithms"],
     "web/humans-llms.txt": ["91 MCP", "77 extended"],
     "docs/registries.md": ["160 composition", "| 111 "],
+    "huggingface-space/README.md": ["70 MCP", "159 algorithms", "68-recipe",
+                                    "42 bands"],
 }
 
 

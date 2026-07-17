@@ -7,7 +7,7 @@ sdk: docker
 app_port: 5051
 pinned: true
 license: apache-2.0
-short_description: 'MCP server: signed memory of every place on Earth'
+short_description: 'Verifiable memory for AI agents, checkable offline'
 tags:
   - mcp
   - geospatial
@@ -24,19 +24,21 @@ models: []
 datasets: []
 ---
 
-# emem — Earth memory protocol
+# emem: verifiable memory for AI agents
 
-This Space hosts the **emem MCP server** — an agent-native, content-addressed,
-ed25519-signed memory of every place on Earth. Connect from Claude Desktop,
-Cursor, Cline, or any MCP-compatible agent and let it cite spatial facts with
-verifiable receipts.
+This Space hosts the **emem MCP server**: a shared, verifiable memory of the
+physical world. Every place resolves to one signed, content-addressed fact an
+agent can cite as an 84-character token, and anyone can re-check the ed25519
+receipt offline. Connect from Claude Desktop, Cursor, Cline, or any
+MCP-compatible agent.
 
 ## What this Space gives you
 
 - A live MCP JSON-RPC 2.0 endpoint at `${SPACE_URL}/mcp`.
 - A REST + OpenAPI 3.1 surface at `${SPACE_URL}/v1/...`.
-- The same 70 MCP tools / 42 bands / 159 algorithms as
-  [emem.dev](https://emem.dev).
+- The same tool surface as [emem.dev](https://emem.dev): 94 MCP tools,
+  124 wired Earth-observation measurements across 43 cube slots, and 162
+  composition algorithms (live counts at `/v1/agent_card`).
 - Multimodal MCP content blocks: true-colour Sentinel-2 RGB scenes,
   GeoJSON cell polygons, live SVG coverage maps.
 - No keys for L0/L1 reads. Apache-2.0. Pure Rust.
@@ -89,7 +91,7 @@ curl -s https://YOUR-SPACE.hf.space/v1/locate \
 | `POST /v1/locate`                 | Geocode → cell64                                            |
 | `POST /v1/find_similar`           | Embedding-space neighbour search                            |
 | `POST /v1/intent`                 | Free-text question → plan                                   |
-| `POST /v1/algorithms`             | Browse the 68-recipe registry                               |
+| `POST /v1/algorithms`             | Browse the 162-recipe registry                              |
 | `GET /v1/cells/:cell/scene.png`   | Sentinel-2 L2A 256×256 RGB thumbnail                        |
 | `GET /v1/coverage_map.svg`        | Live world map of attested cells                            |
 
