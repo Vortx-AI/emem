@@ -48,8 +48,6 @@ dist-server/
 /tests/*.test.ts
 
 # Artifacts (screenshots, generated images) — keep folder, ignore contents
-artifacts/*
-!artifacts/.gitkeep
 
 # Python ad-hoc tools
 __pycache__/
