@@ -76,7 +76,7 @@ In practice your agent runs four verbs: locate a place, recall its signed facts,
 
 **A long task survives its own context window.** The harness compacts, the session ends, the model gets swapped. A paraphrase drifts; the token does not. After compaction it re-hydrates to the exact signed value, signature still checking. Record it once, cite it forever.
 
-**Two agents stop re-deriving each other's work.** Agent A verifies a flood line and leaves a token in the report. Agent B, at another company, on another model, resolves it and proves it is genuine in one call. No shared database, no shared credentials, no "trust me".
+**Two agents stop re-deriving each other's work.** Agent A spends fifty tool calls establishing one fact and leaves the token in its report. Agent B, at another company, on another model, resolves it to the same bytes and proves it is genuine in one call. No shared database, no shared credentials, no "trust me".
 
 **A fleet shares one map it can prove.** Robots and autonomous systems keep landmarks as `emem:entity:` identities and terrain or hazard readings as signed facts at addresses that never drift, shareable across vendors over the same MCP and REST surface agents use, verifiable without trusting the peer that wrote them. Runnable proof: [examples/fleet-memory/](examples/fleet-memory/), two vendors, one landmark, a 206-character handoff, verified offline.
 
@@ -92,16 +92,17 @@ In practice your agent runs four verbs: locate a place, recall its signed facts,
 | "Is what I knew last week still valid?" with no cheap way to answer | `/v1/temporal_route` scores per-band staleness: cite it or refetch it, no full re-read |
 | A robot reboots, or a unit from another vendor joins the fleet | landmarks are `emem:entity:` identities at drift-free addresses; relocalize by resolving, merge maps by verifying |
 
-**Long-horizon business tasks**, the same survival at business length:
+**Long-horizon work**, the same survival stretched from minutes to months:
 
 | Task | What the memory does |
 |---|---|
-| An area watch that runs for months (ISR, disaster response, conservation) | signed change evidence accrues per cell; every alert cites the facts it fired on, and a relieving agent resumes from tokens |
-| Autonomous inspection rounds over pipelines, rail, or solar fields | findings land as signed facts at fixed addresses, quarter after quarter; a contractor handover keeps every prior finding citable |
-| A growing season managed end to end, planting to harvest | NDVI, soil, and rainfall land as signed facts; "stress began in week 23" resolves to the exact readings next spring |
-| A forest baseline that must hold across years of annual reports | canopy and loss-year facts stay citable and re-checkable by any auditor, without trusting the author's laptop |
-| Operations that commit real resources on a forecast | the forecast acted on is pinned at decision time (`as_of_signed_at`); "what did we know when we launched" has an answer months later |
-| Lending, collateral, and insurance decisions tied to a date | a parcel's state on the origination, policy, or claim date stays citable for years; point-in-time recall replays it without hindsight |
+| A watch that runs for months, across hundreds of sessions | change evidence accrues as signed facts; every alert cites the fact ids it fired on, and the relieving agent resumes from tokens, not from a predecessor's summary |
+| A report that will be audited long after the agent that wrote it is gone | every claim in it is a token; an auditor, human or agent, resolves each one to the signed record and re-checks the signature without contacting the author |
+| A project handed from one contractor's agents to another's | every prior finding stays citable across the handover; the successor resolves the same tokens to the same bytes instead of trusting the summary it was given |
+| A decision that commits real resources | the state acted on is pinned at decision time (`as_of_signed_at`); "what did we know when we acted" has an exact answer months later, replayed without hindsight |
+| A number that must hold across years of reports | records are immutable and supersession is explicit, so the baseline stays re-checkable by anyone, without trusting the author's laptop |
+
+Industry-specific versions of these, with the verticals named, live at [emem.dev/solutions](https://emem.dev/solutions).
 
 <p align="center">
   <img src="docs/diagrams/png/36-memory-outlives-the-context-window.png" width="820" alt="Memory outlives the context window: as the conversation is compacted turn after turn, payloads fall out of context, the one-line emem:fact token survives, and after compaction it re-hydrates from the shared memory to the exact signed bytes." />
