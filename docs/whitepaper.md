@@ -1242,7 +1242,7 @@ without touching REST.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 91 cost about 204 KB of every conversation whether or not it
+connect. All 94 cost about 210 KB of every conversation whether or not it
 ever touches Earth observation. So `POST /mcp` advertises the 14 tools of
 the core loop, about 39 KB, and `POST /mcp/full` advertises all 94.
 

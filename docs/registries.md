@@ -41,7 +41,7 @@ startup.
 | Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
 |-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
 | `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 43 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
-| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 160         | composition recipes (solo / combined / embedding)           |
+| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 162         | composition recipes (solo / combined / embedding)           |
 | `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 23          | derivation functions (primary / derivative / negative)      |
 | `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 46 schemes  | ordered providers per scheme                                |
 | `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 27 topics   | `/v1/ask` routing (description + aliases + bands)           |
@@ -514,7 +514,7 @@ consonant/vowel string constants in the same file.
 | Manifest                 | Count today  | Invariant the validator enforces                                  |
 |--------------------------|--------------|-------------------------------------------------------------------|
 | `emem-bands`             | 43 slots     | sum of `dims` == 1792; offsets contiguous; no dup keys            |
-| `emem-algorithms`        | 160          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
+| `emem-algorithms`        | 162          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
 | `emem-functions`         | 23           | no dup keys; `deterministic == true` always; sources non-empty for primary/negative |
 | `emem-sources`           | 46 schemes   | no dup schemes; `providers[]` non-empty                           |
 | `emem-topics`            | 27 topics    | no dup keys                                                       |

@@ -360,20 +360,26 @@ def _apply(f: Path, old: str, new: str, check_only: bool) -> list[str]:
 STALE_PHRASES = {
     "README.md": ["75 MCP tools", "87 documented REST", "118 live materializer",
                   "118 materializer-wired", "across 35 cube", "14 workspace crates"],
-    "web/index.html": ["75 MCP tools", "87 documented", "87 REST", "87 paths", "118 materializer", "35 cube slots"],
+    "web/index.html": ["75 MCP tools", "87 documented", "87 REST", "87 paths", "118 materializer", "35 cube slots",
+                       "all 91", "other 77"],
     "web/how-it-works.html": ["75 MCP tools", "118 materializer", "35 cube slots", "41 cube"],
     "web/solutions.html": ["75 MCP tools", "118 materializer", "35 cube slots"],
-    "web/reference.html": ["75 MCP tools", "87 documented", "118 materializer", "35 cube slots"],
+    "web/reference.html": ["75 MCP tools", "87 documented", "118 materializer", "35 cube slots",
+                           "108 documented", "91 (14 core"],
     "docs/intro.md": ["75 MCP", "87 ", "118 materializer", "35 cube", "41 cube"],
     # v2 only. whitepaper-v1.md is deliberately absent from this table: it
     # is archived unedited as the DOI-cited version, so its stale counts are
     # a historical record, not drift to sweep. v2 §16 lists what it got wrong.
     "docs/whitepaper-v2.md": ["Forty-one band cube", "41 cube", "35 cube",
-                              "118 materializer", "75 MCP"],
+                              "118 materializer", "75 MCP", "All 91"],
     # The canonical merged paper carries the same counts as v2 and rots the
     # same way; watch it with the same phrase list.
     "docs/whitepaper.md": ["Forty-one band cube", "41 cube", "35 cube",
-                           "118 materializer", "75 MCP"],
+                           "118 materializer", "75 MCP", "All 91"],
+    "docs/registries.md": ["160 composition", "| 111 ", "| 160 "],
+    "AGENTS.md": ["version 1.0.0"],
+    "web/ai-plugin.json": ["91 MCP tools", "77 extended"],
+    "claude-skills/emem-locate-and-recall/SKILL.md": ["35 bands"],
     "docs/registries.md": ["118 materializer", "(43)", "(86)"],
     "web/skills.md": ["75 tools", "71 paths", "87 paths"],
     "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer",
@@ -381,7 +387,6 @@ STALE_PHRASES = {
                      "160 composition"],
     "web/humans-llms.txt": ["91 MCP", "77 extended", "160 composition"],
     "docs/agents.md": ["160 composition", "91 MCP", "77 extended"],
-    "docs/registries.md": ["160 composition", "| 111 "],
     "huggingface-space/README.md": ["70 MCP", "159 algorithms", "68-recipe",
                                     "42 bands"],
 }
