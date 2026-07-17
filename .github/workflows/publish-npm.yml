@@ -121,50 +121,36 @@ jobs:
       - name: the tarball contains its modules
         working-directory: sdks/emem-ts
         run: |
-          npm pack --dry-run --json > /tmp/pack.json
+          # npm's --json output is not shape-stable across majors (11.x
+          # emits a form with no files[]); the tarball itself cannot lie.
+          # Pack for real and inspect with tar.
+          TARBALL=$(npm pack --pack-destination /tmp | tail -1)
+          test -f "/tmp/$TARBALL"
+          echo "/tmp/$TARBALL" > /tmp/tarball_path.txt
+          tar -tzf "/tmp/$TARBALL" | sed 's|^package/||' | sort > /tmp/entries.txt
+          echo "== $TARBALL ($(stat -c%s "/tmp/$TARBALL") bytes) =="
+          cat /tmp/entries.txt
+          grep -q '^dist/.*\.js$' /tmp/entries.txt \
+            || { echo "::error::refusing to publish: the tarball ships no dist/*.js runtime modules"; exit 1; }
+          grep -q '^dist/.*\.d\.ts$' /tmp/entries.txt \
+            || { echo "::error::refusing to publish: the tarball ships no dist/*.d.ts type declarations"; exit 1; }
           node - <<'JS'
-          // npm's --json shape has moved between majors (array of packages
-          // vs bare object), and a failed pack can leave the file empty
-          // while still exiting zero. Parse defensively and fail with the
-          // raw bytes in the log, never with a bare TypeError.
-          const fs = require('fs');
-          const raw = fs.readFileSync('/tmp/pack.json', 'utf8').trim();
-          if (!raw) {
-            console.error('::error::npm pack --json produced no output; see the step log above');
-            process.exit(1);
-          }
-          let parsed;
-          try { parsed = JSON.parse(raw); } catch (e) {
-            console.error('::error::npm pack --json output is not JSON: ' + e.message);
-            console.error(raw.slice(0, 2000));
-            process.exit(1);
-          }
-          const pack = Array.isArray(parsed) ? parsed[0] : parsed;
-          if (!pack || !Array.isArray(pack.files)) {
-            console.error('::error::unexpected npm pack --json shape (no files[]):');
-            console.error(raw.slice(0, 2000));
-            process.exit(1);
-          }
-          const files = pack.files.map(f => f.path);
-          console.log(`${pack.name}@${pack.version}: ${pack.entryCount} entries, ${pack.unpackedSize} bytes`);
-          for (const f of files) console.log('  ', f);
-
-          const js = files.filter(f => f.startsWith('dist/') && f.endsWith('.js'));
-          const dts = files.filter(f => f.startsWith('dist/') && f.endsWith('.d.ts'));
-          const fail = m => { console.error(`::error::refusing to publish: ${m}`); process.exitCode = 1; };
-
-          if (js.length === 0) fail('the tarball ships no dist/*.js runtime modules');
-          if (dts.length === 0) fail('the tarball ships no dist/*.d.ts type declarations');
-
           // main/module/types are a promise to the consumer's resolver. An
           // entrypoint that is not in the tarball is a package that throws
           // ERR_MODULE_NOT_FOUND on first import.
+          const fs = require('fs');
+          const entries = fs.readFileSync('/tmp/entries.txt', 'utf8').trim().split('\n');
           const pkg = require('./package.json');
+          let bad = 0;
           for (const [field, p] of [['main', pkg.main], ['module', pkg.module], ['types', pkg.types]]) {
             if (!p) continue;
             const rel = p.replace(/^\.\//, '');
-            if (!files.includes(rel)) fail(`package.json "${field}" points at ${p}, which is not in the tarball`);
+            if (!entries.includes(rel)) {
+              console.error(`::error::package.json "${field}" points at ${p}, which is not in the tarball`);
+              bad = 1;
+            }
           }
+          process.exit(bad);
           JS
 
       # Importing the packed tarball out of a fresh project is the only
@@ -175,8 +161,10 @@ jobs:
         run: |
           set -euo pipefail
           cd sdks/emem-ts
-          TARBALL=$(npm pack --json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8'))[0].filename")
-          TARBALL=$(realpath "$TARBALL")
+          # Reuse the exact tarball the guard step inspected; a second
+          # pack could differ, and npm pack --json is not shape-stable.
+          TARBALL=$(cat /tmp/tarball_path.txt)
+          test -f "$TARBALL"
           EXPECTED=$(node -p "require('./package.json').version")
           SMOKE=$(mktemp -d)
           cd "$SMOKE"
