@@ -598,11 +598,22 @@ def fusion():
         "S1, S2, DEM and climate fuse at one cell into a vector with a content id.")
 
 
+def agent_to_token():
+    return _pipeline("38-agent-to-token", 38, "From your agent to a token",
+        "the whole loop: read with no account, verify with no trust, keep one line",
+        [("your agent", "any model", INDIGO), ("MCP · REST", "same handlers", TEAL),
+         ("recall", "hit, or fetch once", LEAF), ("open sources", "on the first miss", TURMERIC),
+         ("signed fact", "blake3 · ed25519", LAC)],
+        "MEMORY TOKEN", "84 chars · resolves anywhere",
+        "The agent keeps one line; any agent, on any model, resolves the same bytes.")
+
+
 REG = {"01-architecture": architecture, "08-decentralised": federation, "10-trust-plane": trust_plane,
        "02-data-flow": data_flow, "03-anatomy-of-a-request": anatomy, "04-agent-loop": agent_loop,
        "05-fact-to-reasoning": fact_to_reasoning, "06-memory-vs-stac": memory_vs_stac,
        "07-cite-economy": cite_economy, "09-address-algebra": address_algebra,
-       "31-encoders-in-orbit-decoders-on-ground": encoders_split, "33-fusion-orbit-and-ground": fusion}
+       "31-encoders-in-orbit-decoders-on-ground": encoders_split, "33-fusion-orbit-and-ground": fusion,
+       "38-agent-to-token": agent_to_token}
 
 
 def main():

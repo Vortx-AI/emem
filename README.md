@@ -26,7 +26,28 @@
 
 ## What is emem
 
-A shared memory of the physical world. Location is the first key: every place on Earth has a stable 64-bit address, and every observation recorded there, an elevation, a temperature, a forest-loss year, is one signed, immutable record at that address. Any agent can read it, any keyholder can add to it, and anyone can check any of it offline. No account to read.
+A shared memory of the physical world, and a systems primitive for agents: memory that lives outside any one model, so an agent cites a fact instead of carrying a paraphrase of it. Location is the first key: every place on Earth has a stable 64-bit address, and every observation recorded there, an elevation, a temperature, a forest-loss year, is one signed, immutable record at that address. Any agent can read it, any keyholder can add to it, and anyone can check any of it offline. No account to read.
+
+Satellite Earth observation fills it today; nothing in the record, receipt, or token grammar is satellite-specific, so the same loop carries any observer of a place ([substrates](#substrates-today-and-next)). If you build agents, robot fleets, or anything else that must hold a fact longer than one context window, this is for you.
+
+## The failure it removes
+
+An agent verifies something early, the context gets compacted, and what survives is a paraphrase that is almost right:
+
+```text
+without emem
+  turn 12   the agent verifies a value: 918 m
+  turn 40   the context is compacted
+  turn 41   what survives: "the site sits at roughly 900 m"
+
+with emem
+  turn 12   the agent keeps one line:
+            emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala
+  turn 40   the context is compacted
+  turn 41   the line resolves to 918.0 m, and the signature still checks
+```
+
+One line, about 50 BPE tokens, standing in for a signed record of about 1,600. A paraphrase drifts; the token re-hydrates to the exact bytes for any agent, on any model, any month later. And that token is real: it names the fact the next section verifies.
 
 ## One call, one verified fact
 
@@ -38,7 +59,35 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"place":"Bengaluru","bands":["copdem30m.elevation_mean"]}'
 ```
 
-The response carries the value (918 metres), the record's content id (`fact_cid`), and an ed25519 receipt. One more paste checks that receipt against the responder's published key, so you are not trusting the server or this README:
+A band names one measurement; this one is mean elevation from the Copernicus DEM. The response carries the value (918 metres), the record's content id (`fact_cid`), and an ed25519 receipt.
+
+<details>
+<summary>The response, trimmed: what a stored fact actually holds</summary>
+
+```jsonc
+{
+  "facts": [{
+    "band": "copdem30m.elevation_mean",
+    "cell": "defi.zb493.xuqA.zcb5f",
+    "value": 918.0,
+    "unit": "m",
+    "kind": "primary",
+    "confidence": 0.95,
+    "derivation": { "fn_key": "open_meteo_copdem90m@1", "args": [12.9719, 77.5937] },
+    "sources": [{ "scheme": "open_meteo", "captured_at": "2021-04-30T00:00:00Z", "id": "https://api.open-meteo.com/v1/elevation?…" }],
+    "signed_at": "2026-05-28T19:54:32Z",
+    "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
+    "fact_cid": "yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala",
+    "memory_token": "emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeo…zala"
+  }],
+  "receipt": { "primitive": "emem.recall", "fact_cids": ["yqbolgeo…"], "merkle_proof": {…}, "signature": "…", "responder_pubkey_b32": "…" }
+}
+```
+
+No documents and no blobs: a fact is one small signed value carrying its own provenance, the function and source it is recomputable from. Even embeddings arrive this way, as bands whose record names the model checkpoint.
+</details>
+
+One more paste checks that receipt against the responder's published key, so you are not trusting the server or this README:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
@@ -50,6 +99,10 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 ```
 
 `"signature_valid": true`. That is the whole trust model in two commands: every reading is a signed record, and anyone can check one. If that worked, the star button helps other builders find this. The line an agent keeps instead of the payload is next.
+
+<p align="center">
+  <img src="docs/diagrams/png/38-agent-to-token.png" width="820" alt="From your agent to a token: the agent speaks MCP or REST into the same handlers, recall answers from memory or fetches open sources once, the observation becomes a signed fact, and what the agent keeps is one 84-character memory token that resolves anywhere." />
+</p>
 
 ## The ladder
 
@@ -71,6 +124,17 @@ emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45
 One line: the address of a place plus the fingerprint of one signed observation there. It is 84 characters, about 50 BPE tokens; the full signed record it stands in for is about 1,600. An agent keeps the line and drops the payload. Any agent, any model, any month later resolves the line back to the exact same bytes and re-checks the signature without trusting whoever sent it.
 
 In practice your agent runs four verbs: locate a place, recall its signed facts, reason over them, and cite the tokens in its output. Verification is the receiver's single call.
+
+## Where it sits in your stack
+
+| The retrieval memory you run | emem |
+|---|---|
+| documents chunked, embedded, ranked by similarity | one signed record per observation, at a content address |
+| the top hit is close enough | the address returns exactly one record, or a signed absence |
+| you trust the retriever, the store, and whoever filled them | the receipt verifies offline; no trust in the sender or the server |
+| memory scoped to one session, one product, one vendor | one shared memory: any agent reads, any keyholder writes |
+
+It sits beside retrieval, not under it: emem does not hold your documents. It holds the measured state of the physical world, signed so that agents which share no infrastructure and no trust can still share the same facts.
 
 ## When the token earns its keep
 
@@ -239,7 +303,7 @@ Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks
 
 ## Honest limits
 
-Version 1.1.0, under the stability promise 1.0.0 made: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. And the change attribution described above is a design the substrate was built to carry, not a shipped capability. The complete edge list, the staged path to federation, and the open research live in [docs/roadmap.md](docs/roadmap.md).
+Version 1.1.0, under the stability promise 1.0.0 made: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. The change attribution described above ships as an evidence ledger; the numeric split of a delta among its terms is still roadmap. The complete edge list, the staged path to federation, and the open research live in [docs/roadmap.md](docs/roadmap.md).
 
 ## Learn more
 
