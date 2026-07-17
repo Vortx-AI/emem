@@ -1,5 +1,5 @@
 /**
- * @emem/client — TypeScript client for the emem.dev Earth memory protocol.
+ * ememdev — TypeScript client for the emem.dev Earth memory protocol.
  *
  * This package wraps the REST surface of the hosted instance at
  * https://emem.dev in a single {@link Client} class. Every call returns
@@ -15,7 +15,7 @@
  * Quick start:
  *
  * ```ts
- * import { Client } from "@emem/client";
+ * import { Client } from "ememdev";
  *
  * const em = new Client();
  * const { cell64 } = await em.locate({ place: "Mount Fuji" });

@@ -1,4 +1,4 @@
-# @emem/client — TypeScript client for emem.dev
+# ememdev — TypeScript client for emem.dev
 
 Thin, typed TypeScript client for the [emem.dev](https://emem.dev) Earth
 memory protocol. Wraps the public REST surface in a single `Client` class.
@@ -22,7 +22,7 @@ cd sdks/emem-ts && npm install && npm run build
 ## Quick start
 
 ```ts
-import { Client } from "@emem/client";
+import { Client } from "ememdev";
 
 const em = new Client();
 const located = await em.locate({ place: "Mount Fuji" });

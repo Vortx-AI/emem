@@ -1,6 +1,6 @@
 name: publish-npm
 
-# Publish the `@emem/client` TypeScript SDK (sdks/emem-ts) to npm.
+# Publish the `ememdev` TypeScript SDK (sdks/emem-ts) to npm.
 #
 # Triggers:
 #   * workflow_dispatch  - manual "Run workflow" button, and the only way
@@ -26,7 +26,7 @@ name: publish-npm
 # the repository secrets. It exists to solve the first-publish chicken and
 # egg problem and nothing else.
 #
-# @emem/client has never been published. It also did not compile: three
+# ememdev has never been published. It also did not compile: three
 # type errors under `strict` + `exactOptionalPropertyTypes`, and `tsc`
 # writes a full dist/ even when it errors. Nothing in CI ever built this
 # package, so nothing noticed. The build gates below assume a green tsc
@@ -49,11 +49,11 @@ on:
 
 jobs:
   publish:
-    name: build + publish @emem/client to npm
+    name: build + publish ememdev to npm
     runs-on: ubuntu-latest
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@emem/client
+      url: https://www.npmjs.com/package/ememdev
     permissions:
       contents: read
       id-token: write   # REQUIRED for OIDC trusted publishing and provenance
@@ -154,7 +154,7 @@ jobs:
           JS
 
       # Importing the packed tarball out of a fresh project is the only
-      # check that matches `npm install @emem/client`. Typechecking the
+      # check that matches `npm install ememdev`. Typechecking the
       # source tree, which is all CI would ever do, passes whether or not
       # the published package contains anything.
       - name: an installed tarball imports
@@ -172,7 +172,7 @@ jobs:
           node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p))"
           npm install --no-audit --no-fund "$TARBALL"
           EXPECTED="$EXPECTED" node --input-type=module -e '
-            import { Client, EmemError, EmemHTTPError, VERSION } from "@emem/client";
+            import { Client, EmemError, EmemHTTPError, VERSION } from "ememdev";
             if (VERSION !== process.env.EXPECTED) {
               throw new Error(`installed VERSION ${VERSION} != package.json ${process.env.EXPECTED}`);
             }
@@ -180,7 +180,7 @@ jobs:
             if (typeof em.recall !== "function") throw new Error("Client.recall missing from the published build");
             if (new EmemHTTPError(404, "u", "b").name !== "EmemHTTPError") throw new Error("EmemHTTPError name broken");
             void EmemError;
-            console.log("import @emem/client OK, version", VERSION, "baseUrl", em.baseUrl);
+            console.log("import ememdev OK, version", VERSION, "baseUrl", em.baseUrl);
           '
 
       - name: dry run stops here

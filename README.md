@@ -139,7 +139,7 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" | jq '.facts[0].value'
 ```
 
-**Python and TypeScript**: typed clients live in [`sdks/`](sdks/), wrapping the same REST surface. Installable packages are pending their first verified publish; the status, and the honest account of why earlier PyPI releases shipped empty, live in [docs/roadmap.md](docs/roadmap.md). When it lands, the pip name is `ememdev`. Do not guess the short name: `emem` on PyPI is an unrelated project by another company.
+**Python**: `pip install ememdev`, then `from ememdev import Client`. Real as of 1.1.0, verified by installing into a clean environment and calling the live node; the wheel also ships the signing extra (`pip install "ememdev[signing]"`) and an `ememdev` CLI for attested memory writes. Do not guess a shorter name: `emem` on PyPI is an unrelated project by another company. **TypeScript**: `sdks/emem-ts/` publishes to npm as `ememdev` too; first publish pending, status in [docs/roadmap.md](docs/roadmap.md).
 
 <details>
 <summary>Copy-paste configs for 12 clients, packaged Claude skills, TypeScript SDK</summary>
@@ -155,7 +155,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 | LangChain / LlamaIndex / Agno / AutoGen / CrewAI / Mastra | `examples/<name>/` |
 | Any MCP client over the standard bridge | `{ "command": "npx", "args": ["-y", "mcp-remote", "https://emem.dev/mcp"] }` |
 
-Packaged Claude skills live under `claude-skills/`; `llms-install.md` is a plain-text install guide an agent can follow by itself. TypeScript SDK: `sdks/emem-ts/` (not on npm yet).
+Packaged Claude skills live under `claude-skills/`; `llms-install.md` is a plain-text install guide an agent can follow by itself. TypeScript SDK: `sdks/emem-ts/` (npm name `ememdev`; first publish pending).
 </details>
 
 ## If you are an agent

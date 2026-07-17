@@ -202,14 +202,14 @@ return a signed hole instead of a value.
 - **A first-class SDK.** In the repo today: typed clients for Python and
   TypeScript, plus a LangChain `BaseStore` adapter (`emem-langmem`) that
   signs its writes, each wrapping the REST surface so a signed receipt is
-  the only new thing a caller learns. **Not yet installable.** Every
+  the only new thing a caller learns. **The Python package is installable as of 2026-07-17** (`ememdev` 1.1.0 on PyPI, a real wheel verified by clean-environment install and a live call); the npm first publish is still pending. The history that made this bullet necessary: Every
   `ememdev` release on PyPI (0.0.9, 0.1.0 and 1.0.0) is about 2.4 KB of
   metadata containing no Python modules: a root-anchored `/src/` pattern in
   the repo's `.gitignore` was re-anchored by the build backend to the SDK
   directory, so each wheel built clean and empty, and `pip install ememdev`
   then `import emem` raises `ModuleNotFoundError`. CI tested the source
   tree over `PYTHONPATH` and never the artefact, so it stayed green
-  throughout. `@emem/client` failed more quietly: it has never been
+  throughout. `ememdev` failed more quietly: it has never been
   published, and it did not compile, carrying three type errors under
   `strict` that no CI job ran `tsc` to catch.
 
@@ -234,9 +234,11 @@ return a signed hole instead of a value.
   Open, and each blocked on a human once. PyPI registers a Trusted
   Publisher per project, so `ememdev` and `emem-langmem` each need one
   registered before their first upload. npm cannot register a trusted
-  publisher for a package that does not exist, so the first `@emem/client`
-  publish needs an API token, and the `@emem` scope has to be owned before
-  any of it works. After that first upload each ships from one
+  publisher for a package that does not exist, so the first `ememdev`
+  npm publish needs an API token. The npm package is `ememdev`, unscoped,
+  the same name as the pip install: the `emem` name on npm is squatted by
+  an unrelated package, and a scope would have needed an org nobody can
+  claim. After that first upload each ships from one
   `workflow_dispatch`. Then a warm-and-retry wrapper that hides the
   cold-start timeout on first read.
 - **Framework adapters as thin wrappers over the SDK.** LangChain,

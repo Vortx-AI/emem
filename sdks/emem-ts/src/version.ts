@@ -1,5 +1,5 @@
 /**
- * The published version of @emem/client, in one place.
+ * The published version of ememdev, in one place.
  *
  * This constant and `version` in package.json are two hand-maintained
  * copies of the same string, so they drift: before this file existed,
