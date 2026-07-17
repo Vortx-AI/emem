@@ -205,8 +205,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install the hf cli
-        run: pip install --quiet "huggingface_hub[cli]>=0.24"
+      - name: install huggingface_hub
+        run: pip install --quiet "huggingface_hub>=0.24"
 
       - name: push huggingface-space/ to hf hub
         env:
@@ -222,12 +222,16 @@ jobs:
           if [ -z "$HF_TOKEN" ]; then
             echo "::error::PUBLISH_HF_SPACE is true but the HUGGINGFACE_TOKEN secret is not set"; exit 1
           fi
-          # huggingface_hub deprecated and then removed `huggingface-cli`;
-          # the binary is `hf` now, same upload surface.
-          hf upload \
-            "$HF_SPACE" \
-            huggingface-space/ \
-            . \
-            --repo-type=space \
-            --token "$HF_TOKEN" \
-            --commit-message "sync from ${GITHUB_SHA::7}"
+          # Not `hf upload`: the CLI preflights repos/create even when the
+          # repo exists, and HF answers that with 402 for docker Spaces
+          # under an unpaid org. The Space already exists and runs free on
+          # cpu-basic; upload_folder commits to it without touching create.
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          info = HfApi(token=os.environ["HF_TOKEN"]).upload_folder(
+              repo_id=os.environ["HF_SPACE"], repo_type="space",
+              folder_path="huggingface-space", path_in_repo=".",
+              commit_message="sync from " + os.environ["GITHUB_SHA"][:7])
+          print("committed:", info.commit_url)
+          PY
