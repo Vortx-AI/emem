@@ -213,8 +213,14 @@ jobs:
           HF_TOKEN: ${{ secrets.HUGGINGFACE_TOKEN }}
           HF_SPACE: ${{ vars.HF_SPACE_REPO_ID }}
         run: |
+          # PUBLISH_HF_SPACE=true is the operator saying "publish this".
+          # A missing repo id at that point is a misconfiguration, not a
+          # skip: fail loudly instead of green-skipping forever.
           if [ -z "$HF_SPACE" ]; then
-            echo "HF_SPACE_REPO_ID variable not set — skipping"; exit 0
+            echo "::error::PUBLISH_HF_SPACE is true but the HF_SPACE_REPO_ID variable is not set (Settings -> Secrets and variables -> Actions -> Variables)"; exit 1
+          fi
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::PUBLISH_HF_SPACE is true but the HUGGINGFACE_TOKEN secret is not set"; exit 1
           fi
           huggingface-cli upload \
             "$HF_SPACE" \
