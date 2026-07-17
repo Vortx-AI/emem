@@ -205,7 +205,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install huggingface-cli
+      - name: install the hf cli
         run: pip install --quiet "huggingface_hub[cli]>=0.24"
 
       - name: push huggingface-space/ to hf hub
@@ -222,7 +222,9 @@ jobs:
           if [ -z "$HF_TOKEN" ]; then
             echo "::error::PUBLISH_HF_SPACE is true but the HUGGINGFACE_TOKEN secret is not set"; exit 1
           fi
-          huggingface-cli upload \
+          # huggingface_hub deprecated and then removed `huggingface-cli`;
+          # the binary is `hf` now, same upload surface.
+          hf upload \
             "$HF_SPACE" \
             huggingface-space/ \
             . \
