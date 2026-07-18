@@ -3,8 +3,8 @@
   "schema_version": 1,
   "app_info": {
     "display_name": "emem",
-    "subtitle": "Signed Earth facts for places",
-    "description": "emem helps ChatGPT answer questions about real-world places using signed geospatial facts. It can check elevation, surface water, vegetation, built-up context, flood signals, and return cite-able receipts. No API key or signup required.",
+    "subtitle": "Verifiable memory of the physical world",
+    "description": "emem is a shared, verifiable memory of the physical world for AI. Every place resolves to one canonical address, every observation about it becomes one signed fact you can verify offline, and every fact has a short citation token that resolves anywhere to the byte-identical signed value. Ask about a place (elevation, vegetation, surface water, built-up context, flood signals), an area (a native-resolution raster field, or a field over time), change over time, or similarity between places; get back cite-able, ed25519-signed receipts. No API key or signup required.",
     "category": "DEVELOPER_TOOLS"
   },
   "tools": {
@@ -39,6 +39,46 @@
       "openWorldHint_justification": "Checks receipt data supplied by the caller without contacting external systems.",
       "destructiveHint": false,
       "destructiveHint_justification": "Read-only receipt verification."
+    },
+    "emem_memory_token": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Composes a citation handle from a cell and fact id. No writes.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Formats an address string from data already in hand; contacts nothing.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only string composition."
+    },
+    "emem_find_similar": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Nearest-neighbour search over the Tessera embedding. No writes.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "May materialize an embedding for the seed cell from Earth-observation data before the search.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only similarity search."
+    },
+    "emem_band_raster": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Returns a native-resolution field over an area as a signed, content-addressed artifact. No external writes.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "Reads a Sentinel-2 scene window from open Earth-observation sources to compute the field.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only field derivation; the artifact is content-addressed and immutable."
+    },
+    "emem_band_cube": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Returns a field over time as a signed manifest over raster slices. No external writes.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "Reads one Sentinel-2 scene per requested date from open Earth-observation sources.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only field-over-time derivation; content-addressed and immutable."
+    },
+    "emem_change_attribution": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Reports per-term evidence for why a readout changed at a cell. No writes to external systems.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "May read the cited bands (materializing on a miss) to assemble the evidence ledger.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Read-only evidence assembly; the numeric split is null by design, nothing is fabricated."
     }
   },
   "test_cases": [
@@ -61,6 +101,14 @@
     {
       "prompt": "What evidence supports a flood risk assessment for Miami Beach?",
       "expected": "Returns elevation, surface water, and vegetation data with verifiable receipts"
+    },
+    {
+      "prompt": "Give me a citation token for the NDVI at this farm that I can re-verify later.",
+      "expected": "Returns an emem:fact: token that resolves to the byte-identical signed fact and verifies offline"
+    },
+    {
+      "prompt": "I need the 10 m red-band raster over this bounding box, not per-cell numbers.",
+      "expected": "Returns an emem:raster: field token plus a content-addressed grid artifact the caller can re-hash"
     }
   ],
   "negative_test_cases": [

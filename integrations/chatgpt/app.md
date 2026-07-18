@@ -6,11 +6,11 @@ emem
 
 ## Short description
 
-Signed Earth facts for real places.
+Verifiable memory of the physical world for AI.
 
 ## Long description
 
-emem helps ChatGPT answer questions about real-world places using signed geospatial facts. It can check elevation, surface water, vegetation, built-up context, flood signals, and return cite-able receipts.
+emem is a shared, verifiable memory of the physical world. Every place resolves to one canonical address, every observation about it becomes one signed fact that verifies offline, and every fact has a short citation token that resolves anywhere to the byte-identical signed value. ChatGPT can answer about a place (elevation, vegetation, surface water, built-up context, flood signals), read an area as a native-resolution raster field or a field over time, compare change across dates, find similar places, and return cite-able ed25519-signed receipts. Transport: MCP over Streamable HTTP, or Custom GPT Actions via the OpenAPI schema. No API key.
 
 ## Category
 
