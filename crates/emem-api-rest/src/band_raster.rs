@@ -745,10 +745,17 @@ pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiE
 
     // Dedup by tslot (two near dates can pick one scene); a BTreeMap keeps the
     // canonical ascending-tslot member order the cube_cid is computed over.
+    // `members_raw` parallels `dates` because join_all preserves order, so the
+    // zip below maps each requested date to the member it produced. Echoing
+    // that mapping is what lets a caller line a requested date up with its
+    // slice directly, instead of guessing by tslot proximity when dates
+    // collapse to one scene.
     let mut by_tslot: std::collections::BTreeMap<u64, JsonValue> =
         std::collections::BTreeMap::new();
+    let mut reqs_by_tslot: std::collections::BTreeMap<u64, Vec<String>> =
+        std::collections::BTreeMap::new();
     let mut aoi_seen: Option<String> = None;
-    for m in &members_raw {
+    for (req_date, m) in dates.iter().zip(&members_raw) {
         let tslot = m
             .get("tslot")
             .and_then(|v| v.as_u64())
@@ -787,6 +794,10 @@ pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiE
             .pointer("/derivation/sources/0")
             .cloned()
             .unwrap_or(json!({}));
+        reqs_by_tslot
+            .entry(tslot)
+            .or_default()
+            .push(req_date.clone());
         by_tslot.entry(tslot).or_insert_with(|| {
             json!({
                 "tslot": tslot,
@@ -804,6 +815,37 @@ pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiE
             dates.len(),
             by_tslot.len()
         )));
+    }
+
+    // Attach the requested-date mapping to each member: the observed_on
+    // entries that resolved to this scene, and the nearest one's distance from
+    // the scene's own capture date, in whole days. This kills the caller-side
+    // tslot-proximity heuristic; it does not enter cube_cid (that is the
+    // digest of the member derivation cids only).
+    for (tslot, member) in by_tslot.iter_mut() {
+        let Some(o) = member.as_object_mut() else {
+            continue;
+        };
+        let Some(reqs) = reqs_by_tslot.get(tslot) else {
+            continue;
+        };
+        let scene_days = o
+            .get("captured_at")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.get(..10))
+            .and_then(parse_ymd)
+            .map(|(y, mo, d)| crate::days_from_civil(y, mo, d));
+        let nearest = scene_days.and_then(|sd| {
+            reqs.iter()
+                .filter_map(|r| {
+                    parse_ymd(r).map(|(y, mo, d)| (crate::days_from_civil(y, mo, d) - sd).abs())
+                })
+                .min()
+        });
+        o.insert("requested_dates".to_string(), json!(reqs));
+        if let Some(n) = nearest {
+            o.insert("requested_date_distance_days".to_string(), json!(n));
+        }
     }
 
     let members: Vec<JsonValue> = by_tslot.values().cloned().collect();
