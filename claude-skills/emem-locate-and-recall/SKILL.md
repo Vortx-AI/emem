@@ -57,7 +57,7 @@ bytes.
 
 ## Picking bands
 
-The full band list is at `https://emem.dev/v1/bands` (35 bands, 1792
+The full band list is at `https://emem.dev/v1/bands` (124 auto-materializable bands, 1792
 total dims). Common picks:
 
 - **Weather**: `weather.temperature_2m`, `weather.precipitation_mm`,

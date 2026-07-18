@@ -8,7 +8,7 @@ allowed-tools: Bash(curl:*) Bash(jq:*) Read
 
 This skill calls `/v1/recall_polygon` to fetch facts inside an
 arbitrary polygon. The responder samples every cell64 whose centre
-falls inside the polygon (cap: 4096 cells per request), recalls the
+falls inside the polygon (cap: 1024 cells per request, `max_cells`, default 64), recalls the
 requested band(s) at each, and returns a structured response with a
 per-cell receipt for verification.
 
@@ -103,7 +103,7 @@ process locally.
 
 - **Polygon must be closed** — the first and last `[lng, lat]` pair
   must be identical. Open polygons return `400 invalid_polygon`.
-- **Cap at 4096 cells.** Very large regions return `413 polygon_too_large`
+- **Cap at 1024 cells** (`max_cells`, raised from 256 in May 2026; default 64). Very large regions return `413 polygon_too_large`
   with a hint about subdividing. The `/humans` page's lasso uses
   this cap as the geometric guide.
 - **Counter-clockwise orientation** is conventional for outer rings;

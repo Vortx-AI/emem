@@ -8,7 +8,7 @@ allowed-tools: Bash(curl:*) Bash(python3:*) Bash(pip:*) Read Write
 
 This skill rebuilds the canonical preimage of an emem receipt
 byte-for-byte, BLAKE3s it, and runs Ed25519 verification — all
-locally. The math matches `crates/emem-storage/src/server.rs:132-148`
+locally. The math matches `emem-attest::receipt_preimage_v1` (crates/emem-attest/src/lib.rs)
 in the emem source; if your verification passes, the receipt was
 signed by the responder pubkey and has not been tampered with.
 
@@ -45,18 +45,39 @@ checks out, or `INVALID` with the reason if not.
 
 ### What the math does
 
-The preimage is the byte concatenation:
+Receipts carry `preimage_version: 1`. The preimage is **domain-separated
+and length-prefixed** so no two different receipts can collide without a
+BLAKE3 collision:
 
 ```
-<request_id> | <served_at> | <primitive> |
-<cell_0>,<cell_1>,…<cell_N>, |
-<fact_cid_0>,<fact_cid_1>,…<fact_cid_M>,
+blake3( "emem.preimage.v1\0"
+        || u32le(len("receipt")) || "receipt"
+        || segment*  )
 ```
 
-with `|` as section separator and `,` after every list element
-(including the last). BLAKE3 produces a 32-byte digest;
-`ed25519.verify(receipt.signature, digest, responder_pubkey)` checks
-the 64-byte signature.
+Each scalar segment is `tag || u32le(len) || bytes`; a list segment is
+`tag || u32le(count) || (u32le(len) || bytes)*`. Segments appear in this
+fixed order, and optional ones are emitted only when present:
+
+| tag | segment | when |
+|----|----------|------|
+| 1 | request_id | always |
+| 2 | served_at | always |
+| 3 | scope | scoped reads only |
+| 4 | as_of | bi-temporal reads only |
+| 5 | edges | `include:["edges"]` only |
+| 6 | manifest | `blake3(cbor(source_versions))`, when non-empty |
+| 7 | primitive | always |
+| 8 | cells | always (list) |
+| 9 | fact_cids | always (list) |
+| 10 | field | field tokens (raster/cube): `blake3` of the `(aoi_cid, derivation_cid)` binding |
+
+BLAKE3 over that stream produces the 32-byte digest; the responder's
+ed25519 key signs the digest, and
+`ed25519.verify(signature, digest, responder_pubkey)` checks it. The
+bundled `verify.py` rebuilds this exactly for the common cases (recall,
+field tokens); a receipt carrying a scope/as_of/edges segment is sent to
+the server verifier instead of guessed at.
 
 The pubkey decodes from `responder_pubkey_b32` via base32-nopad-lowercase.
 
@@ -98,10 +119,9 @@ USER: Here's an emem receipt I got last week — is it real?
 CLAUDE invokes this skill:
   python3 verify.py /tmp/receipt.json
     → VALID
-    → preimage: "01JBQ...|2026-05-01T10:00:00Z|emem.recall|
-                  defi.zb493.xoso.zcb6a,|qi3jo4...l2hgjtwm,"
-    → digest:   c88485ab2a09...
-    → signer:   777er3yihgifqmv5... (matches /.well-known/emem.json)
+    → preimage_v1: 260 bytes  (domain-separated, length-prefixed)
+    → digest:      c88485ab2a09...
+    → signer:      777er3yihgifqmv5... (matches /.well-known/emem.json)
 
 CLAUDE replies: "Yes — the signature verifies against the responder
 pubkey at /.well-known/emem.json. The receipt is authentic. The

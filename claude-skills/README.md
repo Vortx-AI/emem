@@ -28,6 +28,7 @@ cp -r emem/claude-skills/emem-* ~/.claude/skills/
 | Skill                       | When it auto-triggers                                                                |
 |-----------------------------|--------------------------------------------------------------------------------------|
 | `emem-locate-and-recall`    | "what's the [weather/elevation/NDVI/...] at [place name]?"                           |
+| `emem-field-tokens`         | "give me the raster/grid over this area", "a field over time", "pixels I can re-derive" |
 | `emem-verify-receipt`       | "verify this emem receipt offline" / "is this fact authentic?"                       |
 | `emem-find-similar`         | "find places similar to X" / "cities with the same urban signature as Y"             |
 | `emem-recall-polygon`       | "what's the [band] inside this polygon/region/watershed?"                            |
