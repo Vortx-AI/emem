@@ -415,6 +415,7 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
             "raster": format!("emem:raster:{aoi}:{band_key}:{tslot}:{derivation_cid}"),
             "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
         },
+        "docs": "https://emem.dev/reference#token-raster",
         "receipt": receipt,
     }))
 }
@@ -621,6 +622,7 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
             "url": format!("/v1/artifacts/{artifact_cid}"),
             "if_evicted": "the record above pins the scene, recipe, and geometry; POST /v1/band_raster with the same bbox, band, and observed_on rebuilds the identical bytes",
         },
+        "docs": "https://emem.dev/reference#token-raster",
         "receipt": receipt,
         "offline_verify_at": "/verify",
     }))
@@ -907,6 +909,7 @@ pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiE
             "cube": format!("emem:cube:{aoi}:{band_key}:{tslot_lo}..{tslot_hi}:{derivation_cid}"),
             "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
         },
+        "docs": "https://emem.dev/reference#token-cube",
         "members_note": "each member carries an emem:raster: token you can resolve independently or batch through resolve_many",
         "receipt": receipt,
     }))
@@ -1104,6 +1107,7 @@ pub async fn cube_resolve(req: CubeResolveReq, s: &AppState) -> Result<JsonValue
         "derivation_cid": derivation_cid,
         "derivation": body,
         "member_tokens": member_tokens,
+        "docs": "https://emem.dev/reference#token-cube",
         "members_note": "resolve each raster_token with emem_raster_resolve, or batch them with resolve_many; each artifact is at GET /v1/artifacts/{artifact_cid}, immutable",
         "receipt": receipt,
         "offline_verify_at": "/verify",

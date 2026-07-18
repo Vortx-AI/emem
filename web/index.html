@@ -920,6 +920,32 @@ input::placeholder{color:var(--mute,#7a7363)}
     </div>
   </div>
 
+  <style>
+  .tf{margin-top:2.8rem;border-top:1px dotted var(--rule-strong);padding-top:2rem}
+  .tf-h{font-size:1.2rem;margin:0 0 .35rem}
+  .tf-sub{font-size:.94rem;line-height:1.58;color:var(--ink-2);max-width:82ch;margin:0 0 1.3rem}
+  .tf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+  .tf-card{display:block;border:1.6px solid var(--ink);background:var(--paper);padding:.9rem .95rem;text-decoration:none;color:var(--ink-2)}
+  .tf-card:hover{background:var(--ink);color:var(--paper)}
+  .tf-card:hover .tf-pre,.tf-card:hover .tf-shape{color:var(--paper)}
+  .tf-pre{font-family:var(--mono);font-size:.9rem;color:var(--accent);font-weight:600;word-break:break-all}
+  .tf-what{font-size:.9rem;line-height:1.5;margin:.45rem 0 .55rem;color:inherit}
+  .tf-shape{font-family:var(--mono);font-size:.72rem;color:var(--mute)}
+  @media (max-width:860px){.tf-grid{grid-template-columns:1fr}}
+  </style>
+  <div class="tf" aria-label="the emem token family">
+    <h2 class="tf-h">One token, evolved into a family</h2>
+    <p class="tf-sub">The handle above is the original: one signed fact. As emem grew to carry objects, whole sets, and fields over time, the token grew typed variants, one per shape of memory. Every one resolves the same way, verifies the same way, and stays a short address you can hand to another agent. Pick the shape you need, each card opens its entry in the reference.</p>
+    <div class="tf-grid">
+      <a class="tf-card" href="/reference#token-fact"><div class="tf-pre">emem:fact:</div><div class="tf-what">One signed observation at a place. Re-hydrates the exact bytes.</div><div class="tf-shape">a point</div></a>
+      <a class="tf-card" href="/reference#token-cell"><div class="tf-pre">emem:cell:</div><div class="tf-what">A bare place, the shared address every fact hangs on.</div><div class="tf-shape">a place</div></a>
+      <a class="tf-card" href="/reference#token-entity"><div class="tf-pre">emem:entity:</div><div class="tf-what">A canonical object identity, so two agents name one thing.</div><div class="tf-shape">an object</div></a>
+      <a class="tf-card" href="/reference#token-bundle"><div class="tf-pre">emem:bundle:</div><div class="tf-what">A signed set of facts, pulled in one round trip.</div><div class="tf-shape">a set</div></a>
+      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:raster:</div><div class="tf-what">A native-resolution field over an area, the array a world model reads.</div><div class="tf-shape">a field</div></a>
+      <a class="tf-card" href="/reference#token-cube"><div class="tf-pre">emem:cube:</div><div class="tf-what">A field over time, the 4D world token, a manifest over raster slices.</div><div class="tf-shape">a field over time</div></a>
+    </div>
+  </div>
+
   <p class="th-connect"><span class="tc-lbl">connect your agent</span><code id="hero-mcp">{ "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }</code><button class="copy" data-copy-target="#hero-mcp">copy</button><span class="tc-note">no key to read</span></p>
 </section>
 <script>
