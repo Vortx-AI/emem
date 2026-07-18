@@ -21406,7 +21406,7 @@ async fn post_memory_token(
             .map(|b| provenance_for_band(b.trim()))
             .filter(|v| !v.is_null()),
         grammar: "emem:fact:<cell64>:<fact_cid>",
-        docs: "/reference#tokens",
+        docs: "https://emem.dev/reference#token-fact",
     }))
 }
 
