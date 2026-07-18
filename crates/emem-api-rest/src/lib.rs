@@ -12813,6 +12813,14 @@ struct BackfillReq {
     /// same contract recall_polygon and recall_many carry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     budget_ms: Option<u64>,
+    /// Force re-materialization even where a fact already exists, superseding
+    /// it (the old fact stays resolvable by cid and `as_of_signed_at`). This
+    /// is how a caller picks up a materializer change on already-warmed cells:
+    /// e.g. re-running the foundation-model embedding enrichment after the
+    /// per-pixel-SCL chip selection landed, so caches don't serve the old
+    /// selection. Off by default; a plain backfill still no-ops on warm cells.
+    #[serde(default)]
+    refresh: bool,
 }
 
 async fn post_backfill(
@@ -12908,6 +12916,7 @@ fn spawn_warm_priority_loop(s: AppState) {
                     end_unix: entry.end_unix,
                     max_facts: None,
                     budget_ms: Some(budget_ms),
+                    refresh: false,
                 };
                 match backfill_prepare(entry.cells, req, &s).await {
                     Ok(v) => {
@@ -12961,6 +12970,7 @@ async fn backfill_prepare(
             end_unix: req.end_unix,
             max_facts: req.max_facts,
             budget_ms: None,
+            refresh: req.refresh,
         };
         let s_clone = s.clone();
         let sema = sema.clone();
@@ -18766,7 +18776,7 @@ fn openapi_spec() -> JsonValue {
                     "operator":{"type":"object","description":"Operator identification per Annex II §1.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
                     "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"default":"auto-derived from polygon area (~110 cells/ha, clamped to 51,200)","description":"Sample budget per POLYGON plot. POINT plots evaluate at 1 cell regardless of this value."}
                 }},
-                "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."}}},
+                "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16 — fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."},"refresh":{"type":"boolean","default":false,"description":"Force re-materialization even where a fact already exists, superseding it (the old fact stays resolvable by cid and as_of_signed_at). Use to pick up a materializer change on already-warmed cells, e.g. re-running foundation-model embedding enrichment after the per-pixel-SCL chip selection landed."}}},
                 "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
                 "WaveSolveReq":    {"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{"coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},"offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},"period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); 6–18 s is the typical wind-wave + swell envelope."},"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Number of seaward cells to sample for the bathymetric profile."}}},
                 "JepaPredictReq":  {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 to forecast at."},"band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},"lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1; multi-step rollout lands in @2."}}},
@@ -29055,7 +29065,11 @@ async fn materialize_prithvi_eo2_at(
         uncertainty: None,
         sources,
         derivation: Derivation {
-            fn_key: "prithvi_eo2_300m_tl_embed@1".into(),
+            // @2: the chip scene is now selected by per-pixel SCL clarity
+            // (s2_pick_clear_scene), the same gate the scalar path uses, not
+            // scene-level cloud only. The bumped key keeps @1 embeddings
+            // resolvable and audit-distinct from the SCL-selected ones.
+            fn_key: "prithvi_eo2_300m_tl_embed@2".into(),
             args: Some(args_with_honesty(
                 vec![
                     ciborium::Value::Float(lat),
@@ -29063,6 +29077,13 @@ async fn materialize_prithvi_eo2_at(
                     ciborium::Value::Text(chip.scene_id.clone()),
                     ciborium::Value::Integer((scene_unix).into()),
                     ciborium::Value::Text(model_blake2b.clone()),
+                    ciborium::Value::Text(format!(
+                        "scl:{}",
+                        chip.scl
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| "na".into())
+                    )),
+                    ciborium::Value::Bool(chip.clear),
                 ],
                 prithvi_warnings,
             )),
@@ -29193,7 +29214,10 @@ async fn materialize_clay_v1_at(
         uncertainty: None,
         sources,
         derivation: Derivation {
-            fn_key: "clay_v1_5_embed@1".into(),
+            // @2: chip scene selected by per-pixel SCL (s2_pick_clear_scene),
+            // the scalar path's gate, not scene-level cloud only. @1 stays
+            // resolvable and audit-distinct.
+            fn_key: "clay_v1_5_embed@2".into(),
             args: Some(args_with_honesty(
                 vec![
                     ciborium::Value::Float(lat),
@@ -29201,6 +29225,13 @@ async fn materialize_clay_v1_at(
                     ciborium::Value::Text(chip.scene_id.clone()),
                     ciborium::Value::Integer(scene_unix.into()),
                     ciborium::Value::Text(model_blake2b.clone()),
+                    ciborium::Value::Text(format!(
+                        "scl:{}",
+                        chip.scl
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| "na".into())
+                    )),
+                    ciborium::Value::Bool(chip.clear),
                 ],
                 // Clay's `time_defaulted` / `location_defaulted` warnings are
                 // sidecar-declared (it knows whether year/month/lat/lng were
@@ -29421,19 +29452,18 @@ async fn materialize_galileo_base(
         .to_string();
 
     // The multimodal embedding is a DIFFERENT computation than the S2-only
-    // one, so it carries a distinct fn_key. The S2-only path bumps to @2
-    // (R1 corrected the normalization+resolution; old @1 facts live under a
-    // distinguishable provenance string). Feeding TerraClimate (def/soil/aet)
-    // as the TIME modality is again a different computation, so it extends
-    // the key to `…s2s1demtc…` — a verifier can tell from the fn_key alone
-    // exactly which modalities were fed. Back-compat: the s1/dem-only combos
-    // keep the existing `galileo_v1_s2s1dem_embed@1` string so previously
-    // signed facts still re-verify under the same key.
+    // one, so it carries a distinct fn_key, and a verifier can tell from the
+    // fn_key alone exactly which modalities were fed. Every variant bumps one
+    // version here because the S2 scene is now selected by per-pixel SCL
+    // (s2_pick_clear_scene), the scalar path's gate, not scene-level cloud
+    // only — a different (better) input to every Galileo embedding. Prior
+    // facts stay resolvable and audit-distinct under their older keys:
+    // s2s1demtc/s2tc/s2s1dem @1 -> @2, and the S2-only key @2 -> @3.
     let fn_key = match (s1.is_some() || dem.is_some(), tc.is_some()) {
-        (true, true) => "galileo_v1_s2s1demtc_embed@1",
-        (false, true) => "galileo_v1_s2tc_embed@1",
-        (true, false) => "galileo_v1_s2s1dem_embed@1",
-        (false, false) => "galileo_v1_s2_embed@2",
+        (true, true) => "galileo_v1_s2s1demtc_embed@2",
+        (false, true) => "galileo_v1_s2tc_embed@2",
+        (true, false) => "galileo_v1_s2s1dem_embed@2",
+        (false, false) => "galileo_v1_s2_embed@3",
     };
 
     // Honesty warnings: sidecar-declared + Rust-side truth about which
@@ -29484,6 +29514,13 @@ async fn materialize_galileo_base(
         ciborium::Value::Integer((scene_unix).into()),
         ciborium::Value::Integer((doy as i64).into()),
         ciborium::Value::Text(model_blake2b.clone()),
+        ciborium::Value::Text(format!(
+            "scl:{}",
+            chip.scl
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "na".into())
+        )),
+        ciborium::Value::Bool(chip.clear),
     ];
     // Record the S1 scene id when present so a verifier can re-fetch the
     // exact SAR scene the multimodal embedding was conditioned on.
@@ -32632,24 +32669,27 @@ fn s2_guard_harmonised_dn(search_url: &str) -> Result<(), String> {
 }
 
 /// The scene chosen by [`s2_pick_clear_scene`], plus the audit fields the
-/// materializer surfaces in the fact's derivation args.
-struct S2ChosenScene {
-    item: emem_fetch::stac::StacItem,
-    used_cloud: f64,
-    used_days: i64,
+/// materializer surfaces in the fact's derivation args. `pub(crate)` so the
+/// foundation-model chip paths (clay/prithvi/galileo) select a scene by the
+/// same per-pixel SCL discipline the scalar value path uses, instead of the
+/// scene-level cloud filter in `s2_search_with_fallback`.
+pub(crate) struct S2ChosenScene {
+    pub(crate) item: emem_fetch::stac::StacItem,
+    pub(crate) used_cloud: f64,
+    pub(crate) used_days: i64,
     /// The STAC host the scene was searched from. Carried so the DN→
     /// reflectance step asserts the provider it actually read rather than
     /// re-deriving it from a constant that may have drifted.
-    search_url: &'static str,
+    pub(crate) search_url: &'static str,
     /// Per-pixel SCL of the chosen scene (already sampled — reused by the
     /// materializer so it does not re-read the SCL COG).
-    scl: Option<u8>,
+    pub(crate) scl: Option<u8>,
     /// True when the chosen scene's pixel is clear (or SCL was unavailable
     /// so we honestly fall back to scene cloud_cover). False only when every
     /// candidate across every tier was cloudy at the pixel.
-    clear: bool,
+    pub(crate) clear: bool,
     /// How many candidate scenes were SCL-probed to reach this decision.
-    scenes_tried: usize,
+    pub(crate) scenes_tried: usize,
 }
 
 /// SCL-first multi-scene picker for the Sentinel-2 value path. Where
@@ -32666,7 +32706,7 @@ struct S2ChosenScene {
 /// Shares the exact tier ladder of [`s2_search_with_fallback`] so the
 /// cloud/lookback semantics (and `EMEM_S2_MAX_CLOUD` / `EMEM_S2_LOOKBACK_DAYS`
 /// overrides) stay identical; only the per-tier candidate count differs.
-async fn s2_pick_clear_scene(
+pub(crate) async fn s2_pick_clear_scene(
     cli: &reqwest::Client,
     lng: f64,
     lat: f64,
@@ -38821,10 +38861,14 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
                 },
             )
         })?;
-        let already = existing
-            .into_iter()
-            .find(|(k, _)| k.band == req.band && k.tslot == 0)
-            .map(|(_, c)| c);
+        let already = if req.refresh {
+            None // force a fresh materialization, superseding the cached fact
+        } else {
+            existing
+                .into_iter()
+                .find(|(k, _)| k.band == req.band && k.tslot == 0)
+                .map(|(_, c)| c)
+        };
         match already {
             Some(cid) => {
                 cached += 1;
@@ -38865,22 +38909,27 @@ async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, Api
         let start_t = Tslot::from_unix(start, tempo).0;
         let end_t = Tslot::from_unix(end, tempo).0;
         // Pre-load existing facts for this (cell, band) once, so we don't
-        // do N sled scans for an N-step backfill.
-        let existing = s.storage.scan_cell(&req.cell, None).await.map_err(|e| {
-            ApiError(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorBody {
-                    code: ErrorCode::CacheError,
-                    message: e.to_string(),
-                    details: None,
-                },
-            )
-        })?;
-        let mut have: std::collections::HashMap<u64, emem_fact::FactCid> = existing
-            .into_iter()
-            .filter(|(k, _)| k.band == req.band)
-            .map(|(k, c)| (k.tslot, c))
-            .collect();
+        // do N sled scans for an N-step backfill. With `refresh`, skip the
+        // preload entirely so every tslot re-materializes (superseding).
+        let mut have: std::collections::HashMap<u64, emem_fact::FactCid> =
+            std::collections::HashMap::new();
+        if !req.refresh {
+            let existing = s.storage.scan_cell(&req.cell, None).await.map_err(|e| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorBody {
+                        code: ErrorCode::CacheError,
+                        message: e.to_string(),
+                        details: None,
+                    },
+                )
+            })?;
+            have = existing
+                .into_iter()
+                .filter(|(k, _)| k.band == req.band)
+                .map(|(k, c)| (k.tslot, c))
+                .collect();
+        }
 
         for t in start_t..=end_t {
             if steps.len() >= max_facts {

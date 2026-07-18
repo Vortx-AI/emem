@@ -21,7 +21,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
-use crate::{parse_iso8601_unix, prithvi_chip, s2_http_client, s2_search_with_fallback, AppState};
+use crate::{parse_iso8601_unix, prithvi_chip, s2_http_client, s2_pick_clear_scene, AppState};
 
 /// Clay v1.5 S2 L2A band order (metadata.yaml). Each entry is
 /// `(clay_band_name, [s2_asset_aliases])`. The sidecar's `wavelengths`
@@ -63,6 +63,11 @@ pub struct ClayChip {
     /// The cloud / lookback tier the search settled on.
     pub used_cloud: f64,
     pub used_days: i64,
+    /// Per-pixel SCL class at the cell centre and whether it is clear. The
+    /// chip scene is now selected by this, the same gate the scalar path uses,
+    /// not scene-level cloud only. `None` when SCL was unavailable.
+    pub scl: Option<u8>,
+    pub clear: bool,
 }
 
 impl ClayChip {
@@ -102,8 +107,12 @@ pub async fn fetch_clay_chip(
         .unwrap_or(0);
 
     let cli = s2_http_client();
-    let (item, used_cloud, used_days) =
-        s2_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?;
+    let chosen = s2_pick_clear_scene(&cli, lng, lat, target_unix, now_unix, false).await?;
+    let item = chosen.item;
+    let used_cloud = chosen.used_cloud;
+    let used_days = chosen.used_days;
+    let scl = chosen.scl;
+    let clear = chosen.clear;
     let epsg = item
         .epsg
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
@@ -178,6 +187,8 @@ pub async fn fetch_clay_chip(
         scene_cloud_cover: item.cloud_cover,
         used_cloud,
         used_days,
+        scl,
+        clear,
     })
 }
 
@@ -208,6 +219,8 @@ mod tests {
             scene_cloud_cover: None,
             used_cloud: 20.0,
             used_days: 14,
+            scl: Some(4),
+            clear: true,
         };
         let three_d = cc.as_3d();
         assert_eq!(three_d.len(), CLAY_BANDS_LEN);

@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::prithvi_chip::{block_mean_pool_pub, resample_to_chip_pub};
 use crate::{
-    parse_iso8601_unix, s1_search_with_fallback, s2_http_client, s2_search_with_fallback, AppState,
+    parse_iso8601_unix, s1_search_with_fallback, s2_http_client, s2_pick_clear_scene, AppState,
 };
 
 /// Galileo S2_BANDS in canonical order — must match the
@@ -59,6 +59,11 @@ pub struct GalileoChip {
     pub scene_cloud_cover: Option<f64>,
     pub used_cloud: f64,
     pub used_days: i64,
+    /// Per-pixel SCL class at the cell centre and whether it is clear. The S2
+    /// chip scene is now selected by this, the same gate the scalar path uses,
+    /// not scene-level cloud only. `None` when SCL was unavailable.
+    pub scl: Option<u8>,
+    pub clear: bool,
 }
 
 impl GalileoChip {
@@ -110,8 +115,12 @@ pub async fn fetch_galileo_chip(
         .unwrap_or(0);
 
     let cli = s2_http_client();
-    let (item, used_cloud, used_days) =
-        s2_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?;
+    let chosen = s2_pick_clear_scene(&cli, lng, lat, target_unix, now_unix, false).await?;
+    let item = chosen.item;
+    let used_cloud = chosen.used_cloud;
+    let used_days = chosen.used_days;
+    let scl = chosen.scl;
+    let clear = chosen.clear;
     let epsg = item
         .epsg
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
@@ -197,6 +206,8 @@ pub async fn fetch_galileo_chip(
         scene_cloud_cover: item.cloud_cover,
         used_cloud,
         used_days,
+        scl,
+        clear,
     })
 }
 
@@ -594,6 +605,8 @@ mod tests {
             scene_cloud_cover: None,
             used_cloud: 40.0,
             used_days: 30,
+            scl: Some(4),
+            clear: true,
         };
         let four_d = chip.as_4d();
         assert_eq!(four_d.len(), t);

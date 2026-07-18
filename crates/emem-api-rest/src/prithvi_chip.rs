@@ -33,7 +33,7 @@ use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{parse_iso8601_unix, s2_http_client, s2_search_with_fallback, AppState};
+use crate::{parse_iso8601_unix, s2_http_client, s2_pick_clear_scene, AppState};
 
 /// HLS V2 band order Prithvi expects, mapped to Sentinel-2 L2A asset
 /// aliases (the STAC item exposes these names on AWS Open Data).
@@ -69,9 +69,16 @@ pub struct PrithviChip {
     /// Cloud cover fraction the upstream STAC reported for the picked scene.
     pub scene_cloud_cover: Option<f64>,
     /// The cloud / lookback tier the search settled on (cf.
-    /// `s2_search_with_fallback`'s 3-tier ladder).
+    /// `s2_pick_clear_scene`'s 3-tier ladder).
     pub used_cloud: f64,
     pub used_days: i64,
+    /// Per-pixel SCL class of the chosen scene at the cell centre, and whether
+    /// that pixel is clear. The chip search now selects the scene by this,
+    /// the same discipline the scalar value path uses, instead of scene-level
+    /// cloud only, so the embedding is not built on a cloudy pixel inside an
+    /// otherwise clear scene. `None` when the SCL was unavailable.
+    pub scl: Option<u8>,
+    pub clear: bool,
 }
 
 impl PrithviChip {
@@ -110,8 +117,12 @@ pub async fn fetch_prithvi_chip(
         .unwrap_or(0);
 
     let cli = s2_http_client();
-    let (item, used_cloud, used_days) =
-        s2_search_with_fallback(&cli, lng, lat, target_unix, now_unix).await?;
+    let chosen = s2_pick_clear_scene(&cli, lng, lat, target_unix, now_unix, false).await?;
+    let item = chosen.item;
+    let used_cloud = chosen.used_cloud;
+    let used_days = chosen.used_days;
+    let scl = chosen.scl;
+    let clear = chosen.clear;
     let epsg = item
         .epsg
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
@@ -181,6 +192,8 @@ pub async fn fetch_prithvi_chip(
         scene_cloud_cover: item.cloud_cover,
         used_cloud,
         used_days,
+        scl,
+        clear,
     })
 }
 
@@ -381,6 +394,8 @@ mod tests {
             scene_cloud_cover: Some(5.0),
             used_cloud: 40.0,
             used_days: 30,
+            scl: Some(4),
+            clear: true,
         };
         let three_d = chip.as_3d();
         assert_eq!(three_d.len(), 6);

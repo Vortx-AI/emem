@@ -717,6 +717,7 @@ const SCHEMA_FETCH: &str = r#"{"type":"object","required":["cid"],"properties":{
 const SCHEMA_BACKFILL: &str = r#"{"type":"object","required":["cell","band"],"properties":{
 "cells":{"type":"array","items":{"type":"string"},"maxItems":64,"description":"The preparer form: up to 64 cells, each backfilled across the same band and window under the partial-results contract (budget_ms, pending[], converged). Warm an area before reasoning over it; the identical call retried resumes from what persisted."},
 "budget_ms":{"type":"integer","description":"Optional soft budget in ms for the preparer form."},
+"refresh":{"type":"boolean","description":"Force re-materialization even where a fact already exists, superseding it (the old fact stays resolvable by cid and as_of_signed_at). Use to pick up a materializer change on already-warmed cells, e.g. re-running foundation-model embedding enrichment after the per-pixel-SCL chip selection landed. Off by default."},
 "cell":{"type":"string","description":"cell64 or place name (auto-resolved)."},
 "band":{"type":"string","description":"Band key. Must be a band whose materializer supports historical fetch — see `emem_coverage_matrix` field `history_available_from`/`history_available_to`."},
 "start_unix":{"type":"integer","description":"Window start as Unix epoch seconds (UTC). Defaults to the band's `history_available_from`."},
