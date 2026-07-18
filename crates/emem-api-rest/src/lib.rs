@@ -17609,9 +17609,11 @@ async fn mcp_tool_call(
         // reverse-engineering the preimage, which is the failure this
         // surface exists to avoid.
         "emem_derive" => {
+            // MCP tool calls are synchronous: go straight to derive_core so the
+            // token (or a typed error) comes back in-band, never a 202 handle.
             let req: DeriveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match post_derive(State(s.clone()), EmemJson(req)).await {
+            match derive_core(req, s.clone()).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err(mcp_err(e)),
             }
@@ -18724,7 +18726,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry). Pass `band` AND `observed_on` to additionally get `descriptor_token`, the self-describing anchor emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>, which resolves to the identical fact. PREFER descriptor_token when handing a citation to a model: across 200 real facts, Qwen and gemma-4 segment a cell64 anchor identically 0.0% of the time (jaccard 0.6477) versus 100.0% (jaccard 1.0000) for the same cell written as 5dp coordinates, and a cell64 is a string no model has seen while 36.12010,-112.30206 is the Grand Canyon in every model's training data. Nothing is trusted: this mint never reads storage, and /v1/memory_token/resolve binds the place, band and date to the signed fact, so a descriptor minted with a wrong date yields a token that cannot resolve rather than one that misleads.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank). Required (with observed_on) to mint descriptor_token."},"observed_on":{"type":"string","description":"Optional source capture date YYYY-MM-DD, as returned by /v1/recall in sources[].captured_at. With `band`, mints descriptor_token. This is valid time (when the sensor observed), never signed_at."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Accepts two anchors for the same fact: emem:fact:<cell64>:<fact_cid> (legacy memt: also accepted), and the self-describing emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>. Fetches the signed fact body by CID and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. EVERY claim in the anchor is bound to the signed body before it dereferences, so a citation can be read without a round-trip precisely because it cannot lie: the cell (or the cell the coordinates quantise to) must match the fact's own cell, the band must match the fact's band, and the date must match one of sources[].captured_at (valid time, never signed_at). Any mismatch is 409, so a real fact_cid cannot be passed off under a false place, band or date. Coordinates below 5 decimal places are refused with 400: 4dp is ~11m against a ~10m cell and would silently address a neighbouring one. A fact carrying no source capture time cannot support a date claim, so the descriptor anchor is refused for it (409) rather than accepted unbound; cite it in cell form. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/memory_token/resolve_many":{"post":{"summary":"batch dereference: up to 256 fact tokens in one call, resolved independently through the same pipeline as the single resolve. Partial by design: a bad or unheld token yields a typed per-item error ({ok:false, status, error}) and never fails the batch. One batch receipt binds the union of resolved (cell, fact_cid) pairs; each item carries its own receipt so any single resolution forwards on its own. Fully-resolved responses carry Cache-Control: immutable (content-addressed bodies never change and receipts never expire); a batch with failures is not cached, since a 404 can become resolvable when the fact arrives.","operationId":"emem_memory_token_resolve_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"emem:fact: tokens (legacy memt: accepted), 1 to 256 per call"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
-            "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output or human_curated; direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
+            "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output or human_curated; direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"budget_ms":{"type":"integer","description":"optional soft budget in ms; if registration does not finish in time it returns 202 {status:pending} and completes in the background, and since derive is idempotent a re-POST of the identical body returns the token once it persists (a build under load never exits half-registered). Omit for synchronous 200-or-error."},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"202":{"description":"registration in progress; re-POST the identical body to collect the token"},"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
             "/.well-known/emem-verifier.json": {"get":{"summary":"Alias of GET /v1/verifier_spec: the code-generated signing/verification specification, at a well-known path so an offline verifier can discover it without reading the OpenAPI document.","operationId":"emem_verifier_spec_well_known","tags":["verify"],"responses":{"200":json_ok}}},
@@ -22376,6 +22378,15 @@ struct DeriveReq {
     /// exact digest to sign.
     #[serde(default)]
     attester: Option<MemoryAttester>,
+    /// Optional soft budget in milliseconds. When set and registration does
+    /// not finish within it (parent resolution or the store is contended), the
+    /// responder returns 202 with a pending handle and keeps completing the
+    /// registration in the background, so a build under load does not exit
+    /// half-registered. derive is idempotent per (attester, body), so
+    /// re-POSTing the identical body returns the token once it persists. Omit
+    /// for the synchronous 200-or-error behaviour.
+    #[serde(default)]
+    budget_ms: Option<u64>,
 }
 
 /// One resolved parent, echoed so the caller can see the lineage the
@@ -22443,10 +22454,11 @@ const DERIVE_SIGNATURE_ATTESTS: &str =
 
 /// `POST /v1/derive`: register a caller-computed derivation over facts
 /// this responder holds.
-async fn post_derive(
-    State(s): State<AppState>,
-    EmemJson(req): EmemJson<DeriveReq>,
-) -> Result<Json<DeriveResp>, ApiError> {
+/// The synchronous core of `/v1/derive`: validate, dedup, sign, store, and
+/// build the response. Owns its inputs so `post_derive` can spawn it as a
+/// detached task under `budget_ms` — the registration then completes in the
+/// background even if the caller's request has already timed out.
+async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, ApiError> {
     let started = std::time::Instant::now();
 
     // ── Shape ────────────────────────────────────────────────────────
@@ -22824,6 +22836,56 @@ async fn post_derive(
         false,
         started,
     )))
+}
+
+/// `POST /v1/derive`. Synchronous by default. With `budget_ms`, races the
+/// registration against the budget: the token comes back 200 if it finishes in
+/// time, otherwise the registration keeps running detached and the caller gets
+/// 202 with a re-POST handle. Because derive is idempotent per (attester,
+/// body), that re-POST returns the same token once the background task persists
+/// it, so a build under load never exits half-registered (the 19:00-21:30Z
+/// contention incident the navigatable_worlds agent reported).
+async fn post_derive(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<DeriveReq>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let Some(budget_ms) = req.budget_ms else {
+        // No budget: the historical synchronous 200-or-error path.
+        return match derive_core(req, s).await {
+            Ok(json) => json.into_response(),
+            Err(e) => e.into_response(),
+        };
+    };
+    let budget = std::time::Duration::from_millis(budget_ms.clamp(100, 30_000));
+    // Spawn detached: a tokio task runs to completion even after its JoinHandle
+    // is dropped, so the registration survives the caller's timeout. (select!
+    // would cancel it; timeout-over-a-JoinHandle does not.)
+    let task = tokio::spawn(derive_core(req, s));
+    match tokio::time::timeout(budget, task).await {
+        Ok(Ok(Ok(json))) => json.into_response(),
+        Ok(Ok(Err(e))) => e.into_response(),
+        Ok(Err(_join)) => ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: "derive registration task failed".into(),
+                details: None,
+            },
+        )
+        .into_response(),
+        Err(_elapsed) => (
+            StatusCode::ACCEPTED,
+            Json(json!({
+                "schema": "emem.derive.pending.v1",
+                "status": "pending",
+                "retryable": true,
+                "retry_after_ms": 1000,
+                "note": "registration did not finish within budget_ms and is completing in the background; it was NOT lost. derive is idempotent per (attester, body): re-POST the identical body to receive the token (deduplicated: true) once it persists. Poll with a short backoff.",
+            })),
+        )
+            .into_response(),
+    }
 }
 
 /// Look up a previously registered derivation by `(pubkey, body_hash)`.
