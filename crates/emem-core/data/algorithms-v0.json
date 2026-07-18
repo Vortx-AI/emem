@@ -13662,6 +13662,36 @@
       "honest_runtime_note": "The AST evaluator cannot express a windowed COG read, so this key stays documentation_only for /v1/ask dispatch; POST /v1/band_raster is the runnable surface. Bounds are refusals, not timeouts: six raw S2 bands, 512 px per side. Anchors are best-effort by owner decision (a required anchor would force cold-AOI materialization, the gateway-timeout trap the partial-results item names); the artifact is evictable and the derivation record persists, so eviction turns a dereference into a recompute, never a broken citation."
     },
     {
+      "key": "band_cube@1",
+      "kind": "solo",
+      "domain": "optical",
+      "inputs": [
+        {
+          "band": "s2.B08",
+          "role": "any_allowlisted_s2_band",
+          "explanation": "One raw Sentinel-2 reflectance band (B02/B03/B04/B08/B11/B12) sampled at native resolution over the request bbox at each of several target dates: a field over an AOI across time."
+        }
+      ],
+      "formula": "for each target date d: member_d = band_raster@1(bbox, band, d); cube_cid = blake3(canonical_cbor(ordered member derivation cids)); cube record pins {aoi_cid, band, tslot_lo, tslot_hi, cube_cid, ordered members [tslot, member derivation_cid, artifact_cid, scene id]}; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment; lineage terminates in each member's pinned scene",
+      "output": {
+        "kind": "scalar",
+        "unit": "artifact",
+        "range": [
+          0,
+          1
+        ],
+        "explanation": "Not a scalar: the output is a signed manifest (emem.cube_derivation.v1) over N independently-resolvable band_raster members, named by one emem:cube: token. The range is a registry formality. Verification: recompute cube_cid from the record's members, then verify each member emem:raster: (re-hash its artifact, spot-check anchors) or full-recompute each from its pinned scene."
+      },
+      "when_to_use": "When a world model or change-over-time analysis needs a time series of fields over one AOI rather than one snapshot: the 4D world token, a phenology stack, a before/during/after triptych. For one time-slice use band_raster@1; for one cell over time use trajectory.",
+      "primitive": "POST /v1/band_cube {bbox, band, observed_on[]} -> emem:cube: token + member emem:raster: tokens + FIELD-bound receipt; each member artifact at GET /v1/artifacts/{cid}, immutable",
+      "deterministic": true,
+      "citation": "docs/plans/field-tokens.md section 4 (the emem:cube: grammar and the bundle-construction cube_cid)",
+      "documentation_only": true,
+      "runtime_path": "/v1/band_cube",
+      "partial_runtime": true,
+      "honest_runtime_note": "The AST evaluator cannot express a multi-date windowed COG stack, so this key stays documentation_only for /v1/ask dispatch; POST /v1/band_cube is the runnable surface. Bounds are refusals, not timeouts: >=2 distinct slices, 24 slices per mint; dates that resolve to the same scene collapse. Each member is a real band_raster derivation that persists and resolves on its own, so a cube never invents pixels and its members outlive its manifest."
+    },
+    {
       "key": "deforestation_triple@1",
       "kind": "combined",
       "domain": "forest",

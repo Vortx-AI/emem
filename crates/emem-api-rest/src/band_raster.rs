@@ -76,7 +76,7 @@ pub(crate) static ARTIFACTS: LazyLock<ArtifactStore> = LazyLock::new(|| {
 /// Media type of the canonical grid encoding (emem-codec `grid.rs`).
 const GRID_MEDIA_TYPE: &str = "application/x.emem-grid-f32.v1";
 
-#[derive(Debug, Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
 pub struct BBox {
     pub min_lat: f64,
     pub min_lng: f64,
@@ -633,6 +633,490 @@ pub async fn post_raster_resolve(
     Ok(Json(raster_resolve(req, &s).await?))
 }
 
+// ── emem:cube: — a field over time, as a signed manifest. ───────────────────
+//
+// A world model is a field over an AOI ACROSS TIME; `emem:raster:` names one
+// time-slice, and a 4D world's time scrub had no token to anchor. A cube is
+// NOT new pixels: it mints one `band_raster` member per requested date, each
+// an independent, resolvable `emem:raster:` derivation, then signs a manifest
+// binding the ordered set. Lineage terminates in each member's pinned scene,
+// so a stranger walks cube -> members -> scenes. `cube_cid` content-addresses
+// the ordered membership (blake3 of the member derivation cids), and the
+// token's terminal segment stays the persisted record handle like a raster.
+
+/// Hard cap on cube depth. Each slice is an independent scene read, so this
+/// bounds mint latency the way `MAX_SIDE_PX` bounds one window. Page a wider
+/// time range across several mints.
+const MAX_CUBE_SLICES: usize = 24;
+
+#[derive(Debug, Deserialize)]
+pub struct BandCubeReq {
+    pub bbox: BBox,
+    /// One of the `S2_BANDS` keys, e.g. `"s2.B04"`.
+    pub band: String,
+    /// Target capture dates `YYYY-MM-DD`, 2..=`MAX_CUBE_SLICES`. Each names the
+    /// nearest scene, pinned per member; dates that resolve to the same scene
+    /// collapse to one slice.
+    pub observed_on: Vec<String>,
+}
+
+/// Content-address of an ordered cube membership: blake3 of the canonical CBOR
+/// of the ordered member derivation cids, base32. The same slices in the same
+/// order always name the same cube; reordering changes it. Pure, unit-tested.
+fn cube_cid_of(member_dcids: &[String]) -> Result<String, String> {
+    let v = member_dcids.to_vec();
+    let bytes = emem_fact::cbor::to_canonical_cbor(&v)
+        .map_err(|e| format!("member list does not canonicalize: {e}"))?;
+    Ok(data_encoding::BASE32_NOPAD
+        .encode(blake3::hash(&bytes).as_bytes())
+        .to_lowercase())
+}
+
+pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let b = &req.bbox;
+    // The same bbox + band validation band_raster enforces, up front, so a bad
+    // request fails before any scene fan-out rather than mid-flight.
+    if !(b.min_lat < b.max_lat && b.min_lng < b.max_lng) {
+        return Err(bad_request(
+            "bbox must satisfy min_lat < max_lat and min_lng < max_lng".into(),
+        ));
+    }
+    if b.min_lat < -90.0 || b.max_lat > 90.0 || b.min_lng < -180.0 || b.max_lng > 180.0 {
+        return Err(bad_request("bbox exceeds WGS-84 bounds".into()));
+    }
+    if !S2_BANDS.iter().any(|(k, _)| *k == req.band) {
+        let names: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
+        return Err(bad_request(format!(
+            "band `{}` is not rasterizable; this executor serves {}",
+            req.band,
+            names.join(", ")
+        )));
+    }
+    let dates = &req.observed_on;
+    if dates.len() < 2 {
+        return Err(bad_request(
+            "a cube needs at least 2 target dates in observed_on; for a single time slice use POST /v1/band_raster".into(),
+        ));
+    }
+    if dates.len() > MAX_CUBE_SLICES {
+        return Err(bad_request(format!(
+            "{} dates requested; the cube cap is {MAX_CUBE_SLICES} slices per mint. Page the time range across several cubes.",
+            dates.len()
+        )));
+    }
+    for d in dates {
+        if parse_ymd(d).is_none() {
+            return Err(bad_request(format!("observed_on `{d}` is not YYYY-MM-DD")));
+        }
+    }
+
+    // Each member is a real, independently-resolvable band_raster derivation.
+    // Fan out in input order (join_all preserves it), like eudr's parallel arm.
+    let futs: Vec<_> = dates
+        .iter()
+        .cloned()
+        .map(|d| {
+            let bbox = req.bbox.clone();
+            let band = req.band.clone();
+            async move {
+                band_raster(
+                    BandRasterReq {
+                        bbox,
+                        band,
+                        observed_on: Some(d),
+                    },
+                    s,
+                )
+                .await
+            }
+        })
+        .collect();
+    let member_results = futures_util::future::join_all(futs).await;
+
+    // A cube with a missing slice is not the cube that was asked for: the first
+    // member error fails the whole mint rather than signing a partial stack.
+    let mut members_raw: Vec<JsonValue> = Vec::with_capacity(dates.len());
+    for r in member_results {
+        members_raw.push(r?);
+    }
+
+    // Dedup by tslot (two near dates can pick one scene); a BTreeMap keeps the
+    // canonical ascending-tslot member order the cube_cid is computed over.
+    let mut by_tslot: std::collections::BTreeMap<u64, JsonValue> =
+        std::collections::BTreeMap::new();
+    let mut aoi_seen: Option<String> = None;
+    for m in &members_raw {
+        let tslot = m
+            .get("tslot")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| upstream_error("a raster member is missing tslot".into()))?;
+        let dcid = m
+            .get("derivation_cid")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| upstream_error("a raster member is missing derivation_cid".into()))?
+            .to_string();
+        let acid = m
+            .pointer("/artifact/artifact_cid")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let rtok = m
+            .pointer("/tokens/raster")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let member_aoi = m
+            .get("aoi_cid")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        match &aoi_seen {
+            None => aoi_seen = Some(member_aoi.clone()),
+            Some(a) if *a != member_aoi => {
+                return Err(upstream_error(
+                    "members disagree on aoi_cid; refusing to stack fields over different geometry"
+                        .into(),
+                ))
+            }
+            _ => {}
+        }
+        let scene = m
+            .pointer("/derivation/sources/0")
+            .cloned()
+            .unwrap_or(json!({}));
+        by_tslot.entry(tslot).or_insert_with(|| {
+            json!({
+                "tslot": tslot,
+                "derivation_cid": dcid,
+                "artifact_cid": acid,
+                "raster_token": rtok,
+                "scene_id": scene.get("id").cloned().unwrap_or(JsonValue::Null),
+                "captured_at": scene.get("captured_at").cloned().unwrap_or(JsonValue::Null),
+            })
+        });
+    }
+    if by_tslot.len() < 2 {
+        return Err(bad_request(format!(
+            "the {} requested date(s) resolved to only {} distinct scene(s); a cube needs at least two time slices. Widen the date spread.",
+            dates.len(),
+            by_tslot.len()
+        )));
+    }
+
+    let members: Vec<JsonValue> = by_tslot.values().cloned().collect();
+    let member_dcids: Vec<String> = by_tslot
+        .values()
+        .map(|m| {
+            m.get("derivation_cid")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        })
+        .collect();
+    let tslot_lo = *by_tslot.keys().next().expect("len >= 2 checked above");
+    let tslot_hi = *by_tslot.keys().next_back().expect("len >= 2 checked above");
+    let aoi = aoi_seen.unwrap_or_default();
+    let band_key = req.band.clone();
+    let cube_cid = cube_cid_of(&member_dcids).map_err(upstream_error)?;
+
+    let record_body = json!({
+        "schema": "emem.cube_derivation.v1",
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot_lo": tslot_lo,
+        "tslot_hi": tslot_hi,
+        "fn_key": "band_cube@1",
+        "cube_cid": cube_cid,
+        "member_count": members.len(),
+        "members": members,
+        "note": "a cube is a signed manifest over independently-resolvable band_raster members; lineage terminates in each member's pinned scene. Resolve each member with its emem:raster: token (or batch via resolve_many).",
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    let centre_lat = (b.min_lat + b.max_lat) / 2.0;
+    let centre_lng = (b.min_lng + b.max_lng) / 2.0;
+    let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
+    let parents: Vec<FactCid> = member_dcids
+        .iter()
+        .map(|c| FactCid::new(c.clone()))
+        .collect();
+    let derivation_fact = DerivativeFact {
+        cell: centre_cell.clone(),
+        band: "field.cube".to_string(),
+        tslot_window: [tslot_lo, tslot_hi],
+        op: "band_cube".to_string(),
+        parents: parents.clone(),
+        value: json_to_cbor(&record_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "band_cube@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(derivation_fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("cube attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| upstream_error("store returned no cid for the cube derivation".into()))?;
+
+    let binding = FieldBinding {
+        aoi_cid: aoi.clone(),
+        derivation_cid: derivation_cid.clone(),
+    };
+    let mut receipt_cids = parents;
+    receipt_cids.push(FactCid::new(derivation_cid.clone()));
+    let receipt = s.sign_receipt_field(
+        "emem.band_cube",
+        vec![centre_cell.clone()],
+        receipt_cids,
+        false,
+        started,
+        binding,
+    );
+
+    Ok(json!({
+        "schema": "emem.band_cube.v1",
+        "algorithm_key": "band_cube@1",
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot_lo": tslot_lo,
+        "tslot_hi": tslot_hi,
+        "member_count": member_dcids.len(),
+        "cube_cid": cube_cid,
+        "derivation": record_body,
+        "derivation_cid": derivation_cid,
+        "tokens": {
+            "cube": format!("emem:cube:{aoi}:{band_key}:{tslot_lo}..{tslot_hi}:{derivation_cid}"),
+            "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
+        },
+        "members_note": "each member carries an emem:raster: token you can resolve independently or batch through resolve_many",
+        "receipt": receipt,
+    }))
+}
+
+pub async fn post_band_cube(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<BandCubeReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(band_cube(req, &s).await?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CubeResolveReq {
+    /// `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>`
+    pub token: String,
+}
+
+/// Parse the cube token into its claims. Pure, unit-tested.
+fn parse_cube_token(token: &str) -> Result<(String, String, u64, u64, String), String> {
+    let rest = token
+        .trim()
+        .strip_prefix("emem:cube:")
+        .ok_or_else(|| "a cube token starts with emem:cube:".to_string())?;
+    let parts: Vec<&str> = rest.split(':').collect();
+    if parts.len() != 4 {
+        return Err(format!(
+            "emem:cube: takes exactly aoi_cid:band:tslot_lo..tslot_hi:derivation_cid; got {} segments",
+            parts.len()
+        ));
+    }
+    let is_cid = |s: &str| {
+        s.len() == 52
+            && s.bytes()
+                .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+    };
+    if !is_cid(parts[0]) {
+        return Err("aoi_cid is not a 52-character base32 cid".to_string());
+    }
+    if !is_cid(parts[3]) {
+        return Err("derivation_cid is not a 52-character base32 cid".to_string());
+    }
+    let (lo_s, hi_s) = parts[2]
+        .split_once("..")
+        .ok_or_else(|| format!("tslot range `{}` must be tslot_lo..tslot_hi", parts[2]))?;
+    let lo: u64 = lo_s
+        .parse()
+        .map_err(|_| format!("tslot_lo `{lo_s}` is not an unsigned integer"))?;
+    let hi: u64 = hi_s
+        .parse()
+        .map_err(|_| format!("tslot_hi `{hi_s}` is not an unsigned integer"))?;
+    if lo > hi {
+        return Err(format!("tslot range is inverted: {lo} > {hi}"));
+    }
+    Ok((
+        parts[0].to_string(),
+        parts[1].to_string(),
+        lo,
+        hi,
+        parts[3].to_string(),
+    ))
+}
+
+/// `POST /v1/cube/resolve` — dereference an `emem:cube:` token.
+///
+/// Same fail-closed rule as raster: every claim in the token binds to the
+/// signed cube record before anything dereferences, the cid must be a
+/// `band_cube@1` derivation, and `cube_cid` is recomputed from the record's
+/// members so an altered membership is refused, not silently served.
+pub async fn cube_resolve(req: CubeResolveReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let (aoi, band, lo, hi, derivation_cid) = parse_cube_token(&req.token).map_err(bad_request)?;
+
+    let cid_obj = FactCid::new(derivation_cid.clone());
+    let facts = s
+        .storage
+        .get_facts_many(&[cid_obj])
+        .await
+        .map_err(ApiError::from)?;
+    let Some(Some(fact)) = facts.into_iter().next() else {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "no cube derivation record for cid={derivation_cid} on this responder. The record persists independently of its members; if you minted this token elsewhere, resolve it there."
+                ),
+                details: None,
+            },
+        ));
+    };
+    let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
+    if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative")
+        || fact_json
+            .get("derivation")
+            .and_then(|d| d.get("fn_key"))
+            .and_then(|f| f.as_str())
+            != Some("band_cube@1")
+    {
+        return Err(conflict(format!(
+            "cid {derivation_cid} is not a band_cube@1 field derivation; an emem:cube: token cannot dereference it. Cite it in emem:fact: form instead."
+        )));
+    }
+    let body = fact_json.get("value").cloned().unwrap_or(json!({}));
+    let bind = |claim: &str, token_v: &str, record_v: Option<&str>| -> Result<(), ApiError> {
+        match record_v {
+            Some(r) if r == token_v => Ok(()),
+            Some(r) => Err(conflict(format!(
+                "token {claim} `{token_v}` contradicts the signed record's `{r}`; refusing to dereference a forged or corrupt handle"
+            ))),
+            None => Err(conflict(format!(
+                "the signed record carries no {claim}; refusing an unbindable claim"
+            ))),
+        }
+    };
+    bind(
+        "aoi_cid",
+        &aoi,
+        body.get("aoi_cid").and_then(|v| v.as_str()),
+    )?;
+    bind("band", &band, body.get("band").and_then(|v| v.as_str()))?;
+    let rec_lo = body.get("tslot_lo").and_then(|v| v.as_u64());
+    let rec_hi = body.get("tslot_hi").and_then(|v| v.as_u64());
+    if rec_lo != Some(lo) || rec_hi != Some(hi) {
+        return Err(conflict(format!(
+            "token tslot range {lo}..{hi} contradicts the signed record's {rec_lo:?}..{rec_hi:?}"
+        )));
+    }
+
+    // Rebind cube_cid: recompute it from the members the record carries and
+    // refuse if the stored membership was altered.
+    let member_dcids: Vec<String> = body
+        .get("members")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    m.get("derivation_cid")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let recomputed = cube_cid_of(&member_dcids).map_err(conflict)?;
+    let stored = body.get("cube_cid").and_then(|v| v.as_str()).unwrap_or("");
+    if recomputed != stored {
+        return Err(conflict(format!(
+            "recomputed cube_cid {recomputed} does not match the record's `{stored}`; the membership was altered"
+        )));
+    }
+
+    let member_tokens: Vec<JsonValue> = body
+        .get("members")
+        .and_then(|m| m.as_array())
+        .map(|arr| {
+            arr.iter()
+                .map(|m| {
+                    json!({
+                        "tslot": m.get("tslot"),
+                        "raster_token": m.get("raster_token"),
+                        "artifact_cid": m.get("artifact_cid"),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let cell = fact_json
+        .get("cell")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    let receipt = s.sign_receipt_field(
+        "emem.cube_resolve",
+        vec![cell],
+        vec![FactCid::new(derivation_cid.clone())],
+        true,
+        started,
+        FieldBinding {
+            aoi_cid: aoi.clone(),
+            derivation_cid: derivation_cid.clone(),
+        },
+    );
+
+    Ok(json!({
+        "schema": "emem.cube_resolve.v1",
+        "token": req.token.trim(),
+        "resolved": true,
+        "aoi_cid": aoi,
+        "band": band,
+        "tslot_lo": lo,
+        "tslot_hi": hi,
+        "cube_cid": stored,
+        "derivation_cid": derivation_cid,
+        "derivation": body,
+        "member_tokens": member_tokens,
+        "members_note": "resolve each raster_token with emem_raster_resolve, or batch them with resolve_many; each artifact is at GET /v1/artifacts/{artifact_cid}, immutable",
+        "receipt": receipt,
+        "offline_verify_at": "/verify",
+    }))
+}
+
+pub async fn post_cube_resolve(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<CubeResolveReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(cube_resolve(req, &s).await?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -671,6 +1155,39 @@ mod tests {
         assert!(parse_raster_token(&format!("emem:raster:{cid}:s2.B04:notanum:{cid}")).is_err());
         assert!(parse_raster_token(&format!("emem:raster:SHOUT:s2.B04:1:{cid}")).is_err());
         assert!(parse_raster_token(&format!("emem:raster:{cid}:s2.B04:1")).is_err());
+    }
+
+    #[test]
+    fn cube_token_parses_and_refuses_precisely() {
+        let cid = "a".repeat(20) + &"b".repeat(32); // 52 lowercase chars
+        let tok = format!("emem:cube:{cid}:s2.B08:20600..20651:{cid}");
+        let (aoi, band, lo, hi, dcid) = parse_cube_token(&tok).unwrap();
+        assert_eq!(aoi, cid);
+        assert_eq!(band, "s2.B08");
+        assert_eq!(lo, 20600);
+        assert_eq!(hi, 20651);
+        assert_eq!(dcid, cid);
+        // wrong prefix, missing range, inverted range, non-numeric bound, bad cid
+        assert!(parse_cube_token(&format!("emem:raster:{cid}:s2.B04:1:{cid}")).is_err());
+        assert!(parse_cube_token(&format!("emem:cube:{cid}:s2.B04:20600:{cid}")).is_err());
+        assert!(parse_cube_token(&format!("emem:cube:{cid}:s2.B04:20651..20600:{cid}")).is_err());
+        assert!(parse_cube_token(&format!("emem:cube:{cid}:s2.B04:aa..bb:{cid}")).is_err());
+        assert!(parse_cube_token(&format!("emem:cube:SHOUT:s2.B04:1..2:{cid}")).is_err());
+    }
+
+    #[test]
+    fn cube_cid_is_deterministic_and_order_sensitive() {
+        let a = "a".repeat(52);
+        let b = "b".repeat(52);
+        let one = cube_cid_of(&[a.clone(), b.clone()]).unwrap();
+        let two = cube_cid_of(&[a.clone(), b.clone()]).unwrap();
+        assert_eq!(one, two, "same ordered membership must name the same cube");
+        assert_eq!(one.len(), 52);
+        let flipped = cube_cid_of(&[b, a]).unwrap();
+        assert_ne!(
+            one, flipped,
+            "reordering the slices must change the cube_cid"
+        );
     }
 
     #[test]

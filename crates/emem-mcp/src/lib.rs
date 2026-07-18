@@ -625,6 +625,16 @@ const SCHEMA_RASTER_RESOLVE: &str = r#"{"type":"object","required":["token"],"pr
 "token":{"type":"string","description":"emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>"}
 }}"#;
 
+const SCHEMA_BAND_CUBE: &str = r#"{"type":"object","required":["bbox","band","observed_on"],"properties":{
+"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest, shared by every slice."},
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12."},
+"observed_on":{"type":"array","items":{"type":"string"},"description":"2 to 24 target capture dates YYYY-MM-DD. Each names the nearest scene, pinned per member; two dates that resolve to the same scene collapse to one slice."}
+}}"#;
+
+const SCHEMA_CUBE_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
+"token":{"type":"string","description":"emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>"}
+}}"#;
+
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
 "step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."}
@@ -928,6 +938,28 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when you receive an emem:raster: token from another agent and want the verified field behind it: first this, to get the bound record and artifact url, then fetch the bytes and re-hash them against artifact_cid for the spot-check tier of verification. For emem:fact: tokens use emem_memory_token_resolve.",
         input_schema: SCHEMA_RASTER_RESOLVE,
         example_args: r#"{"token":"emem:raster:<aoi_cid>:s2.B04:20650:<derivation_cid>"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_band_cube",
+        title: "Band cube: a field over time, as a signed manifest",
+        description: "Mint an emem:cube: token: a Sentinel-2 field over an AOI ACROSS TIME. A world model is a field over an area across time, and emem:raster: names only one time-slice, so a 4D world's time scrub had no token to anchor. This mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. It is NOT new pixels: lineage terminates in each member's pinned scene, so a stranger walks cube -> members -> scenes and re-derives every value from raw Sentinel-2 bytes. cube_cid content-addresses the ordered membership (blake3 of the member derivation cids), so the same slices always name the same cube. Two dates that resolve to the same scene collapse; a cube needs at least two distinct slices and caps at 24 per mint (refused with the cap named). The receipt's FIELD preimage segment binds (aoi_cid, derivation_cid), reported by /v1/verify_receipt as field_bound. Returns the emem:cube: token plus the member emem:raster: tokens. This signs and persists the cube record and its members.",
+        when_to_use: "Call when a world model or change-over-time analysis needs a time series of fields over one AOI, not one snapshot: the 4D world token, a phenology stack, a before/during/after triptych. For one time-slice use emem_band_raster; for one cell's value over time use emem_trajectory; resolve a received cube with emem_cube_resolve.",
+        input_schema: SCHEMA_BAND_CUBE,
+        example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B08","observed_on":["2026-05-01","2026-06-01","2026-07-01"]}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_cube_resolve",
+        title: "Dereference an emem:cube: field-over-time token",
+        description: "Resolve emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid> back to its signed cube record and the ordered member emem:raster: tokens. Same fail-closed rule as emem_raster_resolve: the cid must be a band_cube@1 derivation, the token's aoi_cid, band, and tslot range must each match the signed record, and cube_cid is recomputed from the record's members so an altered membership is refused (typed 409), not silently served. Returns the full record plus a member_tokens list you resolve independently with emem_raster_resolve or batch through resolve_many; each member's artifact is at GET /v1/artifacts/{cid}, immutable. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.",
+        when_to_use: "Call when you receive an emem:cube: token from another agent and want the verified time series behind it: this returns the bound record and the member raster tokens, then resolve those (or resolve_many) and re-hash each artifact against its artifact_cid for the spot-check tier. For a single emem:raster: token use emem_raster_resolve; for emem:fact: use emem_memory_token_resolve.",
+        input_schema: SCHEMA_CUBE_RESOLVE,
+        example_args: r#"{"token":"emem:cube:<aoi_cid>:s2.B08:20600..20651:<derivation_cid>"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
@@ -2023,7 +2055,9 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_cell_scene_rgb",
             "emem_cell_geojson",
             "emem_band_raster",
+            "emem_band_cube",
             "emem_raster_resolve",
+            "emem_cube_resolve",
         ],
     ),
     (
@@ -2182,7 +2216,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     (
         "raster",
         "A gridded field over an area, rather than points. This is what a world model consumes.",
-        &["emem_cell_scene_rgb", "emem_coverage_map", "emem_band_raster",
+        &["emem_cell_scene_rgb", "emem_coverage_map", "emem_band_raster", "emem_band_cube",
         ],
     ),
     (
@@ -2210,7 +2244,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle",
             "emem_memory_bundle_resolve", "emem_edges_recall", "emem_derive",
-            "emem_derive_list", "emem_raster_resolve",
+            "emem_derive_list", "emem_raster_resolve", "emem_cube_resolve",
         ],
     ),
     (
