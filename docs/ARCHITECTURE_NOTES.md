@@ -225,7 +225,7 @@ write path from scratch.
 - Canonical catalog: `pub const TOOLS: &[ToolDescriptor]` in
   `crates/emem-mcp/src/lib.rs:716`; `ToolDescriptor` struct at :31-68 (name,
   title, description, when_to_use, input_schema, level, category, four MCP
-  hint flags, tier). 94 tools: 14 core, 80 extended. Helpers: `lookup`
+  hint flags, tier). 96 tools: 14 core, 82 extended. Helpers: `lookup`
   (:1738), `tools_at_level` (:1743), `tools_at_tier` (:1792).
 - JSON-RPC dispatch and the REST mirror live in emem-api-rest
   (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:14875`, `mcp_tool_call`
@@ -251,6 +251,6 @@ write path from scratch.
 ## Counts that CI does not guard
 
 `scripts/sync_counts.py --check` verifies the canonical counts (89 tools,
-114 /v1 paths, 46 sources, 43 slots, 124 wired bands, 162 algorithms, 27
+116 /v1 paths, 46 sources, 43 slots, 124 wired bands, 163 algorithms, 27
 topics, 16 crates) against the registries and the live responder, but no CI
 workflow runs it. Run it manually after editing any doc that quotes a count.

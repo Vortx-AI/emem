@@ -168,9 +168,9 @@ new attestations land:
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 114 paths under
-`/v1/*` (118 total in `/openapi.json`), 94 MCP tools (14 core, 80 extended, with
+`/v1/*` (120 total in `/openapi.json`), 96 MCP tools (14 core, 82 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 94), 18 static MCP
-resources + 8 URI templates, 162 algorithms in the content-addressed
+resources + 8 URI templates, 163 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
 connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
@@ -198,7 +198,7 @@ log. See "Watching humans use the API" below.
 | Resource | Live count |
 |---|---|
 | REST paths (OpenAPI) | 118 documented, 114 under `/v1/*` |
-| MCP tools | 94 (14 core / 80 extended) |
+| MCP tools | 96 (14 core / 82 extended) |
 | Algorithms (composition recipes) | 162 |
 | Band-cube slots | 43 |
 | MCP resources | 18 static + 8 URI templates |

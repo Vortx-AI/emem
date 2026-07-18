@@ -280,8 +280,10 @@ audit log.
   emem:fact:defi.zb5ff.pOyA.zaf69:mstu4hkloebwpupenqyubj6qacnrejhiwj4pcszsfltooqettr5q
 ```
 
-The family is typed by its **second segment**, and the four types are not
-equivalent in what dereferencing proves.
+The family is typed by its **second segment**, and the types are not
+equivalent in what dereferencing proves. There is one type per shape of
+memory: a point, a set, an object, a bare place, and, for a world model,
+a field and a field over time.
 
 | Token | Shape | Dereferences to |
 |---|---|---|
@@ -289,6 +291,8 @@ equivalent in what dereferencing proves.
 | `emem:bundle:<bundle_cid>` | 3 segments | a signed set of citations |
 | `emem:entity:<entity_cid>` | 3 segments | the body this node holds under that name (§2.4) |
 | `emem:cell:<cell64>` | 3 segments | **nothing: no parser exists** (§3.4) |
+| `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>` | 5 segments | one native-resolution field over an area, as a signed derivation (§3.6) |
+| `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>` | 5 segments | a field over time: a signed manifest over raster slices (§3.6) |
 
 Three legacy prefixes still resolve as full equivalents, not as degraded
 forms: `memt:` for `emem:fact:`, `memb:` for `emem:bundle:`, `meme:` for
@@ -375,6 +379,49 @@ It is not `blake3(canonical_cbor(body))`, which the module's own
 docstring two lines above the function claims it is. The code is
 authoritative and the docstring is wrong; both are noted in §16 because a
 verifier that believes the docstring computes the wrong identifier.
+
+### 3.6 Field tokens: what the receipt attests when the answer is an array
+
+The scalar and identity tokens above split on the **first** colon (§3.1),
+because everything after `<cell64>:` is one opaque digest. The two field
+tokens do not: `emem:raster:` and `emem:cube:` carry four colon-separated
+claims, and `parse_raster_token` / `parse_cube_token` (`band_raster.rs`)
+split on every colon and bind each claim to the signed record before
+anything dereferences. A world model is a field over an area across time,
+and a scalar fact cannot name one; these two can.
+
+A field token names an **array**, so its receipt attests a *derivation*,
+not a value: this responder computed the artifact whose blake3 is
+`artifact_cid`, from a pinned Sentinel-2 scene, via the versioned recipe
+`band_raster@1`, over a content-addressed area (`aoi_cid`, the blake3 of
+the request geometry) and time slot. The receipt's FIELD preimage segment
+binds `(aoi_cid, derivation_cid)` through `emem_attest::field_binding_v1`,
+reported by `/v1/verify_receipt` as `field_bound`. The pixels are a
+canonical little-endian `f32` grid with a fixed 64-byte header
+(`emem-codec/grid.rs`); a NaN folds to one quiet NaN and `-0.0` to `0.0`
+before hashing, or two encoders that agree on every value still disagree
+on the digest.
+
+The artifact is evictable by design. It lives in a content-addressed blob
+store served immutable at `GET /v1/artifacts/{cid}`; the small derivation
+record persists like any fact and pins the scene, recipe, and geometry, so
+eviction turns a dereference into a recompute, never a broken citation.
+
+A cube adds no pixels. `emem:cube:` is a signed manifest over N
+independently-resolvable raster slices, one per date, and `cube_cid` is
+the blake3 of the ordered member `derivation_cid`s: the same slices in the
+same order always name the same cube, and a resolve recomputes it and
+refuses an altered membership with a typed 409. Its lineage terminates in
+each member's pinned scene, so a stranger walks cube to slices to scenes
+and re-derives every value from raw satellite bytes.
+
+Verification has the two tiers §3.2's fact token has, at field size.
+Spot-check (milliseconds, no upstream): re-hash the artifact against
+`artifact_cid`, then read the sampled `anchors[]` back out of the grid
+and, where an anchor carries a `fact_cid`, compare it against the ordinary
+per-cell fact. Recompute (the full audit): fetch the pinned scene, rerun
+the recipe, compare digests. A field token carries no new trust class: the
+artifact inherits the band's provenance and the record says so.
 
 ---
 
@@ -924,7 +971,7 @@ Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **124 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and four open
-foundation-model embeddings. **162 algorithms** and **27 topics** are
+foundation-model embeddings. **163 algorithms** and **27 topics** are
 enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ### 10.1 Bands: the 1792-dimension voxel
@@ -1006,8 +1053,8 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **114 documented REST paths under `/v1/*`** (118 total
-in OpenAPI) and **94 MCP tools (14 core, 80 extended)**.
+`0.0.0.0:5051`): **116 documented REST paths under `/v1/*`** (120 total
+in OpenAPI) and **96 MCP tools (14 core, 82 extended)**.
 
 Discovery on first contact:
 
@@ -1028,7 +1075,7 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **8 of 94 tools are write
+responder refutes it from its own annotations: **8 of 96 tools are write
 tools**. `memory_create`, `memory_str_replace`, `memory_insert`,
 `memory_delete`, and `memory_rename` are destructive; `emem_entity`,
 `emem_entity_link`, and `emem_derive` are non-destructive writes. An
@@ -1296,7 +1343,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 94 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 96 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §15: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 16.2 Claims in v1's supporting material this document withdraws

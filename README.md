@@ -227,7 +227,7 @@ Packaged Claude skills live under `claude-skills/`; `llms-install.md` is a plain
 
 Reads need no key, and four moves cover most sessions.
 
-**Connect to `https://emem.dev/mcp`.** It advertises the 14 tools of the loop, not the whole catalog. A host loads every descriptor it is handed, and all 94 cost about 210 KB of context whether or not the session ever touches Earth observation. Narrowing discovery removes nothing: `tools/call` dispatches all 94 by name at either endpoint, so a tool missing from your list is still callable. Use `/mcp/full` to have every tool registered up front.
+**Connect to `https://emem.dev/mcp`.** It advertises the 14 tools of the loop, not the whole catalog. A host loads every descriptor it is handed, and all 94 cost about 210 KB of context whether or not the session ever touches Earth observation. Narrowing discovery removes nothing: `tools/call` dispatches all 96 by name at either endpoint, so a tool missing from your list is still callable. Use `/mcp/full` to have every tool registered up front.
 
 **Do not know which tool? Call `emem_tools`.** With no arguments it returns the loop, a bundle menu, and a shape menu in about 6 KB. Ask by the shape of the answer you need, which is usually the real question, rather than by topic:
 
@@ -255,6 +255,7 @@ Writes are the one place a key appears, and it is still not an API key. Memory w
 |---|---|---|
 | **Recall** | read memory for a place; a miss fetches, signs, and stores for everyone | `emem_recall`, `emem_locate`, `emem_recall_polygon` |
 | **Cite** | one token per fact, or one `emem:bundle:` token for a set | `emem_memory_token`, `emem_memory_bundle` |
+| **Map a field** | a world model needs arrays, not points: a native-resolution grid over an area (`emem:raster:`) or a field over time (`emem:cube:`), each a signed derivation a stranger re-derives from raw satellite bytes | `emem_band_raster`, `emem_band_cube` |
 | **Verify** | trust a fact without trusting the sender, offline | `emem_verify_receipt`, [`/verify`](https://emem.dev/verify) |
 | **Weigh** | every fact says how it was produced; model and human classes carry an in-band `caution`; `deterministic: true` keeps only facts recomputable from raw source | inside every recall |
 | **Time travel** | `as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew | flags on every read |
@@ -317,7 +318,7 @@ Version 1.1.0, under the stability promise 1.0.0 made: the wire format, receipt 
 | Limits, roadmap, open research | [docs/roadmap.md](docs/roadmap.md) |
 | Benchmarks, with methods | [docs/benchmarks.md](docs/benchmarks.md) |
 | Industry use cases | https://emem.dev/solutions |
-| Wire spec · OpenAPI (118 paths) · MCP (94 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
+| Wire spec · OpenAPI (120 paths) · MCP (96 tools) | https://emem.dev/spec.md · [/openapi.json](https://emem.dev/openapi.json) · [/mcp](https://emem.dev/mcp) |
 | Live proof in a regulated workflow | https://eudr.dev |
 | Companion open model | [TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA) |
 

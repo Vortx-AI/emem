@@ -375,9 +375,16 @@ one function before the caller sees it.
   `emem:raster:` resolve surface (`POST /v1/raster/resolve`, every
   token claim bound to the signed record, mismatch a typed 409) and
   the `emem_band_raster` plus `emem_raster_resolve` tools ship the
-  same day. Open: `emem:cube:` stays unminted until a multi-tslot
-  surface exists to mint one, and a dedicated anchors spot-check
-  verifier endpoint.
+  same day. As of 2026-07-18 the field-token pair is complete:
+  `emem:cube:` ships too (`POST /v1/band_cube`, `POST /v1/cube/resolve`,
+  the `emem_band_cube` plus `emem_cube_resolve` tools, algorithm
+  `band_cube@1`). A cube is a signed manifest over N independently
+  resolvable `emem:raster:` slices, one per date; `cube_cid` is the
+  blake3 of the ordered member derivation cids, resolve recomputes it
+  and refuses an altered membership, and lineage terminates in each
+  slice's pinned scene. A world model is a field over an area across
+  time, and both halves of the token that names one now exist and are
+  live. Still open: a dedicated anchors spot-check verifier endpoint.
 - **Partial results instead of a timeout.** Open. A cold NDVI polygon
   cannot finish inside the 40 s gateway: worst case is roughly 31
   sequential upstream round trips for a single cell, and `recall_polygon`
