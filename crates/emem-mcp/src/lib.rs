@@ -682,6 +682,12 @@ const SCHEMA_FIELD_BOUNDARIES: &str = r#"{"type":"object","properties":{
 }}"#;
 
 const SCHEMA_GRID_INFO: &str = r#"{"type":"object","properties":{}}"#;
+
+const SCHEMA_CELLS_IN_BBOX: &str = r#"{"type":"object","required":["bbox"],"properties":{
+"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box to enumerate."},
+"page_size":{"type":"integer","minimum":1,"maximum":4096,"default":1024,"description":"cells per page."},
+"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; pass the previous response's next_cursor."}
+}}"#;
 const SCHEMA_COVERAGE_MATRIX: &str = r#"{"type":"object","properties":{}}"#;
 
 const SCHEMA_FETCH: &str = r#"{"type":"object","required":["cid"],"properties":{
@@ -1577,6 +1583,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
     tier: "extended",
     },
     ToolDescriptor {
+        name: "emem_cells_in_bbox",
+        title: "Enumerate the cell64s in a bounding box, paged",
+        description: "Enumerate every cell64 whose centre falls in a bounding box, paged, in stable row-major order (north row first, then west column first). Pure geometry: it reads no facts and signs no receipt, because the answer is a deterministic function of the bbox and the active grid that anyone can reproduce. It walks the integer lat/lng grid directly, so it never skips or double-counts a cell the way a float-stepped lattice does. Returns `cells`, the exact `total`, and `next_cursor` (null when exhausted). This is the paging loop as emem's job instead of every client reimplementing a lattice; a London-scale AOI is tens of thousands of cells, so page it. page_size defaults 1024, caps at 4096.",
+        when_to_use: "Call when you need the actual cell list over an area rather than a sample: building a world, a dense recall over an AOI, or a deterministic sample frame. Feed each page's `cells` straight to emem_recall_many with a budget_ms to read them under the partial-results contract, and page with next_cursor until it is null. For a coarse sample (not every cell) emem_query_region or emem_recall_polygon subsample to max_cells instead.",
+        input_schema: SCHEMA_CELLS_IN_BBOX,
+        example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"page_size":1024}"#,
+        level: "L0", category: ToolCategory::Introspect,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    tier: "extended",
+    },
+    ToolDescriptor {
         name: "emem_coverage_matrix",
         title: "Per-band live status & history bounds",
         description: "Per-band live status — what data is alive AND auto-materializable, with history bounds, tempo cadence, and the responder pubkey that signs the band.",
@@ -2072,6 +2089,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_trajectory",
             "emem_temporal_route",
             "emem_query_region",
+            "emem_cells_in_bbox",
             "emem_recall_many",
             "emem_recall_polygon",
             "emem_region_similarity",
@@ -2221,8 +2239,8 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     ),
     (
         "geometry",
-        "Vector geometry: boundaries, footprints, polygons.",
-        &["emem_cell_geojson", "emem_field_boundaries"],
+        "Vector geometry: boundaries, footprints, polygons, and the cell addresses inside an area.",
+        &["emem_cell_geojson", "emem_field_boundaries", "emem_cells_in_bbox"],
     ),
     (
         "vector",

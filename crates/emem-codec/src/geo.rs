@@ -203,6 +203,72 @@ pub fn cell64_from_latlng(lat_deg: f64, lng_deg: f64) -> String {
     to_cell64(cell_from_latlng(lat_deg, lng_deg))
 }
 
+/// Enumerate the cell64s whose centres fall inside a bbox, in row-major
+/// order (north row first, west column first), returning the
+/// `[offset, offset + limit)` slice plus the total count.
+///
+/// This walks the integer lat/lng grid directly rather than stepping float
+/// coordinates, so at native resolution it never skips or double-counts a
+/// cell the way a `for lat in min..max step pitch` loop does near the
+/// floating-point boundaries. `total` is exact, which lets a caller page a
+/// large AOI deterministically (a London-scale bbox is tens of thousands of
+/// cells; this is the enumerator that makes paging emem's job, not the
+/// client's). The two canonicalisations `cell_from_latlng` applies (the
+/// antimeridian and the pole rows) are applied here too, so an enumerated
+/// cell is byte-identical to the one a recall at its centre would sign.
+pub fn cells_in_bbox(
+    min_lat: f64,
+    min_lng: f64,
+    max_lat: f64,
+    max_lng: f64,
+    offset: u64,
+    limit: u64,
+) -> (Vec<String>, u64) {
+    if !(min_lat.is_finite() && min_lng.is_finite() && max_lat.is_finite() && max_lng.is_finite()) {
+        return (Vec::new(), 0);
+    }
+    let (mut mn_la, mut mx_la) = (min_lat.clamp(-90.0, 90.0), max_lat.clamp(-90.0, 90.0));
+    let (mut mn_ln, mut mx_ln) = (min_lng.clamp(-180.0, 180.0), max_lng.clamp(-180.0, 180.0));
+    if mn_la > mx_la {
+        std::mem::swap(&mut mn_la, &mut mx_la);
+    }
+    if mn_ln > mx_ln {
+        std::mem::swap(&mut mn_ln, &mut mx_ln);
+    }
+    let q_lat =
+        |lat: f64| (((lat + 90.0) / 180.0) * GEO_LAT_MAX as f64).round() as u64 & GEO_LAT_MASK;
+    let q_lng =
+        |lng: f64| (((lng + 180.0) / 360.0) * GEO_LNG_MAX as f64).round() as u64 & GEO_LNG_MASK;
+    let lat_lo = q_lat(mn_la);
+    let lat_hi = q_lat(mx_la);
+    let lng_lo = q_lng(mn_ln);
+    let lng_hi = q_lng(mx_ln);
+    let rows = lat_hi - lat_lo + 1;
+    let cols = lng_hi - lng_lo + 1;
+    let total = rows.saturating_mul(cols);
+    if limit == 0 || offset >= total {
+        return (Vec::new(), total);
+    }
+    let end = offset.saturating_add(limit).min(total);
+    let mut out = Vec::with_capacity((end - offset) as usize);
+    for flat in offset..end {
+        let row = flat / cols; // 0 = northernmost row
+        let col = flat % cols; // 0 = westernmost column
+        let lat_q = lat_hi - row;
+        let mut lng_q = lng_lo + col;
+        // Match cell_from_latlng's canonicalisations exactly.
+        if lng_q == GEO_LNG_MAX {
+            lng_q = 0;
+        }
+        if lat_q == 0 || lat_q == GEO_LAT_MAX {
+            lng_q = 0;
+        }
+        let path = (lat_q << GEO_LNG_BITS) | lng_q;
+        out.push(to_cell64(Cell::from_raw(GEO_PREFIX | path)));
+    }
+    (out, total)
+}
+
 /// Decode a cell64 string back to (lat_deg, lng_deg) — the **center**
 /// of the lat/lng quantisation bucket. The bucket spans roughly
 /// `180/2^21 ≈ 8.59e-5°` (~9.54 m) on lat and `360/2^22 ≈ 8.58e-5°`
@@ -543,5 +609,42 @@ mod tests {
         assert_eq!(base, minus_lat);
         assert_eq!(base, plus_lng);
         assert_eq!(base, minus_lng);
+    }
+
+    #[test]
+    fn cells_in_bbox_enumerates_exactly_and_pages() {
+        // A small bbox a few cells on a side over Lahaul.
+        let (mn_la, mn_ln, mx_la, mx_ln) = (32.56986, 77.0328, 32.57274, 77.0362);
+        let (all, total) = cells_in_bbox(mn_la, mn_ln, mx_la, mx_ln, 0, u64::MAX);
+        assert!(
+            total >= 4,
+            "a ~300 m bbox holds many 10 m cells, got {total}"
+        );
+        assert_eq!(all.len() as u64, total, "unpaged call returns every cell");
+        // No skips, no duplicates: the set size equals the count.
+        let uniq: std::collections::BTreeSet<&String> = all.iter().collect();
+        assert_eq!(uniq.len(), all.len(), "every enumerated cell is distinct");
+        // Row-major, north row first: the first cell is at the max-lat row and
+        // must round-trip through cell_from_latlng at its own centre.
+        for c in all.iter().take(5) {
+            let ll = latlng_from_cell64(c).expect("enumerated cell decodes");
+            assert_eq!(
+                &cell64_from_latlng(ll.lat_deg, ll.lng_deg),
+                c,
+                "an enumerated cell is byte-identical to a recall at its centre"
+            );
+        }
+        // Paging tiles the same sequence with no gaps or overlaps.
+        let (p0, t0) = cells_in_bbox(mn_la, mn_ln, mx_la, mx_ln, 0, 3);
+        let (p1, t1) = cells_in_bbox(mn_la, mn_ln, mx_la, mx_ln, 3, 3);
+        assert_eq!(t0, total);
+        assert_eq!(t1, total);
+        let mut tiled = p0.clone();
+        tiled.extend(p1.clone());
+        assert_eq!(&tiled[..], &all[..tiled.len()], "pages tile the full order");
+        // Past-the-end offset yields nothing but still reports the total.
+        let (empty, te) = cells_in_bbox(mn_la, mn_ln, mx_la, mx_ln, total, 10);
+        assert!(empty.is_empty());
+        assert_eq!(te, total);
     }
 }

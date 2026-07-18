@@ -1036,6 +1036,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api", get(api_alias))
         .route("/v1/discover", get(discover))
         .route("/v1/grid_info", get(grid_info))
+        .route("/v1/cells_in_bbox", post(post_cells_in_bbox))
         .route("/v1/elevation", post(post_elevation_coherent))
         // Sister POST handlers — accept `{place}` (geocoded) or
         // `{lat,lng}` (direct) so an agent that already has a place
@@ -17330,6 +17331,14 @@ async fn mcp_tool_call(
             }
         }
         "emem_grid_info" => Ok(grid_info().await.0),
+        "emem_cells_in_bbox" => {
+            let req: CellsInBboxReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_cells_in_bbox(EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_coverage_matrix" => Ok(coverage_matrix(State(s.clone())).await.0),
         "emem_materializers" => {
             // Same pagination passthrough as `emem_algorithms` — without
@@ -18456,6 +18465,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","responses":{"200":json_ok}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
+            "/v1/cells_in_bbox":     {"post":{"summary":"enumerate the cell64s in a bounding box, paged (row-major, north row first). Pure geometry: reads no facts and signs no receipt, because the answer is a deterministic function of the bbox and the active grid. Returns `cells`, `total`, and `next_cursor` (null when exhausted). This is the paging loop as emem's job rather than every client reimplementing a lattice; feed a page's cells to /v1/recall_many with a budget_ms to read them under the partial-results contract. page_size defaults 1024, caps at 4096.","operationId":"emem_cells_in_bbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"page_size":{"type":"integer","minimum":1,"maximum":4096,"default":1024},"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; use the previous response's next_cursor"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"single algorithm detail","operationId":"emem_algorithms_one","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/compare_bands":     {"post":{"summary":"per-band diff at one cell: scalar delta or vector cosine between band A and band B (optionally pinned to specific tslots), with optional consistency predicate","operationId":"emem_compare_bands","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareBandsReq"}}}},"responses":{"200":json_ok}}},
@@ -27119,6 +27129,89 @@ async fn grid_info() -> Json<JsonValue> {
             "GET  /v1/discover              — full bootstrap"
         ]
     }))
+}
+
+#[derive(Deserialize)]
+struct CellsBBox {
+    min_lat: f64,
+    min_lng: f64,
+    max_lat: f64,
+    max_lng: f64,
+}
+
+#[derive(Deserialize)]
+struct CellsInBboxReq {
+    bbox: CellsBBox,
+    #[serde(default)]
+    page_size: Option<u64>,
+    #[serde(default)]
+    cursor: Option<u64>,
+}
+
+/// `POST /v1/cells_in_bbox` — enumerate the cell64s in a bounding box, paged.
+///
+/// Pure geometry: it reads no facts and signs no receipt, because the answer
+/// is a deterministic function of the bbox and the active grid that anyone
+/// can reproduce. It exists so the paging loop over a large AOI is emem's job
+/// rather than every client reimplementing a lattice (the world builder and
+/// the benchmark recorder both did). Feed a page's `cells` straight into
+/// `POST /v1/recall_many` with a `budget_ms` to read them under the
+/// partial-results contract; that is the "big-N recall" half of the ask.
+async fn post_cells_in_bbox(
+    EmemJson(req): EmemJson<CellsInBboxReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let b = &req.bbox;
+    if !(b.min_lat.is_finite()
+        && b.min_lng.is_finite()
+        && b.max_lat.is_finite()
+        && b.max_lng.is_finite())
+    {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "bbox corners must be finite".into(),
+                details: None,
+            },
+        ));
+    }
+    if !(b.min_lat < b.max_lat && b.min_lng < b.max_lng) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "bbox must satisfy min_lat < max_lat and min_lng < max_lng".into(),
+                details: None,
+            },
+        ));
+    }
+    let page_size = req.page_size.unwrap_or(1024).clamp(1, 4096);
+    let cursor = req.cursor.unwrap_or(0);
+    let (cells, total) = emem_codec::cells_in_bbox(
+        b.min_lat, b.min_lng, b.max_lat, b.max_lng, cursor, page_size,
+    );
+    let next = cursor.saturating_add(cells.len() as u64);
+    let next_cursor = if next < total {
+        json!(next)
+    } else {
+        JsonValue::Null
+    };
+    Ok(Json(json!({
+        "schema": "emem.cells_in_bbox.v1",
+        "cells": cells,
+        "count": cells.len(),
+        "total": total,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "page_size": page_size,
+        "order": "row-major, north row first then west column first; stable across pages",
+        "grid": {
+            "encoding": "cell64-geo-21x22",
+            "pitch_deg": 8.583e-5,
+            "note": "~10 m square at the equator; longitude pitch narrows with cos(lat). See /v1/grid_info.",
+        },
+        "next_step": "feed `cells` to POST /v1/recall_many with a budget_ms to read them under the partial-results contract; page with next_cursor until it is null",
+    })))
 }
 
 // ── /v1/elevation — coherent tri-source envelope (Cop-DEM GLO-30 30 m) ───
