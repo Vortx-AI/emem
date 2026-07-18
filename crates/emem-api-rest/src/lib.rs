@@ -12392,11 +12392,17 @@ async fn post_diff(
         tslot_b,
     };
     let resp = diff(&req, &s).await?;
+    let mut body = serde_json::to_value(resp).unwrap_or(json!({}));
+    // Additive, unsigned phenology advisory: a seasonal diff across different
+    // days-of-year mixes phenology with real change, and this makes that
+    // visible instead of letting it ship silently (the "4 prospered" trap).
+    if let Some(ph) = phenology_advisory(&req.band, req.tslot_a, req.tslot_b) {
+        if let Some(o) = body.as_object_mut() {
+            o.insert("phenology".to_string(), ph);
+        }
+    }
     let env = resolved_envelope(vec![("cell".into(), rc)]);
-    Ok(Json(attach_resolved(
-        serde_json::to_value(resp).unwrap_or(json!({})),
-        env,
-    )))
+    Ok(Json(attach_resolved(body, env)))
 }
 
 /// API-layer trajectory request: flexible location (cell/place/lat+lng) and
@@ -18383,7 +18389,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/query_region":      {"post":{"summary":"query region","operationId":"emem_query_region","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryRegionReq"}}}},"responses":{"200":json_ok}}},
             "/v1/compare":           {"post":{"summary":"compare two cells","operationId":"emem_compare","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareReq"}}}},"responses":{"200":json_ok}}},
             "/v1/find_similar":      {"post":{"summary":"k-NN over band vectors","operationId":"emem_find_similar","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FindSimilarReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/diff":              {"post":{"summary":"derivative fact between two tslots (algebra: diff)","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/diff":              {"post":{"summary":"derivative fact between two tslots (algebra: diff). For a time-varying band the response also carries an unsigned `phenology` advisory (day-of-year of each tslot, their gap, and a `caution` when they sit at different points in the seasonal cycle) so a seasonal delta is not mistaken for pure change; it surfaces the bias, never rejects the call, and never enters the receipt.","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":json_ok}}},
             "/v1/trajectory":        {"post":{"summary":"time series","operationId":"emem_trajectory","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TrajectoryReq"}}}},"responses":{"200":json_ok}}},
             "/v1/backfill":          {"post":{"summary":"materialize history in a window The preparer form: pass cells (up to 64) instead of cell to warm an area across the window under the partial-results contract (budget_ms, typed pending[], converged); the densification warmer loops exactly this on a schedule when the operator declares warm_priority.json and EMEM_WARM_INTERVAL_SECS.","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":json_ok}}},
             "/v1/heat_solve":        {"post":{"summary":"2-D explicit-FD heat-equation solver (forecast LST N hours ahead from a 3×3 cell stencil)","operationId":"emem_heat_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HeatSolveReq"}}}},"responses":{"200":json_ok}}},
@@ -37298,6 +37304,60 @@ fn tempo_for_band(band: &str) -> Option<emem_core::tslot::Tempo> {
     band_materializer_meta(band).map(|m| m.tempo)
 }
 
+/// 1-based day-of-year for a tslot under a band's tempo: convert the slot to
+/// its Unix start, then to a civil date, then to its day-of-year and year.
+/// Returns None for a pre-epoch slot.
+fn tslot_doy(tslot: u64, tempo: emem_core::tslot::Tempo) -> Option<(i64, i32)> {
+    let unix = emem_core::tslot::Tslot(tslot).to_unix_start(tempo);
+    if unix <= 0 {
+        return None;
+    }
+    let (y, m, d) = civil_from_days(unix.div_euclid(86_400));
+    let doy = days_from_civil(y, m, d) - days_from_civil(y, 1, 1) + 1;
+    Some((doy, y))
+}
+
+/// A phenology advisory for a diff between two tslots. It is additive and
+/// UNSIGNED: it never enters the receipt, exactly like `surface_class`. The
+/// bug it names is the silent one an agri agent ships without noticing: for a
+/// time-varying band, comparing two dates at different points in the seasonal
+/// cycle mixes phenology with real change, so a rising or falling season alone
+/// moves the value. A Static band (no seasonal cycle) and a same-day-of-year
+/// pair carry no caution; a large day-of-year gap does. Surface the risk,
+/// never reject the call, so a legitimate cross-time diff still works and the
+/// biased reading is the one that arrives labelled.
+fn phenology_advisory(band: &str, tslot_a: u64, tslot_b: u64) -> Option<JsonValue> {
+    let tempo = tempo_for_band(band)?;
+    if matches!(tempo, emem_core::tslot::Tempo::Static) {
+        return None;
+    }
+    let (doy_a, year_a) = tslot_doy(tslot_a, tempo)?;
+    let (doy_b, year_b) = tslot_doy(tslot_b, tempo)?;
+    // Circular day-of-year gap: DOY 350 and DOY 15 sit 30 days apart in the
+    // cycle, not 335.
+    let raw = (doy_a - doy_b).abs();
+    let gap = raw.min(365 - raw);
+    // One MODIS 16-day composite, about three Sentinel-2 revisits: below this
+    // the two readings sit at the same phenological stage.
+    const SAME_STAGE_DAYS: i64 = 16;
+    let same_doy = gap <= SAME_STAGE_DAYS;
+    let mut adv = json!({
+        "doy_a": doy_a,
+        "doy_b": doy_b,
+        "doy_gap_days": gap,
+        "same_doy": same_doy,
+        "years_apart": (year_a - year_b).abs(),
+    });
+    if !same_doy {
+        if let Some(o) = adv.as_object_mut() {
+            o.insert("caution".to_string(), json!(format!(
+                "the two readings are {gap} days apart in the seasonal cycle (day-of-year {doy_a} vs {doy_b}). For a time-varying band this delta mixes phenology with real change: a rising or falling season alone moves the value, which is the '4 prospered / 0 stressed' trap. To isolate change, compare the same day-of-year across years (per-year interpolation to a common DOY, compare_same_doy, is roadmap); otherwise read this delta as season plus change combined, not change alone."
+            )));
+        }
+    }
+    Some(adv)
+}
+
 /// Per-band metadata for materializer-only bands (the ones not in the
 /// 1792-D cube layout). The tempo + history window come from the upstream
 /// provider's actual coverage, not editorial guesses.
@@ -53641,6 +53701,49 @@ mod s2_surface_class {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The phenology advisory is the guard against the silent "4 prospered /
+    /// 0 stressed" bug: a seasonal diff across different days-of-year must
+    /// arrive labelled, a same-DOY diff must not, and a static band must not
+    /// carry the block at all. Slots are built through the band's own tempo so
+    /// the test does not assume a specific tslot granularity.
+    #[test]
+    fn phenology_advisory_flags_cross_season_and_spares_same_doy() {
+        let band = "indices.ndvi";
+        let tempo = tempo_for_band(band).expect("ndvi has a tempo");
+        let slot = |y: i32, m: u32, d: u32| {
+            emem_core::tslot::Tslot::from_unix(days_from_civil(y, m, d) * 86_400 + 43_200, tempo).0
+        };
+        // Roughly 40 days apart in the seasonal cycle, a year apart: the trap.
+        let cross = phenology_advisory(band, slot(2025, 6, 25), slot(2024, 5, 15))
+            .expect("a time-varying band yields an advisory");
+        assert_eq!(cross["same_doy"], serde_json::json!(false));
+        assert!(
+            cross.get("caution").is_some(),
+            "a cross-season diff must carry a caution"
+        );
+        assert!(cross["doy_gap_days"].as_i64().unwrap() > 16);
+        // Same day-of-year across years: no caution.
+        let aligned = phenology_advisory(band, slot(2025, 6, 25), slot(2024, 6, 20))
+            .expect("a time-varying band yields an advisory");
+        assert_eq!(aligned["same_doy"], serde_json::json!(true));
+        assert!(
+            aligned.get("caution").is_none(),
+            "a same-day-of-year diff must not warn"
+        );
+        // A static band has no seasonal cycle to confuse: no advisory.
+        if matches!(
+            tempo_for_band("copdem30m.elevation_mean"),
+            Some(emem_core::tslot::Tempo::Static)
+        ) {
+            assert!(phenology_advisory(
+                "copdem30m.elevation_mean",
+                slot(2025, 6, 25),
+                slot(2024, 5, 15)
+            )
+            .is_none());
+        }
+    }
 
     /// Every value below is from one real production fact, fetched from
     /// /v1/facts/{cid} on 2026-07-15, not invented: a Sentinel-1 RTC VV

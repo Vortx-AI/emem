@@ -1366,8 +1366,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_diff",
         title: "Signed delta between two tslots",
-        description: "Compute a DerivativeFact (delta) between a band's values at two tslots. Algebra: diff.",
-        when_to_use: "Call when the user asks 'what changed between t1 and t2', 'give me the delta'. Returns a signed DerivativeFact + receipt — the delta itself is content-addressed and citable.",
+        description: "Compute a DerivativeFact (delta) between a band's values at two tslots. Algebra: diff. For a time-varying band the response also carries an unsigned `phenology` advisory: the day-of-year of each tslot, their gap, and a `caution` when the two dates sit at different points in the seasonal cycle, because that delta mixes phenology with real change (the '4 prospered / 0 stressed' trap). It surfaces the bias rather than rejecting the call; the advisory never enters the receipt.",
+        when_to_use: "Call when the user asks 'what changed between t1 and t2', 'give me the delta'. Returns a signed DerivativeFact + receipt; the delta itself is content-addressed and citable. Read the `phenology` block before treating a seasonal-band delta as change: if `same_doy` is false, compare the same day-of-year across years instead.",
         input_schema: SCHEMA_DIFF,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
         level: "L0", category: ToolCategory::Read,
