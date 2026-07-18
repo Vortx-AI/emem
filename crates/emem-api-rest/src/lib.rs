@@ -60317,6 +60317,7 @@ mod tests {
             provenance_class: "model_output".into(),
             code_cid: None,
             attester: None,
+            budget_ms: None,
         }
     }
 
@@ -60360,7 +60361,7 @@ mod tests {
         let s = test_app_state();
         let inputs = seed_derive_parents(&s).await;
 
-        let err = post_derive(State(s.clone()), EmemJson(derive_req(inputs.clone())))
+        let err = derive_core(derive_req(inputs.clone()), s.clone())
             .await
             .expect_err("unattested derive must be refused");
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
@@ -60386,7 +60387,7 @@ mod tests {
                 .encode(&sk.sign(&digest).to_bytes())
                 .to_lowercase(),
         });
-        let Json(resp) = post_derive(State(s), EmemJson(req))
+        let Json(resp) = derive_core(req, s)
             .await
             .expect("signing the digest the responder handed back must be sufficient");
         assert_eq!(resp.attester_pubkey_b32, pubkey_b32);
@@ -60407,7 +60408,7 @@ mod tests {
         sent.value = json!(0.99);
         sent.attester = Some(sign_derive(&sk, &signed_over));
 
-        let err = post_derive(State(s), EmemJson(sent))
+        let err = derive_core(sent, s)
             .await
             .expect_err("a signature over different content must not verify");
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
@@ -60435,7 +60436,7 @@ mod tests {
         let att = sign_derive(&sk, &req);
         req.attester = Some(att);
 
-        let err = post_derive(State(s), EmemJson(req))
+        let err = derive_core(req, s)
             .await
             .expect_err("a derivation over a fact this responder does not hold must be refused");
         assert_eq!(err.0, StatusCode::NOT_FOUND);
@@ -60465,15 +60466,12 @@ mod tests {
             req.provenance_class = class.into();
             let att = sign_derive(&sk, &req);
             req.attester = Some(att);
-            let err = post_derive(State(s.clone()), EmemJson(req))
-                .await
-                .err()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "`{class}` must be refused: this responder did not compute the value and \
+            let err = derive_core(req, s.clone()).await.err().unwrap_or_else(|| {
+                panic!(
+                    "`{class}` must be refused: this responder did not compute the value and \
                          must not record it as sensor-derived or deterministically recomputable"
-                    )
-                });
+                )
+            });
             assert_eq!(err.0, StatusCode::BAD_REQUEST, "{class}");
             let details = err.1.details.expect("details");
             assert_eq!(
@@ -60495,7 +60493,7 @@ mod tests {
             req.value = json!(0.10 + i as f64);
             let att = sign_derive(&sk, &req);
             req.attester = Some(att);
-            let Json(ok) = post_derive(State(s.clone()), EmemJson(req))
+            let Json(ok) = derive_core(req, s.clone())
                 .await
                 .unwrap_or_else(|e| panic!("`{class}` must be accepted: {}", e.1.message));
             assert!(!ok.fact_cid.is_empty());
@@ -60517,9 +60515,7 @@ mod tests {
         let mut req = derive_req(inputs);
         let att = sign_derive(&sk, &req);
         req.attester = Some(att);
-        let Json(resp) = post_derive(State(s.clone()), EmemJson(req))
-            .await
-            .expect("derive");
+        let Json(resp) = derive_core(req, s.clone()).await.expect("derive");
 
         // The default read at the very cell the derivation was anchored at.
         let recalled = emem_primitives::recall(
@@ -60621,9 +60617,7 @@ mod tests {
         req.code_cid = Some("blake3:abc123".into());
         let att = sign_derive(&sk, &req);
         req.attester = Some(att);
-        let Json(resp) = post_derive(State(s.clone()), EmemJson(req))
-            .await
-            .expect("derive");
+        let Json(resp) = derive_core(req, s.clone()).await.expect("derive");
 
         assert_eq!(
             resp.token,
@@ -60738,9 +60732,7 @@ mod tests {
         let mut first = derive_req(inputs.clone());
         let att = sign_derive(&sk, &first);
         first.attester = Some(att.clone());
-        let Json(a) = post_derive(State(s.clone()), EmemJson(first))
-            .await
-            .expect("first");
+        let Json(a) = derive_core(first, s.clone()).await.expect("first");
         assert!(!a.deduplicated, "the first registration is not a dedup hit");
 
         // The identical body, identical signature, submitted again. Force
@@ -60749,7 +60741,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
         let mut second = derive_req(inputs);
         second.attester = Some(att);
-        let Json(b) = post_derive(State(s.clone()), EmemJson(second))
+        let Json(b) = derive_core(second, s.clone())
             .await
             .expect("a replay is accepted");
 
@@ -60794,9 +60786,7 @@ mod tests {
             let mut req = derive_req(inputs.clone());
             let att = sign_derive(&sk, &req);
             req.attester = Some(att);
-            let Json(r) = post_derive(State(s.clone()), EmemJson(req))
-                .await
-                .expect("derive");
+            let Json(r) = derive_core(req, s.clone()).await.expect("derive");
             assert!(!r.deduplicated);
             cids.push(r.fact_cid);
         }
@@ -60821,7 +60811,7 @@ mod tests {
         let att = sign_derive(&sk, &req);
         req.attester = Some(att);
 
-        let err = post_derive(State(s), EmemJson(req))
+        let err = derive_core(req, s)
             .await
             .expect_err("a real cid under a false cell must not become lineage");
         assert_eq!(err.0, StatusCode::CONFLICT);
