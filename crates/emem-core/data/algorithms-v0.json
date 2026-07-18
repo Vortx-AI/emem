@@ -13692,6 +13692,41 @@
       "honest_runtime_note": "The AST evaluator cannot express a multi-date windowed COG stack, so this key stays documentation_only for /v1/ask dispatch; POST /v1/band_cube is the runnable surface. Bounds are refusals, not timeouts: >=2 distinct slices, 24 slices per mint; dates that resolve to the same scene collapse. Each member is a real band_raster derivation that persists and resolves on its own, so a cube never invents pixels and its members outlive its manifest."
     },
     {
+      "key": "s2_median_composite@1",
+      "kind": "solo",
+      "domain": "optical",
+      "inputs": [
+        {
+          "band": "s2.B04",
+          "role": "any_allowlisted_s2_band",
+          "explanation": "One raw Sentinel-2 reflectance band (B02/B03/B04/B08/B11/B12), read at native resolution from every clear scene in a date window and composited per pixel."
+        },
+        {
+          "band": "s2.scl",
+          "role": "per_pixel_mask",
+          "explanation": "The Sentinel-2 scene-classification layer, read per scene and used to reject occluded pixels (cloud, shadow, cirrus, no-data) before the median."
+        }
+      ],
+      "formula": "for each scene in [start_date, end_date] over the bbox: mask pixel where SCL in reject_policy (default {0,1,3,8,9,10}, snow 11 kept); composite pixel = lower-of-two median over the valid (unmasked, non-NaN) samples across scenes when count >= min_valid_count, else nodata; artifact_cid = blake3(canonical_grid_f32); derivation pins the member scene list, mask policy, and min_valid_count; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment",
+      "output": {
+        "kind": "scalar",
+        "unit": "artifact",
+        "range": [
+          0,
+          1
+        ],
+        "explanation": "Not a scalar: a content-addressed grid artifact (emem.field_derivation.v1) named by one emem:raster: token, resolvable via /v1/raster/resolve. The range is a registry formality. Reproducible: re-read the pinned member scenes, apply the pinned mask policy per pixel, take the lower-of-two median with min_valid_count."
+      },
+      "when_to_use": "When a world model or analyst needs the clean, gap-filled composite texture over an area across a season rather than a single possibly-cloudy scene: a scrub-frame base layer, a cloud-free band mosaic. For one pinned scene use band_raster@1; for the per-slice time series use band_cube@1.",
+      "primitive": "POST /v1/band_composite {bbox, band, start_date, end_date, mask_policy?, min_valid_count?, max_scenes?} -> emem:raster: token + content-addressed artifact + FIELD-bound receipt",
+      "deterministic": true,
+      "citation": "docs/plans/field-tokens.md; the mask policy and lower-of-two median canonicalization agreed with the navigatable_worlds agent (2026-07-18)",
+      "documentation_only": true,
+      "runtime_path": "/v1/band_composite",
+      "partial_runtime": true,
+      "honest_runtime_note": "The AST evaluator cannot express a masked multi-scene median, so this key stays documentation_only for /v1/ask dispatch; POST /v1/band_composite is the runnable surface. Bounds are refusals, not timeouts: six raw S2 bands, 512 px per side, >=2 clear scenes at one CRS in the window, <=16 scenes per mint. Snow (11) is kept by default because it is surface not occlusion; the mask policy is an explicit pinned argument so divergence from the scalar path is recorded, not hidden."
+    },
+    {
       "key": "deforestation_triple@1",
       "kind": "combined",
       "domain": "forest",

@@ -546,15 +546,17 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
         ));
     };
     let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
-    if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative")
-        || fact_json
-            .get("derivation")
-            .and_then(|d| d.get("fn_key"))
-            .and_then(|f| f.as_str())
-            != Some("band_raster@1")
-    {
+    // Both raster-shaped field derivations resolve here: a single-scene window
+    // (band_raster@1) and a masked median over a window (s2_median_composite@1).
+    let fn_key = fact_json
+        .get("derivation")
+        .and_then(|d| d.get("fn_key"))
+        .and_then(|f| f.as_str())
+        .unwrap_or("");
+    let is_raster_shaped = matches!(fn_key, "band_raster@1" | "s2_median_composite@1");
+    if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative") || !is_raster_shaped {
         return Err(conflict(format!(
-            "cid {derivation_cid} is not a band_raster@1 field derivation; an emem:raster: token cannot dereference it. Cite it in emem:fact: form instead."
+            "cid {derivation_cid} is not a raster-shaped field derivation (band_raster@1 or s2_median_composite@1); an emem:raster: token cannot dereference it. Cite it in emem:fact: form instead."
         )));
     }
     let body = fact_json.get("value").cloned().unwrap_or(json!({}));
@@ -1161,6 +1163,438 @@ pub async fn post_cube_resolve(
     EmemJson(req): EmemJson<CubeResolveReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     Ok(Json(cube_resolve(req, &s).await?))
+}
+
+// ── s2_median_composite@1 — a signed, cloud-masked median over a window. ────
+//
+// A world's scrub frame is a median composite, not a single scene, and until
+// now that composite was unsigned while the signed thing was a nearby single
+// scene. This makes the composite itself the resolvable artifact: a masked
+// per-pixel median over every clear scene in a date window, pinned to the
+// exact scenes it read, so a stranger re-derives it pixel for pixel. The mask
+// policy is pinned in the derivation, and it is the same per-pixel SCL
+// discipline the scalar path uses (which the foundation-model chip path is
+// missing), so a correct composite is also the SCL gate embeddings need.
+
+/// SCL classes rejected by default: 0 no-data, 1 saturated/defective, 3 cloud
+/// shadow, 8 cloud (medium prob), 9 cloud (high prob), 10 thin cirrus. Snow
+/// (11) is KEPT: it is surface, not occlusion, so a snow-rejected median would
+/// fabricate a bare winter scene. Overridable via `mask_policy`.
+const DEFAULT_SCL_REJECT: [u8; 6] = [0, 1, 3, 8, 9, 10];
+
+/// Hard cap on scenes read per composite mint; each is two COG window reads.
+const MAX_COMPOSITE_SCENES: usize = 16;
+
+#[derive(Debug, Deserialize)]
+pub struct BandCompositeReq {
+    pub bbox: BBox,
+    /// One of the `S2_BANDS` keys, e.g. `"s2.B04"`.
+    pub band: String,
+    /// Window bounds, inclusive, `YYYY-MM-DD`.
+    pub start_date: String,
+    pub end_date: String,
+    /// SCL classes to reject per pixel; defaults to `DEFAULT_SCL_REJECT`.
+    #[serde(default)]
+    pub mask_policy: Option<Vec<u8>>,
+    /// Per-pixel minimum valid (unmasked) samples for a value; else nodata.
+    /// Defaults to 1.
+    #[serde(default)]
+    pub min_valid_count: Option<u32>,
+    /// Cap on scenes read (2..=16); defaults to 12.
+    #[serde(default)]
+    pub max_scenes: Option<usize>,
+}
+
+/// Day-number tslot for a scene's `YYYY-MM-DD...` capture time.
+fn scene_tslot(datetime: &str) -> u64 {
+    let d = datetime.get(..10).unwrap_or("");
+    parse_ymd(d)
+        .map(|(y, m, dd)| (crate::days_from_civil(y, m, dd).max(0)) as u64)
+        .unwrap_or(0)
+}
+
+/// Read one scene's band window and mask it by the co-located SCL window,
+/// returning the masked grid (rejected/nodata pixels are NaN) plus the scene
+/// metadata to pin. `None` if the scene is unreadable or off the anchor's
+/// pixel grid (a different native resolution).
+#[allow(clippy::too_many_arguments)]
+async fn read_masked_scene(
+    cli: &reqwest::Client,
+    item: &emem_fetch::stac::StacItem,
+    aliases: &[&str],
+    cx: f64,
+    cy: f64,
+    w: u32,
+    h: u32,
+    band_native_m: f64,
+    reject: &std::collections::BTreeSet<u8>,
+) -> Option<(Vec<f32>, JsonValue)> {
+    let band_url = aliases.iter().find_map(|a| item.assets.get(*a).cloned())?;
+    let scl_url = item.assets.get("scl").cloned()?;
+    let band_prof = emem_fetch::cog::open_profile(cli, &band_url).await.ok()?;
+    // Same tile grid only: a different native resolution is a different pixel
+    // lattice and cannot be medianed pixel-for-pixel.
+    if (band_prof.pixel_scale.0.abs() - band_native_m).abs() > 0.01 {
+        return None;
+    }
+    let band_raw = emem_fetch::cog::sample_window(cli, &band_url, &band_prof, cx, cy, w, h)
+        .await
+        .ok()?;
+    let scl_prof = emem_fetch::cog::open_profile(cli, &scl_url).await.ok()?;
+    let scl_m = scl_prof.pixel_scale.0.abs();
+    if !(scl_m > 0.0 && scl_m.is_finite()) {
+        return None;
+    }
+    let band_m = band_native_m;
+    let w_scl = ((w as f64 * band_m / scl_m).ceil() as u32).max(1);
+    let h_scl = ((h as f64 * band_m / scl_m).ceil() as u32).max(1);
+    let scl_raw = emem_fetch::cog::sample_window(cli, &scl_url, &scl_prof, cx, cy, w_scl, h_scl)
+        .await
+        .ok()?;
+    let bm = band_m.round() as i64;
+    let sm = scl_m.round().max(1.0) as i64;
+    let mut out = vec![f32::NAN; (w as usize) * (h as usize)];
+    for r in 0..h as i64 {
+        for c in 0..w as i64 {
+            let bv = band_raw[(r as usize) * (w as usize) + (c as usize)];
+            if !bv.is_finite() {
+                continue;
+            }
+            let sr = ((r * bm) / sm).clamp(0, h_scl as i64 - 1) as usize;
+            let sc = ((c * bm) / sm).clamp(0, w_scl as i64 - 1) as usize;
+            let sclv = scl_raw[sr * (w_scl as usize) + sc];
+            if !sclv.is_finite() {
+                continue; // unknown class -> treat as occluded
+            }
+            let scl = sclv.round();
+            if (0.0..=255.0).contains(&scl) && reject.contains(&(scl as u8)) {
+                continue; // rejected -> stays NaN
+            }
+            out[(r as usize) * (w as usize) + (c as usize)] = bv as f32;
+        }
+    }
+    let meta = json!({
+        "id": item.id,
+        "asset": band_url,
+        "scl_asset": scl_url,
+        "captured_at": item.datetime,
+        "cloud_cover": item.cloud_cover,
+        "tslot": scene_tslot(&item.datetime),
+    });
+    Some((out, meta))
+}
+
+pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let b = &req.bbox;
+    if !(b.min_lat < b.max_lat && b.min_lng < b.max_lng) {
+        return Err(bad_request(
+            "bbox must satisfy min_lat < max_lat and min_lng < max_lng".into(),
+        ));
+    }
+    if b.min_lat < -90.0 || b.max_lat > 90.0 || b.min_lng < -180.0 || b.max_lng > 180.0 {
+        return Err(bad_request("bbox exceeds WGS-84 bounds".into()));
+    }
+    let Some((band_key, aliases)) = S2_BANDS.iter().find(|(k, _)| *k == req.band) else {
+        let names: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
+        return Err(bad_request(format!(
+            "band `{}` is not rasterizable; this executor serves {}",
+            req.band,
+            names.join(", ")
+        )));
+    };
+    let (sy, sm, sd) = parse_ymd(&req.start_date)
+        .ok_or_else(|| bad_request(format!("start_date `{}` is not YYYY-MM-DD", req.start_date)))?;
+    let (ey, em, ed) = parse_ymd(&req.end_date)
+        .ok_or_else(|| bad_request(format!("end_date `{}` is not YYYY-MM-DD", req.end_date)))?;
+    let start_tslot = crate::days_from_civil(sy, sm, sd).max(0) as u64;
+    let end_tslot = crate::days_from_civil(ey, em, ed).max(0) as u64;
+    if start_tslot > end_tslot {
+        return Err(bad_request(
+            "start_date must be on or before end_date".into(),
+        ));
+    }
+    let mut reject_vec = req
+        .mask_policy
+        .clone()
+        .unwrap_or_else(|| DEFAULT_SCL_REJECT.to_vec());
+    reject_vec.sort_unstable();
+    reject_vec.dedup();
+    let reject: std::collections::BTreeSet<u8> = reject_vec.iter().copied().collect();
+    let min_valid = req.min_valid_count.unwrap_or(1).max(1);
+    let max_scenes = req.max_scenes.unwrap_or(12).clamp(2, MAX_COMPOSITE_SCENES);
+
+    let centre_lat = (b.min_lat + b.max_lat) / 2.0;
+    let centre_lng = (b.min_lng + b.max_lng) / 2.0;
+    let cli = crate::s2_http_client();
+
+    // ── scenes in the window (newest first). ───────────────────────────────
+    let datetime = format!("{}T00:00:00Z/{}T23:59:59Z", req.start_date, req.end_date);
+    let items = emem_fetch::stac::search_many_at(
+        &cli,
+        emem_fetch::stac::STAC_ELEMENT84_V1,
+        "sentinel-2-l2a",
+        centre_lng,
+        centre_lat,
+        &datetime,
+        None,
+        (max_scenes * 2).min(50),
+    )
+    .await
+    .map_err(upstream_error)?;
+    // Anchor on the newest usable scene: it fixes the CRS, the native
+    // resolution, and the output grid origin every other member is read onto.
+    let anchor = items
+        .iter()
+        .find(|it| {
+            it.epsg.is_some()
+                && it.assets.contains_key("scl")
+                && aliases.iter().any(|a| it.assets.contains_key(*a))
+        })
+        .ok_or_else(|| {
+            upstream_error(format!(
+                "no Sentinel-2 scene with the band + SCL assets and a CRS in {}..{}",
+                req.start_date, req.end_date
+            ))
+        })?;
+    let epsg = anchor.epsg.unwrap();
+    let anchor_url = aliases
+        .iter()
+        .find_map(|a| anchor.assets.get(*a).cloned())
+        .unwrap();
+
+    // ── window geometry from the anchor's grid. ────────────────────────────
+    let utm_c = emem_fetch::proj::latlng_to_utm_with_epsg(centre_lat, centre_lng, epsg)
+        .ok_or_else(|| upstream_error(format!("epsg {epsg} is not a UTM code")))?;
+    let utm_min = emem_fetch::proj::latlng_to_utm_with_epsg(b.min_lat, b.min_lng, epsg)
+        .ok_or_else(|| upstream_error("bbox corner outside the scene's UTM zone".into()))?;
+    let utm_max = emem_fetch::proj::latlng_to_utm_with_epsg(b.max_lat, b.max_lng, epsg)
+        .ok_or_else(|| upstream_error("bbox corner outside the scene's UTM zone".into()))?;
+    let anchor_prof = emem_fetch::cog::open_profile(&cli, &anchor_url)
+        .await
+        .map_err(|e| upstream_error(format!("open anchor COG: {e}")))?;
+    let native_m = anchor_prof.pixel_scale.0.abs();
+    if !(native_m > 0.0 && native_m.is_finite()) {
+        return Err(upstream_error(format!(
+            "anchor COG has implausible pixel scale {:?}",
+            anchor_prof.pixel_scale
+        )));
+    }
+    let width_px = (((utm_max.easting - utm_min.easting).abs() / native_m).ceil() as u32).max(1);
+    let height_px = (((utm_max.northing - utm_min.northing).abs() / native_m).ceil() as u32).max(1);
+    if width_px > MAX_SIDE_PX || height_px > MAX_SIDE_PX {
+        return Err(bad_request(format!(
+            "window is {width_px}x{height_px} px at the band's native {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink the bbox."
+        )));
+    }
+    let (centre_col, centre_row) = anchor_prof.world_to_pixel(utm_c.easting, utm_c.northing);
+    let col0 = centre_col - (width_px as i64) / 2;
+    let row0 = centre_row - (height_px as i64) / 2;
+    let (ti, tj, tx, ty) = anchor_prof.tiepoint;
+    let (sx, sy_scale) = anchor_prof.pixel_scale;
+    let x0 = tx + (col0 as f64 - ti) * sx;
+    let y0 = ty - (row0 as f64 - tj) * sy_scale.abs();
+
+    // ── read + mask each same-grid member concurrently, then median. ───────
+    let members: Vec<&emem_fetch::stac::StacItem> = items
+        .iter()
+        .filter(|it| {
+            it.epsg == Some(epsg)
+                && it.assets.contains_key("scl")
+                && aliases.iter().any(|a| it.assets.contains_key(*a))
+        })
+        .take(max_scenes)
+        .collect();
+    let reads = members.iter().map(|it| {
+        read_masked_scene(
+            &cli,
+            it,
+            aliases,
+            utm_c.easting,
+            utm_c.northing,
+            width_px,
+            height_px,
+            native_m,
+            &reject,
+        )
+    });
+    let results = futures_util::future::join_all(reads).await;
+    let mut grids: Vec<Vec<f32>> = Vec::new();
+    let mut member_sources: Vec<JsonValue> = Vec::new();
+    for r in results.into_iter().flatten() {
+        grids.push(r.0);
+        member_sources.push(r.1);
+    }
+    if grids.len() < 2 {
+        return Err(upstream_error(format!(
+            "only {} scene(s) read cleanly at one CRS in the window; a composite needs at least two. Widen the date range.",
+            grids.len()
+        )));
+    }
+
+    let npix = (width_px as usize) * (height_px as usize);
+    let mut out = vec![f32::NAN; npix];
+    let mut sample: Vec<f32> = Vec::with_capacity(grids.len());
+    for p in 0..npix {
+        sample.clear();
+        for g in &grids {
+            let v = g[p];
+            if v.is_finite() {
+                sample.push(v);
+            }
+        }
+        if (sample.len() as u32) >= min_valid {
+            sample.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let n = sample.len();
+            // Lower-of-two median for an even count: never average two
+            // measurements into a value nobody took.
+            out[p] = if n % 2 == 1 {
+                sample[n / 2]
+            } else {
+                sample[n / 2 - 1]
+            };
+        }
+    }
+
+    // ── the canonical artifact. ────────────────────────────────────────────
+    let header = GridHeader {
+        width: width_px,
+        height: height_px,
+        epsg,
+        nodata: f32::NAN,
+        lat0: y0,
+        lng0: x0,
+        dlat: -sy_scale.abs(),
+        dlng: sx,
+    };
+    let artifact_bytes =
+        encode_grid(&header, &out).map_err(|e| upstream_error(format!("grid encode: {e:?}")))?;
+    let byte_len = artifact_bytes.len();
+    let artifact_cid = ARTIFACTS
+        .put(&artifact_bytes)
+        .map_err(|e| upstream_error(format!("artifact store: {e}")))?;
+
+    // ── sign the composite derivation. ─────────────────────────────────────
+    let aoi = aoi_cid(b)?;
+    let tslot = scene_tslot(&anchor.datetime);
+    let record_body = json!({
+        "schema": "emem.field_derivation.v1",
+        "aoi": { "bbox": { "min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng } },
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot": tslot,
+        "fn_key": "s2_median_composite@1",
+        "window": { "start": req.start_date, "end": req.end_date, "start_tslot": start_tslot, "end_tslot": end_tslot },
+        "mask_policy": {
+            "reject_scl": reject_vec,
+            "keep_snow_11": !reject.contains(&11),
+            "min_valid_count": min_valid,
+        },
+        "composite": {
+            "method": "per_pixel_lower_of_two_median",
+            "member_count": member_sources.len(),
+            "nan_excluded_before_count": true,
+            "nodata_when_below_min_valid": true,
+        },
+        "sources": member_sources,
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "grid": {
+                "width": width_px, "height": height_px, "epsg": epsg,
+                "x0": x0, "y0": y0, "dx": sx, "dy": -sy_scale.abs(),
+                "crs_note": "header origin and steps are in the scene's UTM CRS named by epsg; the request bbox is WGS-84",
+            },
+        },
+        "reproducibility": "recompute by reading the pinned member scenes, applying the pinned mask_policy per pixel, and taking the lower-of-two median with min_valid_count. The scene list is pinned, so a re-run does not depend on the catalogue adding scenes.",
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
+    let derivation_fact = DerivativeFact {
+        cell: centre_cell.clone(),
+        band: "field.composite".to_string(),
+        tslot_window: [start_tslot, end_tslot],
+        op: "median_composite".to_string(),
+        parents: vec![],
+        value: json_to_cbor(&record_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "s2_median_composite@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(derivation_fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("composite attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| {
+            upstream_error("store returned no cid for the composite derivation".into())
+        })?;
+
+    let binding = FieldBinding {
+        aoi_cid: aoi.clone(),
+        derivation_cid: derivation_cid.clone(),
+    };
+    let receipt = s.sign_receipt_field(
+        "emem.band_composite",
+        vec![centre_cell.clone()],
+        vec![FactCid::new(derivation_cid.clone())],
+        false,
+        started,
+        binding,
+    );
+
+    Ok(json!({
+        "schema": "emem.band_composite.v1",
+        "algorithm_key": "s2_median_composite@1",
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot": tslot,
+        "window": { "start": req.start_date, "end": req.end_date },
+        "member_count": member_sources.len(),
+        "grid": { "width": width_px, "height": height_px, "epsg": epsg, "native_m": native_m },
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "url": format!("/v1/artifacts/{artifact_cid}"),
+            "eviction_note": "the artifact is evictable; the derivation record pins the scenes, mask policy, and recipe needed to rebuild the identical bytes",
+        },
+        "derivation": record_body,
+        "derivation_cid": derivation_cid,
+        "tokens": {
+            "raster": format!("emem:raster:{aoi}:{band_key}:{tslot}:{derivation_cid}"),
+            "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
+        },
+        "docs": "https://emem.dev/reference#token-raster",
+        "receipt": receipt,
+    }))
+}
+
+pub async fn post_band_composite(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<BandCompositeReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(band_composite(req, &s).await?))
 }
 
 #[cfg(test)]

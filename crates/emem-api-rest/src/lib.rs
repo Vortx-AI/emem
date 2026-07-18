@@ -1138,6 +1138,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/compare_bands", post(post_compare_bands))
         .route("/v1/find_similar", post(post_find_similar))
         .route("/v1/diff", post(post_diff))
+        .route("/v1/compare_same_doy", post(post_compare_same_doy))
         .route("/v1/trajectory", post(post_trajectory))
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
@@ -1195,6 +1196,7 @@ pub fn router(state: AppState) -> Router {
         // A field as a signed derivation: docs/plans/field-tokens.md.
         .route("/v1/band_raster", post(band_raster::post_band_raster))
         .route("/v1/band_cube", post(band_raster::post_band_cube))
+        .route("/v1/band_composite", post(band_raster::post_band_composite))
         .route("/v1/artifacts/:cid", get(band_raster::get_artifact))
         .route("/v1/raster/resolve", post(band_raster::post_raster_resolve))
         .route("/v1/cube/resolve", post(band_raster::post_cube_resolve))
@@ -12406,6 +12408,160 @@ async fn post_diff(
     Ok(Json(attach_resolved(body, env)))
 }
 
+/// `POST /v1/compare_same_doy` request: compare a band at the SAME
+/// day-of-year across years, interpolating within each year to the target
+/// DOY and excluding years that cannot be bracketed. This is the primitive
+/// the phenology advisory points at: it makes the biased cross-season
+/// comparison the one you have to opt out of.
+#[derive(Deserialize)]
+struct CompareSameDoyReq {
+    #[serde(default, alias = "cell64")]
+    cell: Option<String>,
+    #[serde(default)]
+    place: Option<String>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default)]
+    lng: Option<f64>,
+    band: String,
+    /// Target day-of-year, 1..=366.
+    doy: u32,
+    /// Years to compare at that day-of-year.
+    years: Vec<i32>,
+}
+
+async fn post_compare_same_doy(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<CompareSameDoyReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    if !(1..=366).contains(&req.doy) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("doy must be in 1..=366, got {}", req.doy),
+                details: None,
+            },
+        ));
+    }
+    if req.years.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "years must name at least one year to compare".into(),
+                details: None,
+            },
+        ));
+    }
+    let (cell, rc) =
+        resolve_point_location(req.cell.as_deref(), req.place.as_deref(), req.lat, req.lng).await?;
+
+    let mut per_year: Vec<JsonValue> = Vec::with_capacity(req.years.len());
+    let mut included: Vec<JsonValue> = Vec::new();
+    let mut excluded: Vec<JsonValue> = Vec::new();
+
+    for &year in &req.years {
+        let target_unix = jan1_unix(year) + (req.doy as i64 - 1) * 86_400;
+        let target_tslot = tslot_at_band(target_unix, &req.band);
+        let window = [
+            tslot_at_band(jan1_unix(year), &req.band),
+            tslot_at_band(jan1_unix(year + 1) - 86_400, &req.band),
+        ];
+        let treq = emem_primitives::TrajectoryReq {
+            cell: cell.clone(),
+            band: req.band.clone(),
+            window,
+            as_of_tslot: None,
+            as_of_signed_at: None,
+            scope: None,
+        };
+        let series = match emem_primitives::trajectory(&treq, &s).await {
+            Ok(r) => r.series,
+            Err(e) => {
+                excluded.push(
+                    json!({"year": year, "reason": "recall_failed", "detail": e.to_string()}),
+                );
+                per_year.push(json!({"year": year, "excluded": true, "reason": "recall_failed"}));
+                continue;
+            }
+        };
+        // Nearest finite-valued point on each side of the target tslot.
+        let mut before: Option<(u64, f64)> = None;
+        let mut after: Option<(u64, f64)> = None;
+        let mut exact: Option<f64> = None;
+        for p in &series {
+            let Some(v) = emem_primitives::cbor_ops::as_f64(&p.value).filter(|v| v.is_finite())
+            else {
+                continue;
+            };
+            if p.tslot == target_tslot {
+                exact = Some(v);
+            }
+            if p.tslot <= target_tslot && before.map(|(t, _)| p.tslot >= t).unwrap_or(true) {
+                before = Some((p.tslot, v));
+            }
+            if p.tslot >= target_tslot && after.map(|(t, _)| p.tslot <= t).unwrap_or(true) {
+                after = Some((p.tslot, v));
+            }
+        }
+        let (value, method, brackets) = if let Some(v) = exact {
+            (Some(v), "exact", json!({"at_tslot": target_tslot}))
+        } else if let (Some((bt, bv)), Some((at, av))) = (before, after) {
+            let frac = if at == bt {
+                0.0
+            } else {
+                (target_tslot as f64 - bt as f64) / (at as f64 - bt as f64)
+            };
+            let v = bv + (av - bv) * frac;
+            (
+                Some(v),
+                "interpolated",
+                json!({"before_tslot": bt, "before_value": bv, "after_tslot": at, "after_value": av}),
+            )
+        } else {
+            (None, "unbracketable", json!(null))
+        };
+
+        match value {
+            Some(v) => {
+                let row = json!({
+                    "year": year, "value": v, "method": method,
+                    "target_tslot": target_tslot, "brackets": brackets,
+                    "samples_in_year": series.len(),
+                });
+                included.push(json!({"year": year, "value": v, "method": method}));
+                per_year.push(row);
+            }
+            None => {
+                let reason = if series.is_empty() {
+                    "no_facts_in_year"
+                } else if before.is_none() {
+                    "no_sample_on_or_before_doy"
+                } else {
+                    "no_sample_on_or_after_doy"
+                };
+                excluded.push(json!({"year": year, "reason": reason}));
+                per_year.push(json!({"year": year, "excluded": true, "reason": reason, "samples_in_year": series.len()}));
+            }
+        }
+    }
+
+    let body = json!({
+        "schema": "emem.compare_same_doy.v1",
+        "band": req.band,
+        "doy": req.doy,
+        "years": req.years,
+        "per_year": per_year,
+        "included": included,
+        "excluded": excluded,
+        "method": "per-year linear interpolation to the target day-of-year in tslot space; years that cannot be bracketed at the DOY are excluded, never extrapolated",
+        "why": "comparing a seasonal band at different days-of-year mixes phenology with real change (see the phenology advisory on /v1/diff). This compares at one DOY so a year-over-year delta is change, not season. Values are model-interpolated between signed facts, so treat them as derived, not directly signed; the bracketing fact_cids are recoverable via /v1/trajectory.",
+    });
+    let env = resolved_envelope(vec![("cell".into(), rc)]);
+    Ok(Json(attach_resolved(body, env)))
+}
+
 /// API-layer trajectory request: flexible location (cell/place/lat+lng) and
 /// a window expressed as either raw tslots (`window: [a,b]`) or ISO dates
 /// (`from_date`/`to_date`). Resolves to the strict primitive `TrajectoryReq`.
@@ -17247,6 +17403,22 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        "emem_band_composite" => {
+            let req: band_raster::BandCompositeReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match band_raster::post_band_composite(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_compare_same_doy" => {
+            let req: CompareSameDoyReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_compare_same_doy(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_change_attribution" => {
             let req: change_attribution::ChangeAttributionReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -18398,6 +18570,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/query_region":      {"post":{"summary":"query region","operationId":"emem_query_region","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/QueryRegionReq"}}}},"responses":{"200":json_ok}}},
             "/v1/compare":           {"post":{"summary":"compare two cells","operationId":"emem_compare","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareReq"}}}},"responses":{"200":json_ok}}},
             "/v1/find_similar":      {"post":{"summary":"k-NN over band vectors","operationId":"emem_find_similar","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FindSimilarReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/compare_same_doy":  {"post":{"summary":"compare a band at the SAME day-of-year across years. For each year it finds the signed facts bracketing the target day-of-year and linearly interpolates to it in tslot space; years that cannot be bracketed are EXCLUDED (with a typed reason), never extrapolated. This is the primitive the phenology advisory points at: comparing a seasonal band at different days-of-year mixes phenology with real change, so comparing at one DOY makes a year-over-year delta change rather than season. Interpolated values are model-derived, not directly signed; the bracketing fact_cids are recoverable via /v1/trajectory.","operationId":"emem_compare_same_doy","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["band","doy","years"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"band":{"type":"string"},"doy":{"type":"integer","minimum":1,"maximum":366,"description":"target day-of-year"},"years":{"type":"array","items":{"type":"integer"},"description":"years to compare at that day-of-year"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/diff":              {"post":{"summary":"derivative fact between two tslots (algebra: diff). For a time-varying band the response also carries an unsigned `phenology` advisory (day-of-year of each tslot, their gap, and a `caution` when they sit at different points in the seasonal cycle) so a seasonal delta is not mistaken for pure change; it surfaces the bias, never rejects the call, and never enters the receipt.","operationId":"emem_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DiffReq"}}}},"responses":{"200":json_ok}}},
             "/v1/trajectory":        {"post":{"summary":"time series","operationId":"emem_trajectory","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/TrajectoryReq"}}}},"responses":{"200":json_ok}}},
             "/v1/backfill":          {"post":{"summary":"materialize history in a window The preparer form: pass cells (up to 64) instead of cell to warm an area across the window under the partial-results contract (budget_ms, typed pending[], converged); the densification warmer loops exactly this on a schedule when the operator declares warm_priority.json and EMEM_WARM_INTERVAL_SECS.","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":json_ok}}},
@@ -18413,6 +18586,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/band_raster": {"post":{"summary":"a field as a signed derivation (docs/plans/field-tokens.md): native-resolution Sentinel-2 window over a bbox, returned as a content-addressed canonical grid artifact plus a persisted derivation record. The receipt attests the derivation, never a byte pipe: its FIELD preimage segment binds (aoi_cid, derivation_cid), the record pins the scene (id, asset, capture time), the recipe (band_raster@1), the grid georeferencing, and best-effort per-cell anchors bridging to existing signed facts. Bands: s2.B02/B03/B04/B08/B11/B12; window cap 512 px per side, refused with the cap named. The artifact is evictable (GET /v1/artifacts/{cid}); the derivation record persists and pins the rebuild.","operationId":"emem_band_raster","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"string","description":"optional target capture date YYYY-MM-DD; the chosen scene is pinned either way"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/raster/resolve": {"post":{"summary":"dereference an emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid> token. Every claim in the token binds to the signed derivation record before anything dereferences (the fact-token rule applied to fields): the cid must be a band_raster@1 derivation and the token's aoi_cid, band, and tslot must each match the record's body, so a real derivation_cid cannot be passed off under a false area, band, or date; any mismatch is a typed 409. Returns the record and the artifact status; bytes come from GET /v1/artifacts/{cid}. An evicted artifact is a rebuild recipe, not an error. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_raster_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/band_cube": {"post":{"summary":"a field OVER TIME as a signed manifest (docs/plans/field-tokens.md): mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. A world model is a field over an AOI across time, and this is the token that names one. Lineage terminates in each member's pinned scene; cube_cid content-addresses the ordered membership. Dates that resolve to the same scene collapse; a cube needs >=2 distinct slices and caps at 24 per mint (refused with the cap named). Each member echoes `requested_dates` and `requested_date_distance_days` so a caller maps a requested date to its slice directly. The receipt's FIELD preimage segment binds (aoi_cid, derivation_cid). Returns the emem:cube: token plus the member emem:raster: tokens.","operationId":"emem_band_cube","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","observed_on"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"array","items":{"type":"string"},"description":"2..24 target capture dates YYYY-MM-DD; each names the nearest scene, pinned per member"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
+            "/v1/band_composite": {"post":{"summary":"a signed, cloud-masked median composite over a date window, as a raster-shaped field artifact (docs/plans/field-tokens.md). Reads every clear Sentinel-2 scene in [start_date, end_date] over the bbox, masks each per pixel by its SCL class (default reject {0,1,3,8,9,10}; snow 11 kept as surface, overridable via mask_policy), and takes the per-pixel lower-of-two median (never averaging two measurements) with a pinned min_valid_count; below that count a pixel is nodata. The mask policy, min_valid_count, and the exact member scene list are pinned in the derivation, so a stranger re-derives the composite pixel for pixel from the same scenes. Returns an emem:raster: token (resolves via /v1/raster/resolve) plus the artifact; the receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment. Same window/px caps as band_raster; needs >=2 clear scenes at one CRS.","operationId":"emem_band_composite","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","start_date","end_date"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"start_date":{"type":"string","description":"YYYY-MM-DD inclusive"},"end_date":{"type":"string","description":"YYYY-MM-DD inclusive"},"mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes to reject per pixel; default [0,1,3,8,9,10]"},"min_valid_count":{"type":"integer","minimum":1,"description":"per-pixel minimum valid samples for a value, else nodata; default 1"},"max_scenes":{"type":"integer","minimum":2,"maximum":16,"description":"cap on scenes read; default 12"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/cube/resolve": {"post":{"summary":"dereference an emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid> token. Same fail-closed rule as raster/resolve: the cid must be a band_cube@1 derivation, the token's aoi_cid/band/tslot-range must each match the signed record, and cube_cid is recomputed from the record's members so an altered membership is refused (typed 409). Returns the record plus the member emem:raster: tokens to resolve independently or batch via resolve_many. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_cube_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
             "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. The gate is not calibrated per encoder and the encoders do not share a cosine scale: the deployed Prithvi checkpoint's change caps near 0.1155 under a 0.15 gate, so it never votes and `all_three` cannot occur. Read `encoders_used[].change` rather than `agreement`; every response carries a `gate_calibration` string saying so. Materializes a missing prior vintage, so this signs and persists facts. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},

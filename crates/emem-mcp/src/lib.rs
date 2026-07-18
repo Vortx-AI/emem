@@ -286,6 +286,16 @@ const SCHEMA_DIFF: &str = r#"{"type":"object","required":["cell","band","tslot_a
 "tslot_b":{"type":"integer"}
 }}"#;
 
+const SCHEMA_COMPARE_SAME_DOY: &str = r#"{"type":"object","required":["band","doy","years"],"properties":{
+"cell":{"type":"string","description":"cell64 or place name"},
+"place":{"type":"string"},
+"lat":{"type":"number"},
+"lng":{"type":"number"},
+"band":{"type":"string"},
+"doy":{"type":"integer","minimum":1,"maximum":366,"description":"target day-of-year"},
+"years":{"type":"array","items":{"type":"integer"},"description":"years to compare at that day-of-year"}
+}}"#;
+
 const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["cell","band","window"],"properties":{
 "cell":{"type":"string"},
 "band":{"type":"string"},
@@ -635,6 +645,16 @@ const SCHEMA_CUBE_RESOLVE: &str = r#"{"type":"object","required":["token"],"prop
 "token":{"type":"string","description":"emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>"}
 }}"#;
 
+const SCHEMA_BAND_COMPOSITE: &str = r#"{"type":"object","required":["bbox","band","start_date","end_date"],"properties":{
+"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest."},
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12."},
+"start_date":{"type":"string","description":"Window start YYYY-MM-DD, inclusive."},
+"end_date":{"type":"string","description":"Window end YYYY-MM-DD, inclusive."},
+"mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes to reject per pixel. Default [0,1,3,8,9,10]; snow 11 is kept as surface."},
+"min_valid_count":{"type":"integer","minimum":1,"description":"Per-pixel minimum valid samples for a value, else nodata. Default 1."},
+"max_scenes":{"type":"integer","minimum":2,"maximum":16,"description":"Cap on scenes read. Default 12."}
+}}"#;
+
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
 "step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."}
@@ -955,6 +975,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when a world model or change-over-time analysis needs a time series of fields over one AOI, not one snapshot: the 4D world token, a phenology stack, a before/during/after triptych. For one time-slice use emem_band_raster; for one cell's value over time use emem_trajectory; resolve a received cube with emem_cube_resolve.",
         input_schema: SCHEMA_BAND_CUBE,
         example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B08","observed_on":["2026-05-01","2026-06-01","2026-07-01"]}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_band_composite",
+        title: "Band composite: a signed cloud-masked median over a window",
+        description: "Mint a signed, cloud-masked median composite over a date window as a raster-shaped field: the clean, gap-filled texture a world model actually drapes, rather than one cloudy scene. It reads every Sentinel-2 scene in [start_date, end_date] over the bbox, masks each per pixel by its SCL scene-classification class (default reject {0,1,3,8,9,10}: no-data, saturated, cloud shadow, cloud, cirrus; snow 11 is KEPT because snow is surface, not occlusion, and a snow-rejected median would fabricate a bare winter scene; override with mask_policy), and takes the per-pixel lower-of-two median (never averaging two measurements into a value nobody took) with a pinned min_valid_count, below which a pixel is nodata. The mask policy, min_valid_count, and the exact member scene list are pinned in the signed derivation, so a stranger re-derives the composite pixel for pixel from the same scenes. Returns an emem:raster: token (resolve with emem_raster_resolve) plus the content-addressed artifact; the receipt binds (aoi_cid, derivation_cid). Needs at least two clear scenes at one CRS. This signs and persists the derivation.",
+        when_to_use: "Call when a world model or an analyst needs the clean composite texture over an area across a season, not a single-date snapshot that may be cloudy: a scrub-frame base layer, a gap-filled band drape, a cloud-free mosaic. For one pinned scene use emem_band_raster; for the per-slice time series use emem_band_cube.",
+        input_schema: SCHEMA_BAND_COMPOSITE,
+        example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B04","start_date":"2026-05-01","end_date":"2026-07-31"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
@@ -1378,6 +1409,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_compare_same_doy",
+        title: "Compare a band at the same day-of-year across years",
+        description: "Compare a band at the SAME day-of-year across several years, the honest way to measure year-over-year change on a seasonal band. For each year it finds the signed facts bracketing the target day-of-year and linearly interpolates to it, and EXCLUDES years that cannot be bracketed (with a typed reason) rather than extrapolating. This is the primitive the phenology advisory on emem_diff points at: comparing a seasonal band at two different days-of-year mixes phenology with real change (the '4 prospered / 0 stressed' trap), so comparing at one fixed DOY makes a year-over-year delta change rather than season. Interpolated values are model-derived, not directly signed; the bracketing fact_cids are recoverable via emem_trajectory.",
+        when_to_use: "Call when the user wants a year-over-year comparison of a seasonal band (NDVI, LST, greenness) and cares that it is change, not season: 'is this field greener than last year', 'compare the July vegetation across 2022-2025'. Pass the day-of-year and the list of years. For a raw two-date delta use emem_diff (and read its phenology block); for the full series use emem_trajectory.",
+        input_schema: SCHEMA_COMPARE_SAME_DOY,
+        example_args: r#"{"cell":"defi.zb572.xoso.zb1ec","band":"indices.ndvi","doy":196,"years":[2023,2024,2025,2026]}"#,
+        level: "L0", category: ToolCategory::Read,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2073,6 +2115,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_cell_geojson",
             "emem_band_raster",
             "emem_band_cube",
+            "emem_band_composite",
             "emem_raster_resolve",
             "emem_cube_resolve",
         ],
@@ -2085,6 +2128,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_compare",
             "emem_compare_bands",
             "emem_diff",
+            "emem_compare_same_doy",
             "emem_change_attribution",
             "emem_trajectory",
             "emem_temporal_route",
@@ -2229,12 +2273,12 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     (
         "timeseries",
         "A value per timestep at one address. Ask for this when the question is about change over time rather than a moment.",
-        &["emem_trajectory", "emem_temporal_route"],
+        &["emem_trajectory", "emem_temporal_route", "emem_compare_same_doy"],
     ),
     (
         "raster",
         "A gridded field over an area, rather than points. This is what a world model consumes.",
-        &["emem_cell_scene_rgb", "emem_coverage_map", "emem_band_raster", "emem_band_cube",
+        &["emem_cell_scene_rgb", "emem_coverage_map", "emem_band_raster", "emem_band_cube", "emem_band_composite",
         ],
     ),
     (
@@ -2345,7 +2389,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
         &[
             "memory_create", "memory_view", "memory_str_replace", "memory_insert",
             "memory_list_by_kind", "emem_memory_search", "emem_edges_recall",
-            "emem_trajectory", "emem_temporal_route", "emem_state_diff",
+            "emem_trajectory", "emem_temporal_route", "emem_compare_same_doy", "emem_state_diff",
             "emem_memory_contradictions", "emem_backfill", "emem_derive",
             "emem_derive_list",
         ],
