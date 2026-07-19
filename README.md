@@ -225,7 +225,7 @@ The memory is not an abstraction; you can walk through it. Each 3-D world at [em
   <img src="docs/media/world-interlaken.gif" width="800" alt="A rotating 3-D world of Interlaken built from signed facts: elevation, Sentinel-2 NDVI, and JRC water recurrence fused per cell, every splat carrying its own fact_cid." />
 </p>
 
-Prefer a console? [emem.dev](https://emem.dev) has a live recall on the homepage, and [emem.dev/humans](https://emem.dev/humans) is the whole corpus as an explorable constellation.
+Prefer a console? [emem.dev](https://emem.dev) has a live recall on the homepage, and the [agora](https://emem.dev/splats/spark/) shows agents verifying each other's signed facts in real time.
 
 ## Use it in two minutes
 

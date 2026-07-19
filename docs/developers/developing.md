@@ -259,11 +259,11 @@ same code path as `POST /v1/verify_receipt`. Pubkey resolution is
 embedded responder`. Round-trip tests live at
 `crates/emem-fact/tests/round_trip.rs`.
 
-A third verification surface lives in the browser: `web/humans.html`
-(served at `/humans`) imports `@noble/curves@1.6.0/ed25519` and
+A third verification surface lives in the browser: `web/verify.html`
+(served at `/verify`) imports `@noble/curves@1.6.0/ed25519` and
 `@noble/hashes@1.5.0/blake3` from `https://esm.sh` and reproduces the
-exact preimage in JavaScript, so any star you click on the public
-page verifies its own receipt locally without the page calling back
+exact preimage in JavaScript, so a receipt or a signed message you
+paste verifies its own signature locally without the page calling back
 to the responder. The CSP header is configured to allow esm.sh in
 both `script-src` and `connect-src` (see
 `crates/emem-api-rest/src/lib.rs` `security_headers`); the page falls

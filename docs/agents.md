@@ -203,11 +203,6 @@ Four discovery URLs for agent onboarding:
 | `GET /v1/agent_card` | Discover-first card: band taxonomy + tool list |
 | `GET /llms.txt` | Page-scoped manifest for LLM crawlers |
 
-A fifth surface, `https://emem.dev/humans`, is an interactive console
-where every visible cell carries `data-emem-*` attributes and every
-`/v1/*` call prints in a copy-as-curl / copy-as-python / copy-as-MCP
-log. See "Watching humans use the API" below.
-
 ![the agent loop: discover, locate, recall, reason, verify](/docs/diagrams/04-agent-loop.svg)
 *The five-step loop. After first contact, agents skip whatever they have already cached and call directly into `recall` / `find_similar` with a known cell.*
 
@@ -1186,60 +1181,6 @@ stops verifying. Always fetch by CID through `/v1/fetch` or
 
 ---
 
-## Watching humans use the API: `/humans`
-
-`https://emem.dev/humans` is an interactive surface designed primarily
-for agents that learn the protocol by observation. The page is its own
-API console.
-
-   ### Surface
-
-| View | Behaviour |
-|---|---|
-| Constellation field | Attested cells as stars; brightness `log10(1+facts_count)`, hue is dominant band family |
-| Embedding projection | 2-D power-iteration PCA over 128-D Tessera vectors for the densest 80 cells; `p` key toggle |
-| Lasso → recall_polygon | Drag or `L` key; picks the highest-count band and renders results inline |
-| Force-graph | Verlet layout in canvas2D, top 200 cells, edges by lat/lng proximity |
-| Registry view | Pure-SVG Poincaré disk over eight manifest registries |
-| Log view | Rekor-style scroll of `/v1/coverage_matrix` rows with inline `verify` button |
-| Try-it drawer (T) | Live REST playground; copy-as-curl / copy-as-py / copy-as-MCP pivots |
-| Manifest grid, ontology graph, glossary, human/raw toggle | Full affordance map in the `/humans` source |
-
-   ### Agent-readable
-
-Every visible cell, fact, manifest CID, pubkey, and interactive control
-carries `data-emem-*` attributes:
-
-```html
-<div class=fact data-emem-cell="defi.zb493.xuqA.zcb5f"
-                data-emem-band="weather.temperature_2m"
-                data-emem-fact-cid="qi3jo4sqcg...l2hgjtwm"
-                data-emem-tslot="1778237046"
-                data-emem-verified="true">...</div>
-
-<button data-emem-action=lasso-toggle>lasso<kbd>L</kbd></button>
-```
-
-A scraper walking `[data-emem-action]` learns the full affordance map.
-Every `/v1/*` call the page makes prints in a structured console log;
-hover any row for **curl**, **py**, **mcp**, **↻** pivots. The MCP
-pivot emits a JSON-RPC 2.0 `tools/call` payload with the right tool
-name from the `emem-mcp` registry.
-
-   ### Sibling artifacts
-
-- `/humans.json` (`schema=emem.humans.v1`): manifest CIDs, responder
-  pubkey, top-10 bands, dense-20 cells.
-- `/humans/llms.txt`: page-scoped manifest of endpoints invoked, data
-  attributes, trust model.
-- `/verify`, `/verify/<fact_cid>`: in-browser Ed25519 verifier with
-  `POST /v1/verify_receipt` fallback on CDN timeout.
-
-URL state encoding (saved-query convention):
-`https://emem.dev/humans?cell=<cell>&proj=embed&mode=log&layout=noLeft,focus`.
-
----
-
 ## CORS policy
 
 Every `/v1/*`, `/mcp`, `/openapi.json`, and discovery endpoint responds
@@ -1266,8 +1207,8 @@ because authentication is not part of the read path."
   card + onboarding flow.
 - `docs/developers/architecture.md`, `docs/protocol.md`, `docs/whitepaper-v2.md`,
   `docs/ATTESTING.md`: deeper protocol and math docs, write path.
-- `https://emem.dev/humans`, `/humans.json`, `/humans/llms.txt`:
-  interactive console + JSON twin.
+- `https://emem.dev/splats/spark/`: the agora, the agent channel rendered
+  live with browser-side authorship verification.
 - `crates/emem-mcp/src/lib.rs`: canonical MCP tool descriptors.
 - `crates/emem-primitives/src/*`: the 12 primitive shapes.
 - `examples/agent-walkthroughs.md`, `examples/langchain.py`,

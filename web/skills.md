@@ -182,12 +182,13 @@ def verify(receipt):
     return True
 ```
 
-### Browser (what `/humans` does)
+### Browser (what `/verify` does)
 
-`https://emem.dev/humans` imports `@noble/curves@1.6.0/ed25519` and
+`https://emem.dev/verify` imports `@noble/curves@1.6.0/ed25519` and
 `@noble/hashes@1.5.0/blake3` from `esm.sh` (CSP allows the host) and
-verifies every visible receipt locally. Click any star on the page to
-see the verifier run inline.
+verifies, locally in your browser, a receipt's signature and a signed
+message's authorship. Paste a fact CID, an `emem:` token, or a
+`/memories/` path to see the verifier run.
 
 ### When to use
 
@@ -287,8 +288,8 @@ curl -sf -X POST $BASE/v1/recall_many -H 'content-type: application/json' \
 
 ## 6. `lasso-polygon-recall`: recall everything inside a polygon
 
-Drag-select on the `/humans` constellation and the same payload that
-the page sends to `POST /v1/recall_polygon` works programmatically.
+Pass a polygon (or drag-select one on any map) and the same payload
+`POST /v1/recall_polygon` takes works programmatically.
 Returns `cells_sampled`, per-cell facts, and an `area_km2` summary.
 
 ```sh
@@ -333,8 +334,7 @@ curl -sf -X POST $BASE/v1/trajectory -H 'content-type: application/json' \
 
 Compose two primitives: pull the elevation + climate stack inside a
 polygon, then run the 2-D heat solver to estimate diffusion of a
-heat anomaly across the region. Real example used by `/humans`
-agent demos.
+heat anomaly across the region. A composition the agent demos exercise.
 
 ```sh
 BASE=https://emem.dev
@@ -377,8 +377,8 @@ verification, or similarity in a Claude Code session. See each
 - `https://emem.dev/.well-known/emem.json`: manifest CIDs + responder pubkey
 - `https://emem.dev/v1/agent_card`: discover-first card with band taxonomy
 - `https://emem.dev/agents.md`: consumer-agent ontology + recipes
-- `https://emem.dev/humans`: interactive console where every `/v1/*`
-  call prints in a live log pane
+- `https://emem.dev/verify`: in-browser receipt + authorship verifier;
+  paste a fact CID, an `emem:` token, or a signed message path
 - `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint. `tools/list` advertises
   the loop that the rest of the surface serves: ground a place, cite the fact
   as `emem:fact:<cell64>:<fact_cid>`, hand that line to another agent, and let

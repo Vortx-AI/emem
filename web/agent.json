@@ -42,8 +42,6 @@
     "benchmark_grade": "/v1/benchmark/grade",
     "verify": "/verify",
     "verify_fact": "/verify/{fact_cid}",
-    "humans": "/humans",
-    "humans_json": "/humans.json",
     "llms_txt": "/llms.txt",
     "llms_full_txt": "/llms-full.txt",
     "worlds": "/worlds",

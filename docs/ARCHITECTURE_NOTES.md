@@ -90,7 +90,7 @@ version; never change the encoding of an existing kind.
   the in-browser verifier (`web/verify.html`) which mirrors the v1 byte rules.
   AGENTS.md pins three places that must always agree: `sign_receipt`, the
   byte-by-byte preimage example in `docs/protocol.md`, and the browser
-  verifier in `web/humans.html`.
+  verifier in `web/verify.html`.
 
 ## Signing keys
 

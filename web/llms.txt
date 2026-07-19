@@ -55,4 +55,3 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [demos](https://emem.dev/demos): runnable end-to-end demos (ask-the-earth, find-similar, recall-polygon, signed-answer).
 - [worlds](https://emem.dev/worlds): sparse 3-D gaussian splat worlds, one splat per signed fact, baked from live recalls; downloadable artifacts (.ply/.splat + provenance) listed at /v1/worlds. Reproducible from examples/3d-worlds/make_splats.py, so an agent can build and sign its own.
 - [splats](https://emem.dev/splats): dense navigable worlds (view-only demo) where the same signed facts are pushed to a photoreal fly-through; every splat is tagged measured, interpolated, or synthesized over an ed25519-signed measured trust root, and the invented layers peel back off.
-- [humans](https://emem.dev/humans): interactive console where every /v1/* call prints in a live log pane.

@@ -108,10 +108,6 @@ const SPACES_MD: &str = include_str!("../../../docs/operators/operating.md");
 const TEMPORAL_MD: &str = include_str!("../../../docs/protocol.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
-const HUMANS_HTML: &str = include_str!("../../../web/humans.html");
-const HUMANS_JSON: &str = include_str!("../../../web/humans.json");
-const HUMANS_LLMS_TXT: &str = include_str!("../../../web/humans-llms.txt");
-const HUMANS_OG_SVG: &str = include_str!("../../../web/humans-og.svg");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 const NOT_FOUND_HTML: &str = include_str!("../../../web/404.html");
 const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-answer.html");
@@ -738,10 +734,12 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         // Landing & agent-targeted pages
         .route("/", get(landing))
-        .route("/humans", get(serve_humans_html))
-        .route("/humans.json", get(serve_humans_json))
-        .route("/humans/llms.txt", get(serve_humans_llms_txt))
-        .route("/humans-og.svg", get(serve_humans_og_svg))
+        // /humans (the corpus constellation) was retired: its "log view" was a
+        // facsimile of the transparency log rendered off coverage_matrix, not
+        // the real /v1/log/* surface, and the watchable proof it aimed at is
+        // served better by /worlds and the agora. Redirect rather than 404 so
+        // any inbound link lands on the surface that replaced it.
+        .route("/humans", get(|| async { Redirect::permanent("/worlds") }))
         // /verify — receipts + fact CIDs, recomputed in the browser. The
         // same HTML answers /verify (idle landing) and /verify/<fact_cid>
         // (auto-fetch + auto-verify); the page reads location.pathname to
@@ -2204,7 +2202,7 @@ async fn security_headers_layer(
     // Allow huggingface.co and *.hf.space to embed the landing page so the
     // HuggingFace Space iframe preview renders. Modern browsers ignore the
     // legacy X-Frame-Options when CSP frame-ancestors is set, so we drop it.
-    // /humans dynamically imports @noble/curves and @noble/hashes from
+    // /verify dynamically imports @noble/curves and @noble/hashes from
     // esm.sh for in-browser BLAKE3 + Ed25519 verification. esm.sh's bundled
     // ESM modules also issue cross-origin sub-imports under the same host.
     // Both `script-src` and `connect-src` must list it or the page silently
@@ -2715,7 +2713,6 @@ fn rendered_index_html() -> &'static str {
 fn served_html_pages() -> Vec<&'static str> {
     vec![
         rendered_index_html(),
-        HUMANS_HTML,
         VERIFY_HTML,
         NOT_FOUND_HTML,
         DEMOS_SIGNED_ANSWER_HTML,
@@ -3217,44 +3214,6 @@ async fn serve_multimodal_md() -> Response {
 }
 async fn serve_llms_txt() -> Response {
     text_response("text/plain; charset=utf-8", LLMS_TXT)
-}
-
-/// `/humans` — interactive knowledge constellation of the corpus.
-///
-/// One HTML file (`web/humans.html`), inline CSS+JS, two CDN imports
-/// (`@noble/ed25519` for offline signature verify, `@noble/hashes/blake3`
-/// for the receipt preimage). Designed as a gold-standard surface for AI
-/// agents observing a human UI: every `/v1/*` call the page makes is
-/// printed in a console pane, so an LLM watching the page learns the
-/// API by observation.
-///
-/// No GA injection here — `/humans` is a developer/agent tool, not the
-/// SEO landing page; analytics live on `/`.
-async fn serve_humans_html() -> Response {
-    text_response("text/html; charset=utf-8", HUMANS_HTML)
-}
-
-/// `/humans.json` — JSON twin of the `/humans` constellation.
-///
-/// A static snapshot of the same data the page renders (manifest CIDs, the
-/// densest-cell list, top bands by `facts_count`, responder pubkey). Agents
-/// that prefer JSON over scraping DOM read this directly; the file is baked
-/// from `/v1/coverage_matrix` at release time and refreshed each rebuild.
-async fn serve_humans_json() -> Response {
-    text_response("application/json; charset=utf-8", HUMANS_JSON)
-}
-
-/// `/humans/llms.txt` — page-scoped llms.txt describing the surface at
-/// `/humans` (endpoints invoked, data attributes, trust model, console pane).
-async fn serve_humans_llms_txt() -> Response {
-    text_response("text/plain; charset=utf-8", HUMANS_LLMS_TXT)
-}
-
-/// `/humans-og.svg` — OpenGraph + Twitter card image for the `/humans`
-/// route. Drawn as static SVG so the file is byte-stable and renders
-/// identically wherever the URL is pasted.
-async fn serve_humans_og_svg() -> Response {
-    text_response("image/svg+xml; charset=utf-8", HUMANS_OG_SVG)
 }
 
 /// `/verify` and `/verify/<fact_cid>` — cryptographic receipt verifier.

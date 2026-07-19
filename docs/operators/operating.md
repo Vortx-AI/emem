@@ -130,7 +130,7 @@ TLS host instead.
 
 The server emits a strict CSP header on every response. The default
 policy allows `https://esm.sh` in **both** `script-src` and
-`connect-src` so the `/humans` page can dynamically import
+`connect-src` so the `/verify` page can dynamically import
 `@noble/curves@1.6.0/ed25519` and `@noble/hashes@1.5.0/blake3` to
 verify Ed25519 receipts in the browser. Without those allowances the
 page silently degrades to the server-side `/v1/verify_receipt` path
@@ -149,7 +149,7 @@ content-security-policy: default-src 'self';
 ```
 
 If you put a reverse proxy in front of emem, do not override this
-header with a stricter policy unless you also drop `/humans` from your
+header with a stricter policy unless you also drop `/verify` from your
 deployment. The header is built once at router construction in
 `crates/emem-api-rest/src/lib.rs` (`security_headers` middleware) and
 intentionally has no env-var override — the offline-verify path is a

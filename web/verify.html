@@ -17,13 +17,13 @@
 <meta property=og:url content="https://emem.dev/verify">
 <meta property=og:title content="emem.dev/verify · receipts, signatures, sources">
 <meta property=og:description content="Every fact on emem.dev is content-addressed and signed by an ed25519 responder key. This page recomputes the signature in your browser: no trust required, no server call.">
-<meta property=og:image content="https://emem.dev/humans-og.svg">
+<meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 <meta name=twitter:card content="summary_large_image">
 <meta name=twitter:title content="emem.dev/verify · receipts, signatures, sources">
 <meta name=twitter:description content="Receipts verify offline in your browser. The protocol's trust layer, made visible.">
-<meta name=twitter:image content="https://emem.dev/humans-og.svg">
+<meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
@@ -313,7 +313,6 @@ input::placeholder{color:var(--mute,#7a7363)}
     <span class=tag>cryptographic receipt verifier</span>
     <span class=spacer></span>
     <nav class=navlinks aria-label="protocol surfaces">
-      <a href="/humans">humans</a>
       <a href="/openapi.json">openapi</a>
       <a href="/spec.md">spec</a>
       <a href="/agents.md">agents</a>
@@ -490,7 +489,6 @@ input::placeholder{color:var(--mute,#7a7363)}
         <ul>
           <li><a href="/verify">verify a receipt</a></li>
           <li><a href="/demos">demos index</a></li>
-          <li><a href="/humans">/humans</a></li>
           <li><a href="/gallery">gallery</a></li>
         </ul>
       </div>
@@ -509,10 +507,10 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <script type="module">
 //==============================================================================
-// emem.dev/verify — receipt + fact verifier. Same crypto path as
-// /humans (noble-ed25519 + noble-blake3 via esm.sh, pinned versions);
-// stripped of every other concern. One page, one purpose: prove the
-// signature in front of the user.
+// emem.dev/verify — receipt, authorship, and fact verifier
+// (noble-ed25519 + noble-blake3 via esm.sh, pinned versions). The agora
+// runs the same T1 authorship check from the same source of truth,
+// /v1/verifier_spec. One page: prove it in front of the user.
 //==============================================================================
 
 // ── crypto libs (pinned) ────────────────────────────────────────────────────

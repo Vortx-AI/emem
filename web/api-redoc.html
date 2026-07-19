@@ -298,6 +298,38 @@
   <div class=pg-divider><span class=dot></span> Full reference for every endpoint follows. Powered by ReDoc against the live <code>/openapi.json</code>.</div>
 </section>
 
+<section style="max-width:1100px;margin:0 auto;padding:1.4rem 1.2rem 0">
+  <h2 style="font-size:1.05rem;margin:0 0 .3rem">Read-verb capabilities, at a glance</h2>
+  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:0 0 .9rem">
+    The reference below is generated from the live <code>/openapi.json</code>, so it never lies about shapes.
+    What it does not tell you is the per-verb behaviour a builder trips over. This does. The 24&nbsp;KB cap is an
+    <em>MCP wire budget</em>, not a REST limit: REST is uncapped.
+  </p>
+  <div style="overflow-x:auto">
+  <table style="border-collapse:collapse;font-size:.8rem;width:100%;min-width:640px">
+    <thead><tr style="text-align:left;border-bottom:1px solid var(--rule)">
+      <th style="padding:.4rem .6rem">verb</th><th style="padding:.4rem .6rem">band-family expansion</th>
+      <th style="padding:.4rem .6rem">pagination</th><th style="padding:.4rem .6rem">budget_ms</th>
+      <th style="padding:.4rem .6rem">MCP wire cap</th><th style="padding:.4rem .6rem">auto-materialize on miss</th>
+    </tr></thead>
+    <tbody>
+      <tr style="border-bottom:1px solid var(--rule)"><td style="padding:.4rem .6rem"><code>recall</code></td><td style="padding:.4rem .6rem">yes (<code>indices.*</code> etc.)</td><td style="padding:.4rem .6rem">n/a (one cell)</td><td style="padding:.4rem .6rem">no</td><td style="padding:.4rem .6rem">truncates; use REST for bulk</td><td style="padding:.4rem .6rem">yes</td></tr>
+      <tr style="border-bottom:1px solid var(--rule)"><td style="padding:.4rem .6rem"><code>recall_many</code></td><td style="padding:.4rem .6rem"><b>no</b> (pass exact band keys)</td><td style="padding:.4rem .6rem">no</td><td style="padding:.4rem .6rem">no</td><td style="padding:.4rem .6rem">truncates (a 400 is usually the cap)</td><td style="padding:.4rem .6rem">yes</td></tr>
+      <tr style="border-bottom:1px solid var(--rule)"><td style="padding:.4rem .6rem"><code>recall_polygon</code></td><td style="padding:.4rem .6rem">yes</td><td style="padding:.4rem .6rem"><b>yes</b> (<code>compact_offset</code>)</td><td style="padding:.4rem .6rem"><b>yes</b></td><td style="padding:.4rem .6rem">use <code>projection: compact</code></td><td style="padding:.4rem .6rem">yes</td></tr>
+      <tr style="border-bottom:1px solid var(--rule)"><td style="padding:.4rem .6rem"><code>backfill</code></td><td style="padding:.4rem .6rem">yes</td><td style="padding:.4rem .6rem">no</td><td style="padding:.4rem .6rem">no</td><td style="padding:.4rem .6rem">n/a</td><td style="padding:.4rem .6rem">yes (a past tslot)</td></tr>
+      <tr><td style="padding:.4rem .6rem"><code>derive</code></td><td style="padding:.4rem .6rem">n/a</td><td style="padding:.4rem .6rem">n/a</td><td style="padding:.4rem .6rem"><b>yes</b> (202 pending, re-POST)</td><td style="padding:.4rem .6rem">n/a</td><td style="padding:.4rem .6rem">idempotent per (attester, body)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:.9rem 0 0">
+    Two surfaces cannot drift because they are generated from the compiled constants the server signs against:
+    <a href="/v1/verifier_spec"><code>/v1/verifier_spec</code></a> (the exact preimage and canonical-order rules
+    to re-check any receipt or authorship yourself) and the <code>a2a</code> block in
+    <a href="/.well-known/mcp.json"><code>/.well-known/mcp.json</code></a> (the agent-collaboration front door).
+    When a narrated page and one of those disagree, trust the generated one.
+  </p>
+</section>
+
 <redoc spec-url="/openapi.json"
        theme='{"colors":{"primary":{"main":"oklch(0.45 0.09 145)"}},"typography":{"fontFamily":"JetBrains Mono, ui-monospace, SF Mono, Menlo, Consolas, monospace","headings":{"fontFamily":"JetBrains Mono, ui-monospace, monospace","fontWeight":"700"},"code":{"fontFamily":"JetBrains Mono, ui-monospace, monospace"}},"sidebar":{"backgroundColor":"transparent"}}'
        hide-loading
@@ -355,6 +387,23 @@ const EXAMPLES = [
     label: 'find_similar',
     note: 'Nearest-neighbour search in Tessera embedding space. Pass a cell64 to find cells that look spectrally similar; useful for transfer-learning where you have one example and want more.',
     body: { cell: 'defi.zb509.meze.ze7b5', k: 5 } },
+  { key: 'recall-deterministic', method: 'POST', path: '/v1/recall',
+    label: 'recall · deterministic',
+    note: 'The same recall with a provenance filter. `deterministic: true` keeps only facts any third party can recompute from the cited raw source (direct_sensor + deterministic_index), dropping model_output and human_curated. Every fact carries its provenance class either way.',
+    body: { cell: 'defi.zb572.xoso.zb1ec', bands: ['indices.ndvi'], deterministic: true } },
+  { key: 'token-resolve', method: 'POST', path: '/v1/memory_token/resolve',
+    label: 'memory_token · resolve',
+    note: 'Turn a citation back into the byte-identical signed fact. This token is a GC-1 derivation the responder recomputed: its resolved record carries deterministic_index and a recomputation receipt, so a stranger recomputes the value from the cited parents. Verify the receipt offline at /verify.',
+    body: { token: 'emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq' } },
+  { key: 'derive', method: 'POST', path: '/v1/derive',
+    label: 'derive · recompute',
+    note: 'Register a derivation over signed facts. Sent with no attester, so it returns 401 with `details.how_to_sign`: the exact 32-byte digest to sign, the encoding, and a worked example, no docs trip. Because a `code_cid` is pinned on a pure op (delta), a signed submission makes the responder RE-RUN it over the cited parents and record deterministic_index on a bit-for-bit match. This is the whole write + GC-1 path in one call.',
+    body: { fn_key: 'same_doy_ndvi_delta@1',
+            inputs: ['emem:fact:defi.zb572.xoso.zb1ec:nh25ek6yx3sktt2iirfpvik53vivulghaomodra3ovmi7ti7dgmq',
+                     'emem:fact:defi.zb572.xoso.zb1ec:jwkqm6ehelmzrwupfwyq2oqotiarexr5bdrt4xbl3znuynhurqxq'],
+            cell: 'defi.zb572.xoso.zb1ec', band: 'indices.ndvi', tslot_window: [20614, 20651],
+            op: 'delta', value: -0.055822789005725904, confidence: 0.95,
+            provenance_class: 'model_output', code_cid: 'blake3:same_doy_ndvi_delta@1:ast' } },
 ];
 
 let activeKey = EXAMPLES[0].key;

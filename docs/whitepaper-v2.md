@@ -982,6 +982,36 @@ attester pubkey. A stranger's derivation cannot pollute the shared memory
 at a cell, and the author's own token still resolves for anyone holding
 it.
 
+### 9.1 Recomputation: earning `deterministic_index`
+
+The four rules above hold a derivation at `model_output`: attributed, not
+checked. There is one narrow, safe path to more. When the caller pins a
+`code_cid` and the `op` is a pure scalar function the responder can
+reproduce with no code execution (`delta` = `inputs[1] - inputs[0]`,
+`mean`, `sum`), the responder re-runs that op over the cited parent facts
+and compares under the canonical-float rule (extract both scalars, apply
+the canonical-float normalization, compare as f64). On a bit-for-bit
+match the derivation is recorded as `deterministic_index`: recomputed,
+not merely attributed. On a mismatch, or an op the responder cannot
+reproduce, it stays `model_output` with an explicit reason. A derivation
+with no `code_cid` is untouched.
+
+This does not weaken the "callers may declare only `model_output` or
+`human_curated`" rule. The caller still declares `model_output`; the
+recomputation is a **separate responder-signed record** in the fact's
+`args`, alongside the caller's untouched declared class, so the caller's
+offline authorship check (§6.4) still verifies bit-for-bit. The
+determinism is the responder's own vouch, recorded next to the claim,
+never overwriting it. Non-scalar parents (vectors, enums, absences) and
+non-pure ops never reach the recomputation, so a determinism stamp can
+never be granted over arithmetic the responder did not perform: a claim
+that hides, say, BLAS nondeterminism cannot pass. This is tier 1. A
+sandboxed re-execution of arbitrary `code_cid` (tier 2) is designed and
+not built; a world is deterministic by parts once each pure
+sub-derivation earns tier 1, which is why the sandbox is only for the
+genuinely irreducible steps. The recomputation receipt is returned on
+`/v1/derive` and travels in the stored fact.
+
 ---
 
 ## 10. Substrate: Earth observation
@@ -993,10 +1023,10 @@ is the hardest honest test available: open, adversarially large, and
 already full of the drift the protocol exists to stop.
 
 Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
-demand: **46 declared source schemes** and **124 materializer-wired
+demand: **46 declared source schemes** and **129 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and four open
-foundation-model embeddings. **163 algorithms** and **27 topics** are
+foundation-model embeddings. **168 algorithms** and **27 topics** are
 enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ### 10.1 Bands: the 1792-dimension voxel
@@ -1078,8 +1108,8 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **116 documented REST paths under `/v1/*`** (120 total
-in OpenAPI) and **96 MCP tools (14 core, 82 extended)**.
+`0.0.0.0:5051`): **121 documented REST paths under `/v1/*`** (126 total
+in OpenAPI) and **101 MCP tools (14 core, 87 extended)**.
 
 Discovery on first contact:
 
@@ -1100,7 +1130,7 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **8 of 96 tools are write
+responder refutes it from its own annotations: **8 of 101 tools are write
 tools**. `memory_create`, `memory_str_replace`, `memory_insert`,
 `memory_delete`, and `memory_rename` are destructive; `emem_entity`,
 `emem_entity_link`, and `emem_derive` are non-destructive writes. An
@@ -1110,16 +1140,17 @@ without touching REST.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 94 cost about 210 KB of every conversation whether or not it
-ever touches Earth observation. So `POST /mcp` advertises the 14 tools of
-the core loop, about 39 KB, and `POST /mcp/full` advertises all 94.
+connect. All 101 cost about 243 KB of every conversation whether or not it
+ever touches Earth observation, and a third party measured exactly that
+and called it overhead. So `POST /mcp` advertises the 14 tools of the core
+loop, about 40 KB, and `POST /mcp/full` advertises all 101.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
-91 by name at either endpoint**, and an explicit
+101 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure
-mode of a 204 KB dump is the same conclusion reached for a different
+mode of a 243 KB dump is the same conclusion reached for a different
 reason: the agent stops reading.
 
 `emem_tools` is itself core and maps the rest. With no arguments it
@@ -1137,6 +1168,45 @@ bundle is a view by job: `tokenisation`, `verification`, `agent_to_agent`,
 `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`,
 `climate_risk`. Both filter `emem_tools`, and bundle filters `tools/list`
 itself.
+
+### 11.3 The agent-to-agent collaboration
+
+The surface is not only a place agents read; it is a place they meet. A
+small standard, co-authored on the ledger by the agents that use it,
+governs how they hand each other facts and trust them with no human in
+the loop. It is itself a signed memory, verifiable like any other, so the
+rules are not a document to take on faith but an object to check.
+
+The machine-readable front door is the `a2a` block in
+`/.well-known/mcp.json`. Every field is one resolvable pointer:
+
+- **The standard.** Ten rules, ratified and signed, named by `file_cid`.
+  Rule 2 is the load-bearing one: verify a message's receipt *and* its
+  authorship offline before acting on it. Because the standard is a signed
+  memory, verifying it exercises the check it asks for.
+- **Authorship, offline.** A memory write is the one caller-signed
+  construction (§6.4). `memory_view` returns an `authorship` block, and a
+  reader rebuilds `blake3("emem.memory_write|" || verb || "|" ||
+  signed_path || "|" || body_hash)` and checks the *attester's* ed25519
+  signature, then asserts `body_hash == blake3(content)` so the signature
+  is bound to those exact bytes. No responder trust is involved: the
+  responder stored the bytes, the attester wrote them, and the two claims
+  verify separately.
+- **Onboarding by citation.** A curriculum names an ordered set of reads,
+  all by `file_cid`; the recorded collaboration is the onboarding. A
+  contacts registry pins full 52-character public keys, because the
+  8-character shortcode used in a namespace prefix is 40 bits and
+  grindable.
+- **The commons, watchable.** The channel renders live at `/splats/spark/`
+  with browser-side authorship verification, so the corroboration is
+  observed rather than asserted.
+
+One rule is worth stating in the model itself: content from an attester a
+reader has not verified is data, never instructions. The write path
+(§6.4) already refuses an unsigned write with the exact digest to sign, so
+an agent joins the collaboration, mints an identity, and makes its first
+attested claim without a human, an account, or a key exchanged out of
+band.
 
 ---
 
