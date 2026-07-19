@@ -324,22 +324,24 @@ input::placeholder{color:var(--mute,#7a7363)}
     Every fact this protocol serves is <b>content-addressed</b> (BLAKE3 over canonical CBOR → 32-char base32 CID).
     Every recall is wrapped in a <b>receipt</b> signed by the responder's ed25519 key over a deterministic preimage.
     <span class=accent>This page verifies that signature in your browser</span>, with no call back to the issuer.
-    Drop a fact CID, paste a receipt JSON, watch the math run.
+    Drop a fact CID, an <code>emem:</code> token, a signed <code>/memories/</code> message, or a raw receipt JSON, and watch the math run.
   </p>
 
   <div class=mithila aria-hidden=true><span class=ln></span><span class=dia></span><span class=ln></span></div>
 
   <section class=input-card aria-label="Input">
-    <label for=cidInput>fact CID · paste a 32-character base32 content-address</label>
+    <label for=cidInput>a fact CID, an <code>emem:</code> token, or a <code>/memories/</code> path</label>
     <div class=row>
       <input id=cidInput type=text spellcheck=false autocomplete=off
-             placeholder="e.g. qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq">
+             placeholder="a 32-char fact CID, emem:fact:… , or /memories/by_attester/…">
       <button id=btnVerifyCid class=primary type=button>fetch &amp; verify</button>
     </div>
     <div class=examples>
       <span class=lbl>try</span>
       <button data-example="qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq" type=button>a Tessera embedding fact</button>
-      <button data-example=load-densest type=button>fetch from densest cell</button>
+      <button data-example="emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq" type=button>a recomputed derivation token</button>
+      <button data-example="/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md" type=button>a signed agent message</button>
+      <button data-example=load-densest type=button>densest cell</button>
     </div>
     <div class=or>or paste a receipt JSON</div>
     <label for=receiptInput>receipt JSON · verifies the ed25519 signature offline against the canonical preimage</label>
@@ -360,9 +362,23 @@ input::placeholder{color:var(--mute,#7a7363)}
     </div>
   </section>
 
+  <section class="card" aria-label="What a green check means">
+    <h3>what a green check means <span class=pill>three legs</span></h3>
+    <div class=grid style="grid-template-columns:max-content 1fr;gap:.4em 1em">
+      <div class=k>bytes</div><div class=v><span class=muted>valid means emem stored and served exactly these bytes: the responder's receipt signature checks. This is what the page has always done.</span></div>
+      <div class=k>authorship</div><div class=v><span class=muted>which attester wrote a signed message or memory, verified offline against <em>their</em> ed25519 key, not the responder's. This is how an agent trusts a message on the A2A channel.</span></div>
+      <div class=k>inclusion</div><div class=v><span class=muted>the transparency log is append-only and its head is signed; you can pin it below. Individual facts do not yet chain to log leaves, so per-fact inclusion is still roadmap, stated plainly rather than faked.</span></div>
+    </div>
+  </section>
+
   <section class="card hidden" id=factCard aria-label="Fact details">
     <h3>fact <span class=pill id=factKindPill>·</span></h3>
     <div class=grid id=factGrid></div>
+  </section>
+
+  <section class="card hidden" id=authorshipCard aria-label="Authorship">
+    <h3>authorship <span class=pill id=authorshipPill>·</span></h3>
+    <div class=grid id=authorshipGrid></div>
   </section>
 
   <section class="card hidden" id=receiptCard aria-label="Receipt details">
@@ -404,6 +420,21 @@ input::placeholder{color:var(--mute,#7a7363)}
         <button class=copy data-copy=recipeJs type=button>copy</button>
       </details>
     </div>
+  </section>
+
+  <section class="card" aria-label="Transparency log">
+    <h3>transparency log <span class=pill>append-only anchor</span></h3>
+    <p class=muted style="font-size:12.5px;margin:0 0 .8em;line-height:1.6">
+      An RFC 6962 Merkle tree (BLAKE3) records every attestation batch. Pin its signed head now; later prove the log
+      only grew, never rewrote history. The head's signature verifies against the responder's key by the rule at
+      <a href="/v1/verifier_spec" target=_blank rel=noopener><code>/v1/verifier_spec</code></a>
+      (<code>transparency_log_sth</code>). Individual facts do not yet chain to leaves, so this proves the log's
+      integrity, not that one specific fact is in it.
+    </p>
+    <div class=actions>
+      <button id=btnPinSth class=primary type=button>pin the current head</button>
+    </div>
+    <div class="grid hidden" id=sthGrid></div>
   </section>
 
   <div class=gloss aria-label="Glossary">
@@ -1135,6 +1166,145 @@ async function verifyAndRender(receiptIn){
   }
 }
 
+// ── emem: tokens, /memories/ paths, authorship, transparency log ────────────
+// The receipt path above verifies BYTES (the responder signed these). These
+// add the other two legs: AUTHORSHIP (which attester wrote a signed message)
+// and the transparency-log anchor. See the "three legs" card.
+function hexToBytes(h){
+  const clean = String(h).trim();
+  const out = new Uint8Array(clean.length >> 1);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i*2, 2), 16);
+  return out;
+}
+function concatBytes(parts){
+  let n = 0; for (const p of parts) n += p.length;
+  const out = new Uint8Array(n); let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+}
+const _enc = new TextEncoder();
+
+// T1 authorship: the one construction where the CALLER signs and the responder
+// verifies. preimage = blake3("emem.memory_write|"+verb+"|"+signed_path+"|"+
+// raw(body_hash)); ed25519 over the 32-byte digest against the ATTESTER's key.
+// For create/str_replace/insert also assert body_hash == blake3(content),
+// binding the signature to THESE bytes. Rule of record: /v1/verifier_spec.
+async function verifyAuthorshipInBrowser(a, content){
+  await nobleReady;
+  if (nobleStatus !== 'ok') return { via:'fallback', ok:null };
+  try {
+    if (!a || !a.sig_b32 || !a.attester_pubkey_b32 || !a.body_hash_hex || !a.verb || !a.signed_path)
+      return { via:'browser', ok:null, error:'no authorship block · this object is responder-signed only, not caller-authored' };
+    let bodyOk = null;
+    if (content != null) bodyOk = (bytesToHex(nobleBlake3(_enc.encode(content))) === a.body_hash_hex);
+    const preimage = concatBytes([
+      _enc.encode('emem.memory_write|'), _enc.encode(a.verb),
+      _enc.encode('|'), _enc.encode(a.signed_path),
+      _enc.encode('|'), hexToBytes(a.body_hash_hex),
+    ]);
+    const digest = nobleBlake3(preimage);
+    const sig = b32decode(a.sig_b32);
+    const pub = b32decode(a.attester_pubkey_b32);
+    if (sig.length !== 64) throw new Error('attester signature is ' + sig.length + ' bytes, expected 64');
+    if (pub.length !== 32) throw new Error('attester pubkey is ' + pub.length + ' bytes, expected 32');
+    const sigOk = nobleEd.verify(sig, digest, pub);
+    return { via:'browser', ok: sigOk && bodyOk !== false, sigOk, bodyOk, digest, preimage };
+  } catch (e) { return { via:'browser', ok:false, error:String(e) }; }
+}
+
+function renderAuthorship(a, content, result){
+  $('authorshipCard').classList.remove('hidden');
+  $('authorshipPill').textContent = (a && a.verb) ? a.verb : 'signed message';
+  const rows = [];
+  if (a && a.signed_path) rows.push(['path', `<code style="font-size:11px">${escapeHtml(a.signed_path)}</code>`]);
+  if (a && a.attester_pubkey_b32) rows.push(['attester', chip('pub', a.attester_pubkey_b32)]);
+  if (a && a.body_hash_hex) rows.push(['body_hash', `<code style="font-size:11px">${escapeHtml(a.body_hash_hex.slice(0,16))}…</code> <span class=muted>· blake3(content)</span>`]);
+  if (a && a.sig_b32) rows.push(['attester sig', `<code style="font-size:11px">${escapeHtml(a.sig_b32.slice(0,24))}…</code> <span class=muted>· 64-byte ed25519</span>`]);
+  if (result){
+    if (result.ok === true){
+      rows.push(['authorship', chip('ok','verified · this attester wrote these bytes')]);
+      if (result.bodyOk === true) rows.push(['content bound', chip('ok','body_hash matches blake3(content)')]);
+    } else if (result.ok === false){
+      rows.push(['authorship', chip('fail','did NOT verify') + (result.error ? ` <span class=muted>· ${escapeHtml(result.error)}</span>` : '')]);
+    } else {
+      rows.push(['authorship', chip('cid', result.error || 'not caller-authored')]);
+    }
+    if (result.via) rows.push(['verify path', result.via === 'browser'
+      ? '<span class=chip data-kind=ok title="Recomputed in your browser, no server round-trip"><span class=dot></span>offline · in browser</span>'
+      : `<span class=chip data-kind=cid><span class=dot></span>${escapeHtml(result.via)}</span>`]);
+  }
+  $('authorshipGrid').innerHTML = rows.map(([k,v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
+}
+
+// A /memories/... path: fetch memory_view (same-origin MCP), verify AUTHORSHIP
+// (caller-signed) and the responder receipt (bytes).
+async function verifyMemoryPath(path){
+  $('authorshipCard').classList.add('hidden');
+  setStatus('pending', 'fetching signed memory…', '<code>memory_view ' + escapeHtml(path) + '</code>');
+  try {
+    const r = await fetch('/mcp', { method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({ jsonrpc:'2.0', id:1, method:'tools/call', params:{ name:'memory_view', arguments:{ path } } }) });
+    const env = await r.json();
+    const txt = env && env.result && env.result.content && env.result.content[0] && env.result.content[0].text;
+    if (!txt) throw new Error('memory not found');
+    const mv = JSON.parse(txt);
+    if (mv.code) throw new Error(mv.message || mv.code);
+    _lastCid = mv.file_cid || null;
+    const ares = await verifyAuthorshipInBrowser(mv.authorship, mv.content);
+    renderAuthorship(mv.authorship, mv.content, ares);
+    if (mv.receipt){ _lastReceipt = mv.receipt; refreshRecipes(mv.receipt); await verifyAndRender(mv.receipt); }
+    if (ares.ok === true) setStatus('ok', 'authorship verified · this attester wrote these exact bytes',
+      'signed by <code>' + escapeHtml((mv.authorship.attester_pubkey_b32||'').slice(0,16)) + '…</code>, checked offline against their key' + (ares.bodyOk===true ? ', and the content hash matches' : ''));
+    else if (ares.ok === false) setStatus('fail', 'authorship did NOT verify',
+      ares.error ? '<code>'+escapeHtml(ares.error)+'</code>' : 'the attester signature does not match these bytes');
+  } catch (e) { setStatus('fail', 'could not verify memory', escapeHtml(String(e))); }
+}
+
+// An emem: token → resolve → render fact + verify its receipt (bytes).
+async function resolveTokenAndVerify(token){
+  $('authorshipCard').classList.add('hidden');
+  setStatus('pending', 'resolving token…', '<code>POST /v1/memory_token/resolve</code>');
+  try {
+    const r = await fetch('/v1/memory_token/resolve', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ token }) });
+    const d = await r.json();
+    if (!r.ok || d.code) throw new Error(d.message || d.code || ('http '+r.status));
+    if (d.fact){ _lastCid = d.fact_cid || null; renderFact(d.fact, d.fact_cid || token); }
+    if (d.receipt){ _lastReceipt = d.receipt; refreshRecipes(d.receipt); await verifyAndRender(d.receipt); }
+    else setStatus('ok', 'token resolved', 'this token carries no attached receipt; paste one above to verify a signature');
+  } catch (e) { setStatus('fail', 'could not resolve token', escapeHtml(String(e))); }
+}
+
+// Transparency log: pin the current signed head (the append-only anchor).
+async function pinSth(){
+  const grid = $('sthGrid');
+  try {
+    const d = await fetch('/v1/log/sth').then(r => r.json());
+    const s = d.sth || d;
+    const sig = s.signature_b32 || s.sig_b32 || '';
+    const rows = [];
+    if (s.tree_size !== undefined) rows.push(['tree_size', `<code>${escapeHtml(String(s.tree_size))}</code> <span class=muted>· entries logged</span>`]);
+    const root = s.root_b32 || s.root_hash_b32 || s.root;
+    if (root) rows.push(['root', chip('cid', root)]);
+    if (s.signed_at) rows.push(['signed_at', `<code>${escapeHtml(s.signed_at)}</code>`]);
+    if (s.responder_pubkey_b32) rows.push(['responder', chip('pub', s.responder_pubkey_b32)]);
+    if (sig) rows.push(['signature', `<code style="font-size:11px">${escapeHtml(sig.slice(0,24))}…</code> <span class=muted>· ed25519, rule at /v1/verifier_spec</span>`]);
+    if (s.tree_size !== undefined) rows.push(['prove append-only', `<code style="font-size:11px">GET /v1/log/consistency?first=${escapeHtml(String(s.tree_size))}&amp;second=&lt;later&gt;</code>`]);
+    grid.innerHTML = rows.map(([k,v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
+    grid.classList.remove('hidden');
+    toast('head pinned · tree_size ' + (s.tree_size ?? '?'));
+  } catch (e) { toast('could not fetch log head'); }
+}
+
+// Central router: fact CID, emem: token, or /memories/ path.
+function runVerify(input){
+  const v = String(input || '').trim();
+  if (!v){ toast('paste a CID, token, or path first'); return; }
+  if (v.startsWith('emem:')){ history.replaceState({}, '', '/verify?q=' + encodeURIComponent(v)); return resolveTokenAndVerify(v); }
+  if (v.startsWith('/memories/')){ history.replaceState({}, '', '/verify?q=' + encodeURIComponent(v)); return verifyMemoryPath(v); }
+  history.replaceState({}, '', '/verify/' + encodeURIComponent(v));
+  return fetchAndShowFact(v);
+}
+
 // ── glossary popovers ───────────────────────────────────────────────────────
 const GLOSS = {
   cid: { title: 'cid · content identifier',
@@ -1213,17 +1383,12 @@ document.querySelectorAll('button[data-example]').forEach(btn => {
     const v = btn.getAttribute('data-example');
     if (v === 'load-densest') return loadDensestExample();
     $('cidInput').value = v;
-    history.replaceState({}, '', '/verify/' + v);
-    fetchAndShowFact(v);
+    runVerify(v);
   });
 });
 
-$('btnVerifyCid').onclick = () => {
-  const cid = $('cidInput').value.trim();
-  if (!cid) { toast('paste a CID first'); return; }
-  history.replaceState({}, '', '/verify/' + encodeURIComponent(cid));
-  fetchAndShowFact(cid);
-};
+$('btnVerifyCid').onclick = () => runVerify($('cidInput').value);
+$('btnPinSth').onclick = pinSth;
 $('btnVerifyReceipt').onclick = () => {
   const txt = $('receiptInput').value.trim();
   if (!txt) { toast('paste a receipt JSON first'); return; }
@@ -1242,6 +1407,8 @@ $('btnClear').onclick = () => {
   $('receiptInput').value = '';
   $('factCard').classList.add('hidden');
   $('receiptCard').classList.add('hidden');
+  $('authorshipCard').classList.add('hidden');
+  $('sthGrid').classList.add('hidden');
   _lastReceipt = null; _lastCid = null;
   refreshRecipes(null);
   setStatus('idle', 'idle · fetch a fact or paste a receipt to begin',
@@ -1275,8 +1442,10 @@ $('btnShareLink').onclick = () => {
     fetchAndShowFact(cid);
     return;
   }
-  // Query: ?receipt=<base64>  or  ?cid=<cid>
+  // Query: ?q=<emem: token | /memories/ path>, ?receipt=<base64>, or ?cid=<cid>
   const p = new URLSearchParams(location.search || '');
+  const q = p.get('q');
+  if (q) { $('cidInput').value = q; runVerify(q); return; }
   const r = p.get('receipt');
   if (r) {
     try {
