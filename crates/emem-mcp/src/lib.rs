@@ -689,7 +689,8 @@ const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
 "tslot":{"type":"integer"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound — forwarded to every per-cell recall in the fan-out."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},
-"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64,"description":"Cap on cells sampled from the polygon."},
+"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon (hard max 1024, raised May 2026; default 64). With projection:compact a full page of that many cells fits the MCP wire budget."},
+"projection":{"type":"string","enum":["full","compact"],"description":"Response shape. `full` (default) returns by_cell + merged_facts with per-fact prose. `compact` returns instead a lean cells_compact array — one row per (cell,band) primary fact {cell,lat,lng,band,value,confidence}, dropping sources/derivation/band_metadata — so the per-cell signed values with coordinates survive the 24 KB MCP truncation. Re-read any row's full signed fact with emem_recall {cell, bands:[band]}."},
 "include":{"type":"array","items":{"type":"string","enum":["ftw_fields"]},"description":"Optional supplements attached to the response. `ftw_fields` adds per-field agricultural-boundary polygons from Fields of The World (https://fieldsofthe.world, CC-BY-4.0) for the resolved polygon bbox — useful for farm queries where the OSM polygon is the estate envelope but the user wants the actual fields inside. Adds ~150-500 ms on first call per region (cached thereafter)."}
 }}"#;
 

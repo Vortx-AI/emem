@@ -899,30 +899,68 @@
       "pitfalls": "1. Power-law coefficients (a=505, b=2.04) are calibrated for TROPICAL MOIST FOREST (Baccini et al. 2008, African inventory plots). They DO NOT transfer to boreal, temperate, savanna, mangrove, or peat-swamp forest — the regional fits there differ by factors of 2–3. Treat outputs outside Africa, the Amazon, and SE Asia humid tropics as relative ranking, not absolute Mg/ha. 2. NDVI saturation above 0.85 means the algorithm CANNOT distinguish 350 Mg/ha from 600 Mg/ha old-growth — the receipt MUST be paired with a SAR (Sentinel-1 γ⁰ HV) or GEDI L4A attestation in dense-canopy regimes. 3. Cloud-contaminated NDVI biases AGB low; require Scene Classification Layer SCL ∈ {4,5,6} (vegetation/bare/water) before evaluating. 4. Sub-pixel mixing (10 m S2 vs the 463 m MODIS calibration) is uncorrected — sparse-canopy savanna may be over-predicted at S2 resolution. 5. NOT a substitute for direct LiDAR or SAR biomass products (ESA CCI Biomass v5, GEDI L4B); use this only when those higher-tier bands are unavailable for the cell.",
       "evaluation": {
         "op": "where",
-        "cond": { "op": "band", "band": "indices.ndvi" },
+        "cond": {
+          "op": "band",
+          "band": "indices.ndvi"
+        },
         "gt": 0.3999,
         "then_": {
           "op": "where",
           "cond": {
             "op": "sub",
-            "a": { "op": "const", "value": 0.85 },
-            "b": { "op": "band", "band": "indices.ndvi" }
+            "a": {
+              "op": "const",
+              "value": 0.85
+            },
+            "b": {
+              "op": "band",
+              "band": "indices.ndvi"
+            }
           },
           "gt": -0.0001,
           "then_": {
             "op": "mul",
             "terms": [
-              { "op": "const", "value": 505.0 },
+              {
+                "op": "const",
+                "value": 505.0
+              },
               {
                 "op": "pow",
-                "base": { "op": "band", "band": "indices.ndvi" },
-                "exp": { "op": "const", "value": 2.04 }
+                "base": {
+                  "op": "band",
+                  "band": "indices.ndvi"
+                },
+                "exp": {
+                  "op": "const",
+                  "value": 2.04
+                }
               }
             ]
           },
-          "else_": { "op": "div", "a": { "op": "const", "value": 1.0 }, "b": { "op": "const", "value": 0.0 } }
+          "else_": {
+            "op": "div",
+            "a": {
+              "op": "const",
+              "value": 1.0
+            },
+            "b": {
+              "op": "const",
+              "value": 0.0
+            }
+          }
         },
-        "else_": { "op": "div", "a": { "op": "const", "value": 1.0 }, "b": { "op": "const", "value": 0.0 } }
+        "else_": {
+          "op": "div",
+          "a": {
+            "op": "const",
+            "value": 1.0
+          },
+          "b": {
+            "op": "const",
+            "value": 0.0
+          }
+        }
       }
     },
     {
@@ -13690,6 +13728,36 @@
       "runtime_path": "/v1/band_raster",
       "partial_runtime": true,
       "honest_runtime_note": "Shares the /v1/band_raster surface; the band spelling routes to the DEM path, which skips scene selection because GLO-30 is a static global COG in EPSG:4326. Bounds are refusals, not timeouts: 512 px per side, and a bbox that crosses a 1° tile edge is refused (single-tile only; no stitching yet). Over open ocean the archive publishes no tile — a clear 'no elevation field here', not a crash."
+    },
+    {
+      "key": "jepa_forecast@1",
+      "kind": "solo",
+      "domain": "forecast",
+      "inputs": [
+        {
+          "band": "indices.ndvi",
+          "role": "lagged_scalar",
+          "explanation": "Up to K=6 most-recent attested lags of a supported scalar band (indices.ndvi, modis.lst_day_8day, modis.lst_night_8day, cams.pm25) drive the learned next-step prediction."
+        }
+      ],
+      "formula": "next_value = dynamics_v2_head(recent_lags): a learned multi-band-scalar dynamics head (jepa-v2) predicts the next-step value of a supported scalar from its most-recent attested lags. The receipt pins model_cid, training/validation provenance, and a skill_vs_persistence block; honesty_warnings flags `untrained_baseline` (zero-init sentinel) and `NEGATIVE_SKILL` (worse than persistence). On negative skill a band with a real lag is served from persistence, not the model (via=persistence_fallback_negative_skill).",
+      "output": {
+        "kind": "scalar",
+        "unit": "band_native",
+        "range": [
+          0,
+          1
+        ],
+        "explanation": "A next-step forecast in the target band's native unit, with an in-band honesty flag. CAVEAT, in-band by design: on real NDVI the learned head currently scores NEGATIVE skill versus persistence, so it FALLS BACK to persistence and warns. Use it to prioritise re-checks, never to over-trust a forecast; the caveat travels with every receipt."
+      },
+      "when_to_use": "When a monitoring loop wants a cheap next-step signal to prioritise where to re-check (crop-stress, forest-risk, air-quality anticipation), WITH the skill caveat in-band so it is never over-trusted. The registry entry the eudr.dev agent asked for (W3): the dynamics_v2/jepa-v2 model was loaded behind /v1/jepa_predict_v2 with no registry entry; this names it and carries the negative-skill honesty so a loop can weight it correctly. For a closed-form seasonal predictor use jepa_predict@1.",
+      "primitive": "POST /v1/jepa_predict_v2 {cell, target_month?} -> signed next-step forecast + model_cid + skill_vs_persistence + honesty_warnings",
+      "deterministic": false,
+      "citation": "JEPA (Assran et al. 2023, joint-embedding predictive architecture); dynamics_v2.metadata.json (the loaded head's training/validation provenance)",
+      "documentation_only": true,
+      "runtime_path": "/v1/jepa_predict_v2",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/jepa_predict_v2 is the runnable surface; this key registers the loaded head so an agent can find it and read its skill caveat WITHOUT probing /health. Non-deterministic in the registry sense (model_output provenance): the value is a learned prediction, not a recomputable index, so it can never advertise trained:true on a band where it scores negative skill, and it serves persistence there instead."
     },
     {
       "key": "band_cube@1",

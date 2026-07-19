@@ -11055,6 +11055,16 @@ struct RecallPolygonReq {
     /// per-fact regardless of this flag.
     #[serde(default)]
     verbose: Option<bool>,
+    /// Response projection (E2/W5, the eudr agent's ask). Default `full`
+    /// returns `by_cell` + `merged_facts` with per-fact prose. `compact`
+    /// replaces both with a lean `cells_compact` array — one row per
+    /// (cell, band) primary fact `{cell, lat, lng, band, value,
+    /// confidence}`, dropping `sources`/`derivation`/`band_metadata` — so a
+    /// full page of signed per-cell values with coordinates fits under the
+    /// MCP 24 KB wire budget that was truncating `by_cell`. The full signed
+    /// fact for any row is one `/v1/recall {cell, bands:[band]}` away.
+    #[serde(default)]
+    projection: Option<String>,
     /// True OSM boundary as GeoJSON `Polygon` or `MultiPolygon`. When
     /// provided, candidate cells from the bbox grid are filtered with
     /// point-in-polygon so the recall scope matches the actual feature
@@ -11942,6 +11952,70 @@ async fn post_recall_polygon(
             }
         }
     }
+
+    // E2/W5 (eudr agent): the compact projection. Replace the two heavy
+    // members (`by_cell` with its per-fact prose, and `merged_facts`) with a
+    // lean per-(cell, band) row set so a full polygon page of signed values
+    // with coordinates fits under the MCP 24 KB wire budget. Applied last so
+    // every other computed field (coverage, pending, drill) is preserved.
+    if req
+        .projection
+        .as_deref()
+        .map(|p| p.eq_ignore_ascii_case("compact"))
+        .unwrap_or(false)
+    {
+        let rows: Vec<JsonValue> = match out.get("by_cell") {
+            Some(JsonValue::Object(bc)) => {
+                let mut rows = Vec::new();
+                for (cell, cv) in bc {
+                    let (lat, lng) = emem_codec::latlng_from_cell64(cell)
+                        .map(|i| (i.lat_deg, i.lng_deg))
+                        .unwrap_or((f64::NAN, f64::NAN));
+                    // A failed cell has no `facts`; surface it as one row
+                    // carrying its error so a compact reader still sees it.
+                    match cv.get("facts").and_then(|f| f.as_array()) {
+                        Some(facts) => {
+                            for f in facts {
+                                rows.push(json!({
+                                    "cell": cell,
+                                    "lat": lat,
+                                    "lng": lng,
+                                    "band": f.get("band"),
+                                    "value": f.get("value"),
+                                    "confidence": f.get("confidence"),
+                                }));
+                            }
+                        }
+                        None => {
+                            if let Some(err) = cv.get("error") {
+                                rows.push(json!({
+                                    "cell": cell,
+                                    "lat": lat,
+                                    "lng": lng,
+                                    "error": err,
+                                }));
+                            }
+                        }
+                    }
+                }
+                rows
+            }
+            _ => Vec::new(),
+        };
+        if let Some(o) = out.as_object_mut() {
+            o.remove("by_cell");
+            o.remove("merged_facts");
+            o.remove("band_metadata");
+            o.remove("band_metadata_layout");
+            o.insert("projection".into(), json!("compact"));
+            o.insert("cells_compact".into(), json!(rows));
+            o.insert(
+                "projection_note".into(),
+                json!("compact: one row per (cell, band) primary fact {cell, lat, lng, band, value, confidence}; sources/derivation/band_metadata dropped to fit the MCP wire budget. Re-read any row's full signed fact with /v1/recall {cell, bands:[band]} and verify its receipt there."),
+            );
+        }
+    }
+
     Ok(Json(out))
 }
 
