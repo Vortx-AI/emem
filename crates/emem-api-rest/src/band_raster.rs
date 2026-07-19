@@ -2432,12 +2432,65 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
     // ── sign the composite derivation. ─────────────────────────────────────
     let aoi = aoi_cid(b)?;
     let tslot = scene_tslot(&anchor.datetime);
+
+    // Best-effort per-cell anchors (same policy as band_raster), clamped
+    // in-bounds so the spot-check tier can read each anchor's value back out
+    // of the composite grid and bridge it to any existing per-cell fact.
+    let inset_lat = (b.max_lat - b.min_lat) * 0.02;
+    let inset_lng = (b.max_lng - b.min_lng) * 0.02;
+    let anchor_points = [
+        (b.min_lat + inset_lat, b.min_lng + inset_lng),
+        (b.min_lat + inset_lat, b.max_lng - inset_lng),
+        (b.max_lat - inset_lat, b.min_lng + inset_lng),
+        (b.max_lat - inset_lat, b.max_lng - inset_lng),
+        (centre_lat, centre_lng),
+    ];
+    let anchor_keys: Vec<CanonicalKey> = anchor_points
+        .iter()
+        .map(|(lat, lng)| CanonicalKey {
+            cell: emem_codec::geo::cell64_from_latlng(*lat, *lng),
+            band: band_key.to_string(),
+            tslot,
+        })
+        .collect();
+    let looked_up = s
+        .storage
+        .lookup_canonical_many(&anchor_keys)
+        .await
+        .unwrap_or_else(|_| vec![None; anchor_keys.len()]);
+    let mut anchors: Vec<JsonValue> = Vec::with_capacity(anchor_points.len());
+    let mut anchor_fact_cids: Vec<FactCid> = Vec::new();
+    for (((lat, lng), key), existing) in anchor_points.iter().zip(&anchor_keys).zip(&looked_up) {
+        let (row, col) = match emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, epsg) {
+            Some(u) => {
+                let c = (((u.easting - x0) / sx).round().max(0.0) as u32)
+                    .min(width_px.saturating_sub(1));
+                let r = (((y0 - u.northing) / sy_scale.abs()).round().max(0.0) as u32)
+                    .min(height_px.saturating_sub(1));
+                (r, c)
+            }
+            None => (0, 0),
+        };
+        let value = grid_value_at(&header, &out, row, col);
+        if let Some(cid) = existing {
+            anchor_fact_cids.push(cid.clone());
+        }
+        anchors.push(json!({
+            "cell": key.cell,
+            "row": row,
+            "col": col,
+            "value": value,
+            "fact_cid": existing.as_ref().map(|c| c.as_str()),
+        }));
+    }
+
     let record_body = json!({
         "schema": "emem.field_derivation.v1",
         "aoi": { "bbox": { "min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng } },
         "aoi_cid": aoi,
         "band": band_key,
         "tslot": tslot,
+        "anchors": anchors,
         "fn_key": "s2_median_composite@1",
         "window": { "start": req.start_date, "end": req.end_date, "start_tslot": start_tslot, "end_tslot": end_tslot },
         "mask_policy": {
@@ -2471,7 +2524,7 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
         band: "field.composite".to_string(),
         tslot_window: [start_tslot, end_tslot],
         op: "median_composite".to_string(),
-        parents: vec![],
+        parents: anchor_fact_cids.clone(),
         value: json_to_cbor(&record_body),
         confidence: 1.0,
         derivation: Derivation {
@@ -2509,10 +2562,12 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
         aoi_cid: aoi.clone(),
         derivation_cid: derivation_cid.clone(),
     };
+    let mut composite_receipt_cids = anchor_fact_cids;
+    composite_receipt_cids.push(FactCid::new(derivation_cid.clone()));
     let receipt = s.sign_receipt_field(
         "emem.band_composite",
         vec![centre_cell.clone()],
-        vec![FactCid::new(derivation_cid.clone())],
+        composite_receipt_cids,
         false,
         started,
         binding,
