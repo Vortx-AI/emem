@@ -384,7 +384,19 @@ one function before the caller sees it.
   and refuses an altered membership, and lineage terminates in each
   slice's pinned scene. A world model is a field over an area across
   time, and both halves of the token that names one now exist and are
-  live. Still open: a dedicated anchors spot-check verifier endpoint.
+  live. As of 2026-07-19 the field-token family is complete across five
+  shapes, all on the one `POST /v1/band_raster` surface plus the cube
+  endpoint: a raw band grid (`band_raster@1`), a cloud-free masked median
+  composite (`s2_median_composite@1`), static terrain elevation
+  (`dem_raster@1`, a Copernicus GLO-30 field with no scene selection), a
+  field over time (`band_cube@1`), and a foundation-encoder embedding
+  (`embedding_raster@1`, a multi-channel grid where each cell carries the
+  encoder's N-D vector, e.g. 128-D geotessera, and anchors to its own
+  signed per-cell fact). The grid encoding gained a channel dimension for
+  the embedding shape without moving a single existing artifact_cid: a
+  scalar grid still encodes byte-identically. Still open: a dedicated
+  anchors spot-check verifier endpoint, and raising the embedding
+  fan-out cap past one tile.
 - **Partial results instead of a timeout.** Open. A cold NDVI polygon
   cannot finish inside the 40 s gateway: worst case is roughly 31
   sequential upstream round trips for a single cell, and `recall_polygon`

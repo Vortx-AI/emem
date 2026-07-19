@@ -255,7 +255,7 @@ Writes are the one place a key appears, and it is still not an API key. Memory w
 |---|---|---|
 | **Recall** | read memory for a place; a miss fetches, signs, and stores for everyone | `emem_recall`, `emem_locate`, `emem_recall_polygon` |
 | **Cite** | one token per fact, or one `emem:bundle:` token for a set | `emem_memory_token`, `emem_memory_bundle` |
-| **Map a field** | a world model needs arrays, not points: a native-resolution grid over an area (`emem:raster:`) or a field over time (`emem:cube:`), each a signed derivation a stranger re-derives from raw satellite bytes | `emem_band_raster`, `emem_band_cube` |
+| **Map a field** | a world model needs arrays, not points. One signed `emem:raster:` names a native-resolution grid over an area: a satellite band, a cloud-free median composite, static terrain elevation, or a foundation-encoder embedding (128-D per cell). `emem:cube:` names a field over time. Each is a derivation a stranger re-derives from raw bytes, and each cell anchors to a signed fact | `emem_band_raster`, `emem_band_cube` |
 | **Verify** | trust a fact without trusting the sender, offline | `emem_verify_receipt`, [`/verify`](https://emem.dev/verify) |
 | **Weigh** | every fact says how it was produced; model and human classes carry an in-band `caution`; `deterministic: true` keeps only facts recomputable from raw source | inside every recall |
 | **Time travel** | `as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew | flags on every read |
