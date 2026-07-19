@@ -1280,6 +1280,14 @@ pub async fn get_artifact(AxumPath(cid): AxumPath<String>) -> impl IntoResponse 
 pub struct RasterResolveReq {
     /// `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>`
     pub token: String,
+    /// Opt-in anchors spot-check (the verification tier the field-token
+    /// design promises). When true and the artifact is present, fetch and
+    /// decode the grid, read each anchor's value back out at its (row, col),
+    /// and cross-check it against the independently-signed per-cell fact the
+    /// anchor cites. This is the DDS "click-to-verify": a field pixel that
+    /// resolves to a signed fact whose value matches.
+    #[serde(default)]
+    pub spot_check: Option<bool>,
 }
 
 fn conflict(message: String) -> ApiError {
@@ -1416,6 +1424,15 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
         .and_then(|c| c.as_str())
         .unwrap_or("")
         .to_string();
+
+    // Anchors spot-check (opt-in): read each anchor's value back out of the
+    // artifact grid and cross-check it against the per-cell fact it cites.
+    let spot_check = if req.spot_check.unwrap_or(false) {
+        Some(spot_check_anchors(&body, &artifact_cid, artifact_present, s).await)
+    } else {
+        None
+    };
+
     let receipt = s.sign_receipt_field(
         "emem.raster_resolve",
         vec![cell],
@@ -1428,7 +1445,7 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
         },
     );
 
-    Ok(json!({
+    let mut out = json!({
         "schema": "emem.raster_resolve.v1",
         "token": req.token.trim(),
         "resolved": true,
@@ -1446,7 +1463,125 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
         "docs": "https://emem.dev/reference#token-raster",
         "receipt": receipt,
         "offline_verify_at": "/verify",
-    }))
+    });
+    if let Some(sc) = spot_check {
+        if let Some(o) = out.as_object_mut() {
+            o.insert("spot_check".into(), sc);
+        }
+    }
+    Ok(out)
+}
+
+/// The anchors spot-check tier: decode the artifact grid, read each anchor's
+/// value back out at its (row, col), and cross-check it against the per-cell
+/// fact the anchor cites (the field-to-signed-fact bridge — the DDS
+/// "click-to-verify"). Never fails the resolve; returns a per-anchor verdict.
+async fn spot_check_anchors(
+    body: &JsonValue,
+    artifact_cid: &str,
+    artifact_present: bool,
+    s: &AppState,
+) -> JsonValue {
+    if !artifact_present {
+        return json!({
+            "checked": false,
+            "reason": "artifact evicted; rebuild it first (the record pins the recipe), then spot-check",
+        });
+    }
+    let bytes = match ARTIFACTS.get(artifact_cid) {
+        Ok(Some(b)) => b,
+        _ => return json!({ "checked": false, "reason": "artifact bytes unreadable" }),
+    };
+    let (header, values) = match emem_codec::grid::decode_grid(&bytes) {
+        Ok(hv) => hv,
+        Err(e) => return json!({ "checked": false, "reason": format!("grid decode: {e:?}") }),
+    };
+    let anchors = body
+        .get("anchors")
+        .and_then(|a| a.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let eps = 1e-3_f64;
+    let mut results: Vec<JsonValue> = Vec::with_capacity(anchors.len());
+    let mut checked = 0usize;
+    let mut grid_ok = 0usize;
+    let mut fact_ok = 0usize;
+    let mut fact_seen = 0usize;
+    let mut fact_checked = 0usize;
+    for a in &anchors {
+        let (Some(row), Some(col)) = (
+            a.get("row").and_then(|v| v.as_u64()),
+            a.get("col").and_then(|v| v.as_u64()),
+        ) else {
+            continue;
+        };
+        checked += 1;
+        let grid_v = emem_codec::grid::grid_value_at(&header, &values, row as u32, col as u32)
+            .map(|v| v as f64);
+        let anchor_v = a.get("value").and_then(|v| v.as_f64());
+        // (1) the record's anchor value matches the artifact grid at (row,col).
+        // NaN nodata and out-of-bounds edge anchors both serialise to JSON
+        // null / None; None-on-both-sides is a CONSISTENT match (the record
+        // recorded null because the grid was null there at mint), not a miss.
+        let grid_match = match (grid_v, anchor_v) {
+            (Some(g), Some(av)) => (g - av).abs() <= eps,
+            (Some(g), None) => g.is_nan(),
+            (None, None) => true,
+            (None, Some(_)) => false,
+        };
+        if grid_match {
+            grid_ok += 1;
+        }
+        // (2) the cited per-cell fact resolves and its value matches the grid.
+        // Only cross-check anchors that land on a real pixel: an anchor at the
+        // exact bbox edge maps to an out-of-bounds pixel (grid None) while its
+        // cell-centre fact still has a value — that is INCONCLUSIVE (no pixel
+        // there to compare), not a failure, so it does not count against passed.
+        let mut fact_match: Option<bool> = None;
+        if let Some(fc) = a.get("fact_cid").and_then(|v| v.as_str()) {
+            fact_seen += 1;
+            if let Some(g) = grid_v {
+                fact_checked += 1;
+                let got = s
+                    .storage
+                    .get_facts_many(&[FactCid::new(fc.to_string())])
+                    .await
+                    .ok()
+                    .and_then(|mut f| f.pop().flatten());
+                let fv = got.as_ref().and_then(|fact| {
+                    let fj = serde_json::to_value(fact).unwrap_or(json!({}));
+                    fj.get("value").and_then(|v| v.as_f64())
+                });
+                let m = fv.map(|f| (g - f).abs() <= eps).unwrap_or(false);
+                if m {
+                    fact_ok += 1;
+                }
+                fact_match = Some(m);
+            }
+        }
+        results.push(json!({
+            "cell": a.get("cell"),
+            "row": row,
+            "col": col,
+            "grid_value": grid_v,
+            "anchor_value": anchor_v,
+            "grid_matches_record": grid_match,
+            "fact_cid": a.get("fact_cid"),
+            "fact_matches_grid": fact_match,
+        }));
+    }
+    json!({
+        "checked": true,
+        "anchors": checked,
+        "grid_matches_record": grid_ok,
+        "anchors_with_fact": fact_seen,
+        "fact_bridge_checked": fact_checked,
+        "fact_matches_grid": fact_ok,
+        "edge_anchors_inconclusive": fact_seen - fact_checked,
+        "passed": checked > 0 && grid_ok == checked && fact_ok == fact_checked,
+        "results": results,
+        "tiers": "grid_matches_record = the artifact bytes agree with the signed record's sampled anchors; fact_matches_grid = each anchor's independently-signed per-cell fact agrees with the field at that pixel (the click-to-verify bridge). For the full tier, GET the artifact and re-hash it against artifact_cid.",
+    })
 }
 
 pub async fn post_raster_resolve(

@@ -633,7 +633,8 @@ const SCHEMA_BAND_RASTER: &str = r#"{"type":"object","required":["bbox","band"],
 }}"#;
 
 const SCHEMA_RASTER_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
-"token":{"type":"string","description":"emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>"}
+"token":{"type":"string","description":"emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>"},
+"spot_check":{"type":"boolean","description":"Opt-in anchors spot-check (the field-token verification tier). When true, decode the artifact grid, read each anchor's value back out at its (row,col), and cross-check it against the independently-signed per-cell fact the anchor cites. Returns a spot_check block with per-anchor grid_matches_record + fact_matches_grid verdicts and an overall passed flag — the DDS click-to-verify: a field pixel that resolves to a signed fact whose value matches."}
 }}"#;
 
 const SCHEMA_BAND_CUBE: &str = r#"{"type":"object","required":["bbox","band","observed_on"],"properties":{
