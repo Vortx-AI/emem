@@ -58,7 +58,7 @@ CANON = {
     "rest_paths_v1": 121,            # documented /v1/* paths in OpenAPI
     "rest_paths_openapi_total": 125,  # all paths in OpenAPI
     "cube_slots": 43,
-    "materializer_wired": 124,
+    "materializer_wired": 129,
     "source_schemes": 46,
     "topics": 27,
     "foundation_encoders": 4,

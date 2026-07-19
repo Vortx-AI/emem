@@ -38602,6 +38602,31 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "storage.googleapis.com/earthenginepartners-hansen GFC-2024-v1.12 30 m tiles",
         },
+        // JRC Global Forest Cover 2020 (EC Joint Research Centre) — the EUDR
+        // Article 2(13) cut-off-date forest baseline. One 2020 vintage, one
+        // signed fact per cell; per-release like Hansen. It materialises on
+        // recall but was absent from THIS discovery surface, so it did not
+        // appear in data_availability and could not be backfilled (the worlds
+        // agent's forest-band-path finding). This arm closes that.
+        "jrc_gfc2020.forest_2020" => MaterializerMeta {
+            tempo: Tempo::Slow,
+            kind: BandKind::PerRelease,
+            history_from_unix: Some(days_from_civil(2020, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2021, 1, 1) * 86_400 - 1),
+            wire_path:
+                "jeodpp.jrc.ec.europa.eu JRC GFC2020 V3 10-degree COG tiles (HTTPS-range)",
+        },
+        // JRC Tropical Moist Forest (TMF, EC JRC) — annual deforestation- and
+        // degradation-year plus change maps, the Article 2(13) authority beside
+        // Hansen for the EUDR verdict. Annual record from 1990. Also
+        // materialised-but-undiscoverable before this arm.
+        b if b.starts_with("jrc_tmf.") => MaterializerMeta {
+            tempo: Tempo::Slow,
+            kind: BandKind::PerRelease,
+            history_from_unix: Some(days_from_civil(1990, 1, 1) * 86_400),
+            history_to_unix: Some(days_from_civil(2024, 1, 1) * 86_400 - 1),
+            wire_path: "ies-ows.jrc.ec.europa.eu iforce/tmf_v1 dispatcher tiles (HTTPS)",
+        },
         // SoilGrids 2.0 (ISRIC) — static global soil-property maps, 250 m,
         // 0–30 cm thickness-weighted to match agronomic topsoil depth.
         // Single fact per cell at tslot=0; SoilGrids is rebuilt on roughly
@@ -38906,6 +38931,15 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("hansen.tree_cover_2000".into());
     out.push("hansen.loss_year".into());
     out.push("hansen.gain".into());
+    // JRC forest products (EC JRC): the EUDR Article 2(13) authority beside
+    // Hansen. They materialise on recall but were absent from this catalog, so
+    // data_availability and backfill could not see them (the worlds agent's
+    // forest-band-path finding). Now discoverable and pre-warmable.
+    out.push("jrc_gfc2020.forest_2020".into());
+    out.push("jrc_tmf.deforestation_year".into());
+    out.push("jrc_tmf.degradation_year".into());
+    out.push("jrc_tmf.annual_change".into());
+    out.push("jrc_tmf.transition_subtype".into());
     // SoilGrids 2.0 (ISRIC) — six 0–30 cm topsoil property layers.
     out.push("soilgrids.soc_0_30cm".into());
     out.push("soilgrids.phh2o_0_30cm".into());
