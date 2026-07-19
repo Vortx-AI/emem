@@ -24265,6 +24265,20 @@ struct MemoryFileMeta {
     /// back-compat path with no caller binding.
     #[serde(default)]
     attester_pubkey_b32: Option<String>,
+    /// The caller's write signature (base32-nopad-lc ed25519 over the
+    /// `attester_preimage(verb, path, body_hash)` digest), PERSISTED so a
+    /// third party can re-verify AUTHORSHIP offline — not just that the
+    /// responder stored these bytes (T1, the worlds agent's channel
+    /// finding: `attester_pubkey_b32` alone is a server claim). `None` for
+    /// unattested open-namespace writes and responder-internal writes.
+    #[serde(default)]
+    attester_sig_b32: Option<String>,
+    /// The exact `body_hash` (hex) that entered the signed preimage, so a
+    /// reader reconstructs the digest without guessing the per-verb body
+    /// rule (create/replace/insert = post-write file bytes; delete =
+    /// blake3(""); rename = blake3(old_path)). Pairs with `attester_sig_b32`.
+    #[serde(default)]
+    attester_body_hash_hex: Option<String>,
     /// If this file has been consolidated, the file_cid of the
     /// consolidated summary that supersedes it.
     #[serde(default)]
@@ -24902,6 +24916,8 @@ fn read_memory_file(
             verb: "create".into(),
             kind: default_kind_str(),
             attester_pubkey_b32: None,
+            attester_sig_b32: None,
+            attester_body_hash_hex: None,
             superseded_by: None,
             // Synthesise a minimal receipt for pre-meta entries. The
             // round-trip test path always writes meta, so this branch
@@ -24966,6 +24982,7 @@ fn synth_memory_receipt(
 /// W4 publishes a `MemoryEvent` on the broadcast channel after the
 /// sled commit succeeds. The previous file_cid (if any) is read up
 /// front so the Modified event can name what was replaced.
+#[allow(clippy::too_many_arguments)]
 fn persist_memory_write(
     s: &AppState,
     path: &str,
@@ -24973,6 +24990,8 @@ fn persist_memory_write(
     verb: &str,
     kind: MemoryKind,
     attester_pubkey_b32: Option<&str>,
+    attester_sig_b32: Option<&str>,
+    signed_body_hash: Option<&[u8; 32]>,
     started: std::time::Instant,
 ) -> Result<MemoryFileMeta, ApiError> {
     let db = memory_db(s)?;
@@ -24987,6 +25006,10 @@ fn persist_memory_write(
         verb: verb.to_string(),
         kind: kind.as_str().to_string(),
         attester_pubkey_b32: attester_pubkey_b32.map(|s| s.to_string()),
+        // Persist the caller's signature + the exact signed body_hash so
+        // authorship is offline-verifiable (T1). Only when a caller signed.
+        attester_sig_b32: attester_sig_b32.map(|s| s.to_string()),
+        attester_body_hash_hex: signed_body_hash.map(|bh| data_encoding::HEXLOWER.encode(bh)),
         superseded_by: None,
         receipt,
     };
@@ -25451,12 +25474,45 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         text
     };
 
+    // Offline-verifiable authorship (T1, the worlds agent's channel
+    // finding): surface the caller's PERSISTED write signature and the
+    // exact signed body_hash so a third party reconstructs the preimage and
+    // ed25519-verifies WHO wrote this — independently of trusting the
+    // responder's namespace enforcement. `attester_pubkey_b32` alone was a
+    // responder claim; this makes it checkable.
+    let authorship = match (
+        meta.attester_pubkey_b32.as_deref(),
+        meta.attester_sig_b32.as_deref(),
+        meta.attester_body_hash_hex.as_deref(),
+    ) {
+        (Some(pk), Some(sig), Some(bhh)) => json!({
+            "caller_signed": true,
+            "attester_pubkey_b32": pk,
+            "sig_b32": sig,
+            "verb": meta.verb,
+            // The path the signature was actually taken over (the path at
+            // write time). Equals the current path unless the file was
+            // later renamed — a rename moves the path index but not the
+            // content-keyed meta, so verifying against `signed_path` still
+            // proves who authored these bytes.
+            "signed_path": meta.path,
+            "body_hash_hex": bhh,
+            "preimage": "blake3(b\"emem.memory_write|\" + verb + b\"|\" + signed_path + b\"|\" + bytes.fromhex(body_hash_hex))",
+            "verify": "ed25519_verify(attester_pubkey_b32, sig_b32, that 32-byte digest). For create/str_replace/insert also assert body_hash_hex == blake3(content) so the signature is bound to THESE bytes, not a different body.",
+        }),
+        _ => json!({
+            "caller_signed": false,
+            "note": "no persisted caller signature: an unattested open-namespace write, a responder-internal write, or a record written before authorship persistence (T1). attester_pubkey_b32 (if present) is a responder claim, not third-party-verifiable.",
+        }),
+    };
+
     Ok(json!({
         "kind": "file",
         "path": path,
         "file_cid": meta.file_cid,
         "memory_kind": meta.kind,
         "attester_pubkey_b32": meta.attester_pubkey_b32,
+        "authorship": authorship,
         "superseded_by": meta.superseded_by,
         "size_bytes": meta.size_bytes,
         "content": body,
@@ -25617,6 +25673,8 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
         "create",
         kind,
         attester_pk.as_deref(),
+        req.attester.as_ref().map(|a| a.sig_b32.as_str()),
+        Some(&bh),
         started,
     )?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
@@ -25746,6 +25804,8 @@ async fn memory_str_replace_inner(
         "str_replace",
         kind,
         attester_pk.as_deref(),
+        req.attester.as_ref().map(|a| a.sig_b32.as_str()),
+        Some(&bh),
         started,
     )?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
@@ -25847,6 +25907,8 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
         "insert",
         kind,
         attester_pk.as_deref(),
+        req.attester.as_ref().map(|a| a.sig_b32.as_str()),
+        Some(&bh),
         started,
     )?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
@@ -26314,6 +26376,8 @@ async fn memory_list_by_kind_inner(
                 verb: "create".into(),
                 kind: kind.as_str().to_string(),
                 attester_pubkey_b32: None,
+                attester_sig_b32: None,
+                attester_body_hash_hex: None,
                 superseded_by: None,
                 receipt: synth_memory_receipt(
                     s,
@@ -26824,6 +26888,8 @@ pub(crate) async fn run_memory_consolidation_pass(
             joined.as_bytes(),
             "consolidate",
             MemoryKind::Semantic,
+            None,
+            None,
             None,
             std::time::Instant::now(),
         )?;
@@ -57656,6 +57722,82 @@ mod tests {
             "first cell is pubkey:<b32>"
         );
         assert_eq!(cells[1].as_str(), Some(path.as_str()));
+    }
+
+    /// T1 (the worlds agent's channel finding): a stored message must let a
+    /// THIRD party re-verify authorship offline, not just trust that the
+    /// responder stored the bytes. This asserts `memory_view` surfaces the
+    /// caller's persisted signature + the exact signed body_hash, and that
+    /// the signature actually verifies against the reconstructed preimage
+    /// under the attester's own key.
+    #[tokio::test]
+    async fn memory_view_surfaces_offline_verifiable_authorship() {
+        use ed25519_dalek::Verifier;
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let path = format!("/memories/by_attester/{short}/authored.md");
+        let body = b"a message whose authorship a reader can check without trusting me";
+        let att = sign_attester(&sk, "create", &path, body);
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.clone(),
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: Some("semantic".into()),
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect("attested create");
+
+        let view = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: path.clone(),
+                view_range: None,
+                kind: None,
+                vault_capability: None,
+            },
+        )
+        .await
+        .expect("view");
+        let a = view.get("authorship").expect("authorship block");
+        assert_eq!(a.get("caller_signed").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            a.get("attester_pubkey_b32").and_then(|v| v.as_str()),
+            Some(pubkey_b32.as_str())
+        );
+        assert_eq!(
+            a.get("signed_path").and_then(|v| v.as_str()),
+            Some(path.as_str())
+        );
+
+        // Reconstruct the preimage from the surfaced fields and verify the
+        // persisted signature offline — exactly what a peer agent does.
+        let bhh = a.get("body_hash_hex").and_then(|v| v.as_str()).unwrap();
+        let bh = data_encoding::HEXLOWER.decode(bhh.as_bytes()).unwrap();
+        assert_eq!(
+            bh,
+            emem_primitives::body_hash(body).to_vec(),
+            "surfaced body_hash must equal blake3(content) for a create"
+        );
+        let mut bh32 = [0u8; 32];
+        bh32.copy_from_slice(&bh);
+        let preimage = emem_primitives::attester_preimage("create", &path, &bh32);
+        let sig_bytes = data_encoding::BASE32_NOPAD
+            .decode(
+                a.get("sig_b32")
+                    .and_then(|v| v.as_str())
+                    .unwrap()
+                    .to_uppercase()
+                    .as_bytes(),
+            )
+            .unwrap();
+        let sig = ed25519_dalek::Signature::from_slice(&sig_bytes).unwrap();
+        sk.verifying_key()
+            .verify(&preimage, &sig)
+            .expect("persisted authorship signature verifies offline");
     }
 
     #[tokio::test]
