@@ -293,6 +293,7 @@ a field and a field over time.
 | `emem:cell:<cell64>` | 3 segments | **nothing: no parser exists** (§3.4) |
 | `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>` | 5 segments | one native-resolution field over an area, as a signed derivation (§3.6) |
 | `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>` | 5 segments | a field over time: a signed manifest over raster slices (§3.6) |
+| `emem:rasterset:<bundle_cid>:<derivation_cid>` | 3 segments | a signed manifest binding N field tokens across bands into one citeable set (§3.6) |
 
 Three legacy prefixes still resolve as full equivalents, not as degraded
 forms: `memt:` for `emem:fact:`, `memb:` for `emem:bundle:`, `meme:` for
@@ -383,12 +384,14 @@ verifier that believes the docstring computes the wrong identifier.
 ### 3.6 Field tokens: what the receipt attests when the answer is an array
 
 The scalar and identity tokens above split on the **first** colon (§3.1),
-because everything after `<cell64>:` is one opaque digest. The two field
-tokens do not: `emem:raster:` and `emem:cube:` carry four colon-separated
-claims, and `parse_raster_token` / `parse_cube_token` (`band_raster.rs`)
-split on every colon and bind each claim to the signed record before
-anything dereferences. A world model is a field over an area across time,
-and a scalar fact cannot name one; these two can.
+because everything after `<cell64>:` is one opaque digest. The field tokens
+do not: `emem:raster:`, `emem:cube:`, and `emem:rasterset:` carry multiple
+colon-separated claims, and their parsers (`band_raster.rs`) split on every
+colon and bind each claim to the signed record before anything dereferences.
+A world model is a field over an area across time, and a scalar fact cannot
+name one; these can. The family covers a raw scene window, a cloud-free
+composite, a static terrain field, a field over time, a foundation-encoder
+embedding, and a manifest binding any set of them.
 
 A field token names an **array**, so its receipt attests a *derivation*,
 not a value: this responder computed the artifact whose blake3 is
@@ -407,21 +410,43 @@ store served immutable at `GET /v1/artifacts/{cid}`; the small derivation
 record persists like any fact and pins the scene, recipe, and geometry, so
 eviction turns a dereference into a recompute, never a broken citation.
 
-A cube adds no pixels. `emem:cube:` is a signed manifest over N
-independently-resolvable raster slices, one per date, and `cube_cid` is
-the blake3 of the ordered member `derivation_cid`s: the same slices in the
-same order always name the same cube, and a resolve recomputes it and
-refuses an altered membership with a typed 409. Its lineage terminates in
-each member's pinned scene, so a stranger walks cube to slices to scenes
-and re-derives every value from raw satellite bytes.
+The same `emem:raster:` grammar names more than one raw scene window. A
+cloud-free masked-median composite over a date range (`s2_median_composite@1`),
+a static terrain-elevation field read straight from a Copernicus GLO-30 tile
+with no scene selection (`dem_raster@1`), and a foundation-encoder embedding
+field (`embedding_raster@1`) are all raster-shaped derivations that resolve
+through the same fail-closed binding. The embedding field is the one that
+needed the grid encoding to grow: a `channels` count lives in the header
+(offset 56), so a pixel can carry the encoder's whole N-dimensional vector
+(128-D for GeoTessera), stored pixel-interleaved. A single-channel grid writes
+zero there and encodes **byte-identically** to the pre-channels format, so no
+existing `artifact_cid` moved when the dimension was added. Each filled
+embedding cell is a real per-cell recall, so its `fact_cid` anchors that
+column: the field terminates in signed facts, never invented pixels.
 
-Verification has the two tiers §3.2's fact token has, at field size.
-Spot-check (milliseconds, no upstream): re-hash the artifact against
-`artifact_cid`, then read the sampled `anchors[]` back out of the grid
-and, where an anchor carries a `fact_cid`, compare it against the ordinary
-per-cell fact. Recompute (the full audit): fetch the pinned scene, rerun
-the recipe, compare digests. A field token carries no new trust class: the
-artifact inherits the band's provenance and the record says so.
+Composition has two levels. A cube adds no pixels: `emem:cube:` is a signed
+manifest over N independently-resolvable raster slices, one per date, and
+`cube_cid` is the blake3 of the ordered member `derivation_cid`s, so the same
+slices in the same order always name the same cube and a resolve recomputes it
+and refuses an altered membership with a typed 409. `emem:rasterset:`
+generalises that across bands rather than time: it binds any set of
+already-minted field tokens (a world's ground composites, its DEM geometry,
+its embedding layer) into one manifest a report or a world cites, with the
+same content-addressed-membership guarantee. Neither mints pixels; each
+member's lineage terminates in its own pinned source, so a stranger walks the
+manifest to the members to the scenes and re-derives every value from raw
+satellite bytes.
+
+Verification has the two tiers §3.2's fact token has, at field size, and the
+spot-check tier is a live endpoint. Spot-check (milliseconds, no upstream):
+`POST /v1/raster/resolve {token, spot_check: true}` decodes the artifact grid,
+reads each anchor's value back out at its pixel, and, where an anchor carries
+a `fact_cid`, cross-checks it against the ordinary per-cell fact. A field
+pixel that resolves to a signed receipt whose value matches is the
+click-to-verify a regulator wants; an edge anchor with no pixel is reported
+inconclusive, not failed. Recompute (the full audit): fetch the pinned scene,
+rerun the recipe, compare digests. A field token carries no new trust class:
+the artifact inherits the band's provenance and the record says so.
 
 ---
 
