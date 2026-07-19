@@ -1318,9 +1318,15 @@ pub fn router(state: AppState) -> Router {
         // Liveness + metrics: exempt from the concurrency limit above (added
         // after it) but still under every shared layer below.
         .route("/health", get(health))
-        // Alias for PaaS health probes (Glama and friends probe GET /ping
-        // and mark the machine unhealthy without it). Same handler.
-        .route("/ping", get(health))
+        // Dead-cheap liveness: never touches storage, so it answers even while
+        // a cold bake or a deploy has the index-scan path (which /health uses)
+        // contended. This is the probe to poll DURING a deploy window — a 200
+        // here means the process is up and serving. `/ping` is an alias, kept
+        // for PaaS probes (Glama and friends mark a machine unhealthy without a
+        // fast GET /ping); it now shares the cheap handler rather than the
+        // corpus-stats one, so a probe never trips on a slow scan.
+        .route("/live", get(liveness))
+        .route("/ping", get(liveness))
         .route("/metrics", get(metrics))
         // Shared layers wrap everything (heavy routes + liveness).
         // Order: outermost wraps innermost.
@@ -2300,6 +2306,7 @@ async fn rate_limit_layer(
     let bypass = matches!(
         path,
         "/health"
+            | "/live"
             | "/ping"
             | "/metrics"
             | "/.well-known/emem.json"
@@ -4367,6 +4374,35 @@ async fn serve_algorithm_cids() -> Json<JsonValue> {
 }
 
 // ── Introspection routes ─────────────────────────────────────────────────
+
+/// Dead-cheap liveness probe. Returns process identity and uptime WITHOUT
+/// touching sled, the GPU, or any shared lock, so it answers in microseconds
+/// even while a cold bake or a deploy has the index-scan path (used by
+/// `/health`) contended. This is the surface to poll during a deploy window:
+/// a 200 means the process is up and serving. The navigatable_worlds/eudr
+/// agents reported whole-responder read timeouts during deploys precisely
+/// because the only status surface (`/health`) does a 32K-row index scan;
+/// this one does not.
+async fn liveness(State(s): State<AppState>) -> Json<JsonValue> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    Json(json!({
+        "ok": true,
+        "name": "emem",
+        "version": env!("CARGO_PKG_VERSION"),
+        "responder_pubkey_b32": data_encoding::BASE32_NOPAD
+            .encode(&s.identity.pubkey.0)
+            .to_lowercase(),
+        "responder_key_epoch": s.identity.epoch.0,
+        "started_at_unix_s": s.started_at_unix_s,
+        "now_unix_s": now,
+        "uptime_seconds": (now - s.started_at_unix_s).max(0),
+        "probe": "liveness",
+        "note": "Dead-cheap: no storage scan, safe to poll during a deploy or cold bake. GET /health additionally reports corpus stats and can be slower under load.",
+    }))
+}
 
 async fn health(State(s): State<AppState>) -> Json<JsonValue> {
     // Cheap runtime stats — agents check this before relying on cache
@@ -18790,7 +18826,8 @@ fn openapi_spec() -> JsonValue {
         },
         "servers": servers,
         "paths": {
-            "/health":               {"get":{"summary":"liveness","operationId":"emem_health","responses":{"200":json_ok}}},
+            "/health":               {"get":{"summary":"liveness + corpus stats","operationId":"emem_health","responses":{"200":json_ok}}},
+            "/live":                 {"get":{"summary":"dead-cheap liveness (no storage scan; poll during deploys)","operationId":"emem_live","responses":{"200":json_ok}}},
             "/.well-known/emem.json":{"get":{"summary":"protocol discovery","operationId":"emem_well_known","responses":{"200":json_ok}}},
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
             "/v1/quickstart":        {"get":{"summary":"6-step playbook","operationId":"emem_quickstart","responses":{"200":json_ok}}},
@@ -22735,6 +22772,13 @@ struct DeriveResp {
     receipt: emem_fact::Receipt,
     /// Where to check the receipt without trusting this responder.
     offline_verify_at: &'static str,
+    /// GC-1 tier-1 recomputation outcome, present only when the caller pinned
+    /// a `code_cid`. When `verified: true` the responder re-ran the pure op
+    /// over the cited parents and reproduced the value, so the derivation is
+    /// `deterministic_index` rather than `model_output`. Absent for
+    /// derivations submitted without a `code_cid` (unchanged behaviour).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recomputation: Option<JsonValue>,
 }
 
 /// The sentence the responder's signature actually supports. Kept as one
@@ -22744,6 +22788,66 @@ const DERIVE_SIGNATURE_ATTESTS: &str =
      responder stored it. It does NOT attest that the value is true: the responder did not \
      compute it and cannot recompute it. The parents are checked to exist here, so the lineage \
      is real even though the arithmetic over it is the caller's claim.";
+
+/// The sentence the responder's signature supports when GC-1 tier-1
+/// recomputation succeeded: the responder did not merely store the claim, it
+/// reproduced it. Kept beside `DERIVE_SIGNATURE_ATTESTS` so the two cannot
+/// drift apart.
+const DERIVE_SIGNATURE_ATTESTS_RECOMPUTED: &str =
+    "This attester submitted this derivation, and this responder RE-RAN the pure op over the \
+     cited parent facts and reproduced the claimed value bit-for-bit under the canonical-float \
+     rule. The value is therefore recomputed, not merely attributed: any party holding the same \
+     parents recomputes the same result. Provenance is deterministic_index.";
+
+/// The ops GC-1 tier-1 can reproduce with no code execution. Named so the
+/// derive path, the receipt note, and the docs cannot drift from the match arm
+/// in [`recompute_pure_op`].
+const GC1_TIER1_PURE_OPS: &[&str] = &["delta", "mean", "sum"];
+
+/// Extract a scalar f64 from a fact value for pure-op recomputation. Returns
+/// `None` for vectors, enums, byte strings, or anything non-numeric: those
+/// bands are not tier-1 recomputable, so the derivation over them stays
+/// `model_output` rather than being wrongly upgraded.
+fn cbor_scalar_f64(v: &ciborium::Value) -> Option<f64> {
+    match v {
+        ciborium::Value::Integer(i) => {
+            let n: i128 = (*i).into();
+            Some(n as f64)
+        }
+        ciborium::Value::Float(f) => Some(*f),
+        _ => None,
+    }
+}
+
+/// GC-1 tier-1: recompute a recognised PURE op over the parent scalar values,
+/// deterministically and with no code execution at all. Returns the recomputed
+/// value for the ops this responder can reproduce bit-for-bit, or `None` for
+/// ops that are not pure-over-values (so a derivation is never wrongly
+/// upgraded).
+///
+/// Op semantics are PINNED here so the same inputs always recompute the same
+/// value, independent of the caller: `delta` is `inputs[1] - inputs[0]` in the
+/// caller's signed input order (order is significant and signed), `mean` and
+/// `sum` are over all inputs in that order. A caller whose arithmetic uses a
+/// different convention simply will not match, and stays `model_output` —
+/// honestly, with the convention stated back to them.
+fn recompute_pure_op(op: &str, values: &[f64]) -> Option<f64> {
+    match op {
+        "delta" => match values {
+            [a, b] => Some(b - a),
+            _ => None,
+        },
+        "mean" => {
+            if values.is_empty() {
+                None
+            } else {
+                Some(values.iter().sum::<f64>() / values.len() as f64)
+            }
+        }
+        "sum" => Some(values.iter().copied().sum()),
+        _ => None,
+    }
+}
 
 /// `POST /v1/derive`: register a caller-computed derivation over facts
 /// this responder holds.
@@ -22867,6 +22971,10 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
 
     let mut parents: Vec<DeriveParent> = Vec::with_capacity(parsed.len());
     let mut parent_cids: Vec<emem_fact::FactCid> = Vec::with_capacity(parsed.len());
+    // Parent scalar values in caller order, captured for GC-1 tier-1
+    // recomputation. `None` for absence parents or non-scalar (vector/enum)
+    // values: a derivation that cites one of those is not tier-1 recomputable.
+    let mut parent_values: Vec<Option<f64>> = Vec::with_capacity(parsed.len());
     for (i, ((token, p_cell, p_cid), fact)) in parsed.iter().zip(got).enumerate() {
         let Some(fact) = fact else {
             return Err(ApiError(
@@ -22890,6 +22998,11 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             emem_fact::Fact::Primary(p) => (p.cell.as_str(), p.band.as_str(), "primary"),
             emem_fact::Fact::Absence(a) => (a.cell.as_str(), a.band.as_str(), "absence"),
             emem_fact::Fact::Derivative(d) => (d.cell.as_str(), d.band.as_str(), "derivative"),
+        };
+        let p_value = match &fact {
+            emem_fact::Fact::Primary(p) => cbor_scalar_f64(&p.value),
+            emem_fact::Fact::Derivative(d) => cbor_scalar_f64(&d.value),
+            emem_fact::Fact::Absence(_) => None,
         };
         // Same cell-binding rule the token resolver enforces: a token whose
         // cell contradicts the signed fact's own cell is forged or corrupt.
@@ -22921,6 +23034,7 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             kind,
         });
         parent_cids.push(emem_fact::FactCid::new(p_cid.clone()));
+        parent_values.push(p_value);
     }
 
     // ── The canonical body the caller signs ──────────────────────────
@@ -22929,6 +23043,117 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
     // afterwards would sign one value and store another.
     let mut value = json_to_canonical_cbor(&req.value);
     emem_fact::cbor::canonicalize_value(&mut value);
+
+    // ── GC-1 tier-1 recomputation ────────────────────────────────────
+    // When the caller pins a `code_cid` AND the op is one this responder can
+    // reproduce bit-for-bit from the cited parent values (a pure scalar
+    // function — no code execution, no clock, no network beyond the frozen
+    // parents), the responder RE-RUNS it. If the recomputed value equals the
+    // claimed value under the canonical-float rule, the derivation is not
+    // merely attributed but recomputed, and earns `deterministic_index`: the
+    // responder vouches for the arithmetic because it just did the arithmetic.
+    // Otherwise the derivation is untouched (`model_output`), with an honest
+    // note on why it did not upgrade. A derivation with no `code_cid` skips
+    // this entirely and behaves exactly as before.
+    //
+    // This never touches what the caller SIGNED: the `code_cid` is refused as
+    // `deterministic_index` at declaration time (that class is responder-only),
+    // so the caller declares `model_output`, and the recomputation is recorded
+    // as a SEPARATE responder-signed fact of the arithmetic, in `args`. The
+    // caller's T1 body (which stores their declared `provenance_class`) is
+    // unchanged, so their offline authorship check still verifies.
+    let mut recompute_receipt: Option<ciborium::Value> = None;
+    let mut recompute_json: Option<JsonValue> = None;
+    let mut effective_provenance = provenance_class.clone();
+    if req.code_cid.is_some() {
+        let all_numeric: Option<Vec<f64>> = parent_values.iter().copied().collect();
+        let recomputed = all_numeric
+            .as_ref()
+            .and_then(|vals| recompute_pure_op(&op, vals));
+        match recomputed {
+            Some(r) => {
+                // Put the recomputed value through the SAME float canonicalization
+                // the claimed value went through, then compare the two as f64.
+                // Comparing extracted scalars (not raw CBOR bytes) is the
+                // canonical-float rule and is robust to a whole-number result
+                // serialising as a float while the claim was typed as an integer:
+                // f64 arithmetic that agrees to the bit matches, anything looser
+                // does not.
+                let mut r_val = ciborium::Value::Float(r);
+                emem_fact::cbor::canonicalize_value(&mut r_val);
+                let verified = cbor_scalar_f64(&r_val) == cbor_scalar_f64(&value);
+                if verified {
+                    effective_provenance = "deterministic_index".to_string();
+                }
+                recompute_receipt = Some(ciborium::Value::Map(vec![
+                    (
+                        ciborium::Value::Text("verified".into()),
+                        ciborium::Value::Bool(verified),
+                    ),
+                    (
+                        ciborium::Value::Text("op".into()),
+                        ciborium::Value::Text(op.clone()),
+                    ),
+                    (
+                        ciborium::Value::Text("responder_recomputed".into()),
+                        r_val.clone(),
+                    ),
+                    (
+                        ciborium::Value::Text("effective_provenance_class".into()),
+                        ciborium::Value::Text(effective_provenance.clone()),
+                    ),
+                    (
+                        ciborium::Value::Text("recomputed_at".into()),
+                        ciborium::Value::Text(emem_storage::server::iso8601_now()),
+                    ),
+                    (
+                        ciborium::Value::Text("rule".into()),
+                        ciborium::Value::Text("canonical_float_equality".into()),
+                    ),
+                ]));
+                recompute_json = Some(json!({
+                    "verified": verified,
+                    "op": op,
+                    "responder_recomputed": r,
+                    "declared_provenance_class": provenance_class,
+                    "effective_provenance_class": effective_provenance,
+                    "rule": "canonical_float_equality",
+                    "note": if verified {
+                        "The responder re-ran this pure op over the cited parent facts and reproduced the claimed value bit-for-bit; the derivation is recorded as deterministic_index (recomputed, not merely attributed)."
+                    } else {
+                        "The responder re-ran this pure op over the cited parent facts and did NOT reproduce the claimed value; provenance stays as declared. Check operand order (delta = inputs[1] - inputs[0]) and that the value is plain f64 arithmetic over the cited parents."
+                    },
+                }));
+            }
+            None => {
+                // code_cid present but not tier-1 recomputable: either the op is
+                // not pure-over-values, or a parent is a vector/enum/absence with
+                // no scalar. Honest and explicit, never silent.
+                let reason = if !GC1_TIER1_PURE_OPS.contains(&op.as_str()) {
+                    "op_not_tier1_pure"
+                } else {
+                    "parent_values_not_all_scalar"
+                };
+                recompute_receipt = Some(ciborium::Value::Map(vec![
+                    (
+                        ciborium::Value::Text("verified".into()),
+                        ciborium::Value::Bool(false),
+                    ),
+                    (
+                        ciborium::Value::Text("reason".into()),
+                        ciborium::Value::Text(reason.into()),
+                    ),
+                ]));
+                recompute_json = Some(json!({
+                    "verified": false,
+                    "op": op,
+                    "reason": reason,
+                    "tier1_pure_ops": GC1_TIER1_PURE_OPS,
+                    "note": "A code_cid was supplied but this responder cannot reproduce this derivation without code execution (tier 2, a sandboxed rebuild, is not yet built). It stays model_output. Tier-1 ops are pure scalar functions of the cited parent values.",
+                }));
+            }
+        }
+    }
 
     let body = emem_primitives::DeriveBody {
         fn_key: fn_key.clone(),
@@ -22978,6 +23203,7 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             attester.pubkey_b32,
             true,
             started,
+            recompute_json,
         )));
     }
 
@@ -22992,7 +23218,7 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
     // fact's own fields and re-check the caller's ed25519 signature
     // without holding the original request.
     let signed_at = emem_storage::server::iso8601_now();
-    let args = ciborium::Value::Map(vec![
+    let mut args_entries = vec![
         (
             ciborium::Value::Text("attester_pubkey_b32".into()),
             ciborium::Value::Text(attester.pubkey_b32.clone()),
@@ -23033,11 +23259,19 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             ciborium::Value::Text("provenance_class".into()),
             ciborium::Value::Text(provenance_class.clone()),
         ),
-        (
-            ciborium::Value::Text("submitted_via".into()),
-            ciborium::Value::Text("emem.derive.v1".into()),
-        ),
-    ]);
+    ];
+    // Insert the recomputation receipt in canonical (alphabetical) key order,
+    // between `provenance_class` and `submitted_via`. This is the responder's
+    // signed record of the arithmetic: separate from the caller's declared
+    // `provenance_class` above, which stays exactly as the caller signed it.
+    if let Some(rec) = recompute_receipt.clone() {
+        args_entries.push((ciborium::Value::Text("recomputation".into()), rec));
+    }
+    args_entries.push((
+        ciborium::Value::Text("submitted_via".into()),
+        ciborium::Value::Text("emem.derive.v1".into()),
+    ));
+    let args = ciborium::Value::Map(args_entries);
 
     let fact = emem_fact::Fact::Derivative(emem_fact::DerivativeFact {
         cell: cell.clone(),
@@ -23128,6 +23362,7 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
         attester.pubkey_b32.clone(),
         false,
         started,
+        recompute_json,
     )))
 }
 
@@ -23215,6 +23450,7 @@ async fn lookup_derived_by_body(
 /// Build the `/v1/derive` response for a stored derivation, whether it was
 /// just minted or recovered from the dedup index. One builder so the two
 /// paths cannot describe the same fact differently.
+#[allow(clippy::too_many_arguments)]
 fn derive_response(
     s: &AppState,
     fact_cid: String,
@@ -23223,6 +23459,7 @@ fn derive_response(
     attester_pubkey_b32: String,
     deduplicated: bool,
     started: std::time::Instant,
+    recomputation: Option<JsonValue>,
 ) -> DeriveResp {
     // The receipt cites the derivative AND its parents, so the one
     // signature commits to the whole edge set the caller registered: a
@@ -23243,12 +23480,26 @@ fn derive_response(
         None,
     );
 
+    // A verified recomputation changes what the signature supports: the
+    // responder did the arithmetic, so it can say so. Anything else keeps the
+    // honest base sentence ("does NOT attest the value is true").
+    let recomputed_ok = recomputation
+        .as_ref()
+        .and_then(|r| r.get("verified"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let signature_attests = if recomputed_ok {
+        DERIVE_SIGNATURE_ATTESTS_RECOMPUTED
+    } else {
+        DERIVE_SIGNATURE_ATTESTS
+    };
+
     DeriveResp {
         schema: "emem.derive.v1",
         token: format!("emem:fact:{cell}:{fact_cid}"),
         fact_cid,
         parents,
-        signature_attests: DERIVE_SIGNATURE_ATTESTS,
+        signature_attests,
         attester_pubkey_b32: attester_pubkey_b32.clone(),
         visibility: json!({
             "in_default_reads": false,
@@ -23263,6 +23514,7 @@ fn derive_response(
         idempotency: "Idempotent per (attester, derivation body). Re-registering an identical derivation returns this same token rather than minting a twin, so a retry after a timeout is safe. `deduplicated: true` means this call matched a registration you had already made; the fact's signed_at is the FIRST submission's. A different attester making the same claim gets their own token: two claimants are two claims.",
         receipt,
         offline_verify_at: "/verify",
+        recomputation,
     }
 }
 
@@ -61059,6 +61311,140 @@ mod tests {
             format!("emem:fact:{DERIVE_CELL}:{a}"),
             format!("emem:fact:{DERIVE_CELL}:{b}"),
         ]
+    }
+
+    /// The pure-op semantics are PINNED, so a caller anywhere recomputes the
+    /// same value. `delta` is `inputs[1] - inputs[0]` (signed order matters),
+    /// `mean`/`sum` are over all inputs, and anything else is not tier-1.
+    #[test]
+    fn recompute_pure_op_is_pinned_and_order_sensitive() {
+        assert_eq!(recompute_pure_op("delta", &[0.40, 0.54]), Some(0.54 - 0.40));
+        // Order is significant: the reverse citation is a different value.
+        assert_eq!(recompute_pure_op("delta", &[0.54, 0.40]), Some(0.40 - 0.54));
+        assert_eq!(recompute_pure_op("delta", &[1.0]), None, "delta needs two");
+        assert_eq!(recompute_pure_op("delta", &[1.0, 2.0, 3.0]), None);
+        assert_eq!(recompute_pure_op("mean", &[1.0, 2.0, 3.0]), Some(2.0));
+        assert_eq!(recompute_pure_op("mean", &[]), None);
+        assert_eq!(recompute_pure_op("sum", &[1.0, 2.0, 3.0]), Some(6.0));
+        assert_eq!(recompute_pure_op("trend", &[1.0, 2.0]), None, "not tier-1");
+        assert_eq!(recompute_pure_op("anomaly", &[1.0]), None, "not tier-1");
+    }
+
+    /// GC-1 tier-1, the milestone: a caller pins a `code_cid` on a pure
+    /// `delta`, the responder RE-RUNS it over the two cited NDVI facts, and
+    /// because the recomputed value equals the claim bit-for-bit, the
+    /// derivation is recorded as `deterministic_index` — recomputed, not
+    /// merely attributed. The value is stated back on the response, and the
+    /// signature now supports the stronger sentence.
+    #[tokio::test]
+    async fn derive_tier1_recomputes_a_pure_delta_and_earns_deterministic_index() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, pubkey_b32) = derive_keypair([21u8; 32]);
+
+        // The claim MUST be the exact f64 result of the op over the seeded
+        // parents (0.54 - 0.40, which is NOT literally 0.14 in IEEE 754), or
+        // the canonical-float rule correctly refuses to vouch. That precision
+        // is the whole point of recomputation over attribution.
+        let mut req = derive_req(inputs);
+        req.value = json!(0.54_f64 - 0.40_f64);
+        req.code_cid = Some("blake3:same_doy_ndvi_delta_ast".into());
+        req.attester = Some(sign_derive(&sk, &req));
+
+        let Json(resp) = derive_core(req, s)
+            .await
+            .expect("a verified derivation registers");
+        assert_eq!(resp.attester_pubkey_b32, pubkey_b32);
+        let rec = resp
+            .recomputation
+            .expect("a code_cid on a pure op yields a recomputation receipt");
+        assert_eq!(rec["verified"], json!(true), "the responder reproduced it");
+        assert_eq!(rec["op"], json!("delta"));
+        assert_eq!(
+            rec["effective_provenance_class"],
+            json!("deterministic_index"),
+            "a reproduced pure derivation earns the recomputable class"
+        );
+        assert_eq!(rec["declared_provenance_class"], json!("model_output"));
+        assert_eq!(
+            resp.signature_attests, DERIVE_SIGNATURE_ATTESTS_RECOMPUTED,
+            "the signature supports the stronger sentence once recomputed"
+        );
+    }
+
+    /// The safety half: a `code_cid` does NOT let a caller launder a wrong
+    /// value into `deterministic_index`. If the responder's recomputation
+    /// disagrees with the claim, the derivation still registers (it is the
+    /// caller's claim to make) but stays `model_output`, and the receipt says
+    /// so. A determinism stamp the responder cannot back is exactly the fake
+    /// GC-1 refuses to mint.
+    #[tokio::test]
+    async fn derive_tier1_mismatch_stays_model_output() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, _) = derive_keypair([22u8; 32]);
+
+        let mut req = derive_req(inputs);
+        req.value = json!(0.99); // not 0.54 - 0.40
+        req.code_cid = Some("blake3:same_doy_ndvi_delta_ast".into());
+        req.attester = Some(sign_derive(&sk, &req));
+
+        let Json(resp) = derive_core(req, s)
+            .await
+            .expect("even a mismatch registers: it is the caller's claim");
+        let rec = resp
+            .recomputation
+            .expect("the recomputation was attempted and is reported");
+        assert_eq!(
+            rec["verified"],
+            json!(false),
+            "the claim was not reproduced"
+        );
+        assert_eq!(
+            resp.signature_attests, DERIVE_SIGNATURE_ATTESTS,
+            "an unreproduced claim keeps the honest base sentence"
+        );
+    }
+
+    /// A `code_cid` on an op this responder cannot reproduce without code
+    /// execution (tier 2) does not upgrade: it stays `model_output` with an
+    /// explicit reason, never a silent pass.
+    #[tokio::test]
+    async fn derive_tier1_declines_ops_it_cannot_reproduce() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, _) = derive_keypair([23u8; 32]);
+
+        let mut req = derive_req(inputs);
+        req.op = "trend".into();
+        req.code_cid = Some("blake3:some_trend_code".into());
+        req.attester = Some(sign_derive(&sk, &req));
+
+        let Json(resp) = derive_core(req, s)
+            .await
+            .expect("registers as model_output");
+        let rec = resp.recomputation.expect("a code_cid is acknowledged");
+        assert_eq!(rec["verified"], json!(false));
+        assert_eq!(rec["reason"], json!("op_not_tier1_pure"));
+    }
+
+    /// No `code_cid` means no recomputation and no behaviour change: the
+    /// response carries no recomputation block at all.
+    #[tokio::test]
+    async fn derive_without_code_cid_is_not_recomputed() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, _) = derive_keypair([24u8; 32]);
+
+        let mut req = derive_req(inputs);
+        req.value = json!(0.54_f64 - 0.40_f64);
+        req.attester = Some(sign_derive(&sk, &req));
+
+        let Json(resp) = derive_core(req, s).await.expect("registers");
+        assert!(
+            resp.recomputation.is_none(),
+            "a derivation without a code_cid is untouched"
+        );
     }
 
     /// An unattested derivation is refused, and the refusal is
