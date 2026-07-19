@@ -394,9 +394,15 @@ one function before the caller sees it.
   encoder's N-D vector, e.g. 128-D geotessera, and anchors to its own
   signed per-cell fact). The grid encoding gained a channel dimension for
   the embedding shape without moving a single existing artifact_cid: a
-  scalar grid still encodes byte-identically. Still open: a dedicated
-  anchors spot-check verifier endpoint, and raising the embedding
-  fan-out cap past one tile.
+  scalar grid still encodes byte-identically. The anchors spot-check tier
+  shipped 2026-07-19 as an opt-in on `/v1/raster/resolve` (`spot_check:
+  true`): it decodes the artifact grid, reads each anchor's value back out
+  at its pixel, and cross-checks it against the independently-signed
+  per-cell fact the anchor cites, so a field pixel that resolves to a
+  signed receipt whose value matches is the click-to-verify a regulator
+  wants. And `raster_bundle@1` binds any N field tokens into one signed
+  `emem:rasterset:` manifest a world or a report cites. Still open:
+  raising the embedding fan-out cap past one tile, and fp16 artifacts.
 - **Partial results instead of a timeout.** Open. A cold NDVI polygon
   cannot finish inside the 40 s gateway: worst case is roughly 31
   sequential upstream round trips for a single cell, and `recall_polygon`
