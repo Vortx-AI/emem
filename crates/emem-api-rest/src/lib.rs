@@ -20479,6 +20479,14 @@ struct StateDiffResp {
     fact_cid_b: String,
     memory_token_a: String,
     memory_token_b: String,
+    /// The band actually recalled for side a/b. Present only when it
+    /// differs from `encoder` — i.e. when a `geotessera` vintage diff was
+    /// routed to the explicit-year band (`geotessera.2023` vs
+    /// `geotessera.2024`). Lets the agent cite the exact vintage compared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    band_a: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    band_b: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resolved_from: Option<JsonValue>,
 }
@@ -20540,16 +20548,40 @@ async fn post_state_diff_inner(
         .unwrap_or_else(|| "geotessera".to_string());
     let (cell, resolved) = resolve_cell_field(&req.cell).await?;
 
-    let fetch = |tslot: u64| -> RecallReq {
+    // Tessera's base `geotessera` band always materialises the DEFAULT
+    // vintage (2024) regardless of the requested tslot — each annual
+    // vintage lives under its own explicit-year band `geotessera.YYYY`,
+    // at tslot = from_unix(Jan 1 of that year, Slow). So a naive
+    // state_diff(encoder="geotessera", tslot_a, tslot_b) can only ever see
+    // the single default vintage and 404s on the other tslot. Route each
+    // side to the explicit-year band whose vintage tslot matches, so
+    // forward-change over annual Tessera vintages Just Works and still
+    // auto-materialises on a cold cell. Slow tslots are 365-day buckets
+    // that drift off the calendar, so we match against the small vintage
+    // set (2017..=2025) rather than inverting the bucket arithmetic.
+    fn geotessera_vintage_band(encoder: &str, tslot: u64) -> Option<String> {
+        if encoder != "geotessera" {
+            return None;
+        }
+        (2017..=2025).find_map(|y| {
+            let unix = days_from_civil(y, 1, 1) * 86_400;
+            (emem_core::tslot::Tslot::from_unix(unix, emem_core::tslot::Tempo::Slow).0 == tslot)
+                .then(|| format!("geotessera.{y}"))
+        })
+    }
+    let band_a = geotessera_vintage_band(&encoder, req.tslot_a).unwrap_or_else(|| encoder.clone());
+    let band_b = geotessera_vintage_band(&encoder, req.tslot_b).unwrap_or_else(|| encoder.clone());
+
+    let fetch = |tslot: u64, band: &str| -> RecallReq {
         RecallReq {
             cell: cell.clone(),
-            bands: Some(vec![encoder.clone()]),
+            bands: Some(vec![band.to_string()]),
             tslot: Some(tslot),
             ..Default::default()
         }
     };
-    let (resp_a, _) = recall_with_auto_materialize(&fetch(req.tslot_a), &s).await?;
-    let (resp_b, _) = recall_with_auto_materialize(&fetch(req.tslot_b), &s).await?;
+    let (resp_a, _) = recall_with_auto_materialize(&fetch(req.tslot_a, &band_a), &s).await?;
+    let (resp_b, _) = recall_with_auto_materialize(&fetch(req.tslot_b, &band_b), &s).await?;
 
     // Helper used on the 404 path: list every tslot the storage holds
     // for (cell, encoder). Costs one index lookup; only consulted when
@@ -20584,7 +20616,21 @@ async fn post_state_diff_inner(
                 _ => None,
             })
             .ok_or_else(|| {
-                let msg = if available.is_empty() {
+                // A signed Absence at exactly (band, tslot) is a confirmed
+                // "no data here", not a miss — for Tessera it means the
+                // vintage was never published upstream at this cell (annual
+                // coverage before 2024 is regional, not global). Report it
+                // as such so the agent stops retrying and picks a vintage
+                // that exists (or the fused `geotessera.multi_year`), rather
+                // than reading the generic 404 as "wrong tslot".
+                let absent = resp.facts.iter().any(|f| {
+                    matches!(f, emem_fact::Fact::Absence(n) if n.band == encoder && n.tslot == requested_tslot)
+                });
+                let msg = if absent {
+                    format!(
+                        "/v1/state_diff: {encoder} is a confirmed absence at this cell (signed \"no data\" at tslot_{which}={requested_tslot}), so there is nothing to diff on this side. For Tessera this means the vintage was never published upstream here — annual coverage before 2024 is regional, not global. Diff two vintages that both exist (check with /v1/recall on each `geotessera.YYYY`), or use the fused `geotessera.multi_year` which NaN-masks absent years."
+                    )
+                } else if available.is_empty() {
                     format!(
                         "/v1/state_diff: no fact at tslot_{which}={requested_tslot} for ({cell},{encoder}). The responder holds no facts on this band at this cell. Try /v1/recall with `bands:[{encoder}]` (no tslot) to materialise the latest vintage first, then ask state_diff against two tslots that show up under /v1/recall_polygon or /v1/coverage_matrix.",
                         cell = "this cell"
@@ -20631,13 +20677,20 @@ async fn post_state_diff_inner(
         Ok((vec, cid))
     };
 
-    // Pre-scan the cell once for this encoder. If either side 404s, the
-    // error message includes a sorted list of tslots that DO exist for
-    // (cell, encoder) so the agent can retry with a viable pair.
-    let available_tslots: Vec<u64> = list_tslots_for_band(&s, &cell, &encoder).await;
+    // Pre-scan the cell for the actual recalled band(s). If either side
+    // 404s, the error message includes a sorted list of tslots that DO
+    // exist for (cell, band) so the agent can retry with a viable pair.
+    // band_a == band_b on the common (non-Tessera-vintage) path, so scan
+    // once and share.
+    let available_a: Vec<u64> = list_tslots_for_band(&s, &cell, &band_a).await;
+    let available_b: Vec<u64> = if band_b == band_a {
+        available_a.clone()
+    } else {
+        list_tslots_for_band(&s, &cell, &band_b).await
+    };
 
-    let (vec_a, fact_cid_a) = extract(&resp_a, &encoder, "a", req.tslot_a, &available_tslots)?;
-    let (vec_b, fact_cid_b) = extract(&resp_b, &encoder, "b", req.tslot_b, &available_tslots)?;
+    let (vec_a, fact_cid_a) = extract(&resp_a, &band_a, "a", req.tslot_a, &available_a)?;
+    let (vec_b, fact_cid_b) = extract(&resp_b, &band_b, "b", req.tslot_b, &available_b)?;
     if vec_a.len() != vec_b.len() {
         return Err(ApiError(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -20668,6 +20721,8 @@ async fn post_state_diff_inner(
     let memory_token_b = format!("emem:fact:{}:{}", cell, fact_cid_b);
 
     let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
+    let routed_a = (band_a != encoder).then(|| band_a.clone());
+    let routed_b = (band_b != encoder).then(|| band_b.clone());
     Ok(Json(StateDiffResp {
         cell,
         encoder,
@@ -20681,6 +20736,8 @@ async fn post_state_diff_inner(
         fact_cid_b,
         memory_token_a,
         memory_token_b,
+        band_a: routed_a,
+        band_b: routed_b,
         resolved_from: resolved_env,
     }))
 }
@@ -55897,6 +55954,35 @@ mod tests {
             Tslot::from_unix(1_483_228_800, Tempo::Slow).0,
             Tslot::from_unix(1_704_067_200, Tempo::Slow).0,
         );
+    }
+
+    /// state_diff routes a `geotessera` vintage diff to the explicit-year
+    /// band whose Jan-1 tslot matches the requested tslot (E1: forward
+    /// change over annual Tessera vintages). That routing is only sound if
+    /// every vintage year in 2017..=2025 maps to a DISTINCT tslot — the
+    /// Slow bucket is 365 days and drifts off the calendar, so a wide
+    /// enough range would eventually collide two years into one slot and
+    /// make the reverse match ambiguous. Pin the 1:1 property and the
+    /// exact 2023/2024 pair the eudr plot diff depends on.
+    #[test]
+    fn tessera_vintage_years_map_to_distinct_tslots() {
+        use emem_core::tslot::{Tempo, Tslot};
+        let tslot_of =
+            |y: i32| -> u64 { Tslot::from_unix(days_from_civil(y, 1, 1) * 86_400, Tempo::Slow).0 };
+        // The exact pair E1 diffs.
+        assert_eq!(tslot_of(2023), 53);
+        assert_eq!(tslot_of(2024), 54);
+        // 1:1 across the whole supported vintage set — no two years share a
+        // tslot, so matching a tslot back to a single year is unambiguous.
+        let mut seen = std::collections::HashSet::new();
+        for y in 2017..=2025 {
+            assert!(
+                seen.insert(tslot_of(y)),
+                "vintage year {y} collides onto an already-used tslot {}",
+                tslot_of(y)
+            );
+        }
+        assert_eq!(seen.len(), 9);
     }
 
     /// `days_from_civil` is what each materializer calls to anchor a
