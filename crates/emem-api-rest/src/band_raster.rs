@@ -60,6 +60,19 @@ const S2_BANDS: [(&str, &[&str]); 6] = [
     ("s2.B12", &["swir22", "B12"]),
 ];
 
+/// Band spellings that route to the Copernicus GLO-30 DEM raster path
+/// (static global elevation COG — no scene selection). WB-3.
+const DEM_BAND_ALIASES: [&str; 4] = [
+    "copdem30m.elevation",
+    "copdem30m.elevation_mean",
+    "elevation",
+    "dem",
+];
+
+fn is_dem_band(band: &str) -> bool {
+    DEM_BAND_ALIASES.contains(&band)
+}
+
 /// The evictable blob store, module-owned like the koppen cache:
 /// `$EMEM_DATA/artifacts`, capped by `EMEM_ARTIFACTS_MAX_BYTES`
 /// (default 4 GiB).
@@ -152,6 +165,12 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
     }
     if b.min_lat < -90.0 || b.max_lat > 90.0 || b.min_lng < -180.0 || b.max_lng > 180.0 {
         return Err(bad_request("bbox exceeds WGS-84 bounds".into()));
+    }
+    // WB-3: the DEM is a static global COG, so its raster path skips scene
+    // selection entirely and reads a native-degree window straight out of
+    // the Copernicus GLO-30 tile covering the bbox.
+    if is_dem_band(&req.band) {
+        return dem_raster(req, s).await;
     }
     let Some((band_key, aliases)) = S2_BANDS.iter().find(|(k, _)| *k == req.band) else {
         let names: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
@@ -420,6 +439,244 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
     }))
 }
 
+/// WB-3: elevation as a field token. Copernicus GLO-30 is a static global
+/// COG in EPSG:4326, so unlike the S2 path there is no scene selection and
+/// no UTM projection — we resolve the one 1°×1° tile the bbox sits in and
+/// read a native-degree window straight out of it. Emits the same
+/// `emem:raster:` token/artifact/receipt shape as `band_raster`, under
+/// `fn_key: dem_raster@1`.
+async fn dem_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let b = &req.bbox;
+    let band_key = "copdem30m.elevation";
+    let centre_lat = (b.min_lat + b.max_lat) / 2.0;
+    let centre_lng = (b.min_lng + b.max_lng) / 2.0;
+
+    // Single-tile only: the GLO-30 archive is tiled 1°×1°. A bbox that
+    // straddles a tile edge needs stitching we don't do yet — refuse
+    // clearly rather than silently read one tile. (The AOIs this serves are
+    // kilometre-scale, well inside a tile unless placed on a boundary.)
+    let tag_lo = emem_fetch::copernicus_dem::tile_corner_tags(b.min_lat, b.min_lng);
+    let tag_hi = emem_fetch::copernicus_dem::tile_corner_tags(
+        (b.max_lat - 1e-9).max(b.min_lat),
+        (b.max_lng - 1e-9).max(b.min_lng),
+    );
+    if tag_lo != tag_hi {
+        return Err(bad_request(format!(
+            "bbox crosses a Copernicus GLO-30 DEM tile boundary ({}_{} vs {}_{}); DEM tiles are 1°×1° and this executor reads one tile — shrink the bbox to fit within a single 1° cell, or page it.",
+            tag_lo.0, tag_lo.1, tag_hi.0, tag_hi.1
+        )));
+    }
+    let url = emem_fetch::copernicus_dem::tile_url_for(centre_lat, centre_lng);
+    let cli = crate::s2_http_client();
+    let prof = emem_fetch::cog::open_profile(&cli, &url).await.map_err(|e| {
+        upstream_error(format!(
+            "open DEM COG {url}: {e}. Over open ocean the archive publishes no tile (404) — there is no elevation field to raster there."
+        ))
+    })?;
+
+    // EPSG:4326 window math: world coords are degrees, x=lng, y=lat.
+    let epsg: u32 = 4326;
+    let (sx, sy) = prof.pixel_scale;
+    let native_deg = sx.abs();
+    if !(native_deg > 0.0 && native_deg.is_finite()) {
+        return Err(upstream_error(format!(
+            "DEM COG has implausible pixel scale {:?}",
+            prof.pixel_scale
+        )));
+    }
+    let width_px = (((b.max_lng - b.min_lng) / native_deg).ceil() as u32).max(1);
+    let height_px = (((b.max_lat - b.min_lat) / sy.abs()).ceil() as u32).max(1);
+    if width_px > MAX_SIDE_PX || height_px > MAX_SIDE_PX {
+        return Err(bad_request(format!(
+            "window is {width_px}x{height_px} px at the DEM's native {native_deg}° (~30 m); the cap is {MAX_SIDE_PX} per side. Shrink the bbox."
+        )));
+    }
+
+    let raw = emem_fetch::cog::sample_window(
+        &cli, &url, &prof, centre_lng, centre_lat, width_px, height_px,
+    )
+    .await
+    .map_err(|e| upstream_error(format!("sample_window: {e}")))?;
+
+    let (centre_col, centre_row) = prof.world_to_pixel(centre_lng, centre_lat);
+    let col0 = centre_col - (width_px as i64) / 2;
+    let row0 = centre_row - (height_px as i64) / 2;
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let x0 = tx + (col0 as f64 - ti) * sx;
+    let y0 = ty - (row0 as f64 - tj) * sy.abs();
+
+    let header = GridHeader {
+        width: width_px,
+        height: height_px,
+        epsg,
+        nodata: f32::NAN,
+        lat0: y0,
+        lng0: x0,
+        dlat: -sy.abs(),
+        dlng: sx,
+    };
+    let values: Vec<f32> = raw.iter().map(|v| *v as f32).collect();
+    let artifact_bytes =
+        encode_grid(&header, &values).map_err(|e| upstream_error(format!("grid encode: {e:?}")))?;
+    let byte_len = artifact_bytes.len();
+    let artifact_cid = ARTIFACTS
+        .put(&artifact_bytes)
+        .map_err(|e| upstream_error(format!("artifact store: {e}")))?;
+
+    // Static band: one canonical vintage, tslot 0. Anchors cite existing
+    // per-cell `copdem30m.elevation_mean` facts when the store holds them;
+    // never materialises.
+    let tslot: u64 = 0;
+    let anchor_band = "copdem30m.elevation_mean";
+    let inset_lat = (b.max_lat - b.min_lat) * 0.02;
+    let inset_lng = (b.max_lng - b.min_lng) * 0.02;
+    let anchor_points = [
+        (b.min_lat + inset_lat, b.min_lng + inset_lng),
+        (b.min_lat + inset_lat, b.max_lng - inset_lng),
+        (b.max_lat - inset_lat, b.min_lng + inset_lng),
+        (b.max_lat - inset_lat, b.max_lng - inset_lng),
+        (centre_lat, centre_lng),
+    ];
+    let keys: Vec<CanonicalKey> = anchor_points
+        .iter()
+        .map(|(lat, lng)| CanonicalKey {
+            cell: emem_codec::geo::cell64_from_latlng(*lat, *lng),
+            band: anchor_band.to_string(),
+            tslot,
+        })
+        .collect();
+    let looked_up = s
+        .storage
+        .lookup_canonical_many(&keys)
+        .await
+        .unwrap_or_else(|_| vec![None; keys.len()]);
+    let mut anchors: Vec<JsonValue> = Vec::with_capacity(anchor_points.len());
+    let mut anchor_fact_cids: Vec<FactCid> = Vec::new();
+    for (((lat, lng), key), existing) in anchor_points.iter().zip(&keys).zip(&looked_up) {
+        let (col, row) = prof.world_to_pixel(*lng, *lat);
+        let r = (row - row0).max(0) as u32;
+        let c = (col - col0).max(0) as u32;
+        let value = grid_value_at(&header, &values, r, c);
+        if let Some(cid) = existing {
+            anchor_fact_cids.push(cid.clone());
+        }
+        anchors.push(json!({
+            "cell": key.cell,
+            "row": r,
+            "col": c,
+            "value": value,
+            "fact_cid": existing.as_ref().map(|c| c.as_str()),
+        }));
+    }
+
+    let aoi = aoi_cid(b)?;
+    let record_body = json!({
+        "schema": "emem.field_derivation.v1",
+        "aoi": { "bbox": { "min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng } },
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot": tslot,
+        "fn_key": "dem_raster@1",
+        "sources": [{
+            "scheme": "copernicus.dem.glo30",
+            "id": url,
+            "asset": url,
+            "captured_at": "GLO-30 v1 (2021 release)",
+        }],
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "grid": {
+                "width": width_px, "height": height_px, "epsg": epsg,
+                "x0": x0, "y0": y0, "dx": sx, "dy": -sy.abs(),
+                "native_deg": native_deg,
+                "crs_note": "header origin and steps are in EPSG:4326 degrees (the DEM's native geographic CRS); the request bbox is WGS-84, same datum, so no reprojection",
+            },
+        },
+        "anchors": anchors,
+        "anchor_policy": "best_effort: an anchor cites an existing per-cell copdem30m.elevation_mean fact when the store holds one; it never materialises one, so a cold AOI costs no upstream fetch beyond the one tile read",
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
+    let derivation_fact = DerivativeFact {
+        cell: centre_cell.clone(),
+        band: "field.derivation".to_string(),
+        tslot_window: [tslot, tslot],
+        op: "dem_raster".to_string(),
+        parents: anchor_fact_cids.clone(),
+        value: json_to_cbor(&record_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "dem_raster@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(derivation_fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| upstream_error("store returned no cid for the derivation".into()))?;
+
+    let binding = FieldBinding {
+        aoi_cid: aoi.clone(),
+        derivation_cid: derivation_cid.clone(),
+    };
+    let mut receipt_cids = anchor_fact_cids;
+    receipt_cids.push(FactCid::new(derivation_cid.clone()));
+    let receipt = s.sign_receipt_field(
+        "emem.band_raster",
+        vec![centre_cell.clone()],
+        receipt_cids,
+        false,
+        started,
+        binding,
+    );
+
+    Ok(json!({
+        "schema": "emem.band_raster.v1",
+        "algorithm_key": "dem_raster@1",
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot": tslot,
+        "grid": { "width": width_px, "height": height_px, "epsg": epsg, "native_deg": native_deg },
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "url": format!("/v1/artifacts/{artifact_cid}"),
+            "eviction_note": "the artifact is evictable; the derivation record persists and pins the tile, recipe, and geometry needed to rebuild the identical bytes",
+        },
+        "derivation": record_body,
+        "derivation_cid": derivation_cid,
+        "tokens": {
+            "raster": format!("emem:raster:{aoi}:{band_key}:{tslot}:{derivation_cid}"),
+            "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
+        },
+        "docs": "https://emem.dev/reference#token-raster",
+        "receipt": receipt,
+    }))
+}
+
 pub async fn post_band_raster(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<BandRasterReq>,
@@ -553,7 +810,10 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
         .and_then(|d| d.get("fn_key"))
         .and_then(|f| f.as_str())
         .unwrap_or("");
-    let is_raster_shaped = matches!(fn_key, "band_raster@1" | "s2_median_composite@1");
+    let is_raster_shaped = matches!(
+        fn_key,
+        "band_raster@1" | "s2_median_composite@1" | "dem_raster@1"
+    );
     if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative") || !is_raster_shaped {
         return Err(conflict(format!(
             "cid {derivation_cid} is not a raster-shaped field derivation (band_raster@1 or s2_median_composite@1); an emem:raster: token cannot dereference it. Cite it in emem:fact: form instead."

@@ -13662,6 +13662,36 @@
       "honest_runtime_note": "The AST evaluator cannot express a windowed COG read, so this key stays documentation_only for /v1/ask dispatch; POST /v1/band_raster is the runnable surface. Bounds are refusals, not timeouts: six raw S2 bands, 512 px per side. Anchors are best-effort by owner decision (a required anchor would force cold-AOI materialization, the gateway-timeout trap the partial-results item names); the artifact is evictable and the derivation record persists, so eviction turns a dereference into a recompute, never a broken citation."
     },
     {
+      "key": "dem_raster@1",
+      "kind": "solo",
+      "domain": "terrain",
+      "inputs": [
+        {
+          "band": "copdem30m.elevation",
+          "role": "static_global_dem",
+          "explanation": "Copernicus GLO-30 elevation read at native ~30 m resolution from the one 1°×1° DEM tile the bbox sits in. Spellings copdem30m.elevation / copdem30m.elevation_mean / elevation / dem all route here."
+        }
+      ],
+      "formula": "artifact = canonical_grid_f32(sample_window(glo30_tile(bbox_centre), bbox_native_degree_window)); artifact_cid = blake3(artifact); derivation record pins {aoi_cid, band, tslot=0, tile url, EPSG:4326 grid georeferencing, best-effort anchors to per-cell copdem30m.elevation_mean facts}; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment",
+      "output": {
+        "kind": "scalar",
+        "unit": "artifact",
+        "range": [
+          0,
+          1
+        ],
+        "explanation": "Not a scalar: a content-addressed elevation grid artifact (metres, EPSG:4326) plus a persisted derivation record (emem.field_derivation.v1). The range is a registry formality. Verification: re-hash the artifact and read anchors back out of the grid, or full-recompute by rereading the pinned GLO-30 tile over the same bbox."
+      },
+      "when_to_use": "When an agent needs terrain as a field, not a set of points: a native-resolution elevation window over an AOI, citeable as one emem:raster: token. The static-DEM sibling of band_raster@1 (no scene selection, no cloud). For per-cell elevation use recall copdem30m.elevation_mean; for slope/aspect neighbourhoods use terrain.",
+      "primitive": "POST /v1/band_raster {bbox, band: \"copdem30m.elevation\"} -> canonical elevation grid artifact + persisted derivation record + FIELD-bound receipt; GET /v1/artifacts/{cid} serves the bytes, immutable",
+      "deterministic": true,
+      "citation": "docs/plans/field-tokens.md (the signed field-token design); Copernicus GLO-30 DSM (ESA, 2021 release)",
+      "documentation_only": true,
+      "runtime_path": "/v1/band_raster",
+      "partial_runtime": true,
+      "honest_runtime_note": "Shares the /v1/band_raster surface; the band spelling routes to the DEM path, which skips scene selection because GLO-30 is a static global COG in EPSG:4326. Bounds are refusals, not timeouts: 512 px per side, and a bbox that crosses a 1° tile edge is refused (single-tile only; no stitching yet). Over open ocean the archive publishes no tile — a clear 'no elevation field here', not a crash."
+    },
+    {
       "key": "band_cube@1",
       "kind": "solo",
       "domain": "optical",
