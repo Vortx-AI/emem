@@ -9,21 +9,26 @@
 //! two responders that compute the same field must emit the same bytes
 //! or content addressing itself splits.
 //!
-//! Layout, 64-byte header then `width * height` little-endian `f32`
-//! values, row-major, north row first:
+//! Layout, 64-byte header then `width * height * channels` little-endian
+//! `f32` values, row-major, north row first, channels innermost
+//! (pixel-interleaved: a pixel's `channels` values are contiguous):
 //!
 //! ```text
 //!   offset  size  field
 //!        0     8  magic "EMEMGRD1"
-//!        8     4  width  (u32 LE, pixels per row)
-//!       12     4  height (u32 LE, rows)
-//!       16     4  epsg   (u32 LE; 4326 for the shipped grid)
-//!       20     4  nodata (f32 LE bit pattern; see NaN rule)
-//!       24     8  lat0   (f64 LE, latitude of the FIRST row's centre)
-//!       32     8  lng0   (f64 LE, longitude of the first column's centre)
-//!       40     8  dlat   (f64 LE, latitude step per row, negative going south)
-//!       48     8  dlng   (f64 LE, longitude step per column)
-//!       56     8  reserved, zero
+//!        8     4  width    (u32 LE, pixels per row)
+//!       12     4  height   (u32 LE, rows)
+//!       16     4  epsg     (u32 LE; 4326 for the shipped grid)
+//!       20     4  nodata   (f32 LE bit pattern; see NaN rule)
+//!       24     8  lat0     (f64 LE, latitude of the FIRST row's centre)
+//!       32     8  lng0     (f64 LE, longitude of the first column's centre)
+//!       40     8  dlat     (f64 LE, latitude step per row, negative going south)
+//!       48     8  dlng     (f64 LE, longitude step per column)
+//!       56     4  channels (u32 LE; 0 OR 1 both mean one scalar channel — the
+//!                           WB-5 embedding-field extension. 0 is written for a
+//!                           single channel so a scalar grid stays BYTE-IDENTICAL
+//!                           to the pre-channels encoding and no artifact_cid moves.)
+//!       60     4  reserved, zero
 //! ```
 //!
 //! The NaN rule mirrors canonical CBOR's (whitepaper section 5): every
@@ -50,6 +55,19 @@ pub struct GridHeader {
     pub lng0: f64,
     pub dlat: f64,
     pub dlng: f64,
+    /// Values per pixel (WB-5). `1` is a scalar field (the shipped grid) and
+    /// encodes byte-identically to the pre-channels format. `>1` is an
+    /// embedding field: each pixel carries a `channels`-length vector
+    /// (e.g. 128 for geotessera), stored pixel-interleaved.
+    pub channels: u32,
+}
+
+impl GridHeader {
+    /// Effective channel count (`0` and `1` both mean one scalar channel).
+    #[inline]
+    pub fn channels(&self) -> u32 {
+        self.channels.max(1)
+    }
 }
 
 /// Encoding refusals, each a caller error stated plainly.
@@ -79,7 +97,8 @@ fn canonical_f32(v: f32) -> u32 {
 /// fixed header layout, canonical NaN and zero, little-endian
 /// throughout, no compression.
 pub fn encode_grid(h: &GridHeader, values: &[f32]) -> Result<Vec<u8>, GridError> {
-    let cells = (h.width as usize) * (h.height as usize);
+    let channels = h.channels() as usize;
+    let cells = (h.width as usize) * (h.height as usize) * channels;
     if cells == 0 {
         return Err(GridError::EmptyGrid);
     }
@@ -89,6 +108,9 @@ pub fn encode_grid(h: &GridHeader, values: &[f32]) -> Result<Vec<u8>, GridError>
             got: values.len(),
         });
     }
+    // A single channel is written as 0 at offset 56 so a scalar grid stays
+    // byte-identical to the pre-channels encoding — no artifact_cid moves.
+    let channels_on_disk: u32 = if channels <= 1 { 0 } else { channels as u32 };
     let mut out = Vec::with_capacity(GRID_HEADER_LEN + 4 * cells);
     out.extend_from_slice(&GRID_MAGIC);
     out.extend_from_slice(&h.width.to_le_bytes());
@@ -99,7 +121,8 @@ pub fn encode_grid(h: &GridHeader, values: &[f32]) -> Result<Vec<u8>, GridError>
     out.extend_from_slice(&h.lng0.to_le_bytes());
     out.extend_from_slice(&h.dlat.to_le_bytes());
     out.extend_from_slice(&h.dlng.to_le_bytes());
-    out.extend_from_slice(&[0u8; 8]);
+    out.extend_from_slice(&channels_on_disk.to_le_bytes());
+    out.extend_from_slice(&[0u8; 4]);
     debug_assert_eq!(out.len(), GRID_HEADER_LEN);
     for v in values {
         out.extend_from_slice(&canonical_f32(*v).to_le_bytes());
@@ -127,8 +150,10 @@ pub fn decode_grid(bytes: &[u8]) -> Result<(GridHeader, Vec<f32>), GridError> {
         lng0: f64_at(32),
         dlat: f64_at(40),
         dlng: f64_at(48),
+        // 0 (the legacy reserved zero) and 1 both mean one scalar channel.
+        channels: u32_at(56).max(1),
     };
-    let cells = (h.width as usize) * (h.height as usize);
+    let cells = (h.width as usize) * (h.height as usize) * (h.channels() as usize);
     if cells == 0 {
         return Err(GridError::NotAGrid("zero-sized grid"));
     }
@@ -144,14 +169,32 @@ pub fn decode_grid(bytes: &[u8]) -> Result<(GridHeader, Vec<f32>), GridError> {
 }
 
 /// The value at `(row, col)`, row 0 being the `lat0` row. `None` out of
-/// bounds; the caller decides whether that is an error.
+/// bounds; the caller decides whether that is an error. For a multi-channel
+/// grid this returns channel 0 (use [`grid_vector_at`] for the full vector).
 pub fn grid_value_at(h: &GridHeader, values: &[f32], row: u32, col: u32) -> Option<f32> {
     if row >= h.height || col >= h.width {
         return None;
     }
+    let ch = h.channels() as usize;
     values
-        .get(row as usize * h.width as usize + col as usize)
+        .get((row as usize * h.width as usize + col as usize) * ch)
         .copied()
+}
+
+/// The full `channels`-length vector at `(row, col)`, or `None` out of
+/// bounds. For a scalar grid this is a 1-length slice.
+pub fn grid_vector_at<'a>(
+    h: &GridHeader,
+    values: &'a [f32],
+    row: u32,
+    col: u32,
+) -> Option<&'a [f32]> {
+    if row >= h.height || col >= h.width {
+        return None;
+    }
+    let ch = h.channels() as usize;
+    let start = (row as usize * h.width as usize + col as usize) * ch;
+    values.get(start..start + ch)
 }
 
 #[cfg(test)]
@@ -168,7 +211,56 @@ mod tests {
             lng0: 77.59,
             dlat: -0.0001,
             dlng: 0.0001,
+            channels: 1,
         }
+    }
+
+    /// WB-5 backward-compat guard: a 1-channel grid MUST encode
+    /// byte-identically to the pre-channels format, or every existing
+    /// artifact_cid moves. Pin the exact reserved-tail bytes (offset 56..64
+    /// all zero) and that channels 0 and 1 produce the same bytes.
+    #[test]
+    fn single_channel_is_byte_identical_to_legacy() {
+        let mut h = header(3, 2);
+        h.channels = 1;
+        let a = encode_grid(&h, &[1.0, 2.5, -3.25, 0.0, 917.75, 42.0]).unwrap();
+        // offset 56..64 must be all zero (legacy reserved tail), NOT 01 00...
+        assert_eq!(&a[56..64], &[0u8; 8], "1-channel must write zero at 56..64");
+        h.channels = 0; // 0 also means one channel
+        let b = encode_grid(&h, &[1.0, 2.5, -3.25, 0.0, 917.75, 42.0]).unwrap();
+        assert_eq!(a, b, "channels 0 and 1 encode identically");
+        assert_eq!(decode_grid(&a).unwrap().0.channels(), 1);
+    }
+
+    /// WB-5 multi-channel round-trip: a 2x1 grid of 3-vectors packs
+    /// pixel-interleaved, decodes to the same values, and grid_vector_at
+    /// returns each pixel's slice.
+    #[test]
+    fn multi_channel_roundtrip_and_vector_access() {
+        let mut h = header(2, 1);
+        h.channels = 3;
+        let vals = [1.0f32, 2.0, 3.0, /*px0*/ 4.0, 5.0, 6.0 /*px1*/];
+        let bytes = encode_grid(&h, &vals).unwrap();
+        assert_eq!(
+            &bytes[56..60],
+            &3u32.to_le_bytes(),
+            "channels written at 56"
+        );
+        let (h2, v2) = decode_grid(&bytes).unwrap();
+        assert_eq!(h2.channels(), 3);
+        assert_eq!(v2, vals);
+        assert_eq!(grid_vector_at(&h2, &v2, 0, 0), Some(&[1.0, 2.0, 3.0][..]));
+        assert_eq!(grid_vector_at(&h2, &v2, 0, 1), Some(&[4.0, 5.0, 6.0][..]));
+        assert_eq!(
+            grid_value_at(&h2, &v2, 0, 1),
+            Some(4.0),
+            "grid_value_at = channel 0"
+        );
+        // dimension check enforces width*height*channels
+        assert!(matches!(
+            encode_grid(&h, &[1.0, 2.0, 3.0]),
+            Err(GridError::DimensionMismatch { .. })
+        ));
     }
 
     #[test]

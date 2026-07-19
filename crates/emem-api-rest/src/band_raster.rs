@@ -73,6 +73,25 @@ fn is_dem_band(band: &str) -> bool {
     DEM_BAND_ALIASES.contains(&band)
 }
 
+/// Encoder bands whose recall yields an N-D vector, so their raster is a
+/// multi-channel EMBEDDING FIELD (WB-5) rather than a scalar grid.
+const EMBEDDING_BANDS: &[&str] = &[
+    "geotessera",
+    "geotessera.multi_year",
+    "clay_v1",
+    "prithvi_eo2",
+    "galileo",
+];
+/// Native sampling step for the embedding grid (geotessera is a 0.1° global
+/// grid; sampling finer just repeats a cell's vector).
+const EMBEDDING_STEP_DEG: f64 = 0.1;
+/// Bounds the recall fan-out for one embedding field.
+const MAX_EMBEDDING_CELLS: u32 = 256;
+
+fn is_embedding_band(band: &str) -> bool {
+    EMBEDDING_BANDS.contains(&band)
+}
+
 /// The evictable blob store, module-owned like the koppen cache:
 /// `$EMEM_DATA/artifacts`, capped by `EMEM_ARTIFACTS_MAX_BYTES`
 /// (default 4 GiB).
@@ -172,6 +191,10 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
     if is_dem_band(&req.band) {
         return dem_raster(req, s).await;
     }
+    // WB-5: an encoder band rasterises as a multi-channel embedding field.
+    if is_embedding_band(&req.band) {
+        return embedding_raster(req, s).await;
+    }
     let Some((band_key, aliases)) = S2_BANDS.iter().find(|(k, _)| *k == req.band) else {
         let names: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
         return Err(bad_request(format!(
@@ -267,6 +290,7 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
         lng0: x0,
         dlat: -sy.abs(),
         dlng: sx,
+        channels: 1,
     };
     let values: Vec<f32> = raw.iter().map(|v| *v as f32).collect();
     let artifact_bytes =
@@ -515,6 +539,7 @@ async fn dem_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiEr
         lng0: x0,
         dlat: -sy.abs(),
         dlng: sx,
+        channels: 1,
     };
     let values: Vec<f32> = raw.iter().map(|v| *v as f32).collect();
     let artifact_bytes =
@@ -677,6 +702,230 @@ async fn dem_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiEr
     }))
 }
 
+/// WB-5: an encoder embedding as a FIELD token. The worlds agent's
+/// `embedding.json` is a client-side joint-PCA over ~1,024 per-cell
+/// geotessera reads; this replaces that with one signed artifact. It samples
+/// the encoder band over a grid at its native ~0.1° resolution, packs each
+/// cell's N-D vector into a multi-channel `emem:raster:` artifact (channels =
+/// the encoder dim), and signs it under `embedding_raster@1`. The recalled
+/// per-cell facts ARE the anchors, so every column of the field terminates in
+/// a real signed geotessera fact — lineage a stranger can walk.
+async fn embedding_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let b = &req.bbox;
+    let band = req.band.clone();
+    let step = EMBEDDING_STEP_DEG;
+    let width = (((b.max_lng - b.min_lng) / step).ceil() as u32).max(1);
+    let height = (((b.max_lat - b.min_lat) / step).ceil() as u32).max(1);
+    if width * height > MAX_EMBEDDING_CELLS {
+        return Err(bad_request(format!(
+            "embedding field is {width}×{height} = {} cells at the encoder's native {step}°; the cap is {MAX_EMBEDDING_CELLS}. Shrink the bbox or page it.",
+            width * height
+        )));
+    }
+
+    // Grid cell centres, north row first (row 0 = max_lat).
+    let mut points: Vec<(u32, u32, String)> = Vec::with_capacity((width * height) as usize);
+    for row in 0..height {
+        for col in 0..width {
+            let lat = b.max_lat - (row as f64 + 0.5) * step;
+            let lng = b.min_lng + (col as f64 + 0.5) * step;
+            points.push((row, col, emem_codec::geo::cell64_from_latlng(lat, lng)));
+        }
+    }
+
+    // Fan out encoder recalls in bounded-concurrency chunks so a cold field
+    // doesn't open hundreds of upstream range reads at once.
+    let mut vectors: std::collections::HashMap<(u32, u32), (Vec<f32>, String)> =
+        std::collections::HashMap::new();
+    for chunk in points.chunks(16) {
+        let futs = chunk.iter().map(|(row, col, cell)| {
+            let band = band.clone();
+            let cell = cell.clone();
+            async move {
+                let rq = emem_primitives::recall::RecallReq {
+                    cell,
+                    bands: Some(vec![band.clone()]),
+                    ..Default::default()
+                };
+                let res = crate::recall_with_auto_materialize(&rq, s).await;
+                (*row, *col, res)
+            }
+        });
+        for (row, col, res) in futures_util::future::join_all(futs).await {
+            let Ok((resp, _)) = res else { continue };
+            let vec = resp.facts.iter().find_map(|f| match f {
+                Fact::Primary(p) if p.band == band => {
+                    emem_primitives::cbor_ops::as_vec_f32(&p.value)
+                }
+                _ => None,
+            });
+            if let Some(v) = vec {
+                let cid = resp
+                    .receipt
+                    .fact_cids
+                    .first()
+                    .map(|c| c.0.clone())
+                    .unwrap_or_default();
+                vectors.insert((row, col), (v, cid));
+            }
+        }
+    }
+
+    let dim = vectors.values().map(|(v, _)| v.len()).max().unwrap_or(0);
+    if dim == 0 {
+        return Err(upstream_error(format!(
+            "no `{band}` embedding materialised at any of the {} grid cells in this bbox (the encoder publishes no vector here)",
+            width * height
+        )));
+    }
+
+    // Pack width×height×dim, pixel-interleaved, NaN-filling absent or
+    // wrong-length cells; collect the anchor fact_cids that back real cells.
+    let mut values = vec![f32::NAN; (width as usize) * (height as usize) * dim];
+    let mut anchor_fact_cids: Vec<FactCid> = Vec::new();
+    let mut filled = 0usize;
+    for ((row, col), (v, cid)) in &vectors {
+        if v.len() != dim {
+            continue;
+        }
+        let base = ((*row as usize) * (width as usize) + *col as usize) * dim;
+        values[base..base + dim].copy_from_slice(v);
+        filled += 1;
+        if !cid.is_empty() {
+            anchor_fact_cids.push(FactCid::new(cid.clone()));
+        }
+    }
+
+    let header = GridHeader {
+        width,
+        height,
+        epsg: 4326,
+        nodata: f32::NAN,
+        lat0: b.max_lat - 0.5 * step,
+        lng0: b.min_lng + 0.5 * step,
+        dlat: -step,
+        dlng: step,
+        channels: dim as u32,
+    };
+    let artifact_bytes =
+        encode_grid(&header, &values).map_err(|e| upstream_error(format!("grid encode: {e:?}")))?;
+    let byte_len = artifact_bytes.len();
+    let artifact_cid = ARTIFACTS
+        .put(&artifact_bytes)
+        .map_err(|e| upstream_error(format!("artifact store: {e}")))?;
+
+    let tslot: u64 = 0;
+    let centre_lat = (b.min_lat + b.max_lat) / 2.0;
+    let centre_lng = (b.min_lng + b.max_lng) / 2.0;
+    let aoi = aoi_cid(b)?;
+    let record_body = json!({
+        "schema": "emem.field_derivation.v1",
+        "aoi": { "bbox": { "min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng } },
+        "aoi_cid": aoi,
+        "band": band,
+        "tslot": tslot,
+        "fn_key": "embedding_raster@1",
+        "embedding": {
+            "channels": dim,
+            "cells_filled": filled,
+            "cells_total": width * height,
+            "encoder": band,
+            "layout": "pixel-interleaved f32; each pixel carries the encoder's dim-length vector; absent cells are all-NaN",
+            "sampling": format!("encoder native {step}° grid; one recall per cell, auto-materialised and signed"),
+        },
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "grid": {
+                "width": width, "height": height, "channels": dim, "epsg": 4326,
+                "x0": header.lng0, "y0": header.lat0, "dx": step, "dy": -step,
+                "crs_note": "EPSG:4326 degrees; channels axis is the encoder embedding dimension",
+            },
+        },
+        "anchor_count": anchor_fact_cids.len(),
+        "anchor_policy": "every filled cell IS a signed per-cell encoder fact (the recall that filled it); the field's columns terminate in real facts, and all anchor fact_cids enter the receipt preimage",
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
+    let derivation_fact = DerivativeFact {
+        cell: centre_cell.clone(),
+        band: "field.derivation".to_string(),
+        tslot_window: [tslot, tslot],
+        op: "embedding_raster".to_string(),
+        parents: anchor_fact_cids.clone(),
+        value: json_to_cbor(&record_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "embedding_raster@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(derivation_fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| upstream_error("store returned no cid for the derivation".into()))?;
+
+    let binding = FieldBinding {
+        aoi_cid: aoi.clone(),
+        derivation_cid: derivation_cid.clone(),
+    };
+    let mut receipt_cids = anchor_fact_cids;
+    receipt_cids.push(FactCid::new(derivation_cid.clone()));
+    let receipt = s.sign_receipt_field(
+        "emem.band_raster",
+        vec![centre_cell.clone()],
+        receipt_cids,
+        false,
+        started,
+        binding,
+    );
+
+    Ok(json!({
+        "schema": "emem.band_raster.v1",
+        "algorithm_key": "embedding_raster@1",
+        "aoi_cid": aoi,
+        "band": band,
+        "tslot": tslot,
+        "grid": { "width": width, "height": height, "channels": dim, "epsg": 4326, "native_deg": step },
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "url": format!("/v1/artifacts/{artifact_cid}"),
+            "eviction_note": "the artifact is evictable; the derivation record pins the encoder, grid, and anchor facts needed to rebuild identical bytes",
+        },
+        "derivation": record_body,
+        "derivation_cid": derivation_cid,
+        "tokens": {
+            "raster": format!("emem:raster:{aoi}:{band}:{tslot}:{derivation_cid}"),
+            "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
+        },
+        "docs": "https://emem.dev/reference#token-raster",
+        "receipt": receipt,
+    }))
+}
+
 pub async fn post_band_raster(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<BandRasterReq>,
@@ -812,7 +1061,7 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
         .unwrap_or("");
     let is_raster_shaped = matches!(
         fn_key,
-        "band_raster@1" | "s2_median_composite@1" | "dem_raster@1"
+        "band_raster@1" | "s2_median_composite@1" | "dem_raster@1" | "embedding_raster@1"
     );
     if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative") || !is_raster_shaped {
         return Err(conflict(format!(
@@ -1726,6 +1975,7 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
         lng0: x0,
         dlat: -sy_scale.abs(),
         dlng: sx,
+        channels: 1,
     };
     let artifact_bytes =
         encode_grid(&header, &out).map_err(|e| upstream_error(format!("grid encode: {e:?}")))?;

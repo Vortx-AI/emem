@@ -17681,7 +17681,7 @@ async fn mcp_tool_call(
         // MCP is the 24 KB-budget path, so return the compact projection
         // by default — the full ~122-band array truncated over the wire
         // (pfyvy4tk's E2). REST /v1/data_availability stays full.
-        "emem_data_availability" => Ok(data_availability_json(&s, true)),
+        "emem_data_availability" => Ok(data_availability_json(s, true)),
         "emem_recall" => {
             // Route through the auto-materialize wrapper so MCP gets the
             // same on-demand corpus growth as REST. Without this,

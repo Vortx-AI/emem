@@ -13730,6 +13730,36 @@
       "honest_runtime_note": "Shares the /v1/band_raster surface; the band spelling routes to the DEM path, which skips scene selection because GLO-30 is a static global COG in EPSG:4326. Bounds are refusals, not timeouts: 512 px per side, and a bbox that crosses a 1° tile edge is refused (single-tile only; no stitching yet). Over open ocean the archive publishes no tile — a clear 'no elevation field here', not a crash."
     },
     {
+      "key": "embedding_raster@1",
+      "kind": "embedding",
+      "domain": "foundation",
+      "inputs": [
+        {
+          "band": "geotessera",
+          "role": "encoder_vector_band",
+          "explanation": "An encoder band whose recall yields an N-D vector (geotessera 128-D, geotessera.multi_year 1024-D, clay_v1, prithvi_eo2, galileo). Sampled over the bbox at the encoder's native ~0.1 degree grid, one recall per cell."
+        }
+      ],
+      "formula": "for each cell in the bbox grid (encoder-native 0.1 degree step): v_cell = recall(encoder, cell) auto-materialised + signed; artifact = canonical_multichannel_grid_f32(width x height x dim, pixel-interleaved, absent cells all-NaN); channels=dim written at grid header offset 56 (0 and 1 both mean scalar, so existing scalar rasters stay byte-identical); artifact_cid = blake3(artifact); derivation record pins {aoi_cid, encoder, dim, cells_filled, grid georeferencing, anchor fact_cids}; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment; every filled column terminates in a real per-cell encoder fact",
+      "output": {
+        "kind": "vector",
+        "unit": "artifact",
+        "range": [
+          0,
+          1
+        ],
+        "explanation": "Not a scalar: a content-addressed MULTI-CHANNEL grid artifact (width x height x encoder_dim f32, EPSG:4326) plus a persisted derivation record (emem.field_derivation.v1). The range is a registry formality. Verification: re-hash the artifact, decode the channel axis, and walk any filled cell to its cited per-cell encoder fact_cid; or full-recompute by re-recalling the encoder over the same grid."
+      },
+      "when_to_use": "When an agent needs an ENCODER EMBEDDING as a field, not a scalar: a signed 128-D geotessera layer over an AOI for a world model, a similarity manifold, or a client-side joint-PCA input, as one citeable emem:raster: token instead of hundreds of per-cell reads. The embedding sibling of band_raster@1. For one cell's vector use recall; for a scalar band field use band_raster@1.",
+      "primitive": "POST /v1/band_raster {bbox, band: \"geotessera\"} -> multi-channel embedding grid artifact + persisted derivation record + FIELD-bound receipt; GET /v1/artifacts/{cid} serves the bytes, immutable",
+      "deterministic": false,
+      "citation": "docs/plans/field-tokens.md (the signed field-token design); GeoTessera (Cambridge) foundation embedding; the emem-grid channel extension (grid.rs offset 56)",
+      "documentation_only": true,
+      "runtime_path": "/v1/band_raster",
+      "partial_runtime": true,
+      "honest_runtime_note": "Shares the /v1/band_raster surface; an encoder band spelling routes here. model_output provenance (a learned representation, not a measurement), so non-deterministic in the registry sense: the vector depends on the encoder revision. Bounds are refusals: the fan-out is capped at 256 grid cells (a bbox larger than that at 0.1 degree is refused, shrink or page it), and cells the encoder does not cover are NaN-filled, not faked. The recalled per-cell facts persist and are cited as anchors, so the field is anchored to real signed facts, never invented pixels."
+    },
+    {
       "key": "jepa_forecast@1",
       "kind": "solo",
       "domain": "forecast",
