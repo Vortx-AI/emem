@@ -646,6 +646,15 @@ const SCHEMA_CUBE_RESOLVE: &str = r#"{"type":"object","required":["token"],"prop
 "token":{"type":"string","description":"emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>"}
 }}"#;
 
+const SCHEMA_RASTER_BUNDLE: &str = r#"{"type":"object","required":["tokens"],"properties":{
+"tokens":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":64,"description":"2 to 64 already-minted emem:raster: field tokens (any mix of band_raster / s2_median_composite / dem_raster / embedding_raster), bound in the order given."},
+"purpose":{"type":"string","description":"Optional human-readable purpose, folded into bundle_cid so the same members under a different purpose get a distinct bundle."}
+}}"#;
+
+const SCHEMA_RASTER_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
+"token":{"type":"string","description":"emem:rasterset:<bundle_cid>:<derivation_cid>"}
+}}"#;
+
 const SCHEMA_BAND_COMPOSITE: &str = r#"{"type":"object","required":["bbox","band","start_date","end_date"],"properties":{
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest."},
 "band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12."},
@@ -1001,6 +1010,28 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when you receive an emem:cube: token from another agent and want the verified time series behind it: this returns the bound record and the member raster tokens, then resolve those (or resolve_many) and re-hash each artifact against its artifact_cid for the spot-check tier. For a single emem:raster: token use emem_raster_resolve; for emem:fact: use emem_memory_token_resolve.",
         input_schema: SCHEMA_CUBE_RESOLVE,
         example_args: r#"{"token":"emem:cube:<aoi_cid>:s2.B08:20600..20651:<derivation_cid>"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_raster_bundle",
+        title: "Raster bundle: bind N field tokens into one citeable manifest",
+        description: "Mint an emem:rasterset: token: a signed manifest binding 2..64 already-minted emem:raster: field tokens (any mix of band_raster / s2_median_composite / dem_raster / embedding_raster) into ONE citeable thing. The composition primitive a world model or a compliance report needs when it must cite one token that points at every signed layer at once - the RGB ground composites, the DEM geometry, the encoder embedding field - so the report points at the world and the world points back at each signed layer. Unlike emem_band_cube (which MINTS members by fanning one band across dates), this BUNDLES existing tokens across bands and types: it is the raster analogue of a memory bundle and the cross-band analogue of a cube. It mints no new pixels - each member resolves and re-derives on its own, and the bundle's lineage terminates in each member's own derivation. bundle_cid = blake3 of the ordered member derivation cids (plus purpose), so the same ordered set always names the same bundle; resolve recomputes it and refuses an altered or forged membership. A member that is not a live raster-shaped derivation fails the whole mint by name. This signs and persists the manifest.",
+        when_to_use: "Call when you have several minted emem:raster: tokens (a world's ground, geometry, and embedding layers) and want ONE token the report or world card cites. For one field use emem_band_raster; for one band over time use emem_band_cube; to bundle per-cell FACTS (not fields) use emem_memory_bundle. Resolve a received bundle with emem_raster_bundle_resolve.",
+        input_schema: SCHEMA_RASTER_BUNDLE,
+        example_args: r#"{"tokens":["emem:raster:<aoi>:s2.B04:20509:<dcid1>","emem:raster:<aoi>:s2.B03:20509:<dcid2>","emem:raster:<aoi>:s2.B02:20509:<dcid3>"],"purpose":"world_soubre RGB ground"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_raster_bundle_resolve",
+        title: "Dereference an emem:rasterset: bundle token",
+        description: "Resolve emem:rasterset:<bundle_cid>:<derivation_cid> back to its signed manifest and verify it. Fail-closed like every field-token resolve: the cid must be a raster_bundle@1 derivation, bundle_cid is recomputed from the record's ordered members and matched against BOTH the token and the record (any mismatch is a typed 409, refusing an altered or forged membership), and every member emem:raster: token is re-verified as a live raster derivation. Returns the member list with a per-member resolves flag, so a stranger confirms the whole set is intact before trusting the world it names.",
+        when_to_use: "Call when you receive an emem:rasterset: token (a world's or DDS's bundle of field layers) and want to verify the membership is intact and every layer still resolves, before you trust or render it. For a single emem:raster: token use emem_raster_resolve.",
+        input_schema: SCHEMA_RASTER_BUNDLE_RESOLVE,
+        example_args: r#"{"token":"emem:rasterset:<bundle_cid>:<derivation_cid>"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
@@ -2122,6 +2153,8 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_band_composite",
             "emem_raster_resolve",
             "emem_cube_resolve",
+            "emem_raster_bundle",
+            "emem_raster_bundle_resolve",
         ],
     ),
     (
@@ -2282,7 +2315,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     (
         "raster",
         "A gridded field over an area, rather than points. This is what a world model consumes.",
-        &["emem_cell_scene_rgb", "emem_coverage_map", "emem_band_raster", "emem_band_cube", "emem_band_composite",
+        &["emem_cell_scene_rgb", "emem_coverage_map", "emem_band_raster", "emem_band_cube", "emem_band_composite", "emem_raster_bundle",
         ],
     ),
     (
@@ -2311,6 +2344,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_memory_token", "emem_memory_token_resolve", "emem_memory_bundle",
             "emem_memory_bundle_resolve", "emem_edges_recall", "emem_derive",
             "emem_derive_list", "emem_raster_resolve", "emem_cube_resolve",
+            "emem_raster_bundle_resolve",
         ],
     ),
     (

@@ -926,6 +926,316 @@ async fn embedding_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue,
     }))
 }
 
+// ── emem:rasterset: — a signed manifest over N field tokens. ────────────────
+//
+// The composition primitive the fly-through DDS needs: bind an already-minted
+// set of `emem:raster:` field tokens (RGB ground + DEM geometry + embedding +
+// composite layers) into ONE citeable token whose content-address is the
+// ordered membership. Unlike `band_cube` (which MINTS members by fanning out
+// one band across dates), this BUNDLES existing tokens across bands/types —
+// the raster analogue of `memory_bundle` (which bundles per-cell facts).
+// `bundle_cid = blake3(canonical_cbor(ordered member derivation_cids))`, so
+// resolve recomputes it and refuses an altered membership (typed 409).
+
+#[derive(Debug, Deserialize)]
+pub struct RasterBundleReq {
+    /// 2..=64 `emem:raster:` field tokens to bind, in the order given.
+    pub tokens: Vec<String>,
+    /// Optional human-readable purpose, folded into the bundle_cid preimage
+    /// so the same members under a different purpose get a distinct bundle.
+    #[serde(default)]
+    pub purpose: Option<String>,
+}
+
+/// Resolve one member token to its verified record summary, or a typed error
+/// naming which token failed. Confirms the derivation exists and is
+/// raster-shaped, and binds the token's aoi/band/tslot against the record.
+async fn resolve_raster_member(
+    token: &str,
+    s: &AppState,
+) -> Result<(String, String, u64, String, String), ApiError> {
+    let (aoi, band, tslot, derivation_cid) = parse_raster_token(token).map_err(bad_request)?;
+    let facts = s
+        .storage
+        .get_facts_many(&[FactCid::new(derivation_cid.clone())])
+        .await
+        .map_err(ApiError::from)?;
+    let Some(Some(fact)) = facts.into_iter().next() else {
+        return Err(bad_request(format!(
+            "member token has no derivation record on this responder: {token}"
+        )));
+    };
+    let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
+    let fn_key = fact_json
+        .get("derivation")
+        .and_then(|d| d.get("fn_key"))
+        .and_then(|f| f.as_str())
+        .unwrap_or("");
+    let is_raster_shaped = matches!(
+        fn_key,
+        "band_raster@1" | "s2_median_composite@1" | "dem_raster@1" | "embedding_raster@1"
+    );
+    if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative") || !is_raster_shaped {
+        return Err(conflict(format!(
+            "member {derivation_cid} is not a raster-shaped field derivation; a raster bundle takes only emem:raster: field tokens"
+        )));
+    }
+    let body = fact_json.get("value").cloned().unwrap_or(json!({}));
+    // Bind the token's claims against the signed record (same rule raster_resolve applies).
+    if body.get("aoi_cid").and_then(|v| v.as_str()) != Some(aoi.as_str())
+        || body.get("band").and_then(|v| v.as_str()) != Some(band.as_str())
+        || body.get("tslot").and_then(|v| v.as_u64()) != Some(tslot)
+    {
+        return Err(conflict(format!(
+            "member token {token} contradicts its signed record (aoi/band/tslot); refusing a forged handle"
+        )));
+    }
+    let artifact_cid = body
+        .pointer("/artifact/artifact_cid")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok((derivation_cid, band, tslot, aoi, artifact_cid))
+}
+
+/// `blake3(canonical_cbor([member derivation cids..., purpose]))` — content-
+/// addresses the ordered membership so the same set always names the same bundle.
+fn raster_bundle_cid(member_dcids: &[String], purpose: &str) -> Result<String, String> {
+    let mut v: Vec<String> = member_dcids.to_vec();
+    v.push(format!("purpose:{purpose}"));
+    let bytes = emem_fact::cbor::to_canonical_cbor(&v)
+        .map_err(|e| format!("member list does not canonicalize: {e}"))?;
+    Ok(data_encoding::BASE32_NOPAD
+        .encode(blake3::hash(&bytes).as_bytes())
+        .to_lowercase())
+}
+
+pub async fn raster_bundle(req: RasterBundleReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    if req.tokens.len() < 2 {
+        return Err(bad_request(
+            "a raster bundle needs at least 2 member tokens; one raster is already citeable on its own".into(),
+        ));
+    }
+    if req.tokens.len() > 64 {
+        return Err(bad_request(format!(
+            "a raster bundle takes at most 64 members; got {}",
+            req.tokens.len()
+        )));
+    }
+    let purpose = req.purpose.clone().unwrap_or_default();
+
+    // Resolve every member first; a bad token fails the whole mint by name.
+    let mut members: Vec<JsonValue> = Vec::with_capacity(req.tokens.len());
+    let mut member_dcids: Vec<String> = Vec::with_capacity(req.tokens.len());
+    let mut parent_cids: Vec<FactCid> = Vec::with_capacity(req.tokens.len());
+    for token in &req.tokens {
+        let (dcid, band, tslot, aoi, artifact_cid) = resolve_raster_member(token, s).await?;
+        members.push(json!({
+            "token": token,
+            "derivation_cid": dcid,
+            "band": band,
+            "tslot": tslot,
+            "aoi_cid": aoi,
+            "artifact_cid": artifact_cid,
+        }));
+        parent_cids.push(FactCid::new(dcid.clone()));
+        member_dcids.push(dcid);
+    }
+
+    let bundle_cid = raster_bundle_cid(&member_dcids, &purpose).map_err(upstream_error)?;
+    let record_body = json!({
+        "schema": "emem.raster_bundle.v1",
+        "fn_key": "raster_bundle@1",
+        "bundle_cid": bundle_cid,
+        "purpose": purpose,
+        "member_count": members.len(),
+        "members": members,
+        "note": "a signed manifest binding N emem:raster: field tokens; bundle_cid content-addresses the ordered membership. Resolve to rebind every member and refuse an altered set. Each member resolves and re-derives independently.",
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    // Anchor the bundle at the first member's aoi centre cell for a stable handle.
+    let anchor_cell = members
+        .first()
+        .and_then(|m| m.get("aoi_cid").and_then(|v| v.as_str()))
+        .map(|a| a.to_string())
+        .unwrap_or_default();
+    let derivation_fact = DerivativeFact {
+        cell: anchor_cell.clone(),
+        band: "field.raster_bundle".to_string(),
+        tslot_window: [0, 0],
+        op: "raster_bundle".to_string(),
+        parents: parent_cids.clone(),
+        value: json_to_cbor(&record_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "raster_bundle@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(derivation_fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("bundle attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| upstream_error("store returned no cid for the bundle".into()))?;
+
+    let mut receipt_cids = parent_cids;
+    receipt_cids.push(FactCid::new(derivation_cid.clone()));
+    let receipt = s.sign_receipt(
+        "emem.raster_bundle",
+        vec![anchor_cell.clone()],
+        receipt_cids,
+        false,
+        started,
+        None,
+    );
+
+    Ok(json!({
+        "schema": "emem.raster_bundle.v1",
+        "algorithm_key": "raster_bundle@1",
+        "bundle_cid": bundle_cid,
+        "member_count": members.len(),
+        "derivation": record_body,
+        "derivation_cid": derivation_cid,
+        "tokens": {
+            "raster_bundle": format!("emem:rasterset:{bundle_cid}:{derivation_cid}"),
+            "derivation_fact": format!("emem:fact:{anchor_cell}:{derivation_cid}"),
+        },
+        "docs": "https://emem.dev/reference#token-raster",
+        "receipt": receipt,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RasterBundleResolveReq {
+    /// `emem:rasterset:<bundle_cid>:<derivation_cid>`
+    pub token: String,
+}
+
+pub async fn raster_bundle_resolve(
+    req: RasterBundleResolveReq,
+    s: &AppState,
+) -> Result<JsonValue, ApiError> {
+    let rest = req
+        .token
+        .trim()
+        .strip_prefix("emem:rasterset:")
+        .ok_or_else(|| bad_request("a raster-bundle token starts with emem:rasterset:".into()))?;
+    let parts: Vec<&str> = rest.split(':').collect();
+    if parts.len() != 2 {
+        return Err(bad_request(
+            "emem:rasterset: takes exactly bundle_cid:derivation_cid".into(),
+        ));
+    }
+    let (token_bundle_cid, derivation_cid) = (parts[0].to_string(), parts[1].to_string());
+
+    let facts = s
+        .storage
+        .get_facts_many(&[FactCid::new(derivation_cid.clone())])
+        .await
+        .map_err(ApiError::from)?;
+    let Some(Some(fact)) = facts.into_iter().next() else {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "no raster-bundle record for cid={derivation_cid} on this responder"
+                ),
+                details: None,
+            },
+        ));
+    };
+    let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
+    let fn_key = fact_json
+        .get("derivation")
+        .and_then(|d| d.get("fn_key"))
+        .and_then(|f| f.as_str())
+        .unwrap_or("");
+    if fn_key != "raster_bundle@1" {
+        return Err(conflict(format!(
+            "cid {derivation_cid} is not a raster_bundle@1 derivation; an emem:rasterset: token cannot dereference it"
+        )));
+    }
+    let body = fact_json.get("value").cloned().unwrap_or(json!({}));
+    let members = body
+        .get("members")
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let purpose = body.get("purpose").and_then(|v| v.as_str()).unwrap_or("");
+    let member_dcids: Vec<String> = members
+        .iter()
+        .filter_map(|m| {
+            m.get("derivation_cid")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .collect();
+
+    // Recompute bundle_cid from the record's members and refuse an altered set.
+    let recomputed = raster_bundle_cid(&member_dcids, purpose).map_err(upstream_error)?;
+    let record_bundle_cid = body
+        .get("bundle_cid")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if recomputed != record_bundle_cid || recomputed != token_bundle_cid {
+        return Err(conflict(format!(
+            "bundle_cid mismatch: token={token_bundle_cid}, record={record_bundle_cid}, recomputed-from-members={recomputed}. Refusing an altered or forged membership."
+        )));
+    }
+
+    // Rebind: confirm every member still resolves as a raster derivation.
+    let mut rebound: Vec<JsonValue> = Vec::with_capacity(members.len());
+    for m in &members {
+        let tok = m.get("token").and_then(|v| v.as_str()).unwrap_or("");
+        let ok = resolve_raster_member(tok, s).await.is_ok();
+        rebound.push(json!({ "token": tok, "resolves": ok }));
+    }
+
+    Ok(json!({
+        "schema": "emem.raster_bundle.v1",
+        "bundle_cid": recomputed,
+        "verified": true,
+        "member_count": members.len(),
+        "members": members,
+        "rebound": rebound,
+        "note": "bundle_cid recomputed from the signed record's members and matched against the token; every member re-verified as a live raster derivation.",
+    }))
+}
+
+pub async fn post_raster_bundle(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<RasterBundleReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(raster_bundle(req, &s).await?))
+}
+
+pub async fn post_raster_bundle_resolve(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<RasterBundleResolveReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(raster_bundle_resolve(req, &s).await?))
+}
+
 pub async fn post_band_raster(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<BandRasterReq>,

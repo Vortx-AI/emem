@@ -13760,6 +13760,36 @@
       "honest_runtime_note": "Shares the /v1/band_raster surface; an encoder band spelling routes here. model_output provenance (a learned representation, not a measurement), so non-deterministic in the registry sense: the vector depends on the encoder revision. Bounds are refusals: the fan-out is capped at 256 grid cells (a bbox larger than that at 0.1 degree is refused, shrink or page it), and cells the encoder does not cover are NaN-filled, not faked. The recalled per-cell facts persist and are cited as anchors, so the field is anchored to real signed facts, never invented pixels."
     },
     {
+      "key": "raster_bundle@1",
+      "kind": "combined",
+      "domain": "foundation",
+      "inputs": [
+        {
+          "band": "field.raster_bundle",
+          "role": "member_field_tokens",
+          "explanation": "2..=64 already-minted emem:raster: field tokens (any mix of band_raster / s2_median_composite / dem_raster / embedding_raster), bound in the order given."
+        }
+      ],
+      "formula": "resolve each member emem:raster: token (confirm it is a live raster-shaped derivation and bind its aoi/band/tslot claims), then bundle_cid = blake3(canonical_cbor(ordered member derivation_cids + purpose)); sign a manifest DerivativeFact (parents = member derivation_cids) binding the ordered set; resolve recomputes bundle_cid from the record's members and refuses an altered or forged membership (typed 409), then re-verifies every member still resolves",
+      "output": {
+        "kind": "classification",
+        "unit": "manifest",
+        "range": [
+          0,
+          1
+        ],
+        "explanation": "Not a scalar: a signed manifest over N field tokens, named by one emem:rasterset: token whose bundle_cid content-addresses the ordered membership. The composition primitive a world or a DDS cites when it needs ONE token that points at every signed layer (RGB ground + DEM + embedding + composite). Verification: resolve recomputes bundle_cid from the members and refuses a changed set; each member resolves and re-derives independently."
+      },
+      "when_to_use": "When a world model or a compliance report needs to cite ONE token that binds a set of already-minted field tokens (its ground, geometry, embedding, and layer rasters) so the report points at the world and the world points back at each signed layer. The raster analogue of memory_bundle (facts) and the cross-band analogue of cube (one band over time). For one field use band_raster; for one band over time use band_cube.",
+      "primitive": "POST /v1/raster_bundle {tokens:[emem:raster:...], purpose?} -> emem:rasterset: token + signed manifest; POST /v1/raster_bundle/resolve rebinds every member and refuses an altered set",
+      "deterministic": true,
+      "citation": "docs/plans/field-tokens.md (the signed field-token design); the cube manifest construction it generalises across bands",
+      "documentation_only": true,
+      "runtime_path": "/v1/raster_bundle",
+      "partial_runtime": true,
+      "honest_runtime_note": "POST /v1/raster_bundle is the runnable surface. It MINTS nothing new: it binds existing signed rasters, so its lineage terminates in each member's own derivation and its members outlive the bundle. Bounds are refusals: 2..=64 members, and a member that is not a live raster-shaped derivation fails the whole mint by name. bundle_cid is deterministic in the members, so the same ordered set + purpose always names the same bundle."
+    },
+    {
       "key": "jepa_forecast@1",
       "kind": "solo",
       "domain": "forecast",
