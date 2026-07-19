@@ -11116,6 +11116,12 @@ struct RecallPolygonReq {
     /// fact for any row is one `/v1/recall {cell, bands:[band]}` away.
     #[serde(default)]
     projection: Option<String>,
+    /// Pagination offset into `cells_compact` (compact projection only).
+    /// The compact array is paged at `COMPACT_PAGE_SIZE` rows so even a
+    /// large multi-band polygon fits the MCP 24 KB budget; page by passing
+    /// the response's `compact_page.next_offset` until it is null.
+    #[serde(default)]
+    compact_offset: Option<usize>,
     /// True OSM boundary as GeoJSON `Polygon` or `MultiPolygon`. When
     /// provided, candidate cells from the bbox grid are filtered with
     /// point-in-polygon so the recall scope matches the actual feature
@@ -12015,15 +12021,18 @@ async fn post_recall_polygon(
         .map(|p| p.eq_ignore_ascii_case("compact"))
         .unwrap_or(false)
     {
-        let rows: Vec<JsonValue> = match out.get("by_cell") {
+        // Coordinates round to 5 dp (A2A rule 6: the descriptor precision,
+        // ~1 m, and the leanest that still recovers the right cell). VALUES
+        // stay full precision — rule 5, fidelity over size, since an agent
+        // thresholds on the exact value.
+        let round5 = |v: f64| (v * 1e5).round() / 1e5;
+        let mut rows: Vec<JsonValue> = match out.get("by_cell") {
             Some(JsonValue::Object(bc)) => {
                 let mut rows = Vec::new();
                 for (cell, cv) in bc {
                     let (lat, lng) = emem_codec::latlng_from_cell64(cell)
-                        .map(|i| (i.lat_deg, i.lng_deg))
+                        .map(|i| (round5(i.lat_deg), round5(i.lng_deg)))
                         .unwrap_or((f64::NAN, f64::NAN));
-                    // A failed cell has no `facts`; surface it as one row
-                    // carrying its error so a compact reader still sees it.
                     match cv.get("facts").and_then(|f| f.as_array()) {
                         Some(facts) => {
                             for f in facts {
@@ -12039,12 +12048,9 @@ async fn post_recall_polygon(
                         }
                         None => {
                             if let Some(err) = cv.get("error") {
-                                rows.push(json!({
-                                    "cell": cell,
-                                    "lat": lat,
-                                    "lng": lng,
-                                    "error": err,
-                                }));
+                                rows.push(
+                                    json!({ "cell": cell, "lat": lat, "lng": lng, "error": err }),
+                                );
                             }
                         }
                     }
@@ -12053,16 +12059,53 @@ async fn post_recall_polygon(
             }
             _ => Vec::new(),
         };
+        // Page the rows so even a large multi-band polygon fits the wire.
+        const COMPACT_PAGE_SIZE: usize = 100;
+        let total = rows.len();
+        let offset = req.compact_offset.unwrap_or(0).min(total);
+        let end = (offset + COMPACT_PAGE_SIZE).min(total);
+        let next_offset = if end < total { Some(end) } else { None };
+        let page: Vec<JsonValue> = rows.drain(offset..end).collect();
         if let Some(o) = out.as_object_mut() {
             o.remove("by_cell");
             o.remove("merged_facts");
             o.remove("band_metadata");
             o.remove("band_metadata_layout");
+            // The top-level `cells` list duplicates every cell already in the
+            // rows; drop it in compact mode to save the wire.
+            o.remove("cells");
+            // On a cold polygon the first call carries a per-cell
+            // `materialize_notes` + `pending` array — dozens of prose entries
+            // that blow the wire budget on page 1. Compact keeps only their
+            // counts (the `retry`/`progress`/`converged` fields stay).
+            let mn_count = o
+                .get("materialize_notes")
+                .and_then(|v| v.as_array())
+                .map(|n| n.len());
+            if let Some(count) = mn_count {
+                o.insert("materialize_notes_count".into(), json!(count));
+                o.remove("materialize_notes");
+            }
+            let pending_count = o.get("pending").and_then(|v| v.as_array()).map(|p| p.len());
+            if let Some(count) = pending_count {
+                o.insert("pending_count".into(), json!(count));
+                o.remove("pending");
+            }
             o.insert("projection".into(), json!("compact"));
-            o.insert("cells_compact".into(), json!(rows));
+            o.insert("cells_compact".into(), json!(page));
+            o.insert(
+                "compact_page".into(),
+                json!({
+                    "offset": offset,
+                    "page_size": COMPACT_PAGE_SIZE,
+                    "returned": end - offset,
+                    "total_rows": total,
+                    "next_offset": next_offset,
+                }),
+            );
             o.insert(
                 "projection_note".into(),
-                json!("compact: one row per (cell, band) primary fact {cell, lat, lng, band, value, confidence}; sources/derivation/band_metadata dropped to fit the MCP wire budget. Re-read any row's full signed fact with /v1/recall {cell, bands:[band]} and verify its receipt there."),
+                json!("compact: one row per (cell, band) primary fact {cell, lat(5dp), lng(5dp), band, value(full), confidence}. Paged at 100 rows to fit the MCP 24 KB budget — page by re-calling with `compact_offset: compact_page.next_offset` until it is null. Re-read any row's full signed fact with /v1/recall {cell, bands:[band]}."),
             );
         }
     }
