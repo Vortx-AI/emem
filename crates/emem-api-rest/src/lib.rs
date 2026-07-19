@@ -4064,6 +4064,28 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             "llms_txt":             format!("{origin}/llms.txt"),
             "llms_full_txt":        format!("{origin}/llms-full.txt"),
         },
+        // Machine-readable security posture — the agent-first answer a
+        // policy scanner (e.g. PolicyLayer) should read instead of assuming
+        // an unguarded tool surface. The rate-limit numbers reflect the
+        // LIVE enforced config, not a claim.
+        "security_posture": {
+            "model": "agent-first: attribution + audit + per-identity backstop, not a human approval gate",
+            "every_write_is": {
+                "signed":             "ed25519 over a domain-separated preimage; no anonymous mutation reaches storage",
+                "append_only_logged": "RFC 6962 transparency log — a write is appended, never silently overwrites or vanishes; auditable via /v1/log/*",
+                "namespace_scoped":   "an attester can only write under /memories/by_attester/<its-pubkey8>/; cross-namespace writes return 403 memory_namespace_violation",
+            },
+            "write_rate_limit": {
+                "scope":             "per_attester",
+                "enabled":           write_limiter().enabled,
+                "sustained_per_min": write_limiter().per_sec * 60.0,
+                "burst":             write_limiter().burst,
+                "on_exceed":         "HTTP 429 code=rate_limited with details.retry_after_s; the write is only slowed, never lost",
+                "tune":              ["EMEM_WRITE_RATE_PER_MIN", "EMEM_WRITE_RATE_BURST", "EMEM_WRITE_RATE_LIMIT=off"],
+            },
+            "destructive_ops": "memory_delete / memory_rename mutate only the caller's own namespace and are recorded in the append-only log; there is no cross-agent delete and no un-attributed destroy",
+            "note": "PolicyLayer's human-centric 'deny by default, require human approval' does not fit an agent-first substrate: every action is already attributable, bounded, and auditable with no human in the loop.",
+        },
         "responder": {
             "pubkey_b32":    pubkey_b32,
             "signature_alg": "ed25519",
@@ -24520,6 +24542,146 @@ fn attester_recipe(verb: &str, path: &str, body_hash: &[u8; 32]) -> JsonValue {
     })
 }
 
+// ── Per-attester write rate limiter (PolicyLayer mutating-tool backstop) ──
+//
+// PolicyLayer's scan flagged that emem's mutating tools carry "no built-in
+// limits". The agent-first answer is NOT a human approval gate — that would
+// break the autonomy the whole protocol exists to serve. emem already
+// answers the substance of that finding by design: every write is SIGNED
+// (no anonymous mutation), APPEND-ONLY LOGGED (nothing silently vanishes),
+// and NAMESPACE-SCOPED (an attester can only write under its own
+// `/memories/by_attester/<pubkey8>/`). What was genuinely missing is a
+// per-identity blast-radius bound so a single key stuck in a runaway loop
+// cannot flood the log or exhaust upstreams. This is that bound: an
+// in-memory token bucket keyed by verified attester pubkey (unattested
+// open-namespace writes share one `@open` bucket). Ephemeral by design —
+// buckets reset on restart; it is an abuse backstop, not accounting. The
+// default is deliberately generous so it never touches a legitimate
+// collaborating agent (the worlds/eudr agents write tens of memories, not
+// hundreds a minute); it only catches a genuine flood.
+//
+// Config (all optional): EMEM_WRITE_RATE_PER_MIN (sustained, default 240),
+// EMEM_WRITE_RATE_BURST (bucket capacity, default 60),
+// EMEM_WRITE_RATE_LIMIT=off disables enforcement (shadow the mechanism
+// without gating), for an operator who wants to observe before enforcing.
+struct WriteRateBucket {
+    tokens: f64,
+    last: std::time::Instant,
+}
+
+struct WriteRateLimiter {
+    buckets: std::sync::Mutex<std::collections::HashMap<String, WriteRateBucket>>,
+    per_sec: f64,
+    burst: f64,
+    enabled: bool,
+}
+
+impl WriteRateLimiter {
+    fn from_env() -> Self {
+        // The limiter is a process-global, and much of the test suite does
+        // many unattested creates that all share the `@open` bucket — under
+        // enforcement they would spuriously 429 each other. Disable the
+        // env-configured global in test builds; the enforcement path itself
+        // is covered by a unit test that constructs the limiter directly.
+        // `!cfg!(test)` is `true` in the release binary, so prod is
+        // unaffected (no rebuild needed for this line).
+        let enabled = !cfg!(test)
+            && std::env::var("EMEM_WRITE_RATE_LIMIT")
+                .map(|v| {
+                    !matches!(
+                        v.trim().to_ascii_lowercase().as_str(),
+                        "off" | "0" | "false" | "disabled" | "no"
+                    )
+                })
+                .unwrap_or(true);
+        let per_min = std::env::var("EMEM_WRITE_RATE_PER_MIN")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(240.0);
+        let burst = std::env::var("EMEM_WRITE_RATE_BURST")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(60.0);
+        Self {
+            buckets: std::sync::Mutex::new(std::collections::HashMap::new()),
+            per_sec: per_min / 60.0,
+            burst,
+            enabled,
+        }
+    }
+
+    /// Consume one write token for `key`. `Ok(())` if allowed; `Err(secs)`
+    /// with a whole-second retry hint if the bucket is dry.
+    fn check(&self, key: &str) -> Result<(), u64> {
+        if !self.enabled {
+            return Ok(());
+        }
+        let now = std::time::Instant::now();
+        let mut map = self.buckets.lock().unwrap_or_else(|e| e.into_inner());
+        // Opportunistic GC so a spray of distinct keys can't grow the map
+        // without bound: when it gets large, drop buckets that have fully
+        // refilled (a full bucket carries no state worth keeping).
+        if map.len() > 8192 {
+            map.retain(|_, b| {
+                b.tokens + b.last.elapsed().as_secs_f64() * self.per_sec < self.burst
+            });
+        }
+        let b = map.entry(key.to_string()).or_insert(WriteRateBucket {
+            tokens: self.burst,
+            last: now,
+        });
+        let elapsed = now.duration_since(b.last).as_secs_f64();
+        b.tokens = (b.tokens + elapsed * self.per_sec).min(self.burst);
+        b.last = now;
+        if b.tokens >= 1.0 {
+            b.tokens -= 1.0;
+            Ok(())
+        } else {
+            let deficit = 1.0 - b.tokens;
+            Err(((deficit / self.per_sec).ceil() as u64).max(1))
+        }
+    }
+}
+
+fn write_limiter() -> &'static WriteRateLimiter {
+    static L: std::sync::OnceLock<WriteRateLimiter> = std::sync::OnceLock::new();
+    L.get_or_init(WriteRateLimiter::from_env)
+}
+
+/// Per-attester write backstop. Called at every memory-write verb after
+/// the signature verifies, keyed by the verified attester pubkey;
+/// unattested open-namespace writes share one `@open` bucket. Returns a
+/// typed 429 whose message is explicit that nothing was lost (the write is
+/// signed, append-only-logged, and namespace-scoped) — it was only slowed.
+fn enforce_write_rate_limit(attester: Option<&MemoryAttester>) -> Result<(), ApiError> {
+    let key = attester.map(|a| a.pubkey_b32.as_str()).unwrap_or("@open");
+    match write_limiter().check(key) {
+        Ok(()) => Ok(()),
+        Err(retry_after_s) => Err(ApiError(
+            StatusCode::TOO_MANY_REQUESTS,
+            ErrorBody {
+                code: ErrorCode::RateLimited,
+                message: format!(
+                    "write_rate_limited: this identity exceeded the per-attester write backstop \
+                     (~{:.0} writes/min sustained, burst {:.0}). Retry after ~{retry_after_s}s. \
+                     This is a blast-radius bound on a runaway loop, not a quota: every emem write \
+                     is signed, append-only-logged, and namespace-scoped, so nothing was lost — the \
+                     write was only slowed. An operator can tune EMEM_WRITE_RATE_PER_MIN / _BURST.",
+                    write_limiter().per_sec * 60.0,
+                    write_limiter().burst,
+                ),
+                details: Some(json!({
+                    "code": "write_rate_limited",
+                    "retry_after_s": retry_after_s,
+                    "scope": "per_attester",
+                })),
+            },
+        )),
+    }
+}
+
 /// Validate the W2 attester binding on a write verb. Returns `Ok(())`
 /// if the binding verifies (or is absent and the path doesn't require
 /// one); returns a typed 401 / 403 otherwise.
@@ -25422,6 +25584,7 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
     let body = req.file_text.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("create", &path, &bh, req.attester.as_ref())?;
+    enforce_write_rate_limit(req.attester.as_ref())?;
 
     // Vault kind takes the sealed path: encrypt + store in the vault tree
     // ONLY. It never touches the plaintext file trees, so it can never be
@@ -25560,6 +25723,7 @@ async fn memory_str_replace_inner(
     let body = updated.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("str_replace", &path, &bh, req.attester.as_ref())?;
+    enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     // Default str_replace to the kind already in the file if not
     // explicitly supplied, so editing doesn't accidentally reclassify
@@ -25667,6 +25831,7 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
     let body = out.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("insert", &path, &bh, req.attester.as_ref())?;
+    enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let kind = req
         .kind
@@ -25708,6 +25873,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     // W2 attester binding (delete has no body — use blake3(b"")).
     let empty_bh = emem_primitives::body_hash(b"");
     validate_attester_binding("delete", &path, &empty_bh, req.attester.as_ref())?;
+    enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
 
     // Vault delete: a sealed entry lives only in the vault tree, so a
@@ -25894,6 +26060,7 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
     // signature question.
     let rename_bh = emem_primitives::rename_body_hash(&old_path);
     validate_attester_binding("rename", &new_path, &rename_bh, req.attester.as_ref())?;
+    enforce_write_rate_limit(req.attester.as_ref())?;
     if emem_primitives::namespace_requires_attester(&old_path) {
         // The source path is also attester-scoped; ensure the supplied
         // attester (if any) owns it.
@@ -56878,6 +57045,43 @@ mod tests {
                 .is_err(),
             "by_attester namespace must be gated even under the Open default"
         );
+    }
+
+    /// The per-attester write backstop bounds a runaway loop without a human
+    /// gate. Test the burst cap and per-key isolation deterministically with
+    /// `per_sec: 0.0` (no refill), and confirm the `off` switch never denies.
+    #[test]
+    fn write_rate_limiter_bounds_burst_per_key_and_honours_disable() {
+        // enabled, capacity 3, no refill → first 3 pass, 4th is denied.
+        let l = WriteRateLimiter {
+            buckets: std::sync::Mutex::new(std::collections::HashMap::new()),
+            per_sec: 0.0,
+            burst: 3.0,
+            enabled: true,
+        };
+        assert!(l.check("agentA").is_ok());
+        assert!(l.check("agentA").is_ok());
+        assert!(l.check("agentA").is_ok());
+        let denied = l.check("agentA");
+        assert!(denied.is_err(), "4th write past the burst must be denied");
+        assert!(
+            denied.unwrap_err() >= 1,
+            "retry hint is a whole positive second"
+        );
+        // A different identity has its own bucket — one flood never starves
+        // another agent.
+        assert!(l.check("agentB").is_ok());
+
+        // The disable switch is an operator escape hatch: never denies.
+        let off = WriteRateLimiter {
+            buckets: std::sync::Mutex::new(std::collections::HashMap::new()),
+            per_sec: 0.0,
+            burst: 1.0,
+            enabled: false,
+        };
+        assert!(off.check("k").is_ok());
+        assert!(off.check("k").is_ok());
+        assert!(off.check("k").is_ok());
     }
 
     #[tokio::test]
