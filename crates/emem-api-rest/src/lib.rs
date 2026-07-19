@@ -5148,7 +5148,34 @@ fn project_materializer_entry(entry: &JsonValue, summary: bool) -> JsonValue {
 /// `now_only` AND `materialize_band_at` will accept a past `target_unix`
 /// for it. Used by /v1/backfill clients to skip nowcast bands without a
 /// trial-and-error 422.
-async fn data_availability(State(s): State<AppState>) -> Json<JsonValue> {
+#[derive(Debug, Default, Deserialize)]
+struct DataAvailQuery {
+    /// `compact=true` (or `projection=compact`) drops the per-band history
+    /// window + upstream_wire_path, keeping `{band, kind, tempo,
+    /// backfill_supported}` so the full ~122-band array survives the MCP
+    /// 24 KB wire budget (pfyvy4tk's E2 truncation). REST default is full.
+    #[serde(default)]
+    compact: Option<bool>,
+    #[serde(default)]
+    projection: Option<String>,
+}
+
+async fn data_availability(
+    State(s): State<AppState>,
+    Query(q): Query<DataAvailQuery>,
+) -> Json<JsonValue> {
+    let compact = q.compact.unwrap_or(false)
+        || q.projection
+            .as_deref()
+            .map(|p| p.eq_ignore_ascii_case("compact"))
+            .unwrap_or(false);
+    Json(data_availability_json(&s, compact))
+}
+
+/// Core of `/v1/data_availability`. `compact` drops the per-band prose so a
+/// full catalog fits the MCP wire budget; the MCP dispatch passes `true`
+/// (the wire is the constrained path), REST defaults to `false`.
+fn data_availability_json(s: &AppState, compact: bool) -> JsonValue {
     let pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -5158,43 +5185,67 @@ async fn data_availability(State(s): State<AppState>) -> Json<JsonValue> {
             continue;
         };
         let backfill_supported = !matches!(meta.kind, BandKind::NowOnly);
-        let from_iso = meta
-            .history_from_unix
-            .and_then(|u| u64::try_from(u).ok())
-            .map(iso8601_utc);
-        let to_iso = meta
-            .history_to_unix
-            .and_then(|u| u64::try_from(u).ok())
-            .map(iso8601_utc);
-        entries.push(json!({
-            "band": band,
-            "kind": meta.kind.as_str(),
-            "tempo": format!("{:?}", meta.tempo).to_lowercase(),
-            "tempo_seconds": meta.tempo.slot_seconds(),
-            "tslot_grid_seconds": meta.tempo.slot_seconds(),
-            "history_available_from_unix": meta.history_from_unix,
-            "history_available_to_unix": meta.history_to_unix,
-            "history_available_from_iso": from_iso,
-            "history_available_to_iso": to_iso,
-            "upstream_wire_path": meta.wire_path,
-            "backfill_supported": backfill_supported,
-        }));
+        if compact {
+            entries.push(json!({
+                "band": band,
+                "kind": meta.kind.as_str(),
+                "tempo": format!("{:?}", meta.tempo).to_lowercase(),
+                "backfill_supported": backfill_supported,
+            }));
+        } else {
+            let from_iso = meta
+                .history_from_unix
+                .and_then(|u| u64::try_from(u).ok())
+                .map(iso8601_utc);
+            let to_iso = meta
+                .history_to_unix
+                .and_then(|u| u64::try_from(u).ok())
+                .map(iso8601_utc);
+            entries.push(json!({
+                "band": band,
+                "kind": meta.kind.as_str(),
+                "tempo": format!("{:?}", meta.tempo).to_lowercase(),
+                "tempo_seconds": meta.tempo.slot_seconds(),
+                "tslot_grid_seconds": meta.tempo.slot_seconds(),
+                "history_available_from_unix": meta.history_from_unix,
+                "history_available_to_unix": meta.history_to_unix,
+                "history_available_from_iso": from_iso,
+                "history_available_to_iso": to_iso,
+                "upstream_wire_path": meta.wire_path,
+                "backfill_supported": backfill_supported,
+            }));
+        }
     }
-    Json(json!({
+    let mut out = json!({
         "schema": "emem.data_availability.v1",
         "responder_pubkey_b32": pubkey_b32,
         "auto_materialize_enabled": auto_materialize_enabled(),
         "tessera_vintages": TESSERA_YEARS_RANGE_PUBLIC.clone().collect::<Vec<_>>(),
-        "kinds": [
-            {"name": "static",          "meaning": "single signed fact valid for all time (Cop-DEM, GMRT, JRC GSW recurrence)"},
-            {"name": "annual_snapshot", "meaning": "one fact per calendar year on Jan 1 UTC (Tessera per-year)"},
-            {"name": "annual_stack",    "meaning": "stack of multiple annual snapshots fused into one fact (Tessera multi-year 1024-D)"},
-            {"name": "time_series",     "meaning": "per-tslot historical series fetched on demand from a STAC-style archive (Sentinel-2 L2A, Sentinel-1 RTC, MODIS NDVI)"},
-            {"name": "now_only",        "meaning": "provider only exposes current value plus short forecast — no historical record (met.no)"},
-            {"name": "per_release",     "meaning": "versioned global snapshot — each release replaces the previous (Overture Maps)"}
-        ],
+        "entries_count": entries.len(),
         "entries": entries,
-    }))
+    });
+    if compact {
+        if let Some(o) = out.as_object_mut() {
+            o.insert("projection".into(), json!("compact"));
+            o.insert(
+                "projection_note".into(),
+                json!("compact: {band, kind, tempo, backfill_supported} per band so the full band array survives the MCP wire budget. Call GET /v1/data_availability (REST, uncapped) or add ?projection=full for the per-band history window + upstream_wire_path."),
+            );
+        }
+    } else if let Some(o) = out.as_object_mut() {
+        o.insert(
+            "kinds".into(),
+            json!([
+                {"name": "static",          "meaning": "single signed fact valid for all time (Cop-DEM, GMRT, JRC GSW recurrence)"},
+                {"name": "annual_snapshot", "meaning": "one fact per calendar year on Jan 1 UTC (Tessera per-year)"},
+                {"name": "annual_stack",    "meaning": "stack of multiple annual snapshots fused into one fact (Tessera multi-year 1024-D)"},
+                {"name": "time_series",     "meaning": "per-tslot historical series fetched on demand from a STAC-style archive (Sentinel-2 L2A, Sentinel-1 RTC, MODIS NDVI)"},
+                {"name": "now_only",        "meaning": "provider only exposes current value plus short forecast — no historical record (met.no)"},
+                {"name": "per_release",     "meaning": "versioned global snapshot — each release replaces the previous (Overture Maps)"}
+            ]),
+        );
+    }
+    out
 }
 
 /// `GET /v1/fleet` — declare the satellite/sensor lineage that feeds each
@@ -17627,7 +17678,10 @@ async fn mcp_tool_call(
                 .await
                 .0)
         }
-        "emem_data_availability" => Ok(data_availability(State(s.clone())).await.0),
+        // MCP is the 24 KB-budget path, so return the compact projection
+        // by default — the full ~122-band array truncated over the wire
+        // (pfyvy4tk's E2). REST /v1/data_availability stays full.
+        "emem_data_availability" => Ok(data_availability_json(&s, true)),
         "emem_recall" => {
             // Route through the auto-materialize wrapper so MCP gets the
             // same on-demand corpus growth as REST. Without this,
@@ -56916,6 +56970,37 @@ mod tests {
     /// exercise sled-persisted memory-tool / memory-bundle endpoints
     /// without a network round-trip. Mirrors the construction used in
     /// `emem-server`, minus the long-running router warmup.
+    /// data_availability compact projection (pfyvy4tk's E2): the MCP wire
+    /// path must return a lean per-band shape so the ~122-band array is not
+    /// truncated. Assert compact drops the prose fields and full keeps them,
+    /// over the same band set.
+    #[test]
+    fn data_availability_compact_drops_prose_keeps_bands() {
+        let s = test_app_state();
+        let full = data_availability_json(&s, false);
+        let compact = data_availability_json(&s, true);
+        let fe = full["entries"].as_array().unwrap();
+        let ce = compact["entries"].as_array().unwrap();
+        assert_eq!(fe.len(), ce.len(), "same band set in both projections");
+        assert!(!fe.is_empty(), "there are materializable bands");
+        // Full carries per-band prose; compact does not.
+        assert!(fe[0].get("upstream_wire_path").is_some());
+        assert!(ce[0].get("upstream_wire_path").is_none());
+        assert!(ce[0].get("history_available_from_iso").is_none());
+        // Compact keeps the load-bearing fields.
+        for k in ["band", "kind", "tempo", "backfill_supported"] {
+            assert!(ce[0].get(k).is_some(), "compact keeps {k}");
+        }
+        assert_eq!(compact["projection"], json!("compact"));
+        // Compact is materially smaller on the wire.
+        let fs = serde_json::to_string(&full).unwrap().len();
+        let cs = serde_json::to_string(&compact).unwrap().len();
+        assert!(
+            cs * 2 < fs,
+            "compact should be well under half the full size ({cs} vs {fs})"
+        );
+    }
+
     fn test_app_state() -> AppState {
         use emem_storage::server::{ManifestCids, ResponderIdentity};
         use emem_storage::{MaterializingStorage, Server};
