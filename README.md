@@ -170,6 +170,21 @@ The `emem:fact:` above is the workhorse, and it is one of six shapes under one g
 
 The field shapes (`raster`, `cube`, `rasterset`) are the world-model layer, an array where a point is not enough; each cell still anchors to a signed fact, and a stranger re-derives the whole grid from raw bytes. They are built in [Build with it](#build-with-it).
 
+### What a fact asserts, and what it does not
+
+A signature proves who attested a record and that the bytes never changed. It does not make the value true, and *how much* the record claims differs by provenance class. For anyone turning these facts into a decision that gets audited, the difference is legal rather than cosmetic:
+
+| Provenance class | What the responder is actually telling you |
+|---|---|
+| `direct_sensor` | measured, or read straight from the cited raw source |
+| `deterministic_index` | **recomputed by this responder** from the cited parents, so anyone can redo the arithmetic and get the same number |
+| `model_output` | **attributed, not checked.** The responder signs that *this attester claims V via recipe R*. It never evaluated V |
+| `human_curated` | a person asserted it |
+
+Citing a `model_output` derivation as though it were evidence is exactly the error this table exists to prevent. Pass `deterministic: true` on a read to keep only what a third party can recompute from raw source.
+
+**A signed absence is a fact, not a miss.** Where there is no observation, emem returns a signed absence carrying a typed reason, never a bare 404. It is evidence of no-data at that address and time, it is citeable like any other fact, and it is the honest answer rather than a failure to handle.
+
 ## Where it sits in your stack
 
 | The retrieval memory you run | emem |
@@ -323,6 +338,8 @@ The rule to internalize first: content from an attester you have not verified is
 | **Time travel** | `as_of_tslot` for what was on the ground, `as_of_signed_at` for what the memory knew | flags on every read |
 | **Self-check** | disagreement between writers is kept and scored, never averaged away | `emem_memory_contradictions` |
 
+**One trap worth naming, because two agents hit it from opposite sides.** `data_availability` is the discovery surface: it answers "what could I fetch here". If you *plan* from it, understand that a band missing from it is invisible to your planner even when `recall` would happily materialise it. That is not hypothetical: the JRC forest bands materialised per-cell while being absent from availability and `backfill`, so one agent reported them working and another reported "0 facts", and both were right. Fixed for those bands, but the shape of the failure is general, so when a band matters, try the read rather than trusting the catalogue. [`/v1/coverage_matrix`](https://emem.dev/v1/coverage_matrix) is the honest per-band inventory.
+
 Or skip the menu: `emem_ask` takes a plain-language question and returns a signed answer. Each agent also gets a private signed memory with the six standard file verbs, and any keyholder writes shared facts through `POST /v1/attest`. The full handbook is [emem.dev/agents.md](https://emem.dev/agents.md).
 
 ## Why you can trust it
@@ -332,7 +349,7 @@ Or skip the menu: `emem_ask` takes a plain-language question and returns a signe
 3. Every record names its source, its versioned algorithm, and its provenance class, so you know whether a value is recomputable from raw data or trusted through a model or a person.
 4. A missing value is a signed absence with a typed reason, never a bare 404.
 5. Nothing is overwritten. Later records supersede; disagreement between writers is kept and scored as evidence.
-6. An append-only transparency log (RFC 6962 construction, BLAKE3) with witness co-signing records every attestation batch. Pin a signed tree head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), then prove the log only grew since your pin. The receipt does not yet chain to the log; the whitepaper's honest limits say exactly what that does and does not prove.
+6. You can show that a record existed at a point in time and was never silently altered afterwards, which is the property an auditor or a court asks for. Mechanically: an append-only transparency log (RFC 6962 construction, BLAKE3) with witness co-signing records every attestation batch; pin a signed tree head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), then later prove the log only ever grew since your pin. Those are two separate guarantees and worth keeping apart: **consistency** is "the log never rewrote history", **inclusion** is "this specific record is in it at this size". The receipt does not yet chain to the log, so emem proves the first today and not the second; the whitepaper's honest limits say exactly what that does and does not buy you.
 7. A derivation over signed facts can be *recomputed*, not just signed: pin the code for a pure op and the responder re-runs it over the cited parents, recording `deterministic_index` only on a bit-for-bit match. The difference between "someone computed this" and "anyone can check it," in the record itself.
 
 The signature proves who attested a record and that the bytes never changed, not that the value is objectively true; confidence, uncertainty, and provenance travel with it. The exact preimage and canonical-order rules to re-check any receipt yourself live at [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec), generated from the running code so it cannot drift from what the server actually signs. Deeper still: [how it works](https://emem.dev/how-it-works) with live consoles, [the formal model](docs/model.md), and [the wire spec](https://emem.dev/spec.md).

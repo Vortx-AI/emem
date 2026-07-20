@@ -366,7 +366,8 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class=grid style="grid-template-columns:max-content 1fr;gap:.4em 1em">
       <div class=k>bytes</div><div class=v><span class=muted>valid means emem stored and served exactly these bytes: the responder's receipt signature checks. This is what the page has always done.</span></div>
       <div class=k>authorship</div><div class=v><span class=muted>which attester wrote a signed message or memory, verified offline against <em>their</em> ed25519 key, not the responder's. This is how an agent trusts a message on the A2A channel.</span></div>
-      <div class=k>inclusion</div><div class=v><span class=muted>the transparency log is append-only and its head is signed; you can pin it below. Individual facts do not yet chain to log leaves, so per-fact inclusion is still roadmap, stated plainly rather than faked.</span></div>
+      <div class=k>inclusion</div><div class=v><span class=muted>is THIS record in the transparency log at a given tree size. emem does <b>not</b> prove this today: facts do not yet chain to log leaves. Stated plainly rather than faked, because "verified" with no object is the vagueness this page exists to kill.</span></div>
+      <div class=k>consistency</div><div class=v><span class=muted>has the log only ever grown, never rewritten history. This one emem <b>does</b> support: pin the signed head below, then later call <code>/v1/log/consistency</code> against a newer size. Inclusion and consistency are different guarantees and a compliance reader needs to know which is which.</span></div>
     </div>
   </section>
 

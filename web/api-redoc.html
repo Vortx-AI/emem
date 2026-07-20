@@ -330,6 +330,51 @@
   </p>
 </section>
 
+<section style="max-width:1100px;margin:0 auto;padding:1.2rem 1.2rem 0">
+  <h2 style="font-size:1.05rem;margin:0 0 .3rem">The whole trust chain, once, with real ids</h2>
+  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:0 0 .9rem">
+    The reference below lists endpoints. What it does not show is the chain they form, which is the thing a
+    consuming agent actually has to assemble: read a fact, check who signed it, dereference the citation, and
+    confirm the value you are about to publish is the value you were given. Every id here is live: paste the
+    commands as they are.
+  </p>
+  <pre style="font-size:.76rem;line-height:1.55;overflow-x:auto;padding:.8rem;border:1px solid var(--rule);border-radius:4px"># 1. Read a signed fact. No key, no account.
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb572.xoso.zb1ec","bands":["indices.ndvi"]}'
+#    -> facts[].value, facts[].fact_cid, and a signed receipt
+
+# 2. Verify that receipt WITHOUT trusting this server. Offline-checkable:
+#    it recomputes blake3(preimage) and the ed25519 signature.
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb572.xoso.zb1ec","bands":["indices.ndvi"]}' \
+  | jq '{receipt: .receipt}' \
+  | curl -s -X POST https://emem.dev/v1/verify_receipt \
+      -H 'content-type: application/json' --data-binary @-
+#    -> {"valid": true, ...}   (the byte rules are at /v1/verifier_spec)
+
+# 3. Dereference a citation someone handed you. This one is a GC-1
+#    derivation: the responder RE-RAN the arithmetic, so it resolves as
+#    deterministic_index rather than a claim you have to take on faith.
+curl -s -X POST https://emem.dev/v1/memory_token/resolve -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq"}'
+#    -> the byte-identical signed fact, its provenance block, a receipt,
+#       and value_verbatim: "-0.055822789005725904"  <- quote this, do not retype it
+
+# 4. Close the last mile: confirm the value YOU are about to publish is the
+#    value you were given. Rounding is caught, not forgiven.
+curl -s -X POST https://emem.dev/v1/echo_verify -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq",
+       "claimed_value":"-0.0558"}'
+#    -> {"matches": false, "drift": "rounded", ...}
+#       pass the full value and it answers {"matches": true, "drift": null}</pre>
+  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:.9rem 0 0">
+    Steps 1 and 2 are emem proving its own side: these are the bytes, and this key signed them. Steps 3 and 4 are
+    the half that used to be unguarded: a citation resolves to the same bytes for anyone, and the number you
+    emit is checked against them. A pipeline that runs all four can state that every value it published was
+    echo-verified, and mean it.
+  </p>
+</section>
+
 <redoc spec-url="/openapi.json"
        theme='{"colors":{"primary":{"main":"oklch(0.45 0.09 145)"}},"typography":{"fontFamily":"JetBrains Mono, ui-monospace, SF Mono, Menlo, Consolas, monospace","headings":{"fontFamily":"JetBrains Mono, ui-monospace, monospace","fontWeight":"700"},"code":{"fontFamily":"JetBrains Mono, ui-monospace, monospace"}},"sidebar":{"backgroundColor":"transparent"}}'
        hide-loading
