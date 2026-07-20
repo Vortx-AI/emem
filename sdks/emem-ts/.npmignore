@@ -1,0 +1,25 @@
+# This file exists to stop npm falling back to the repository .gitignore.
+#
+# Without it, npm uses the root .gitignore when a package has no .npmignore.
+# That root file ignores `dist/` — which is correct for git and catastrophic
+# for publishing, because `prepublishOnly` builds `dist/` and package.json
+# points `main` and `types` at `dist/index.js` and `dist/index.d.ts`.
+#
+# This is not hypothetical. The same class of root-anchored ignore rule
+# silently shipped Python wheels containing no code at all. The build tools
+# exit 0 on an empty artefact, so nothing fails loudly: you only find out when
+# someone installs the package and the import fails.
+#
+# Anything listed below is excluded from the published tarball. `dist/` and
+# `src/` are deliberately absent from this list. Verify before every publish:
+#
+#     npm pack --dry-run
+#
+# and confirm dist/index.js is present and non-empty in the file listing.
+
+examples/
+tsconfig.json
+*.tsbuildinfo
+*.test.ts
+*.spec.ts
+.DS_Store
