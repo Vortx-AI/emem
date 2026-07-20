@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://www.youtube.com/shorts/c1gjHejZ2CU" title="What emem is, in one short"><img src="web/vortxgola.gif" alt="emem, a slowly rotating Earth. Click to watch the explainer." width="200" /></a>
+<a href="https://www.youtube.com/shorts/c1gjHejZ2CU" title="Your AI Agent Forgets. Emem Gives It Verifiable Memory of the World"><img src="https://i.ytimg.com/vi/c1gjHejZ2CU/maxresdefault.jpg" alt="Watch: Your AI Agent Forgets. Emem Gives It Verifiable Memory of the World" width="480" /></a>
 
 # emem
 
@@ -8,7 +8,7 @@
 
 *Agents inherit a measured, signed account of the physical world instead of re-observing it; every observation becomes a shared, verifiable Memory Token that persists across long-horizon AI tasks.*
 
-**[Watch the explainer](https://www.youtube.com/shorts/c1gjHejZ2CU)** (the poster above is the same link)
+**▶ [Your AI Agent Forgets. Emem Gives It Verifiable Memory of the World](https://www.youtube.com/shorts/c1gjHejZ2CU)** · 60 seconds
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/tag/Vortx-AI/emem?label=release)](https://github.com/Vortx-AI/emem/tags)

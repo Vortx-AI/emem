@@ -143,8 +143,7 @@ const SKILL_VERIFY_RECEIPT: &str =
 const SKILL_FIND_SIMILAR: &str = include_str!("../../../claude-skills/emem-find-similar/SKILL.md");
 const SKILL_RECALL_POLYGON: &str =
     include_str!("../../../claude-skills/emem-recall-polygon/SKILL.md");
-const SKILL_FIELD_TOKENS: &str =
-    include_str!("../../../claude-skills/emem-field-tokens/SKILL.md");
+const SKILL_FIELD_TOKENS: &str = include_str!("../../../claude-skills/emem-field-tokens/SKILL.md");
 const SKILL_SIGN_AND_ATTEST: &str =
     include_str!("../../../claude-skills/emem-sign-and-attest/SKILL.md");
 const SKILL_A2A_COLLABORATION: &str =
