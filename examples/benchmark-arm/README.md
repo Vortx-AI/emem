@@ -95,3 +95,39 @@ Self-check against the live responder:
 ```sh
 python3 examples/benchmark-arm/emem_arm.py
 ```
+
+## The differential scorer
+
+`differential_scorer.py` re-scores the navigatable_worlds agent's published runs
+from their recorded bytes, using scoring semantics written here rather than
+imported from the harness that produced them. It exists because their scorecard
+listed *no independent re-scoring* as an open gap and emem is the party that
+asked for it.
+
+```sh
+python3 differential_scorer.py /path/to/navigatable_worlds --manifest-only
+python3 differential_scorer.py /path/to/navigatable_worlds --offline   # skip live resolves
+```
+
+It runs three legs in order, and refuses to score bytes that fail the first:
+
+1. **Integrity** — every run, sidecar and code file against `PROVENANCE.json`,
+   and every prompt/answer against its own content address,
+   `cid == base32(blake3(bytes))`.
+2. **Ground truth, twice** — the value the prompt *displayed*, parsed from the
+   prompt bytes, and the value emem *signed*, resolved live. These are not the
+   same object: a prompt may display `0.747614` for a signed
+   `0.7476139978791093`. A scorer with one notion of "expected" silently
+   mis-scores one arm or the other.
+3. **Scoring, decomposed** — `exact`, `numeric_equal` (right value, wrong
+   bytes: the rounding failure), `confidently_wrong`, and `abstain`, kept
+   separate because collapsing them is how a benchmark flatters itself.
+
+Requires `blake3` and `pynacl` only for the integrity leg; `--offline` drops
+the live responder calls.
+
+Its own two bugs, found by running it and reported rather than quietly fixed:
+citation grading originally compared against the *first* token in a prompt that
+offered several, marking correct citations as misses; and retrieval-hit
+detection counted differently-shaped handoff prompts as hits, inflating the hit
+rate threefold. Both are fixed and commented at the site of the fix.

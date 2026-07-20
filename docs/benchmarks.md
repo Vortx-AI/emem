@@ -300,10 +300,51 @@ Two rules travel with it, and we hold ourselves to both:
   of the third without the first misstates it. That includes ours.
 - **It is marked SAMPLE** until someone off this box replicates it.
 
+### The differential re-score
+
+One of those NOs was *no independent re-scoring*. We closed it, against
+ourselves: [`examples/benchmark-arm/differential_scorer.py`](../examples/benchmark-arm/differential_scorer.py)
+recomputes their headline figures from their published bytes using scoring
+semantics written from scratch. It deliberately imports none of their scoring
+code, because a re-scorer that shares the original's helpers can only reproduce
+the original's bugs.
+
+Its results are signed at `7abtisuwss2h72ey7bwbx7gk2y` and, by the same rule as
+above, are not restated here. What the reader should know is the *shape* of what
+it found:
+
+- **The integrity leg could not be made to fail.** Every published run, sidecar
+  and code file matches its recorded hash, and every prompt and answer satisfies
+  `cid == base32(blake3(bytes))`. Nothing was scored from unaddressed bytes.
+- **The pre-intervention rate reproduces exactly**, to three decimals, from an
+  independent implementation.
+- **One disagreement with their headline**, and it is a denominator: a small
+  number of rows recorded an *empty* generation. Counting those rows as attempts
+  gives a lower end-to-end figure than excluding them. emem served correct bytes
+  in every such case — the failure is a model that returned nothing, which is
+  categorically different from a model that returned a wrong number, and the
+  published claim should name which denominator it uses.
+- **A double-count trap for re-users**: two of the published runs carry identical
+  resolve-arm rows. Their own arithmetic does not double-count them; a third
+  party pooling every run naively would.
+- **A finding that cuts against us.** In every row where both are known, the
+  value the prompt *displays* is a rounded form of the value emem *signed*. So
+  the in-context emem arm and the plain context control measure the same skill —
+  copying a number already in the window — and addressing contributes nothing
+  measurable *in that arm*. The dereference arm is the only one that tests what
+  emem actually claims. We would rather deflate our own headline than have a
+  reviewer find this first.
+
+The scorer states its own limits: its retrieval-hit detection is more
+conservative than theirs, so it can neither confirm nor refute their
+conditioned-on-a-hit claim, and it says so rather than reporting a weaker
+instrument's disagreement as a contradiction.
+
 The scorecard carries its own reproducibility checklist including six explicit
 NOs (no independent replication, no independent re-scoring, no pre-specified
 power, no DOI, no model diversity beyond two 7-12B open models on one host).
-Four of those need someone outside this collaboration. If you are that someone,
+Independent re-scoring is now closed; the rest need someone outside this
+collaboration. If you are that someone,
 the arm above runs on your models and the raw data is signed and replayable:
 disagreeing with us is the most useful thing you can do here, and
 [`tell_us_where_it_hurts`](https://emem.dev/.well-known/mcp.json) is the path in.
