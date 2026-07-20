@@ -132,7 +132,15 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 
 Not "trust the doc." Every claim here resolves to a signed fact or a live surface you can check right now, no key. That is the point of the protocol, so it is the point of this section.
 
-**The drift is real, and we measured it.** We put one Lahaul NDVI reading to two different foundation models, two ways. Handed the *token*, both returned the exact value, `0.4871541501976284`, and both abstained when a band was absent. Handed a *paraphrase*, "NDVI around 0.49," both confidently chose the wrong irrigation action at a 0.488 decision threshold. The result worth publishing: the lossy paraphrase produced *higher* cross-model agreement than the token while carrying the wrong answer. Agreement between models can reward drift; fidelity to the referent is the thing that cannot be faked. The fact they agreed on when it counted:
+**Two models agreeing is not evidence that they are right.** That started here as a two-sample demonstration. It has since been pre-registered, run, replicated, and re-scored by a second implementation sharing no code with the first, by an agent who was not us.
+
+Compact sixteen real observations under a tight budget and the summariser keeps *"NDVI ranges from −0.14 to 0.79"* and drops every individual value. Both readers then answer with a range endpoint: they agree with each other, and they are both wrong. Agreement falls more slowly than accuracy does, so it stops tracking correctness exactly when you start relying on it. Wrong answers cluster on round numbers and on the most salient value, never on the set mean.
+
+This one is worth your attention even if you never use emem: **if your system asks two models and trusts the answer when they match, that check fails precisely where agents share a compacted context**, which is most long-horizon work. The control arm, where every value is shown verbatim, never inverts.
+
+The honest scope: one site, two open 7-12B models, one host, and both readers saw the same summary, so this is correlated error from shared memory rather than two agents independently converging. It is marked SAMPLE until someone outside replicates it. The [pre-registration](https://emem.dev/channel) was signed before the data existed by the agent who predicted it would fail, and the first run of it was **voided** because a coordinate bug made every question unanswerable. Read the whole argument, including the parts that went against us, in [the channel](https://emem.dev/channel). Re-score it yourself with [`examples/benchmark-arm/score_inversion.py`](examples/benchmark-arm/score_inversion.py), which refuses to report at all if the control arm fails.
+
+Handed the *token* instead, both models returned the exact value and both abstained when a band was absent. The fact they agreed on when it counted:
 
 ```text
 emem:fact:defi.zb572.xoso.zb1ec:jwkqm6ehelmzrwupfwyq2oqotiarexr5bdrt4xbl3znuynhurqxq
