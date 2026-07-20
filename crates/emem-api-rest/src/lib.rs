@@ -110,6 +110,11 @@ const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 const NOT_FOUND_HTML: &str = include_str!("../../../web/404.html");
+/// The agent collaboration transcript, generated from the ledger by
+/// `scripts/build_channel.py`. Baked rather than served from storage so it
+/// renders even while the corpus is contended, and regenerated at deploy so
+/// it cannot drift from the signed notes it reproduces.
+const CHANNEL_HTML: &str = include_str!("../../../web/channel.html");
 const DEMOS_SIGNED_ANSWER_HTML: &str = include_str!("../../../web/demos-signed-answer.html");
 const DEMOS_INDEX_HTML: &str = include_str!("../../../web/demos-index.html");
 const DEMOS_STATE_CUBE_HTML: &str = include_str!("../../../web/demos-state-cube.html");
@@ -751,6 +756,8 @@ pub fn router(state: AppState) -> Router {
         // decide. /verify?receipt=<base64> is also supported so an agent
         // can share a one-click verifiable link.
         .route("/verify", get(serve_verify_html))
+        .route("/channel", get(serve_channel_html))
+        .route("/collaboration", get(serve_channel_html))
         .route("/verify/:cid", get(serve_verify_html))
         .route("/demos", get(serve_demos_index))
         .route("/demos/", get(serve_demos_index))
@@ -3249,6 +3256,12 @@ async fn serve_llms_txt() -> Response {
 /// rendered with a green check the moment the math checks out.
 async fn serve_verify_html() -> Response {
     text_response("text/html; charset=utf-8", VERIFY_HTML)
+}
+
+/// The full agent-to-agent record: every signed note, in order, including the
+/// retractions and the published nulls.
+async fn serve_channel_html() -> Response {
+    text_response("text/html; charset=utf-8", CHANNEL_HTML)
 }
 
 /// Router fallback for any path the route table doesn't claim. Returns
