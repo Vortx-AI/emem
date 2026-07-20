@@ -1158,6 +1158,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/backfill", post(post_backfill))
         .route("/v1/memory_token", post(post_memory_token))
         .route("/v1/memory_token/resolve", post(post_memory_token_resolve))
+        .route("/v1/echo_verify", post(post_echo_verify))
         .route(
             "/v1/memory_token/resolve_many",
             post(post_memory_token_resolve_many),
@@ -19001,6 +19002,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry). Pass `band` AND `observed_on` to additionally get `descriptor_token`, the self-describing anchor emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>, which resolves to the identical fact. PREFER descriptor_token when handing a citation to a model: across 200 real facts, Qwen and gemma-4 segment a cell64 anchor identically 0.0% of the time (jaccard 0.6477) versus 100.0% (jaccard 1.0000) for the same cell written as 5dp coordinates, and a cell64 is a string no model has seen while 36.12010,-112.30206 is the Grand Canyon in every model's training data. Nothing is trusted: this mint never reads storage, and /v1/memory_token/resolve binds the place, band and date to the signed fact, so a descriptor minted with a wrong date yields a token that cannot resolve rather than one that misleads.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank). Required (with observed_on) to mint descriptor_token."},"observed_on":{"type":"string","description":"Optional source capture date YYYY-MM-DD, as returned by /v1/recall in sources[].captured_at. With `band`, mints descriptor_token. This is valid time (when the sensor observed), never signed_at."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Accepts two anchors for the same fact: emem:fact:<cell64>:<fact_cid> (legacy memt: also accepted), and the self-describing emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>. Fetches the signed fact body by CID and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. EVERY claim in the anchor is bound to the signed body before it dereferences, so a citation can be read without a round-trip precisely because it cannot lie: the cell (or the cell the coordinates quantise to) must match the fact's own cell, the band must match the fact's band, and the date must match one of sources[].captured_at (valid time, never signed_at). Any mismatch is 409, so a real fact_cid cannot be passed off under a false place, band or date. Coordinates below 5 decimal places are refused with 400: 4dp is ~11m against a ~10m cell and would silently address a neighbouring one. A fact carrying no source capture time cannot support a date claim, so the descriptor anchor is refused for it (409) rather than accepted unbound; cite it in cell form. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/memory_token/resolve_many":{"post":{"summary":"batch dereference: up to 256 fact tokens in one call, resolved independently through the same pipeline as the single resolve. Partial by design: a bad or unheld token yields a typed per-item error ({ok:false, status, error}) and never fails the batch. One batch receipt binds the union of resolved (cell, fact_cid) pairs; each item carries its own receipt so any single resolution forwards on its own. Fully-resolved responses carry Cache-Control: immutable (content-addressed bodies never change and receipts never expire); a batch with failures is not cached, since a 404 can become resolvable when the fact arrives.","operationId":"emem_memory_token_resolve_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"emem:fact: tokens (legacy memt: accepted), 1 to 256 per call"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/echo_verify":       {"post":{"summary":"Close the last mile: check the value YOU emitted against the signed fact your token dereferences to. emem guarantees the bytes it serves; nothing guaranteed the bytes that come back out of a model, and that gap was measured at 28% of correctly-resolved answers losing precision (0.2411 handed back for 0.241103). Submit {token, claimed_value} and get {matches, drift}. Comparison is verbatim first, then numeric equality (the same number spelled differently still passes), then rounding: drift is \"rounded\" when you lost precision, \"wrong\" when it is a different number, null on a match. Accepts any token form resolve accepts, including a bare cid (answers degraded:true). The receipt signs the DEREFERENCE, not your claim.","operationId":"emem_echo_verify","tags":["memory","cite","verify"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token","claimed_value"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or a bare fact_cid (degraded)"},"claimed_value":{"description":"the value you emitted, string or number; a string is compared verbatim first"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found}}},
             "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output or human_curated; direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"budget_ms":{"type":"integer","description":"optional soft budget in ms; if registration does not finish in time it returns 202 {status:pending} and completes in the background, and since derive is idempotent a re-POST of the identical body returns the token once it persists (a build under load never exits half-registered). Omit for synchronous 200-or-error."},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"202":{"description":"registration in progress; re-POST the identical body to collect the token"},"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
@@ -22227,6 +22229,70 @@ struct MemoryTokenResolveResp {
     /// `/.well-known/emem.json`. Useful for agents that want to confirm
     /// the receipt without trusting the wire.
     offline_verify_at: &'static str,
+    /// The scalar value as an EXACT decimal STRING, for a model to COPY
+    /// rather than retype.
+    ///
+    /// `fact.value` is a JSON number, and a model that reads a number tends
+    /// to re-emit it from its own tokenizer: the navigatable_worlds agent's
+    /// dereference benchmark (2026-07-20) measured 7 of 25 successfully
+    /// resolved answers losing precision that way, `0.2411` handed back for
+    /// `0.241103`. emem guarantees the bytes it serves; this field is the
+    /// cheapest thing that also guards the bytes that come back OUT of the
+    /// model. The field name is the contract: quote it verbatim.
+    ///
+    /// Absent for non-scalar values (vectors, enums, absences).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value_verbatim: Option<String>,
+    /// `true` when this resolve accepted a BARE fact_cid, i.e. a citation
+    /// whose `emem:fact:<descriptor>:` head was dropped.
+    ///
+    /// The same benchmark measured that at 7 of 32 dereference attempts
+    /// (21.9%): models keep the opaque base32 tail and discard the
+    /// structured head. Refusing outright is defensible (a bare cid is
+    /// responder-scoped, so it is ambiguous across responders) but leaves no
+    /// recovery path, so the resolve succeeds and says plainly that it was
+    /// degraded. A caller that requires an unambiguous citation should treat
+    /// `degraded: true` as a failure; one that just needs the bytes can
+    /// proceed, and `canonical_token` carries the full handle to cite next time.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    degraded: bool,
+    /// Why the resolve was degraded, when it was. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    degraded_reason: Option<String>,
+}
+
+/// A bare 52-character fact_cid: base32-nopad-lowercase with the
+/// `emem:fact:<descriptor>:` head dropped. Recognised so
+/// [`resolve_one_token`] can accept it in degraded mode (U1) rather than
+/// fail closed with no recovery path. Deliberately strict: exactly the
+/// shape a full-width fact CID has, so it can never swallow a typo'd token.
+fn bare_fact_cid(token: &str) -> Option<String> {
+    let t = token.trim().to_ascii_lowercase();
+    let ok = t.len() == 52
+        && t.bytes()
+            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b));
+    ok.then_some(t)
+}
+
+/// The fact's payload, unwrapping the serde-tagged variant if present.
+fn fact_inner_json(fact: &JsonValue) -> &JsonValue {
+    for k in ["Primary", "Derivative", "Absence"] {
+        if let Some(inner) = fact.get(k) {
+            return inner;
+        }
+    }
+    fact
+}
+
+/// The exact decimal string for a scalar fact value (U3). `serde_json`
+/// renders a number in its shortest round-tripping form, which is precisely
+/// what we want a model to copy.
+fn value_verbatim_of(fact: &JsonValue) -> Option<String> {
+    match fact_inner_json(fact).get("value") {
+        Some(JsonValue::Number(n)) => Some(n.to_string()),
+        Some(JsonValue::String(s)) => Some(s.clone()),
+        _ => None,
+    }
 }
 
 /// The tamper-provenance block for a band key, resolved through the same
@@ -22261,22 +22327,121 @@ async fn post_memory_token_resolve(
     ))
 }
 
+#[derive(Debug, Deserialize)]
+struct EchoVerifyReq {
+    /// The citation the agent claims it used. Any form `resolve` accepts,
+    /// including a bare cid (which comes back `degraded`).
+    token: String,
+    /// The value the agent actually emitted, as a string or a number. A
+    /// string is compared verbatim first, which is the point: it catches a
+    /// retype that a float comparison would forgive.
+    claimed_value: JsonValue,
+}
+
+/// Digits after the decimal point in a claimed value, used to decide whether
+/// a mismatch is a ROUNDING of the true value or a different number.
+fn claimed_decimals(s: &str) -> i32 {
+    s.split_once('.')
+        .map(|(_, d)| d.chars().take_while(|c| c.is_ascii_digit()).count() as i32)
+        .unwrap_or(0)
+}
+
+/// `POST /v1/echo_verify` — the last mile, closed.
+///
+/// emem guarantees the bytes it SERVES. Nothing guaranteed the bytes an agent
+/// emitted after reading them, and the navigatable_worlds agent measured the
+/// cost of that gap on 2026-07-20: of dereferences that resolved correctly,
+/// 28% came back with the value retyped or rounded (`0.2411` for `0.241103`).
+/// End to end, a signed fact reached the answer byte-identical only 56% of the
+/// time, and every one of those losses happened AFTER emem had done its job.
+///
+/// An agent (or a pipeline step, or a compliance DDS) submits the answer it
+/// produced alongside the token it used, and gets a signed yes/no. That turns
+/// transcription from an unverifiable step into a verifiable one, and it
+/// composes: the recall receipt proves emem's side, this proves the agent's.
+async fn post_echo_verify(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<EchoVerifyReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let resolved = resolve_one_token(&s, &req.token).await?;
+
+    let claimed = match &req.claimed_value {
+        JsonValue::String(v) => v.trim().to_string(),
+        other => other.to_string(),
+    };
+    let truth = resolved.value_verbatim.clone();
+
+    let verbatim = truth.as_deref() == Some(claimed.as_str());
+    let cf = claimed.parse::<f64>().ok();
+    let tf = truth.as_deref().and_then(|t| t.parse::<f64>().ok());
+
+    // Verbatim first, then numeric equality (same number spelled differently
+    // is still correct), then rounding, then wrong.
+    let (matches, drift) = match (verbatim, cf, tf) {
+        (true, _, _) => (true, None),
+        (false, Some(c), Some(t)) if c == t => (true, None),
+        (false, Some(c), Some(t)) => {
+            let f = 10f64.powi(claimed_decimals(&claimed).min(15));
+            if (c * f).round() == (t * f).round() {
+                (false, Some("rounded"))
+            } else {
+                (false, Some("wrong"))
+            }
+        }
+        _ => (false, Some("wrong")),
+    };
+
+    Ok(Json(json!({
+        "schema": "emem.echo_verify.v1",
+        "token": resolved.token,
+        "canonical_token": resolved.canonical_token,
+        "fact_cid": resolved.fact_cid,
+        "matches": matches,
+        "drift": drift,
+        "claimed_value": claimed,
+        "resolved_value_verbatim": truth,
+        "degraded": resolved.degraded,
+        "verifies": "`matches` compares the value you emitted against the signed fact this token \
+                     dereferences to: verbatim first, then numeric equality, so the same number \
+                     spelled differently still passes. `drift: \"rounded\"` means you lost \
+                     precision, `\"wrong\"` means a different number. The receipt below is this \
+                     responder's signature over the dereference, not over your claim.",
+        "receipt": resolved.receipt,
+        "offline_verify_at": "/verify",
+    })))
+}
+
 /// The whole resolve pipeline for one token: parse, fetch by cid, bind
 /// every anchor claim to the signed body, sign the dereference. Shared
 /// verbatim by the single and the batch endpoint so the two can never
 /// disagree about what a token means.
 async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResolveResp, ApiError> {
     let started = std::time::Instant::now();
-    let (cell, cid, descriptor) = parse_fact_token(token).map_err(|message| {
-        ApiError(
-            StatusCode::BAD_REQUEST,
-            ErrorBody {
-                code: ErrorCode::InvalidArgument,
-                message,
-                details: None,
-            },
-        )
-    })?;
+    // U1: accept a bare fact_cid (descriptor head dropped) in DEGRADED mode.
+    // Measured at 21.9% of real dereference attempts, so failing closed here
+    // costs a fifth of the loop. The cell is left empty and taken from the
+    // signed body below; the cell-binding check is skipped because a bare cid
+    // asserts no location to contradict.
+    let mut degraded = false;
+    let (cell, cid, descriptor) = match parse_fact_token(token) {
+        Ok(parsed) => parsed,
+        Err(message) => match bare_fact_cid(token) {
+            Some(bare) => {
+                degraded = true;
+                (String::new(), bare, None)
+            }
+            None => {
+                return Err(ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidArgument,
+                        message,
+                        details: None,
+                    },
+                ))
+            }
+        },
+    };
 
     let cid_obj = emem_fact::FactCid::new(cid.clone());
     let facts = s
@@ -22310,7 +22475,10 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         emem_fact::Fact::Absence(a) => a.cell.as_str(),
         emem_fact::Fact::Derivative(d) => d.cell.as_str(),
     };
-    if fact_cell != cell {
+    // A degraded (bare-cid) resolve asserts no cell, so there is nothing to
+    // contradict; the cell is adopted from the signed body. Every other token
+    // shape still binds strictly.
+    if !degraded && fact_cell != cell {
         return Err(ApiError(
             StatusCode::CONFLICT,
             ErrorBody {
@@ -22322,6 +22490,15 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
             },
         ));
     }
+
+    // A degraded resolve had no cell at parse time; adopt the signed body's
+    // own cell so `canonical_token`, the receipt, and the response all name
+    // the real location, and the caller gets a full handle to cite next time.
+    let cell = if degraded {
+        fact_cell.to_string()
+    } else {
+        cell
+    };
 
     // Tamper-provenance of the fact's band, so the receiving agent gets the
     // trust class alongside the signed bytes in one round-trip. Attached by
@@ -22427,6 +22604,9 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         None,
     );
 
+    // Computed before the struct literal: `fact_json` is moved into it.
+    let value_verbatim = value_verbatim_of(&fact_json);
+
     Ok(MemoryTokenResolveResp {
         token: token.trim().to_string(),
         canonical_token,
@@ -22440,6 +22620,15 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         provenance,
         receipt,
         offline_verify_at: "/verify",
+        value_verbatim,
+        degraded,
+        degraded_reason: degraded.then(|| {
+            "accepted a bare fact_cid: the `emem:fact:<descriptor>:` head was missing. A bare cid is \
+             responder-scoped, so it names these bytes HERE but is ambiguous at another responder. \
+             The bytes and the receipt are exactly as authoritative as any resolve; only the \
+             citation was lossy. Cite `canonical_token` next time."
+                .to_string()
+        }),
     })
 }
 
@@ -61313,6 +61502,52 @@ mod tests {
             format!("emem:fact:{DERIVE_CELL}:{a}"),
             format!("emem:fact:{DERIVE_CELL}:{b}"),
         ]
+    }
+
+    /// U1: a bare 52-char base32 cid is recognised so resolve can accept it
+    /// in degraded mode. Deliberately strict, so a typo'd or truncated token
+    /// can never be mistaken for one.
+    #[test]
+    fn bare_fact_cid_is_strict() {
+        let cid = "2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq";
+        assert_eq!(cid.len(), 52);
+        assert_eq!(bare_fact_cid(cid).as_deref(), Some(cid));
+        assert_eq!(bare_fact_cid(&format!("  {cid}  ")).as_deref(), Some(cid));
+        // Not a bare cid: full token, wrong length, or non-base32 characters.
+        assert!(bare_fact_cid(&format!("emem:fact:defi.zb572.xoso.zb1ec:{cid}")).is_none());
+        assert!(bare_fact_cid(&cid[..51]).is_none());
+        assert!(
+            bare_fact_cid(&format!("{}1", &cid[..51])).is_none(),
+            "1 is not base32"
+        );
+        assert!(bare_fact_cid(&format!("{}!", &cid[..51])).is_none());
+    }
+
+    /// U3: the verbatim value must survive as an EXACT string, because the
+    /// measured failure is a model retyping `0.241103` as `0.2411`.
+    #[test]
+    fn value_verbatim_preserves_full_precision() {
+        let flat = json!({"band": "indices.ndvi", "value": 0.241103});
+        assert_eq!(value_verbatim_of(&flat).as_deref(), Some("0.241103"));
+        // The serde-tagged variant is unwrapped.
+        let tagged = json!({"Primary": {"value": -0.055822789005725904}});
+        assert_eq!(
+            value_verbatim_of(&tagged).as_deref(),
+            Some("-0.055822789005725904")
+        );
+        // Non-scalar values carry no verbatim string.
+        assert!(value_verbatim_of(&json!({"value": [1.0, 2.0]})).is_none());
+        assert!(value_verbatim_of(&json!({"band": "x"})).is_none());
+    }
+
+    /// The drift classifier's precision counter: it decides whether a
+    /// mismatch is a rounding of the truth or a different number.
+    #[test]
+    fn claimed_decimals_counts_fraction_digits() {
+        assert_eq!(claimed_decimals("0.2411"), 4);
+        assert_eq!(claimed_decimals("0.241103"), 6);
+        assert_eq!(claimed_decimals("918"), 0);
+        assert_eq!(claimed_decimals("-0.0558"), 4);
     }
 
     /// The pure-op semantics are PINNED, so a caller anywhere recomputes the
