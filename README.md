@@ -4,9 +4,9 @@
 
 # emem
 
-**The verifiable memory protocol for the physical world, built for AI agents to cite.**
+**emem is the external memory of the world.**
 
-*Agents inherit a measured, signed account of the physical world instead of re-observing it; every observation becomes a shared, verifiable Memory Token that persists across long-horizon AI tasks.*
+*An open protocol for addressing, writing, recalling, sharing and verifying world memories, so an agent cites a fact instead of carrying a paraphrase of it.*
 
 **▶ [Your AI Agent Forgets. Emem Gives It Verifiable Memory of the World](https://www.youtube.com/shorts/c1gjHejZ2CU)** · 60 seconds
 
@@ -33,6 +33,22 @@ Listed on the [official MCP Registry](https://registry.modelcontextprotocol.io) 
 ---
 
 ## What is emem
+
+```
+                  external memory of the world
+                              |
+        emem.dev, or any responder you run yourself
+                              |
+                       the emem protocol
+                              |
+   addresses · memory objects · signatures · receipts · retrieval
+                              |
+  storage, satellites, sensors, databases and models complete it
+```
+
+Read that bottom-up. Satellites and sensors are the layer that *fills* the
+memory, not the thing emem is. Swap them for a different observer and every
+layer above is unchanged, which is the point.
 
 A shared memory of the physical world, and a systems primitive for agents: memory that lives outside any one model, so an agent cites a fact instead of carrying a paraphrase of it. Location is the first key: every place on Earth has a stable 64-bit address, and every observation recorded there, an elevation, a temperature, a forest-loss year, is one signed, immutable record at that address. Any agent can read it, any keyholder can add to it, and anyone can check any of it offline. No account to read.
 

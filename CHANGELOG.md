@@ -81,6 +81,40 @@ and every new request field defaults to the previous behaviour when absent.
 - Agent handoff notes moved out of the repository root into
   `.well-known/agent-notes/`.
 
+### Known operational issue: the runtime can wedge under load
+
+**Read this before depending on emem for anything with a deadline.**
+
+"Stable" here means the interface contract holds: receipts verify across
+versions, tokens keep resolving, changes are additive. It does not yet mean the
+service never stalls, and it would be dishonest to let the version number imply
+that.
+
+Under load the tokio runtime can stop accepting connections. The process stays
+alive, memory is normal, every thread is sleeping rather than blocked on disk,
+and new connections sit unaccepted in the listen queue. Because nothing is
+accepted, even `/live` and `/health` stop answering despite being deliberately
+exempt from the concurrency limiter: route-level exemption cannot help a
+connection that was never accepted.
+
+- `var/wedge/` holds **235 snapshots since 2026-07-03**, roughly 1 to 7 a day.
+- A watchdog timer restarts the unit within about 30 seconds, which is why this
+  presents as intermittent slowness rather than an outage, and why the systemd
+  restart counter stays at 0: the watchdog restarts the *service*, not a
+  crashed process.
+- **Root cause is not yet confirmed.** Backtrace capture was broken for all 231
+  earlier snapshots (`ptrace_scope=1` refused the unprivileged attach), so the
+  evidence needed to name the cause did not exist. That capture was repaired on
+  2026-07-20, so the next occurrence should finally produce a usable backtrace.
+- The leading suspect is a blocking lazy initializer reachable from request
+  handlers: `TopicRouter::global()` is a `std::sync::OnceLock`, and
+  `get_or_init` parks every other caller until the initializer returns. Called
+  from enough concurrent requests while cold, that starves the worker pool and
+  the accept loop with it. Consistent with the observed signature, not proven.
+
+This affects the published container as well as the hosted service, so anyone
+self-hosting inherits it. If uptime matters to you, run the watchdog.
+
 ### Known gaps, stated rather than omitted
 - The third-party benchmark is marked SAMPLE. It has no independent
   replication, no pre-specified power, no archival DOI, and covers two open
