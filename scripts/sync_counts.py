@@ -20,8 +20,8 @@ How it works:
 Usage:
   scripts/sync_counts.py            # print canonical counts + offline cross-check
   scripts/sync_counts.py --check    # CI guard: non-zero exit if any surface drifts
-  scripts/sync_counts.py --write    # rewrite the count fields in the machine twins
-                                     # (web/humans.json, web/agent.json) in place
+  scripts/sync_counts.py --write    # rewrite the count fields in the machine twin
+                                     # (web/agent.json) in place
 
 This is where the numbers come from. Do not hand-edit counts in the JSON twins;
 re-run --write. Prose surfaces (README, docs, homepage) are guarded by --check.
@@ -65,7 +65,7 @@ CANON = {
     "mcp_resources": 18,       # resources/list entries (emem-mcp 7 + emem-api-rest 11)
     "mcp_uri_templates": 8,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 16,
-    "version": "1.1.0",
+    "version": "1.2.0",
 }
 
 
@@ -256,34 +256,6 @@ def _set_num(text: str, key: str, val: int) -> str:
     return re.sub(rf'("{re.escape(key)}"\s*:\s*)\d+', rf"\g<1>{val}", text)
 
 
-def write_humans(check_only: bool) -> list[str]:
-    f = REPO / "web" / "humans.json"
-    text = f.read_text()
-    repl = {
-        "mcp_tools": CANON["mcp_tools"],
-        "algorithms": CANON["algorithms"],
-        "rest_paths_openapi": CANON["rest_paths_openapi_total"],
-        "rest_paths_v1_openapi": CANON["rest_paths_v1"],
-        "band_cube_slots": CANON["cube_slots"],
-        "materializer_wired_names": CANON["materializer_wired"],
-        "source_schemes": CANON["source_schemes"],
-        "topics_declared": CANON["topics"],
-    }
-    new = text
-    for k, v in repl.items():
-        new = _set_num(new, k, v)
-    problems = _apply(f, text, new, check_only)
-    # Guard: every numeric field in the counts block must be one we manage,
-    # so an unguarded hand-number can't be reintroduced and drift silently.
-    counts = json.loads(text).get("counts", {})
-    unmanaged = [k for k, v in counts.items()
-                 if isinstance(v, int) and k not in repl]
-    for k in unmanaged:
-        problems.append(f"{f.relative_to(REPO)}: counts.{k} is not managed by "
-                        f"sync_counts.py — add it to CANON+repl or remove it")
-    return problems
-
-
 def write_agent(check_only: bool) -> list[str]:
     f = REPO / "web" / "agent.json"
     text = f.read_text()
@@ -385,7 +357,6 @@ STALE_PHRASES = {
     "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer",
                      "91 MCP", "108 documented", "160 algorithms",
                      "160 composition"],
-    "web/humans-llms.txt": ["91 MCP", "77 extended", "160 composition"],
     "docs/agents.md": ["160 composition", "91 MCP", "77 extended"],
     "huggingface-space/README.md": ["70 MCP", "159 algorithms", "68-recipe",
                                     "42 bands"],
@@ -430,7 +401,6 @@ def main() -> int:
 
     if mode == "--check":
         problems = drift[:]
-        problems += write_humans(check_only=True)
         problems += write_agent(check_only=True)
         problems += scan_prose()
         if problems:
@@ -442,7 +412,7 @@ def main() -> int:
         return 0
 
     if mode == "--write":
-        changes = write_humans(check_only=False) + write_agent(check_only=False)
+        changes = write_agent(check_only=False)
         for c in changes:
             print(f"  ✓ {c}")
         print("\nMachine twins synced. Prose surfaces (README/docs/homepage):")
