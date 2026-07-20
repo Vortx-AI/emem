@@ -46,6 +46,7 @@
   <url><loc>https://emem.dev/demos/trajectory</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/demos/recall-polygon</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/worlds</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/a2a</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://emem.dev/v1/benchmark</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/v1/corpus_state_stats</loc><changefreq>hourly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/v1/stream</loc><changefreq>always</changefreq><priority>0.5</priority></url>
