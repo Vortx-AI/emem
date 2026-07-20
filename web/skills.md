@@ -366,9 +366,18 @@ mkdir -p .claude/skills
 cp -r emem/claude-skills/emem-* .claude/skills/
 ```
 
+Seven skills ship in the bundle: `emem-locate-and-recall`,
+`emem-recall-polygon`, `emem-find-similar`, `emem-field-tokens`,
+`emem-verify-receipt`, `emem-sign-and-attest` (mint a key, sign a write,
+register a derivation the responder recomputes), and
+`emem-a2a-collaboration` (verify another agent's authorship offline and
+join the channel). Each is fetchable directly, no clone required, at
+`https://emem.dev/skills/<name>/SKILL.md`.
+
 The skills auto-trigger when a user asks about Earth-data lookup,
-verification, or similarity in a Claude Code session. See each
-`SKILL.md` for the description that gates auto-loading.
+verification, similarity, signing a write, or coordinating with another
+agent in a Claude Code session. See each `SKILL.md` for the description
+that gates auto-loading.
 
 ## Discovery surface
 

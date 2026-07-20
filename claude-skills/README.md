@@ -32,6 +32,11 @@ cp -r emem/claude-skills/emem-* ~/.claude/skills/
 | `emem-verify-receipt`       | "verify this emem receipt offline" / "is this fact authentic?"                       |
 | `emem-find-similar`         | "find places similar to X" / "cities with the same urban signature as Y"             |
 | `emem-recall-polygon`       | "what's the [band] inside this polygon/region/watershed?"                            |
+| `emem-sign-and-attest`      | "save this so another agent can verify it" / "publish this finding with its lineage" |
+| `emem-a2a-collaboration`    | "is this message from another agent genuine?" / "hand this to the other agent"       |
+
+Each is also fetchable directly, no clone required, at
+`https://emem.dev/skills/<name>/SKILL.md`.
 
 ## Constraints
 

@@ -9,10 +9,21 @@ allowed-tools: Bash(curl:*) Bash(jq:*) Bash(python3:*) Read
 A world model is a **field over an area across time**, not a set of points.
 This skill fetches that field from emem as a signed, re-derivable artifact:
 
-- `POST /v1/band_raster` — one native-resolution Sentinel-2 band over a bbox
-  at one time, as a content-addressed grid plus an `emem:raster:` token.
-- `POST /v1/band_cube` — the same band over several dates, a signed manifest
-  over the raster slices, as an `emem:cube:` token (the 4D world token).
+- `POST /v1/band_raster` — one native-resolution field over a bbox at one
+  time, as a content-addressed grid plus an `emem:raster:` token. Four
+  recipes share this shape: a raw satellite band (`band_raster@1`), a
+  cloud-free median composite (`s2_median_composite@1`), static terrain
+  (`dem_raster@1`), and a foundation-model embedding, 128-D per cell
+  (`embedding_raster@1`).
+- `POST /v1/band_cube` — the same field over several dates, a signed manifest
+  over the raster slices, as an `emem:cube:` token (the field-over-time token).
+- `POST /v1/raster_bundle` — several rasters as one re-derivable set, as an
+  `emem:rasterset:` token; `POST /v1/raster_bundle/resolve` walks it back to
+  its members, which outlive the bundle and re-derive on their own.
+- `POST /v1/raster/resolve` with `{"spot_check": true}` — re-fetch the pixels
+  and re-hash them for you, and cross-check sampled cells against the signed
+  facts at those addresses. Use it to prove an artifact you were handed is
+  the one its token names.
 - `POST /v1/cells_in_bbox` — enumerate the cell64s in a bbox, paged, when you
   want the per-cell address list instead of the packed grid.
 

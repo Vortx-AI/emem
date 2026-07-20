@@ -143,6 +143,12 @@ const SKILL_VERIFY_RECEIPT: &str =
 const SKILL_FIND_SIMILAR: &str = include_str!("../../../claude-skills/emem-find-similar/SKILL.md");
 const SKILL_RECALL_POLYGON: &str =
     include_str!("../../../claude-skills/emem-recall-polygon/SKILL.md");
+const SKILL_FIELD_TOKENS: &str =
+    include_str!("../../../claude-skills/emem-field-tokens/SKILL.md");
+const SKILL_SIGN_AND_ATTEST: &str =
+    include_str!("../../../claude-skills/emem-sign-and-attest/SKILL.md");
+const SKILL_A2A_COLLABORATION: &str =
+    include_str!("../../../claude-skills/emem-a2a-collaboration/SKILL.md");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 // Lowercase canonical docs (post-2026-05-08 docs sweep). CLIENTS_MD was
@@ -780,6 +786,18 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/skills/emem-recall-polygon/SKILL.md",
             get(serve_skill_recall_polygon),
+        )
+        .route(
+            "/skills/emem-field-tokens/SKILL.md",
+            get(serve_skill_field_tokens),
+        )
+        .route(
+            "/skills/emem-sign-and-attest/SKILL.md",
+            get(serve_skill_sign_and_attest),
+        )
+        .route(
+            "/skills/emem-a2a-collaboration/SKILL.md",
+            get(serve_skill_a2a_collaboration),
         )
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
@@ -3440,6 +3458,15 @@ async fn serve_skill_find_similar() -> Response {
 }
 async fn serve_skill_recall_polygon() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_RECALL_POLYGON)
+}
+async fn serve_skill_field_tokens() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_FIELD_TOKENS)
+}
+async fn serve_skill_sign_and_attest() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_SIGN_AND_ATTEST)
+}
+async fn serve_skill_a2a_collaboration() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_A2A_COLLABORATION)
 }
 async fn serve_llms_full() -> Response {
     // `/llms-full.txt` used to alias `/llms.txt` byte-for-byte, which
