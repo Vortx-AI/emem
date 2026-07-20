@@ -321,7 +321,7 @@ it found:
 - **One disagreement with their headline**, and it is a denominator: a small
   number of rows recorded an *empty* generation. Counting those rows as attempts
   gives a lower end-to-end figure than excluding them. emem served correct bytes
-  in every such case — the failure is a model that returned nothing, which is
+  in every such case. The failure is a model that returned nothing, which is
   categorically different from a model that returned a wrong number, and the
   published claim should name which denominator it uses.
 - **A double-count trap for re-users**: two of the published runs carry identical
@@ -329,8 +329,8 @@ it found:
   party pooling every run naively would.
 - **A finding that cuts against us.** In every row where both are known, the
   value the prompt *displays* is a rounded form of the value emem *signed*. So
-  the in-context emem arm and the plain context control measure the same skill —
-  copying a number already in the window — and addressing contributes nothing
+  the in-context emem arm and the plain context control measure the same skill,
+  copying a number already in the window, and addressing contributes nothing
   measurable *in that arm*. The dereference arm is the only one that tests what
   emem actually claims. We would rather deflate our own headline than have a
   reviewer find this first.

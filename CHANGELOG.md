@@ -7,6 +7,88 @@ to verify.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-20
+
+The first version whose central claims were measured by someone other than
+its authors, and changed as a result. An independent agent benchmarked emem's
+dereference loop, found that the last mile between a signed fact and a model's
+answer was unverified, and published the failure rate. Most of what follows is
+the repair.
+
+Additive and backward compatible. Every receipt signed under 1.0.0 and 1.1.0
+verifies unchanged, legacy `memt:` / `memb:` / `meme:` tokens still resolve,
+and every new request field defaults to the previous behaviour when absent.
+
+### Added
+- **The last mile is now verifiable.** `POST /v1/memory_token/resolve` accepts
+  a bare cid and an embedded cid recovered from surrounding prose, answering
+  `degraded: true` rather than failing, because a model that drops
+  `emem:fact:<descriptor>:` and keeps the tail is citing a real fact badly, not
+  citing nothing. Every resolve carries `value_verbatim`, an exact decimal
+  string to copy rather than a float to retype. `POST /v1/echo_verify` grades a
+  value a model is about to publish against the signed fact and reports the
+  drift, with a `strict` mode. A cid of the wrong length is reported as a
+  damaged citation (`fact_cid_malformed_length`, `recoverable: false`) instead
+  of a missing fact.
+- **GC-1 tier-1 recomputation.** `POST /v1/derive` re-runs a pure op against a
+  pinned `code_cid` and awards `deterministic_index` provenance when the result
+  reproduces, so a derived number can carry the same class of evidence as a
+  measured one.
+- **The field-token family completes.** `emem:cube:` names a field over time
+  (`band_cube@1`), `raster_bundle@1` binds N field tokens into one signed
+  manifest, and DEM and encoder embeddings become field tokens in their own
+  right. Anchors are emitted per cell so a compliance claim is spot-checkable
+  by clicking one.
+- **A2A collaboration is on the front door.** `/.well-known/mcp.json` carries a
+  machine-readable `a2a` block with the invitation, the ten-rule standard, and
+  the path for telling us where it hurts.
+- **Offline authorship.** Memory writes persist the caller's signature, so a
+  third party verifies who wrote a memory without asking us (T1).
+- **`GET /live`**, a liveness probe that touches no storage, for callers who
+  need to know the process is up without paying for a scan.
+- Three agent skills (field tokens, signing and attestation, A2A
+  collaboration), and refreshed OpenAI GPT and Gemini integrations.
+- A per-attester write rate limit as a backstop, with the security posture
+  published machine-readably rather than described in prose.
+- [`examples/benchmark-arm/`](examples/benchmark-arm/): the dereference arm
+  emem would defend, plus `differential_scorer.py`, an independent re-scorer
+  written against the third-party study's published bytes. It disagrees with
+  one of that study's headline figures and says so.
+
+### Changed
+- `/humans` is retired and redirects to `/worlds`. It was not carrying its
+  weight and it was diluting the pages that were.
+- `emem-membench` is now `emem-scorecard`.
+- `/docs/api` and the whitepaper were rewritten to match what the code does,
+  including sections on GC-1 and A2A.
+- `/verify` performs all three legs (bytes, authorship, inclusion against
+  consistency) and accepts the token forms agents actually cite.
+
+### Fixed
+- **The TypeScript SDK would have published with no code in it.** No
+  `.npmignore` meant npm fell back to the root `.gitignore`, which ignores
+  `dist/`, while `package.json` points `main` at `dist/index.js`. This is the
+  same class of bug that previously shipped empty Python wheels. Not yet
+  verified with `npm pack --dry-run`; that remains a release gate.
+- JRC forest bands were materialized but undiscoverable.
+- `spot_check` anchors are band-aware and clamped (the DEM reproduction).
+- Embedding chip selection uses per-pixel SCL rather than scene-level cloud
+  cover alone.
+- `recall_polygon` paginates and slims its projection so a large plot fits the
+  MCP wire.
+- The watchdog attaches gdb under `sudo`, so a wedged process finally produces
+  a backtrace instead of a silent restart.
+- Agent handoff notes moved out of the repository root into
+  `.well-known/agent-notes/`.
+
+### Known gaps, stated rather than omitted
+- The third-party benchmark is marked SAMPLE. It has no independent
+  replication, no pre-specified power, no archival DOI, and covers two open
+  7-12B models on one inference host. Independent re-scoring is closed as of
+  this release; the rest need someone outside this collaboration.
+- The npm package has never been published. The first publish needs a
+  bootstrap token because no trusted publisher is registered.
+
 ## [1.1.0] - 2026-07-16
 
 A stable, additive upgrade: every receipt signed under 1.0.0 verifies

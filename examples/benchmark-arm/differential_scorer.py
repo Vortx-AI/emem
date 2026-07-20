@@ -36,7 +36,7 @@ WHAT IT CHECKS, IN ORDER
 
 3. SCORING, decomposed. `exact` (the ground-truth digits appear verbatim),
    `numeric_equal` (some number in the answer parses equal as f64 but the bytes
-   differ — the rounding failure), `confidently_wrong` (a number that is neither),
+   differ, the rounding failure), `confidently_wrong` (a number that is neither),
    and `abstain` (no number offered). Collapsing these is how a benchmark
    flatters itself.
 
@@ -263,7 +263,7 @@ def citation_grade(prompt: str, answer: str, band: str | None = None) -> str | N
     and discards `emem:fact:<descriptor>:`, so a naive responder resolves nothing.
 
     The prompt usually offers SEVERAL tokens (elevation, ndvi, ndwi). Grading
-    against the first one found marks a correct ndvi citation as a miss — a bug
+    against the first one found marks a correct ndvi citation as a miss. It is a bug
     this scorer had on its first run, and the reason the band is passed in.
     """
     cands = list(_TOKEN.finditer(prompt or ""))

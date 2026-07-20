@@ -53,9 +53,9 @@ fact. Drift becomes a caught event instead of a silent wrong number.
 That is a claim about the OUTPUT, not the model, and the report keeps the two
 apart on purpose:
 
-- `published_byte_identical` — what the loop emitted. This is the number the
+- `published_byte_identical`: what the loop emitted. This is the number the
   loop is designed to drive to 1.0.
-- `model_byte_identical_first_pass` — what the model managed unaided. This is
+- `model_byte_identical_first_pass`: what the model managed unaided. This is
   the number that will stay well below 1.0, and it is the honest one to quote
   when comparing MODELS rather than architectures.
 
@@ -111,15 +111,15 @@ python3 differential_scorer.py /path/to/navigatable_worlds --offline   # skip li
 
 It runs three legs in order, and refuses to score bytes that fail the first:
 
-1. **Integrity** — every run, sidecar and code file against `PROVENANCE.json`,
+1. **Integrity.** Every run, sidecar and code file against `PROVENANCE.json`,
    and every prompt/answer against its own content address,
    `cid == base32(blake3(bytes))`.
-2. **Ground truth, twice** — the value the prompt *displayed*, parsed from the
+2. **Ground truth, twice.** The value the prompt *displayed*, parsed from the
    prompt bytes, and the value emem *signed*, resolved live. These are not the
    same object: a prompt may display `0.747614` for a signed
    `0.7476139978791093`. A scorer with one notion of "expected" silently
    mis-scores one arm or the other.
-3. **Scoring, decomposed** — `exact`, `numeric_equal` (right value, wrong
+3. **Scoring, decomposed.** `exact`, `numeric_equal` (right value, wrong
    bytes: the rounding failure), `confidently_wrong`, and `abstain`, kept
    separate because collapsing them is how a benchmark flatters itself.
 
