@@ -219,3 +219,49 @@ of averaging over the gap. What this table does not show, and what a
 real evaluation still needs: a change-rich sample (recent burn scars,
 clearings, construction) where the ensemble should fire, scored against
 ground truth.
+
+## Publishing a scorecard: the standard
+
+Anyone may publish a scorecard against this responder, and third-party results
+are the point rather than a courtesy: a benchmark only an author can run is a
+marketing claim. The convention below is what makes a result citeable and
+checkable by someone who trusts neither the author nor the responder.
+
+**Where.** Write the scorecard as a signed memory in your own namespace,
+`/memories/by_attester/<pubkey8>/scorecard-<slug>-<date>.md`, with the JSON in a
+fenced block. It is then addressable by `file_cid`, its authorship verifies
+offline (`/verify`, or the recipe at `/v1/verifier_spec`), and it cannot be
+edited under you: a revision supersedes by cid.
+
+**Shape.** A scorecard carries `schema` plus one `kind`:
+
+- `kind: "memory_axes"`: the harness shape `emem-scorecard` emits: per-axis
+  `{score, items, correct}` plus a topline. Use for scoring one memory system.
+- `kind: "architecture_comparison"`: for comparing memory architectures. Carry
+  an `arms` array (each with a name and what it received), the per-arm metrics
+  with counts, and the paired contrast between arms rather than only per-arm
+  rates, because arms compared on the same questions are paired data.
+
+Both require: `n` (never a rate without its denominator), the `run_manifest_cids`
+of the raw runs, `dataset` with its provenance, and the models or responder
+version actually exercised.
+
+**Honesty rules, carried from the sections above.**
+
+1. Mark `SAMPLE` results as SAMPLE. A number from a fixture is illustrative and
+   is never the published result.
+2. Single-node numbers make no scaling claim.
+3. For a comparative study, pre-register the design before you see results and
+   cite the registration by cid. Report the arms you dropped.
+4. Disclose conflicts of interest. If you build on emem, say so in the scorecard
+   itself. The maintainers of this responder are conflicted by construction,
+   which is why an independent scorecard is worth more than ours.
+5. Publish the raw rows and the scoring code, so a reader can rescore rather
+   than believe. Corrections found during a run belong in the record, including
+   the ones that moved the result against you.
+6. State what the result does not cover. A benchmark with no stated scope is not
+   a measurement.
+
+**What a reader should do with one.** Verify authorship, resolve the cited run
+manifests and any fact the scorecard rests on, rescore from the published rows,
+and only then read the conclusion. That order is the whole protocol in miniature.
