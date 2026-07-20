@@ -66,10 +66,24 @@ snapshot_wedge() {
     # where they parked, only backtraces can. gdb attach on an
     # already-wedged process costs nothing the restart wasn't about to
     # destroy anyway.
+    # ptrace_scope is 1 on this host, which blocks attaching to a process
+    # that is not your child. The watchdog is not emem-server's parent
+    # (systemd is), so the unprivileged gdb below failed on EVERY wedge
+    # from 2026-07-03 to 2026-07-20: 231 snapshots, zero backtraces, each
+    # one recording only "Could not attach to process". That is why five
+    # incidents stayed "cause unknown" while the data to explain them was
+    # being thrown away. sudo is passwordless for this user, so attach
+    # through it and keep the unprivileged path as a fallback.
     if command -v gdb >/dev/null 2>&1; then
       echo "-- gdb thread backtraces --"
-      timeout 60 gdb -p "$pid" -batch -ex "set pagination off" \
-        -ex "thread apply all bt 30" 2>&1
+      if sudo -n true 2>/dev/null; then
+        sudo -n timeout 90 gdb -p "$pid" -batch -ex "set pagination off" \
+          -ex "thread apply all bt 30" 2>&1
+      else
+        echo "(no passwordless sudo; ptrace_scope=$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null) will likely block this)"
+        timeout 90 gdb -p "$pid" -batch -ex "set pagination off" \
+          -ex "thread apply all bt 30" 2>&1
+      fi
     fi
   } >"$out" 2>&1
   echo "emem-watchdog: wedge snapshot written to $out"
