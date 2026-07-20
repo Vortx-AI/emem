@@ -23,7 +23,7 @@ emem-intent      typed Intent grammar + heuristic planner
 emem-mcp         static MCP tool catalog (88 descriptors; no transport)
 emem-api-rest    axum router: REST routes, /mcp JSON-RPC dispatch, well-known, write gate
 emem-cli         emem-server binary (key load/persist) + receipt-verify CLI
-emem-membench    MemoryAgentBench-style scorecard harness (leaf)
+emem-scorecard   MemoryAgentBench-style scorecard harness (leaf)
 emem-sleep-agent opt-in sleep-time rewrite/merge agent (leaf)
 ```
 

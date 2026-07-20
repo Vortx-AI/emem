@@ -83,7 +83,7 @@ pub async fn long_range_understanding<R: Responder>(r: &R) -> anyhow::Result<Axi
         }
     }
     eprintln!(
-        "[membench] long-range: earliest correctly-recalled needle at position {}",
+        "[scorecard] long-range: earliest correctly-recalled needle at position {}",
         earliest_resolved
             .map(|p| p.to_string())
             .unwrap_or_else(|| "<none>".to_string())
@@ -187,7 +187,7 @@ pub async fn run_all_live(
         }
     }
     eprintln!(
-        "[membench] long-range: graded the {lr_n} earliest-loaded items (front of transcript)"
+        "[scorecard] long-range: graded the {lr_n} earliest-loaded items (front of transcript)"
     );
     let lru = AxisScore::new(lr_correct, lr_n);
 

@@ -2657,18 +2657,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "emem-membench"
-version = "1.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "emem-primitives"
 version = "1.1.0"
 dependencies = [
@@ -2702,6 +2690,18 @@ dependencies = [
  "tokenizers 0.22.2",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "emem-scorecard"
+version = "1.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

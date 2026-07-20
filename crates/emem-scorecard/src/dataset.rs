@@ -92,7 +92,7 @@ pub struct Dataset {
 }
 
 /// The committed sample lives at this path relative to the crate root.
-pub const SAMPLE_RELATIVE_PATH: &str = "crates/emem-membench/data/sample-longmemeval.jsonl";
+pub const SAMPLE_RELATIVE_PATH: &str = "crates/emem-scorecard/data/sample-longmemeval.jsonl";
 
 /// Parse a JSONL string into items. Blank lines and lines beginning with
 /// `#` (comments) are skipped. A malformed line is a hard error with its

@@ -496,7 +496,7 @@ and attestations still verify byte-identically (regression-tested)._
   `emem.fact_contested` flag now rides recall responses as advisory metadata —
   kept *outside* the signed fact CID / receipt preimage (byte-identical when
   absent).
-- **`emem-membench` live mode**: `--live --dataset <jsonl>` loads a corpus into a
+- **`emem-scorecard` live mode**: `--live --dataset <jsonl>` loads a corpus into a
   responder and computes the four axes + topline from real responder output
   (committed 16-item sample; full-dataset instructions in `docs/benchmarks.md`).
   Honestly labels the lexical-fallback read path when no embedder is loaded.
@@ -561,7 +561,7 @@ and attestations still verify byte-identically (regression-tested)._
 - `tasks` capability advertised only at `2025-11-25`. `sampling` /
   `elicitation` deliberately NOT advertised (no implemented path — honesty).
 
-**`emem-membench` scorecard** (commit `6e2561d`):
+**`emem-scorecard` scorecard** (commit `6e2561d`):
 - New crate/binary scoring a responder on four MemoryAgentBench-style axes
   (retrieval, test-time learning, long-range, conflict resolution) + a
   LongMemEval-S-style topline. `--self-test` runs offline against a built-in

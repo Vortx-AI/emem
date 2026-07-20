@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://www.youtube.com/shorts/c1gjHejZ2CU" title="Your AI Agent Forgets. Emem Gives It Verifiable Memory of the World"><img src="https://i.ytimg.com/vi/c1gjHejZ2CU/maxresdefault.jpg" alt="Watch: Your AI Agent Forgets. Emem Gives It Verifiable Memory of the World" width="480" /></a>
+<img src="web/vortxgola.gif" alt="emem, a slowly rotating view of Earth" width="200" />
 
 # emem
 

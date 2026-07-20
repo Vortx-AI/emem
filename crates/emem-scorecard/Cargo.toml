@@ -1,12 +1,12 @@
 [package]
-name = "emem-membench"
+name = "emem-scorecard"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "emem-membench — MemoryAgentBench-style scorecard for a local emem responder"
+description = "emem-scorecard — MemoryAgentBench-style scorecard for a local emem responder"
 
 [[bin]]
-name = "emem-membench"
+name = "emem-scorecard"
 path = "src/main.rs"
 
 [dependencies]

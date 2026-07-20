@@ -1,6 +1,6 @@
 # Benchmarks
 
-`emem-membench` scores a running emem responder against a
+`emem-scorecard` scores a running emem responder against a
 LongMemEval-S / MemoryAgentBench-style memory benchmark and emits a signed
 JSON scorecard. It has two modes:
 
@@ -18,7 +18,7 @@ Each dataset item is `{id, content, query, expected_answer}` (with optional
 
 1. **Load (write API).** Each item's `content` is written as one signed
    memory file via `POST /mcp` → `tools/call` → `memory_create`
-   (`/memories/membench/<id>.md`, `kind: "fact"`). Every create returns a
+   (`/memories/scorecard/<id>.md`, `kind: "fact"`). Every create returns a
    server-signed receipt with a `file_cid`.
 2. **Pick a read path.** A one-shot probe of `POST /v1/memory/search`
    reports `model_loaded`. If the BGE embedder is loaded, retrieval uses
@@ -48,12 +48,12 @@ Each dataset item is `{id, content, query, expected_answer}` (with optional
    graded questions answered correctly across the four axes, the
    LongMemEval-S convention.
 
-The scorecard is written to `var/benchmarks/membench-live.json` and printed
+The scorecard is written to `var/benchmarks/scorecard-live.json` and printed
 to stdout, with the responder's signed receipt embedded.
 
 ## Honesty: SAMPLE vs FULL
 
-A small **SAMPLE** dataset (`crates/emem-membench/data/sample-longmemeval.jsonl`,
+A small **SAMPLE** dataset (`crates/emem-scorecard/data/sample-longmemeval.jsonl`,
 ~15 items) is committed so `--live` runs end-to-end with no download. Its
 score is labelled `dataset_provenance: "sample"` and is **illustrative
 only, not the published benchmark number**. A user-supplied dataset is
@@ -71,12 +71,12 @@ EMEM_DATA=:memory: EMEM_BIND=127.0.0.1:5087 EMEM_OVERTURE_SKIP_WARMUP=1 \
 
 # 2. Score it against the committed sample (no download).
 EMEM_URL=http://127.0.0.1:5087 \
-  cargo run -p emem-membench -- --live \
-  --dataset crates/emem-membench/data/sample-longmemeval.jsonl
+  cargo run -p emem-scorecard -- --live \
+  --dataset crates/emem-scorecard/data/sample-longmemeval.jsonl
 
 # 3. Or score against the full public dataset (see below).
 EMEM_URL=http://127.0.0.1:5087 \
-  cargo run -p emem-membench -- --live --dataset /path/to/longmemeval-s.jsonl
+  cargo run -p emem-scorecard -- --live --dataset /path/to/longmemeval-s.jsonl
 ```
 
 `--url` overrides `$EMEM_URL` (default `http://127.0.0.1:5051`). Omit

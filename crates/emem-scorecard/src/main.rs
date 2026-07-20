@@ -1,4 +1,4 @@
-//! emem-membench — a MemoryAgentBench-style scorecard for an emem responder.
+//! emem-scorecard — a MemoryAgentBench-style scorecard for an emem responder.
 //!
 //! Scores a local emem responder across four memory-system axes
 //! (retrieval accuracy, test-time learning, long-range understanding,
@@ -13,14 +13,14 @@
 //!
 //! Modes (mutually exclusive; `--self-test` is the default):
 //!   --self-test  Grade the in-memory stub responder against the built-in
-//!                fixture. No network. Writes var/benchmarks/membench-self-test.json.
+//!                fixture. No network. Writes var/benchmarks/scorecard-self-test.json.
 //!   --live       Drive a RUNNING responder at --url / EMEM_URL (default
 //!                http://127.0.0.1:5051): load the `--dataset` corpus over
 //!                the write API (memory_create), answer every query over
 //!                the read API (memory_search, or a labelled recall
 //!                fallback when the embedder is absent), compute all four
 //!                axes + topline from the responder's own output, embed its
-//!                signed receipt, and write var/benchmarks/membench-live.json.
+//!                signed receipt, and write var/benchmarks/scorecard-live.json.
 //!
 //! Honesty: the scorecard labels SAMPLE (committed ~15-item set,
 //! illustrative only) vs FULL (user-supplied dataset) so a sample score is
@@ -45,7 +45,7 @@ const DEFAULT_URL: &str = "http://127.0.0.1:5051";
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "emem-membench",
+    name = "emem-scorecard",
     about = "MemoryAgentBench-style scorecard for an emem responder"
 )]
 struct Args {
@@ -103,7 +103,7 @@ fn resolve_dataset_path(arg: &Option<PathBuf>) -> anyhow::Result<String> {
 struct Output {
     /// "self-test" or "live".
     mode: &'static str,
-    /// emem-membench crate version.
+    /// emem-scorecard crate version.
     version: &'static str,
     /// Base URL when live; null in self-test.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -160,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
         run_live(&base_url, &args).await?
     } else {
         if !args.self_test {
-            eprintln!("[membench] no mode flag given — defaulting to --self-test (pass --live to score a running responder)");
+            eprintln!("[scorecard] no mode flag given — defaulting to --self-test (pass --live to score a running responder)");
         }
         run_self_test().await?
     };
@@ -170,13 +170,13 @@ async fn main() -> anyhow::Result<()> {
     // Persist the scorecard to var/benchmarks/ for artifact capture.
     std::fs::create_dir_all(&args.out_dir)?;
     let fname = if out.mode == "live" {
-        "membench-live.json"
+        "scorecard-live.json"
     } else {
-        "membench-self-test.json"
+        "scorecard-self-test.json"
     };
     let path = args.out_dir.join(fname);
     std::fs::write(&path, &json)?;
-    eprintln!("[membench] wrote scorecard to {}", path.display());
+    eprintln!("[scorecard] wrote scorecard to {}", path.display());
 
     println!("{json}");
 
@@ -188,23 +188,23 @@ async fn main() -> anyhow::Result<()> {
     // there, so we only warn.
     let c = &out.scorecard;
     if c.retrieval_accuracy.items == 0 || c.long_range_understanding.items == 0 {
-        eprintln!("[membench] ERROR: retrieval/long-range axis evaluated 0 items");
+        eprintln!("[scorecard] ERROR: retrieval/long-range axis evaluated 0 items");
         std::process::exit(1);
     }
     if c.test_time_learning.items == 0 {
-        eprintln!("[membench] WARN: test-time-learning axis evaluated 0 items (dataset has no `update`/`update_answer` items)");
+        eprintln!("[scorecard] WARN: test-time-learning axis evaluated 0 items (dataset has no `update`/`update_answer` items)");
     }
     if c.conflict_resolution.items == 0 {
-        eprintln!("[membench] WARN: conflict-resolution axis evaluated 0 items (dataset has no `conflicts_with` items)");
+        eprintln!("[scorecard] WARN: conflict-resolution axis evaluated 0 items (dataset has no `conflicts_with` items)");
     }
     Ok(())
 }
 
 /// Grade the in-memory stub from the built-in synthetic fixture. No network.
 async fn run_self_test() -> anyhow::Result<Output> {
-    eprintln!("[membench] mode=self-test — grading in-memory stub from built-in fixture");
+    eprintln!("[scorecard] mode=self-test — grading in-memory stub from built-in fixture");
     eprintln!(
-        "[membench] fixture: {} items, {} retrieval queries, {} learning episodes, {} long-range items, {} conflict cases",
+        "[scorecard] fixture: {} items, {} retrieval queries, {} learning episodes, {} long-range items, {} conflict cases",
         fixture::ITEMS.len(),
         fixture::RETRIEVAL_QUERIES.len(),
         fixture::LEARNING_EPISODES.len(),
@@ -212,7 +212,7 @@ async fn run_self_test() -> anyhow::Result<Output> {
         fixture::CONFLICT_CASES.len(),
     );
     eprintln!(
-        "[membench] NOT run: live HTTP, server-signed receipt (self-test is unsigned by design)"
+        "[scorecard] NOT run: live HTTP, server-signed receipt (self-test is unsigned by design)"
     );
     let stub = StubResponder::from_fixture();
     let card = score::run_all(&stub).await?;
@@ -239,7 +239,7 @@ async fn run_live(base_url: &str, args: &Args) -> anyhow::Result<Output> {
     let ds_path = resolve_dataset_path(&args.dataset)?;
     let ds = dataset::load(&ds_path)?;
     eprintln!(
-        "[membench] mode=live — driving responder at {base_url}\n[membench] dataset: {} ({} items, provenance={})",
+        "[scorecard] mode=live — driving responder at {base_url}\n[scorecard] dataset: {} ({} items, provenance={})",
         ds.source,
         ds.items.len(),
         ds.provenance.as_str()
@@ -248,11 +248,11 @@ async fn run_live(base_url: &str, args: &Args) -> anyhow::Result<Output> {
     let driver = LiveDriver::new(base_url)?;
 
     // 1) Load the corpus over the real write API (memory_create).
-    eprintln!("[membench] loading corpus via POST /mcp memory_create ...");
+    eprintln!("[scorecard] loading corpus via POST /mcp memory_create ...");
     let loaded = driver.load_corpus(&ds).await?;
     let signed = loaded.iter().filter(|f| f.file_cid.is_some()).count();
     eprintln!(
-        "[membench] loaded {} files, {} returned a signed file_cid",
+        "[scorecard] loaded {} files, {} returned a signed file_cid",
         loaded.len(),
         signed
     );
@@ -262,33 +262,35 @@ async fn run_live(base_url: &str, args: &Args) -> anyhow::Result<Output> {
     let sample_q = ds.items.first().map(|i| i.query.as_str()).unwrap_or("test");
     let (model_loaded, idx_size) = driver.probe_search(sample_q).await;
     let path = if model_loaded {
-        eprintln!("[membench] read path = memory_search (BGE model loaded, index size {idx_size})");
+        eprintln!(
+            "[scorecard] read path = memory_search (BGE model loaded, index size {idx_size})"
+        );
         RetrievalPath::MemorySearch
     } else {
-        eprintln!("[membench] read path = recall_fallback (embedder model NOT loaded offline — listing memory_view + lexical ranker over /v1/recall-class reads). Scores reflect lexical retrieval, NOT BGE semantic search.");
+        eprintln!("[scorecard] read path = recall_fallback (embedder model NOT loaded offline — listing memory_view + lexical ranker over /v1/recall-class reads). Scores reflect lexical retrieval, NOT BGE semantic search.");
         RetrievalPath::RecallFallback
     };
 
     // 3) Compute the four axes from real responder output.
-    eprintln!("[membench] running: memory_create (write), {} (read), /v1/memory_contradictions (conflict)", path.as_str());
+    eprintln!("[scorecard] running: memory_create (write), {} (read), /v1/memory_contradictions (conflict)", path.as_str());
     let (card, conflict_method) = score::run_all_live(&driver, &ds, path).await?;
     if let Some(m) = conflict_method {
-        eprintln!("[membench] conflict axis graded via {}", m.as_str());
+        eprintln!("[scorecard] conflict axis graded via {}", m.as_str());
     }
 
     // 4) Embed a server-signed receipt where available.
     let receipt = if let Some(first) = loaded.first() {
         match driver.signed_receipt(&first.path).await {
             Ok(Some(r)) => {
-                eprintln!("[membench] embedded signed receipt from responder");
+                eprintln!("[scorecard] embedded signed receipt from responder");
                 Some(r)
             }
             Ok(None) => {
-                eprintln!("[membench] WARN: responder returned no signed receipt");
+                eprintln!("[scorecard] WARN: responder returned no signed receipt");
                 None
             }
             Err(e) => {
-                eprintln!("[membench] WARN: receipt fetch failed: {e}");
+                eprintln!("[scorecard] WARN: receipt fetch failed: {e}");
                 None
             }
         }

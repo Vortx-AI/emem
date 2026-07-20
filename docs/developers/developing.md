@@ -54,7 +54,7 @@ each:
 | `emem-api-rest` | HTTP/MCP router, 173 `.route()` registrations (mapping to 106 OpenAPI-documented REST paths in `openapi.json`, 103 of them under `/v1/*`) + 89 MCP tools (14 core, 75 extended), all inline materializers |
 | `emem-cli` | 7 binaries (see below) |
 | `emem-sleep-agent` | sleep-time consolidation agent: background edge + refinement formation over the corpus |
-| `emem-membench` | memory-surface benchmark harness (MemoryAgentBench-style recall/edges runs) |
+| `emem-scorecard` | memory-surface benchmark harness (MemoryAgentBench-style recall/edges runs) |
 
 The bulk of the codebase is concentrated. `crates/emem-api-rest/src/lib.rs`
 is one file at ~24.8 k lines; it is the central router and holds every

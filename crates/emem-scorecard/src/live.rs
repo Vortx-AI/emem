@@ -25,9 +25,9 @@ use serde_json::{json, Value};
 
 use crate::dataset::{Dataset, DatasetItem};
 
-/// Namespace every membench file under one prefix so a run never collides
+/// Namespace every scorecard file under one prefix so a run never collides
 /// with a responder's other memory files and is trivially scoped.
-const NS: &str = "/memories/membench";
+const NS: &str = "/memories/scorecard";
 
 /// Which read path the live run actually used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -266,14 +266,14 @@ impl LiveDriver {
             .map(|s| s.to_string()))
     }
 
-    /// List every membench file the responder holds, returning (path,
+    /// List every scorecard file the responder holds, returning (path,
     /// content) pairs. Used by the recall fallback ranker.
     async fn list_corpus(&self) -> anyhow::Result<Vec<(String, String)>> {
         let out = self
             .mcp_call("memory_view", json!({ "path": format!("{NS}/") }))
             .await?;
         // Directory listings come back under various shapes; collect every
-        // string that looks like a membench path, then read each file.
+        // string that looks like a scorecard path, then read each file.
         let mut paths: Vec<String> = Vec::new();
         collect_paths(&out, &mut paths);
         paths.sort();
@@ -403,14 +403,14 @@ impl LiveDriver {
 }
 
 /// Recursively collect any JSON string under `path`/`name` keys (or array
-/// string members) that looks like a membench memory-file path.
-fn is_membench_path(s: &str) -> bool {
+/// string members) that looks like a scorecard memory-file path.
+fn is_scorecard_path(s: &str) -> bool {
     s.starts_with(NS) && s.ends_with(".md")
 }
 
 fn collect_paths(v: &Value, out: &mut Vec<String>) {
     match v {
-        Value::String(s) if is_membench_path(s) => out.push(s.clone()),
+        Value::String(s) if is_scorecard_path(s) => out.push(s.clone()),
         Value::String(_) => {}
         Value::Array(a) => a.iter().for_each(|x| collect_paths(x, out)),
         Value::Object(m) => {
@@ -442,12 +442,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn collect_paths_finds_membench_files() {
+    fn collect_paths_finds_scorecard_files() {
         let v = json!({
             "entries": [
-                { "path": "/memories/membench/a.md", "kind": "fact" },
+                { "path": "/memories/scorecard/a.md", "kind": "fact" },
                 { "path": "/memories/other/b.md" },
-                "/memories/membench/c.md"
+                "/memories/scorecard/c.md"
             ]
         });
         let mut out = Vec::new();
@@ -455,7 +455,7 @@ mod tests {
         out.sort();
         assert_eq!(
             out,
-            vec!["/memories/membench/a.md", "/memories/membench/c.md"]
+            vec!["/memories/scorecard/a.md", "/memories/scorecard/c.md"]
         );
     }
 
@@ -471,7 +471,7 @@ mod tests {
     fn item_path_is_sanitised() {
         assert_eq!(
             LiveDriver::item_path("loc-capital/fr"),
-            "/memories/membench/loc_capital_fr.md"
+            "/memories/scorecard/loc_capital_fr.md"
         );
     }
 }

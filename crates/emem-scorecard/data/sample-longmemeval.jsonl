@@ -1,4 +1,4 @@
-# emem-membench SAMPLE dataset (LongMemEval-S / MemoryAgentBench schema).
+# emem-scorecard SAMPLE dataset (LongMemEval-S / MemoryAgentBench schema).
 # ~15 honest items. This is NOT the published benchmark — see docs/benchmarks.md
 # for how to point --dataset at the full LongMemEval-S corpus.
 # Lines beginning with '#' and blank lines are ignored.

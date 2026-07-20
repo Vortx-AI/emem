@@ -1409,7 +1409,7 @@ the upstream fetch, not by signing or persistence.
 
 ### 14.2 Memory-benchmark scorecard
 
-`emem-membench` loads a LongMemEval-style corpus (Wu et al. 2024)
+`emem-scorecard` loads a LongMemEval-style corpus (Wu et al. 2024)
 through the real write API and scores retrieval, test-time learning,
 long-range understanding, and conflict resolution from the responder's
 own output, embedding the responder's signed receipt in the scorecard
