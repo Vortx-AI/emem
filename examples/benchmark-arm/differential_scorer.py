@@ -133,6 +133,28 @@ def question_coords(question: str) -> tuple[str, ...]:
     return (m.group(1), m.group(2)) if m else ()
 
 
+def question_numbers(question: str) -> tuple[str, ...]:
+    """EVERY number the question itself contains.
+
+    Excluding only the coordinates was not enough, and the gap was found by the
+    worlds agent re-deriving this scorer's rule against their own. Every question
+    reads "the 10 m cell at latitude X, longitude Y", so an answer that echoes
+    the question before answering it:
+
+        "The NDVI of the 10 m cell at latitude X, longitude Y is 0.672."
+
+    yields ['10', '0.672'] and first-number extraction scores the answer as 10.
+    Two models that both said 0.672 were then recorded as disagreeing. That
+    inflated the measured disagreement in the compaction arms specifically,
+    because those are the arms where models restate the question most.
+
+    The coordinate exclusion was a special case of this rule. A number the
+    question already contains cannot be the answer to it, so exclude all of
+    them rather than enumerating the ones observed to bite.
+    """
+    return tuple(m.group(0) for m in _NUM.finditer(question or ""))
+
+
 def numbers_in(text: str, exclude: tuple[str, ...] = ()) -> list[str]:
     return [m.group(0) for m in _NUM.finditer(text or "") if m.group(0) not in exclude]
 
@@ -363,7 +385,11 @@ def rescore(root: str, live: bool = True, manifest_only: bool = False, man: dict
                 continue
             question = prompt.split("\n")[0]
             band = queried_band(question)
+            # Two distinct things that were briefly conflated: the lat/lon pair,
+            # which locates the queried cell inside a RAG chunk, and every number
+            # the question echoes, which must never be mistaken for the answer.
             coords = question_coords(question)
+            echoed = question_numbers(question)
             shown = shown_value(prompt, band, coords)
 
             # Resolve the signed fact for EVERY row, not only where the prompt
@@ -397,8 +423,8 @@ def rescore(root: str, live: bool = True, manifest_only: bool = False, man: dict
                     "truth": truth,
                     "has_context": has_context,
                     "retrieval_miss": retrieval_miss,
-                    "grade": score_answer(answer, truth, coords),
-                    "grade_vs_signed": score_answer(answer, signed, coords) if signed else None,
+                    "grade": score_answer(answer, truth, echoed),
+                    "grade_vs_signed": score_answer(answer, signed, echoed) if signed else None,
                     "citation": citation_grade(prompt, answer, band),
                     "answer": answer,
                 }

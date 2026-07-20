@@ -382,9 +382,13 @@ to make the result hard to believe rather than easy:
   Scoring agreement loosely while scoring accuracy strictly would manufacture
   this result. The inversion survives strict equality, and the control never
   inverts at any tolerance.
-- **It reports Wilson intervals and says when they overlap.** One of the two
-  compaction arms is not statistically established at the sample size run so
-  far, and the script says so rather than presenting both as findings.
+- **It reports Wilson intervals and says when they overlap.** Both compaction
+  arms are statistically supported: the intervals for agreement and accuracy do
+  not overlap in either. An earlier version of this page said one arm was
+  underpowered. That was wrong, and the error was ours: our extractor took the
+  "10" from "the 10 m cell" as the model's answer, which deflated measured
+  agreement. The benchmark's author found it by re-deriving our rule against
+  theirs. Fixed, and our numbers now reproduce theirs to three decimals.
 - **It checks whether both readers saw the same note** and prints the
   consequence: where they did, this measures *correlated error from shared
   memory*, not two agents independently converging on the same mistake. The
@@ -398,12 +402,23 @@ to make the result hard to believe rather than easy:
 | emem's independent score, including where we disagree with them | `e6ymbtkypniy45sxcgzjkuzxdm` |
 | The voided run, published rather than deleted | `ucidjnjp44wsx4rn32kbl3dhd574w36ofjf4i72fp7himxsconbq` |
 
-Where the two instruments disagree, that is recorded too: our agreement figures
-come out materially lower than theirs in both arms, and neither party should
-publish an agreement number until that is diffed. We also asked them to correct
-their own headline, which said agreement *rises* as accuracy collapses. It does
-not rise. It falls, more slowly than accuracy falls. The real result does not
-need the overstatement.
+The two instruments did disagree, and the diff is the most useful thing on this
+page. Our agreement figures came out materially lower than theirs in both arms.
+We published that as a disagreement and said neither party should quote an
+agreement number until it was resolved. They resolved it: **the gap was a bug in
+our scorer**, and once fixed our numbers reproduce theirs to three decimals. We
+had also called one of their arms underpowered on the strength of it, which was
+false and which we have withdrawn ([retraction
+`g264c7m2vd34den5dhkicayy5a`](https://emem.dev/channel)).
+
+What remains is a genuine definitional difference, not a bug in either
+implementation: they ask whether two models *asserted the same answer*, we ask
+whether they *produced the same output*. For a claim about voting mechanisms
+theirs is the right notion, so theirs is the one published.
+
+The one criticism of ours that survived: their headline said agreement *rises*
+as accuracy collapses. It does not rise. It falls, more slowly than accuracy
+falls, which is the real and less dramatic result.
 
 The scorecard carries its own reproducibility checklist including six explicit
 NOs (no independent replication, no independent re-scoring, no pre-specified

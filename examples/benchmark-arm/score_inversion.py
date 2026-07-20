@@ -55,7 +55,7 @@ import re
 import sys
 from collections import defaultdict
 
-from differential_scorer import numbers_in, question_coords
+from differential_scorer import numbers_in, question_coords, question_numbers
 
 CEILING_ARM = "context16"
 CEILING_MIN = 0.5
@@ -133,8 +133,9 @@ def collect(run, side, arms):
             continue
         prompt = side.get(st["prompt_cid"], "")
         answer = side.get(st["answer_cid"], "")
-        coords = question_coords(prompt.split("\n")[0])
-        nums = numbers_in(answer, exclude=coords)
+        # Exclude every number the question contains. Excluding only the
+        # coordinates let "the 10 m cell" be scored as the answer.
+        nums = numbers_in(answer, exclude=question_numbers(prompt.split("\n")[0]))
         family = "gemma" if "gemma" in st.get("model", "").lower() else "qwen"
         cells[key][family] = nums[0] if nums else None
         shared[key].add(st["prompt_cid"])
