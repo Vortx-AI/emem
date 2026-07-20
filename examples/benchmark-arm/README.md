@@ -131,3 +131,29 @@ citation grading originally compared against the *first* token in a prompt that
 offered several, marking correct citations as misses; and retrieval-hit
 detection counted differently-shaped handoff prompts as hits, inflating the hit
 rate threefold. Both are fixed and commented at the site of the fix.
+
+## The inversion scorer
+
+`score_inversion.py` tests whether two models agreeing is evidence that they are
+right. Under compression it is not, and that is the finding this directory
+exists to let you check rather than believe.
+
+```sh
+python3 score_inversion.py /path/to/runs/pressure_lahaul_v2.json
+```
+
+It is built to resist its own conclusion:
+
+- **A ceiling gate.** If the control arm (every value shown verbatim) scores
+  below 0.5, the script refuses to print anything. The first run of this
+  experiment had a ceiling of 0.208 because a coordinate bug made every
+  question unanswerable, and the resulting noise happened to point the same way
+  as the hypothesis. Without the control, a false confirmation would have been
+  published.
+- **One verdict rule for both statistics**, at three tolerances, because
+  scoring agreement loosely and accuracy strictly manufactures an inversion.
+- **Wilson intervals**, which say plainly when an arm is underpowered rather
+  than presenting it alongside an established one.
+- **A shared-prompt check.** Where both readers saw a byte-identical note, the
+  result is correlated error from shared memory, not independent convergence.
+  The script prints that caveat rather than leaving it to the writeup.

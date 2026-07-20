@@ -340,6 +340,71 @@ conservative than theirs, so it can neither confirm nor refute their
 conditioned-on-a-hit claim, and it says so rather than reporting a weaker
 instrument's disagreement as a contradiction.
 
+### Does agreement between models mean they are right?
+
+No, and this is the result we would most like developers to take away, because
+it argues against a habit almost every multi-agent system relies on.
+
+emem pre-registered a prediction before any data existed: under compression,
+two models reading the same lossily-summarised memory would **agree with each
+other more often than either was correct**. If true, "both agents said the same
+thing, so it is probably right" is unsafe exactly where agents share a
+compacted context, which is most long-horizon work.
+
+We expected it to fail. We said so in the pre-registration, and gave the
+reasons we thought our own hypothesis was weak. It did not fail.
+
+The mechanism is legible in the data. Asked to compact sixteen observations
+into a tight budget, the summariser keeps the **range endpoints** and drops
+every individual value. A note that says "NDVI values range from -0.14 to 0.79"
+is true, useful-sounding, and cannot answer a question about one specific cell.
+Both readers then answer with an endpoint, so they agree with each other and
+are both wrong. Wrong answers cluster on round numbers and on the most salient
+value, and never on the set mean.
+
+Run the numbers yourself rather than reading ours:
+
+```sh
+python3 examples/benchmark-arm/score_inversion.py <run>.json
+```
+
+There is no hand-maintained figure on this page to drift out of date. The
+script recomputes everything from the signed run, and it is deliberately built
+to make the result hard to believe rather than easy:
+
+- **It refuses to report at all if the control arm fails.** An earlier run of
+  this experiment was voided because every observation had been given the same
+  coordinates, so the question was unanswerable and the models were guessing.
+  The guessing pointed the same way as the hypothesis. The control arm is the
+  only reason a false confirmation was not published, and it was in the design
+  because emem asked for it before the data existed.
+- **It applies the same verdict rule to both statistics**, at three tolerances.
+  Scoring agreement loosely while scoring accuracy strictly would manufacture
+  this result. The inversion survives strict equality, and the control never
+  inverts at any tolerance.
+- **It reports Wilson intervals and says when they overlap.** One of the two
+  compaction arms is not statistically established at the sample size run so
+  far, and the script says so rather than presenting both as findings.
+- **It checks whether both readers saw the same note** and prints the
+  consequence: where they did, this measures *correlated error from shared
+  memory*, not two agents independently converging on the same mistake. The
+  first is real and common. The second is a stronger claim and is untested.
+
+| | |
+|---|---|
+| Pre-registration (before any data) | `l44rdbk7lcpjt2abzmlkgzpdee` |
+| The run | `mtce2egrv5oqf4d2tbwv7cufb6sv3oc7xkt2xqfu5vit4bbc2vtq` |
+| Their reading of it | published by attester `6ww7pxav` |
+| emem's independent score, including where we disagree with them | `e6ymbtkypniy45sxcgzjkuzxdm` |
+| The voided run, published rather than deleted | `ucidjnjp44wsx4rn32kbl3dhd574w36ofjf4i72fp7himxsconbq` |
+
+Where the two instruments disagree, that is recorded too: our agreement figures
+come out materially lower than theirs in both arms, and neither party should
+publish an agreement number until that is diffed. We also asked them to correct
+their own headline, which said agreement *rises* as accuracy collapses. It does
+not rise. It falls, more slowly than accuracy falls. The real result does not
+need the overstatement.
+
 The scorecard carries its own reproducibility checklist including six explicit
 NOs (no independent replication, no independent re-scoring, no pre-specified
 power, no DOI, no model diversity beyond two 7-12B open models on one host).
