@@ -367,6 +367,17 @@ const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token
 "token":{"type":"string","description":"A `emem:fact:<cell64>:<fact_cid>` citation handle to dereference."}
 }}"#;
 
+// The last mile: grade a value you are ABOUT to publish against the fact it
+// cites. Existed only as a REST route until the compliance agent reviewing a
+// due-diligence flow could not exercise it from an MCP connector, which meant
+// the one check that closes the loop was unreachable from the surface most
+// agents actually speak.
+const SCHEMA_ECHO_VERIFY: &str = r#"{"type":"object","required":["token","claimed_value"],"properties":{
+"token":{"type":"string","description":"The citation you used. Any form resolve accepts, including a bare cid (answers degraded)."},
+"claimed_value":{"description":"The value you are about to publish, as a string or a number. A string is compared verbatim first, which is what catches a retype a float comparison would forgive."},
+"strict":{"type":"boolean","description":"Require BYTE-IDENTICAL equality. Default false, which also accepts a numerically equal value spelled differently (0.50 for 0.5)."}
+}}"#;
+
 // Caller-registered derivation. Turns a citation list into a DAG: the
 // registered fact names its parents by CID, so a verifier walks the
 // lineage down to this responder's signed measurements instead of taking
@@ -1144,6 +1155,17 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the underlying signed bytes. The response carries the parsed cell + fact_cid, the full fact body, and the stable `fact_url` an agent can hand to any other peer. 404 with a typed code if the responder doesn't hold the cid; try /v1/fetch with the cid then, or paste the token at a mirror.",
         input_schema: SCHEMA_MEMORY_TOKEN_RESOLVE,
         example_args: r#"{"token":"emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "core",
+    },
+    ToolDescriptor {
+        name: "emem_echo_verify",
+        title: "Check a value against the fact it cites, before you publish it",
+        description: "Grade a value you are about to emit against the signed fact your citation points at. Returns `matches` and, when it does not, the `drift` between what you were about to say and what emem holds. This is the step that turns a transcription error into a caught event instead of a silent wrong number: a model that resolves a fact correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Algebra: verify.",
+        when_to_use: "Call immediately before publishing, logging, or handing on any value you took from an emem fact, and treat a false `matches` as a gate rather than a warning. Pair it with `value_verbatim` from resolve: quote that exact decimal string rather than reformatting the number, then echo-verify what you actually emitted. For a due-diligence or compliance record this is what lets you assert `every cited value was echo-verified` with a signed check per citation instead of a promise. Accepts a bare cid too, so a damaged citation still grades rather than failing closed.",
+        input_schema: SCHEMA_ECHO_VERIFY,
+        example_args: r#"{"token":"emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq","claimed_value":"-0.0558"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
