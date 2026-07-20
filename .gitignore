@@ -86,3 +86,6 @@ docs/book/
 
 # 3d-worlds exporter output (samples live under examples/3d-worlds/scenes/)
 examples/3d-worlds/out/
+
+# Agent scratch notes belong in .well-known/agent-notes/, never the repo root.
+/AGENT_*.md
