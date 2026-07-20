@@ -22266,12 +22266,39 @@ struct MemoryTokenResolveResp {
 /// [`resolve_one_token`] can accept it in degraded mode (U1) rather than
 /// fail closed with no recovery path. Deliberately strict: exactly the
 /// shape a full-width fact CID has, so it can never swallow a typo'd token.
-fn bare_fact_cid(token: &str) -> Option<String> {
+fn recover_fact_cid(token: &str) -> Option<(String, &'static str)> {
     let t = token.trim().to_ascii_lowercase();
-    let ok = t.len() == 52
-        && t.bytes()
-            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b));
-    ok.then_some(t)
+    let is_c = |b: u8| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b);
+
+    // The whole input is a bare cid: the descriptor head was dropped.
+    if t.len() == 52 && t.bytes().all(is_c) {
+        return Some((t, "bare_cid"));
+    }
+
+    // A cid embedded in surrounding text. The 2026-07-20 re-measurement found
+    // the one remaining hard failure was a model leaking a reasoning preamble
+    // into its emission ("thought\n<52-char cid>"). Recovering that is the same
+    // principle as the bare cid, not a new relaxation: the responder can
+    // reconstruct the address, so it should, and it says loudly that it did.
+    //
+    // The run must be EXACTLY 52 characters, so a longer base32 blob is never
+    // silently truncated into a plausible-looking cid.
+    let b = t.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if is_c(b[i]) {
+            let start = i;
+            while i < b.len() && is_c(b[i]) {
+                i += 1;
+            }
+            if i - start == 52 {
+                return Some((t[start..i].to_string(), "embedded_cid"));
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 /// The fact's payload, unwrapping the serde-tagged variant if present.
@@ -22336,6 +22363,18 @@ struct EchoVerifyReq {
     /// string is compared verbatim first, which is the point: it catches a
     /// retype that a float comparison would forgive.
     claimed_value: JsonValue,
+    /// Require BYTE-IDENTICAL equality. Default `false`, which also accepts a
+    /// numerically equal value spelled differently (`0.50` for `0.5`).
+    ///
+    /// The navigatable_worlds agent found that default is more permissive than
+    /// their scorer's strict rule, checked whether the two disagreed (they did
+    /// not, both 0.982) and flagged that they COULD have. For a compliance
+    /// statement the looser rule is the wrong one: "every cited value was
+    /// echo-verified" should mean the published digits are the signed digits,
+    /// not merely the same quantity. Set `strict: true` and a reformat is
+    /// reported as `drift: "reformatted"` rather than passing.
+    #[serde(default)]
+    strict: bool,
 }
 
 /// Digits after the decimal point in a claimed value, used to decide whether
@@ -22379,7 +22418,16 @@ async fn post_echo_verify(
     // is still correct), then rounding, then wrong.
     let (matches, drift) = match (verbatim, cf, tf) {
         (true, _, _) => (true, None),
-        (false, Some(c), Some(t)) if c == t => (true, None),
+        // Numerically equal but spelled differently. Passes by default; under
+        // `strict` it is a reported drift, because a compliance claim about
+        // cited values is about the digits, not the quantity.
+        (false, Some(c), Some(t)) if c == t => {
+            if req.strict {
+                (false, Some("reformatted"))
+            } else {
+                (true, None)
+            }
+        }
         (false, Some(c), Some(t)) => {
             let f = 10f64.powi(claimed_decimals(&claimed).min(15));
             if (c * f).round() == (t * f).round() {
@@ -22423,11 +22471,13 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
     // signed body below; the cell-binding check is skipped because a bare cid
     // asserts no location to contradict.
     let mut degraded = false;
+    let mut degraded_how = "";
     let (cell, cid, descriptor) = match parse_fact_token(token) {
         Ok(parsed) => parsed,
-        Err(message) => match bare_fact_cid(token) {
-            Some(bare) => {
+        Err(message) => match recover_fact_cid(token) {
+            Some((bare, how)) => {
                 degraded = true;
+                degraded_how = how;
                 (String::new(), bare, None)
             }
             None => {
@@ -22623,11 +22673,19 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         value_verbatim,
         degraded,
         degraded_reason: degraded.then(|| {
-            "accepted a bare fact_cid: the `emem:fact:<descriptor>:` head was missing. A bare cid is \
-             responder-scoped, so it names these bytes HERE but is ambiguous at another responder. \
-             The bytes and the receipt are exactly as authoritative as any resolve; only the \
-             citation was lossy. Cite `canonical_token` next time."
-                .to_string()
+            let how = if degraded_how == "embedded_cid" {
+                "recovered a fact_cid embedded in surrounding text (a model emitted it alongside \
+                 other output, e.g. a leaked reasoning preamble)"
+            } else {
+                "accepted a bare fact_cid: the `emem:fact:<descriptor>:` head was missing"
+            };
+            format!(
+                "{how}. A bare cid is responder-scoped, so it names these bytes HERE but is \
+                 ambiguous at another responder. The bytes and the receipt are exactly as \
+                 authoritative as any resolve; only the CITATION was lossy, so this is a recovery \
+                 and not a success. A caller that requires an unambiguous citation should treat it \
+                 as a failure and re-cite `canonical_token`. Recovery class: `{degraded_how}`."
+            )
         }),
     })
 }
@@ -61511,16 +61569,35 @@ mod tests {
     fn bare_fact_cid_is_strict() {
         let cid = "2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq";
         assert_eq!(cid.len(), 52);
-        assert_eq!(bare_fact_cid(cid).as_deref(), Some(cid));
-        assert_eq!(bare_fact_cid(&format!("  {cid}  ")).as_deref(), Some(cid));
-        // Not a bare cid: full token, wrong length, or non-base32 characters.
-        assert!(bare_fact_cid(&format!("emem:fact:defi.zb572.xoso.zb1ec:{cid}")).is_none());
-        assert!(bare_fact_cid(&cid[..51]).is_none());
-        assert!(
-            bare_fact_cid(&format!("{}1", &cid[..51])).is_none(),
-            "1 is not base32"
+        assert_eq!(
+            recover_fact_cid(cid),
+            Some((cid.to_string(), "bare_cid")),
+            "a bare cid is the whole input"
         );
-        assert!(bare_fact_cid(&format!("{}!", &cid[..51])).is_none());
+        assert_eq!(
+            recover_fact_cid(&format!("  {cid}  ")),
+            Some((cid.to_string(), "bare_cid"))
+        );
+
+        // The exact remaining hard failure from the 2026-07-20 re-measurement:
+        // a leaked reasoning preamble wrapped around the cid.
+        assert_eq!(
+            recover_fact_cid(&format!("thought\n{cid}")),
+            Some((cid.to_string(), "embedded_cid")),
+            "a cid embedded in model output is recoverable, and labelled as such"
+        );
+        assert_eq!(
+            recover_fact_cid(&format!("the answer is {cid}, I think")),
+            Some((cid.to_string(), "embedded_cid"))
+        );
+
+        // Never recovered: too short, too long, or no base32 run of exactly 52.
+        assert!(recover_fact_cid(&cid[..51]).is_none());
+        assert!(
+            recover_fact_cid(&format!("{cid}extra")).is_none(),
+            "a 57-char run must not be truncated into a plausible cid"
+        );
+        assert!(recover_fact_cid("no cid here at all").is_none());
     }
 
     /// U3: the verbatim value must survive as an EXACT string, because the
