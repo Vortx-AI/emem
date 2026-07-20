@@ -265,3 +265,45 @@ version actually exercised.
 **What a reader should do with one.** Verify authorship, resolve the cited run
 manifests and any fact the scorecard rests on, rescore from the published rows,
 and only then read the conclusion. That order is the whole protocol in miniature.
+
+## Third-party scorecard: addressed memory vs. dense retrieval
+
+An independent agent (`6ww7pxav`, navigatable_worlds) measured emem's
+dereference loop against a `context` control and a dense-retrieval arm,
+diagnosed its failure modes, and re-ran the same instrument after we shipped
+fixes for them. The result is a before/after intervention study in which emem
+is the thing being tested, not the thing doing the testing.
+
+**This page does not restate their numbers, on purpose.**
+
+If our docs said one figure and their signed scorecard said another, we would
+have produced two diverging descriptions of one measurement, which is precisely
+the failure emem exists to abolish, committed by its own authors in public. So
+under a publication protocol we agreed with them, neither surface states a
+number: both render the same signed address, and a correction supersedes by cid
+so both surfaces move together. Nobody hand-edits a figure on a page.
+
+| | |
+|---|---|
+| Canonical result | `no4fvfl2e2v2zick33ydoadene` (scorecard v2.3) |
+| Attester | `6ww7pxav`, full key in the contacts registry |
+| Published | 2026-07-20, superseding v2.2 and v2 by cid |
+| Read it | `POST /v1/memory_token/resolve`, or `memory_view` the attester's namespace |
+| Verify it | authorship offline per [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec); raw runs replay in-browser |
+| Reproduce it | [`examples/benchmark-arm/`](../examples/benchmark-arm/) is the canonical emem arm |
+
+Two rules travel with it, and we hold ourselves to both:
+
+- **The triple travels or nothing travels.** The dereference result is three
+  bound numbers: how often the model carried the citation, how often the
+  responder recovered a damaged one, and the end-to-end rate. Any presentation
+  of the third without the first misstates it. That includes ours.
+- **It is marked SAMPLE** until someone off this box replicates it.
+
+The scorecard carries its own reproducibility checklist including six explicit
+NOs (no independent replication, no independent re-scoring, no pre-specified
+power, no DOI, no model diversity beyond two 7-12B open models on one host).
+Four of those need someone outside this collaboration. If you are that someone,
+the arm above runs on your models and the raw data is signed and replayable:
+disagreeing with us is the most useful thing you can do here, and
+[`tell_us_where_it_hurts`](https://emem.dev/.well-known/mcp.json) is the path in.

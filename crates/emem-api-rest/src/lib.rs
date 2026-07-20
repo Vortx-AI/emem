@@ -22493,6 +22493,36 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         },
     };
 
+    // A fact_cid is ALWAYS 52 base32 characters (a full 256-bit blake3). A
+    // shorter one is not "a fact we happen not to hold", it is a citation
+    // damaged in transit, and the two answers send the caller to opposite
+    // places. The 2026-07-20 five-site rerun caught the case that motivates
+    // this: a model emitted a structurally perfect token whose cid had two
+    // characters dropped from the MIDDLE, so it parsed cleanly and pointed at
+    // nothing. Answering `cid_not_found` there tells the caller to retry or to
+    // materialise from upstream, which can never succeed for an address that
+    // never existed. Unlike a dropped `emem:fact:` head, truncation is also NOT
+    // recoverable: the missing characters are missing. Say so.
+    if cid.len() != 52 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "fact_cid_malformed_length: this cid is {} characters, but a fact_cid is always 52 (a 256-bit blake3 in base32-nopad). The citation was damaged in transit, most likely truncated. Do NOT retry and do NOT try to materialise it: unlike a missing `emem:fact:<descriptor>:` head, which this responder can recover, missing characters cannot be reconstructed and the address does not exist. Re-read the token from wherever it came from.",
+                    cid.len()
+                ),
+                details: Some(json!({
+                    "code": "fact_cid_malformed_length",
+                    "observed_length": cid.len(),
+                    "expected_length": 52,
+                    "recoverable": false,
+                    "why": "a truncated content address is not a missing fact; no fetch or retry can produce it",
+                })),
+            },
+        ));
+    }
+
     let cid_obj = emem_fact::FactCid::new(cid.clone());
     let facts = s
         .storage
