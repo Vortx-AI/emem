@@ -17927,7 +17927,7 @@ async fn mcp_tool_call(
         "emem_echo_verify" => {
             let req: EchoVerifyReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match echo_verify_core(&s, req).await {
+            match echo_verify_core(s, req).await {
                 Ok(v) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -22480,7 +22480,7 @@ async fn post_echo_verify(
 /// from an MCP connector, and a check that closes the citation loop is worth
 /// nothing if it is only reachable from one of the two surfaces agents use.
 async fn echo_verify_core(s: &AppState, req: EchoVerifyReq) -> Result<JsonValue, ApiError> {
-    let resolved = resolve_one_token(&s, &req.token).await?;
+    let resolved = resolve_one_token(s, &req.token).await?;
 
     let claimed = match &req.claimed_value {
         JsonValue::String(v) => v.trim().to_string(),
@@ -61817,10 +61817,6 @@ mod tests {
         assert_eq!(claimed_decimals("-0.0558"), 4);
     }
 
-    /// The pure-op semantics are PINNED, so a caller anywhere recomputes the
-    /// same value. `delta` is `inputs[1] - inputs[0]` (signed order matters),
-    /// `mean`/`sum` are over all inputs, and anything else is not tier-1.
-    #[test]
     /// Every page baked into this binary must be in `served_html_pages()`.
     ///
     /// The CSP is hash-based. A page absent from that vec has its inline
@@ -61858,6 +61854,10 @@ mod tests {
         );
     }
 
+    /// The pure-op semantics are PINNED, so a caller anywhere recomputes the
+    /// same value. `delta` is `inputs[1] - inputs[0]` (signed order matters),
+    /// `mean`/`sum` are over all inputs, and anything else is not tier-1.
+    #[test]
     fn recompute_pure_op_is_pinned_and_order_sensitive() {
         assert_eq!(recompute_pure_op("delta", &[0.40, 0.54]), Some(0.54 - 0.40));
         // Order is significant: the reverse citation is a different value.
