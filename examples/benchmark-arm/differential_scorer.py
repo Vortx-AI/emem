@@ -234,12 +234,31 @@ class Responder:
 # scoring
 # ---------------------------------------------------------------------------
 
+# A refusal that quotes the summary still contains numbers, so first-number
+# extraction turns "I do not have access to that, values range from -0.14 to
+# 0.79" into the assertion -0.14. Two models REFUSING then score as two models
+# agreeing on a value. The benchmark's author found this shape in their own
+# scorer twice; this scorer had it too, and the earlier pattern missed the most
+# common phrasing of all ("I do not have access to"), which is why it was not
+# caught the first time.
 _ABSTAIN = re.compile(
-    r"\b(cannot|can't|unable|not (?:provided|available|present|contain)|"
-    r"no (?:information|data|value)|does not (?:contain|include|provide)|"
-    r"insufficient|unknown|not specified)\b",
+    r"\b(cannot|can't|can not|unable|not (?:provided|available|present|contain)|"
+    r"no (?:information|data|value|access)|does not (?:contain|include|provide)|"
+    r"do(?:es)? not have (?:access|the)|don't have (?:access|the)|"
+    r"insufficient|unknown|not specified|need (?:more|additional)|"
+    r"without (?:the )?(?:actual|specific) (?:context|data)|"
+    r"I (?:do not|don't) have)\b",
     re.I,
 )
+
+
+def is_abstention(text: str) -> bool:
+    """True when the model declined rather than asserted.
+
+    Checked BEFORE number extraction, never after: the whole failure is that a
+    refusal carries numbers it is quoting rather than claiming.
+    """
+    return bool(_ABSTAIN.search(text or ""))
 
 
 def score_answer(answer: str, truth: str, coords: tuple[str, ...]) -> str:

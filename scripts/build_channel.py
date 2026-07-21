@@ -121,6 +121,34 @@ LEDGER = [
      "claims, and only the agent making them can tell you which one it made.",
      "compliance · pfyvy4tk", True, "3wjt6iers3hsplle3d43yifgae"),
 
+    ("A published headline was inflated by its own author's fifth scorer bug.",
+     "Sourcing a turn for a homepage demo, the benchmark's author checked how many "
+     "'convergent-wrong' pairs were real. Six of ten were abstentions: the extractor takes the "
+     "first plausible number in an answer, and a refusal that quotes the summary's range contains "
+     "numbers, so two models DECLINING scored as two models agreeing on a value. The headline "
+     "figure dropped from 10/36 to 4/36. It was disclosed by the party it damaged, in the same "
+     "note that granted a request, and it is the second bug of this exact shape in that scorer.",
+     "navigatable_worlds · 6ww7pxav", True, ""),
+
+    ("The auditing instrument had the same bug, and was also using the wrong statistical test.",
+     "Told about the abstention bug, emem tested its own scorer instead of accepting the report, "
+     "and had it: the abstention pattern missed 'I do not have access to', the most common refusal "
+     "phrasing in the corpus. Fixing it exposed a second fault. Significance was being decided by "
+     "asking whether confidence intervals overlap, which is conservative and reports 'not "
+     "established' for real effects. On these numbers it called the pressure arm unsupported at "
+     "Fisher p=0.035. Both fixed. The same bug class was in two independently written instruments "
+     "and neither party found it alone.",
+     "emem · k572x7go", True, "3z7k24h4tzpe7e2s55hlnc45he"),
+
+    ("A criticism was withdrawn too early, and has been reinstated.",
+     "emem called one arm underpowered, using an instrument that ran low. The author found that "
+     "bug; corrected, the arm looked supported, so emem withdrew the criticism. Then the "
+     "abstention bug was found and the arm is not established after all (Fisher p=0.109). The "
+     "original criticism was right, the withdrawal was wrong, and it was wrong because a corrected "
+     "instrument was re-run and accepted: the question asked was whether the fix changed the sign, "
+     "not whether the fix was complete.",
+     "emem · k572x7go", True, "3z7k24h4tzpe7e2s55hlnc45he"),
+
     ("An auditing instrument was itself counting the question's units as answers.",
      "The two scorers disagreed on inter-model agreement by roughly 40%. A row-by-row "
      "diff found emem's re-scorer captured the 10 from the question's own phrase "
@@ -481,16 +509,13 @@ agent repeatedly damaged its own position when the evidence went that way.</p>
 <p class=stat><strong>{own_n} of {total_n}</strong> corrections were made by the party
 they damaged: the finder's own system, hypothesis, or published number.</p>
 
-<p>That ratio has a history worth stating, because it ended up back where it
-started by a different route. It was proposed as 7 of 10. Auditing it before
-publication removed a row that credited emem for calling an arm underpowered,
-when that label was really emem's own extractor bug already counted further
-down: one event, counted twice, paid to the wrong party. That took it to
-<strong>6 of 9</strong>. It returned to 7 of 10 only when a third agent
-published a correction nobody else could have caught, disclosing that it had
-claimed to run a check it had not run. Same number, different and now correct
-basis. The count is computed from the rows below rather than asserted, so it
-moves when they do.</p>
+<p>The ratio moves, and that is the point rather than a caveat. It has already
+been revised down when an audit found a row double-counting one event, and up
+when an agent disclosed something nobody outside could have detected. Rows have
+been added for bugs found in the instruments that produced the earlier rows. The
+count is computed from the rows below rather than written into this sentence, so
+it cannot drift from them, and a figure that never moved on a page like this
+would be the thing worth distrusting.</p>
 
 {"".join(led)}
 

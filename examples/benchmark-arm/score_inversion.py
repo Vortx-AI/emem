@@ -55,10 +55,31 @@ import re
 import sys
 from collections import defaultdict
 
-from differential_scorer import numbers_in, question_coords, question_numbers
+from differential_scorer import numbers_in, question_coords, question_numbers, is_abstention
 
 CEILING_ARM = "context16"
 CEILING_MIN = 0.5
+
+
+def fisher_greater(a: int, b: int, c: int, d: int) -> float:
+    """One-sided Fisher exact test: P(agreement this high | same underlying rate).
+
+    Replaces a confidence-interval overlap check, which this script used first and
+    which is the wrong instrument. Non-overlapping intervals do imply a
+    difference, but OVERLAPPING intervals do not imply the absence of one: the
+    test is conservative and reports "not established" for effects that are real.
+    It did exactly that here, calling the pressure arm unsupported at p = 0.035.
+
+    Intervals are still printed, because they show the precision of each estimate,
+    which a p-value hides. The verdict comes from this.
+    """
+    from math import comb
+
+    n, r1, c1 = a + b + c + d, a + b, a + c
+    return sum(
+        comb(c1, x) * comb(n - c1, r1 - x) / comb(n, r1)
+        for x in range(a, min(r1, c1) + 1)
+    )
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -133,11 +154,17 @@ def collect(run, side, arms):
             continue
         prompt = side.get(st["prompt_cid"], "")
         answer = side.get(st["answer_cid"], "")
-        # Exclude every number the question contains. Excluding only the
-        # coordinates let "the 10 m cell" be scored as the answer.
-        nums = numbers_in(answer, exclude=question_numbers(prompt.split("\n")[0]))
+        # Abstention is checked FIRST. A refusal that quotes the summary's range
+        # contains numbers, and taking the first one turns a model declining to
+        # answer into a model asserting -0.14. Two models refusing then score as
+        # two models agreeing, which inflates exactly the statistic this script
+        # exists to measure.
         family = "gemma" if "gemma" in st.get("model", "").lower() else "qwen"
-        cells[key][family] = nums[0] if nums else None
+        if is_abstention(answer):
+            cells[key][family] = None
+        else:
+            nums = numbers_in(answer, exclude=question_numbers(prompt.split("\n")[0]))
+            cells[key][family] = nums[0] if nums else None
         shared[key].add(st["prompt_cid"])
     return cells, shared
 
@@ -196,7 +223,7 @@ def main() -> int:
             print(f"   {arm:<22}{label:<12}{acc:>10.3f}{agr:>11.3f}{flag:>10}")
         print()
 
-    print("## is it statistically supported? (Wilson 95%, non-overlap required)")
+    print("## is it statistically supported? (one-sided Fisher exact; Wilson shown for precision)")
     for arm in arms:
         ks = [k for k in cells if k[2] == arm]
         ex = n = ag = pairs = 0
@@ -212,17 +239,17 @@ def main() -> int:
             ag += close(g, q, None)
         alo, ahi = wilson(ex, n)
         glo, ghi = wilson(ag, pairs)
-        overlap = not (ghi < alo or ahi < glo)
         acc, agr = ex / max(n, 1), ag / max(pairs, 1)
+        p = fisher_greater(ag, pairs - ag, ex, n - ex)
         if agr <= acc:
             # Not a weak inversion: no inversion at all. For the control arm
             # this is the intended result, and calling it "not established"
             # would read as a failed test rather than a passed one.
             verdict = "no inversion (as a control should)"
-        elif overlap:
-            verdict = "OVERLAP: inversion not established at this n"
+        elif p < 0.05:
+            verdict = f"inversion supported (Fisher p={p:.3f})"
         else:
-            verdict = "no overlap: inversion supported"
+            verdict = f"NOT established at this n (Fisher p={p:.3f})"
         print(f"   {arm:<22} acc {ex}/{n} [{alo:.3f},{ahi:.3f}]  "
               f"agr {ag}/{pairs} [{glo:.3f},{ghi:.3f}]  {verdict}")
     print()

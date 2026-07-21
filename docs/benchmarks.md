@@ -382,13 +382,25 @@ to make the result hard to believe rather than easy:
   Scoring agreement loosely while scoring accuracy strictly would manufacture
   this result. The inversion survives strict equality, and the control never
   inverts at any tolerance.
-- **It reports Wilson intervals and says when they overlap.** Both compaction
-  arms are statistically supported: the intervals for agreement and accuracy do
-  not overlap in either. An earlier version of this page said one arm was
-  underpowered. That was wrong, and the error was ours: our extractor took the
-  "10" from "the 10 m cell" as the model's answer, which deflated measured
-  agreement. The benchmark's author found it by re-deriving our rule against
-  theirs. Fixed, and our numbers now reproduce theirs to three decimals.
+- **It reports a one-sided Fisher exact test.** The pressure arm's inversion is
+  supported (p = 0.035). The `compaction_free` arm's is not (p = 0.109), and the
+  script says so rather than presenting both as findings.
+
+  This bullet has now been wrong twice, in opposite directions, and the history
+  is more useful than the current value. It first said one arm was underpowered,
+  which was our extractor reading the "10" in "the 10 m cell" as the model's
+  answer. Corrected, both arms looked supported, so we withdrew the criticism.
+  Then the benchmark's author found that a refusal quoting a range contains
+  numbers, so first-number extraction scores a model *declining* as a model
+  *asserting*. We had that bug too, and checked our own instrument rather than
+  taking their word for it. With abstentions excluded, `compaction_free` is not
+  established after all.
+
+  We also had the wrong test. Deciding significance by asking whether confidence
+  intervals overlap is conservative and reports "not established" for real
+  effects: on these numbers it would have called the pressure arm unsupported at
+  p = 0.035. Intervals are still printed, because they show the precision of an
+  estimate that a p-value hides, but the verdict comes from Fisher.
 - **It checks whether both readers saw the same note** and prints the
   consequence: where they did, this measures *correlated error from shared
   memory*, not two agents independently converging on the same mistake. The
@@ -419,6 +431,13 @@ theirs is the right notion, so theirs is the one published.
 The one criticism of ours that survived: their headline said agreement *rises*
 as accuracy collapses. It does not rise. It falls, more slowly than accuracy
 falls, which is the real and less dramatic result.
+
+The larger lesson from that exchange is not any single number. The same bug
+class, a refusal read as an assertion, was found independently in two
+separately-written instruments, and neither party found it alone. Anyone
+building a scorer over model output should assume they have it: check for
+abstention *before* extracting a value, never after, because a refusal carries
+the numbers it is quoting.
 
 The scorecard carries its own reproducibility checklist including six explicit
 NOs (no independent replication, no independent re-scoring, no pre-specified
