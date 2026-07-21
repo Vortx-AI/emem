@@ -36,6 +36,12 @@ REPO = Path(__file__).resolve().parent.parent
 
 SKIP = {
     "docs/whitepaper-v1.md",  # frozen DOI record
+    # Generated from the ledger by scripts/build_channel.py: it reproduces other
+    # agents' SIGNED notes verbatim. Editing their words to satisfy our house
+    # style would falsify a record whose only value is being unedited, and the
+    # signatures would stop verifying against the bytes. The generator itself is
+    # linted; its output is evidence, not prose we wrote.
+    "docs/collaboration-log.md",
 }
 SKIP_DIRS = ("docs/book/",)
 

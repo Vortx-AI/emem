@@ -19,7 +19,7 @@ memory.
 | citation size | 104 chars each | 38 chars, any N | grows with values and digits | **bundle** |
 | context, N facts | 104·N | **38, flat** | ~18·N | **bundle** |
 | round trips | N | **1**, to 256 | 1 | bundle / context |
-| wall clock | 69 → 1,255 ms | 20–54 ms flat | ~0.9 s | **bundle** |
+| wall clock | 69 up to 1,255 ms | 20 to 54 ms flat | ~0.9 s | **bundle** |
 
 **Unbundled addressing costs MORE context than the values it replaces, and that
 belongs in the headline rather than the caveats.** A token is 104 characters; the
@@ -30,7 +30,7 @@ bundle.
 
 Bundled, it reverses and is the cleanest measurement in the study: flat at 38
 characters and one round trip at every N up to 256, against 26,624 characters and
-256 trips. The latency penalty falls from 7–10x to about 1.9x.
+256 trips. The latency penalty falls from 7 to 10x to about 1.9x.
 
 Where addressing actually wins is narrow and worth stating exactly: at N=128
 selective questions, bundle 100% against context 83% and individual tokens 50%.
@@ -81,15 +81,15 @@ sees only the final value learns less than one who sees it move.
 
 ## 3. Threats to validity
 
-**Scale.** One site, two open 7–12B instruct models, one inference host, n=48 at
+**Scale.** One site, two open 7 to 12B instruct models, one inference host, n=48 at
 the largest cell count. Nothing here is a scaling claim and the model tier belongs
-in the title: "two open 7–12B models" and "a frontier API model" are different
+in the title: "two open 7 to 12B models" and "a frontier API model" are different
 risk regimes and a reader will assume the second unless told.
 
 **The retrieval failure was EMBEDDINGS, not retrieval.** A lexical baseline on
 the identical corpus, same questions, same models, recovered the queried cell
 100% of the time and matched the addressed arm's accuracy with no protocol at
-all, where dense similarity managed 0–16.7%. A coordinate is a rare literal
+all, where dense similarity managed 0 to 16.7%. A coordinate is a rare literal
 string: every chunk is near-identical in embedding space and wildly different in
 token overlap, so the property that defeats cosine similarity is what BM25 keys
 on. Any sentence of the form "retrieval fails" must read "dense embedding

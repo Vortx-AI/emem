@@ -77,7 +77,7 @@ The part a vendor usually buries.
 | citation size | 104 chars each | 38 chars, any N | grows with values | **bundle** |
 | context, N facts | 104·N chars | **38 chars flat** | ~18·N chars | **bundle** |
 | round trips | N | **1** (to 256) | 1 | bundle / context |
-| wall clock | 69 → 1,255 ms | **20–54 ms flat** | ~0.9 s total | **bundle** |
+| wall clock | 69 up to 1,255 ms | **20 to 54 ms flat** | ~0.9 s total | **bundle** |
 
 **Individual addressing is strictly worse than pasting the numbers.** A token is
 104 characters; the signed value it replaces is about 18. So N tokens cost **5.8x**
@@ -104,13 +104,13 @@ is precision-free. That is the whole case, and it is narrow.
 
 ## 4. Retrieval: the failure was EMBEDDINGS, not retrieval
 
-This section previously said dense retrieval recovers the cell 0–16.7% of the
+This section previously said dense retrieval recovers the cell 0 to 16.7% of the
 time and framed it as retrieval failing. **That framing was wrong, and a lexical
 baseline on the identical corpus proves it.**
 
 | retriever | hit@5 | answers exact |
 |---|---|---|
-| dense (bge-small) | 0% – 16.7% | 2/12 at best |
+| dense (bge-small) | 0%  to  16.7% | 2/12 at best |
 | **BM25 lexical** | **100%** | **16/16** |
 
 Same corpus, same questions, same two models, only the retriever changed. **BM25
