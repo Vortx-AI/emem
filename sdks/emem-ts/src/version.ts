@@ -15,4 +15,4 @@
  * package that must also run in browsers and edge runtimes, where
  * package.json is not readable at runtime.
  */
-export const VERSION = "1.2.0";
+export const VERSION = "1.2.1";

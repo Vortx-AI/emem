@@ -20,7 +20,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 # Bumped 2026-05-28 from 1.88 → 1.91 to accommodate Lance 6.x's MSRV
 # (lance-namespace / lance-table / lance-tokenizer / roaring all require
