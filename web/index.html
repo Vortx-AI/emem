@@ -851,6 +851,28 @@ input::placeholder{color:var(--mute,#7a7363)}
 .th-beats .beat p{font-size:.9rem;line-height:1.55;color:var(--ink-2);margin:0 0 .7rem}
 .th-beats .beat-tech{font-family:var(--mono);font-size:.72rem;color:var(--mute);border-top:1px dotted var(--rule-strong);padding-top:.55rem}
 @media (max-width:860px){.th-top{grid-template-columns:1fr}.th-core{max-width:220px;margin:0 auto;order:-1}.th-beats{grid-template-columns:1fr}}
+
+/* the decay demo: one real recorded run, two presses. Placed in the hero on the
+   benchmark author's evidence that position decides what gets seen, and that an
+   invitation nobody finds may as well not exist. */
+.dk{border:1px solid var(--rule-strong);background:var(--paper-2);margin:1.4rem 0 0;max-width:52ch}
+.dk-hd{display:flex;gap:.5rem;align-items:baseline;padding:.5rem .7rem;border-bottom:1px solid var(--rule);font-size:.7rem;color:var(--mute);font-family:var(--mono)}
+.dk-hd b{color:var(--ink);font-weight:600}
+.dk-body{padding:.85rem .9rem}
+.dk-q{font-size:.72rem;color:var(--mute);margin:0 0 .5rem}
+.dk-val{font-family:var(--mono);font-size:1.5rem;line-height:1.2;color:var(--ink);word-break:break-all;transition:color .25s}
+.dk-val.gone{color:var(--mute-2);text-decoration:line-through;font-size:1rem}
+.dk-val.wrong{color:#c2410c}
+.dk-addr{font-family:var(--mono);font-size:.62rem;color:var(--mute-2);word-break:break-all;margin-top:.35rem;transition:all .25s}
+.dk-addr.up{color:var(--accent);font-size:.68rem}
+.dk-note{font-size:.76rem;color:var(--ink-2);line-height:1.5;margin:.6rem 0 0;min-height:3.2em}
+.dk-note em{color:var(--mute);font-style:normal;font-family:var(--mono);font-size:.72rem}
+.dk-act{display:flex;gap:.5rem;flex-wrap:wrap;padding:.6rem .9rem;border-top:1px solid var(--rule)}
+.dk-act button{font:inherit;font-size:.76rem;padding:.3rem .7rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer}
+.dk-act button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.dk-act button:disabled{opacity:.35;cursor:default}
+.dk-cid{font-family:var(--mono);font-size:.6rem;color:var(--mute-2);padding:0 .9rem .6rem;word-break:break-all}
+.dk-cid a{color:inherit}
 </style>
 <section class="th" id="hero" aria-label="emem, verifiable memory for AI agents">
   <div class="th-top">
@@ -858,6 +880,22 @@ input::placeholder{color:var(--mute,#7a7363)}
       <h1>Give your AI a memory of the real world it can <span class="th-verb-slot"><a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check.</a></span></h1>
       <p class="th-verb-hint">the underlined verb is live: it opens <a id="tvh-ep" href="/verify"><code>/verify</code></a></p>
       <p class="th-lede">AI models forget. When a long session is summarized, or a task hands off to another agent, the details they checked blur into paraphrases and the numbers quietly drift. emem is a shared memory that fixes that: every observation about a real place becomes one short, signed line an agent can keep. It survives summarization, moves cleanly between agents and sessions, and resolves back to the exact value, which anyone can re-check without trusting the source.</p>
+
+      <div class="dk" id="dk">
+        <div class="dk-hd"><b>watch a fact decay</b><span>replaying a recorded run, not a simulation</span></div>
+        <div class="dk-body">
+          <p class="dk-q">NDVI at the 10 m cell 32.57238, 77.03576 &mdash; one of 16 signed observations at this patch</p>
+          <div class="dk-val" id="dk-val">0.3009580442682524</div>
+          <div class="dk-addr" id="dk-addr">emem:fact: &hellip; signed, addressed</div>
+          <p class="dk-note" id="dk-note">The exact measurement, as stored. Now let a model carry it through a summary the way a long session would.</p>
+        </div>
+        <div class="dk-act">
+          <button id="dk-a">compact it</button>
+          <button id="dk-b" disabled>resolve the token instead</button>
+          <button id="dk-r" hidden>again</button>
+        </div>
+        <div class="dk-cid" id="dk-cid">run <a href="/channel">mtce2egr&hellip;</a></div>
+      </div>
       <p class="th-who">Built for the agents, robots, and world models that need to reason from the same facts, and for the teams behind them. The facts are grounded in open Earth observation, checkable by anyone, with no account needed.</p>
       <div class="th-cta">
         <a class="btn-primary" href="#build">Connect an agent</a>
@@ -3307,6 +3345,42 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   cv.addEventListener('pointermove', function(ev){ if(!drag) return; rotY+=(ev.clientX-lx)*0.01; rotX+=(ev.clientY-ly)*0.01; rotX=Math.max(-1.4,Math.min(1.4,rotX)); lx=ev.clientX; ly=ev.clientY; if(reduce) draw1(); });
   function up(){ if(!drag) return; drag=false; if(reduce){ draw1(); return; } setTimeout(function(){ auto=true; },2600); }
   cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up); cv.addEventListener('pointerleave',up);
+})();
+</script>
+
+<script>
+// Every frame below is a recorded step from run mtce2egr..., replayed. The
+// summary is what gemma-4-12B actually wrote under a 30-word budget and the
+// answers are what the two readers actually returned. Nothing here is authored
+// to look like drift: animating a plausible decay on the page that argues
+// against plausible substitutes would be the thing we argue against.
+(function(){
+  var val=document.getElementById('dk-val'), addr=document.getElementById('dk-addr'),
+      note=document.getElementById('dk-note'), a=document.getElementById('dk-a'),
+      b=document.getElementById('dk-b'), r=document.getElementById('dk-r'),
+      cid=document.getElementById('dk-cid');
+  if(!val) return;
+  var TRUTH='0.3009580442682524';
+  function reset(){
+    val.textContent=TRUTH; val.className='dk-val';
+    addr.innerHTML='emem:fact: &hellip; signed, addressed'; addr.className='dk-addr';
+    note.textContent='The exact measurement, as stored. Now let a model carry it through a summary the way a long session would.';
+    cid.innerHTML='run <a href="/channel">mtce2egr&hellip;</a>';
+    a.disabled=false; b.disabled=true; r.hidden=true;
+  }
+  a.onclick=function(){
+    val.textContent='0.87'; val.className='dk-val wrong';
+    note.innerHTML='Asked to compact 16 observations, the summariser kept the range and dropped every value: <em>"Data shows high NDVI values (up to 0.87)&hellip;"</em> Both models then answered <strong>0.87</strong>, the patch maximum. The cell actually reads 0.30. They agree with each other and are both wrong.';
+    cid.innerHTML='summary <a href="/channel">micqy65x&hellip;</a> &middot; gemma <a href="/channel">lh677fdg&hellip;</a> &middot; qwen <a href="/channel">q3ewlkci&hellip;</a>';
+    a.disabled=true; b.disabled=false;
+  };
+  b.onclick=function(){
+    val.textContent=TRUTH; val.className='dk-val';
+    addr.innerHTML='emem:fact:&hellip; &rarr; resolved, byte-identical, signature checks'; addr.className='dk-addr up';
+    note.innerHTML='The address survived the summary because it is 84 characters, not a number a summariser rounds. Dereferencing it returns the exact bytes. <a href="/verify">Check one yourself</a>.';
+    b.disabled=true; r.hidden=false;
+  };
+  r.onclick=reset;
 })();
 </script>
 </body></html>
