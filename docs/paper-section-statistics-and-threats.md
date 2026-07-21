@@ -14,16 +14,29 @@ act on, is **what each architecture costs to be right**.
 O(1) in *what*? Named honestly there are four axes, and only two favour addressed
 memory.
 
-| axis | addressed memory | context | who wins |
-|---|---|---|---|
-| citation size | O(1). A token is the same length whether the value has six digits or seventeen | O(N) in values, and O(digits) in each | addressed |
-| context consumed | O(1). 90 tokens at 256 cells and at 1024 | O(N). 4,212 → 15,786 tokens, and it hits a wall | addressed |
-| round trips | O(1) to 256 facts per bundle, then ceil(N/256) | 1 | **context** |
-| wall clock | 6–9 s | ~0.9 s | **context**, by 7–10x |
+| axis | individual tokens | **bundled** | context | who wins |
+|---|---|---|---|---|
+| citation size | 104 chars each | 38 chars, any N | grows with values and digits | **bundle** |
+| context, N facts | 104·N | **38, flat** | ~18·N | **bundle** |
+| round trips | N | **1**, to 256 | 1 | bundle / context |
+| wall clock | 69 → 1,255 ms | 20–54 ms flat | ~0.9 s | **bundle** |
 
-Both losing axes are real and neither is a footnote. **A system that reads one
-value per question should not use addressed memory**: it will pay 7–10x latency
-for a property it is not using. The case for addressing begins where the answer
+**Unbundled addressing costs MORE context than the values it replaces, and that
+belongs in the headline rather than the caveats.** A token is 104 characters; the
+signed value it points at averages 18. So N individual tokens cost roughly 5.8x
+the context of pasting the N numbers, and the individual-token arm hits the
+prompt wall *sooner* than plain context does. Addressing is a loss unless you
+bundle.
+
+Bundled, it reverses and is the cleanest measurement in the study: flat at 38
+characters and one round trip at every N up to 256, against 26,624 characters and
+256 trips. The latency penalty falls from 7–10x to about 1.9x.
+
+Where addressing actually wins is narrow and worth stating exactly: at N=128
+selective questions, bundle 100% against context 83% and individual tokens 50%.
+
+**A system that reads one value per question should not use addressed memory**:
+it will pay the latency for a property it is not using. The case for addressing begins where the answer
 needs more facts than a window will hold at full precision, and the honest
 framing is that this is a trade with a crossover point, not a dominance claim.
 
@@ -73,13 +86,31 @@ the largest cell count. Nothing here is a scaling claim and the model tier belon
 in the title: "two open 7–12B models" and "a frontier API model" are different
 risk regimes and a reader will assume the second unless told.
 
-**The corpus decides the retrieval result.** Dense retrieval scored hit@5 ≤ 8.3%
-at Lahaul, which was homogeneous by construction and near-adversarial for
-embeddings; at Srisailam, which declares six land covers, it improved to 16.7% at
-equal size and then fell to 0% as the corpus grew. **Both halves must travel
-together.** Quoting the improvement alone overstates retrieval; quoting the
-collapse alone overstates us. The claim the evidence supports is "dense-similarity
-retrieval fails on these corpora", not "retrieval fails".
+**The retrieval failure was EMBEDDINGS, not retrieval.** A lexical baseline on
+the identical corpus, same questions, same models, recovered the queried cell
+100% of the time and matched the addressed arm's accuracy with no protocol at
+all, where dense similarity managed 0–16.7%. A coordinate is a rare literal
+string: every chunk is near-identical in embedding space and wildly different in
+token overlap, so the property that defeats cosine similarity is what BM25 keys
+on. Any sentence of the form "retrieval fails" must read "dense embedding
+similarity fails on homogeneous numeric corpora". On a corpus where a lexical
+index works, addressing is not needed for accuracy.
+
+**Aggregates are out, and what replaced them is a limit worth publishing.**
+`delta` and `sum` are recomputed by the responder and verify exactly; `mean`
+cannot be, because f64 division after accumulation lands a representable step
+from any other implementation's. A four-ULP tolerance was shipped to hide that
+and withdrawn the same day: a verifier that accepts "close enough" is not a
+verifier. So an aggregate that must be verifiable is expressible as a sum, and an
+averaged one is not verifiable at all. That is a real boundary on what
+content-addressed verification can promise.
+
+**The corpus decides even the dense result, and both halves must travel
+together.** Dense scored hit@5 ≤ 8.3% at Lahaul, homogeneous by construction and
+near-adversarial for embeddings; 16.7% at Srisailam at equal size with six land
+covers; then 0% as that corpus grew. Quoting the improvement alone overstates
+retrieval, quoting the collapse alone overstates us, and quoting either without
+the BM25 baseline above misattributes an embedding failure to retrieval.
 
 **The compaction result is correlated error, not independent convergence.** Both
 readers receive a byte-identical note written by one model. That demonstrates

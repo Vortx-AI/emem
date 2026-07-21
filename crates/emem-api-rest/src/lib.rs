@@ -23204,8 +23204,12 @@ struct DeriveResp {
 const DERIVE_SIGNATURE_ATTESTS: &str =
     "This attester submitted this derivation, over these parent facts, at this time, and this \
      responder stored it. It does NOT attest that the value is true: the responder did not \
-     compute it and cannot recompute it. The parents are checked to exist here, so the lineage \
-     is real even though the arithmetic over it is the caller's claim.";
+     recompute it THIS TIME. The parents are checked to exist here, so the lineage is real even \
+     though the arithmetic over it is the caller's claim. Recomputation is available and was not \
+     used: pin a `code_cid` and use a tier-1 pure op (delta, sum) and this responder will re-run \
+     the arithmetic over the cited parents and award deterministic_index on an exact match. \
+     `mean` is excluded because f64 division after accumulation lands a representable step away \
+     from any other implementation's, so it cannot be reproduced and is not pretended to be.";
 
 /// The sentence the responder's signature supports when GC-1 tier-1
 /// recomputation succeeded: the responder did not merely store the claim, it
