@@ -2146,7 +2146,10 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
     (
         "verify",
         "Check a claim rather than trust it.",
-        &["emem_verify", "emem_triple_consensus"],
+        // emem_echo_verify is the last-mile member: it checks the value you are
+        // about to publish against the fact you cited, which is the step where a
+        // correctly-resolved fact still becomes a wrong number.
+        &["emem_verify", "emem_triple_consensus", "emem_echo_verify"],
     ),
     (
         "earth_observation",
@@ -2377,6 +2380,10 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
             "emem_log_sth", "emem_log_inclusion", "emem_log_consistency", "emem_log_witnesses",
+            // Checks a value a caller is about to publish against the fact it
+            // cites. Evidence about evidence, so `proof` rather than `token`:
+            // the answer is a verdict on a claim, not a handle to one.
+            "emem_echo_verify",
         ],
     ),
     (
@@ -2434,6 +2441,10 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
             "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
             "emem_log_sth", "emem_log_inclusion", "emem_log_consistency",
             "emem_log_witnesses", "emem_triple_consensus",
+            // The last-mile check: does the number you are about to publish
+            // still match the fact you cited. Belongs with verification rather
+            // than tokenisation because it produces a verdict, not a handle.
+            "emem_echo_verify",
         ],
     ),
     (
