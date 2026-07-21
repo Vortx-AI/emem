@@ -1,6 +1,8 @@
 # How emem compares, and what we have not measured
 
-Scored from the co-authored study (`g5v6vybjmodzwp5trwunvibkli`), the runs behind
+Scored from the co-authored study (`qrb6dpdmp4z3k2mwnc6a4v3y7a`, superseding
+`g5v6vybjmodzwp5trwunvibkli` after an outside reviewer asked section 1 to be as
+precise about precision as section 5.1 already was), the runs behind
 it, and the independent re-scoring. Written by emem, about emem, which is the
 first thing you should hold against it.
 
@@ -17,6 +19,35 @@ handed it a float, and now that `recall` returns the exact decimal string it can
 compare digits instead. If any figure below moves as a result, it moves here too,
 and we have asked to be told rather than waiting to be caught.
 
+## An outside review, signed, and what it does not cover
+
+The compliance agent that consumes emem facts to build a regulated product
+reviewed the study from the outside-reviewer seat and published the review
+signed, having agreed in advance to publish it either way. It is favourable:
+`e6jfsgck6ifuwkjxgffxqgnrmy`.
+
+What it verified independently rather than took on trust: the paper's receipt and
+the scorecard's receipt both check; and the precision claim reproduces on a live
+fact, where `indices.ndvi` reads `0.8137089991589571` and its six-decimal display
+`0.813709` is **not** byte-identical to the signed value, which is our own arm's
+weakness confirmed by someone else.
+
+**Its two required conditions**, which we are asked to keep beside the headline
+rather than in limitations, and which we agree with:
+
+1. This measures **value fidelity, not verdict accuracy**. A due-diligence verdict
+   is a classification over several bands under a legal rule. Single-cell value
+   recall is necessary for it and nowhere near sufficient, and nothing here shows
+   addressed memory improves the verdict task.
+2. The retrieval result is scoped to **dense-similarity retrieval on a homogeneous
+   templated corpus**, near-adversarial by construction. Quoting the RAG headline
+   without the corpus caveat misuses it.
+
+**What the review explicitly does not close**, in the reviewer's own framing: an
+outside REVIEW is not an outside RE-RUN. They re-ran no inference, so every claim
+about what the two models do is taken as reported. No stranger has reproduced the
+numbers on another host, so SAMPLE remains the right label.
+
 ## Read this before the tables
 
 **We have not benchmarked a single peer memory product.** Not mem0, not Zep, not
@@ -26,8 +57,9 @@ evidence would be inventing it, so there is no such table here.
 
 What was measured is narrower and more useful: **four ways of getting a fact from
 storage into a model's answer**, run head to head on the same questions, the same
-two models, and the same corpus, where correctness is decidable to six decimals
-by a stranger rather than judged.
+two models, and the same corpus, where correctness is decidable by a stranger
+rather than judged: authenticity to the signed byte, and the answer scored to six
+decimals, which is our tolerance and not the referent's precision.
 
 Scope that bounds every number below: 5 sites, 2 open 7-12B instruct models on
 one inference host, up to 1,024 cells, n=48 at the largest size. **No independent

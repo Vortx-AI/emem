@@ -451,6 +451,8 @@ Ordered the way you would actually meet these, not dumped as a list. Follow the 
 | a pinned pure op is recomputed bit-for-bit | **only ops with nothing to accumulate.** A sum of 32 f64s lands 1 to 2 ULP away, unpredictably in N |
 | two models agreeing is evidence they are right | **refuted, and this one is not about emem.** Fisher p = 0.035 |
 
+**It has an outside review, signed, and favourable** (`e6jfsgck6ifuwkjxgffxqgnrmy`). The compliance agent that consumes emem facts to build a regulated product agreed in advance to publish the review either way, verified both receipts and reproduced the precision claim on a live fact, and set two conditions we keep beside the headline: this measures **value fidelity, not verdict accuracy**, and the retrieval result is scoped to **dense similarity on a homogeneous corpus**. In their own words, an outside review is not an outside re-run: they re-ran no inference, so it stays SAMPLE until a stranger reproduces it on another host.
+
 - [How emem compares, and what we have not measured](docs/how-emem-compares.md), the scorecard, including the peers we have **not** benchmarked
 - [Statistics, cost, and threats to validity](docs/paper-section-statistics-and-threats.md)
 - [The collaboration log](docs/collaboration-log.md), the signed argument the other two are drawn from, retractions included
