@@ -1,20 +1,20 @@
 <!doctype html><html lang=en>
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem — the external memory of the world</title>
-<meta name=description content="A single record for every place and every fact — read the same by everyone, checkable by anyone, owned by no one. This card proves itself: it opens a real record live and shows its signature checking out. No account, no keys.">
+<title>emem, the external memory of the world</title>
+<meta name=description content="One record for every place and every fact, read the same by everyone, checkable by anyone, owned by no one. This card proves itself: it opens a real record live and shows its signature checking out. No account, no keys.">
 <link rel=canonical href="https://emem.dev/card">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel="apple-touch-icon" href="/vortxgola.gif">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/card">
-<meta property=og:title content="emem — the external memory of the world">
+<meta property=og:title content="emem, the external memory of the world">
 <meta property=og:description content="One record for every place and fact. Read the same by everyone, checkable by anyone, owned by no one. This card opens a real record live and shows its signature checking out.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
-<meta name=twitter:title content="emem — the external memory of the world">
-<meta name=twitter:description content="One record for every place and fact — checkable by anyone, owned by no one. The card proves itself, live.">
+<meta name=twitter:title content="emem, the external memory of the world">
+<meta name=twitter:description content="One record for every place and fact, checkable by anyone and owned by no one. The card proves itself, live.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -56,7 +56,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
   mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
 
-/* top row — the corners of the card */
+/* top row: the corners of the card */
 .top{display:flex;align-items:center;justify-content:space-between;font-size:.72rem;color:var(--mute);letter-spacing:.02em}
 .top .brand{display:flex;align-items:center;gap:.5rem;color:var(--ink);font-weight:700;letter-spacing:.02em;font-size:.9rem}
 .top .brand img{width:20px;height:20px;object-fit:contain;display:block}
@@ -108,7 +108,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 .chip.warn{color:var(--warn);border-color:var(--warn)}
 .proof-foot{padding:.55rem .9rem;border-top:1px solid var(--rule);font-size:.68rem;color:var(--mute);display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap}
 
-/* contact row — the back of the card */
+/* contact row: the back of the card */
 .contact{display:flex;flex-wrap:wrap;gap:.35rem 1.1rem;margin-top:1.5rem;font-size:.76rem;color:var(--ink-2)}
 .contact .c{display:flex;gap:.4rem;align-items:baseline}
 .contact .c .ck{color:var(--mute);text-transform:uppercase;letter-spacing:.06em;font-size:.62rem}
@@ -189,7 +189,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 <script>
 (function(){
   var API = 'https://emem.dev';
-  // Real, reliably-present readings — the ground's own height, a measurement
+  // Real, reliably-present readings. The ground's own height, a measurement
   // anyone understands and any responder can serve for any place on Earth.
   var PLACES = [
     { place:'Bengaluru',    what:'ground elevation', band:'copdem30m.elevation_mean', known:'918 m' },
@@ -224,7 +224,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
     $('p-place').textContent = p.place;
     $('p-what').textContent  = p.what;
     var val = $('p-value'); val.classList.add('pending'); val.textContent = 'opening…';
-    $('p-cid').textContent = '—';
+    $('p-cid').textContent = '…';
     setChip($('chip-sig'),  'wait', '<span class="g">◌</span> signature');
     setChip($('chip-proof'),'wait', '<span class="g">◌</span> inclusion proof');
     setChip($('chip-when'), 'wait', 'checking…');
@@ -235,8 +235,8 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
       if (!f || f.value === null || f.value === undefined) throw new Error('no fact');
       val.classList.remove('pending');
       val.innerHTML = fmt(f.value, f.unit || 'm');
-      $('p-cid').textContent = f.fact_cid || '—';
-      // Independently verify the receipt — a separate endpoint recomputes the
+      $('p-cid').textContent = f.fact_cid || '…';
+      // Independently verify the receipt. A separate endpoint recomputes the
       // hash and checks the signature; the answer is not taken on trust.
       return post('/v1/verify_receipt', { receipt:d.receipt }).then(function(v){
         var sigOk = v && v.signature_valid === true;
@@ -247,12 +247,12 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
         if (sigOk && mkOk) $('proof').classList.add('ok');
         if (v && v.signer_pubkey_b32) $('p-signer').textContent = v.signer_pubkey_b32;
         else if (d.receipt && d.receipt.responder_pubkey_b32) $('p-signer').textContent = d.receipt.responder_pubkey_b32;
-        $('p-note').textContent = 'Opened live from emem, then checked by a separate verifier — signature and inclusion proof.';
+        $('p-note').textContent = 'Opened live from emem, then checked by a separate verifier: signature and inclusion proof.';
       });
     }).catch(function(){
       // Never fake a check. Show the known real value, plainly labelled, and invite a live retry.
       val.classList.remove('pending');
-      if (p.known){ val.innerHTML = fmt(parseFloat(p.known), 'm'); $('p-note').textContent = 'Could not reach the live memory just now — this is the last known value. Press ↻ to check live.'; }
+      if (p.known){ val.innerHTML = fmt(parseFloat(p.known), 'm'); $('p-note').textContent = 'Could not reach the live memory just now, so this is the last known value. Press ↻ to check live.'; }
       else { val.textContent = 'unreachable'; $('p-note').textContent = 'Could not reach the live memory just now. Press ↻ to try again.'; }
       setChip($('chip-sig'),  'warn', 'signature not checked');
       setChip($('chip-proof'),'warn', 'proof not checked');
@@ -262,7 +262,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 
   $('another').addEventListener('click', function(){ idx = (idx+1) % PLACES.length; render(PLACES[idx]); });
   $('p-cid').addEventListener('click', function(){
-    var t = this.textContent; if(!t || t==='—') return;
+    var t = this.textContent; if(!t || t==='…') return;
     if (navigator.clipboard) navigator.clipboard.writeText(t).then(toast).catch(function(){});
   });
 

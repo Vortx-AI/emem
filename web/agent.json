@@ -126,7 +126,7 @@
     "emem_eudr_dds"
   ],
   "_primitives_note": "curated subset of the tool surface; the MCP tools/list call and /v1/agent_card enumerate the full set",
-  "primitive_count": 101,
+  "primitive_count": 102,
   "algorithm_count": 168,
   "band_cube_slot_count": 43,
   "materializer_wired_band_names": 129,

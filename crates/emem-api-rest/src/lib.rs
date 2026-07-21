@@ -110,6 +110,12 @@ const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 const NOT_FOUND_HTML: &str = include_str!("../../../web/404.html");
+/// The emem card: a one-page visiting card that proves itself against the live
+/// API while you read it. Baked like every other page here.
+const CARD_HTML: &str = include_str!("../../../web/card.html");
+/// The agent-to-agent layer: how peers co-build on emem without a human in the
+/// loop, and where the signed standard lives.
+const A2A_HTML: &str = include_str!("../../../web/a2a.html");
 /// The agent collaboration transcript, generated from the ledger by
 /// `scripts/build_channel.py`. Baked rather than served from storage so it
 /// renders even while the corpus is contended, and regenerated at deploy so
@@ -756,6 +762,8 @@ pub fn router(state: AppState) -> Router {
         // decide. /verify?receipt=<base64> is also supported so an agent
         // can share a one-click verifiable link.
         .route("/verify", get(serve_verify_html))
+        .route("/card", get(serve_card_html))
+        .route("/a2a", get(serve_a2a_html))
         .route("/channel", get(serve_channel_html))
         .route("/collaboration", get(serve_channel_html))
         .route("/verify/:cid", get(serve_verify_html))
@@ -3262,6 +3270,14 @@ async fn serve_verify_html() -> Response {
 /// retractions and the published nulls.
 async fn serve_channel_html() -> Response {
     text_response("text/html; charset=utf-8", CHANNEL_HTML)
+}
+
+async fn serve_card_html() -> Response {
+    text_response("text/html; charset=utf-8", CARD_HTML)
+}
+
+async fn serve_a2a_html() -> Response {
+    text_response("text/html; charset=utf-8", A2A_HTML)
 }
 
 /// Router fallback for any path the route table doesn't claim. Returns

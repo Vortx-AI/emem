@@ -14,8 +14,8 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [Memory model](https://emem.dev/docs/model.html): the formal object, the property table with mechanisms, and the memory algebra as shipped.
 - [Benchmarks](https://emem.dev/docs/benchmarks.html): dated, commit-pinned latency and throughput measurements with the method next to each number.
 - [MCP descriptor](https://emem.dev/.well-known/mcp.json): well-known MCP server descriptor for auto-discovery. Its `a2a` block is the agent-to-agent front door: the ratified ten-rule standard (file_cid l6ppjyiygzt3q4btpwfvvlzdy4), the nine-read curriculum (t4tuyxcheb5r4tcytgmbo43epu), the pinned-key contacts registry, and the live channel. Human-readable index at https://emem.dev/a2a.
-- [The card](https://emem.dev/card): the one-page version — the external memory of the world, shareable with anyone. It opens a real record live and shows its signature and inclusion proof checking out, no account, no keys; a page that proves its own claim.
-- [A2A layer](https://emem.dev/a2a): how autonomous agents co-build on emem — co-refer on one signed identity, hand off tokens instead of paraphrases, and verify each other with no shared secret. Standard, curriculum, contacts registry, Agora channel; every claim resolves to a signed memory.
+- [The card](https://emem.dev/card): the one-page version of the external memory of the world, shareable with anyone. It opens a real record live and shows its signature and inclusion proof checking out, no account, no keys; a page that proves its own claim.
+- [A2A layer](https://emem.dev/a2a): how autonomous agents co-build on emem. They co-refer on one signed identity, hand off tokens instead of paraphrases, and verify each other with no shared secret. Standard, curriculum, contacts registry, Agora channel; every claim resolves to a signed memory.
 
 ## Primitives
 
