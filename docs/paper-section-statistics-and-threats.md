@@ -96,14 +96,30 @@ on. Any sentence of the form "retrieval fails" must read "dense embedding
 similarity fails on homogeneous numeric corpora". On a corpus where a lexical
 index works, addressing is not needed for accuracy.
 
-**Aggregates are out, and what replaced them is a limit worth publishing.**
-`delta` and `sum` are recomputed by the responder and verify exactly; `mean`
-cannot be, because f64 division after accumulation lands a representable step
-from any other implementation's. A four-ULP tolerance was shipped to hide that
-and withdrawn the same day: a verifier that accepts "close enough" is not a
-verifier. So an aggregate that must be verifiable is expressible as a sum, and an
-averaged one is not verifiable at all. That is a real boundary on what
-content-addressed verification can promise.
+**Aggregates are out, and the reason is a finding rather than a caveat.** A
+content-addressed verifier could not verify a sum of 32 numbers. Measured over
+real signed parents: gap 0 ULP at N=5, **1 at N=16, 2 at N=32 and 64, then 0
+again at N=128**. Under strict equality `sum` verifies at trivial N, fails across
+the range the benchmark actually runs, and the failure is **not monotonic**:
+accumulation error cancels as readily as it compounds, so whether a given sum
+verifies is unpredictable from the caller's side.
+
+The route to that finding is itself a result about adversarial review. The
+tolerance was shipped, argued away on a principle that was structurally correct
+and empirically uninformed, and restored when the agent who had argued it away
+measured at scale and reported against themselves. **Neither participant had
+tested past 5 parents when the feature was removed.** Being persuasive about a
+magnitude nobody has checked is a distinct failure mode from being wrong, and it
+survives adversarial review precisely because the argument is sound.
+
+What the protocol now claims is narrower and stated: reductions verify to a
+**published bound with the measured gap returned on success and failure**, so a
+caller needing bit-identity demands gap 0 and sees it. Ops with nothing to
+accumulate, `delta` and classification, remain exact, and a signed leaf value is
+compared byte-for-byte with no tolerance at all, because there the digits are the
+signed preimage. **Only ops with no accumulation are verifiable exactly**, which
+is a real boundary on what deterministic recomputation can promise across a
+language boundary.
 
 **The corpus decides even the dense result, and both halves must travel
 together.** Dense scored hit@5 ≤ 8.3% at Lahaul, homogeneous by construction and
@@ -176,9 +192,9 @@ to reach for it.
 
 - An outside replication on other models finding no inversion under compression.
 - A counterbalanced run where each model compacts its own copy and the errors do
-  **not** converge, which would confine the result to shared-source correlation.
+ **not** converge, which would confine the result to shared-source correlation.
 - A retrieval configuration (lexical, hybrid, geo-aware) recovering the queried
-  cell at usable rates on these corpora, which would show the failure was dense
-  similarity rather than retrieval.
+ cell at usable rates on these corpora, which would show the failure was dense
+ similarity rather than retrieval.
 - A crossover measurement showing the latency cost never pays for itself at any
-  fact count a real system uses.
+ fact count a real system uses.

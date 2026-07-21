@@ -23226,10 +23226,52 @@ const DERIVE_SIGNATURE_ATTESTS_RECOMPUTED: &str =
 /// in [`recompute_pure_op`].
 const GC1_TIER1_PURE_OPS: &[&str] = &["delta", "mean", "sum"];
 
+/// How far apart two f64 REDUCTIONS may be and still count as reproduced.
+///
+/// Four representable steps. Measured against real data rather than chosen: a
+/// `sum` over signed parents lands 0 to 2 ULP from an independent accumulation,
+/// non-monotonically in N, so four covers the observed spread with headroom
+/// while staying around 1e-16 relative. The tightest threshold any decision in
+/// this study evaluates against is 1e-6, ten orders of magnitude away, so this
+/// window cannot launder a difference that would change an outcome.
+///
+/// It applies ONLY to `mean` and `sum` over more than two parents. `delta` is
+/// one subtraction and a classification is a tree of 2-ary selections; neither
+/// accumulates, so both stay exact and are not offered a tolerance they do not
+/// need.
+///
+/// The window is never silent. `rule` names which comparison ran, this bound is
+/// echoed as `ulp_tolerance`, and the measured `ulp_gap` is returned on success
+/// and on failure, so a caller who requires bit-identity can demand gap 0 and
+/// see for themselves.
+const REDUCTION_ULP_TOLERANCE: u64 = 4;
+
 /// Distance between two f64s counted in representable steps.
 ///
 /// Bit-pattern comparison rather than a relative epsilon, so the window means
 /// the same thing at 1e-9 as at 1e9 and does not silently widen with magnitude.
+/// Does the reduction window apply to this recomputation?
+///
+/// ONLY `mean` and `sum` over more than two parents. This boundary is the
+/// answer to a question the compliance co-author put sharply: a tolerance is
+/// wrong for a signed value and right for a recomputed reduction, and the two
+/// must never be conflated.
+///
+/// The distinction is what was signed. A leaf fact's `value_verbatim` IS the
+/// signed preimage, so its digits are cryptographically load-bearing even where
+/// only three are scientifically meaningful, and comparing it to anything but
+/// its own bytes is a category error — no tolerance, ever. A reduction is the
+/// opposite object: nobody signed the sum, the responder derives it, and no
+/// accumulation order was ever specified for a caller to match. Bit-equality
+/// there is not fidelity to a signature, it is luck about summation order.
+///
+/// So `delta` (one subtraction), classification (a tree of 2-ary selections),
+/// two-parent reductions (nothing to accumulate), and every leaf comparison
+/// stay exact.
+fn is_reduction_op(op: &str, n_parents: usize) -> bool {
+    matches!(op, "mean" | "sum") && n_parents > 2
+}
+
 fn ulps_between(a: f64, b: f64) -> u64 {
     if a == b {
         return 0;
@@ -23588,42 +23630,55 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                 // window was used, how far apart the two values actually were.
                 // "verified within k ULP" is a different and weaker claim than
                 // "bit-identical", and it must never be reported as the latter.
-                // EXACT, always. The ULP window that briefly lived here is gone.
+                // A STATED, BOUNDED, MEASURED window for reductions. Exact
+                // for everything else.
                 //
-                // It was shipped to rescue `mean`, which a caller cannot
-                // reproduce because f64 division after accumulation lands one
-                // step away. The benchmark author objected in terms worth
-                // keeping: "a verifier that accepts close enough is not a
-                // verifier, and one ULP of slack today is a policy question
-                // about every future op, not a bug fix."
+                // This was shipped, removed on principle, and restored on
+                // measurement. The principle was right and the magnitude was
+                // unknown, which is the worst combination: a structurally sound
+                // argument applied to a quantity nobody had checked.
                 //
-                // Measuring settled it. Over the same five parents:
+                // What checking showed, `sum` over real signed parents:
                 //
-                //     sum    ulp_gap 0    reproduces exactly
-                //     mean   ulp_gap 1    does not, and cannot
+                //     N=  5   gap 0   verified
+                //     N= 16   gap 1   NOT verified
+                //     N= 32   gap 2   NOT verified
+                //     N= 64   gap 2   NOT verified
+                //     N=128   gap 0   verified
                 //
-                // The window was therefore unnecessary for the op that
-                // reproduces, and was doing nothing but making the op that does
-                // not LOOK verified. That is the same defect as a provenance
-                // field reporting deterministic_index for arithmetic nobody
-                // re-ran: a claim of verification where none happened.
+                // Two things follow. The gaps are TINY: one or two representable
+                // steps, around 1e-16 relative, against 1e-6 as the tightest
+                // threshold any decision in this study evaluates. And the failure
+                // is NOT MONOTONIC in N, because accumulation errors cancel as
+                // readily as they compound. So under strict equality whether a
+                // sum verifies is unpredictable from the caller's side, which is
+                // worse than a stated bound: it turns verification into a coin
+                // flip that looks like a guarantee.
                 //
-                // So `mean` stays `model_output` and says so. An aggregate that
-                // must be verifiable should be expressed as a `sum`, which is
-                // exact, leaving the division to whoever reads it. Losing a
-                // verifiable mean is a real limit on what content-addressed
-                // verification can promise, and it is more useful published than
-                // hidden behind a tolerance.
+                // The distinction that makes this a verifier and not slack, and
+                // it is the co-author's: a verifier that says "equal within 4
+                // ULP, and the measured gap was 2" is still a verifier. One that
+                // says "equal" while meaning "close" is not. So `rule` names
+                // which comparison ran, `ulp_tolerance` states the bound, and
+                // `ulp_gap` reports the measured distance on success AND on
+                // failure. A caller who needs bit-identity reads the gap and
+                // requires 0; nothing is hidden from them to make a number look
+                // better.
+                //
+                // `delta` and classification stay exact: one subtraction and a
+                // tree of 2-ary selections have nothing to accumulate, so a
+                // tolerance there would weaken a guarantee for no reason.
                 let claimed_f = cbor_scalar_f64(&value);
                 let recomputed_f = cbor_scalar_f64(&r_val);
-                let verified = recomputed_f == claimed_f;
-                // Reported even on success, so a caller sees HOW exactly it
-                // matched rather than only that it did.
+                let is_reduction = matches!(op.as_str(), "mean" | "sum") && parent_values.len() > 2;
                 let ulp_gap = match (recomputed_f, claimed_f) {
                     (Some(a), Some(b)) => Some(ulps_between(a, b)),
                     _ => None,
                 };
-                let rule = "canonical_float_equality";
+                let (verified, rule) = match (is_reduction, ulp_gap) {
+                    (true, Some(g)) => (g <= REDUCTION_ULP_TOLERANCE, "reduction_ulp_window"),
+                    _ => (recomputed_f == claimed_f, "canonical_float_equality"),
+                };
                 if verified {
                     effective_provenance = "deterministic_index".to_string();
                 }
@@ -23669,11 +23724,16 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                         },
                     ),
                     (
-                        // Zero: this responder does not accept a near miss. The
-                        // field stays on the wire so the absence of a tolerance
-                        // is explicit rather than inferred from silence.
                         ciborium::Value::Text("ulp_tolerance".into()),
-                        ciborium::Value::Integer(0.into()),
+                        ciborium::Value::Integer(
+                            if is_reduction {
+                                i128::from(REDUCTION_ULP_TOLERANCE)
+                            } else {
+                                0
+                            }
+                            .try_into()
+                            .unwrap_or(0.into()),
+                        ),
                     ),
                 ]));
                 recompute_json = Some(json!({
@@ -62133,6 +62193,37 @@ mod tests {
         assert_eq!(recompute_pure_op("sum", &[1.0, 2.0, 3.0]), Some(6.0));
         assert_eq!(recompute_pure_op("trend", &[1.0, 2.0]), None, "not tier-1");
         assert_eq!(recompute_pure_op("anomaly", &[1.0]), None, "not tier-1");
+    }
+
+    /// The window's SCOPE is the whole safety argument, so it is pinned here.
+    ///
+    /// A tolerance is right for a recomputed reduction and wrong for a signed
+    /// value, and the line between them is not a matter of taste: it is whether
+    /// anyone signed the bytes being compared. Widening this predicate silently
+    /// would let slack reach an object that has an exact answer available, which
+    /// is the failure the co-authors spent a week arguing us out of.
+    #[test]
+    fn the_reduction_window_reaches_reductions_and_nothing_else() {
+        // accumulates over many parents -> windowed, because no accumulation
+        // order was ever specified for a caller to reproduce
+        assert!(is_reduction_op("sum", 3));
+        assert!(is_reduction_op("sum", 32));
+        assert!(is_reduction_op("mean", 128));
+
+        // nothing to accumulate -> exact. Two addends have one order.
+        assert!(!is_reduction_op("sum", 2));
+        assert!(!is_reduction_op("mean", 2));
+        assert!(!is_reduction_op("mean", 1));
+
+        // one subtraction -> exact, and it must STAY exact: `delta` is the op
+        // the tier-1 milestone verifies bit-for-bit.
+        assert!(!is_reduction_op("delta", 2));
+        assert!(!is_reduction_op("delta", 99));
+
+        // classification and every non-tier-1 op -> exact
+        assert!(!is_reduction_op("eudr_compliance", 12));
+        assert!(!is_reduction_op("trend", 64));
+        assert!(!is_reduction_op("anomaly", 64));
     }
 
     /// GC-1 tier-1, the milestone: a caller pins a `code_cid` on a pure

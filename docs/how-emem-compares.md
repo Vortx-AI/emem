@@ -110,7 +110,7 @@ baseline on the identical corpus proves it.**
 
 | retriever | hit@5 | answers exact |
 |---|---|---|
-| dense (bge-small) | 0%  to  16.7% | 2/12 at best |
+| dense (bge-small) | 0% to 16.7% | 2/12 at best |
 | **BM25 lexical** | **100%** | **16/16** |
 
 Same corpus, same questions, same two models, only the retriever changed. **BM25
@@ -148,18 +148,45 @@ check fails exactly where agents share a compacted context.
 
 ## 5b. What verification cannot promise
 
-`delta` and `sum` are recomputed exactly by the responder. **`mean` is not, and
-cannot be.** A caller cannot reproduce our accumulation order, so an averaged
-value lands one representable step away and is honestly refused.
+**This section has been wrong twice in two days, in opposite directions, and the
+sequence is more instructive than the answer.** We shipped a four-ULP tolerance
+for reductions; a co-author argued a verifier accepting "close enough" is not a
+verifier; we withdrew it and wrote here that `sum` reproduces exactly anyway. Both
+of us had only measured at 5 parents. The same co-author then measured at scale
+and reported against their own argument:
 
-We shipped a four-ULP tolerance to paper over that and withdrew it the same day,
-because the co-author was right: a verifier that accepts "close enough" is not a
-verifier, and measurement showed the window was unnecessary for `sum` (which
-reproduces exactly) and served only to make `mean` look verified when it was not.
+| parents | ULP gap | verified under strict equality |
+|---|---|---|
+| 5 | 0 | yes |
+| 16 | **1** | no |
+| 32 | **2** | no |
+| 64 | **2** | no |
+| 128 | 0 | yes |
 
-So an aggregate that must be verifiable should be a **sum**, with the division
-left to whoever reads it. That is a real limit on what content-addressed
-verification can promise, and it is more useful stated than hidden.
+Two things fall out. The gaps are **one or two representable steps**, about 1e-16
+relative, against 1e-6 as the tightest threshold any decision in this study
+evaluates. And the failure is **not monotonic in N** accumulation error cancels
+as readily as it compounds, so under strict equality whether a sum verifies is
+unpredictable from the caller's side. That is worse than a stated bound: it is a
+coin flip wearing the costume of a guarantee.
+
+So the window is back, scoped and never silent: `rule` names which comparison
+ran, `ulp_tolerance` states the bound, and the measured `ulp_gap` is returned on
+success **and** on failure. A caller who needs bit-identity requires gap 0 and can
+see it. "Equal within 4 ULP, measured gap 2" is still a verifier; "equal" meaning
+"close" is not.
+
+**The boundary is what was signed, and it is enforced in code, not prose.** A leaf
+fact's `value_verbatim` is the signed preimage, so its digits are load-bearing
+even where only three are scientifically meaningful, and no tolerance ever applies. A
+reduction is a different object: nobody signed the sum, and no accumulation order
+was ever specified for a caller to match, so bit-equality there is luck about
+summation order rather than fidelity to a signature. `delta`, classification, and
+two-parent reductions have nothing to accumulate and stay exact.
+
+The honest limit that survives all of it: **`mean` and `sum` are verifiable to a
+stated bound, not to the byte.** Only ops with no accumulation are verifiable
+exactly.
 
 ## 6. What we have not measured, stated so it can be closed
 
