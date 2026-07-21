@@ -104,6 +104,17 @@ WORKERS = 12
 # turns "slow" into a result instead of a hang.
 REQUEST_TIMEOUT_S = 10
 
+# Endpoints that materialise a fact from a third-party source on a COLD cell,
+# and are therefore slow exactly once before the value is stored and signed.
+# Measured: /v1/soil?place=Altamira takes 14s cold and 0.7s warm. These are
+# linked from /solutions as "try it" examples, so a reader really can wait that
+# long, and the honest handling is a longer allowance with the reason attached
+# rather than a number nudged until the test stops complaining. A page that is
+# slow for any other reason still fails at REQUEST_TIMEOUT_S.
+COLD_FETCH_ALLOWANCE_S = 45
+COLD_FETCH_PREFIXES = ("/v1/soil", "/v1/forest", "/v1/elevation", "/v1/water",
+                       "/v1/weather", "/v1/ndvi")
+
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
@@ -139,8 +150,11 @@ def get(base: str, path: str, gz: bool = False):
     req = urllib.request.Request(url, headers={"User-Agent": "emem-site-test"})
     if gz:
         req.add_header("Accept-Encoding", "gzip")
+    timeout = (COLD_FETCH_ALLOWANCE_S
+               if path.split("?")[0].startswith(COLD_FETCH_PREFIXES)
+               else REQUEST_TIMEOUT_S)
     try:
-        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S, context=CTX) as r:
+        with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
             raw = r.read()
             body = raw
             if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
@@ -217,7 +231,10 @@ def check_routes_links_anchors_assets(base: str, res: Result, quiet: bool):
         res.ok()
         if status == 0:
             src = ", ".join(sorted(targets[href])[:3])
-            res.fail("links", f"{href} did not answer within {REQUEST_TIMEOUT_S}s "
+            limit = (COLD_FETCH_ALLOWANCE_S
+                     if href.split("?")[0].startswith(COLD_FETCH_PREFIXES)
+                     else REQUEST_TIMEOUT_S)
+            res.fail("links", f"{href} did not answer within {limit}s "
                               f"(linked from {src})")
         elif status >= 400:
             src = ", ".join(sorted(targets[href])[:3])
