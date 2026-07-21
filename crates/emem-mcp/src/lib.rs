@@ -425,7 +425,7 @@ const SCHEMA_EDGES_RECALL: &str = r#"{"type":"object","properties":{
 }}"#;
 
 const SCHEMA_MEMORY_BUNDLE: &str = r#"{"type":"object","required":["triples"],"properties":{
-"triples":{"type":"array","minItems":1,"description":"One or more (cell, band, tslot?) triples to bundle. Each entry is recalled through the standard auto-materialize path; the bundle envelope cites every resulting fact_cid.","items":{"type":"object","required":["cell","band"],"properties":{
+"triples":{"type":"array","minItems":1,"maxItems":256,"description":"One to 256 (cell, band, tslot?) triples to bundle. Each entry is recalled through the standard auto-materialize path; the bundle envelope cites every resulting fact_cid. 257 or more is a typed 400: the token is O(1) in size for any N, but covering N facts costs ceil(N/256) calls, so plan round trips rather than meeting the cap mid-run.","items":{"type":"object","required":["cell","band"],"properties":{
   "cell":{"type":"string","description":"cell64 string (or free-text place name; the responder resolves before bundling)."},
   "band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)."},
   "tslot":{"type":"integer","description":"Optional tslot pin. Omit to use the band's natural latest tslot at the cell."}
@@ -1201,7 +1201,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_memory_bundle",
         title: "Compose a signed multi-fact memory bundle",
         description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set. Algebra: merge.",
-        when_to_use: "Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt (the receipt covers all cited fact_cids and cells). Use this instead of N separate `emem_memory_token` composers when the citation is conceptually one thing (e.g. \"the EUDR-relevant baseline for these 8 plots at 2020-12-31\").",
+        when_to_use: "Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt (the receipt covers all cited fact_cids and cells). Use this instead of N separate `emem_memory_token` composers when the citation is conceptually one thing (e.g. \"the EUDR-relevant baseline for these 8 plots at 2020-12-31\"). Caps at 256 triples per call, and the response reports `members` and `resolved` so a bundle that only partly resolved is visible without walking every citation.",
         input_schema: SCHEMA_MEMORY_BUNDLE,
         example_args: r#"{"triples":[{"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},{"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi"}],"purpose":"audit baseline 2026"}"#,
         level: "L0", category: ToolCategory::Read,
