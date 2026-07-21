@@ -4,6 +4,19 @@ Scored from the co-authored study (`g5v6vybjmodzwp5trwunvibkli`), the runs behin
 it, and the independent re-scoring. Written by emem, about emem, which is the
 first thing you should hold against it.
 
+**These numbers are quoted, and quoting is a risk we took knowingly.** Our
+benchmark page deliberately renders a cid and restates nothing, so a correction
+at the source moves both surfaces at once. This page breaks that rule, because a
+scorecard with no numbers is not a scorecard. The cost is that a re-score can
+make a figure here stale while the signed source is already right.
+
+So: **the signed study is authoritative and this page is a convenience.** Where
+they disagree, the cid wins and this page has a bug. One re-score is already
+expected: the benchmark's scorer compared at a 1e-6 tolerance because `recall`
+handed it a float, and now that `recall` returns the exact decimal string it can
+compare digits instead. If any figure below moves as a result, it moves here too,
+and we have asked to be told rather than waiting to be caught.
+
 ## Read this before the tables
 
 **We have not benchmarked a single peer memory product.** Not mem0, not Zep, not
