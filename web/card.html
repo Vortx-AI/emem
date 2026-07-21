@@ -1,0 +1,279 @@
+<!doctype html><html lang=en>
+<head>
+<meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>emem — the external memory of the world</title>
+<meta name=description content="A single record for every place and every fact — read the same by everyone, checkable by anyone, owned by no one. This card proves itself: it opens a real record live and shows its signature checking out. No account, no keys.">
+<link rel=canonical href="https://emem.dev/card">
+<link rel=icon type="image/gif" href="/vortxgola.gif">
+<link rel="apple-touch-icon" href="/vortxgola.gif">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/card">
+<meta property=og:title content="emem — the external memory of the world">
+<meta property=og:description content="One record for every place and fact. Read the same by everyone, checkable by anyone, owned by no one. This card opens a real record live and shows its signature checking out.">
+<meta property=og:image content="https://emem.dev/og-image.png">
+<meta property=og:site_name content=emem>
+<meta name=twitter:card content=summary_large_image>
+<meta name=twitter:title content="emem — the external memory of the world">
+<meta name=twitter:description content="One record for every place and fact — checkable by anyone, owned by no one. The card proves itself, live.">
+<meta name=twitter:image content="https://emem.dev/og-image.png">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<style>
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --warn:oklch(0.55 0.12 75);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);--warn:oklch(0.78 0.13 75);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+html{font-size:100%}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","ss02","cv01","cv02";
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:1.3rem;padding:2.4rem 1.2rem}
+::selection{background:var(--accent);color:var(--paper)}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+
+/* the card */
+.card{width:100%;max-width:640px;background:var(--paper);border:1px solid var(--ink);border-radius:3px;
+  box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule),0 22px 60px -32px rgba(0,0,0,.5);
+  padding:2.4rem 2.4rem 2rem;position:relative;overflow:hidden}
+.card::after{content:"";position:absolute;inset:-3px;pointer-events:none;opacity:.35;padding:2px;
+  background:repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
+
+/* top row — the corners of the card */
+.top{display:flex;align-items:center;justify-content:space-between;font-size:.72rem;color:var(--mute);letter-spacing:.02em}
+.top .brand{display:flex;align-items:center;gap:.5rem;color:var(--ink);font-weight:700;letter-spacing:.02em;font-size:.9rem}
+.top .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.top .live{display:inline-flex;align-items:center;gap:.4rem;color:var(--mute-2);font-size:.68rem;text-transform:uppercase;letter-spacing:.09em}
+.top .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:pulse 2.4s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 oklch(from var(--accent) l c h / .5)}70%,100%{box-shadow:0 0 0 7px oklch(from var(--accent) l c h / 0)}}
+
+.rulehair{height:1px;background:var(--rule);margin:1.5rem 0}
+
+/* the statement */
+.statement{font-size:clamp(1.7rem,5.2vw,2.65rem);font-weight:250;letter-spacing:-.03em;line-height:1.06;color:var(--ink);margin:.2rem 0 1rem}
+.statement b{font-weight:600;color:var(--accent)}
+.say{font-size:.94rem;color:var(--ink-2);line-height:1.6;max-width:52ch;margin:0 0 1.1rem}
+.say b{color:var(--ink);font-weight:700}
+.future{font-size:.82rem;color:var(--mute);line-height:1.62;max-width:54ch;margin:0;border-left:2px solid var(--rule-strong);padding-left:.9rem}
+
+/* the living proof */
+.proof{margin:1.6rem 0 0;border:1px solid var(--rule-strong);background:var(--paper-2);border-radius:2px}
+.proof-head{display:flex;align-items:center;gap:.5rem;padding:.5rem .85rem;border-bottom:1px solid var(--rule);font-size:.66rem;text-transform:uppercase;letter-spacing:.09em;color:var(--mute)}
+.proof-head .seal{width:6px;height:6px;background:var(--paper);border:1px solid var(--accent);transform:rotate(45deg);opacity:.7;transition:background .35s ease,box-shadow .35s ease,opacity .35s ease}
+.proof.ok .proof-head .seal{background:var(--accent);opacity:1;box-shadow:0 0 0 3px var(--accent-bg)}
+.proof-head .spacer{flex:1}
+.proof-head button{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);background:transparent;border:0;cursor:pointer;padding:.15rem .3rem}
+.proof-head button:hover{color:var(--accent)}
+.proof-body{padding:1rem 1rem .9rem}
+.pl{font-size:.72rem;color:var(--mute);text-transform:uppercase;letter-spacing:.07em}
+.pv{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;margin:.2rem 0 .1rem}
+.pv .place{font-size:1rem;color:var(--ink);font-weight:700}
+.pv .sep{color:var(--rule-strong)}
+.pv .what{font-size:.82rem;color:var(--mute)}
+.value{font-size:2rem;font-weight:300;letter-spacing:-.02em;color:var(--ink);line-height:1.1;margin:.35rem 0 .1rem;font-variant-numeric:tabular-nums}
+.value .u{font-size:1rem;color:var(--mute);font-weight:400;margin-left:.25rem}
+.value.pending{color:var(--mute-2)}
+.value:not(.pending){animation:rise .55s cubic-bezier(.2,.7,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.meta{margin-top:.7rem;display:grid;grid-template-columns:max-content 1fr;gap:.28rem .8rem;font-size:.7rem;align-items:baseline}
+.meta .mk{color:var(--mute);text-transform:uppercase;letter-spacing:.06em}
+.meta .mv{color:var(--ink-2);word-break:break-all}
+.meta .mv.hash{color:var(--accent);cursor:pointer}
+.chips{margin-top:.8rem;display:flex;gap:.4rem;flex-wrap:wrap}
+.chip{font-size:.64rem;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:.16rem .45rem;border:1px solid var(--rule-strong);border-radius:2px;color:var(--mute);display:inline-flex;align-items:center;gap:.32rem}
+.chip .g{font-weight:700}
+.chip{transition:color .3s ease,border-color .3s ease}
+.chip.ok{color:var(--accent);border-color:var(--accent);animation:pop .34s cubic-bezier(.2,.7,.2,1) both}
+#chip-proof.ok{animation-delay:.09s}
+#chip-when.ok{animation-delay:.18s}
+@keyframes pop{0%{transform:scale(.92);opacity:.35}60%{transform:scale(1.03)}100%{transform:scale(1);opacity:1}}
+.chip.wait{color:var(--mute-2)}
+.chip.warn{color:var(--warn);border-color:var(--warn)}
+.proof-foot{padding:.55rem .9rem;border-top:1px solid var(--rule);font-size:.68rem;color:var(--mute);display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap}
+
+/* contact row — the back of the card */
+.contact{display:flex;flex-wrap:wrap;gap:.35rem 1.1rem;margin-top:1.5rem;font-size:.76rem;color:var(--ink-2)}
+.contact .c{display:flex;gap:.4rem;align-items:baseline}
+.contact .c .ck{color:var(--mute);text-transform:uppercase;letter-spacing:.06em;font-size:.62rem}
+
+/* below the card */
+.under{margin-top:0;font-size:.7rem;color:var(--mute);display:flex;gap:.9rem;flex-wrap:wrap;justify-content:center;align-items:center;text-align:center}
+.under a{color:var(--mute)}
+.under a:hover{color:var(--accent)}
+.copytoast{position:fixed;left:50%;bottom:1.4rem;transform:translateX(-50%) translateY(12px);background:var(--ink);color:var(--paper);font-size:.7rem;padding:.4rem .8rem;border-radius:3px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none}
+.copytoast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+@media (max-width:520px){
+  .card{padding:1.8rem 1.4rem 1.5rem}
+  .meta{grid-template-columns:1fr}
+  .value{font-size:1.7rem}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+
+<main class="card" aria-label="emem card">
+  <div class="top">
+    <a class="brand" href="/"><img src="/vortxgola.gif" alt="">emem</a>
+    <span class="live"><span class="dot" aria-hidden="true"></span> live · open · no keys</span>
+  </div>
+
+  <div class="rulehair"></div>
+
+  <h1 class="statement">The external memory<br>of the <b>world</b>.</h1>
+  <p class="say">One record for every place and every fact. <b>Read the same by everyone. Checkable by anyone. Owned by no one.</b> Two minds can agree on the same fact instead of two versions of it.</p>
+  <p class="future">As more thinking happens outside human heads, the record of what is real can&rsquo;t sit inside any one of them. So it sits here &mdash; in the open, where anyone can read it and everyone can check it.</p>
+
+  <section class="proof" id="proof" aria-live="polite">
+    <div class="proof-head">
+      <span class="seal" aria-hidden="true"></span> a record, opened in front of you
+      <span class="spacer"></span>
+      <button id="another" type="button" title="open another place">&#8635; another place</button>
+    </div>
+    <div class="proof-body">
+      <div class="pl">from the memory, just now</div>
+      <div class="pv"><span class="place" id="p-place">Bengaluru</span><span class="sep">&middot;</span><span class="what" id="p-what">ground elevation</span></div>
+      <div class="value pending" id="p-value">opening&hellip;</div>
+      <div class="meta">
+        <span class="mk">fingerprint</span><span class="mv hash" id="p-cid" title="click to copy">&mdash;</span>
+        <span class="mk">signed by</span><span class="mv" id="p-signer">the emem responder</span>
+      </div>
+      <div class="chips" id="p-chips">
+        <span class="chip wait" id="chip-sig"><span class="g">&#9676;</span> signature</span>
+        <span class="chip wait" id="chip-proof"><span class="g">&#9676;</span> inclusion proof</span>
+        <span class="chip wait" id="chip-when">checking&hellip;</span>
+      </div>
+    </div>
+    <div class="proof-foot">
+      <span id="p-note">Nothing here is asserted. It is fetched and checked as you watch.</span>
+      <a href="/verify">re-check it yourself, no server &rarr;</a>
+    </div>
+  </section>
+
+  <div class="contact">
+    <span class="c"><span class="ck">read</span> <a href="https://emem.dev">emem.dev</a></span>
+    <span class="c"><span class="ck">connect a system</span> <a href="/mcp">emem.dev/mcp</a></span>
+    <span class="c"><span class="ck">open source</span> <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a></span>
+  </div>
+</main>
+
+<nav class="under">
+  <span id="scale">&nbsp;</span>
+  <a href="/how-it-works">how it works</a>
+  <a href="/a2a">the A2A layer</a>
+  <a href="/worlds">walk it in 3-D</a>
+  <a href="/reference">reference</a>
+</nav>
+
+<div class="copytoast" id="toast">copied</div>
+
+<script>
+(function(){
+  var API = 'https://emem.dev';
+  // Real, reliably-present readings — the ground's own height, a measurement
+  // anyone understands and any responder can serve for any place on Earth.
+  var PLACES = [
+    { place:'Bengaluru',    what:'ground elevation', band:'copdem30m.elevation_mean', known:'918 m' },
+    { place:'La Paz',       what:'ground elevation', band:'copdem30m.elevation_mean', known:null },
+    { place:'Amsterdam',    what:'ground elevation', band:'copdem30m.elevation_mean', known:null },
+    { place:'Zermatt',      what:'ground elevation', band:'copdem30m.elevation_mean', known:null }
+  ];
+  var idx = 0;
+  var $ = function(id){ return document.getElementById(id); };
+
+  function fmt(v, unit){
+    if (v === null || v === undefined || isNaN(v)) return String(v);
+    var n = Math.abs(v) >= 100 ? Math.round(v) : Math.round(v*10)/10;
+    var s = (n<0? '−' : '') + Math.abs(n);
+    return s + (unit ? '<span class="u">'+unit+'</span>' : '');
+  }
+  function setChip(el, state, text){
+    el.className = 'chip ' + state;
+    el.innerHTML = (state==='ok' ? '<span class="g">✓</span> ' : state==='warn' ? '<span class="g">–</span> ' : '') + text;
+  }
+  function toast(){ var t=$('toast'); t.classList.add('on'); setTimeout(function(){ t.classList.remove('on'); }, 1200); }
+
+  function post(path, body, ms){
+    var ctl = new AbortController();
+    var to = setTimeout(function(){ ctl.abort(); }, ms||14000);
+    return fetch(API+path, { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body), signal:ctl.signal })
+      .then(function(r){ clearTimeout(to); if(!r.ok) throw new Error('http '+r.status); return r.json(); });
+  }
+
+  function render(p){
+    $('proof').classList.remove('ok');
+    $('p-place').textContent = p.place;
+    $('p-what').textContent  = p.what;
+    var val = $('p-value'); val.classList.add('pending'); val.textContent = 'opening…';
+    $('p-cid').textContent = '—';
+    setChip($('chip-sig'),  'wait', '<span class="g">◌</span> signature');
+    setChip($('chip-proof'),'wait', '<span class="g">◌</span> inclusion proof');
+    setChip($('chip-when'), 'wait', 'checking…');
+    $('p-note').textContent = 'Nothing here is asserted. It is fetched and checked as you watch.';
+
+    post('/v1/recall', { place:p.place, bands:[p.band] }).then(function(d){
+      var f = (d.facts && d.facts[0]) || null;
+      if (!f || f.value === null || f.value === undefined) throw new Error('no fact');
+      val.classList.remove('pending');
+      val.innerHTML = fmt(f.value, f.unit || 'm');
+      $('p-cid').textContent = f.fact_cid || '—';
+      // Independently verify the receipt — a separate endpoint recomputes the
+      // hash and checks the signature; the answer is not taken on trust.
+      return post('/v1/verify_receipt', { receipt:d.receipt }).then(function(v){
+        var sigOk = v && v.signature_valid === true;
+        var mkOk  = v && v.merkle_proof_valid === true;
+        setChip($('chip-sig'),   sigOk ? 'ok':'warn', 'signature ' + (sigOk?'valid':'unconfirmed'));
+        setChip($('chip-proof'), mkOk  ? 'ok':'warn', 'inclusion proof ' + (mkOk?'valid':'unconfirmed'));
+        setChip($('chip-when'),  'ok', 'checked just now');
+        if (sigOk && mkOk) $('proof').classList.add('ok');
+        if (v && v.signer_pubkey_b32) $('p-signer').textContent = v.signer_pubkey_b32;
+        else if (d.receipt && d.receipt.responder_pubkey_b32) $('p-signer').textContent = d.receipt.responder_pubkey_b32;
+        $('p-note').textContent = 'Opened live from emem, then checked by a separate verifier — signature and inclusion proof.';
+      });
+    }).catch(function(){
+      // Never fake a check. Show the known real value, plainly labelled, and invite a live retry.
+      val.classList.remove('pending');
+      if (p.known){ val.innerHTML = fmt(parseFloat(p.known), 'm'); $('p-note').textContent = 'Could not reach the live memory just now — this is the last known value. Press ↻ to check live.'; }
+      else { val.textContent = 'unreachable'; $('p-note').textContent = 'Could not reach the live memory just now. Press ↻ to try again.'; }
+      setChip($('chip-sig'),  'warn', 'signature not checked');
+      setChip($('chip-proof'),'warn', 'proof not checked');
+      setChip($('chip-when'), 'warn', 'offline');
+    });
+  }
+
+  $('another').addEventListener('click', function(){ idx = (idx+1) % PLACES.length; render(PLACES[idx]); });
+  $('p-cid').addEventListener('click', function(){
+    var t = this.textContent; if(!t || t==='—') return;
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(toast).catch(function(){});
+  });
+
+  // A quiet sign of life: how many signed records the memory holds right now.
+  fetch(API+'/v1/log/sth').then(function(r){ return r.json(); }).then(function(s){
+    var n = s && ((s.sth && s.sth.tree_size!=null && s.sth.tree_size) || s.tree_size || s.size);
+    if (n!=null) $('scale').innerHTML = '<b style="color:var(--ink-2)">'+Number(n).toLocaleString()+'</b> signed records, and counting &nbsp;·&nbsp;';
+  }).catch(function(){});
+
+  render(PLACES[0]);
+})();
+</script>
+
+</body></html>
