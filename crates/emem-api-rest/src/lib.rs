@@ -23222,6 +23222,34 @@ const DERIVE_SIGNATURE_ATTESTS_RECOMPUTED: &str =
 /// in [`recompute_pure_op`].
 const GC1_TIER1_PURE_OPS: &[&str] = &["delta", "mean", "sum"];
 
+/// How far apart two f64 reductions may be and still count as reproduced.
+///
+/// Four ULP. Chosen to cover the accumulation-order and intermediate-rounding
+/// differences a reduction over a few hundred values can produce across
+/// languages, while staying far below any difference that could change a
+/// decision: at NDVI magnitudes 4 ULP is around 4e-16, and the tightest
+/// threshold anyone in this study evaluates against is 1e-6.
+///
+/// It is deliberately NOT applied to `delta` or to classification, which are
+/// exact by construction. A tolerance offered where none is needed would weaken
+/// a guarantee for no reason.
+const REDUCTION_ULP_TOLERANCE: u64 = 4;
+
+/// Distance between two f64s counted in representable steps.
+///
+/// Bit-pattern comparison rather than a relative epsilon, so the window means
+/// the same thing at 1e-9 as at 1e9 and does not silently widen with magnitude.
+fn ulps_between(a: f64, b: f64) -> u64 {
+    if a == b {
+        return 0;
+    }
+    if a.is_nan() || b.is_nan() || a.is_sign_negative() != b.is_sign_negative() {
+        return u64::MAX;
+    }
+    let (ia, ib) = (a.to_bits(), b.to_bits());
+    ia.abs_diff(ib)
+}
+
 /// Extract a scalar f64 from a fact value for pure-op recomputation. Returns
 /// `None` for vectors, enums, byte strings, or anything non-numeric: those
 /// bands are not tier-1 recomputable, so the derivation over them stays
@@ -23499,7 +23527,43 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                 // does not.
                 let mut r_val = ciborium::Value::Float(r);
                 emem_fact::cbor::canonicalize_value(&mut r_val);
-                let verified = cbor_scalar_f64(&r_val) == cbor_scalar_f64(&value);
+
+                // Bit-identity for a single operation; a bounded ULP window for
+                // a REDUCTION over N>2 values.
+                //
+                // f64 addition is not associative, so `mean` and `sum` over many
+                // parents depend on accumulation order and intermediate
+                // rounding. A caller in another language cannot reproduce our
+                // order, and a real 3-parent mean missed by exactly one ULP: no
+                // permutation of naive summation, and not fsum either, reproduced
+                // it. Under strict equality that made the whole aggregate path
+                // unverifiable through no fault of the caller.
+                //
+                // `delta` keeps strict equality because it is b - a: one
+                // operation, no reduction, exactly reproducible. Classification
+                // ASTs likewise, as the compliance agent established by
+                // enumerating the op set: max/min there are 2-ary SELECTIONS
+                // that return one of their exact inputs, so they are
+                // order-independent and introduce no rounding.
+                //
+                // The record always says which rule was applied and, when the
+                // window was used, how far apart the two values actually were.
+                // "verified within k ULP" is a different and weaker claim than
+                // "bit-identical", and it must never be reported as the latter.
+                let is_reduction = matches!(op.as_str(), "mean" | "sum") && parent_values.len() > 2;
+                let claimed_f = cbor_scalar_f64(&value);
+                let recomputed_f = cbor_scalar_f64(&r_val);
+                let (verified, rule, ulp_gap) = match (recomputed_f, claimed_f) {
+                    (Some(a), Some(b)) if is_reduction => {
+                        let gap = ulps_between(a, b);
+                        (
+                            gap <= REDUCTION_ULP_TOLERANCE,
+                            "reduction_ulp_window",
+                            Some(gap),
+                        )
+                    }
+                    _ => (recomputed_f == claimed_f, "canonical_float_equality", None),
+                };
                 if verified {
                     effective_provenance = "deterministic_index".to_string();
                 }
@@ -23526,7 +23590,28 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                     ),
                     (
                         ciborium::Value::Text("rule".into()),
-                        ciborium::Value::Text("canonical_float_equality".into()),
+                        ciborium::Value::Text(rule.into()),
+                    ),
+                    (
+                        ciborium::Value::Text("ulp_gap".into()),
+                        match ulp_gap {
+                            Some(g) => ciborium::Value::Integer(
+                                i128::from(g).try_into().unwrap_or(0.into()),
+                            ),
+                            None => ciborium::Value::Null,
+                        },
+                    ),
+                    (
+                        ciborium::Value::Text("ulp_tolerance".into()),
+                        if ulp_gap.is_some() {
+                            ciborium::Value::Integer(
+                                i128::from(REDUCTION_ULP_TOLERANCE)
+                                    .try_into()
+                                    .unwrap_or(0.into()),
+                            )
+                        } else {
+                            ciborium::Value::Null
+                        },
                     ),
                 ]));
                 recompute_json = Some(json!({
@@ -61852,6 +61937,43 @@ mod tests {
             "baked page(s) missing from served_html_pages(), their inline scripts \
              will be CSP-blocked in the browser: {missing:?}"
         );
+    }
+
+    /// The reduction window is bounded, magnitude-independent, and does NOT
+    /// apply to the exact ops.
+    ///
+    /// A real 3-parent mean missed by exactly one ULP and no permutation of
+    /// naive summation reproduced it, which made the aggregate path
+    /// unverifiable through no fault of the caller. `delta` and classification
+    /// stay exact because they are exact by construction: one subtraction, and
+    /// 2-ary max/min selections that return one of their inputs unchanged.
+    #[test]
+    fn reduction_ulp_window_is_bounded_and_scale_free() {
+        // identical values are zero ULP apart
+        assert_eq!(ulps_between(0.3009580442682524, 0.3009580442682524), 0);
+
+        // the observed real failure: one step apart, inside the window
+        let a = 0.36777410164506935_f64;
+        let b = f64::from_bits(a.to_bits() + 1);
+        assert_eq!(ulps_between(a, b), 1);
+        assert!(ulps_between(a, b) <= REDUCTION_ULP_TOLERANCE);
+
+        // the window is counted in representable steps, so it means the same
+        // thing at tiny and huge magnitudes rather than widening with scale
+        for base in [1e-9_f64, 1.0, 1e9] {
+            let near = f64::from_bits(base.to_bits() + REDUCTION_ULP_TOLERANCE);
+            assert!(ulps_between(base, near) <= REDUCTION_ULP_TOLERANCE);
+            let far = f64::from_bits(base.to_bits() + REDUCTION_ULP_TOLERANCE + 1);
+            assert!(ulps_between(base, far) > REDUCTION_ULP_TOLERANCE);
+        }
+
+        // a real disagreement is not laundered by the window: 1e-6 is the
+        // tightest threshold anyone evaluates against, and it is astronomically
+        // outside four steps
+        assert!(ulps_between(0.300958, 0.300959) > REDUCTION_ULP_TOLERANCE);
+
+        // opposite signs never match, whatever the bit distance suggests
+        assert_eq!(ulps_between(1e-300, -1e-300), u64::MAX);
     }
 
     /// The pure-op semantics are PINNED, so a caller anywhere recomputes the
