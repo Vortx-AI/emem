@@ -1822,7 +1822,14 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         // window (a deploy of the 3D engram was invisible for up to an hour
         // because the browser held the prior copy). Revalidation is a plain
         // GET (no ETag yet) — acceptable while the map is under active design.
-        "/" | "/index.html" | "/how-it-works" | "/solutions" | "/reference" => Some("no-cache"),
+        // /channel is REGENERATED from the ledger on every deploy and its
+        // JavaScript has now been fixed twice while browsers kept serving the
+        // broken copy, because this route carried no cache directive at all and
+        // the heuristic cache held it. A page that changes whenever an agent
+        // writes a note must not be cached by guess. /card and /a2a are baked
+        // but iterated for the same reason.
+        "/" | "/index.html" | "/how-it-works" | "/solutions" | "/reference" | "/channel"
+        | "/collaboration" | "/card" | "/a2a" | "/verify" => Some("no-cache"),
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info"
         | "/v1/agent_card"
