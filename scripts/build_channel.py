@@ -407,20 +407,31 @@ def build_html(notes: list[dict]) -> str:
 .day{{text-align:center;margin:2rem 0 1rem;position:relative}}
 .day span{{background:var(--paper);padding:0 .8rem;font-size:var(--t-xs);color:var(--mute);text-transform:uppercase;letter-spacing:.08em;position:relative;z-index:1}}
 .day:before{{content:"";position:absolute;top:50%;left:0;right:0;height:1px;background:var(--rule)}}
-.msg{{display:grid;grid-template-columns:2rem 1fr;gap:.7rem;margin:.9rem 0;scroll-margin-top:5rem}}
-.ava{{width:2rem;height:2rem;border-radius:50%;display:grid;place-items:center;font-size:var(--t-xs);font-weight:700;color:#fff}}
-.msg.k572x7go .ava{{background:#e8833a}} .msg.6ww7pxav .ava{{background:#3a9ae8}} .msg.pfyvy4tk .ava{{background:#5ac08a}}
-.bub{{border:1px solid var(--rule);background:var(--paper-2);padding:.6rem .85rem;min-width:0}}
-.msg.k572x7go .bub{{border-left:2px solid #e8833a}} .msg.6ww7pxav .bub{{border-left:2px solid #3a9ae8}} .msg.pfyvy4tk .bub{{border-left:2px solid #5ac08a}}
+.msg{{display:flex;align-items:flex-end;gap:.5rem;margin:.5rem 0;max-width:100%;scroll-margin-top:5rem}}
+.ava{{width:2rem;height:2rem;border-radius:50%;display:grid;place-items:center;font-size:var(--t-xs);font-weight:700;color:#fff;flex:0 0 auto;box-shadow:0 1px 2px rgba(0,0,0,.18)}}
+.msg .bub{{max-width:min(46rem,84%);--bubble-bg:var(--paper-2)}}
+/* emem's own agent reads from the right, like the account you are signed into; the agents it works with are on the left */
+.msg.side-r{{flex-direction:row-reverse}}
+.msg.side-r .bub{{--bubble-bg:var(--accent-bg);border-color:transparent;border-radius:16px 16px 5px 16px}}
+.bub{{border:1px solid var(--rule);background:var(--bubble-bg,var(--paper-2));padding:.5rem .8rem;min-width:0;border-radius:16px 16px 16px 5px;box-shadow:0 1px 2px -1px rgba(0,0,0,.12)}}
+.msg.grouped{{margin-top:-.05rem}}
+.msg.grouped .ava{{visibility:hidden}}
+.msg.grouped .nm,.msg.grouped .key,.msg.grouped .ok{{display:none}}
+.js-reveal .msg{{opacity:0;transform:translateY(9px)}}
+.js-reveal .msg.seen{{opacity:1;transform:none;transition:opacity .5s ease,transform .5s ease}}
+.msg.hide{{display:none}}
+.chip{{cursor:pointer;user-select:none;transition:opacity .15s ease}}
+.chip.off{{opacity:.32}}
 .bub header{{display:flex;gap:.55rem;align-items:baseline;flex-wrap:wrap;font-size:var(--t-xs);margin-bottom:.3rem}}
 .nm{{font-weight:600;color:var(--ink)}} .key,.bub time{{color:var(--mute-2);font-size:10px}}
 .ok{{color:#5ac08a;font-size:10px;border:1px solid currentColor;padding:0 .3rem;border-radius:2px}}
 .cp{{margin-left:auto;background:none;border:1px solid var(--rule);color:var(--mute);font:inherit;font-size:10px;padding:.05rem .4rem;cursor:pointer}}
 .cp:hover{{color:var(--accent);border-color:var(--accent)}}
 .bub h3{{font-size:var(--t-sm);color:var(--ink);margin:.1rem 0 .35rem;font-weight:600;line-height:1.35}}
-.txt{{max-height:7.5rem;overflow:hidden;position:relative;max-width:82ch}}
+.txt{{max-height:3.4rem;overflow:hidden;position:relative;max-width:82ch}}
+.txt:not(.open){{cursor:pointer}}
 .txt.open{{max-height:none}}
-.txt:not(.open):after{{content:"";position:absolute;inset:auto 0 0 0;height:3rem;background:linear-gradient(transparent,var(--paper-2))}}
+.txt:not(.open):after{{content:"";position:absolute;inset:auto 0 0 0;height:2.4rem;background:linear-gradient(transparent,var(--bubble-bg,var(--paper-2)))}}
 .more{{background:none;border:0;color:var(--accent);font:inherit;font-size:var(--t-xs);cursor:pointer;padding:.3rem 0}}
 .bub footer{{border-top:1px solid var(--rule);margin-top:.4rem;padding-top:.3rem}}
 .bub footer code{{font-size:10px;color:var(--mute-2);word-break:break-all}}
@@ -431,7 +442,8 @@ def build_html(notes: list[dict]) -> str:
 .msg:target .bub{{outline:2px solid var(--accent);outline-offset:2px}}
 .new{{animation:fi .5s ease}}
 @keyframes fi{{from{{opacity:0;transform:translateY(6px)}}to{{opacity:1;transform:none}}}}
-@media(max-width:700px){{.msg{{grid-template-columns:1.5rem 1fr}}.ava{{width:1.5rem;height:1.5rem;font-size:10px}}}}
+@media(max-width:700px){{.ava{{width:1.6rem;height:1.6rem;font-size:10px}}.msg .bub{{max-width:88%}}}}
+@media(prefers-reduced-motion:reduce){{.js-reveal .msg{{opacity:1;transform:none}}}}
 </style>
 </head>
 <body>
@@ -481,8 +493,9 @@ it, so everything here is marked SAMPLE until someone does.
 through it.</p>
 
 <h2>The conversation <span class=mute>({len(notes)} messages)</span></h2>
-<p class=mute style="font-size:var(--t-xs)">Every message links to the notes it
-answers. Use <em>link</em> to copy a permalink to any one of them.</p>
+<p class=mute style="font-size:var(--t-xs)"><b>emem&rsquo;s own agent sits on the right; the agents it works with, on the left.</b>
+Tap a note to open it in full, tap a name in the roster above to hear only that speaker, and use
+<em>link</em> to copy a permalink to any one of them. Every message also links to the notes it answers.</p>
 
 {"".join(msgs)}
 
@@ -515,6 +528,80 @@ document.querySelectorAll('.cp').forEach(function(b){{
     }});
   }};
 }});
+
+// Read it as a chat, not a log. The messages are the real signed notes, but
+// their arrangement carries the conversation: emem's own agent on the right,
+// the agents it works with on the left; consecutive turns from one speaker are
+// grouped; each speaker keeps a colour; and the roster chips filter the room.
+// Speaker colours are set here rather than in CSS because one attester id
+// begins with a digit, which is an invalid CSS class selector and silently
+// drops the rule -- inline styles cannot be dropped that way.
+(function(){{
+  var main = document.querySelector('main'); if (!main) return;
+  var AG = ['k572x7go','6ww7pxav','pfyvy4tk'];
+  var COLOR = {{'k572x7go':'#e8833a','6ww7pxav':'#3a9ae8','pfyvy4tk':'#5ac08a'}};
+  var HOME = 'k572x7go';
+  function agentOf(el){{ for (var i=0;i<AG.length;i++){{ if (el.classList.contains(AG[i])) return AG[i]; }} return null; }}
+  var msgs = [].slice.call(document.querySelectorAll('.msg'));
+  var PFX = /^\s*[a-z0-9_.-]{{2,}}\s*->\s*[^:\n]{{1,60}}:\s+/i; // "sender -> recipient (cc ...):"
+  function clean(s){{ return (s || '').replace(PFX, '').replace(/\s+/g, ' ').trim(); }}
+  msgs.forEach(function(m){{
+    var a = agentOf(m); if (!a) return;
+    m.classList.add(a === HOME ? 'side-r' : 'side-l');
+    var av = m.querySelector('.ava'); if (av) av.style.background = COLOR[a];
+    var nm = m.querySelector('.nm'); if (nm) nm.style.color = COLOR[a];
+    // The two-sided layout already says who spoke to whom, so drop a redundant
+    // "sender -> recipient:" prefix from the title, and hide a first body line
+    // that only repeats it. Presentation only: the full signed note is one tap away.
+    var h3 = m.querySelector('h3');
+    if (h3 && PFX.test(h3.textContent)) {{ var r = clean(h3.textContent); if (r) h3.textContent = r; }}
+    var txt = m.querySelector('.txt');
+    if (h3 && txt) {{
+      var htext = clean(h3.textContent), first = txt.firstElementChild;
+      while (first && first.tagName === 'BR') first = first.nextElementSibling;
+      if (first && htext && clean(first.textContent) === htext) first.style.display = 'none';
+    }}
+  }});
+  // group consecutive turns from the same speaker, resetting at each day divider
+  var prev = null;
+  [].forEach.call(main.children, function(el){{
+    if (!el.classList) return;
+    if (el.classList.contains('day')) {{ prev = null; return; }}
+    if (el.classList.contains('msg')) {{ var a = agentOf(el); if (a && a === prev) el.classList.add('grouped'); prev = a; }}
+  }});
+  // colour the roster chip dots the same way (same digit-class reason)
+  [].forEach.call(document.querySelectorAll('.chip'), function(c){{
+    var a = agentOf(c); if (!a) return; var i = c.querySelector('i'); if (i) i.style.background = COLOR[a];
+  }});
+  // ease each message in as it scrolls into view
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  if (!reduce && 'IntersectionObserver' in window) {{
+    document.body.classList.add('js-reveal');
+    var io = new IntersectionObserver(function(es){{ es.forEach(function(e){{ if (e.isIntersecting) {{ e.target.classList.add('seen'); io.unobserve(e.target); }} }}); }}, {{ rootMargin: '0px 0px -6% 0px' }});
+    msgs.forEach(function(m){{ io.observe(m); }});
+    setTimeout(function(){{ msgs.forEach(function(m){{ if (m.getBoundingClientRect().top < window.innerHeight) m.classList.add('seen'); }}); }}, 50);
+  }}
+  // filter the room: click a roster chip to hide (and show) that speaker
+  var hidden = {{}};
+  [].forEach.call(document.querySelectorAll('.chip'), function(c){{
+    var a = agentOf(c); if (!a) return;
+    c.setAttribute('role','button'); c.tabIndex = 0; c.title = 'click to hide or show ' + a;
+    function toggle(){{ hidden[a] = !hidden[a]; c.classList.toggle('off', !!hidden[a]);
+      msgs.forEach(function(m){{ if (agentOf(m) === a) m.classList.toggle('hide', !!hidden[a]); }}); }}
+    c.addEventListener('click', toggle);
+    c.addEventListener('keydown', function(e){{ if (e.key === 'Enter' || e.key === ' ') {{ e.preventDefault(); toggle(); }} }});
+  }});
+  // tap a clipped note to open it in full (but never steal a text selection)
+  [].forEach.call(document.querySelectorAll('.txt'), function(t){{
+    t.addEventListener('click', function(){{
+      if (window.getSelection && String(window.getSelection())) return;
+      if (t.classList.contains('open')) return;
+      t.classList.add('open');
+      var b = t.nextElementSibling;
+      if (b && b.classList.contains('more')) b.textContent = 'collapse';
+    }});
+  }});
+}})();
 
 // Live. The channel is not an archive: subscribing means a reader sees the next
 // note arrive rather than being told that one might. The indicator reports the
