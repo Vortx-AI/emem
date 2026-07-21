@@ -28,7 +28,8 @@ win, and all three run on the same machine.
 | citation + value in context | 284/284 | 0 | lossless |
 | plain context (control) | 284/284 | 0 | lossless |
 | citation alone, dereferenced | 99.2% end-to-end | 0 | lossless after the last-mile fix, 84.4% before |
-| dense retrieval, top-5 | 4/142 | up to 138 | fails, and fails *confidently* |
+| dense retrieval, top-5 | 4/142 | up to 138 | fails, and fails *confidently*, by a median 252 m |
+| **BM25 lexical, top-5** | **16/16** | 0 | **matches addressing, without addressing** |
 | summarised memory, tight budget | 1/72 | most of the rest | fails |
 
 **The first two rows tie, and that matters more than it looks.** Our own
@@ -58,16 +59,29 @@ confident value errors in 280 arm-model observations.
 
 The part a vendor usually buries.
 
-| axis | addressed memory | context | winner |
-|---|---|---|---|
-| citation size | O(1). A token is the same length whether the value has 6 digits or 17 | grows with values and digits | **emem** |
-| context consumed | O(1). 90 tokens at 256 cells and at 1,024 | O(N). 4,212 → 15,786, then a hard wall | **emem** |
-| round trips | 1 per fact; a bundle covers 256, so ceil(N/256) | 1 | **context** |
-| wall clock | 6–9 s | ~0.9 s | **context, by 7–10x** |
+| axis | individual tokens | **bundled** | context | winner |
+|---|---|---|---|---|
+| citation size | 104 chars each | 38 chars, any N | grows with values | **bundle** |
+| context, N facts | 104·N chars | **38 chars flat** | ~18·N chars | **bundle** |
+| round trips | N | **1** (to 256) | 1 | bundle / context |
+| wall clock | 69 → 1,255 ms | **20–54 ms flat** | ~0.9 s total | **bundle** |
 
-**So: do not use addressed memory for a query you must answer fast.** If one
-value per question fits in your window, you are paying 7–10x latency for a
-property you are not using.
+**Individual addressing is strictly worse than pasting the numbers.** A token is
+104 characters; the signed value it replaces is about 18. So N tokens cost **5.8x**
+the context of N plain values, and the individual-token arm hits the prompt wall
+*sooner* than plain context does. The honest sentence is **"addressing is a loss
+unless you bundle"**, not "addressing wins".
+
+Bundled, the picture reverses completely and it is the cleanest result in the
+study: 38 characters and one round trip at every N up to 256, against 26,624
+characters and 256 round trips.
+
+**And the cost win does not become an accuracy win.** At N=256 plain context beats
+the bundle 4/6 to 2/6, and every architecture collapses at N≥128. Cheaper context
+did not make the model better at using it.
+
+**So: do not use addressed memory for a query you must answer fast**, and do not
+use individual tokens for many facts at all.
 
 The crossover is precision at scale. A signed value averages 18.3 characters
 against 8.0 for a six-decimal display, so carrying real precision costs 2.3x the
@@ -75,17 +89,37 @@ context, and 256 cells of it overflows. **The only way to hold a region in a
 window is to throw away the precision that made the fact worth signing.** A token
 is precision-free. That is the whole case, and it is narrow.
 
-## 4. Where retrieval actually stands, both halves
+## 4. Retrieval: the failure was EMBEDDINGS, not retrieval
 
-Dense retrieval recovered the queried cell at **hit@5 ≤ 8.3%** on a homogeneous
-corpus, **16.7%** on a diverse one at equal size, then **0%** as that corpus grew.
+This section previously said dense retrieval recovers the cell 0–16.7% of the
+time and framed it as retrieval failing. **That framing was wrong, and a lexical
+baseline on the identical corpus proves it.**
 
-Both halves must be quoted together. The first corpus was near-adversarial for
-embeddings by construction and we said so before running; the second shows
-retrieval doing better when there is semantic diversity to exploit, and then
-degrading as the corpus approaches the scale a real deployment has. The honest
-claim is **"retrieval reliability is corpus-size dependent and degrades at scale
-on this task"**, never "RAG fails".
+| retriever | hit@5 | answers exact |
+|---|---|---|
+| dense (bge-small) | 0% – 16.7% | 2/12 at best |
+| **BM25 lexical** | **100%** | **16/16** |
+
+Same corpus, same questions, same two models, only the retriever changed. **BM25
+matches the addressed arm's accuracy with no minting, no round trips and no
+protocol.**
+
+The mechanism is legible: a coordinate is a rare literal string, so every chunk
+is near-identical in embedding space and wildly different in token overlap. The
+property that defeats cosine similarity is exactly what BM25 keys on.
+
+So the honest claim is narrow: **dense embedding similarity fails on homogeneous
+numeric corpora; lexical retrieval on the same corpus does not.** On a corpus
+where a lexical index works, you do not need emem for accuracy.
+
+What addressing still has that BM25 does not: a citation a third party can verify
+offline, and a referent that survives the corpus being rewritten or deleted. Both
+are real and both are different claims from "retrieval fails".
+
+**One thing measured in BM25's favour that we cannot yet match:** we have not
+characterised its failure mode, because on this corpus it did not fail. Dense
+retrieval's failures we can now put a unit on: median drift **252 metres**, with
+50% of answers matching no cell at all.
 
 ## 5. The finding that does not need emem to be true
 
@@ -104,7 +138,8 @@ check fails exactly where agents share a compacted context.
 | not tested | why it matters |
 |---|---|
 | mem0, Zep, Letta, LangMem, any vector DB | these are the actual peers. An arm was designed for mem0 and never run |
-| lexical, hybrid, or geo-aware retrieval | only dense similarity was tested, so "retrieval" is unproven beyond that |
+| ~~lexical retrieval~~ | **tested, and it beat us.** BM25 16/16. Hybrid and geo-aware remain untested |
+| BM25's failure mode | it did not fail here, so its errors are uncharacterised. Dense retrieval's are: median 252 m |
 | frontier API models | two open 7-12B models on one host. A reader will assume otherwise unless told |
 | conversational memory benchmarks | LOCOMO and LongMemEval evaluate a different referent (authored text spans) |
 | independent replication | nobody outside this collaboration has run any of it |
@@ -123,7 +158,10 @@ instruments during this study; a seventh is more likely than not.
 |---|---|
 | A citation survives compaction where a paraphrase does not | **supported**, and it is the core claim |
 | Addressed memory beats plain context when the value fits | **refuted by our own re-scoring** |
-| Addressed memory beats dense retrieval on these corpora | **supported**, with the corpus caveat attached |
+| Addressed memory beats *dense* retrieval on these corpora | **supported**, and it is a claim about embeddings |
+| Addressed memory beats *lexical* retrieval on these corpora | **refuted.** BM25 scores 16/16 |
 | Model agreement is evidence of correctness | **refuted**, p = 0.035 |
-| Addressed memory is O(1) | **only in size and context.** Round trips cap at 256; latency is 7–10x worse |
+| Addressed memory is O(1) | **only when bundled.** See below |
+| Individual tokens save context | **refuted.** A token is 104 chars, the value it replaces is ~18, so N tokens cost 5.8x the plain numbers and hit the context wall SOONER |
+| A bundle saves context | **supported.** 38 chars and one round trip at every N up to 256, against 26,624 chars and 256 trips |
 | emem outperforms peer memory products | **not tested. No evidence either way** |
