@@ -31,18 +31,18 @@
 }
 @media (prefers-color-scheme: dark){
   :root{
-    --paper:oklch(0.15 0.004 85);--paper-2:oklch(0.185 0.005 85);--paper-3:oklch(0.23 0.006 85);
-    --ink:oklch(0.94 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
     --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
     --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
-    --accent:oklch(0.80 0.13 145);--accent-bg:oklch(0.26 0.05 145);--warn:oklch(0.78 0.13 75);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);--warn:oklch(0.78 0.13 75);
   }
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 html{font-size:100%}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","ss02","cv01","cv02";
-  min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2.2rem 1.2rem}
+  min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:1.3rem;padding:2.4rem 1.2rem}
 ::selection{background:var(--accent);color:var(--paper)}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline;text-underline-offset:3px}
@@ -76,7 +76,8 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 /* the living proof */
 .proof{margin:1.6rem 0 0;border:1px solid var(--rule-strong);background:var(--paper-2);border-radius:2px}
 .proof-head{display:flex;align-items:center;gap:.5rem;padding:.5rem .85rem;border-bottom:1px solid var(--rule);font-size:.66rem;text-transform:uppercase;letter-spacing:.09em;color:var(--mute)}
-.proof-head .seal{width:6px;height:6px;background:var(--paper);border:1px solid var(--accent);transform:rotate(45deg);opacity:.7}
+.proof-head .seal{width:6px;height:6px;background:var(--paper);border:1px solid var(--accent);transform:rotate(45deg);opacity:.7;transition:background .35s ease,box-shadow .35s ease,opacity .35s ease}
+.proof.ok .proof-head .seal{background:var(--accent);opacity:1;box-shadow:0 0 0 3px var(--accent-bg)}
 .proof-head .spacer{flex:1}
 .proof-head button{font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);background:transparent;border:0;cursor:pointer;padding:.15rem .3rem}
 .proof-head button:hover{color:var(--accent)}
@@ -89,6 +90,8 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 .value{font-size:2rem;font-weight:300;letter-spacing:-.02em;color:var(--ink);line-height:1.1;margin:.35rem 0 .1rem;font-variant-numeric:tabular-nums}
 .value .u{font-size:1rem;color:var(--mute);font-weight:400;margin-left:.25rem}
 .value.pending{color:var(--mute-2)}
+.value:not(.pending){animation:rise .55s cubic-bezier(.2,.7,.2,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 .meta{margin-top:.7rem;display:grid;grid-template-columns:max-content 1fr;gap:.28rem .8rem;font-size:.7rem;align-items:baseline}
 .meta .mk{color:var(--mute);text-transform:uppercase;letter-spacing:.06em}
 .meta .mv{color:var(--ink-2);word-break:break-all}
@@ -96,7 +99,11 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 .chips{margin-top:.8rem;display:flex;gap:.4rem;flex-wrap:wrap}
 .chip{font-size:.64rem;text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding:.16rem .45rem;border:1px solid var(--rule-strong);border-radius:2px;color:var(--mute);display:inline-flex;align-items:center;gap:.32rem}
 .chip .g{font-weight:700}
-.chip.ok{color:var(--accent);border-color:var(--accent)}
+.chip{transition:color .3s ease,border-color .3s ease}
+.chip.ok{color:var(--accent);border-color:var(--accent);animation:pop .34s cubic-bezier(.2,.7,.2,1) both}
+#chip-proof.ok{animation-delay:.09s}
+#chip-when.ok{animation-delay:.18s}
+@keyframes pop{0%{transform:scale(.92);opacity:.35}60%{transform:scale(1.03)}100%{transform:scale(1);opacity:1}}
 .chip.wait{color:var(--mute-2)}
 .chip.warn{color:var(--warn);border-color:var(--warn)}
 .proof-foot{padding:.55rem .9rem;border-top:1px solid var(--rule);font-size:.68rem;color:var(--mute);display:flex;justify-content:space-between;gap:.6rem;flex-wrap:wrap}
@@ -107,7 +114,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 .contact .c .ck{color:var(--mute);text-transform:uppercase;letter-spacing:.06em;font-size:.62rem}
 
 /* below the card */
-.under{margin-top:1.3rem;font-size:.7rem;color:var(--mute);display:flex;gap:.9rem;flex-wrap:wrap;justify-content:center;align-items:center;text-align:center}
+.under{margin-top:0;font-size:.7rem;color:var(--mute);display:flex;gap:.9rem;flex-wrap:wrap;justify-content:center;align-items:center;text-align:center}
 .under a{color:var(--mute)}
 .under a:hover{color:var(--accent)}
 .copytoast{position:fixed;left:50%;bottom:1.4rem;transform:translateX(-50%) translateY(12px);background:var(--ink);color:var(--paper);font-size:.7rem;padding:.4rem .8rem;border-radius:3px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none}
@@ -136,7 +143,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
   <p class="say">One record for every place and every fact. <b>Read the same by everyone. Checkable by anyone. Owned by no one.</b> Two minds can agree on the same fact instead of two versions of it.</p>
   <p class="future">As more thinking happens outside human heads, the record of what is real can&rsquo;t sit inside any one of them. So it sits here &mdash; in the open, where anyone can read it and everyone can check it.</p>
 
-  <section class="proof" aria-live="polite">
+  <section class="proof" id="proof" aria-live="polite">
     <div class="proof-head">
       <span class="seal" aria-hidden="true"></span> a record, opened in front of you
       <span class="spacer"></span>
@@ -213,6 +220,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
   }
 
   function render(p){
+    $('proof').classList.remove('ok');
     $('p-place').textContent = p.place;
     $('p-what').textContent  = p.what;
     var val = $('p-value'); val.classList.add('pending'); val.textContent = 'opening…';
@@ -236,6 +244,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
         setChip($('chip-sig'),   sigOk ? 'ok':'warn', 'signature ' + (sigOk?'valid':'unconfirmed'));
         setChip($('chip-proof'), mkOk  ? 'ok':'warn', 'inclusion proof ' + (mkOk?'valid':'unconfirmed'));
         setChip($('chip-when'),  'ok', 'checked just now');
+        if (sigOk && mkOk) $('proof').classList.add('ok');
         if (v && v.signer_pubkey_b32) $('p-signer').textContent = v.signer_pubkey_b32;
         else if (d.receipt && d.receipt.responder_pubkey_b32) $('p-signer').textContent = d.receipt.responder_pubkey_b32;
         $('p-note').textContent = 'Opened live from emem, then checked by a separate verifier — signature and inclusion proof.';
