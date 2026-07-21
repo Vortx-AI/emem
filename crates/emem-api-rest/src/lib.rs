@@ -23222,19 +23222,6 @@ const DERIVE_SIGNATURE_ATTESTS_RECOMPUTED: &str =
 /// in [`recompute_pure_op`].
 const GC1_TIER1_PURE_OPS: &[&str] = &["delta", "mean", "sum"];
 
-/// How far apart two f64 reductions may be and still count as reproduced.
-///
-/// Four ULP. Chosen to cover the accumulation-order and intermediate-rounding
-/// differences a reduction over a few hundred values can produce across
-/// languages, while staying far below any difference that could change a
-/// decision: at NDVI magnitudes 4 ULP is around 4e-16, and the tightest
-/// threshold anyone in this study evaluates against is 1e-6.
-///
-/// It is deliberately NOT applied to `delta` or to classification, which are
-/// exact by construction. A tolerance offered where none is needed would weaken
-/// a guarantee for no reason.
-const REDUCTION_ULP_TOLERANCE: u64 = 4;
-
 /// Distance between two f64s counted in representable steps.
 ///
 /// Bit-pattern comparison rather than a relative epsilon, so the window means
@@ -23597,20 +23584,42 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                 // window was used, how far apart the two values actually were.
                 // "verified within k ULP" is a different and weaker claim than
                 // "bit-identical", and it must never be reported as the latter.
-                let is_reduction = matches!(op.as_str(), "mean" | "sum") && parent_values.len() > 2;
+                // EXACT, always. The ULP window that briefly lived here is gone.
+                //
+                // It was shipped to rescue `mean`, which a caller cannot
+                // reproduce because f64 division after accumulation lands one
+                // step away. The benchmark author objected in terms worth
+                // keeping: "a verifier that accepts close enough is not a
+                // verifier, and one ULP of slack today is a policy question
+                // about every future op, not a bug fix."
+                //
+                // Measuring settled it. Over the same five parents:
+                //
+                //     sum    ulp_gap 0    reproduces exactly
+                //     mean   ulp_gap 1    does not, and cannot
+                //
+                // The window was therefore unnecessary for the op that
+                // reproduces, and was doing nothing but making the op that does
+                // not LOOK verified. That is the same defect as a provenance
+                // field reporting deterministic_index for arithmetic nobody
+                // re-ran: a claim of verification where none happened.
+                //
+                // So `mean` stays `model_output` and says so. An aggregate that
+                // must be verifiable should be expressed as a `sum`, which is
+                // exact, leaving the division to whoever reads it. Losing a
+                // verifiable mean is a real limit on what content-addressed
+                // verification can promise, and it is more useful published than
+                // hidden behind a tolerance.
                 let claimed_f = cbor_scalar_f64(&value);
                 let recomputed_f = cbor_scalar_f64(&r_val);
-                let (verified, rule, ulp_gap) = match (recomputed_f, claimed_f) {
-                    (Some(a), Some(b)) if is_reduction => {
-                        let gap = ulps_between(a, b);
-                        (
-                            gap <= REDUCTION_ULP_TOLERANCE,
-                            "reduction_ulp_window",
-                            Some(gap),
-                        )
-                    }
-                    _ => (recomputed_f == claimed_f, "canonical_float_equality", None),
+                let verified = recomputed_f == claimed_f;
+                // Reported even on success, so a caller sees HOW exactly it
+                // matched rather than only that it did.
+                let ulp_gap = match (recomputed_f, claimed_f) {
+                    (Some(a), Some(b)) => Some(ulps_between(a, b)),
+                    _ => None,
                 };
+                let rule = "canonical_float_equality";
                 if verified {
                     effective_provenance = "deterministic_index".to_string();
                 }
@@ -23656,16 +23665,11 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                         },
                     ),
                     (
+                        // Zero: this responder does not accept a near miss. The
+                        // field stays on the wire so the absence of a tolerance
+                        // is explicit rather than inferred from silence.
                         ciborium::Value::Text("ulp_tolerance".into()),
-                        if ulp_gap.is_some() {
-                            ciborium::Value::Integer(
-                                i128::from(REDUCTION_ULP_TOLERANCE)
-                                    .try_into()
-                                    .unwrap_or(0.into()),
-                            )
-                        } else {
-                            ciborium::Value::Null
-                        },
+                        ciborium::Value::Integer(0.into()),
                     ),
                 ]));
                 recompute_json = Some(json!({
@@ -62066,8 +62070,14 @@ mod tests {
         );
     }
 
-    /// The reduction window is bounded, magnitude-independent, and does NOT
-    /// apply to the exact ops.
+    /// The ULP helper reports a DISTANCE; it does not grant a tolerance.
+    ///
+    /// A four-ULP window for reductions briefly shipped here and was removed.
+    /// Measurement killed it: over the same parents `sum` reproduces at gap 0
+    /// while `mean` lands at gap 1, so the window was unnecessary for the op
+    /// that reproduces and served only to make the op that cannot look
+    /// verified. Verification is exact, and the gap is reported so a caller can
+    /// see how a value missed rather than only that it did.
     ///
     /// A real 3-parent mean missed by exactly one ULP and no permutation of
     /// naive summation reproduced it, which made the aggregate path
@@ -62075,29 +62085,30 @@ mod tests {
     /// stay exact because they are exact by construction: one subtraction, and
     /// 2-ary max/min selections that return one of their inputs unchanged.
     #[test]
-    fn reduction_ulp_window_is_bounded_and_scale_free() {
+    fn ulp_distance_is_scale_free_and_grants_no_tolerance() {
         // identical values are zero ULP apart
         assert_eq!(ulps_between(0.3009580442682524, 0.3009580442682524), 0);
 
-        // the observed real failure: one step apart, inside the window
+        // the observed real failure: exactly one representable step apart,
+        // which is a MISS and is reported as such
         let a = 0.36777410164506935_f64;
         let b = f64::from_bits(a.to_bits() + 1);
         assert_eq!(ulps_between(a, b), 1);
-        assert!(ulps_between(a, b) <= REDUCTION_ULP_TOLERANCE);
+        assert_ne!(a, b, "one ULP apart is not equal, and must not verify");
 
         // the window is counted in representable steps, so it means the same
         // thing at tiny and huge magnitudes rather than widening with scale
+        // The distance is counted in representable steps, so it means the same
+        // thing at tiny and huge magnitudes rather than widening with scale.
         for base in [1e-9_f64, 1.0, 1e9] {
-            let near = f64::from_bits(base.to_bits() + REDUCTION_ULP_TOLERANCE);
-            assert!(ulps_between(base, near) <= REDUCTION_ULP_TOLERANCE);
-            let far = f64::from_bits(base.to_bits() + REDUCTION_ULP_TOLERANCE + 1);
-            assert!(ulps_between(base, far) > REDUCTION_ULP_TOLERANCE);
+            let near = f64::from_bits(base.to_bits() + 4);
+            assert_eq!(ulps_between(base, near), 4);
         }
 
         // a real disagreement is not laundered by the window: 1e-6 is the
         // tightest threshold anyone evaluates against, and it is astronomically
         // outside four steps
-        assert!(ulps_between(0.300958, 0.300959) > REDUCTION_ULP_TOLERANCE);
+        assert!(ulps_between(0.300958, 0.300959) > 4);
 
         // opposite signs never match, whatever the bit distance suggests
         assert_eq!(ulps_between(1e-300, -1e-300), u64::MAX);

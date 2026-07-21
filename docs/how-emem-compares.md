@@ -146,6 +146,21 @@ This is a claim about *model consensus as a quality signal*, and it holds whethe
 or not you ever use emem. If your system asks two models and trusts a match, that
 check fails exactly where agents share a compacted context.
 
+## 5b. What verification cannot promise
+
+`delta` and `sum` are recomputed exactly by the responder. **`mean` is not, and
+cannot be.** A caller cannot reproduce our accumulation order, so an averaged
+value lands one representable step away and is honestly refused.
+
+We shipped a four-ULP tolerance to paper over that and withdrew it the same day,
+because the co-author was right: a verifier that accepts "close enough" is not a
+verifier, and measurement showed the window was unnecessary for `sum` (which
+reproduces exactly) and served only to make `mean` look verified when it was not.
+
+So an aggregate that must be verifiable should be a **sum**, with the division
+left to whoever reads it. That is a real limit on what content-addressed
+verification can promise, and it is more useful stated than hidden.
+
 ## 6. What we have not measured, stated so it can be closed
 
 | not tested | why it matters |
