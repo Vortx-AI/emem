@@ -58,7 +58,13 @@ from concurrent.futures import ThreadPoolExecutor
 # 249 KB gzipped and rising with every note before anyone measured it.
 WEIGHT_BUDGET_GZIP = {
     "/": 90_000,
+    # /channel and /collaboration render the SAME document and grow together as
+    # agents post, so they share a budget. It is set with headroom over today's
+    # 60 KB rather than at it, because the excerpting change caps per-note
+    # growth at about 500 bytes and the point of the check is to catch a
+    # REGRESSION of that, not to trip on the next note.
     "/channel": 90_000,
+    "/collaboration": 90_000,
     "default": 60_000,
 }
 
