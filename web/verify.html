@@ -1184,7 +1184,11 @@ function concatBytes(parts){
   for (const p of parts) { out.set(p, o); o += p.length; }
   return out;
 }
-const _enc = new TextEncoder();
+// _enc is already declared above, at the top of this same script block. A
+// second `const` here threw "Identifier '_enc' has already been declared",
+// which killed the WHOLE block: every browser-side check on this page was
+// dead from the moment it shipped. Introduced by the three-legs change in
+// 8871f14, on the one page whose promise is that you can verify without us.
 
 // T1 authorship: the one construction where the CALLER signs and the responder
 // verifies. preimage = blake3("emem.memory_write|"+verb+"|"+signed_path+"|"+

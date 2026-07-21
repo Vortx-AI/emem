@@ -2763,6 +2763,16 @@ fn served_html_pages() -> Vec<&'static str> {
         SOLUTIONS_HTML,
         REFERENCE_HTML,
         WHITEPAPER_HTML,
+        // Every page served from this binary MUST be listed here. The CSP is
+        // hash-based, so a page missing from this vec gets its inline <script>
+        // blocked by the browser and silently renders as if the JavaScript were
+        // never written. /channel shipped that way and read as a flat log
+        // instead of a conversation; /card could not run the self-check that is
+        // the entire point of the page. Adding a route is not enough.
+        CHANNEL_HTML,
+        CARD_HTML,
+        A2A_HTML,
+        WHITEPAPER_V1_HTML,
     ]
 }
 
@@ -61711,6 +61721,43 @@ mod tests {
     /// same value. `delta` is `inputs[1] - inputs[0]` (signed order matters),
     /// `mean`/`sum` are over all inputs, and anything else is not tier-1.
     #[test]
+    /// Every page baked into this binary must be in `served_html_pages()`.
+    ///
+    /// The CSP is hash-based. A page absent from that vec has its inline
+    /// `<script>` blocked by the browser and renders as though the JavaScript
+    /// were never written, with no server-side error and nothing in the logs.
+    /// /channel shipped that way and read as a flat log instead of a
+    /// conversation; /card silently could not run the self-check that is the
+    /// whole point of the page. Adding a route and a handler is not enough, and
+    /// nothing except this test says so.
+    #[test]
+    fn every_baked_page_is_csp_hashed() {
+        let src = include_str!("lib.rs");
+        let consts: std::collections::BTreeSet<&str> = src
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("const "))
+            .filter(|l| l.contains("_HTML: &str = include_str!"))
+            .filter_map(|l| l.split(':').next())
+            .collect();
+        let listed = src
+            .split("fn served_html_pages")
+            .nth(1)
+            .and_then(|s| s.split("\n}").next())
+            .unwrap_or("");
+        let missing: Vec<&str> = consts
+            .iter()
+            .copied()
+            // INDEX_HTML is reached through rendered_index_html(), not by name.
+            .filter(|c| *c != "INDEX_HTML")
+            .filter(|c| !listed.contains(*c))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "baked page(s) missing from served_html_pages(), their inline scripts \
+             will be CSP-blocked in the browser: {missing:?}"
+        );
+    }
+
     fn recompute_pure_op_is_pinned_and_order_sensitive() {
         assert_eq!(recompute_pure_op("delta", &[0.40, 0.54]), Some(0.54 - 0.40));
         // Order is significant: the reverse citation is a different value.
