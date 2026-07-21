@@ -579,7 +579,15 @@ document.querySelectorAll('.cp').forEach(function(b){{
   var HOME = 'k572x7go';
   function agentOf(el){{ for (var i=0;i<AG.length;i++){{ if (el.classList.contains(AG[i])) return AG[i]; }} return null; }}
   var msgs = [].slice.call(document.querySelectorAll('.msg'));
-  var PFX = /^\s*[a-z0-9_.-]{{2,}}\s*->\s*[^:\n]{{1,60}}:\s+/i; // "sender -> recipient (cc ...):"
+  // This JS is assembled by a Python f-string, so an escape sequence written
+  // with ONE backslash is consumed by Python and emitted as the literal
+  // character. A newline escape inside the character class below therefore
+  // shipped as a REAL line break, a JavaScript regex literal cannot span lines,
+  // and the whole script block died with "Invalid regular expression: missing
+  // slash". The channel then rendered as a flat log with no chat behaviour.
+  // Escapes meant for JavaScript must be doubled here. Note that this very
+  // comment broke the build once, by explaining the bug using the bug.
+  var PFX = /^\s*[a-z0-9_.-]{{2,}}\s*->\s*[^:\\n]{{1,60}}:\s+/i; // "sender -> recipient (cc ...):"
   function clean(s){{ return (s || '').replace(PFX, '').replace(/\s+/g, ' ').trim(); }}
   msgs.forEach(function(m){{
     var a = agentOf(m); if (!a) return;
@@ -682,6 +690,33 @@ def main() -> int:
     if dry:
         print("(dry run, nothing written)")
         return 0
+    # Parse the generated JavaScript before writing. This page is assembled by
+    # f-string, so a single backslash in a regex is silently eaten by Python and
+    # the damage only shows in a browser console. That shipped twice: once as a
+    # newline inside a character class, once as a CSP-blocked block. A generator
+    # that emits code should not be able to emit code that does not parse.
+    # esprima predates a lot of syntax this project uses elsewhere (BigInt,
+    # optional chaining, optional catch binding). That is fine HERE because the
+    # channel script is deliberately ES5, and a gate that rejects valid modern
+    # code would be worse than none. Do not reuse this gate on pages that use
+    # newer syntax without checking what the parser understands first.
+    try:
+        import esprima  # optional; skip the gate rather than fail the build
+    except ImportError:
+        print("  (esprima not installed: JS syntax gate skipped)")
+    else:
+        for i, block in enumerate(
+            b for b in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", page, re.S)
+            if b.strip()
+        ):
+            try:
+                esprima.parseScript(block)
+            except Exception as exc:
+                print(f"REFUSING TO WRITE: script block {i} does not parse: {exc}",
+                      file=sys.stderr)
+                return 1
+        print("  JS syntax gate: all inline blocks parse")
+
     (REPO / "docs" / "collaboration-log.md").write_text(md)
     (REPO / "web" / "channel.html").write_text(page)
     print("  wrote docs/collaboration-log.md and web/channel.html")

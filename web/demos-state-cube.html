@@ -465,7 +465,6 @@ async function call(path, body){
 async function step1(){
   setStep(1);
   const p=$('placeInput').value.trim();
-  (delete lines 469-470 entirely; line 471, $('tag1').innerHTML='<span class="spinner"></span> resolving '+escapeHTML(p);, already renders the spinner correctly)
   $('tag1').innerHTML='<span class="spinner"></span> resolving '+escapeHTML(p);
   const r=await call('/v1/locate',{q:p});
   if(!r.ok){$('out1').textContent='ERROR '+(r.status||'')+'\n'+pretty(r.data); tag('tag1',r.data&&r.data.message?r.data.message:'locate failed'); return false;}
