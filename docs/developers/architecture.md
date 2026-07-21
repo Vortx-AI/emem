@@ -439,7 +439,7 @@ REST and MCP serve the same primitives. The MCP tool list is a
 strict read-only subset of REST; writes (`attest`, `backfill`,
 reviews POST) go through REST only. `POST /mcp` is JSON-RPC 2.0,
 backed by `crates/emem-mcp/src/lib.rs` (89 tools). Its `tools/list`
-advertises the 14 core tools; `POST /mcp/full` advertises all 89.
+advertises the 15 core tools; `POST /mcp/full` advertises all 89.
 Both dispatch every tool by name from `tools/call`. Three
 well-known endpoints publish capabilities: `/.well-known/mcp.json`
 (MCP transport advertisement), `/.well-known/agent-card.json`

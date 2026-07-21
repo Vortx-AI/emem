@@ -22,7 +22,7 @@ numbers move.
 
 - Name: emem. Publisher: Vortx AI. Namespace: `io.github.Vortx-AI/emem`.
 - Endpoint: `https://emem.dev/mcp`, MCP Streamable HTTP (2025-03-26).
-  `/mcp` advertises the 14-tool core loop; `/mcp/full` lists all 94;
+  `/mcp` advertises the 14-tool core loop; `/mcp/full` lists all 102;
   `tools/call` dispatches every tool by name at either endpoint.
 - 94 MCP tools (14 core, 80 extended), 18 static resources + 8 URI
   templates, 114 REST paths under `/v1/*`.

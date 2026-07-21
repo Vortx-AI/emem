@@ -330,8 +330,8 @@ four lines:
 }
 ```
 
-That endpoint advertises the 14 core tools from `tools/list`, so the host
-registers about 39 KB of descriptors rather than 210 KB for all 94. The rest
+That endpoint advertises the 15 core tools from `tools/list`, so the host
+registers about 39 KB of descriptors rather than 210 KB for all 102. The rest
 stay callable by name, and `emem_tools` searches them or returns one tool's
 schema on demand. Use `https://emem.dev/mcp/full` instead to register the
 whole catalog.

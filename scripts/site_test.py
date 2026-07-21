@@ -50,6 +50,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 # Delivered-bytes budget, gzipped, per page. These are not aspirations: they
 # are set just above what each page costs today, so the CHECK fails when a page
@@ -68,8 +69,12 @@ SEEDS = [
     "/channel", "/collaboration", "/worlds", "/card", "/docs/gallery",
     "/gallery", "/demos", "/demos/ask-the-earth", "/demos/signed-answer",
     "/demos/state-cube", "/demos/find-similar", "/demos/trajectory",
-    "/demos/recall-polygon", "/whitepaper", "/api", "/docs/", "/docs/diagrams",
+    "/demos/recall-polygon", "/whitepaper", "/docs/", "/docs/diagrams",
 ]
+
+# Served, useful, and deliberately not HTML. Listed so a future reader does not
+# "fix" them into the seed list and get a spurious route failure.
+NON_HTML_ROUTES = ["/api", "/openapi.json", "/llms.txt", "/.well-known/mcp.json"]
 
 # Substrings that must never appear in served HTML. Each one shipped at least
 # once, which is why it is here rather than in a style guide.
@@ -87,6 +92,17 @@ RESIDUE = [
 # the tool count as it stood the day it was written, is history rather than
 # drift, and rewriting it would falsify the record.
 VERBATIM_PAGES = {"/channel", "/collaboration"}
+
+# The crawl is hundreds of independent GETs. Run sequentially it took over ten
+# minutes, and a test nobody has time to run is a test nobody runs.
+WORKERS = 12
+
+# A page that does not answer in this many seconds is a FAILURE, not something
+# to wait for. Unbounded patience is why the first version of this test could
+# not finish: one slow route held a worker for 45 seconds and the suite never
+# reached a verdict. Bounding it makes the whole run worst-case predictable and
+# turns "slow" into a result instead of a hang.
+REQUEST_TIMEOUT_S = 10
 
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
@@ -124,7 +140,7 @@ def get(base: str, path: str, gz: bool = False):
     if gz:
         req.add_header("Accept-Encoding", "gzip")
     try:
-        with urllib.request.urlopen(req, timeout=45, context=CTX) as r:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S, context=CTX) as r:
             raw = r.read()
             body = raw
             if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
@@ -140,6 +156,17 @@ def get(base: str, path: str, gz: bool = False):
         return 0, {}, f"{type(e).__name__}: {e}", b""
 
 
+# Endpoints that hold the connection open by design. Fetching one to
+# completion never returns, so a link checker must recognise them rather than
+# time out and call a working feature broken.
+STREAMING = ("/v1/memory/sse", "/v1/stream", "/sse")
+
+
+def is_streaming(path: str) -> bool:
+    return any(path.split("?")[0].endswith(sfx) or path.split("?")[0] == sfx
+               for sfx in STREAMING)
+
+
 def is_html(headers: dict) -> bool:
     return "text/html" in (headers.get("content-type") or "")
 
@@ -147,16 +174,23 @@ def is_html(headers: dict) -> bool:
 def check_routes_links_anchors_assets(base: str, res: Result, quiet: bool):
     """Crawl the seeds, then verify every internal link, anchor and image."""
     pages: dict[str, str] = {}
-    for path in SEEDS:
-        status, headers, body, _ = get(base, path)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        fetched = list(pool.map(lambda p: (p, get(base, p)), SEEDS))
+    for path, (status, headers, body, _) in fetched:
         res.ok()
         if status != 200:
             res.fail("routes", f"{path} -> HTTP {status}")
             continue
         if not is_html(headers):
-            res.fail("routes", f"{path} -> not HTML ({headers.get('Content-Type')})")
+            res.fail("routes", f"{path} -> not HTML ({headers.get('content-type')})")
             continue
         pages[path] = body
+    for path in NON_HTML_ROUTES:
+        status, _, _, _ = get(base, path)
+        res.ok()
+        if status != 200:
+            res.fail("routes", f"{path} -> HTTP {status}")
+
     if len(pages) < len(SEEDS) - 2:
         res.fail("routes", f"only {len(pages)} of {len(SEEDS)} seed pages returned "
                            "HTML; everything downstream is measuring a fraction "
@@ -167,15 +201,26 @@ def check_routes_links_anchors_assets(base: str, res: Result, quiet: bool):
     # Every internal href, deduped, resolved once.
     targets: dict[str, set[str]] = {}
     for path, body in pages.items():
-        for href in re.findall(r'href="(/[^"#?]*)(?:[#?][^"]*)?"', body):
+        # Strip <script> first: a JS string like "/verify/' + cid + '" is not a
+        # link, and testing it produces a failure that no reader can ever hit.
+        markup = re.sub(r"<script\b.*?</script>", " ", body, flags=re.S)
+        for href in re.findall(r'href="(/[^"#]*)"', markup):
+            href = href.split("#")[0]
+            if not href or is_streaming(href):
+                continue
             targets.setdefault(href, set()).add(path)
-    seen: dict[str, int] = {}
-    for href, sources in sorted(targets.items()):
-        status, _, _, _ = get(base, href)
-        seen[href] = status
+    hrefs = sorted(targets)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        statuses = list(pool.map(lambda h: get(base, h)[0], hrefs))
+    seen = dict(zip(hrefs, statuses))
+    for href, status in seen.items():
         res.ok()
-        if status >= 400:
-            src = ", ".join(sorted(sources)[:3])
+        if status == 0:
+            src = ", ".join(sorted(targets[href])[:3])
+            res.fail("links", f"{href} did not answer within {REQUEST_TIMEOUT_S}s "
+                              f"(linked from {src})")
+        elif status >= 400:
+            src = ", ".join(sorted(targets[href])[:3])
             res.fail("links", f"{href} -> HTTP {status}  (linked from {src})")
     if len(seen) < 30:
         res.fail("links", f"only {len(seen)} internal links found; the crawl is not "
@@ -212,11 +257,13 @@ def check_routes_links_anchors_assets(base: str, res: Result, quiet: bool):
     for path, body in pages.items():
         for src in re.findall(r'<img[^>]+src="(/[^"]+)"', body):
             imgs.setdefault(src, set()).add(path)
-    for src, sources in sorted(imgs.items()):
-        status, _, _, _ = get(base, src)
+    srcs = sorted(imgs)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        img_status = list(pool.map(lambda u: get(base, u)[0], srcs))
+    for src, status in zip(srcs, img_status):
         res.ok()
         if status >= 400:
-            res.fail("assets", f"{src} -> HTTP {status}  (on {sorted(sources)[0]})")
+            res.fail("assets", f"{src} -> HTTP {status}  (on {sorted(imgs[src])[0]})")
     if not quiet:
         print(f"  resolved {len(imgs)} images")
     return pages
@@ -234,8 +281,10 @@ def check_csp(base: str, res: Result, pages: dict[str, str], quiet: bool):
     extra = ["/docs/", "/docs/intro.html", "/docs/quickstart.html",
              "/docs/benchmarks.html", "/docs/how-emem-compares.html"]
     checked = 0
-    for path in list(pages) + extra:
-        status, headers, body, _ = get(base, path)
+    targets_csp = list(pages) + extra
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        got = list(pool.map(lambda p: (p, get(base, p)), targets_csp))
+    for path, (status, headers, body, _) in got:
         if status != 200 or not is_html(headers):
             continue
         csp = headers.get("content-security-policy") or ""
@@ -263,9 +312,10 @@ def check_csp(base: str, res: Result, pages: dict[str, str], quiet: bool):
 
 def check_weight(base: str, res: Result, pages: dict[str, str], quiet: bool):
     worst = []
-    for path in pages:
-        _, headers, _, raw = get(base, path, gz=True)
-        n = len(raw)
+    paths = list(pages)
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        sizes = list(pool.map(lambda p: len(get(base, p, gz=True)[3]), paths))
+    for path, n in zip(paths, sizes):
         budget = WEIGHT_BUDGET_GZIP.get(path, WEIGHT_BUDGET_GZIP["default"])
         res.ok()
         worst.append((n, path))
@@ -315,7 +365,7 @@ def check_counts(base: str, res: Result, pages: dict[str, str], quiet: bool):
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=45, context=CTX) as r:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S, context=CTX) as r:
             tools = json.load(r)["result"]["tools"]
     except Exception as e:  # noqa: BLE001
         res.fail("counts", f"tools/list failed: {e}")
@@ -367,7 +417,7 @@ def main() -> int:
         return not only or name in only
 
     res = Result()
-    print(f"site test against {args.base}")
+    print(f"site test against {args.base}", flush=True)
 
     pages = check_routes_links_anchors_assets(args.base, res, args.quiet) \
         if want("links") or want("routes") or want("anchors") or want("assets") \
