@@ -23670,7 +23670,7 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                 // tolerance there would weaken a guarantee for no reason.
                 let claimed_f = cbor_scalar_f64(&value);
                 let recomputed_f = cbor_scalar_f64(&r_val);
-                let is_reduction = matches!(op.as_str(), "mean" | "sum") && parent_values.len() > 2;
+                let is_reduction = is_reduction_op(op.as_str(), parent_values.len());
                 let ulp_gap = match (recomputed_f, claimed_f) {
                     (Some(a), Some(b)) => Some(ulps_between(a, b)),
                     _ => None,

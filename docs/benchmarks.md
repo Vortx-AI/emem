@@ -283,6 +283,15 @@ under a publication protocol we agreed with them, neither surface states a
 number: both render the same signed address, and a correction supersedes by cid
 so both surfaces move together. Nobody hand-edits a figure on a page.
 
+**The scope of that rule, because this page does state other numbers and a
+reader deserves to know why.** It binds figures from *their* scorecard, which we
+do not control: if they re-score, our page must not keep asserting the old value.
+Numbers produced by our own instruments, the BM25 baseline and the inversion
+p-values below, are ours to state and ours to correct, and the record shows how
+badly that is needed: the `compaction_free` verdict below has turned over three
+times. Where a number here disagrees with the signed source, the cid wins and
+this page has a bug.
+
 | | |
 |---|---|
 | Canonical result | `no4fvfl2e2v2zick33ydoadene` (scorecard v2.3) |
