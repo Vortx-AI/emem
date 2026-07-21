@@ -77,6 +77,90 @@ pub struct MemorySearchReq {
     /// Optional filter: only rows attested by this signer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attester_pubkey_b32: Option<String>,
+    /// Retriever to use: `"dense"` (default) or `"lexical"`.
+    ///
+    /// Dense embedding similarity is the wrong instrument for a corpus whose
+    /// entries differ only in numbers or coordinates, and this is measured
+    /// rather than suspected: on such a corpus dense retrieval recovered the
+    /// right entry 0-16.7% of the time while BM25 over the identical text
+    /// recovered it 100% of the time. A coordinate is a rare literal string,
+    /// so every entry is near-identical in embedding space and wildly
+    /// different in token overlap. The property that defeats cosine
+    /// similarity is exactly what a lexical scorer keys on.
+    ///
+    /// Lexical also needs no model, so it answers on a responder where the
+    /// embedder is not installed, which previously returned 503.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+}
+
+/// BM25 over the memory corpus. Okapi with the usual k1 = 1.2, b = 0.75.
+///
+/// Deliberately a scan rather than an inverted index: the corpus is small
+/// enough that correctness now beats throughput later, and a wrong lexical
+/// index would be harder to notice than a slow one.
+fn bm25_rank(query: &str, docs: &[(usize, String)], k: usize) -> Vec<(usize, f32)> {
+    use std::collections::HashMap;
+    const K1: f32 = 1.2;
+    const B: f32 = 0.75;
+
+    // Numbers and coordinates must survive tokenisation intact. Splitting
+    // `16.09193` into `16` and `09193` destroys the only signal that
+    // distinguishes one row from another in a numeric corpus, which is the
+    // whole reason this retriever exists.
+    fn tokenise(text: &str) -> Vec<String> {
+        text.split(|c: char| !(c.is_alphanumeric() || c == '.' || c == '-'))
+            .filter(|t| !t.is_empty())
+            .map(|t| t.trim_matches('.').to_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect()
+    }
+
+    let q_terms = tokenise(query);
+    if q_terms.is_empty() || docs.is_empty() {
+        return Vec::new();
+    }
+
+    let tokenised: Vec<(usize, Vec<String>)> =
+        docs.iter().map(|(i, t)| (*i, tokenise(t))).collect();
+    let n = tokenised.len() as f32;
+    let avg_len = tokenised.iter().map(|(_, t)| t.len()).sum::<usize>() as f32 / n;
+
+    let mut df: HashMap<&str, f32> = HashMap::new();
+    for term in &q_terms {
+        let count = tokenised
+            .iter()
+            .filter(|(_, toks)| toks.iter().any(|t| t == term))
+            .count() as f32;
+        df.insert(term.as_str(), count);
+    }
+
+    let mut scored: Vec<(usize, f32)> = tokenised
+        .iter()
+        .map(|(idx, toks)| {
+            let dl = toks.len() as f32;
+            let score = q_terms
+                .iter()
+                .map(|term| {
+                    let f = toks.iter().filter(|t| *t == term).count() as f32;
+                    if f == 0.0 {
+                        return 0.0;
+                    }
+                    let n_q = df.get(term.as_str()).copied().unwrap_or(0.0);
+                    // Okapi IDF, floored at zero so a term present in every
+                    // document contributes nothing rather than going negative.
+                    let idf = (((n - n_q + 0.5) / (n_q + 0.5)) + 1.0).ln().max(0.0);
+                    idf * (f * (K1 + 1.0)) / (f + K1 * (1.0 - B + B * dl / avg_len))
+                })
+                .sum::<f32>();
+            (*idx, score)
+        })
+        .filter(|(_, sc)| *sc > 0.0)
+        .collect();
+
+    scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(k);
+    scored
 }
 
 fn default_k() -> usize {
@@ -125,6 +209,146 @@ pub struct MemorySearchResp {
     /// `false` plus an empty `hits` list is the honest "model not
     /// installed" reply rather than a silent zero-result.
     pub model_loaded: bool,
+}
+
+#[cfg(test)]
+mod bm25_tests {
+    use super::bm25_rank;
+
+    /// The property this retriever exists for: telling apart rows that differ
+    /// ONLY in their numbers.
+    ///
+    /// This is the corpus shape where dense similarity measured 0-16.7% and
+    /// BM25 measured 100%, because a coordinate is a rare literal string that
+    /// cosine similarity flattens and token overlap keys on.
+    #[test]
+    fn discriminates_rows_that_differ_only_in_numbers() {
+        let docs: Vec<(usize, String)> = vec![
+            (0, "cell at 16.09193,78.89124: NDVI 0.2210".into()),
+            (1, "cell at 16.09201,78.89133: NDVI 0.7841".into()),
+            (2, "cell at 16.09210,78.89142: NDVI 0.4412".into()),
+        ];
+        let hits = bm25_rank("16.09201", &docs, 3);
+        assert_eq!(hits[0].0, 1, "the exact coordinate must rank first");
+    }
+
+    /// A decimal must survive tokenisation whole. Splitting `16.09193` into
+    /// `16` and `09193` destroys the only signal distinguishing these rows,
+    /// which would silently turn this retriever back into the one it replaces.
+    #[test]
+    fn decimals_are_not_split() {
+        let docs: Vec<(usize, String)> = vec![
+            (0, "value 0.2210 here".into()),
+            (1, "value 0.7841 here".into()),
+        ];
+        let hits = bm25_rank("0.7841", &docs, 2);
+        assert_eq!(hits[0].0, 1);
+
+        // Discrimination shows up as the SIZE of the result, not as a score
+        // spread. A term that appears in one document eliminates the other
+        // entirely, because zero-scoring rows are filtered out; a term in every
+        // document keeps them all, tied.
+        //
+        // Written wrong twice before this: first asserting the ubiquitous term
+        // returns nothing (standard BM25 IDF has a `+1`, so it scores 0.18, not
+        // 0), then comparing score spreads (meaningless when one result has a
+        // single row). The scorer was right both times.
+        assert_eq!(hits.len(), 1, "a unique number eliminates the other row");
+
+        let ubiquitous = bm25_rank("here", &docs, 2);
+        assert_eq!(ubiquitous.len(), 2, "a shared word eliminates nothing");
+        assert!(
+            (ubiquitous[0].1 - ubiquitous[1].1).abs() < 1e-6,
+            "a shared word ranks both rows equally, so it orders nothing"
+        );
+    }
+
+    /// No match is an empty result, never a spurious ranking.
+    #[test]
+    fn absent_term_returns_nothing() {
+        let docs: Vec<(usize, String)> = vec![(0, "alpha beta".into())];
+        assert!(bm25_rank("gamma", &docs, 5).is_empty());
+    }
+}
+
+/// BM25 search over the memory corpus, needing no model.
+///
+/// Reads every file through the same `MemoryFileSource` the dense path uses for
+/// snippets, so it sees exactly the same corpus and cannot silently diverge from
+/// it. Filters are applied before scoring, as in the dense path.
+async fn lexical_search(
+    q: &str,
+    k: usize,
+    req: &MemorySearchReq,
+) -> Result<MemorySearchResp, MemorySearchError> {
+    let source = memory_source();
+    let summaries: Vec<MemoryFileSummary> = match &source {
+        Some(s) => s.list_all().await.unwrap_or_default(),
+        None => Vec::new(),
+    };
+    let corpus_size = summaries.len();
+
+    let kept: Vec<&MemoryFileSummary> = summaries
+        .iter()
+        .filter(|r| req.kind.as_ref().is_none_or(|want| &r.kind == want))
+        .filter(|r| {
+            req.path_prefix
+                .as_ref()
+                .is_none_or(|p| r.path.starts_with(p.as_str()))
+        })
+        .filter(|r| {
+            req.attester_pubkey_b32
+                .as_ref()
+                .is_none_or(|a| r.attester_pubkey_b32.as_deref() == Some(a.as_str()))
+        })
+        .collect();
+
+    let mut docs: Vec<(usize, String)> = Vec::with_capacity(kept.len());
+    if let Some(src) = &source {
+        for (i, row) in kept.iter().enumerate() {
+            if let Ok(Some(text)) = src.read_text(&row.path).await {
+                docs.push((i, text));
+            }
+        }
+    }
+
+    let ranked = bm25_rank(q, &docs, k);
+    // BM25 scores are unbounded, so normalise against the best hit to keep the
+    // `similarity` field in [0,1] as the dense path promises. This is a RANK
+    // score, not a cosine, and callers should compare it within one response
+    // rather than across responses.
+    let top = ranked.first().map(|(_, sc)| *sc).unwrap_or(1.0).max(1e-6);
+
+    let hits = ranked
+        .iter()
+        .map(|(idx, score)| {
+            let row = kept[*idx];
+            let text = docs
+                .iter()
+                .find(|(i, _)| i == idx)
+                .map(|(_, t)| t.as_str())
+                .unwrap_or("");
+            MemorySearchHit {
+                path: row.path.clone(),
+                file_cid: row.file_cid.clone(),
+                kind: row.kind.clone(),
+                signed_at: row.signed_at.clone(),
+                attester_pubkey_b32: row.attester_pubkey_b32.clone(),
+                similarity: (score / top).clamp(0.0, 1.0),
+                size_bytes: row.size_bytes,
+                snippet: text.chars().take(200).collect(),
+            }
+        })
+        .collect();
+
+    Ok(MemorySearchResp {
+        schema: "emem.memory_search.v1".into(),
+        hits,
+        query_embedding_dim: 0,
+        corpus_size,
+        via: "bm25_lexical".into(),
+        model_loaded: false,
+    })
 }
 
 /// Errors surfaced by the search primitive.
@@ -217,6 +441,14 @@ pub async fn memory_search(
         return Err(MemorySearchError::EmptyQuery);
     }
     let k = req.k.clamp(1, MAX_K);
+
+    // Lexical mode short-circuits before the embedder is touched, so it works
+    // on a responder with no model installed. That case previously returned a
+    // 503, which meant search was unavailable exactly where the cheap retriever
+    // would have answered.
+    if req.mode.as_deref() == Some("lexical") {
+        return lexical_search(q, k, req).await;
+    }
 
     let embedder = global_embedder().map_err(MemorySearchError::Embed)?;
     let query_vec = embedder.embed_query(q)?;

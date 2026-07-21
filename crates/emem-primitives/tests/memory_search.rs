@@ -239,6 +239,7 @@ async fn hydrate_and_search_round_trip() {
         kind: None,
         path_prefix: None,
         attester_pubkey_b32: None,
+        mode: None,
     };
     let resp = memory_search(&req, &srv).await.unwrap();
     assert!(!resp.hits.is_empty(), "expected ≥1 hit");
@@ -301,6 +302,7 @@ async fn semantic_paraphrase_matches() {
         kind: None,
         path_prefix: None,
         attester_pubkey_b32: None,
+        mode: None,
     };
     let resp = memory_search(&req, &srv).await.unwrap();
     assert!(!resp.hits.is_empty());
@@ -341,6 +343,7 @@ async fn snippet_extraction_returns_window() {
         kind: None,
         path_prefix: None,
         attester_pubkey_b32: None,
+        mode: None,
     };
     let resp = memory_search(&req, &srv).await.unwrap();
     let short_hit = resp
@@ -356,6 +359,7 @@ async fn snippet_extraction_returns_window() {
         kind: None,
         path_prefix: None,
         attester_pubkey_b32: None,
+        mode: None,
     };
     let resp = memory_search(&req, &srv).await.unwrap();
     let long_hit = resp
@@ -415,6 +419,7 @@ async fn filters_narrow_results() {
         kind: Some("journal".into()),
         path_prefix: None,
         attester_pubkey_b32: None,
+        mode: None,
     };
     let resp = memory_search(&req, &srv).await.unwrap();
     assert!(resp.hits.iter().all(|h| h.kind == "journal"));
@@ -427,6 +432,7 @@ async fn filters_narrow_results() {
         kind: None,
         path_prefix: Some("/memories/notes/".into()),
         attester_pubkey_b32: None,
+        mode: None,
     };
     let resp = memory_search(&req, &srv).await.unwrap();
     assert!(resp
@@ -442,6 +448,7 @@ async fn filters_narrow_results() {
         kind: None,
         path_prefix: None,
         attester_pubkey_b32: Some("alice".into()),
+        mode: None,
     };
     let resp = memory_search(&req, &srv).await.unwrap();
     assert!(resp
@@ -462,6 +469,7 @@ async fn empty_query_rejected() {
         kind: None,
         path_prefix: None,
         attester_pubkey_b32: None,
+        mode: None,
     };
     let err = memory_search(&req, &srv).await.unwrap_err();
     assert!(matches!(
@@ -533,6 +541,7 @@ async fn lance_and_brute_force_agree_on_top_hit() {
         kind: None,
         path_prefix: None,
         attester_pubkey_b32: None,
+        mode: None,
     };
 
     std::env::remove_var("EMEM_DISABLE_LANCE");

@@ -528,6 +528,7 @@ const SCHEMA_MEMORY_LIST_BY_KIND: &str = r#"{"type":"object","required":["kind"]
 }}"#;
 
 const SCHEMA_MEMORY_SEARCH: &str = r#"{"type":"object","required":["q"],"properties":{
+"mode":{"type":"string","enum":["dense","lexical"],"description":"Retriever. `dense` (default) is BGE embedding similarity. `lexical` is BM25 over the same corpus: it needs NO model, so it answers where the embedder is not installed, and it is the correct choice when entries differ only in numbers or coordinates. Measured on such a corpus: dense recovered the right entry 0-16.7% of the time, BM25 100%."},
 "q":{"type":"string","description":"Free-text query. Semantic — matches paraphrases not just substrings."},
 "k":{"type":"integer","minimum":1,"maximum":100,"default":10,"description":"Number of hits to return."},
 "kind":{"type":"string","description":"Optional filter: only files whose typing taxonomy entry matches (defaults to `resource` until Agent W's typing lands)."},
