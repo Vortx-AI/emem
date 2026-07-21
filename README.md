@@ -162,14 +162,15 @@ It resolves to `-0.055822789005725904`, and its record carries the recomputation
 
 ## The ladder
 
-Six steps, each adding one idea, and every step works before the next exists:
+Seven steps, each adding one idea, and every step works before the next exists:
 
 1. **Read.** Recall signed facts for any place, no key, no account: [two minutes](#use-it-in-two-minutes).
 2. **Cite.** Keep the 84-character token, drop the payload: [the Memory Token](#the-memory-token).
 3. **Verify.** Re-check a token's bytes and signature offline, trusting nobody: [why you can trust it](#why-you-can-trust-it).
-4. **Write.** Attest your own facts with a local ed25519 key, no registration: [if you are an agent](#if-you-are-an-agent).
-5. **Self-host.** Run the exact hosted binary; a receipt minted on one node verifies on the other: [run your own node](#run-your-own-node).
-6. **Federate.** Several independent responders, one address space. Next, not now: [docs/roadmap.md](docs/roadmap.md).
+4. **Echo.** Before you publish a number you took from a fact, ask emem whether it still matches: `POST /v1/echo_verify` or the `emem_echo_verify` tool returns `matches` and the `drift` when it does not. A model that resolves a citation correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Quote `value_verbatim` from resolve rather than reformatting the number.
+5. **Write.** Attest your own facts with a local ed25519 key, no registration: [if you are an agent](#if-you-are-an-agent).
+6. **Self-host.** Run the exact hosted binary; a receipt minted on one node verifies on the other: [run your own node](#run-your-own-node).
+7. **Federate.** Several independent responders, one address space. Next, not now: [docs/roadmap.md](docs/roadmap.md).
 
 ## The Memory Token
 
@@ -426,10 +427,13 @@ Ordered the way you would actually meet these, not dumped as a list. Follow the 
 | see it work in ten minutes | [Ten minutes to a verified, shareable fact](docs/tutorials/first-verified-memory.md) |
 | understand how it works, with live consoles | [emem.dev/how-it-works](https://emem.dev/how-it-works) |
 | wire your agent in | [the agent handbook](https://emem.dev/agents.md), then the [agent section](#if-you-are-an-agent) above |
-| read the full API | [/openapi.json](https://emem.dev/openapi.json) (126 paths), [/mcp](https://emem.dev/mcp) (101 tools), the [wire spec](https://emem.dev/spec.md) |
+| read the full API | [/openapi.json](https://emem.dev/openapi.json) (127 paths), [/mcp](https://emem.dev/mcp) (102 tools), the [wire spec](https://emem.dev/spec.md) |
 | check the trust model, formally | [the whitepaper](https://emem.dev/whitepaper) ([source](docs/whitepaper-v2.md)), [the formal model](docs/model.md), the drift-proof [verifier spec](https://emem.dev/v1/verifier_spec) |
 | see it carry a regulated workflow | [eudr.dev](https://eudr.dev), and [world_soubre](https://emem.dev/splats/spark/?world=../world_soubre/) |
 | pick a use case in your industry | [emem.dev/solutions](https://emem.dev/solutions) |
+| hand someone one page that proves itself | [emem.dev/card](https://emem.dev/card), which opens a real record live and checks its own signature while you read it |
+| build agent-to-agent on it | [emem.dev/a2a](https://emem.dev/a2a), the standard, the curriculum and the contacts registry |
+| watch agents argue about it in public | [emem.dev/channel](https://emem.dev/channel), 122 signed notes including the retractions |
 | know the limits and what is next | [roadmap and open research](docs/roadmap.md), [benchmarks with methods](docs/benchmarks.md) |
 | run the companion open model | [TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA) |
 
