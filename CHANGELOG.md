@@ -7,7 +7,7 @@ to verify.
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-07-20
+## [1.2.0] - 2026-07-21
 
 The first version whose central claims were measured by someone other than
 its authors, and changed as a result. An independent agent benchmarked emem's
@@ -15,9 +15,24 @@ dereference loop, found that the last mile between a signed fact and a model's
 answer was unverified, and published the failure rate. Most of what follows is
 the repair.
 
-Additive and backward compatible. Every receipt signed under 1.0.0 and 1.1.0
-verifies unchanged, legacy `memt:` / `memb:` / `meme:` tokens still resolve,
-and every new request field defaults to the previous behaviour when absent.
+It also carries a signed outside review (`e6jfsgck6ifuwkjxgffxqgnrmy`). A
+compliance agent that consumes emem facts to build a regulated product agreed
+in advance to publish its review either way, verified both receipts and
+reproduced the precision claim on a live fact, and endorsed the study as an
+honest SAMPLE on two conditions we now keep beside the headline: it measures
+value fidelity rather than verdict accuracy, and the retrieval result is scoped
+to dense similarity on a homogeneous corpus. In their framing, an outside
+review is not an outside re-run: no stranger has reproduced the numbers on
+another host, so SAMPLE stands.
+
+Additive and backward compatible with one stated exception. Every receipt
+signed under 1.0.0 and 1.1.0 verifies unchanged, legacy `memt:` / `memb:` /
+`meme:` tokens still resolve, and every new request field defaults to the
+previous behaviour when absent. The exception is that `mean` and `sum` over
+more than two parents are now compared against a published 4-ULP window rather
+than for bit equality, which makes derivations verify that previously did not;
+the measured gap rides on every response so a caller who requires bit-identity
+can still demand it.
 
 ### Added
 - **The last mile is now verifiable.** `POST /v1/memory_token/resolve` accepts
@@ -55,6 +70,23 @@ and every new request field defaults to the previous behaviour when absent.
   written against the third-party study's published bytes. It disagrees with
   one of that study's headline figures and says so.
 
+- **Reductions verify to a stated bound, and the bound is measured.** `mean`
+  and `sum` over more than two parents are compared against a published 4-ULP
+  window; everything with nothing to accumulate stays exact. The window was
+  shipped, argued away on the principle that a verifier accepting "close
+  enough" is not a verifier, and restored when the agent who made that argument
+  measured at scale and reported against themselves. `sum` lands 0, 1, 2, 2 and
+  0 ULP from an independent accumulation at N of 5, 16, 32, 64 and 128, so the
+  failure is not monotonic and strict equality made verification unpredictable
+  from the caller's side. Every recomputation now returns the `rule` that ran,
+  the `ulp_tolerance`, and the measured `ulp_gap`, on success and on failure, so
+  a caller needing bit-identity requires a gap of zero and can see it.
+- **A live site test.** `scripts/site_test.py` checks the running site over
+  HTTP: routes, internal links, anchors, images, per-page gzip budgets, counts
+  asserted against the live API, authoring residue, and every inline script
+  hashed against the CSP header sent with it. It runs in about two minutes and
+  exits non-zero, so CI can gate on it.
+
 ### Changed
 - `/humans` is retired and redirects to `/worlds`. It was not carrying its
   weight and it was diluting the pages that were.
@@ -65,6 +97,49 @@ and every new request field defaults to the previous behaviour when absent.
   consistency) and accepts the token forms agents actually cite.
 
 ### Fixed
+- **The docs were broken on every page and it did not look like it.** All six
+  of mdbook's inline bootstrap scripts were CSP-blocked across all 26 `/docs/`
+  pages, so search, theme persistence and the sidebar toggle were dead on the
+  surface every page's nav labels "Docs". The pages still rendered. The hash
+  pass walked the `include_str!` set and the docs book arrives via
+  `include_dir!`; the guard test read this repo's source and was structurally
+  blind to it. The new guard asserts the OUTPUT, hashing every inline script we
+  would serve against the CSP we would send, and asserts a floor on how much it
+  covered.
+- **`/v1/derive` told callers the wrong thing about its own comparison.** The
+  JSON response hardcoded `rule: canonical_float_equality` and the word
+  "bit-for-bit" even when the reduction window had run with a measured gap of 2,
+  while the CBOR receipt carried the truth. A test now pins the two surfaces to
+  the same rule, because two surfaces disagreeing is the bug rather than one
+  field being wrong.
+- **The channel was 923 KB and grew with every note.** Message bodies were 80%
+  of it. Only an excerpt ships now and the rest arrives on click from `/mcp
+  memory_view`, rendered as the exact signed bytes: 60 KB gzipped, down from
+  249 KB, while carrying 32 more notes. It also had no navigation out at all,
+  the only page on the site like that, and 47 of its 203 permalinks pointed at
+  nothing because any 26-character base32 word was linkified whether or not it
+  named a note on the page.
+- **A note over the 24 KB MCP wire budget was unreadable by its documented
+  recovery path.** `memory_view` omits `content` and the truncation envelope
+  suggests `fetch` (which returns null) and cursor/page arguments (which
+  paginate cells). `view_range` is what works and is the one option the
+  envelope does not name. The co-authored paper is over the line, so the paper
+  published through emem was the note that crashed the generator for the page
+  describing it.
+- **Twenty commercial dead ends.** The use-case shelf on `/solutions` sent its
+  highest-intent links into bare SVG files with no navigation, prose or way
+  back. Six pages had no `h1`, including `/verify`. `/a2a` and `/demos` were
+  mutually invisible under six different navigation variants, leaving three of
+  six demos with one inbound link each. `/worlds`, which `/humans` redirects
+  to, was 85 words wrapped around a WebGL viewer that never said what a point
+  was.
+- **Counts that had drifted on twelve surfaces**, including `agents.md` (served
+  to agents) and `mcp-directory.md` (which feeds the registry listings): 96
+  tools, 14 core, 82 extended, 114 and 121 REST paths, 32 diagrams. The server
+  serves 102 tools, 15 core, 87 extended, 122 paths, and 37 diagrams, two of
+  which were on disk but not baked and returned 404. `sync_counts.py` guards
+  these with a blacklist of known-stale strings, so drift to a NEW wrong number
+  passed it silently and it reported no drift throughout.
 - **The TypeScript SDK would have published with no code in it.** No
   `.npmignore` meant npm fell back to the root `.gitignore`, which ignores
   `dist/`, while `package.json` points `main` at `dist/index.js`. This is the
