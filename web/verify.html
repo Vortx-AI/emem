@@ -290,25 +290,28 @@ input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:
 input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
 </head>
 <body>
 <a class=skip href="#main">Skip to verifier</a>
 <header class="statusbar">
   <div class="statusbar-inner">
-    <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
-    <a href="/">Home</a>
-    <a href="/how-it-works" class="nav-sec">How it works</a>
-    <a href="/solutions" class="nav-sec">Solutions</a>
-    <a href="/reference" class="nav-sec">Reference</a>
-    <a href="/a2a" class="nav-sec">A2A</a>
-    <a href="/docs" class="nav-sec">Docs</a>
-    <a href="/verify" class="on">Verify</a>
-    <span class="spacer"></span>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
-  </div>
+<a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+<a href="/">Home</a>
+<a href="/how-it-works" class="nav-sec">How it works</a>
+<a href="/solutions" class="nav-sec">Solutions</a>
+<a href="/reference" class="nav-sec">Reference</a>
+<a href="/demos" class="nav-sec">Demos</a>
+<a href="/a2a" class="nav-sec">A2A</a>
+<a href="/verify" class="nav-sec">Verify</a>
+<a href="/docs" class="nav-sec">Docs</a>
+<span class="spacer"></span>
+<a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+</div>
 </header>
 <main class=app id=main tabindex="-1">
+<h1 class="sr-only">Verify an emem receipt or signed fact, offline</h1>
   <header class=top role=banner>
     <span class=brand aria-label="emem.dev verify page"><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=verify>verify</span></span>
     <span class=tag>cryptographic receipt verifier</span>

@@ -124,28 +124,50 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:30;background:var(--accent-bg);border:1px solid var(--accent);color:var(--ink);border-radius:6px;padding:.4rem .8rem;font-size:var(--t-xs);opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
 @media (max-width:760px){#ctl{width:190px}#hud{max-width:calc(100vw - 32px)}}
+.intro{max-width:38ch;line-height:1.5}
+.intro p{margin:0 0 .6rem}
+.intro-do{opacity:.75}
+@media (max-width:760px){.intro{display:none}}
 </style>
 </head>
 <body>
 
 <header class="statusbar">
   <div class="statusbar-inner">
-    <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
-    <a href="/how-it-works" class="nav-sec">how it works</a>
-    <a href="/solutions" class="nav-sec">solutions</a>
-    <a href="/reference" class="nav-sec">reference</a>
-    <a href="/demos" class="nav-sec on">demos</a>
-    <a href="/splats" class="nav-sec" title="dense navigable worlds, view-only demo">dense worlds</a>
-    <a href="/verify" class="nav-sec">verify</a>
-    <span class="spacer"></span>
-    <a href="/docs">docs</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
-  </div>
+<a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+<a href="/">Home</a>
+<a href="/how-it-works" class="nav-sec">How it works</a>
+<a href="/solutions" class="nav-sec">Solutions</a>
+<a href="/reference" class="nav-sec">Reference</a>
+<a href="/demos" class="nav-sec">Demos</a>
+<a href="/a2a" class="nav-sec">A2A</a>
+<a href="/verify" class="nav-sec">Verify</a>
+<a href="/docs" class="nav-sec">Docs</a>
+<span class="spacer"></span>
+<a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+</div>
 </header>
+
+<!-- A reader arriving here saw "loading..." and a wall of controls and was
+     never told what they were looking at. /humans redirects to this page, so
+     it was the least self-explanatory surface with the most naive traffic. -->
+<div id="intro" class="panel intro">
+  <p><b>Every point you are about to orbit is one signed measurement.</b> Not a
+  rendering of a place and not a photograph: a cloud of individual facts, each
+  recorded at a fixed address on Earth, each carrying the signature of whoever
+  recorded it.</p>
+  <p>Click any point and you get the fact behind it: the value, the band it
+  belongs to, and the content address you can hand to someone else to check
+  independently. The satellite basemap underneath is <em>reference only and not
+  signed data</em>, which is why it says so rather than blending in.</p>
+  <p class="intro-do">Drag to orbit, scroll to zoom, click a point to read it.
+  <a href="/verify">Verify one yourself</a> or
+  <a href="/how-it-works">see how the memory is built</a>.</p>
+</div>
 
 <div id="hud" class="panel">
   <button class="min-btn" id="hud-min" aria-label="minimize" title="minimize">–</button>
-  <div class="title" id="w-title">loading…</div>
+  <h1 class="title" id="w-title">loading…</h1>
   <div class="n" id="hud-n"></div>
   <div class="story" id="w-story"></div>
   <div class="axis" id="w-axis"></div>

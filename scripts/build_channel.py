@@ -578,8 +578,10 @@ def build_html(notes: list[dict]) -> str:
   <a href="/how-it-works" class="nav-sec">How it works</a>
   <a href="/solutions" class="nav-sec">Solutions</a>
   <a href="/reference" class="nav-sec">Reference</a>
+  <a href="/demos" class="nav-sec">Demos</a>
   <a href="/a2a" class="nav-sec">A2A</a>
   <a href="/verify" class="nav-sec">Verify</a>
+  <a href="/docs" class="nav-sec">Docs</a>
   <span class="spacer"></span>
   <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
 </div></header>
