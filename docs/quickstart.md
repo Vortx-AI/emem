@@ -41,7 +41,7 @@ pip install -e "git+https://github.com/Vortx-AI/emem.git#egg=emem&subdirectory=s
 ### TypeScript / Node
 
 ```ts
-import { Client } from "ememdev";
+import { Client } from "@vortx-ai/emem";
 
 const em    = new Client();
 const loc   = await em.locate({ place: "South Mumbai" });

@@ -24,7 +24,7 @@
 
 **Add it to your agent now.** MCP, into `.mcp.json` (Claude Code, Cursor, Cline):
 `{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}`
-&nbsp;·&nbsp; Python: `pip install ememdev` &nbsp;·&nbsp; or just `curl` the REST API. **Reads need no key, no account, no signup.**
+&nbsp;·&nbsp; Python: `pip install ememdev` &nbsp;·&nbsp; TypeScript: `npm i @vortx-ai/emem` &nbsp;·&nbsp; or just `curl` the REST API. **Reads need no key, no account, no signup.**
 
 Listed on the [official MCP Registry](https://registry.modelcontextprotocol.io) (`io.github.Vortx-AI/emem`) · [Glama](https://glama.ai/mcp/servers/Vortx-AI/emem) · [Smithery](https://smithery.ai/servers/vortxai/emem) · [PulseMCP](https://www.pulsemcp.com/servers/emem) · [mcp.so](https://chat.mcp.so/server/emem/Vortx%20AI) · [MCP Market](https://mcpmarket.com/server/emem) · [Loomal](https://loomal.ai/marketplace/emem-earth-memory-protocol)
 
@@ -293,7 +293,7 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" | jq '.facts[0].value'
 ```
 
-**Python**: `pip install ememdev`, then `from ememdev import Client`. Real as of 1.1.0, verified by installing into a clean environment and calling the live node; the wheel also ships the signing extra (`pip install "ememdev[signing]"`) and an `ememdev` CLI for attested memory writes. Do not guess a shorter name: `emem` on PyPI is an unrelated project by another company. **TypeScript**: `sdks/emem-ts/` publishes to npm as `ememdev` too; first publish pending, status in [docs/roadmap.md](docs/roadmap.md).
+**Python**: `pip install ememdev`, then `from ememdev import Client`. Real as of 1.1.0, verified by installing into a clean environment and calling the live node; the wheel also ships the signing extra (`pip install "ememdev[signing]"`) and an `ememdev` CLI for attested memory writes. Do not guess a shorter name: `emem` on PyPI is an unrelated project by another company. **TypeScript**: `npm i @vortx-ai/emem`, then `import { Client } from "@vortx-ai/emem"`. The npm name is scoped and the PyPI name is not, which is not a style choice: npm refuses `ememdev` as too similar to an existing package called `okemdev`, and a scoped name is exempt from that check. Verified the same way as the wheel, by packing the tarball, installing it into an empty directory and calling the live node from it.
 
 **Your framework is already wired.** Runnable examples for [LangChain](examples/langchain/), [LlamaIndex](examples/llamaindex/), [CrewAI](examples/crewai/), [AutoGen](examples/autogen/), [Agno](examples/agno/), and [Mastra](examples/mastra/) ship in [`examples/`](examples/), and seven packaged Claude skills in [`claude-skills/`](claude-skills/) install with one `cp` (or fetch any one directly at `https://emem.dev/skills/<name>/SKILL.md`). Two of them, `emem-sign-and-attest` and `emem-a2a-collaboration`, cover the write path and agent-to-agent trust.
 

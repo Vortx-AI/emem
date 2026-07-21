@@ -15,7 +15,7 @@
  * Quick start:
  *
  * ```ts
- * import { Client } from "ememdev";
+ * import { Client } from "@vortx-ai/emem";
  *
  * const em = new Client();
  * const { cell64 } = await em.locate({ place: "Mount Fuji" });

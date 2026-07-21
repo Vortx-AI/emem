@@ -22,7 +22,7 @@ cd sdks/emem-ts && npm install && npm run build
 ## Quick start
 
 ```ts
-import { Client } from "ememdev";
+import { Client } from "@vortx-ai/emem";
 
 const em = new Client();
 const located = await em.locate({ place: "Mount Fuji" });
