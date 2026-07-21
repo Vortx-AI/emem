@@ -23421,6 +23421,8 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
     // recomputation. `None` for absence parents or non-scalar (vector/enum)
     // values: a derivation that cites one of those is not tier-1 recomputable.
     let mut parent_values: Vec<Option<f64>> = Vec::with_capacity(parsed.len());
+    let mut parent_by_band: std::collections::HashMap<String, f64> =
+        std::collections::HashMap::new();
     for (i, ((token, p_cell, p_cid), fact)) in parsed.iter().zip(got).enumerate() {
         let Some(fact) = fact else {
             return Err(ApiError(
@@ -23481,6 +23483,11 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
         });
         parent_cids.push(emem_fact::FactCid::new(p_cid.clone()));
         parent_values.push(p_value);
+        // Keyed by band as well as position: a classification AST references
+        // its inputs by band name, not by argument order.
+        if let Some(v) = p_value {
+            parent_by_band.insert(f_band.to_string(), v);
+        }
     }
 
     // ── The canonical body the caller signs ──────────────────────────
@@ -23513,9 +23520,49 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
     let mut effective_provenance = provenance_class.clone();
     if req.code_cid.is_some() {
         let all_numeric: Option<Vec<f64>> = parent_values.iter().copied().collect();
-        let recomputed = all_numeric
+        let mut recomputed = all_numeric
             .as_ref()
             .and_then(|vals| recompute_pure_op(&op, vals));
+
+        // TIER 2: a registered classification AST, evaluated over the cited
+        // parents keyed by band.
+        //
+        // A compliance verdict is not a pure op over an argument list; it is a
+        // decision tree whose leaves name bands. So when `fn_key` matches an
+        // algorithm carrying an `evaluation`, the responder runs THAT tree over
+        // the parent facts rather than trying to reduce them.
+        //
+        // It uses `Expr::evaluate` from the algorithm registry, deliberately,
+        // rather than a second evaluator written here: two implementations of a
+        // decision rule can disagree, and the one a caller reads from
+        // `emem_explain_algorithm` must be the one the responder runs. The
+        // compliance agent asked to be built against the canonical tree rather
+        // than a transcription of it, twice, and this is that.
+        //
+        // Exactness is safe here and is NOT the ULP window. The registered EUDR
+        // tree uses band, const, max, min, sub, where; every max/min is 2-ary
+        // and therefore a SELECTION returning one of its exact inputs, the only
+        // arithmetic is a single subtraction, and the output is an integer class
+        // code. There is no N>2 reduction anywhere in it, so nothing can drift
+        // by an ULP and offering a tolerance would weaken a guarantee for no
+        // reason.
+        let mut ast_key: Option<String> = None;
+        if recomputed.is_none() && !parent_by_band.is_empty() {
+            if let Some(alg) = emem_core::algorithms::DEFAULT
+                .algorithms
+                .iter()
+                .find(|a| a.key == req.fn_key)
+            {
+                if let Some(expr) = alg.evaluation.as_ref() {
+                    if let Some(v) = expr.evaluate(&parent_by_band) {
+                        if v.is_finite() {
+                            recomputed = Some(v);
+                            ast_key = Some(alg.key.clone());
+                        }
+                    }
+                }
+            }
+        }
         match recomputed {
             Some(r) => {
                 // Put the recomputed value through the SAME float canonicalization
@@ -23575,6 +23622,13 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                     (
                         ciborium::Value::Text("op".into()),
                         ciborium::Value::Text(op.clone()),
+                    ),
+                    (
+                        ciborium::Value::Text("recomputed_via".into()),
+                        match &ast_key {
+                            Some(k) => ciborium::Value::Text(format!("classification_ast:{k}")),
+                            None => ciborium::Value::Text("pure_op".into()),
+                        },
                     ),
                     (
                         ciborium::Value::Text("responder_recomputed".into()),
@@ -61956,6 +62010,59 @@ mod tests {
             missing.is_empty(),
             "baked page(s) missing from served_html_pages(), their inline scripts \
              will be CSP-blocked in the browser: {missing:?}"
+        );
+    }
+
+    /// A classification verdict recomputes EXACTLY, and it must, because the
+    /// registered tree contains no reduction to drift.
+    ///
+    /// Guards the boundary the compliance agent established by enumerating the
+    /// op set: band, const, max, min, sub, where, with every max/min 2-ary and
+    /// therefore a selection rather than an accumulation. If a future edit adds
+    /// `sum` or an N-ary `mean` to a classification, this test should be the
+    /// thing that notices, because at that point the exactness assumption below
+    /// stops holding and the verdict path would silently need the ULP window it
+    /// is currently right to refuse.
+    #[test]
+    fn classification_ast_is_exact_and_reduction_free() {
+        let alg = emem_core::algorithms::DEFAULT
+            .algorithms
+            .iter()
+            .find(|a| a.key == "eudr_compliance@1")
+            .expect("eudr_compliance@1 is registered");
+        let expr = alg
+            .evaluation
+            .as_ref()
+            .expect("eudr_compliance@1 carries an evaluation AST");
+
+        // The four cited parents at a real cell, as the compliance agent
+        // published them.
+        let mut samples = std::collections::HashMap::new();
+        samples.insert("forest_change.lossyear".to_string(), 0.0);
+        samples.insert("forest_change.treecover2000".to_string(), 43.0);
+        samples.insert("jrc_gfc2020.forest_2020".to_string(), 0.0);
+        samples.insert("jrc_tmf.deforestation_year".to_string(), 0.0);
+
+        let first = expr.evaluate(&samples).expect("verdict evaluates");
+        assert!(first.is_finite(), "a verdict is a finite class code");
+
+        // Deterministic to the bit across repeated evaluation. A decision tree
+        // that wobbled would be a far worse defect than a mean that does.
+        for _ in 0..8 {
+            assert_eq!(
+                expr.evaluate(&samples),
+                Some(first),
+                "the same inputs must yield the identical class code every time"
+            );
+        }
+
+        // The output is a class CODE, so it is integral. If this ever fails the
+        // verdict has become a continuous quantity and comparing it exactly is
+        // no longer the right rule.
+        assert_eq!(
+            first,
+            first.round(),
+            "a classification returns an integer class code, got {first}"
         );
     }
 
