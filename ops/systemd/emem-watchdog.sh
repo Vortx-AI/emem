@@ -13,24 +13,53 @@
 # in $XDG_RUNTIME_DIR so it survives between timer firings but resets on reboot.
 set -u
 
-HEALTH="${EMEM_WATCHDOG_URL:-http://127.0.0.1:5051/health}"
+# LIVENESS is probed with /live, not /health, and the difference is the whole
+# point of this file.
+#
+# /health reports corpus statistics and pays for a storage.scan_index pass to do
+# it. Measured on this host: 80 ms idle, 905 ms under twenty concurrent recalls,
+# and it degrades further under a materialize storm or a cold bake. /live touches
+# no storage at all and costs about 0.5 ms under the same load, a difference of
+# roughly three orders of magnitude.
+#
+# Both run on the same tokio runtime, so a genuine runtime stall stops BOTH. That
+# makes /live strictly the better liveness signal: it still fails when the server
+# is actually wedged, and it does not fail merely because a corpus scan got slow
+# while the server was serving traffic normally.
+#
+# This matters because for 235 snapshots this watchdog probed /health and killed
+# the process when a scan exceeded 8 s. Every one of those snapshots shows a
+# socket profile indistinguishable from a healthy host, normal memory, and every
+# thread sleeping rather than blocked. An unknown number of the "wedges" in that
+# record are very likely this watchdog SIGKILLing a working server.
+#
+# /health is still probed, as a DIAGNOSTIC only. When /live answers and /health
+# does not, that is recorded and nothing is restarted, which is exactly the case
+# that was previously indistinguishable from a stall.
+LIVE="${EMEM_WATCHDOG_URL:-http://127.0.0.1:5051/live}"
+HEALTH="${EMEM_WATCHDOG_HEALTH_URL:-http://127.0.0.1:5051/health}"
 THRESHOLD="${EMEM_WATCHDOG_THRESHOLD:-2}"
 TIMEOUT="${EMEM_WATCHDOG_TIMEOUT:-8}"
+HEALTH_TIMEOUT="${EMEM_WATCHDOG_HEALTH_TIMEOUT:-20}"
 STATE="${XDG_RUNTIME_DIR:-/tmp}/emem_watchdog_fails"
 
 fails=$(cat "$STATE" 2>/dev/null || echo 0)
 case "$fails" in ''|*[!0-9]*) fails=0 ;; esac
 
-if curl -fsS -m "$TIMEOUT" "$HEALTH" >/dev/null 2>&1; then
-  # Healthy — reset the counter.
-  [ "$fails" -ne 0 ] && echo "emem-watchdog: /health recovered after $fails miss(es)"
+if curl -fsS -m "$TIMEOUT" "$LIVE" >/dev/null 2>&1; then
+  # The runtime is serving. Reset, then note whether the expensive probe is
+  # struggling: that is a load signal worth having, not a reason to kill.
+  [ "$fails" -ne 0 ] && echo "emem-watchdog: /live recovered after $fails miss(es)"
   echo 0 >"$STATE"
+  if ! curl -fsS -m "$HEALTH_TIMEOUT" "$HEALTH" >/dev/null 2>&1; then
+    echo "emem-watchdog: /live OK but /health exceeded ${HEALTH_TIMEOUT}s — corpus scan is slow under load, NOT restarting (this is the case that used to trigger a false restart)"
+  fi
   exit 0
 fi
 
 fails=$((fails + 1))
 echo "$fails" >"$STATE"
-echo "emem-watchdog: /health did not respond within ${TIMEOUT}s (${fails}/${THRESHOLD})"
+echo "emem-watchdog: /live did not respond within ${TIMEOUT}s (${fails}/${THRESHOLD}) — this is a real runtime stall, /live touches no storage"
 
 # Snapshot the wedged process before restarting it. Every restart so far
 # has destroyed the evidence, which is why the stall root cause is still

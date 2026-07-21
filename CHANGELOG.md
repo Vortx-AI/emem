@@ -81,39 +81,48 @@ and every new request field defaults to the previous behaviour when absent.
 - Agent handoff notes moved out of the repository root into
   `.well-known/agent-notes/`.
 
-### Known operational issue: the runtime can wedge under load
+### Known operational issue: restarts under load, cause partly identified
 
 **Read this before depending on emem for anything with a deadline.**
 
 "Stable" here means the interface contract holds: receipts verify across
-versions, tokens keep resolving, changes are additive. It does not yet mean the
-service never stalls, and it would be dishonest to let the version number imply
-that.
+versions, tokens keep resolving, changes are additive. It does not mean the
+service never restarts, and it would be dishonest to let the version number
+imply that.
 
-Under load the tokio runtime can stop accepting connections. The process stays
-alive, memory is normal, every thread is sleeping rather than blocked on disk,
-and new connections sit unaccepted in the listen queue. Because nothing is
-accepted, even `/live` and `/health` stop answering despite being deliberately
-exempt from the concurrency limiter: route-level exemption cannot help a
-connection that was never accepted.
+`var/wedge/` holds **235 snapshots since 2026-07-03**, roughly 1 to 7 a day. A
+watchdog restarts the unit within about 30 seconds, so this presents as
+intermittent slowness rather than an outage, and the systemd restart counter
+stays at 0 because the watchdog restarts the *service*, not a crashed process.
 
-- `var/wedge/` holds **235 snapshots since 2026-07-03**, roughly 1 to 7 a day.
-- A watchdog timer restarts the unit within about 30 seconds, which is why this
-  presents as intermittent slowness rather than an outage, and why the systemd
-  restart counter stays at 0: the watchdog restarts the *service*, not a
-  crashed process.
-- **Root cause is not yet confirmed.** Backtrace capture was broken for all 231
-  earlier snapshots (`ptrace_scope=1` refused the unprivileged attach), so the
-  evidence needed to name the cause did not exist. That capture was repaired on
-  2026-07-20, so the next occurrence should finally produce a usable backtrace.
-- The leading suspect is a blocking lazy initializer reachable from request
-  handlers: `TopicRouter::global()` is a `std::sync::OnceLock`, and
-  `get_or_init` parks every other caller until the initializer returns. Called
-  from enough concurrent requests while cold, that starves the worker pool and
-  the accept loop with it. Consistent with the observed signature, not proven.
+**A previous version of this section described these as a tokio runtime wedge in
+which connections sat unaccepted in the listen queue. That description was
+wrong, and the error was ours.** It came from reading the socket counts in the
+snapshots as emem's own. They are not: the watchdog captured them with `ss -tan`,
+which has no process filter, so `LISTEN 24` is the number of listening sockets on
+the entire host, not connections queued against emem. Compared against a healthy
+host, every snapshot's socket profile is ordinary: LISTEN identical, ESTAB and
+TIME-WAIT within normal range, memory normal, and every thread sleeping rather
+than blocked on disk.
 
-This affects the published container as well as the hosted service, so anyone
-self-hosting inherits it. If uptime matters to you, run the watchdog.
+What the record actually supports is narrower: **`/health` did not answer within
+8 seconds, twice in a row, and the process was then killed.**
+
+The likely cause of at least some of those restarts is now identified, and it is
+the watchdog itself. It probed `/health`, which reports corpus statistics and
+pays for a `storage.scan_index` pass to do it. Measured on the serving host:
+80 ms idle, **905 ms under twenty concurrent recalls**, and worse under a
+materialize storm. `/live` touches no storage and costs about 0.5 ms under the
+same load. Both share the tokio runtime, so a genuine stall stops both, which
+makes `/live` strictly the better liveness signal. The watchdog now probes
+`/live` and keeps `/health` as a diagnostic: when `/live` answers and `/health`
+does not, that is logged and nothing is restarted.
+
+**How many of the 235 were real stalls is unknown**, and will stay unknown for
+the earlier ones: backtrace capture was broken for all of them, so no stack was
+ever recorded. That capture is now verified working. If genuine stalls remain
+after this change, the next one will finally produce evidence instead of a
+guess.
 
 ### Known gaps, stated rather than omitted
 - The third-party benchmark is marked SAMPLE. It has no independent
