@@ -154,7 +154,7 @@ jobs:
           JS
 
       # Importing the packed tarball out of a fresh project is the only
-      # check that matches `npm install @vortx-ai/emem`. Typechecking the
+      # check that matches `npm install @vortxai/emem`. Typechecking the
       # source tree, which is all CI would ever do, passes whether or not
       # the published package contains anything.
       - name: an installed tarball imports
@@ -172,7 +172,7 @@ jobs:
           node -e "const p=require('./package.json');p.type='module';require('fs').writeFileSync('package.json',JSON.stringify(p))"
           npm install --no-audit --no-fund "$TARBALL"
           EXPECTED="$EXPECTED" node --input-type=module -e '
-            import { Client, EmemError, EmemHTTPError, VERSION } from "@vortx-ai/emem";
+            import { Client, EmemError, EmemHTTPError, VERSION } from "@vortxai/emem";
             if (VERSION !== process.env.EXPECTED) {
               throw new Error(`installed VERSION ${VERSION} != package.json ${process.env.EXPECTED}`);
             }
