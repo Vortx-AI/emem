@@ -22718,7 +22718,68 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
             ));
         }
     }
-    let provenance = band_key.map(provenance_for_band).unwrap_or(JsonValue::Null);
+    // Provenance of the BAND, which is not the same thing as provenance of a
+    // DERIVATION, and conflating them was a real trust defect.
+    //
+    // `provenance_for_band` answers "how are values in this band produced" and
+    // for `indices.ndvi` that is `deterministic_index`. A caller-submitted
+    // derivative carries the band of its parents, so a `max` a caller computed
+    // themselves, that this responder never re-ran, resolved with
+    // `provenance.class = deterministic_index`. A third party checking the one
+    // field that means "the responder verified this" was told yes when the
+    // answer was no. Found by minting a non-tier-1 op and a tier-1 op and
+    // getting the same class back for both.
+    //
+    // For a derivative the block now describes the derivation: what the attester
+    // declared, whether this responder actually re-ran it, and the class that
+    // follows from that. The band's own class stays, under its own key, because
+    // it is still useful and it is still true.
+    let mut provenance = band_key.map(provenance_for_band).unwrap_or(JsonValue::Null);
+    if let emem_fact::Fact::Derivative(d) = &fact {
+        // `args` is CBOR, so walk the map rather than indexing like JSON.
+        fn cbor_get<'a>(v: &'a ciborium::Value, key: &str) -> Option<&'a ciborium::Value> {
+            match v {
+                ciborium::Value::Map(entries) => entries.iter().find_map(|(k, val)| {
+                    matches!(k, ciborium::Value::Text(t) if t == key).then_some(val)
+                }),
+                _ => None,
+            }
+        }
+        let args = d.derivation.args.as_ref();
+        let recomputation = args.and_then(|a| cbor_get(a, "recomputation"));
+        let verified = recomputation
+            .and_then(|r| cbor_get(r, "verified"))
+            .and_then(|v| match v {
+                ciborium::Value::Bool(b) => Some(*b),
+                _ => None,
+            })
+            .unwrap_or(false);
+        let declared = recomputation
+            .and_then(|r| cbor_get(r, "declared_provenance_class"))
+            .or_else(|| args.and_then(|a| cbor_get(a, "provenance_class")))
+            .and_then(|v| match v {
+                ciborium::Value::Text(t) => Some(t.clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "model_output".to_string());
+        let band_class = provenance
+            .get("class")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unclassified")
+            .to_string();
+        provenance = json!({
+            "class": if verified { "deterministic_index" } else { declared.as_str() },
+            "declared_by_attester": declared,
+            "responder_recomputed": verified,
+            "band_class": band_class,
+            "applies_to": "derivation",
+            "note": if verified {
+                "This responder re-ran the derivation over the cited parents and reproduced the value. `class` is what the responder verified, not what the attester claimed."
+            } else {
+                "This responder did NOT re-run this derivation, so `class` is only what the attester declared. `band_class` describes how values in this band are normally produced and says nothing about this caller's arithmetic. Recomputation requires a pinned `code_cid` and a tier-1 pure op (delta, mean, sum)."
+            },
+        });
+    }
 
     let fact_json = serde_json::to_value(&fact).unwrap_or(json!({}));
     let fact_url = format!("https://emem.dev/v1/facts/{}", cid);
@@ -24297,10 +24358,19 @@ async fn post_memory_bundle(
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
 
+    // Coverage, stated at mint time. A member with no fact carries a
+    // `miss_reason`, but a caller who reads `bundle_token` and hands the bundle
+    // on never sees it. These two numbers make partial coverage impossible to
+    // miss without having to walk the citations.
+    let members = citations.len();
+    let resolved = citations.iter().filter(|c| c.fact_cid.is_some()).count();
+
     let resp = BundleResp {
         bundle_token: format!("emem:bundle:{}", bundle_cid),
         bundle_cid: bundle_cid.clone(),
         schema: "emem.memory_bundle.v1".to_string(),
+        members,
+        resolved,
         citations,
         fact_cids,
         cells,
@@ -24987,7 +25057,7 @@ async fn get_memory_bundle(
         )
     })?;
 
-    let resp: BundleResp = ciborium::de::from_reader(&bytes[..]).map_err(|e| {
+    let mut resp: BundleResp = ciborium::de::from_reader(&bytes[..]).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
@@ -24997,6 +25067,18 @@ async fn get_memory_bundle(
             },
         )
     })?;
+    // Recomputed from the citations rather than read from the stored body.
+    // Bundles minted before these fields existed decode with zeros, and a
+    // coverage count that silently reads 0/0 for older bundles is worse than
+    // not reporting one: it would say "nothing resolved" about a bundle whose
+    // members all resolve. Deriving it here means the number is true for every
+    // bundle regardless of when it was minted.
+    resp.members = resp.citations.len();
+    resp.resolved = resp
+        .citations
+        .iter()
+        .filter(|c| c.fact_cid.is_some())
+        .count();
     Ok(Json(resp))
 }
 

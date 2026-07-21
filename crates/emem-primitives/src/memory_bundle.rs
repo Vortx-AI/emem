@@ -106,6 +106,19 @@ pub struct BundleResp {
     pub schema: String,
     /// One citation per triple in the same order as the request.
     pub citations: Vec<BundleCitation>,
+    /// How many members resolved to a fact, and how many did not.
+    ///
+    /// A bundle mints happily over triples this responder holds no fact for:
+    /// those members come back with `fact_cid: null` and a `miss_reason`, which
+    /// is honest but easy to miss when a caller reads `bundle_token` and moves
+    /// on. Coverage is stated here so under-coverage is visible at MINT time
+    /// rather than discovered later at resolve time, when the bundle has
+    /// already been handed to someone else. `resolved == members` means every
+    /// citation in this bundle can be dereferenced and verified.
+    #[serde(default)]
+    pub members: usize,
+    #[serde(default)]
+    pub resolved: usize,
     /// Convenience array of every fact_cid in the bundle, dedup-stable
     /// on first appearance.
     pub fact_cids: Vec<String>,
