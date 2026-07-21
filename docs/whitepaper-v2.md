@@ -1155,8 +1155,8 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **121 documented REST paths under `/v1/*`** (126 total
-in OpenAPI) and **101 MCP tools (14 core, 87 extended)**.
+`0.0.0.0:5051`): **122 documented REST paths under `/v1/*`** (127 total
+in OpenAPI) and **102 MCP tools (15 core, 87 extended)**.
 
 Discovery on first contact:
 
@@ -1177,7 +1177,7 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **8 of 101 tools are write
+responder refutes it from its own annotations: **8 of 102 tools are write
 tools**. `memory_create`, `memory_str_replace`, `memory_insert`,
 `memory_delete`, and `memory_rename` are destructive; `emem_entity`,
 `emem_entity_link`, and `emem_derive` are non-destructive writes. An
@@ -1187,13 +1187,13 @@ without touching REST.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 101 cost about 243 KB of every conversation whether or not it
+connect. All 102 cost about 243 KB of every conversation whether or not it
 ever touches Earth observation, and a third party measured exactly that
-and called it overhead. So `POST /mcp` advertises the 14 tools of the core
-loop, about 40 KB, and `POST /mcp/full` advertises all 101.
+and called it overhead. So `POST /mcp` advertises the 15 tools of the core
+loop, about 40 KB, and `POST /mcp/full` advertises all 102.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
-101 by name at either endpoint**, and an explicit
+102 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure

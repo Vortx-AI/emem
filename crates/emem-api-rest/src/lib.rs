@@ -447,6 +447,14 @@ const DOCS_DIAGRAMS: &[(&str, &str)] = &[
         "36-memory-outlives-the-context-window.svg",
         include_str!("../../../docs/diagrams/36-memory-outlives-the-context-window.svg"),
     ),
+    (
+        "37-change-decomposition.svg",
+        include_str!("../../../docs/diagrams/37-change-decomposition.svg"),
+    ),
+    (
+        "38-agent-to-token.svg",
+        include_str!("../../../docs/diagrams/38-agent-to-token.svg"),
+    ),
 ];
 
 const EXAMPLE_CLAUDE_DESKTOP: &str = include_str!("../../../examples/claude-desktop.json");
@@ -831,8 +839,10 @@ pub fn router(state: AppState) -> Router {
         .route("/how-it-works", get(serve_how_it_works))
         .route("/solutions", get(serve_solutions))
         .route("/reference", get(serve_reference))
-        // Visual gallery — live scenes, coverage map, 32 diagrams. Both
-        // /docs/gallery (canonical) and /gallery (short link) resolve.
+        // The living atlas: type a place, get its signed facts rendered.
+        // It carried the label "coverage map" on 14 footers for a while after
+        // it stopped being one. Both /docs/gallery (canonical) and /gallery
+        // (short link) resolve.
         .route("/docs/gallery", get(serve_gallery_html))
         .route("/gallery", get(serve_gallery_html))
         // Protocol + industry diagrams suite. Same HTML at both paths so
@@ -2847,10 +2857,44 @@ fn has_src_attr(open_tag: &str) -> bool {
 /// `<style>` body across every served HTML page. Results are sorted so
 /// the CSP header string is byte-identical across restarts (helpful
 /// for CDN cache keys and audit diffs).
+/// Every `.html` file baked into `DOCS_BOOK`, at any depth.
+///
+/// The mdbook tree arrives through `include_dir!`, not `include_str!`, so it
+/// is invisible to `served_html_pages()` and was invisible to the CSP hash
+/// pass along with it. The consequence was live and total: all six of
+/// mdbook's inline bootstrap scripts were blocked on every one of the doc
+/// pages, which killed search, theme persistence and the sidebar toggle on
+/// the surface every page's nav labels "Docs". The pages rendered, so nothing
+/// looked broken from the outside.
+///
+/// Deduplication makes this cheap. mdbook emits byte-identical bootstrap
+/// blocks on every chapter, so the whole book contributes a handful of
+/// distinct hashes rather than one per page.
+fn docs_book_html_pages() -> Vec<&'static str> {
+    fn collect(dir: &'static include_dir::Dir<'static>, out: &mut Vec<&'static str>) {
+        for f in dir.files() {
+            if f.path().extension().and_then(|e| e.to_str()) == Some("html") {
+                if let Some(text) = f.contents_utf8() {
+                    out.push(text);
+                }
+            }
+        }
+        for sub in dir.dirs() {
+            collect(sub, out);
+        }
+    }
+    let mut out = Vec::new();
+    collect(&DOCS_BOOK, &mut out);
+    out
+}
+
 fn collect_inline_hashes() -> (Vec<String>, Vec<String>) {
     let mut scripts = std::collections::BTreeSet::new();
     let mut styles = std::collections::BTreeSet::new();
-    for page in served_html_pages() {
+    for page in served_html_pages()
+        .into_iter()
+        .chain(docs_book_html_pages())
+    {
         extract_inline_blocks(page, "script", |open_tag, body| {
             if has_src_attr(open_tag) {
                 return;
@@ -3029,9 +3073,11 @@ async fn serve_clients_md() -> Response {
     text_response("text/markdown; charset=utf-8", CLIENTS_MD)
 }
 
-/// `/docs/gallery` — visual gallery combining live-rendered scenes,
-/// the global coverage map, and the thirty-two protocol/industry
-/// diagrams. The page is self-contained HTML; every image embedded in
+/// `/docs/gallery` — the living atlas: a reader types a place and gets
+/// its signed facts rendered live. It is NOT the coverage map (that is
+/// the `emem_coverage_map` MCP tool) and it does not embed the diagram
+/// set; both were described here long after the page stopped doing
+/// either. The page is self-contained HTML; every image embedded in
 /// the page is a URL on this responder (so right-clicking → "open
 /// image in new tab" produces a permalink that any other emem agent
 /// can fetch and verify).
@@ -62088,6 +62134,97 @@ mod tests {
             missing.is_empty(),
             "baked page(s) missing from served_html_pages(), their inline scripts \
              will be CSP-blocked in the browser: {missing:?}"
+        );
+    }
+
+    /// Every diagram on disk is baked into the binary.
+    ///
+    /// Two were not. `37-change-decomposition.svg` and `38-agent-to-token.svg`
+    /// sat in `docs/diagrams/` and returned 404 from the served route, while
+    /// three pages advertised a diagram count that matched neither the disk nor
+    /// the binary. Adding an SVG and forgetting the `include_str!` is silent:
+    /// nothing fails to compile and the gap only shows as a broken image.
+    #[test]
+    fn every_diagram_on_disk_is_baked_in() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/diagrams");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .expect("docs/diagrams is readable from the crate")
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".svg"))
+            .collect();
+        on_disk.sort();
+        assert!(
+            on_disk.len() >= 30,
+            "expected to find the diagram set on disk, found {}",
+            on_disk.len()
+        );
+        let baked: std::collections::BTreeSet<&str> =
+            DOCS_DIAGRAMS.iter().map(|(name, _)| *name).collect();
+        let missing: Vec<&String> = on_disk
+            .iter()
+            .filter(|n| !baked.contains(n.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "diagram(s) on disk but not baked into DOCS_DIAGRAMS, so /docs/diagrams/<name> \
+             returns 404: {missing:?}"
+        );
+    }
+
+    /// Every inline script we actually SERVE must be allowed by the CSP we
+    /// actually SEND, whichever mechanism baked the page.
+    ///
+    /// The sibling test above reads this file as source text and can only
+    /// recognise `include_str!`, so the mdbook tree (`include_dir!`) was
+    /// structurally invisible to it. All six of mdbook's bootstrap scripts
+    /// shipped blocked on every doc page: search, theme persistence and the
+    /// sidebar toggle were dead on the surface every page's nav labels "Docs",
+    /// and because the pages still rendered, nothing looked wrong.
+    ///
+    /// A source-shape test cannot catch that class of bug. This one asserts
+    /// the output instead: hash what the server would send, check it against
+    /// the header it would send with it. A page added by any future mechanism
+    /// is covered without anyone remembering to extend a list.
+    #[test]
+    fn every_inline_script_we_serve_is_allowed_by_the_csp() {
+        let csp = csp_header_value()
+            .to_str()
+            .expect("CSP header is ASCII")
+            .to_string();
+        let mut missing: Vec<String> = Vec::new();
+        let pages = served_html_pages()
+            .into_iter()
+            .map(|p| ("web", p))
+            .chain(docs_book_html_pages().into_iter().map(|p| ("docs", p)))
+            .collect::<Vec<_>>();
+        // A test that silently covers nothing passes forever. If the mdbook
+        // tree is missing or the walker stops finding it, say so here rather
+        // than reporting green over an empty set.
+        let docs_pages = pages.iter().filter(|(o, _)| *o == "docs").count();
+        assert!(
+            docs_pages >= 10,
+            "expected the embedded mdbook tree to contribute pages to the CSP \
+             pass, found {docs_pages}. Run `mdbook build` in docs/ and rebuild."
+        );
+        for (origin, page) in pages {
+            extract_inline_blocks(page, "script", |open_tag, body| {
+                if has_src_attr(open_tag) || body.trim().is_empty() {
+                    return;
+                }
+                let token = format!("'sha256-{}'", sha256_b64(body));
+                if !csp.contains(&token) {
+                    let head: String = body.trim().chars().take(52).collect();
+                    missing.push(format!("[{origin}] {head}"));
+                }
+            });
+        }
+        missing.sort();
+        missing.dedup();
+        assert!(
+            missing.is_empty(),
+            "inline script(s) served but NOT in the CSP, so the browser will \
+             silently refuse to run them: {missing:#?}"
         );
     }
 

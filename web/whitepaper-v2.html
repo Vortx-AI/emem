@@ -652,7 +652,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <section id="s11">
       <a id="11-the-agent-discoverable-surface" class="anchor-alias"></a>
       <h2><span class="num">11</span>The agent-discoverable surface</h2>
-      <p><code>emem-server</code> serves HTTP/REST and MCP JSON-RPC on one port (default <code>0.0.0.0:5051</code>): <strong>121 documented REST paths under <code>/v1/*</code></strong> (126 total in OpenAPI) and <strong>101 MCP tools (14 core, 87 extended)</strong>.</p>
+      <p><code>emem-server</code> serves HTTP/REST and MCP JSON-RPC on one port (default <code>0.0.0.0:5051</code>): <strong>122 documented REST paths under <code>/v1/*</code></strong> (127 total in OpenAPI) and <strong>102 MCP tools (15 core, 87 extended)</strong>.</p>
       <p>Discovery on first contact:</p>
       <div class="code"><div class="code-head"><span class="lang">text</span></div><pre><code>  1. GET  /.well-known/emem.json         responder pubkey + capabilities
   2. GET  /.well-known/mcp.json          MCP transport advertisement
@@ -665,10 +665,10 @@ input::placeholder{color:var(--mute,#7a7363)}
   7. POST /v1/locate {q:"&lt;place&gt;"}       -&gt; cell64
   8. POST /v1/recall                     -&gt; signed facts + receipt</code></pre></div>
       <h3>11.1 MCP tools are not read-only</h3>
-      <p>v1 of this document stated that MCP tools are a strict read-only subset of REST and that writes go through REST only. That is false, and the responder refutes it from its own annotations: <strong>8 of 101 tools are write tools</strong>. <code>memory_create</code>, <code>memory_str_replace</code>, <code>memory_insert</code>, <code>memory_delete</code>, and <code>memory_rename</code> are destructive; <code>emem_entity</code>, <code>emem_entity_link</code>, and <code>emem_derive</code> are non-destructive writes. An agent can attest, mint an identity, and register a derivation over MCP without touching REST.</p>
+      <p>v1 of this document stated that MCP tools are a strict read-only subset of REST and that writes go through REST only. That is false, and the responder refutes it from its own annotations: <strong>8 of 102 tools are write tools</strong>. <code>memory_create</code>, <code>memory_str_replace</code>, <code>memory_insert</code>, <code>memory_delete</code>, and <code>memory_rename</code> are destructive; <code>emem_entity</code>, <code>emem_entity_link</code>, and <code>emem_derive</code> are non-destructive writes. An agent can attest, mint an identity, and register a derivation over MCP without touching REST.</p>
       <h3>11.2 Tiering is a listing decision, not a capability decision</h3>
-      <p>An MCP host loads every advertised descriptor into the model's context at connect. All 101 cost about 243 KB of every conversation whether or not it ever touches Earth observation, and a third party measured exactly that and called it overhead. So <code>POST /mcp</code> advertises the 14 tools of the core loop, about 40 KB, and <code>POST /mcp/full</code> advertises all 101.</p>
-      <p>Narrowing discovery removes no capability: <strong><code>tools/call</code> dispatches all 101 by name at either endpoint</strong>, and an explicit <code>{"tier":"core"|"extended"|"all"}</code> overrides the endpoint default. A tool absent from a list is still callable. This matters because a tool an agent cannot see is a tool it concludes does not exist, and the failure mode of a 243 KB dump is the same conclusion reached for a different reason: the agent stops reading.</p>
+      <p>An MCP host loads every advertised descriptor into the model's context at connect. All 102 cost about 243 KB of every conversation whether or not it ever touches Earth observation, and a third party measured exactly that and called it overhead. So <code>POST /mcp</code> advertises the 15 tools of the core loop, about 40 KB, and <code>POST /mcp/full</code> advertises all 102.</p>
+      <p>Narrowing discovery removes no capability: <strong><code>tools/call</code> dispatches all 102 by name at either endpoint</strong>, and an explicit <code>{"tier":"core"|"extended"|"all"}</code> overrides the endpoint default. A tool absent from a list is still callable. This matters because a tool an agent cannot see is a tool it concludes does not exist, and the failure mode of a 243 KB dump is the same conclusion reached for a different reason: the agent stops reading.</p>
       <p><code>emem_tools</code> is itself core and maps the rest. With no arguments it returns the core loop in order plus a bundle and shape menu in about 6 KB. <code>{"name":"emem_ndvi"}</code> returns one tool's input schema and a runnable example in about 2 KB. <code>{"q":"ndvi"}</code> searches.</p>
       <p>Every tool declares exactly one <strong>shape</strong> and any number of overlapping <strong>bundles</strong> in MCP-standard <code>_meta</code>, as <code>dev.emem/shape</code> and <code>dev.emem/bundles</code>. Shape is the form of the answer, because "which tool do I use" is nearly always a question about the shape of the answer rather than its topic: <code>scalar</code>, <code>timeseries</code>, <code>raster</code>, <code>geometry</code>, <code>vector</code>, <code>identity</code>, <code>token</code>, <code>proof</code>, <code>plan</code>, <code>file</code>, <code>catalog</code>. A bundle is a view by job: <code>tokenisation</code>, <code>verification</code>, <code>agent_to_agent</code>, <code>long_horizon</code>, <code>robotics</code>, <code>satellites</code>, <code>agriculture</code>, <code>forestry</code>, <code>climate_risk</code>. Both filter <code>emem_tools</code>, and bundle filters <code>tools/list</code> itself.</p>
       <h3>11.3 The agent-to-agent collaboration</h3>
@@ -876,8 +876,8 @@ input::placeholder{color:var(--mute,#7a7363)}
           <li><a href="/docs/">docs (full book + search)</a></li>
           <li><a href="/spec.md">spec.md</a></li>
           <li><a href="/whitepaper">whitepaper</a></li>
-          <li><a href="/docs/diagrams">32 diagrams</a></li>
-          <li><a href="/docs/gallery">live coverage map</a></li>
+          <li><a href="/docs/diagrams">37 diagrams</a></li>
+          <li><a href="/docs/gallery">the living atlas</a></li>
         </ul>
       </div>
       <div class="foot-col">

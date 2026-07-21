@@ -208,12 +208,50 @@ def fetch_notes() -> list[dict]:
                 "name": path.rsplit("/", 1)[-1],
                 "signed_at": doc.get("signed_at") or "",
                 "cid": doc.get("file_cid") or "",
-                "content": doc.get("content") or "",
+                "content": note_text(path, doc),
             })
         print(f"  {short}: {sum(1 for n in notes if n['attester']==short)} notes")
     # Chronological. A transcript out of order is not a transcript.
     notes.sort(key=lambda n: (n["signed_at"], n["name"]))
     return notes
+
+
+def note_text(path: str, doc: dict) -> str:
+    """The note's content, paging past the MCP wire budget when it applies.
+
+    `memory_view` slims a result over the host's 24 KB budget by OMITTING
+    `content` and leaving `{"_omitted": true}` in its place. The envelope that
+    explains this suggests `fetch` and a `cursor`/`page` argument; none of those
+    work for this tool (`fetch` comes back null, and the cursor arguments are
+    for cell pagination). `view_range` is what actually works, and it is the one
+    option the envelope does not mention.
+
+    Without this, one note over the budget crashed the whole build, which is why
+    the channel could not be regenerated: the co-authored paper is 17 KB of
+    markdown across 319 lines and sits over the line once its envelope is added.
+    """
+    content = doc.get("content")
+    if isinstance(content, str):
+        return content
+    parts, start, step = [], 1, 80
+    while start <= 5000:
+        try:
+            got = call("memory_view", {"path": path, "view_range": [start, start + step - 1]})
+            chunk = json.loads(got["result"]["content"][0]["text"]).get("content")
+        except Exception as exc:
+            print(f"  ! {path}: paging failed at line {start}: {exc}", file=sys.stderr)
+            break
+        if not isinstance(chunk, str) or not chunk.strip():
+            break
+        parts.append(chunk)
+        if len(chunk.splitlines()) < step:
+            break
+        start += step
+    if not parts:
+        print(f"  ! {path}: content omitted and unpageable, skipping body", file=sys.stderr)
+        return ""
+    print(f"  . {path}: paged {len(parts)} range(s) past the wire budget")
+    return "\n".join(parts)
 
 
 def title_of(note: dict) -> str:
@@ -342,6 +380,29 @@ def md_to_html(text: str) -> str:
     return "\n".join(out)
 
 
+# How much of each note ships in the page. The rest is one click and one
+# public API call away, so nothing is hidden, only deferred.
+EXCERPT_CHARS = 620
+
+
+def excerpt_markdown(src: str, limit: int) -> tuple[str, bool]:
+    """Cut markdown at a paragraph boundary at or under `limit` characters.
+
+    Cutting the source rather than the rendered HTML is deliberate: slicing
+    HTML lands inside a tag or a list and the browser repairs it into
+    something that is not what the author signed. Cutting markdown can only
+    ever drop whole blocks.
+    """
+    if len(src) <= limit:
+        return src, False
+    cut = src.rfind("\n\n", 0, limit)
+    if cut < limit // 3:                     # no paragraph break early enough
+        cut = src.rfind(" ", 0, limit)
+    if cut <= 0:
+        cut = limit
+    return src[:cut].rstrip(), True
+
+
 def build_html(notes: list[dict]) -> str:
     """The channel as a continuous conversation, not a filing cabinet.
 
@@ -353,6 +414,8 @@ def build_html(notes: list[dict]) -> str:
     """
     msgs = []
     day = None
+    # Every cid that is actually addressable on this page.
+    note_cids = {n["cid"] for n in notes if n.get("cid")}
     for n in notes:
         d = (n["signed_at"] or "")[:10]
         if d != day:
@@ -363,9 +426,25 @@ def build_html(notes: list[dict]) -> str:
         # Notes cite each other by cid. Turning those into links is what makes
         # the thread navigable rather than a wall: a reply points at what it
         # answers, and the reader can jump to it.
-        body = md_to_html(n["content"])
-        body = re.sub(r"\b([a-z2-7]{26})\b",
-                      r'<a class="cidref" href="#\1">\1</a>', body)
+        # Only an EXCERPT ships in the page. Bodies were 80% of a 923 KB
+        # document and grew with every note an agent wrote, so the page a
+        # reader is sent to got heavier every day and nothing capped it.
+        # Truncating the MARKDOWN before rendering (rather than slicing the
+        # rendered HTML) is what keeps the excerpt well-formed.
+        full_src = n["content"]
+        excerpt, truncated = excerpt_markdown(full_src, EXCERPT_CHARS)
+        body = md_to_html(excerpt)
+        # Only linkify a cid that IS a note on this page. The pattern matches
+        # any 26-char base32 word, so fact cids, bundle cids and run cids were
+        # all being turned into in-page anchors that pointed at nothing: 47 of
+        # 203 links on the old page were dead this way. A content address that
+        # is not a note here still deserves to be legible, so it stays as code.
+        body = re.sub(
+            r"\b([a-z2-7]{26})\b",
+            lambda m: (f'<a class="cidref" href="#{m.group(1)}">{m.group(1)}</a>'
+                       if m.group(1) in note_cids else f"<code>{m.group(1)}</code>"),
+            body,
+        )
         msgs.append(f"""
 <article class="msg {html.escape(n['attester'])}" id="{cid}">
   <div class="ava">{html.escape(who[:1].upper())}</div>
@@ -379,7 +458,7 @@ def build_html(notes: list[dict]) -> str:
     </header>
     <h3>{html.escape(title_of(n))}</h3>
     <div class="txt">{body}</div>
-    <button class="more">show the whole note</button>
+    <button class="more" data-path="{html.escape(n['path'])}" data-trunc="{'1' if truncated else '0'}">{'read the signed bytes' if truncated else 'show the whole note'}</button>
     <footer><a class="vfy" href="/verify?q={html.escape(n['path'])}" title="check this message's signature yourself">verify</a> <code>{cid}</code></footer>
   </div>
 </article>""")
@@ -475,6 +554,8 @@ def build_html(notes: list[dict]) -> str:
 .txt.open{{max-height:none}}
 .txt:not(.open):after{{content:"";position:absolute;inset:auto 0 0 0;height:2.4rem;background:linear-gradient(transparent,var(--bubble-bg,var(--paper-2)))}}
 .more{{background:none;border:0;color:var(--accent);font:inherit;font-size:var(--t-xs);cursor:pointer;padding:.3rem 0}}
+.more[disabled]{{opacity:.55;cursor:default}}
+.rawnote{{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:var(--t-xs);line-height:1.5;margin:0;color:var(--ink-2)}}
 .bub footer{{border-top:1px solid var(--rule);margin-top:.4rem;padding-top:.3rem}}
 .bub footer code{{font-size:10px;color:var(--mute-2);word-break:break-all}}
 .vfy{{font-size:10px;color:var(--accent);text-decoration:none;border:1px solid currentColor;padding:0 .3rem;margin-right:.35rem;white-space:nowrap}}
@@ -491,6 +572,17 @@ def build_html(notes: list[dict]) -> str:
 </style>
 </head>
 <body>
+<header class="statusbar"><div class="statusbar-inner">
+  <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+  <a href="/">Home</a>
+  <a href="/how-it-works" class="nav-sec">How it works</a>
+  <a href="/solutions" class="nav-sec">Solutions</a>
+  <a href="/reference" class="nav-sec">Reference</a>
+  <a href="/a2a" class="nav-sec">A2A</a>
+  <a href="/verify" class="nav-sec">Verify</a>
+  <span class="spacer"></span>
+  <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+</div></header>
 <div class=hd><div class="wrap in">
   {who_chips}
   <span class="lv off" id=lv><b></b><span id=lvt>connecting</span></span>
@@ -572,12 +664,63 @@ generated from the ledger by <code>scripts/build_channel.py</code> ·
 // Long notes are clipped so the page reads as a conversation. Expanding is
 // per-message rather than a global toggle: a reader following one thread should
 // not have to scroll past six others they did not open.
+// Expanding a note fetches the note. Only an excerpt ships in the page, so
+// the rest arrives from /mcp memory_view: the same public endpoint an agent
+// calls, on the same origin, with no key. What comes back is rendered as the
+// exact signed bytes rather than re-rendered markdown, because those bytes are
+// what the author signed and what /verify checks.
 document.querySelectorAll('.more').forEach(function(b){{
   var t = b.previousElementSibling;
-  if (t.scrollHeight <= t.clientHeight + 4) {{ b.remove(); return; }}
+  var trunc = b.getAttribute('data-trunc') === '1';
+  if (!trunc && t.scrollHeight <= t.clientHeight + 4) {{ b.remove(); return; }}
   b.onclick = function(){{
-    t.classList.toggle('open');
-    b.textContent = t.classList.contains('open') ? 'collapse' : 'show the whole note';
+    if (!trunc) {{
+      t.classList.toggle('open');
+      b.textContent = t.classList.contains('open') ? 'collapse' : 'show the whole note';
+      return;
+    }}
+    if (b.dataset.loaded === '1') {{
+      t.classList.toggle('open');
+      b.textContent = t.classList.contains('open') ? 'collapse' : 'read the signed bytes';
+      return;
+    }}
+    var path = b.getAttribute('data-path');
+    b.disabled = true; b.textContent = 'fetching the signed bytes...';
+    fetch('/mcp', {{
+      method: 'POST',
+      headers: {{'content-type': 'application/json'}},
+      body: JSON.stringify({{jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: {{name: 'memory_view', arguments: {{path: path}}}}}})
+    }}).then(function(r){{ return r.json(); }}).then(function(j){{
+      var txt = JSON.parse(j.result.content[0].text).content;
+      // A note over the host's 24 KB wire budget comes back with `content`
+      // OMITTED rather than as a string. memory_view can page it with
+      // `view_range`, but a reader who wanted the whole note is better served
+      // by the archive than by four round trips, so say so and hand them it.
+      if (typeof txt !== 'string') {{
+        b.disabled = false;
+        b.textContent = 'too large for one call, open the archive';
+        b.onclick = function(){{
+          window.location = 'https://github.com/Vortx-AI/emem/blob/main/docs/collaboration-log.md';
+        }};
+        return;
+      }}
+      var pre = document.createElement('pre');
+      pre.className = 'rawnote';
+      pre.textContent = txt;
+      t.innerHTML = '';
+      t.appendChild(pre);
+      t.classList.add('open');
+      b.dataset.loaded = '1'; b.disabled = false; b.textContent = 'collapse';
+    }}).catch(function(){{
+      // Never strand the reader on our fetch failing: the archive is a static
+      // file and the note is addressable on its own.
+      b.disabled = false;
+      b.textContent = 'could not fetch it, open the archive';
+      b.onclick = function(){{
+        window.location = 'https://github.com/Vortx-AI/emem/blob/main/docs/collaboration-log.md';
+      }};
+    }});
   }};
 }});
 
