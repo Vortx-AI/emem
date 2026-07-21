@@ -24,6 +24,18 @@
   - [MCP servers PR](./registries/PR-modelcontextprotocol-servers.md)
 - [Federation & scale-out (design)](./federation.md)
 
+# Research
+
+<!-- These four are the record, including the parts that went against us. Order
+     matters: the scorecard states what we measured and what we refused to
+     claim, the statistics section carries the threats to validity, and the
+     collaboration log is the raw signed argument the other two are drawn from. -->
+
+- [How emem compares, and what we have not measured](./how-emem-compares.md)
+- [Benchmarks and methods](./benchmarks.md)
+- [Statistics, cost, and threats to validity](./paper-section-statistics-and-threats.md)
+- [The collaboration log](./collaboration-log.md)
+
 # Surfaces
 
 - [Agents](./agents.md)
@@ -37,7 +49,6 @@
 
 - [Errors](./errors.md)
 - [Self-host](./self-host.md)
-- [Benchmarks](./benchmarks.md)
 - [Limits and roadmap](./roadmap.md)
 - [Architecture](./developers/architecture.md)
 - [Data sources](./developers/data-sources.md)

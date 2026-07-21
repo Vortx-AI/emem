@@ -442,7 +442,7 @@ const EXAMPLES = [
     body: { token: 'emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq' } },
   { key: 'derive', method: 'POST', path: '/v1/derive',
     label: 'derive · recompute',
-    note: 'Register a derivation over signed facts. Sent with no attester, so it returns 401 with `details.how_to_sign`: the exact 32-byte digest to sign, the encoding, and a worked example, no docs trip. Because a `code_cid` is pinned on a pure op (delta), a signed submission makes the responder RE-RUN it over the cited parents and record deterministic_index on a bit-for-bit match. This is the whole write + GC-1 path in one call.',
+    note: 'Register a derivation over signed facts. Sent with no attester, so it returns 401 with `details.how_to_sign`: the exact 32-byte digest to sign, the encoding, and a worked example, no docs trip. Because a `code_cid` is pinned on a pure op (delta), a signed submission makes the responder RE-RUN it over the cited parents and record deterministic_index when it reproduces the value (exact for delta; reductions match within a stated ULP window that the receipt reports). This is the whole write + GC-1 path in one call.',
     body: { fn_key: 'same_doy_ndvi_delta@1',
             inputs: ['emem:fact:defi.zb572.xoso.zb1ec:nh25ek6yx3sktt2iirfpvik53vivulghaomodra3ovmi7ti7dgmq',
                      'emem:fact:defi.zb572.xoso.zb1ec:jwkqm6ehelmzrwupfwyq2oqotiarexr5bdrt4xbl3znuynhurqxq'],

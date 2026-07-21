@@ -75,9 +75,13 @@ arithmetic it did not perform.
 There is one way to earn `deterministic_index`: let the responder do the
 arithmetic. Pin a `code_cid` and use a pure scalar op it can reproduce
 (`delta` = `inputs[1] - inputs[0]`, `mean`, `sum`) and it re-runs the op over
-the cited parents, compares bit-for-bit under the canonical-float rule, and on
-a match records the derivation as **recomputed, not merely attributed**, with
-a recomputation receipt in the stored fact.
+the cited parents and records the derivation as **recomputed, not merely
+attributed**, with a recomputation receipt in the stored fact. `delta` is
+compared exactly. `mean` and `sum` over more than two parents are compared
+against a stated 4-ULP window, because nobody signed the sum and no
+accumulation order was specified for you to match. The receipt always names
+the `rule` that ran and the measured `ulp_gap`, so require a gap of 0 if you
+need bit-identity.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/derive -H 'content-type: application/json' -d '{

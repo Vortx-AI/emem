@@ -23742,11 +23742,21 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
                     "responder_recomputed": r,
                     "declared_provenance_class": provenance_class,
                     "effective_provenance_class": effective_provenance,
-                    "rule": "canonical_float_equality",
-                    "note": if verified {
-                        "The responder re-ran this pure op over the cited parent facts and reproduced the claimed value bit-for-bit; the derivation is recorded as deterministic_index (recomputed, not merely attributed)."
-                    } else {
-                        "The responder re-ran this pure op over the cited parent facts and did NOT reproduce the claimed value; provenance stays as declared. Check operand order (delta = inputs[1] - inputs[0]) and that the value is plain f64 arithmetic over the cited parents."
+                    // The rule that ACTUALLY ran, never a constant. This field
+                    // was hardcoded to `canonical_float_equality` while the
+                    // receipt carried the truth, so a caller reading the JSON
+                    // was told "bit-for-bit" about a comparison that had used
+                    // the window. That is the precise thing a stated tolerance
+                    // is supposed not to be, and it was found by an agent
+                    // checking the code against the prose rather than by a test.
+                    "rule": rule,
+                    "ulp_tolerance": if is_reduction { REDUCTION_ULP_TOLERANCE } else { 0 },
+                    "ulp_gap": ulp_gap,
+                    "note": match (verified, is_reduction) {
+                        (true, false) => "The responder re-ran this pure op over the cited parent facts and reproduced the claimed value bit-for-bit; the derivation is recorded as deterministic_index (recomputed, not merely attributed).",
+                        (true, true) => "The responder re-ran this reduction over the cited parent facts and reproduced the claimed value within the stated window; `ulp_gap` is the measured distance and `ulp_tolerance` the bound. A reduction over f64 has no specified accumulation order, so require ulp_gap == 0 if you need bit-identity.",
+                        (false, true) => "The responder re-ran this reduction over the cited parent facts and the result fell OUTSIDE the stated window; provenance stays as declared. `ulp_gap` is how far apart they were. A gap far above the tolerance means a different computation, not a rounding difference.",
+                        (false, false) => "The responder re-ran this pure op over the cited parent facts and did NOT reproduce the claimed value; provenance stays as declared. Check operand order (delta = inputs[1] - inputs[0]) and that the value is plain f64 arithmetic over the cited parents.",
                     },
                 }));
             }
@@ -62266,6 +62276,79 @@ mod tests {
             resp.signature_attests, DERIVE_SIGNATURE_ATTESTS_RECOMPUTED,
             "the signature supports the stronger sentence once recomputed"
         );
+    }
+
+    /// The JSON response and the signed receipt must name the SAME comparison.
+    ///
+    /// They did not. `rule` was hardcoded to `canonical_float_equality` in the
+    /// JSON while the receipt carried the real one, so a caller who read the
+    /// response was told a reduction matched "bit-for-bit" when it had matched
+    /// within a 4-ULP window. That is precisely the "says equal, means close"
+    /// failure a stated tolerance exists to avoid, and the tolerance being
+    /// honest in the receipt did not help anyone reading the other surface.
+    ///
+    /// So this pins both surfaces at once: a reduction over more than two
+    /// parents reports `reduction_ulp_window` with its bound and its measured
+    /// gap, and a `delta` still reports exact equality at tolerance zero.
+    #[tokio::test]
+    async fn the_json_response_names_the_rule_that_actually_ran() {
+        let s = test_app_state();
+        let mut inputs = seed_derive_parents(&s).await;
+        let c = seed_ndvi_fact(
+            &s,
+            DERIVE_CELL,
+            30,
+            [11u8; 32],
+            0.31,
+            0.95,
+            "2026-01-03T00:00:00Z",
+        )
+        .await;
+        inputs.push(format!("emem:fact:{DERIVE_CELL}:{c}"));
+        let (sk, _) = derive_keypair([23u8; 32]);
+
+        // three parents -> a reduction, so the window applies
+        let mut req = derive_req(inputs);
+        req.op = "sum".into();
+        req.fn_key = "ndvi_sum@1".into();
+        req.value = json!(0.40_f64 + 0.54_f64 + 0.31_f64);
+        req.code_cid = Some("blake3:ndvi_sum_ast".into());
+        req.attester = Some(sign_derive(&sk, &req));
+
+        let Json(resp) = derive_core(req, s.clone())
+            .await
+            .expect("a reduction registers");
+        let rec = resp.recomputation.expect("a pure op yields a receipt");
+        assert_eq!(rec["verified"], json!(true));
+        assert_eq!(
+            rec["rule"],
+            json!("reduction_ulp_window"),
+            "the JSON must name the comparison that ran, not a constant"
+        );
+        assert_eq!(rec["ulp_tolerance"], json!(4), "the bound is stated");
+        assert!(
+            rec["ulp_gap"].is_number(),
+            "the measured gap travels with the verdict, so a caller who needs \
+             bit-identity can demand 0: {rec}"
+        );
+
+        // and a two-operand op is still exact, at a tolerance of zero
+        let inputs2 = seed_derive_parents(&s).await;
+        let (sk2, _) = derive_keypair([24u8; 32]);
+        let mut req2 = derive_req(inputs2);
+        req2.value = json!(0.54_f64 - 0.40_f64);
+        req2.code_cid = Some("blake3:same_doy_ndvi_delta_ast".into());
+        req2.attester = Some(sign_derive(&sk2, &req2));
+
+        let Json(resp2) = derive_core(req2, s).await.expect("a delta registers");
+        let rec2 = resp2.recomputation.expect("a pure op yields a receipt");
+        assert_eq!(rec2["verified"], json!(true));
+        assert_eq!(
+            rec2["rule"],
+            json!("canonical_float_equality"),
+            "delta has nothing to accumulate, so it is compared exactly"
+        );
+        assert_eq!(rec2["ulp_tolerance"], json!(0), "and offered no tolerance");
     }
 
     /// The safety half: a `code_cid` does NOT let a caller launder a wrong

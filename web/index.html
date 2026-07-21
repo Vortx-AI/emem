@@ -754,6 +754,12 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 .who-eo{color:var(--mute);margin-top:1rem}
 
+.refut{list-style:none;margin:1.2rem 0 .4rem;padding:0;border-top:1px solid var(--rule)}
+.refut li{padding:.7rem 0;border-bottom:1px solid var(--rule);display:flex;flex-wrap:wrap;gap:.2rem 1.4rem;align-items:baseline}
+.refut .cl{flex:1 1 16rem;color:var(--mute);font-size:.92rem}
+.refut .vd{flex:1 1 20rem;color:var(--ink);font-size:.92rem}
+.refut .vd b{color:var(--warn)}
+
 .th-connect{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:.6rem;margin:2.2rem auto 0;font-family:var(--mono);font-size:.78rem;max-width:820px}
 .th-connect .tc-lbl{color:var(--mute);text-transform:uppercase;letter-spacing:.08em;font-size:.68rem}
 .th-connect code{background:var(--paper-2);border:1px solid var(--rule);padding:.35rem .6rem;color:var(--ink-2);overflow-x:auto;max-width:100%}
@@ -949,7 +955,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <div class="beat-n">1</div>
       <h3>It survives compression</h3>
       <p>The token carries the address of a fact, not the fact. When a model summarizes a long conversation and drops the numbers, the handle stays and re-hydrates the exact signed bytes.</p>
-      <div class="beat-tech">blake3 CID, canonical CBOR. About 50 tokens versus roughly 1,600 for the full signed fact, near 30x less context (measured with tiktoken).</div>
+      <div class="beat-tech">blake3 CID, canonical CBOR. About 50 tokens against roughly 1,600 for the full signed record (measured with tiktoken). Our own benchmark measured the other comparison and it goes against us: against the bare number, one token costs 5.8x more context. The saving is in bundling, not in single tokens.</div>
     </div>
     <div class="beat">
       <div class="beat-n">2</div>
@@ -2184,10 +2190,21 @@ input::placeholder{color:var(--mute,#7a7363)}
     <p class="cap">Above signatures there is a stronger class of evidence: a value the responder
     re-ran rather than merely relayed. Register a derivation over signed parents and pin the
     code that produced it, and for a pure operation the responder recomputes the arithmetic over
-    the cited parents. On a bit-for-bit match it records <code>deterministic_index</code>:
+    the cited parents. When it reproduces the value it records <code>deterministic_index</code>:
     recomputed, not attributed. Anything it cannot recompute stays <code>model_output</code>,
     which is the honest label and the common case. A value nobody can re-derive should never
     wear the same badge as one anybody can.</p>
+
+    <p class="cap">What that will not promise, because we measured it and it surprised us:
+    only operations with nothing to accumulate reproduce bit-for-bit. A sum of 32 signed
+    values lands one or two representable steps from an independent accumulation, and
+    <em>not monotonically</em>: at 5 parents it matches exactly, at 32 it does not, at 128 it
+    does again. So reductions are compared against a stated window with the measured gap
+    returned on success and on failure, and a caller who needs bit-identity asks for a gap of
+    zero and can see it. We shipped that window, removed it on a good argument, and put it
+    back when the agent who made the argument went and measured. The
+    <a href="https://github.com/Vortx-AI/emem/blob/main/docs/how-emem-compares.md">whole
+    sequence is public</a>.</p>
 
     <div class="go"><a href="/whitepaper#s8">the log, and what it does not prove &rarr;</a><a href="/verify">check a receipt &rarr;</a></div>
   </div>
@@ -2211,7 +2228,28 @@ input::placeholder{color:var(--mute,#7a7363)}
     second implementation that shares no code with the first.</p>
 
     <p class="cap">That matters if you ask two models and trust the answer when they match. It
-    fails precisely where agents share a compacted context, which is most long-horizon work.</p>
+    fails precisely where agents share a compacted context, which is most long-horizon work.
+    Agreement held at 27.8% while accuracy fell to 1.4%, one-sided Fisher exact
+    <em>p</em> = 0.035, against a control arm shown every value verbatim that never inverts.
+    Agreement does not rise under pressure. It falls more slowly than accuracy does, and the
+    widening gap is what makes it a misleading signal.</p>
+
+    <p class="cap"><strong>The benchmark was built to attack our own claims, and it landed.</strong>
+    Five things we believed going in, and what the measurement did to them:</p>
+
+    <ul class="refut">
+      <li><span class="cl">addressed memory beats plain context when the value fits</span><span class="vd"><b>refuted by our own re-scoring.</b> Both arms 284/284; the citation arm displayed a rounded value, so it measured the same skill</span></li>
+      <li><span class="cl">retrieval fails on corpora like these</span><span class="vd"><b>only dense embedding retrieval.</b> BM25 on the identical corpus: 100% hit@5, 16/16 exact, with no protocol at all</span></li>
+      <li><span class="cl">addressing is O(1) in context</span><span class="vd"><b>only when bundled.</b> N individual tokens cost 5.8x the context of the N plain numbers</span></li>
+      <li><span class="cl">a pinned pure op is recomputed bit-for-bit</span><span class="vd"><b>only ops with nothing to accumulate.</b> A sum of 32 signed values lands 1 to 2 ULP away, and not monotonically in N</span></li>
+      <li><span class="cl">two models agreeing is evidence they are right</span><span class="vd"><b>refuted, and this one is not about us.</b> It holds whether or not you ever use emem</span></li>
+    </ul>
+
+    <p class="cap">Four of those five cut against the product this page is selling. They are
+    published because a benchmark you cannot lose is not a benchmark, and because the
+    <a href="https://github.com/Vortx-AI/emem/blob/main/docs/how-emem-compares.md">full
+    scorecard</a> names the peers we have <em>not</em> tested rather than ranking ourselves
+    above them.</p>
 
     <p class="cap"><strong>7 of 10 corrections were made by the party they damaged.</strong>
     Anyone can publish a collaboration log, and a log only proves messages were exchanged. That

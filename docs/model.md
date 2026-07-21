@@ -111,16 +111,29 @@ cell. The leaf level is shipped and serving traffic today:
   which is a lazy build; the receipt's `was_cached` is cache semantics
   on the wire.
 - **Hermeticity labels**: the provenance classes are exactly this.
-  `deterministic_index` is a hermetic action (rebuild bit-identical from
-  the cited sources); `model_output` is a pinned non-hermetic action
-  (reproducible given the signed checkpoint); `direct_sensor` and
-  `human_curated` are sources, not actions.
+  `deterministic_index` is a hermetic action (rebuild the value from the
+  cited sources, no hidden input); `model_output` is a pinned
+  non-hermetic action (reproducible given the signed checkpoint);
+  `direct_sensor` and `human_curated` are sources, not actions.
+
+Hermetic does not mean bit-identical for every action, and the split is
+accumulation. An op with no accumulation rebuilds bit for bit: a
+difference, a ratio, a tree of 2-ary selections. A reduction over many
+inputs does not, because the summation order is an implementation detail
+nobody signed. Measured over real signed NDVI parents, a `sum` recomputed
+against a caller's own lands 0 to 2 ULP away depending on how many
+parents there are, and not monotonically in the count, since accumulation
+error cancels as readily as it compounds. So the recompute path compares
+`mean` and `sum` over more than two parents inside a published 4-ULP
+window and everything else exactly, and it returns the rule it used, the
+tolerance, and the measured gap on every answer, so a caller who needs
+bit-identity can require a gap of 0.
 
 Determinism buys the property a build system wants most: derived
 artifacts are evictable without breaking citations, because
-re-materialisation yields the same bytes, hence the same cid, hence
-every token keeps resolving. Nothing permanent is required beyond
-immutable observations and the rule registry.
+re-materialisation by the same implementation yields the same bytes,
+hence the same cid, hence every token keeps resolving. Nothing permanent
+is required beyond immutable observations and the rule registry.
 
 What is missing before "build graph" is earned rather than aspirational,
 in dependency order: multi-hop composition as signed objects (the worlds

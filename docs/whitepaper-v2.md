@@ -989,12 +989,59 @@ checked. There is one narrow, safe path to more. When the caller pins a
 `code_cid` and the `op` is a pure scalar function the responder can
 reproduce with no code execution (`delta` = `inputs[1] - inputs[0]`,
 `mean`, `sum`), the responder re-runs that op over the cited parent facts
-and compares under the canonical-float rule (extract both scalars, apply
-the canonical-float normalization, compare as f64). On a bit-for-bit
-match the derivation is recorded as `deterministic_index`: recomputed,
-not merely attributed. On a mismatch, or an op the responder cannot
-reproduce, it stays `model_output` with an explicit reason. A derivation
-with no `code_cid` is untouched.
+and compares the two scalars as canonical f64. If they agree, the
+derivation is recorded as `deterministic_index`: recomputed, not merely
+attributed. On a mismatch, or an op the responder cannot reproduce, it
+stays `model_output` with an explicit reason. A derivation with no
+`code_cid` is untouched.
+
+What "agree" means is not the same for every op, and the difference is
+worth stating plainly rather than rounding off. An op that does not
+accumulate compares exactly: `delta` is one subtraction, a classification
+is a tree of 2-ary selections, and a two-parent reduction has nothing to
+accumulate, so the recomputed and claimed values are equal bit for bit or
+the check fails. Rule `canonical_float_equality`, tolerance 0. A
+reduction over many parents is a different object. Measured on this
+responder over real signed NDVI parents, `sum`:
+
+```text
+  parents N   ULP gap   strict equality would
+  ---------   -------   ---------------------
+          5         0   verify
+         16         1   fail
+         32         2   fail
+         64         2   fail
+        128         0   verify
+```
+
+Two things follow. The gaps are one or two representable steps, about
+1e-16 relative, against 1e-6 as the tightest threshold any decision in
+this study evaluates, so no gap inside the window can change an outcome.
+And the failure is not monotonic in N, because accumulation error cancels
+as readily as it compounds: under strict equality, whether a given sum
+verifies is unpredictable from the caller's side, which is worse than a
+stated bound because it looks like a guarantee. So `mean` and `sum` over
+more than two parents compare under a published 4-ULP window, rule
+`reduction_ulp_window`.
+
+The window is never silent, and that is what keeps it a verifier rather
+than slack. Every response carries `rule` (which comparison ran),
+`ulp_tolerance` (the bound), and `ulp_gap` (the measured distance), on
+success and on failure alike. A caller who needs bit-identity demands gap
+0 and can see it. A verifier that says "equal within 4 ULP, measured gap
+2" is still a verifier; one that says "equal" while meaning "close" is
+not.
+
+The boundary is what was signed. A leaf fact's `value_verbatim` is the
+signed preimage, so its bytes are cryptographically load-bearing and are
+compared byte for byte, with no tolerance, ever. Nobody signed the sum.
+The responder derives it, and no accumulation order was ever specified
+for a caller to match, so bit-equality there would be luck about
+summation order rather than fidelity to a signature. That is the real
+limit on what deterministic recomputation can promise across a language
+boundary: exact reproduction is available for ops with no accumulation,
+and reductions verify to a published bound with the measured gap
+returned.
 
 This does not weaken the "callers may declare only `model_output` or
 `human_curated`" rule. The caller still declares `model_output`; the

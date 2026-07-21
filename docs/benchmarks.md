@@ -300,6 +300,52 @@ Two rules travel with it, and we hold ourselves to both:
   of the third without the first misstates it. That includes ours.
 - **It is marked SAMPLE** until someone off this box replicates it.
 
+### The baseline we should have run first: BM25 beat us
+
+The dense-retrieval arm recovers the queried cell **0% to 16.7%** of the time at
+hit@5, and we framed that as *retrieval fails*. That framing was wrong. A plain
+lexical BM25 baseline over the **identical** corpus, the same questions and the
+same two models, with only the retriever changed, recovered the cell **100%** of
+the time and answered **16/16 exact**. It matches the addressed arm's accuracy
+with no protocol, no minting and no round trips.
+
+| retriever | hit@5 | answers exact |
+|---|---|---|
+| dense (bge-small) | 0% to 16.7% | 2/12 at best |
+| **BM25 lexical** | **100%** | **16/16** |
+
+These are our own baseline numbers, not the third-party scorecard's, so the
+no-restatement rule above does not apply to them. They are stated in full in
+[how emem compares, section 4](how-emem-compares.md), and the lexical retriever
+itself ships in `crates/emem-primitives/src/memory_search/mod.rs`.
+
+The mechanism is legible, which is why nobody should be surprised twice. A
+coordinate is a rare literal string. Every chunk in this corpus is therefore
+near-identical in embedding space and wildly different in token overlap. The
+exact property that defeats cosine similarity is the property BM25 keys on.
+
+So the honest claim is narrow: **dense embedding similarity fails on homogeneous
+numeric corpora; lexical retrieval on the same corpus does not.** On a corpus
+where a lexical index works, you do not need emem for accuracy, and a reader who
+takes "retrieval fails" away from this page has been misled by us.
+
+What addressing still has that BM25 does not, on the same corpus where BM25 won:
+
+- a citation a third party can verify offline, against the signed bytes rather
+  than against whatever the index returns today;
+- a referent that survives the corpus being rewritten or deleted, because the
+  address does not point into the corpus.
+
+Both are real. Both are different claims from "retrieval fails", and neither is
+an accuracy claim.
+
+**One measurement that runs in BM25's favour and that we cannot yet match.** We
+have not characterised its failure mode, because on this corpus it did not fail.
+Dense retrieval's failures we can put a unit on: median drift **252 metres**,
+with 50% of answers matching no cell at all. Until someone finds the corpus where
+BM25 breaks, the fair statement is that we know how our loser fails and not how
+the winner does.
+
 ### The differential re-score
 
 One of those NOs was *no independent re-scoring*. We closed it, against
