@@ -17868,6 +17868,17 @@ async fn mcp_tool_call(
                 .await
                 .map_err(mcp_err)?;
             let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
+            // Put the citation ON the fact, as REST does.
+            //
+            // Without this an MCP caller gets facts with no `fact_cid` and no
+            // `memory_token`; the cids exist only as a positional array in
+            // `receipt.fact_cids` that the caller must align by index. So the
+            // primary read tool, on the surface this protocol tells agents to
+            // use, did not return the citation. The compliance agent hit exactly
+            // this and had to send band+cell identity instead of cids, because
+            // they had no cids to send. A citation protocol whose main read does
+            // not hand back a citation is failing at its one job.
+            enrich_facts_with_cid(&mut v);
             if !materialize_notes.is_empty() {
                 if let Some(map) = v.as_object_mut() {
                     map.insert(
