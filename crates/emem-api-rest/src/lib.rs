@@ -19742,12 +19742,17 @@ async fn splats_post(Path(path): Path<String>, body: Bytes) -> Response {
     if path != "api/gemma" {
         return not_found("not found");
     }
-    // Long uncapped answers (scene tours) can exceed 90 s on the 12B bridge; the
-    // ceiling is generous by default and tunable without a rebuild.
+    // Long uncapped answers (scene tours) can exceed 90 s on the 12B bridge, so
+    // the ceiling is generous and tunable without a rebuild. It is no longer TEN
+    // MINUTES: the bridge listens with a backlog of 5, and a request parked here
+    // holds one of the 128 global in-flight permits for its whole duration, so a
+    // handful of stuck tours could hold a meaningful slice of the server's
+    // capacity for the rest of the hour. 120 s is well past the slowest observed
+    // tour and bounded enough that a hung bridge drains rather than accumulates.
     let timeout_s: u64 = std::env::var("EMEM_SPLATS_GEMMA_TIMEOUT_S")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(600);
+        .unwrap_or(120);
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_s))
         .build()

@@ -65,10 +65,22 @@ systemctl --user restart "$UNIT"
 # looking broken to the operator.
 for i in 1 2 3 4 5 6 7 8 9 10; do
   sleep 2
-  if curl -fsS -m 10 https://emem.dev/health >/dev/null 2>&1; then
-    echo "==> live at https://emem.dev/health (after ${i}x2s)"
-    curl -sS https://emem.dev/health | head -c 200; echo
-    exit 0
+  # Assert a real ANSWER, not a status code. The benchmark agent lost a run to
+  # exactly this: their preflight checked /health, threw away the warmup
+  # completion, and passed while every generation 500'd, so a full corpus of
+  # empty answers recorded behind a green check. A deploy that only proves the
+  # process is listening proves the cheapest thing.
+  if curl -fsS -m 10 https://emem.dev/live >/dev/null 2>&1; then
+    ans=$(curl -fsS -m 25 -X POST https://emem.dev/v1/recall \
+            -H 'content-type: application/json' \
+            -d '{"place":"Bengaluru","bands":["copdem30m.elevation_mean"]}' 2>/dev/null \
+          | grep -o '"value":[0-9.]*' | head -1)
+    if [ -n "$ans" ]; then
+      echo "==> live and ANSWERING at https://emem.dev (after ${i}x2s): $ans"
+      exit 0
+    fi
+    echo "  listening but /v1/recall returned no value yet... ($i/10)"
+    continue
   fi
   echo "  waiting for HTTPS to come up... ($i/10)"
 done
