@@ -43620,9 +43620,29 @@ fn enrich_facts_with_cid(v: &mut JsonValue) {
         .map(|s| s.to_string());
     if let Some(facts) = v.get_mut("facts").and_then(|f| f.as_array_mut()) {
         for (i, fact) in facts.iter_mut().enumerate() {
+            // Compute from the immutable view BEFORE taking the mutable one.
+            let verbatim = value_verbatim_of(fact);
             let Some(map) = fact.as_object_mut() else {
                 continue;
             };
+
+            // The exact decimal string, alongside the JSON number.
+            //
+            // `resolve` has carried this since the last-mile fixes; `recall` did
+            // not, so a caller reading recall got a float and had to format it.
+            // That is not hypothetical: the benchmark's addressed arm displayed
+            // six decimals for a value emem signed to seventeen, which made that
+            // arm measure "copy a rounded number already in the window" and cost
+            // the study its headline. The fix is to hand over the digits rather
+            // than a value someone must re-render.
+            //
+            // Inserted before the fact_cid early-return below, because a fact
+            // that already carries a cid still needs its digits.
+            if !map.contains_key("value_verbatim") {
+                if let Some(vv) = verbatim {
+                    map.insert("value_verbatim".into(), JsonValue::String(vv));
+                }
+            }
             if map.contains_key("fact_cid") {
                 continue;
             }
