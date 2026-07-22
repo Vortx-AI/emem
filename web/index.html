@@ -687,24 +687,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .chapter .live{margin:1.3rem 0 0}
 
 /* ---- worlds chapter: live splat preview + world cards ------------------- */
-.world-preview{position:relative;overflow:hidden;background:var(--paper-3)}
-.world-preview canvas{display:block;width:100%;aspect-ratio:4/3;touch-action:none;cursor:grab}
-.world-preview canvas:active{cursor:grabbing}
-.world-preview .wp-cap{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:.5rem;padding:.35rem .6rem;background:color-mix(in oklch,var(--paper) 80%,transparent);border-top:1px solid var(--rule);font-size:var(--t-xs);color:var(--mute)}
-.world-preview .wp-cap b{color:var(--ink-2);font-weight:600}
-.world-preview .wp-cap .ramp{flex:0 0 46px;height:8px;border-radius:2px;border:1px solid var(--rule);background:linear-gradient(90deg,#4d1a10,#8a3a12,#d59a2a,#f6d97a)}
-.world-preview .wp-fallback{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;text-align:center;padding:1.4rem;color:var(--mute);font-size:var(--t-sm);line-height:1.5}
-.world-preview .wp-fallback a{color:var(--accent)}
-.world-preview.failed canvas,.world-preview.failed .wp-cap{display:none}
-.world-preview.failed .wp-fallback{display:flex}
-.world-cards{display:grid;grid-template-columns:1fr 1fr;gap:.55rem;margin:1.2rem 0 1.3rem}
-.world-card{display:flex;flex-direction:column;gap:.18rem;text-decoration:none;padding:.6rem .7rem;border:1px solid var(--rule);background:var(--paper-2);color:var(--ink-2);transition:border-color .16s,box-shadow .16s}
-.world-card:hover{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent-bg)}
-.world-card .wc-t{font-size:var(--t-sm);font-weight:700;color:var(--ink)}
-.world-card .wc-d{font-size:var(--t-xs);color:var(--mute);line-height:1.4}
-.world-card .wc-n{font-size:var(--t-xs);color:var(--accent);font-variant-numeric:tabular-nums;margin-top:.1rem}
-@media (max-width:680px){.world-cards{grid-template-columns:1fr}}
-@media (prefers-reduced-motion:reduce){.world-preview canvas{cursor:default}}
 
 /* ---- who it serves: industry grid --------------------------------------- */
 .who{padding:3.6rem 0 4.4rem}
@@ -753,6 +735,9 @@ input::placeholder{color:var(--mute,#7a7363)}
 .bench-line a{color:var(--mute)}
 
 .who-eo{color:var(--mute);margin-top:1rem}
+.use-when{list-style:none;margin:1rem 0 .2rem;padding:0;display:grid;gap:.55rem}
+.use-when li{padding:.6rem .8rem;border-left:2px solid var(--accent);background:var(--paper-2);font-size:var(--t-sm);line-height:1.5;color:var(--mute)}
+.use-when li b{color:var(--ink-2);font-weight:600}
 
 .refut{list-style:none;margin:1.2rem 0 .4rem;padding:0;border-top:1px solid var(--rule)}
 .refut li{padding:.7rem 0;border-bottom:1px solid var(--rule);display:flex;flex-wrap:wrap;gap:.2rem 1.4rem;align-items:baseline}
@@ -779,8 +764,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <a href="#who" class="nav-sec">who it serves</a>
     <a href="#proof" class="nav-sec">proof</a>
     <a href="#research" class="nav-sec">the channel</a>
-    <a href="#worlds" class="nav-sec">worlds</a>
-    <a href="#build" class="nav-sec">build</a>
+        <a href="#build" class="nav-sec">build</a>
     <span class="spacer"></span>
     <a href="/channel" class="nav-sec">channel</a>
     <a href="/demos" class="nav-sec">demos</a>
@@ -884,9 +868,9 @@ input::placeholder{color:var(--mute,#7a7363)}
 <section class="th" id="hero" aria-label="emem, verifiable memory for AI agents">
   <div class="th-top">
     <div class="th-copy">
-      <h1>Give your AI a memory of the real world it can <span class="th-verb-slot"><a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check.</a></span></h1>
+      <h1>One memory your agents can hand off, resume, and <span class="th-verb-slot"><a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check.</a></span></h1>
       <p class="th-verb-hint">the underlined verb is live: it opens <a id="tvh-ep" href="/verify"><code>/verify</code></a></p>
-      <p class="th-lede">AI models forget. When a long session is summarized, or a task hands off to another agent, the details they checked blur into paraphrases and the numbers quietly drift. emem is a shared memory that fixes that: every observation about a real place becomes one short, signed line an agent can keep. It survives summarization, moves cleanly between agents and sessions, and resolves back to the exact value, which anyone can re-check without trusting the source.</p>
+      <p class="th-lede">Every agent forgets when its context ends, and no two agents trust each other's memory. emem is the shared memory layer for multi-agent systems: every fact is one short, signed line any agent can keep. It survives a summarization pass, hands off cleanly to an agent on another model at another company, and resolves back to the exact value, which the receiver re-checks without trusting whoever sent it.</p>
 
       <div class="dk" id="dk">
         <div class="dk-hd"><b>watch a fact decay</b><span>replaying a recorded run, not a simulation</span></div>
@@ -903,7 +887,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         </div>
         <div class="dk-cid" id="dk-cid">run <a href="/channel">mtce2egr&hellip;</a></div>
       </div>
-      <p class="th-who">Built for the agents, robots, and world models that need to reason from the same facts, and for the teams behind them. The facts are grounded in open Earth observation, checkable by anyone, with no account needed.</p>
+      <p class="th-who">Built for multi-agent systems, agent fleets, and the teams behind them: any two agents can reason from the same signed facts without sharing a database or a vendor. Earth observation is the first substrate that fills the memory, checkable by anyone with no account; the addresses and receipts are not specific to it.</p>
       <div class="th-cta">
         <a class="btn-primary" href="#build">Connect an agent</a>
         <a class="btn-ghost" href="/card">See it prove itself &rarr;</a>
@@ -1049,7 +1033,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     {w:'check',    href:'/verify',           t:'verify any fact offline'},
     {w:'cite',     href:'/reference#tokens', t:'cite it as one emem token'},
     {w:'trust',    href:'/v1/bands',         t:'see how every fact is made'},
-    {w:'preserve', href:'/worlds',           t:'walk the signed substrate'}
+    {w:'share',    href:'/a2a',              t:'hand it to another agent'}
   ];
   var el=document.getElementById('th-verb'), ep=document.getElementById('tvh-ep');
   if(!el||!ep) return;
@@ -1382,7 +1366,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <div class="mc-out" id="mc-out">
           <div class="mc-card" id="mc-fact-card"><div class="ctitle"><span class="signed">signed fact</span><span id="mc-fact-place"></span></div><div class="mc-grid" id="mc-fact-grid"></div></div>
           <div class="mc-card" id="mc-receipt-card"><div class="ctitle">receipt <span id="mc-receipt-primitive"></span></div><div class="mc-grid" id="mc-receipt-grid"></div><div class="mc-verdict" id="mc-verdict"></div>
-            <div class="mc-deeper"><a id="mc-verify-link" href="/verify">verify it yourself &rarr;</a><span id="mc-curl"></span><a href="/worlds">explore in 3-D &rarr;</a></div>
+            <div class="mc-deeper"><a id="mc-verify-link" href="/verify">verify it yourself &rarr;</a><span id="mc-curl"></span></div>
           </div>
         </div>
       </div>
@@ -1884,7 +1868,14 @@ input::placeholder{color:var(--mute,#7a7363)}
       <div class="kicker">Who it serves</div>
       <h2>Agents, robots, and sensors share one memory</h2>
       <p>AI agents ground claims in tokens instead of paraphrases, across sessions, vendors, and context windows. Robots get the long-term spatial memory they lack: landmarks as <code>emem:entity:</code> identities, terrain and hazard readings as signed facts at addresses that never drift, shareable across a fleet and across manufacturers, verifiable without trusting the peer that wrote them. A runnable two-vendor example ships in the repo: <a href="https://github.com/Vortx-AI/emem/tree/main/examples/fleet-memory" rel="noopener">examples/fleet-memory</a>. Satellites, drones, and fixed sensors attest observations at the source. One protocol, one verify path, no separate stacks.</p>
-      <p class="who-eo">Earth observation is the first substrate. What it already serves, from a family checking flood risk to a bank signing an EUDR statement:</p>
+      <p class="who-eo">When the memory earns its keep, the pattern is always the same: a fact has to outlive the context that verified it, or cross a trust boundary between agents.</p>
+      <ul class="use-when">
+        <li><b>A long task is compacted, or the model is swapped mid-project.</b> The token outlives every summarization pass and re-hydrates to the exact signed bytes.</li>
+        <li><b>Two agents at different companies must agree on one fact.</b> Both resolve the same token to the same bytes, and neither has to trust the other.</li>
+        <li><b>Subagents fan out and the join drowns in payload copies.</b> Workers pass tokens, the join resolves and verifies, contexts stay small.</li>
+        <li><b>A report will be audited after its author is gone.</b> Every claim is a token an auditor re-checks on its own key, without contacting the author.</li>
+      </ul>
+      <p class="who-eo">Earth observation is the first substrate that fills it. What it already serves, from a family checking flood risk to a bank signing an EUDR statement:</p>
     </div>
     <ul class="who-list">
       <li><a href="/solutions">eudr compliance</a><span>A deforestation-free plot signed into one handle that clears customs</span></li>
@@ -2274,29 +2265,6 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="go"><a href="/a2a">the A2A layer &rarr;</a><a href="/channel">read the channel &rarr;</a><a href="https://github.com/Vortx-AI/emem/blob/main/docs/benchmarks.md" rel="noopener">the benchmarks &rarr;</a><a href="/.well-known/mcp.json">join it &rarr;</a></div>
   </div>
 </section>
-<div class="mith-div"><span class="gem"></span></div>
-<section class="chapter" id="worlds">
-  <figure class="art world-preview" id="world-preview" aria-label="a live 3-D preview of one signed world">
-    <canvas id="world-canvas" width="640" height="480" role="img" aria-label="rotating point cloud of the signed Copernicus DEM elevation facts over the Grand Canyon; each point is one cell of the memory"></canvas>
-    <figcaption class="wp-cap">
-      <span class="ramp" aria-hidden="true"></span>
-      <span><b id="wp-title">Grand Canyon</b> &middot; <span id="wp-count">signed elevation facts</span> &middot; drag to turn</span>
-    </figcaption>
-    <div class="wp-fallback"><span>A live preview draws from this node's baked worlds.</span><a href="/worlds">open the full instrument &rarr;</a></div>
-  </figure>
-  <div class="words">
-    <div class="kicker"><span class="n">08</span> In three dimensions</div>
-    <h2>An area of the memory, in 3-D</h2>
-    <p class="cap">Every splat is one cell of signed facts. Its height, tilt, thickness, and colour are each a measurement with its own <code>fact_cid</code>. In the base representation, nothing is interpolated and nothing is invented; when the viewer densifies for detail, every in-between splat is derived from its signed neighbours, labelled as derived, and re-derivable from them. Where the memory has no fact, there is no splat, and any splat re-checks at <a href="/verify">/verify</a>. The separate <a href="/splats">/splats</a> demo goes further into generative fill and labels every splat measured, interpolated, or synthesized, so grounded-only stays one toggle away.</p>
-    <div class="world-cards" id="world-cards">
-      <a class="world-card" href="/worlds?world=canyon"><span class="wc-t">Grand Canyon</span><span class="wc-d">elevation, each gaussian lying in the terrain's tangent plane</span><span class="wc-n" data-preset="canyon">signed elevation facts</span></a>
-      <a class="world-card" href="/worlds?world=interlaken"><span class="wc-t">Interlaken</span><span class="wc-d">elevation, Sentinel-2 NDVI, and JRC water fused per cell</span><span class="wc-n" data-preset="interlaken">signed facts</span></a>
-      <a class="world-card" href="/worlds?world=semantic"><span class="wc-t">Cairo &amp; Giza</span><span class="wc-d">colour from a 128-D foundation embedding, no land-cover labels</span><span class="wc-n" data-preset="semantic">signed facts</span></a>
-      <a class="world-card" href="/worlds?world=carbon"><span class="wc-t">Rond&ocirc;nia</span><span class="wc-d">height is biomass, thickness its published standard error</span><span class="wc-n" data-preset="carbon">signed facts</span></a>
-    </div>
-    <p class="cap">The four above are <b>sparse</b>: one splat per signed fact, small enough to move over MCP or REST and rebuild from the repo. <a href="/splats">emem.dev/splats</a> is the <b>dense</b> counterpart, a photoreal world you navigate where the same signed facts are densified and every splat is tagged <code>measured</code>, <code>interpolated</code>, or <code>synthesized</code> over an ed25519-signed measured trust root. A hosted demo, not a download.</p>
-    <div class="go"><a href="/worlds">open the instrument &rarr;</a><a href="/splats">fly a dense world &rarr;</a><a href="/v1/worlds">download the artifacts &rarr;</a></div>
-  </div>
 </section>
 </main>
 
@@ -2632,7 +2600,6 @@ input::placeholder{color:var(--mute,#7a7363)}
       <pre id="docker-snippet"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code></pre></div></div>
     <div class="hero-cta" style="margin-top:1.6rem">
       <a class="btn" href="/reference">Connect an agent &rarr;</a>
-      <a class="btn ghost" href="/worlds">Walk the worlds &rarr;</a>
       <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub &rarr;</a>
     </div>
     <p class="closer" style="margin-top:2.4rem;font-size:var(--t-lg);color:var(--ink)">Open source, no keys to read. <span class="accent">Point an agent at it, or run your own node.</span></p>
@@ -3292,100 +3259,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   } catch(_){}
 })();
 </script>
-<script>
-/* Worlds preview: a live, in-theme rotating point cloud of one baked world's
-   signed facts on a 2-D canvas (no three.js), plus the four world cards fed
-   from /v1/worlds. Same approach as the engram renderer above. Each point is
-   one cell of the memory at its own lat/lng and measured height, coloured by
-   the same canyon ramp make_splats.py exports, so this previews the same
-   signed points the full /worlds instrument draws as gaussians. Degrades to the
-   static cards plus a note if the node has no baked worlds. */
-(function(){
-  var fig = document.getElementById('world-preview');
-  var cv  = document.getElementById('world-canvas');
-  if(!fig || !cv) return;
-  var ctx = cv.getContext('2d');
-  var W=0,H=0,dpr=1,raf=null,pts=[],rotY=0.0,rotX=0.62,auto=true,drag=false,lx=0,ly=0,visible=false;
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches;
-  if(reduce) auto=false;
-  function num(n){ return (n||0).toLocaleString('en-US'); }
 
-  // world cards + the preview caption count, from /v1/worlds
-  fetch('/v1/worlds').then(function(r){return r.ok?r.json():null;}).then(function(j){
-    if(!j || !j.worlds) return;
-    var by={}; j.worlds.forEach(function(w){ by[w.preset]=w; });
-    var cards=document.querySelectorAll('.world-card .wc-n[data-preset]');
-    for(var i=0;i<cards.length;i++){ var w=by[cards[i].getAttribute('data-preset')];
-      if(w){ cards[i].textContent = num(w.facts)+' signed facts'; } }
-    if(by.canyon){ var t=document.getElementById('wp-count'); if(t) t.textContent = num(by.canyon.facts)+' signed elevation facts'; }
-  }).catch(function(){});
-
-  // colour ramp: mirrors colorize_canyon() in make_splats.py (ember gorge to gold rim)
-  function canyonColor(t){
-    var r,g,b;
-    if(t<0.45){ var u=t/0.45; r=0.30+0.55*u; g=0.07+0.20*u; b=0.05+0.06*u; }
-    else{ var v=(t-0.45)/0.55; r=Math.min(1,0.85+0.15*v); g=0.27+0.58*v; b=0.11+0.45*v; }
-    return 'rgb('+(r*255|0)+','+(g*255|0)+','+(b*255|0)+')';
-  }
-  function fail(){ fig.classList.add('failed'); stop(); }
-
-  fetch('/v1/worlds/canyon/world.scene.json').then(function(r){return r.ok?r.json():null;}).then(function(scene){
-    if(!scene || !scene.cells){ fail(); return; }
-    var hb='copdem30m.elevation_mean', rows=[], k;
-    for(k in scene.cells){ var c=scene.cells[k];
-      if(c && c.lat!=null && c.lng!=null && c[hb]!=null) rows.push(c); }
-    if(rows.length<8){ fail(); return; }
-    if(rows.length>1600){ var st=rows.length/1600, out=[],i; for(i=0;i<1600;i++) out.push(rows[Math.floor(i*st)]); rows=out; }
-    var n=rows.length, lat0=0,lng0=0,hmin=Infinity,hmax=-Infinity,i2;
-    for(i2=0;i2<n;i2++){ lat0+=rows[i2].lat; lng0+=rows[i2].lng; var h=rows[i2][hb]; if(h<hmin)hmin=h; if(h>hmax)hmax=h; }
-    lat0/=n; lng0/=n;
-    var mLng=Math.cos(lat0*Math.PI/180), ex=1e-6;
-    for(i2=0;i2<n;i2++){ ex=Math.max(ex,Math.abs((rows[i2].lng-lng0)*mLng),Math.abs(rows[i2].lat-lat0)); }
-    for(i2=0;i2<n;i2++){ var t=(rows[i2][hb]-hmin)/((hmax-hmin)||1);
-      pts.push({ x:(rows[i2].lng-lng0)*mLng/ex*0.9, y:(t-0.45)*1.25, z:(rows[i2].lat-lat0)/ex*0.9, c:canyonColor(t) }); }
-    resize(); if(visible){ if(reduce) draw1(); else start(); }
-  }).catch(fail);
-
-  function resize(){ dpr=Math.min(2,window.devicePixelRatio||1); W=cv.clientWidth; H=cv.clientHeight;
-    cv.width=Math.max(1,Math.round(W*dpr)); cv.height=Math.max(1,Math.round(H*dpr)); ctx.setTransform(dpr,0,0,dpr,0,0); }
-  function proj(p){
-    var cyw=Math.cos(rotY),syw=Math.sin(rotY),cxw=Math.cos(rotX),sxw=Math.sin(rotX);
-    var x1=p.x*cyw - p.z*syw, z1=p.x*syw + p.z*cyw;
-    var y1=p.y*cxw - z1*sxw, z2=p.y*sxw + z1*cxw;
-    var d=3.3, f=d/(d-z2), s=Math.min(W,H)*0.42;
-    return [W/2+x1*f*s, H/2+y1*f*s, z2, f];
-  }
-  function frame(){
-    raf=requestAnimationFrame(frame);
-    if(!W||!H){ resize(); if(!W) return; }
-    if(auto && !drag) rotY+=0.0035;
-    ctx.clearRect(0,0,W,H);
-    var pr=[],i; for(i=0;i<pts.length;i++) pr.push([proj(pts[i]), pts[i].c]);
-    pr.sort(function(a,b){ return a[0][2]-b[0][2]; });
-    for(i=0;i<pr.length;i++){ var q=pr[i][0], fog=(q[2]+1.15)/2.3;
-      ctx.globalAlpha=Math.max(0.1,Math.min(0.95,0.25+0.7*fog));
-      ctx.fillStyle=pr[i][1];
-      var rad=Math.max(0.9,(1.15+1.5*q[3])*(0.5+0.6*fog));
-      ctx.beginPath(); ctx.arc(q[0],q[1],rad,0,6.2832); ctx.fill(); }
-    ctx.globalAlpha=1;
-  }
-  function start(){ if(!raf && pts.length) raf=requestAnimationFrame(frame); }
-  function stop(){ if(raf){ cancelAnimationFrame(raf); raf=null; } }
-  function draw1(){ if(!pts.length) return; resize(); var a=auto; auto=false; frame(); stop(); auto=a; }
-
-  window.addEventListener('resize', function(){ resize(); if(raf) return; if(visible) draw1(); });
-  if('IntersectionObserver' in window){
-    new IntersectionObserver(function(es){ es.forEach(function(e){ visible=e.isIntersecting;
-      if(visible){ if(reduce) draw1(); else start(); } else stop(); }); },{threshold:0.05}).observe(fig);
-  } else { visible=true; if(!reduce) start(); }
-  document.addEventListener('visibilitychange', function(){ if(document.hidden) stop(); else if(visible && !reduce) start(); });
-
-  cv.addEventListener('pointerdown', function(ev){ drag=true; auto=false; lx=ev.clientX; ly=ev.clientY; if(cv.setPointerCapture) cv.setPointerCapture(ev.pointerId); if(!raf) start(); });
-  cv.addEventListener('pointermove', function(ev){ if(!drag) return; rotY+=(ev.clientX-lx)*0.01; rotX+=(ev.clientY-ly)*0.01; rotX=Math.max(-1.4,Math.min(1.4,rotX)); lx=ev.clientX; ly=ev.clientY; if(reduce) draw1(); });
-  function up(){ if(!drag) return; drag=false; if(reduce){ draw1(); return; } setTimeout(function(){ auto=true; },2600); }
-  cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up); cv.addEventListener('pointerleave',up);
-})();
-</script>
 
 <script>
 // Every frame below is a recorded step from run mtce2egr..., replayed. The
