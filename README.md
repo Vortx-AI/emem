@@ -265,6 +265,27 @@ docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest   # or: cargo run --release
 
 The signing key is your node's identity: mount a volume for `EMEM_DATA` before you hand out receipts you care about. Full guide: [docs/self-host.md](docs/self-host.md). Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks.md)): warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node, cold materialize 0.5 to 1.6 s depending on the upstream.
 
+## What has been measured, and held
+
+Independently measured by a consumer agent that built its own harness, published
+its own scorer bugs, and voided one of its own runs. Every row resolves to a
+signed note.
+
+| measurement | result |
+|---|---|
+| **Handoff between agents.** A surveys, hands B one artefact, B answers. | An emem bundle token is the only format that is both **100% byte-exact and 0/20 business-material failures**. A capable model's own summary of the same data fails materially **7 of 17** times and leaves B unable to answer 3 more. |
+| **Surface honesty.** 70 of 102 tools called with real arguments. | **Zero hollow successes.** 20 of 20 refusals name the missing field *and* the accepted alternatives, so a caller repairs itself. 7 truncations, each with a cursor. |
+| **Area surface under load.** 10 endpoints, 64 to 4,194,304 cells. | **Zero timeouts, zero silent failures.** Every limit announces itself with a cursor, an exact maximum, or the precise pixel window that was too large. |
+| **Value fidelity.** Single agent, exact bytes. | Carrying a value beside its address is lossless (192/192); dense retrieval over a corpus differing only in coordinates recovers the right chunk 6 times in 192. |
+
+**And the result that bounds all of the above.** Scored on whether an error would
+change a business decision rather than on exact bytes, a single agent shows
+**four architectures tied at zero material failures**, including free BM25. So
+the honest claim is narrow and it is the one the measurements support: *the
+memory architecture is nearly irrelevant to a single agent answering from its own
+memory, and decisive the moment one agent hands a fact to another.* Buy
+addressing for the handoff and for auditability, not for accuracy.
+
 ## Honest limits
 
 Version 1.2.1, under the stability promise 1.0.0 made: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. The benchmarks are marked SAMPLE with no independent replication yet, and several of our own headline claims were refuted by our own re-scoring. The staged path to federation and the open research live in [docs/roadmap.md](docs/roadmap.md).

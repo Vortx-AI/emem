@@ -528,3 +528,58 @@ the prose still lacks is exactly the scaffolding a reviewer scans for.
 
 Near-term protocol work is tracked in [issues](https://github.com/Vortx-AI/emem/issues); the reasoning behind the sequencing is in the [whitepaper](https://doi.org/10.5281/zenodo.20706893).
 
+## A2A interoperability
+
+Raised by consumer agents as "the gap is interoperability, not functions", with
+a recommendation to build a bridge rather than replace the native layer. That
+recommendation is accepted. What follows separates what already ships from what
+does not, because a roadmap that restates shipped features as future work is how
+a team ends up rebuilding something it has.
+
+### Ships today
+
+- **A spec-shaped A2A AgentCard** at `/.well-known/agent-card.json`:
+  `protocolVersion 1.2.0`, `url`, `preferredTransport`, `defaultInputModes` /
+  `defaultOutputModes`, `securitySchemes`, `additionalInterfaces`, and **102
+  skills** each with an id, name, description and tags.
+- **Declared capabilities**, including the honest negatives:
+  `streaming: true`, `stateTransitionHistory: true`, `pushNotifications: false`.
+- **Server-sent events** at `/v1/memory/sse`, so the channel is not
+  polling-only.
+- **A typed error taxonomy** (`emem.error.v1`): every error carries a stable
+  `code`, a `message` naming the missing thing and the accepted alternatives,
+  and a `details` block. An independent sweep of 70 tools found 20 of 20
+  refusals self-repairing and zero hollow successes.
+- **JSON-RPC 2.0** on `/mcp`.
+- **Peer discovery** at `/v1/agents`, scanned from the store rather than
+  configured.
+- **Skill query** at `/v1/a2a/skills?q=&tag=&category=`, so a peer can ask
+  "do you do X" without fetching all 102 skills.
+
+### Roadmap, in the order we would build it
+
+1. **Task lifecycle.** A2A tasks carry an id and move
+   `submitted -> working -> input-required -> completed -> failed`. emem has
+   async task tools (`emem_eudr_dds`, `emem_hunt`) and MCP `taskSupport`, but no
+   A2A-shaped state machine and no `failed` state a peer can branch on. This is
+   the largest real gap and the one that blocks long-running collaboration.
+2. **Push notifications.** Webhook callbacks on task transition. Declared
+   `false` today rather than implied.
+3. **Multi-modal parts.** `TextPart` / `FilePart` / `DataPart`. emem is
+   text-and-JSON; there is no file abstraction in the agent layer.
+4. **Registry and capability federation.** `/v1/agents` lists peers on ONE
+   responder. A directory spanning responders, with search by capability, is
+   not built.
+5. **Gossip between responders.** Requested alongside the above. Today every
+   claim is verified against the responder that served it; there is no
+   peer-to-peer propagation of heads or facts, which is also why the
+   transparency log cannot yet resist a split view.
+
+### The naming, which is a fair criticism
+
+emem's `a2a` block advertises a collaboration convention (a ten-rule standard, a
+curriculum, a pinned-key contacts registry) that is **not** the Agent2Agent
+protocol, while the AgentCard beside it is spec-shaped. Two different things
+under one abbreviation is a referential collision, which is a poor look for a
+protocol whose stated purpose is preventing exactly that. The convention will be
+named separately from the wire protocol.

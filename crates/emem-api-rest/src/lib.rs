@@ -901,6 +901,10 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/ai-plugin.json", get(ai_plugin))
         .route("/.well-known/agent.json", get(agent_manifest))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
+        .route("/v1/a2a/skills", get(get_a2a_skills))
+        .route("/v1/a2a/tasks", post(post_a2a_task_async))
+        .route("/v1/a2a/tasks/:id", get(get_a2a_task))
+        .route("/v1/a2a/tasks/:id/cancel", post(post_a2a_task_cancel))
         .route("/.well-known/mcp.json", get(well_known_mcp))
         .route(
             "/.well-known/openai-apps-challenge",
@@ -4039,6 +4043,245 @@ async fn agent_manifest() -> Response {
 /// name, description, url, capabilities, skills, securitySchemes,
 /// provider. We declare emem as a free, no-auth read-only agent and list
 /// every primitive as a skill (deduplicated from `emem_mcp::TOOLS`).
+#[derive(Deserialize)]
+struct A2aTaskReq {
+    skill: String,
+    #[serde(default)]
+    args: Option<JsonValue>,
+    #[serde(default, alias = "ttl_ms")]
+    ttl_ms: Option<u64>,
+}
+
+/// Render an internal task slot as an A2A-shaped `Task`.
+///
+/// The registry underneath is the MCP one (spec 2025-11-25 `tasks/get`), which
+/// already carries an id, a state, created/updated stamps, a TTL and a cancel
+/// handle. What it did not have was an A2A-shaped surface, so a peer speaking
+/// A2A could not submit work here and branch on a `failed` state. This maps one
+/// to the other rather than inventing a second registry, so a task submitted
+/// over A2A and the same task observed over MCP are the same task.
+///
+/// State names are A2A's: `working`, `completed`, `failed`, `canceled`. The
+/// `input-required` state is NOT emitted, because nothing on this responder ever
+/// pauses to ask a caller for more input; claiming it would be advertising a
+/// transition that can never fire.
+fn a2a_task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
+    let state = match slot.status.as_str() {
+        "completed" => "completed",
+        "failed" => "failed",
+        "cancelled" | "canceled" => "canceled",
+        _ => "working",
+    };
+    let mut task = json!({
+        "id": task_id,
+        "kind": "task",
+        "status": {
+            "state": state,
+            "timestamp": slot.last_updated_iso,
+            "message": slot.status_message,
+        },
+        "createdAt": slot.created_at_iso,
+        "ttlMs": slot.ttl_ms,
+        "pollIntervalMs": mcp_task_poll_interval_ms(),
+    });
+    // A2A separates the conversational message from the final artifact. The
+    // tool result is the artifact, carried as a DataPart because every result
+    // this responder produces is JSON.
+    if let Some(result) = slot.result.clone() {
+        task["artifacts"] = json!([{
+            "artifactId": format!("{task_id}-result"),
+            "parts": [{"kind": "data", "data": result}],
+        }]);
+    }
+    task
+}
+
+/// `POST /v1/a2a/tasks` — submit a skill as an A2A task.
+///
+/// Body: `{"skill": "<skill id from the AgentCard>", "args": {...}, "ttlMs": n}`.
+/// Returns the task immediately in `working`; poll `GET /v1/a2a/tasks/{id}`.
+///
+/// Any of the 102 advertised skills may be submitted, not only the two the MCP
+/// layer marks long-running, because a peer that wants a task handle for a
+/// short call is asking for a legitimate thing and refusing it would make the
+/// lifecycle useless for exactly the composition A2A exists to enable.
+async fn post_a2a_task_async(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<A2aTaskReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let skill = req.skill.trim();
+    if skill.is_empty() {
+        return Err(bad_request(
+            "a2a_skill_required",
+            "`skill` is required: the id of a skill from /.well-known/agent-card.json, or search /v1/a2a/skills?q=. Example: {\"skill\":\"emem_locate\",\"args\":{\"q\":\"Nashik\"}}".to_string(),
+        ));
+    }
+    if !emem_mcp::TOOLS.iter().any(|t| t.name == skill) {
+        return Err(bad_request(
+            "a2a_skill_unknown",
+            format!("unknown skill `{skill}`. Search /v1/a2a/skills?q= or read /.well-known/agent-card.json; the card is authoritative and lists every skill this responder has."),
+        ));
+    }
+    let ttl = req.ttl_ms.unwrap_or(600_000).clamp(1_000, 3_600_000);
+    let args = req.args.clone().unwrap_or_else(|| json!({}));
+    match mcp_spawn_task(skill, args, ttl, &s) {
+        Ok(created) => {
+            // mcp_spawn_task returns the MCP CreateTaskResult; re-read the slot
+            // so the A2A caller gets the A2A shape rather than a translation of
+            // a translation.
+            let id = created
+                .get("task")
+                .and_then(|t| t.get("taskId"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let map = mcp_tasks_lock();
+            let body = match map.get(&id) {
+                Some(slot) => a2a_task_object(&id, slot),
+                None => json!({"id": id, "kind": "task",
+                               "status": {"state": "working"}}),
+            };
+            Ok(Json(body))
+        }
+        Err((_code, message)) => Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("a2a_task_spawn_failed: {message}"),
+                details: None,
+            },
+        )),
+    }
+}
+
+/// `GET /v1/a2a/tasks/:id` — the A2A task state, including a terminal `failed`.
+async fn get_a2a_task(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<JsonValue>, ApiError> {
+    mcp_tasks_reap(now_unix_ms());
+    let map = mcp_tasks_lock();
+    match map.get(&id) {
+        Some(slot) => Ok(Json(a2a_task_object(&id, slot))),
+        None => Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: emem_core::error::ErrorCode::CidNotFound,
+                message: format!(
+                    "no task `{id}`. Tasks are retained for their TTL after completion and then reaped; a task that completed long ago is gone rather than failed, and those are different things."
+                ),
+                details: None,
+            },
+        )),
+    }
+}
+
+/// `POST /v1/a2a/tasks/:id/cancel` — move a live task to `canceled`.
+async fn post_a2a_task_cancel(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let mut map = mcp_tasks_lock();
+    match map.get_mut(&id) {
+        Some(slot) => {
+            if let Some(h) = slot.abort.take() {
+                h.abort();
+                slot.status = "cancelled".into();
+                slot.status_message = Some("canceled by request".into());
+                slot.last_updated_iso = iso8601_now_utc();
+                slot.last_updated_ms = now_unix_ms();
+            }
+            Ok(Json(a2a_task_object(&id, slot)))
+        }
+        None => Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: emem_core::error::ErrorCode::CidNotFound,
+                message: format!("no task `{id}` to cancel"),
+                details: None,
+            },
+        )),
+    }
+}
+
+/// `GET /v1/a2a/skills?q=&tag=&category=&limit=` — the capability query the
+/// AgentCard cannot answer on its own.
+///
+/// The A2A AgentCard at `/.well-known/agent-card.json` already advertises every
+/// skill this responder has, with `protocolVersion`, declared capabilities and
+/// input/output modes. What it cannot do is answer "do you have a skill for X"
+/// without the caller fetching and scanning all of it, which for 102 skills is a
+/// large read to ask of a peer that only wants to know whether to route here at
+/// all. A consumer asked for exactly this and called it QuerySkill.
+///
+/// Matching is over id, name, description and tags, case-insensitive. `matched`
+/// is the count BEFORE `limit`, so a caller can tell a narrow answer from a
+/// truncated one.
+async fn get_a2a_skills(
+    axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Json<JsonValue> {
+    let needle = q.get("q").map(|v| v.to_lowercase()).unwrap_or_default();
+    let tag = q.get("tag").map(|v| v.to_lowercase()).unwrap_or_default();
+    let category = q
+        .get("category")
+        .map(|v| v.to_lowercase())
+        .unwrap_or_default();
+    let limit: usize = q
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(25)
+        .clamp(1, 200);
+
+    let hits: Vec<JsonValue> = emem_mcp::TOOLS
+        .iter()
+        .filter(|t| {
+            let cat = match t.category {
+                emem_mcp::ToolCategory::Read => "read",
+                emem_mcp::ToolCategory::Write => "write",
+                emem_mcp::ToolCategory::Verify => "verify",
+                emem_mcp::ToolCategory::Introspect => "introspect",
+                emem_mcp::ToolCategory::Plan => "plan",
+            };
+            if !category.is_empty() && category != cat {
+                return false;
+            }
+            if !tag.is_empty() && tag != cat && tag != t.level.to_lowercase() {
+                return false;
+            }
+            if needle.is_empty() {
+                return true;
+            }
+            let hay = format!("{} {} {} {}", t.name, t.title, t.description, t.when_to_use)
+                .to_lowercase();
+            hay.contains(&needle)
+        })
+        .map(|t| {
+            json!({
+                "id": t.name,
+                "name": t.title,
+                "description": t.description,
+                "when_to_use": t.when_to_use,
+                "example_args": t.example_args,
+                "tier": t.tier,
+                "level": t.level,
+            })
+        })
+        .collect();
+
+    let matched = hits.len();
+    Json(json!({
+        "query": {"q": needle, "tag": tag, "category": category, "limit": limit},
+        "matched": matched,
+        "returned": hits.len().min(limit),
+        "truncated": matched > limit,
+        "skills": hits.into_iter().take(limit).collect::<Vec<_>>(),
+        "agent_card": format!("{}/.well-known/agent-card.json",
+            public_origin().unwrap_or_else(|| "https://emem.dev".into())),
+        "note": "Skills here are the same set the A2A AgentCard advertises; this endpoint \
+                 exists so a peer can ask `do you do X` without fetching all 102. \
+                 `matched` is the pre-limit count, so a narrow answer is distinguishable \
+                 from a truncated one.",
+    }))
+}
+
 async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     // Skill tags must be a deduplicated set of editorial labels — earlier
