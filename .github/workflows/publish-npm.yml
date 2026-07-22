@@ -188,17 +188,44 @@ jobs:
         run: |
           echo "dry_run requested: built, inspected and smoke-tested the tarball, not publishing."
 
+      # npm versions are immutable, so a re-run against an already-published
+      # version fails outright with EPUBLISHCONFLICT ("cannot publish over the
+      # previously published versions"). The PyPI siblings absorb that with
+      # skip-existing: true; npm has no such flag, so check the registry first
+      # and gate the publish steps on the result. A missing name or version is
+      # the normal "not published yet" case, not an error.
+      - name: already on npm?
+        id: npm_state
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/emem-ts
+        run: |
+          set -uo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          echo "checking $NAME@$VERSION on the registry"
+          if PUBLISHED=$(npm view "$NAME@$VERSION" version 2>/dev/null) && [ -n "$PUBLISHED" ]; then
+            echo "$NAME@$VERSION is already on npm; publish will be skipped"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "$NAME@$VERSION is not on npm yet"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: already published, nothing to do
+        if: ${{ !inputs.dry_run && steps.npm_state.outputs.exists == 'true' }}
+        run: echo "This version is already on npm; skipping publish (idempotent re-run). Bump package.json to publish a new version."
+
       # --access public because npm defaults every scoped package to
       # restricted, and a restricted publish to a free account fails
       # outright. package.json also carries publishConfig.access=public, so
       # this flag is belt and braces rather than the only thing holding it.
       - name: publish (oidc trusted publisher)
-        if: ${{ !inputs.dry_run && (inputs.auth || 'oidc') == 'oidc' }}
+        if: ${{ !inputs.dry_run && (inputs.auth || 'oidc') == 'oidc' && steps.npm_state.outputs.exists != 'true' }}
         working-directory: sdks/emem-ts
         run: npm publish --access public
 
       - name: publish (token bootstrap, first publish only)
-        if: ${{ !inputs.dry_run && inputs.auth == 'token' }}
+        if: ${{ !inputs.dry_run && inputs.auth == 'token' && steps.npm_state.outputs.exists != 'true' }}
         working-directory: sdks/emem-ts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

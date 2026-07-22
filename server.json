@@ -3,7 +3,7 @@
   "name": "io.github.Vortx-AI/emem",
   "title": "emem, the verifiable memory protocol for the physical world",
   "description": "Shared, verifiable memory for AI agents and robots: signed tokens that resolve and verify offline.",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "websiteUrl": "https://emem.dev",
   "keywords": [
     "memory",

@@ -7,6 +7,26 @@ to verify.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-21
+
+A release-plumbing patch. 1.2.0 published unevenly — npm `@vortxai/emem`
+and PyPI `ememdev` went out, but the MCP registry stayed on 1.1.0 and
+`emem-langmem` never left the runner — so the platforms disagreed about
+what 1.2.0 was. No protocol or API surface changes; this exists to make
+one version land the same everywhere.
+
+### Fixed
+- `server.json` was left at 1.1.0 while the workspace, both Python SDKs
+  and the TypeScript SDK had all moved to 1.2.0, so `mcp-publish`
+  re-published the already-listed 1.1.0 and failed with a duplicate-version
+  400. The version is now bumped in lockstep with `Cargo.toml`'s
+  `workspace.package.version`, as `mcp-publish.yml` documents it must be.
+- `publish-npm` and `mcp-publish` now treat an already-published version as
+  an idempotent no-op instead of a hard failure, matching the
+  `skip-existing: true` the PyPI publishers already carry. Re-running a
+  release tag whose version is already out is a logged skip, not a red X;
+  any other error still surfaces with its original exit code.
+
 ## [1.2.0] - 2026-07-21
 
 The first version whose central claims were measured by someone other than

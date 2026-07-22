@@ -81,7 +81,26 @@ jobs:
         run: ./mcp-publisher login github-oidc
 
       - name: publish
-        run: ./mcp-publisher publish
+        run: |
+          set -uo pipefail
+          # Capture output so the duplicate-version case can be told apart
+          # from a real failure. `set -e` is deliberately off for this block.
+          out=$(./mcp-publisher publish 2>&1) && status=0 || status=$?
+          echo "$out"
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          # Registry versions are immutable, so re-running a tag whose version
+          # is already published returns 400 "cannot publish duplicate
+          # version". The desired end state — this version listed — already
+          # holds, so that is an idempotent no-op, not a failure. Any other
+          # error is real and must surface with its original exit code.
+          if echo "$out" | grep -qi 'duplicate version'; then
+            echo "::notice::server.json version is already in the MCP registry; treating as published (idempotent re-run). Bump server.json to publish a new version."
+            exit 0
+          fi
+          echo "::error::mcp-publisher failed for a reason other than an already-published version."
+          exit "$status"
 
       - name: confirm listing
         run: |
