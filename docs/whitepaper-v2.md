@@ -1446,6 +1446,52 @@ because the signature speaks to none of them.
   verdict unreachable, and nothing decomposes a delta numerically into
   environment, sensor, geometry, and encoder terms.
 
+### 14.5b Where the differentiator actually appears
+
+Stated here because §14 is where a reader looks for what this protocol
+does NOT buy, and the honest answer changed shape when it was measured
+twice.
+
+An independent consumer measured a single agent answering questions
+against several memory architectures, on two unrelated sites, scoring by
+whether an error would change a business decision rather than by exact
+bytes. Four architectures, including free lexical retrieval, produced
+**zero** business-material failures. At decision-impact thresholds, on
+that task, **the memory architecture barely mattered**. That result
+replicated, and it does not support an accuracy claim for addressing.
+
+The same author then measured a **handoff**: agent A surveys an area,
+hands agent B one artefact, B answers from it, A never speaks to B, so
+the artefact is the only variable.
+
+| handoff format     | byte-exact | material failures |
+|--------------------|-----------:|------------------:|
+| bundle token       |       100% |              0/20 |
+| individual tokens  |        70% |              2/20 |
+| A's own summary    |         0% |    7/17 (+3 none) |
+| BM25 over A's dump |         0% |              0/20 |
+| dense over A's dump|         0% |              0/20 |
+
+The paraphrase is the only format that fails materially, at 41%. The
+bundle token is the only arm that is simultaneously byte-exact and
+materially perfect; the retrieval arms deliver the right value and
+nothing citeable.
+
+So the claim this protocol can defend is narrow and specific: **buy
+addressing for the handoff and for auditability, not for accuracy.** A
+single agent with a good retriever is fine. The failure appears when one
+agent must hand its findings to another and the natural artefact to hand
+over is a summary, whose losses are invisible to both parties because
+the summary reads perfectly well and the receiver cannot know what was
+dropped.
+
+Limits, as its author attached them: 20 handoffs per arm, two models on
+one host, one area type, 2026-07-22. Nobody outside that collaboration
+has replicated it. And the arm most favourable to this protocol was
+re-scored **down** by its author before publication, from 12/20 material
+to 2/20, after they traced the discrepancy to a truncation in their own
+harness; that error had been running against this protocol.
+
 ### 14.6 Specification
 
 - **"Canonical CBOR" here is not RFC 8949 canonical.** Struct keys are in

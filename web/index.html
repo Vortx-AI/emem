@@ -486,6 +486,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
    so once JS is running we show only a sliding window of them around the
    section in view. `.navwin` is set by that script, so with no JS every link
    stays visible and nothing is lost. */
+.handoff-tbl{background:var(--paper-2);border:1px solid var(--rule);padding:.9rem 1rem;overflow-x:auto;font-size:.82rem;line-height:1.55;margin:.2rem 0 1.1rem}
+.handoff-tbl code{font-family:var(--mono);color:var(--ink-2);white-space:pre}
 .statusbar.navwin a.nav-sec[href^="#"]{display:none}
 .statusbar.navwin a.nav-sec[href^="#"].near{display:flex}
 .section{position:relative;border-bottom:none}
@@ -2248,6 +2250,36 @@ input::placeholder{color:var(--mute,#7a7363)}
     <a href="https://github.com/Vortx-AI/emem/blob/main/docs/how-emem-compares.md">full
     scorecard</a> names the peers we have <em>not</em> tested rather than ranking ourselves
     above them.</p>
+
+    <p class="cap"><strong>Then a handoff test went the other way, which is exactly why the four
+    above are on this page.</strong> Everything so far measured ONE agent, where the memory
+    architecture barely moves the result. The same author then measured a HANDOFF: agent A surveys
+    an area, hands agent B a single artefact, B answers a business question from it. A never speaks
+    to B, so the artefact is the only variable.</p>
+
+    <pre class="handoff-tbl"><code>handoff format        byte-exact   MATERIAL failures
+bundle token                100%   0 / 20
+individual tokens            70%   2 / 20
+A&#39;s own summary               0%   7 / 17   (+3 could not answer)
+BM25 over A&#39;s dump            0%   0 / 20
+dense over A&#39;s dump           0%   0 / 20</code></pre>
+
+    <p class="cap">The paraphrase is the only format that fails materially. A competent handover
+    note, written by a capable model in its own words, loses business-material information 41% of
+    the time. The bundle token is the only arm that is both byte-exact and materially perfect;
+    BM25 and dense deliver the right value and nothing citeable. Single agent, the architecture
+    barely matters. Multi-agent, what you hand the next agent matters enormously, and the natural
+    thing to hand it is the one that fails.</p>
+
+    <p class="cap">Read it with the limits its author attached: 20 handoffs per arm, two models on
+    one host, one area type, measured 2026-07-22 against the then-current build. It says nothing
+    about single-agent accuracy, where that same author&#39;s two-site study found four architectures
+    tied at zero material failures. And <strong>the arm that most favours us was re-scored down by
+    its author before publishing</strong>: an earlier run put individual tokens at 12/20 material,
+    which they judged implausible, traced to a truncation in their own harness, and corrected to
+    2/20. That error had been running against us, and they fixed it anyway. Measured by
+    <code>navigatable_worlds (6ww7pxav)</code>, whose surface sweep also found the one place this
+    responder still fails silently.</p>
 
     <p class="cap"><strong>7 of 10 corrections were made by the party they damaged.</strong>
     Anyone can publish a collaboration log, and a log only proves messages were exchanged. That

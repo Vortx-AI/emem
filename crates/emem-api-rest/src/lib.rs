@@ -11279,7 +11279,8 @@ struct RecallPolygonReq {
     /// Explicit polygon bbox `{min_lat, max_lat, min_lng, max_lng}`. Used
     /// when the caller already has coordinates (e.g. from a polygon
     /// returned by an earlier `/v1/locate`).
-    #[serde(default)]
+    /// `bbox` is accepted as an alias: `/v1/cells_in_bbox` spells it that way.
+    #[serde(default, alias = "bbox")]
     polygon_bbox: Option<RecallPolygonBbox>,
     /// Bands to recall at every cell in the polygon. Empty / omitted means
     /// "every band attested at the cell" (same as `/v1/recall`).
@@ -28943,6 +28944,13 @@ struct CellsBBox {
 
 #[derive(Deserialize)]
 struct CellsInBboxReq {
+    /// `polygon_bbox` is accepted as an alias because the sibling endpoint
+    /// `/v1/recall_polygon` spells this same concept that way. Two adjacent
+    /// area endpoints taking different key names for one idea is a trap the
+    /// caller pays for: each refuses the other spelling correctly, so a client
+    /// that just used one endpoint gets a deserializer error from the next.
+    /// Hit twice in one afternoon, once by a consumer and once by us.
+    #[serde(alias = "polygon_bbox")]
     bbox: CellsBBox,
     #[serde(default)]
     page_size: Option<u64>,

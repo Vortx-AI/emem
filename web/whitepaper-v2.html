@@ -761,6 +761,27 @@ input::placeholder{color:var(--mute,#7a7363)}
         <li><strong>Cold region fetch has a ceiling, and it fails silently.</strong> A region read whose bands are not yet materialized pays the upstream fetch per cell, about 1.2 s for <code>forest_change.lossyear</code>, and past roughly 250 cells the request crosses the gateway timeout and returns HTTP 504 carrying nothing a caller can act on: no partial rows, no cursor, no statement of cause. Warm reads are unaffected; 756 cells of NDVI answer normally, so this is a cold-fetch wall, not a size wall. It is also the odd one out on this surface. <code>cells_in_bbox</code> caps at 1024 cells and says so loudly, with an explicit truncation marker, a continuation cursor and a next step, which is the shape the fetch path should have and does not. A <code>budget_ms</code> that returns partial results with a stated miss count, plus an async bulk path for cold bands over a region, is specified and not built. Until it is, chunk cold-band region reads under about 120 cells. This is the single failure on the read surface where the caller learns nothing, and it blocks the base case it matters most for: an EUDR assessment over a whole plantation.</li>
         <li><strong>The change-attribution split does not exist.</strong> The ledger ships (§10.3): per-term evidence with fact cids under a signed receipt. But <code>emem_diff</code> and <code>state_diff</code> still return raw deltas, <code>triple_consensus</code>'s agreement gate is uncalibrated with its strongest verdict unreachable, and nothing decomposes a delta numerically into environment, sensor, geometry, and encoder terms.</li>
       </ul>
+      <h3>14.5b Where the differentiator actually appears</h3>
+      <p>Stated here because §14 is where a reader looks for what this protocol does NOT buy, and the honest answer changed shape when it was measured twice.</p>
+      <p>An independent consumer measured a single agent answering questions against several memory architectures, on two unrelated sites, scoring by whether an error would change a business decision rather than by exact bytes. Four architectures, including free lexical retrieval, produced <strong>zero</strong> business-material failures. At decision-impact thresholds, on that task, <strong>the memory architecture barely mattered</strong>. That result replicated, and it does not support an accuracy claim for addressing.</p>
+      <p>The same author then measured a <strong>handoff</strong>: agent A surveys an area, hands agent B one artefact, B answers from it, A never speaks to B, so the artefact is the only variable.</p>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr>
+        <th>handoff format</th>
+        <th>byte-exact</th>
+        <th>material failures</th>
+        </tr></thead>
+        <tbody>
+        <tr><td>bundle token</td><td>100%</td><td>0/20</td></tr>
+        <tr><td>individual tokens</td><td>70%</td><td>2/20</td></tr>
+        <tr><td>A's own summary</td><td>0%</td><td>7/17 (+3 none)</td></tr>
+        <tr><td>BM25 over A's dump</td><td>0%</td><td>0/20</td></tr>
+        <tr><td>dense over A's dump</td><td>0%</td><td>0/20</td></tr>
+        </tbody>
+        </table></div>
+      <p>The paraphrase is the only format that fails materially, at 41%. The bundle token is the only arm that is simultaneously byte-exact and materially perfect; the retrieval arms deliver the right value and nothing citeable.</p>
+      <p>So the claim this protocol can defend is narrow and specific: <strong>buy addressing for the handoff and for auditability, not for accuracy.</strong> A single agent with a good retriever is fine. The failure appears when one agent must hand its findings to another and the natural artefact to hand over is a summary, whose losses are invisible to both parties because the summary reads perfectly well and the receiver cannot know what was dropped.</p>
+      <p>Limits, as its author attached them: 20 handoffs per arm, two models on one host, one area type, 2026-07-22. Nobody outside that collaboration has replicated it. And the arm most favourable to this protocol was re-scored <strong>down</strong> by its author before publication, from 12/20 material to 2/20, after they traced the discrepancy to a truncation in their own harness; that error had been running against this protocol.</p>
       <h3>14.6 Specification</h3>
       <ul>
         <li><strong>"Canonical CBOR" here is not RFC 8949 canonical.</strong> Struct keys are in declaration order and are not sorted (§5). A generic canonical encoder computes the wrong digest.</li>
