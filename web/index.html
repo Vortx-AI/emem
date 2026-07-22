@@ -2239,7 +2239,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
     <ul class="refut">
       <li><span class="cl">addressed memory beats plain context when the value fits</span><span class="vd"><b>refuted by our own re-scoring.</b> Both arms 284/284; the citation arm displayed a rounded value, so it measured the same skill</span></li>
-      <li><span class="cl">retrieval fails on corpora like these</span><span class="vd"><b>only dense embedding retrieval.</b> BM25 on the identical corpus: 100% hit@5, 16/16 exact, with no protocol at all</span></li>
+      <li><span class="cl">retrieval fails on corpora like these</span><span class="vd"><b>only dense embedding retrieval.</b> BM25 on the identical corpus: 100% hit@5, 16/16 exact, with no protocol at all. Bounded by its author since: the COST of a retrieval miss is a property of the data, not the retriever, so this holds for corpora whose neighbours differ sharply in value and does not generalise</span></li>
       <li><span class="cl">addressing is O(1) in context</span><span class="vd"><b>only when bundled.</b> N individual tokens cost 5.8x the context of the N plain numbers</span></li>
       <li><span class="cl">a pinned pure op is recomputed bit-for-bit</span><span class="vd"><b>only ops with nothing to accumulate.</b> A sum of 32 signed values lands 1 to 2 ULP away, and not monotonically in N</span></li>
       <li><span class="cl">two models agreeing is evidence they are right</span><span class="vd"><b>refuted, and this one is not about us.</b> It holds whether or not you ever use emem</span></li>

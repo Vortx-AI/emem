@@ -1485,6 +1485,15 @@ over is a summary, whose losses are invisible to both parties because
 the summary reads perfectly well and the receiver cannot know what was
 dropped.
 
+One bound the same author placed on their own retrieval numbers, which
+also bounds ours: dense retrieval missed the target cell 12 of 20 times
+here and was **materially correct every time**, because a neighbouring
+cell in a spatially autocorrelated field carries nearly the same value.
+The cost of a retrieval miss is therefore a property of the DATA, not of
+the retriever, and no retrieval comparison in this work, including the
+BM25-beats-dense result, generalises past corpora whose neighbours differ
+sharply in value.
+
 Limits, as its author attached them: 20 handoffs per arm, two models on
 one host, one area type, 2026-07-22. Nobody outside that collaboration
 has replicated it. And the arm most favourable to this protocol was

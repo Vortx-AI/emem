@@ -24426,7 +24426,14 @@ struct DerivedListReq {
     /// there is no "all attesters" reading of this endpoint, because a
     /// read that does not name whose claims it wants is the read this
     /// surface exists to prevent.
-    attester_pubkey_b32: String,
+    /// Optional at the serde layer ON PURPOSE. It is still required, but if it
+    /// is declared non-optional serde rejects an omitted field first with a raw
+    /// `missing field ...` dump, and the caller never reaches the typed error
+    /// below that explains what to send. A consumer reported exactly that: the
+    /// client who reads the schema and omits a field gets a worse error than
+    /// the one who sends it empty.
+    #[serde(default)]
+    attester_pubkey_b32: Option<String>,
     /// Optional cell64 filter.
     #[serde(default)]
     cell: Option<String>,
@@ -24475,11 +24482,16 @@ async fn post_derived_list(
     EmemJson(req): EmemJson<DerivedListReq>,
 ) -> Result<Json<DerivedListResp>, ApiError> {
     let started = std::time::Instant::now();
-    let pubkey_b32 = req.attester_pubkey_b32.trim().to_lowercase();
+    let pubkey_b32 = req
+        .attester_pubkey_b32
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     if pubkey_b32.is_empty() {
         return Err(bad_request(
             "derived_attester_required",
-            "`attester_pubkey_b32` is required. Derivations are attester-scoped: this endpoint lists one key's claims, and there is no query that returns every caller's.".to_string(),
+            "`attester_pubkey_b32` is required. Derivations are attester-scoped: this endpoint lists one key's claims, and there is no query that returns every caller's. This is a READ and needs no signature, only the 52-char base32 key whose claims you want. Example: {\"attester_pubkey_b32\": \"k572x7go72uoih45j2xn...\", \"cell\": \"defi.zb4e3.yuko.fExu\"}.".to_string(),
         ));
     }
     if data_encoding::BASE32_NOPAD
@@ -63389,7 +63401,7 @@ mod tests {
         let Json(listed) = post_derived_list(
             State(s.clone()),
             EmemJson(DerivedListReq {
-                attester_pubkey_b32: pubkey_b32.clone(),
+                attester_pubkey_b32: Some(pubkey_b32.clone()),
                 cell: None,
                 band: None,
                 limit: None,
@@ -63405,7 +63417,7 @@ mod tests {
         let Json(other) = post_derived_list(
             State(s),
             EmemJson(DerivedListReq {
-                attester_pubkey_b32: other_pubkey,
+                attester_pubkey_b32: Some(other_pubkey),
                 cell: None,
                 band: None,
                 limit: None,
@@ -63574,7 +63586,7 @@ mod tests {
         let Json(listed) = post_derived_list(
             State(s),
             EmemJson(DerivedListReq {
-                attester_pubkey_b32: pubkey_b32,
+                attester_pubkey_b32: Some(pubkey_b32),
                 cell: None,
                 band: None,
                 limit: None,
@@ -63649,7 +63661,7 @@ mod tests {
             let err = post_derived_list(
                 State(s.clone()),
                 EmemJson(DerivedListReq {
-                    attester_pubkey_b32: bad.into(),
+                    attester_pubkey_b32: Some(bad.into()),
                     cell: None,
                     band: None,
                     limit: None,

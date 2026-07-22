@@ -173,7 +173,7 @@ Every claim here resolves to a signed fact or a live surface, no key.
 | what we went in claiming | what the measurement said |
 |---|---|
 | addressed memory beats plain context when the value fits | **refuted by our own re-scoring.** Both arms 284/284; the citation arm displayed a rounded value, so it measured the same skill |
-| retrieval fails on these corpora | **only dense embedding retrieval.** BM25 on the identical corpus scored 100% hit@5, with no protocol at all |
+| retrieval fails on these corpora | **only dense embedding retrieval.** BM25 on the identical corpus scored 100% hit@5, with no protocol at all. Its author has since bounded it: the cost of a retrieval miss is a property of the data, not the retriever, so it does not generalise beyond corpora whose neighbours differ sharply in value |
 | addressing is O(1) in context | **only when bundled.** N individual tokens cost 5.8x the context of the N plain numbers |
 | a pinned pure op is recomputed bit-for-bit | **only ops with nothing to accumulate.** A sum of 32 f64s lands 1 to 2 ULP away, unpredictably in N |
 | two models agreeing is evidence they are right | **refuted, and this one is not about emem.** Fisher p = 0.035 |
