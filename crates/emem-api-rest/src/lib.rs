@@ -783,6 +783,10 @@ pub fn router(state: AppState) -> Router {
         .route("/demos/find-similar", get(serve_demos_find_similar))
         .route("/demos/trajectory", get(serve_demos_trajectory))
         .route("/demos/recall-polygon", get(serve_demos_recall_polygon))
+        // The arcade page is a private build artifact read from DISK at
+        // request time — see `serve_arcade`; nothing is compiled in.
+        .route("/arcade", get(serve_arcade))
+        .route("/arcade/", get(serve_arcade))
         // 3-D splat worlds: the page + its vendored renderer stack. The
         // scenes themselves are served from disk under /v1/worlds.
         .route("/worlds", get(serve_worlds_html))
@@ -3477,6 +3481,54 @@ async fn serve_demos_signed_answer() -> Response {
 /// `/v1/corpus_state_stats`.
 async fn serve_demos_index() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_INDEX_HTML)
+}
+
+/// `/arcade` — a self-contained pixel-globe game that plays the whole emem
+/// loop through live same-origin `/v1` calls. Unlike every other surface the
+/// page is a private build artifact, so it is read from DISK at request time
+/// (`EMEM_ARCADE_HTML`, default `var/arcade/arcade.html` under the process
+/// cwd — gitignored) instead of `include_str!`; an absent file is the
+/// standard 404. Its inline blocks get their own hashes through `build_csp`,
+/// so the page runs under the same strict policy without touching
+/// `served_html_pages`.
+async fn serve_arcade() -> Response {
+    let path = std::env::var("EMEM_ARCADE_HTML")
+        .unwrap_or_else(|_| "var/arcade/arcade.html".to_string());
+    match std::fs::read_to_string(&path) {
+        Ok(html) => {
+            let mut scripts = std::collections::BTreeSet::new();
+            let mut styles = std::collections::BTreeSet::new();
+            extract_inline_blocks(&html, "script", |open_tag, body| {
+                if has_src_attr(open_tag) || body.trim().is_empty() {
+                    return;
+                }
+                scripts.insert(sha256_b64(body));
+            });
+            extract_inline_blocks(&html, "style", |_open_tag, body| {
+                if body.trim().is_empty() {
+                    return;
+                }
+                styles.insert(sha256_b64(body));
+            });
+            let join = |set: &std::collections::BTreeSet<String>| -> String {
+                set.iter().map(|h| format!(" 'sha256-{h}'")).collect()
+            };
+            Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/html; charset=utf-8")
+                .header(
+                    "content-security-policy",
+                    build_csp(&join(&scripts), &join(&styles)),
+                )
+                .body(axum::body::Body::from(html))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+        Err(_) => {
+            let mut resp = text_response("text/html; charset=utf-8", NOT_FOUND_HTML);
+            *resp.status_mut() = StatusCode::NOT_FOUND;
+            resp
+        }
+    }
 }
 
 /// `/demos/state-cube` — interactive walk of `/v1/state` view=encoder,
@@ -17756,6 +17808,27 @@ async fn mcp_tool_call(
             let req: band_raster::RasterResolveReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match band_raster::post_raster_resolve(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        // These two were advertised (descriptor + ToolSearch) with no dispatch
+        // arm, so tools/call answered `-32602 unknown tool` on both /mcp and
+        // /mcp/full while REST worked. A downstream world builder (epl7n62b,
+        // Arya.ag) hit it minting an emem:rasterset: from MCP alone. The lying
+        // catalog is exactly what the guard test below exists to forbid.
+        "emem_raster_bundle" => {
+            let req: band_raster::RasterBundleReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match band_raster::post_raster_bundle(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_raster_bundle_resolve" => {
+            let req: band_raster::RasterBundleResolveReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match band_raster::post_raster_bundle_resolve(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -62321,6 +62394,68 @@ mod tests {
             missing.is_empty(),
             "baked page(s) missing from served_html_pages(), their inline scripts \
              will be CSP-blocked in the browser: {missing:?}"
+        );
+    }
+
+    /// No lying catalog: every tool the MCP surface ADVERTISES must have a
+    /// dispatch arm, or `tools/call` answers `-32602 unknown tool` for a tool
+    /// `tools/list` promised. `emem_raster_bundle` and its resolve shipped
+    /// advertised-but-undispatched for exactly this reason, caught by a
+    /// downstream world builder rather than by us. This reads the dispatch
+    /// function's own source and checks each advertised name appears as a
+    /// `"emem_x" =>` arm.
+    #[test]
+    fn every_advertised_mcp_tool_has_a_dispatch_arm() {
+        let src = include_str!("lib.rs");
+        // The dispatch match arms, as literal names `"emem_..." =>`.
+        let dispatched: std::collections::BTreeSet<&str> = src
+            .lines()
+            .filter_map(|l| {
+                let t = l.trim();
+                let rest = t.strip_prefix('"')?;
+                let name_end = rest.find('"')?;
+                let name = &rest[..name_end];
+                // A tool name is `[a-z0-9_]+`; the arm is `"name" =>`. The
+                // memory verbs are `memory_view` etc. with no `emem_` prefix,
+                // so keying on that prefix (the first version of this test did)
+                // misses them and false-flags a working dispatch.
+                let looks_like_tool = !name.is_empty()
+                    && name
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+                if looks_like_tool
+                    && rest[name_end..]
+                        .trim_start_matches('"')
+                        .trim_start()
+                        .starts_with("=>")
+                {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        // emem_tools/emem_intent/emem_at and the ask/hunt family are handled by
+        // their own earlier branches, not a name-match arm; allow the ones
+        // proven callable live so this test flags only true gaps.
+        let handled_elsewhere: std::collections::BTreeSet<&str> = [
+            "emem_tools",
+            "emem_ask",
+            "emem_hunt",
+            "emem_intent",
+            "emem_at",
+        ]
+        .into_iter()
+        .collect();
+        let missing: Vec<&str> = emem_mcp::TOOLS
+            .iter()
+            .map(|t| t.name)
+            .filter(|n| !dispatched.contains(n) && !handled_elsewhere.contains(n))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "advertised tool(s) with no dispatch arm; tools/call will answer \
+             `unknown tool` for what tools/list promises: {missing:?}"
         );
     }
 
