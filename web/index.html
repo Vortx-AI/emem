@@ -482,6 +482,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .statusbar a:hover{opacity:1}
 .statusbar a.on{opacity:1;color:var(--accent)}
 .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+/* Windowed section nav. Nine in-page links wrapped the bar onto a second line,
+   so once JS is running we show only a sliding window of them around the
+   section in view. `.navwin` is set by that script, so with no JS every link
+   stays visible and nothing is lost. */
+.statusbar.navwin a.nav-sec[href^="#"]{display:none}
+.statusbar.navwin a.nav-sec[href^="#"].near{display:flex}
 .section{position:relative;border-bottom:none}
 .section::after{content:"";position:absolute;left:0;right:0;bottom:-2.5px;height:6px;opacity:.5;background:linear-gradient(var(--rule),var(--rule)) left top/100% 1px no-repeat,linear-gradient(var(--rule),var(--rule)) left bottom/100% 1px no-repeat,repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px) center/auto 100%;-webkit-mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent);mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent)}
 .section::before{content:"";position:absolute;bottom:-3px;left:50%;width:5px;height:5px;margin-left:-2.5px;background:var(--paper);border:1px solid var(--accent);opacity:.5;transform:rotate(45deg);z-index:1}
@@ -2739,14 +2745,40 @@ input::placeholder{color:var(--mute,#7a7363)}
     document.querySelectorAll('.statusbar a[href]').forEach(function(a){
       var h=a.getAttribute('href'); if(h&&h.charAt(0)!=='#'){ if(h.replace(/\/+$/,'')===path) a.classList.add('on'); }
     });
-    var links={};
-    document.querySelectorAll('.statusbar a[href^="#"]').forEach(function(a){ links[a.getAttribute('href').slice(1)]=a; });
-    var secs=Object.keys(links).map(function(id){return document.getElementById(id);}).filter(Boolean);
+    // The nine in-page links plus nine site links wrapped the bar onto two
+    // lines. Rather than cut sections, window them: show the one you are in
+    // plus its neighbours, and slide as you scroll. The bar stays one line and
+    // still answers "where am I". Three links on narrow viewports, four on wide.
+    var order=[], links={};
+    document.querySelectorAll('.statusbar a[href^="#"]').forEach(function(a){
+      var id=a.getAttribute('href').slice(1); links[id]=a; order.push(id);
+    });
+    var secs=order.map(function(id){return document.getElementById(id);}).filter(Boolean);
+    var bar=document.querySelector('.statusbar');
+    var current=order[0];
+    function winSize(){ return window.innerWidth<1150?3:4; }
+    function windowTo(id){
+      var i=order.indexOf(id); if(i<0) return;
+      current=id;
+      var w=winSize();
+      // Keep one section of back-context where there is room, and clamp at the
+      // ends so the window never runs off the list.
+      var start=Math.min(Math.max(0,i-1), Math.max(0,order.length-w));
+      order.forEach(function(oid,j){
+        links[oid].classList.toggle('near', j>=start && j<start+w);
+        links[oid].classList.toggle('on', oid===id);
+      });
+    }
     if('IntersectionObserver' in window && secs.length){
+      if(bar) bar.classList.add('navwin');
+      windowTo(current);
       var io=new IntersectionObserver(function(es){
-        es.forEach(function(e){ if(e.isIntersecting){ Object.keys(links).forEach(function(id){ links[id].classList.toggle('on', id===e.target.id); }); } });
+        es.forEach(function(e){ if(e.isIntersecting) windowTo(e.target.id); });
       },{rootMargin:'-45% 0px -50% 0px'});
       secs.forEach(function(s){ io.observe(s); });
+      var rt; window.addEventListener('resize',function(){
+        clearTimeout(rt); rt=setTimeout(function(){ windowTo(current); },150);
+      });
     }
   })();
 

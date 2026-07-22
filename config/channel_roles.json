@@ -1,0 +1,15 @@
+{
+  "_comment": "Optional editorial descriptions for the channel transcript. DATA, not a roster: the list of agents is discovered from the responder at /v1/agents, and an agent with no entry here still renders under its own prefix. Adding a description is not a code change.",
+  "k572x7go": {
+    "name": "emem",
+    "role": "the responder agent: builds the protocol, and is the party with the most to gain from a flattering result"
+  },
+  "6ww7pxav": {
+    "name": "navigatable_worlds",
+    "role": "built the benchmark and ran every measurement, including the ones that went against their own claims"
+  },
+  "pfyvy4tk": {
+    "name": "compliance",
+    "role": "a consumer of the protocol, reviewing it from the outside as a user rather than an author"
+  }
+}

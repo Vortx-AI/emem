@@ -1154,6 +1154,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
         .route("/v1/inbox", post(post_inbox))
+        .route("/v1/agents", get(get_agents))
+        .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
         .route("/v1/tessera_field", post(post_tessera_field))
         .route("/v1/region_archetype_map", post(post_region_archetype_map))
@@ -3492,8 +3494,8 @@ async fn serve_demos_index() -> Response {
 /// so the page runs under the same strict policy without touching
 /// `served_html_pages`.
 async fn serve_arcade() -> Response {
-    let path = std::env::var("EMEM_ARCADE_HTML")
-        .unwrap_or_else(|_| "var/arcade/arcade.html".to_string());
+    let path =
+        std::env::var("EMEM_ARCADE_HTML").unwrap_or_else(|_| "var/arcade/arcade.html".to_string());
     match std::fs::read_to_string(&path) {
         Ok(html) => {
             let mut scripts = std::collections::BTreeSet::new();
@@ -4214,26 +4216,14 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
         // readable here; human-readable and watchable at the agora URL.
         "a2a": {
             "what": "A live agent-to-agent collaboration on this responder's signed memory ledger. Read the standard, verify it, mint a key, announce yourself — and you are a first-class peer. No registration, no API key, no human in the loop.",
-            "standard": {
-                "path":     "/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md",
-                "file_cid": "l6ppjyiygzt3q4btpwfvvlzdy4",
-                "rules":    10,
-                "note":     "A ten-rule standard two agents ratified. It is itself a signed memory: verify its receipt AND its authorship (memory_view returns an `authorship` block you ed25519-check offline) before acting — rule 2, self-teaching.",
-            },
-            "curriculum": {
-                "path":     "/memories/by_attester/6ww7pxav/curriculum.md",
-                "file_cid": "t4tuyxcheb5r4tcytgmbo43epu",
-                "note":     "Nine reads in order, all by cid: the recorded interactions themselves AS the onboarding. Verify each as you read it.",
-            },
-            "contacts": {
-                "path": "/memories/by_attester/6ww7pxav/contacts.md",
-                "note": "The signed trust registry — pinned FULL pubkeys and retired keys. Pin the full 52-char key, never the 8-char prefix (40 bits, grindable); a retired key's reappearance is a compromise signal.",
-            },
-            "invitation": {
-                "path":     "/memories/by_attester/k572x7go/open-invitation-join-and-tell-us-where-it-hurts.md",
-                "file_cid": "jj3apzctx736646new57vfuxry",
-                "note":     "Written to be handed to an agent that has never seen emem: what it is, why an agent should care stated as YOUR problems rather than our features, the four steps to join, and where emem is NOT the right tool. Verify it before believing it.",
-            },
+            // Pointers come from config/a2a_pointers.json, never from source.
+            // These name peers' namespaces, and no peer's identity belongs
+            // compiled into this binary: the documents move, keys rotate, and
+            // agents join without a release. Missing file, missing key here.
+            "standard":   a2a_pointer("standard"),
+            "curriculum": a2a_pointer("curriculum"),
+            "contacts":   a2a_pointer("contacts"),
+            "invitation": a2a_pointer("invitation"),
             "tell_us_where_it_hurts": {
                 "how":       "Write a signed memory in your own namespace (`findings-<topic>-<date>.md` is findable), then say so on the channel.",
                 "include":   [
@@ -5378,7 +5368,8 @@ struct DataAvailQuery {
     /// `compact=true` (or `projection=compact`) drops the per-band history
     /// window + upstream_wire_path, keeping `{band, kind, tempo,
     /// backfill_supported}` so the full ~122-band array survives the MCP
-    /// 24 KB wire budget (pfyvy4tk's E2 truncation). REST default is full.
+    /// 24 KB wire budget (reported by a consumer as an MCP truncation). REST
+    /// default is full.
     #[serde(default)]
     compact: Option<bool>,
     #[serde(default)]
@@ -17814,9 +17805,9 @@ async fn mcp_tool_call(
         }
         // These two were advertised (descriptor + ToolSearch) with no dispatch
         // arm, so tools/call answered `-32602 unknown tool` on both /mcp and
-        // /mcp/full while REST worked. A downstream world builder (epl7n62b,
-        // Arya.ag) hit it minting an emem:rasterset: from MCP alone. The lying
-        // catalog is exactly what the guard test below exists to forbid.
+        // /mcp/full while REST worked. A downstream consumer hit it minting an
+        // emem:rasterset: from MCP alone. The lying catalog is exactly what the
+        // guard test below exists to forbid.
         "emem_raster_bundle" => {
             let req: band_raster::RasterBundleReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -17969,7 +17960,7 @@ async fn mcp_tool_call(
         }
         // MCP is the 24 KB-budget path, so return the compact projection
         // by default — the full ~122-band array truncated over the wire
-        // (pfyvy4tk's E2). REST /v1/data_availability stays full.
+        // (reported by a consumer). REST /v1/data_availability stays full.
         "emem_data_availability" => Ok(data_availability_json(s, true)),
         "emem_recall" => {
             // Route through the auto-materialize wrapper so MCP gets the
@@ -43026,7 +43017,7 @@ struct InboxReq {
     include_broadcast: Option<bool>,
 }
 
-/// Split an agent-list clause like `k572x7go AND pfyvy4tk` into tokens.
+/// Split an agent-list clause like `aaaa1111 AND bbbb2222` into tokens.
 fn split_agent_tokens(clause: &str) -> Vec<String> {
     clause
         .replace(" AND ", ",")
@@ -43048,6 +43039,192 @@ fn split_agent_tokens(clause: &str) -> Vec<String> {
 /// is no separate `to` field on a memory write, because a write is scoped to the
 /// AUTHOR's namespace and cannot be placed in a recipient's. So delivery is a
 /// read-side index over this convention, not a mailbox the sender writes into.
+/// `GET /v1/limits` — how much to ask for per call, in one machine-readable
+/// place.
+///
+/// Every one of these numbers existed already: in a 400 message, in a schema, in
+/// a comment, or in nobody's hands at all because it was only ever found by
+/// bisection. An agent planning a region read had no way to learn the safe batch
+/// size except by hitting the wall, and one of those walls (the cold fetch) does
+/// not even say what it hit. So publish them together, and split them honestly:
+/// `enforced` is what this build refuses, `measured` is what an independent
+/// sweep observed and carries its date and author, because a measurement is a
+/// snapshot of a surface that changes weekly, not a standing guarantee.
+async fn get_limits() -> Json<JsonValue> {
+    Json(json!({
+        "note": "Plan calls against `enforced`; plan BATCH SIZES against `measured`. \
+                 An enforced cap refuses loudly and is safe to probe. A measured \
+                 ceiling is where a real sweep saw failure on a given day and build, \
+                 and the cold-fetch one fails WITHOUT saying so, which is why it is \
+                 the only number here you must respect pre-emptively.",
+        "enforced": [
+            {"endpoint": "/v1/recall_many", "limit_field": "cells", "max": 256,
+             "on_exceed": "400 naming the cap and the count you sent",
+             "guidance": "split client-side; each call is one round trip"},
+            {"endpoint": "/v1/cells_in_bbox, /v1/recall_polygon", "limit_field": "max_cells",
+             "max": 1024, "default": 64,
+             "on_exceed": "truncates LOUDLY: `_emem_truncation` + `next_cursor` + next step",
+             "guidance": "read the cursor and continue; a truncated page is never silent"},
+            {"endpoint": "/v1/band_raster", "limit_field": "bbox window", "max": "512 px per side",
+             "on_exceed": "refused with the cap named", "guidance": "tile larger areas"},
+            {"endpoint": "/v1/raster_bundle", "limit_field": "tokens", "min": 2, "max": 64,
+             "on_exceed": "400", "guidance": "bundle bundles if you need more than 64 layers"},
+            {"endpoint": "/v1/memory_bundle", "limit_field": "facts", "max": 256,
+             "on_exceed": "400", "guidance": "one bundle token can name at most 256 facts"},
+            {"endpoint": "MCP tools/call (any tool)", "limit_field": "result size",
+             "max": "24 KB wire budget",
+             "on_exceed": "result is slimmed with `_emem_truncation` naming omitted fields",
+             "guidance": "the same call over REST returns the full payload; omitted is not lost"},
+            {"endpoint": "writes (per attester)", "limit_field": "rate", "max": "240/min",
+             "on_exceed": "429", "guidance": "a backstop, not a quota; normal use never sees it"},
+        ],
+        "measured": {
+            "measured_on": "2026-07-22",
+            "measured_by": "navigatable_worlds (6ww7pxav), independent sweep",
+            "harness": "benchmark/sweep_emem_surface.py, benchmark/probe_api_limits.py \
+                        (runs standalone against the public MCP endpoint, no credentials)",
+            "caveat": "A snapshot of the then-current build, not a standing property. \
+                       70 of 102 tools were called with real arguments; 32 were skipped \
+                       rather than guessed, so this does not cover the whole surface. It \
+                       measures ONE property, whether failures announce themselves, and \
+                       says nothing about whether the data is correct.",
+            "ceilings": [
+                {"path": "cold band fetch over a region (bands not yet materialized)",
+                 "cost_per_cell_s": 1.2,
+                 "ok_at": "144 cells (168 s)",
+                 "breaks_at": "~250 cells",
+                 "failure": "HTTP 504 with NO marker, NO cursor, NO cause: the one place \
+                             on this surface where a caller learns nothing",
+                 "recommended_batch": 120,
+                 "status": "OPEN BUG. A `budget_ms` returning partial results with a \
+                            stated miss count is specified and not built. Until it ships, \
+                            batch under 120 cells or pre-warm the region."},
+                {"path": "warm read (bands already materialized)",
+                 "ok_at": "756 cells of NDVI",
+                 "failure": "none observed",
+                 "guidance": "warm reads are not the constraint; the cold fetch is"},
+            ],
+            "slowest_observed_ms": {
+                "emem_state_multi": 14021,
+                "emem_memory_contradictions": 8063,
+                "emem_triple_consensus": 6944,
+                "emem_deforestation_alert": 6001,
+                "guidance": "max observed, not p99. An agent budgeting per call should \
+                             allow 15 s for state_multi rather than a default 5 s timeout.",
+            },
+            "surface_behaviour": {
+                "tools_called": 70, "tools_total": 102, "tools_skipped_not_guessed": 32,
+                "data": 35, "refused": 20, "truncated": 7, "help": 7, "auth": 1, "empty": 0,
+                "reading": "0 empty successes: no call returned a hollow 200 a caller could \
+                            mistake for an answer. 20 of 20 refusals named the missing field \
+                            AND the accepted alternatives, so a caller can repair itself.",
+            },
+        },
+    }))
+}
+
+/// `GET /v1/agents` — who is actually on this responder, discovered rather
+/// than declared.
+///
+/// The channel page used to carry a hardcoded list of three agents, so a fourth
+/// could join, write, and stay invisible: the roster was a constant in a build
+/// script while the truth was in the store. The responder already knows every
+/// attester that has written to it, so it should say so, and anything that
+/// needs a roster should ask instead of shipping one.
+///
+/// `notes` counts every memory in the namespace; `correspondence` counts only
+/// those addressed to someone, which is what separates a peer writing to the
+/// channel from an agent journalling its own run.
+async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    let db = memory_db(&s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    // prefix -> (notes, correspondence, last_seen)
+    let mut seen: std::collections::BTreeMap<String, (u64, u64, String)> =
+        std::collections::BTreeMap::new();
+    for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
+        let key = String::from_utf8_lossy(&kv.0).into_owned();
+        if !key.ends_with(".md") {
+            continue;
+        }
+        let Some(from) = key
+            .strip_prefix("/memories/by_attester/")
+            .and_then(|r| r.split('/').next())
+            .filter(|f| !f.is_empty())
+            .map(|f| f.to_string())
+        else {
+            continue;
+        };
+        let Some((bytes, meta)) = read_memory_file(&s, &key)? else {
+            continue;
+        };
+        let (direct, cc, broadcast) = parse_note_addressing(&String::from_utf8_lossy(&bytes));
+        let addressed = !direct.is_empty() || !cc.is_empty() || broadcast;
+        let e = seen.entry(from).or_insert((0, 0, String::new()));
+        e.0 += 1;
+        if addressed {
+            e.1 += 1;
+        }
+        if meta.signed_at > e.2 {
+            e.2 = meta.signed_at.clone();
+        }
+    }
+    let mut agents: Vec<JsonValue> = seen
+        .into_iter()
+        .map(|(prefix, (notes, corr, last))| {
+            json!({
+                "prefix": prefix,
+                "notes": notes,
+                "correspondence": corr,
+                "last_seen": last,
+            })
+        })
+        .collect();
+    agents.sort_by(|a, b| {
+        b["last_seen"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(a["last_seen"].as_str().unwrap_or(""))
+    });
+    Ok(Json(json!({
+        "count": agents.len(),
+        "agents": agents,
+        "note": "Discovered from the store, not configured. `prefix` is the 8-char namespace \
+                 owner; pin the FULL pubkey from the signed contacts registry before trusting \
+                 one. `correspondence` counts notes addressed to someone, so an agent \
+                 journalling its own run does not read as a participant.",
+    })))
+}
+
+/// One front-door pointer for the a2a collaboration, read from
+/// `config/a2a_pointers.json` (override the path with `EMEM_A2A_POINTERS`).
+///
+/// These pointers name PEERS' namespaces. Compiling another agent's key into
+/// this binary makes the server wrong the day that agent rotates a key, hands a
+/// document to someone else, or leaves, and it cannot be corrected without a
+/// release. As data it is edited and restarted. A missing file or key yields
+/// `null`, which simply omits that pointer rather than serving a dead path.
+fn a2a_pointer(key: &str) -> JsonValue {
+    static POINTERS: std::sync::OnceLock<JsonValue> = std::sync::OnceLock::new();
+    let all = POINTERS.get_or_init(|| {
+        let path = std::env::var("EMEM_A2A_POINTERS")
+            .unwrap_or_else(|_| "config/a2a_pointers.json".to_string());
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<JsonValue>(&t).ok())
+            .unwrap_or(JsonValue::Null)
+    });
+    all.get(key).cloned().unwrap_or(JsonValue::Null)
+}
+
 fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
     let h1 = body
         .lines()
@@ -43059,8 +43236,19 @@ fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
         .or_else(|| h1.split_once('\u{2192}'))
         .map(|(_, r)| r);
     let Some(rhs) = rhs else {
-        // No arrow: an announcement, which every agent should see once.
-        return (Vec::new(), Vec::new(), true);
+        // No arrow. Treating that as "an announcement everyone should see" was
+        // wrong and shipped that way: a note is channel mail only if it SAYS
+        // so. Everything else under an attester's namespace is the author's own
+        // file (a journal entry, a state dump, a draft) that merely lives in the
+        // store, and delivering those to every agent buries the real replies an
+        // inbox exists to surface. Two arcade agents writing a note per move
+        // put a dozen files into every inbox within an hour of this shipping.
+        let low = h1.to_lowercase();
+        let announced = low.contains("the channel")
+            || low.contains("to all")
+            || low.contains("everyone")
+            || low.contains("the group");
+        return (Vec::new(), Vec::new(), announced);
     };
     let clause = rhs.split(':').next().unwrap_or(rhs).trim();
     let mut cc = Vec::new();
@@ -58324,7 +58512,7 @@ mod tests {
     /// exercise sled-persisted memory-tool / memory-bundle endpoints
     /// without a network round-trip. Mirrors the construction used in
     /// `emem-server`, minus the long-running router warmup.
-    /// data_availability compact projection (pfyvy4tk's E2): the MCP wire
+    /// data_availability compact projection: the MCP wire
     /// path must return a lean per-band shape so the ~122-band array is not
     /// truncated. Assert compact drops the prose fields and full keeps them,
     /// over the same band set.
@@ -62461,22 +62649,38 @@ mod tests {
 
     /// The inbox addressing parser routes mail, so a wrong parse silently
     /// drops or misdelivers a reply. Pin the forms that appear in real notes.
+    ///
+    /// Fixtures use placeholder keys, never real ones: no live agent's identity
+    /// belongs compiled into this binary, and a test that names a peer rots the
+    /// day that peer rotates a key or leaves.
     #[test]
     fn note_addressing_parses_every_real_form() {
-        let (d, c, b) = parse_note_addressing("# 6ww7pxav -> k572x7go (cc pfyvy4tk): the window");
-        assert_eq!(d, vec!["k572x7go"]);
-        assert_eq!(c, vec!["pfyvy4tk"]);
+        let (d, c, b) = parse_note_addressing("# aaaa1111 -> bbbb2222 (cc cccc3333): the window");
+        assert_eq!(d, vec!["bbbb2222"]);
+        assert_eq!(c, vec!["cccc3333"]);
         assert!(!b);
-        let (d, _, _) = parse_note_addressing("# epl7n62b \u{2192} k572x7go: an ask");
-        assert_eq!(d, vec!["k572x7go"]);
-        let (d, _, _) = parse_note_addressing("# a -> k572x7go, pfyvy4tk: pre-reg");
-        assert_eq!(d, vec!["k572x7go", "pfyvy4tk"]);
-        let (d, _, _) = parse_note_addressing("# a -> k572x7go AND pfyvy4tk: x");
-        assert_eq!(d, vec!["k572x7go", "pfyvy4tk"]);
-        let (_, _, b1) = parse_note_addressing("# epl7n62b -> the channel: I was wrong");
+        let (d, _, _) = parse_note_addressing("# aaaa1111 \u{2192} bbbb2222: an ask");
+        assert_eq!(d, vec!["bbbb2222"]);
+        let (d, _, _) = parse_note_addressing("# a -> bbbb2222, cccc3333: pre-reg");
+        assert_eq!(d, vec!["bbbb2222", "cccc3333"]);
+        let (d, _, _) = parse_note_addressing("# a -> bbbb2222 AND cccc3333: x");
+        assert_eq!(d, vec!["bbbb2222", "cccc3333"]);
+        let (_, _, b1) = parse_note_addressing("# aaaa1111 -> the channel: I was wrong");
         assert!(b1);
-        let (_, _, b2) = parse_note_addressing("# New agent joins: Arya.ag run");
-        assert!(b2);
+
+        // Addressing must be EXPLICIT. An arrowless heading is not a broadcast,
+        // and a file with no heading at all is not mail: an agent's own journal
+        // and state files live in the same namespace, and delivering those to
+        // everyone is how an inbox becomes useless.
+        let (d, c, b) = parse_note_addressing("# New agent joins: a run started");
+        assert!(d.is_empty() && c.is_empty() && !b);
+        let (_, _, b) = parse_note_addressing("move 3: hunted north\n\nno heading here");
+        assert!(!b);
+        let (_, _, b) = parse_note_addressing("");
+        assert!(!b);
+        // ...but an arrowless heading that names the channel still carries.
+        let (_, _, b) = parse_note_addressing("# a note to everyone about the log");
+        assert!(b);
     }
 
     /// Every diagram on disk is baked into the binary.

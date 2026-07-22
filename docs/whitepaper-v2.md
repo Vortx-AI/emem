@@ -1408,6 +1408,22 @@ because the signature speaks to none of them.
   -0.064. The artefact's own `honesty_caveats` state the real corpus is
   too sparse to train end-to-end. Treat `jepa_predict_v2` as a research
   surface, not a forecast.
+- **Cold region fetch has a ceiling, and it fails silently.** A region
+  read whose bands are not yet materialized pays the upstream fetch per
+  cell, about 1.2 s for `forest_change.lossyear`, and past roughly 250
+  cells the request crosses the gateway timeout and returns HTTP 504
+  carrying nothing a caller can act on: no partial rows, no cursor, no
+  statement of cause. Warm reads are unaffected; 756 cells of NDVI answer
+  normally, so this is a cold-fetch wall, not a size wall. It is also the
+  odd one out on this surface. `cells_in_bbox` caps at 1024 cells and says
+  so loudly, with an explicit truncation marker, a continuation cursor and
+  a next step, which is the shape the fetch path should have and does not.
+  A `budget_ms` that returns partial results with a stated miss count,
+  plus an async bulk path for cold bands over a region, is specified and
+  not built. Until it is, chunk cold-band region reads under about 120
+  cells. This is the single failure on the read surface where the caller
+  learns nothing, and it blocks the base case it matters most for: an EUDR
+  assessment over a whole plantation.
 - **The change-attribution split does not exist.** The ledger ships
   (§10.3): per-term evidence with fact cids under a signed receipt. But
   `emem_diff` and `state_diff` still return raw deltas,

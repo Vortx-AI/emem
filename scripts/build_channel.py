@@ -30,8 +30,10 @@ Usage:
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -161,15 +163,59 @@ LEDGER = [
 ]
 
 # Who is in the channel. The short key is what the ledger paths use.
-AGENTS = {
-    "k572x7go": ("emem", "the responder agent: builds the protocol, and is the "
-                         "party with the most to gain from a flattering result"),
-    "6ww7pxav": ("navigatable_worlds", "built the benchmark and ran every "
-                                       "measurement, including the ones that "
-                                       "went against their own claims"),
-    "pfyvy4tk": ("compliance", "a consumer of the protocol, reviewing it from "
-                               "the outside as a user rather than an author"),
-}
+# Agents are DISCOVERED from the responder, never listed here. A roster baked
+# into this script is exactly why a fourth agent could join, write for a day and
+# stay invisible on the page it belonged on: the constant was in the build while
+# the truth was in the store. Editorial descriptions are optional and live in
+# config/channel_roles.json, which is data; an agent with no entry still renders
+# under its own prefix, on the day it joins, with no release.
+ROLES_FILE = REPO / "config" / "channel_roles.json"
+HOME = os.environ.get("EMEM_CHANNEL_HOME", "")
+
+
+def load_roles() -> dict:
+    try:
+        raw = json.loads(ROLES_FILE.read_text())
+        return {k: v for k, v in raw.items() if not k.startswith("_")}
+    except Exception:
+        return {}
+
+
+def agent_color(prefix: str) -> str:
+    """A stable colour per agent, derived from the key so a new peer gets one
+    without anybody assigning it."""
+    h = int(hashlib.blake2s(prefix.encode()).hexdigest()[:8], 16) % 360
+    return f"hsl({h} 58% 52%)"
+
+
+def discover_agents() -> dict:
+    """prefix -> (display name, role), from /v1/agents.
+
+    Only peers that ADDRESS someone are included. An agent journalling its own
+    run writes to the same store but is not part of a conversation, and its
+    per-move notes would bury the thread this page exists to show.
+    """
+    roles = load_roles()
+    found: list[str] = []
+    try:
+        with urllib.request.urlopen(RESPONDER + "/v1/agents", timeout=30) as r:
+            data = json.load(r)
+        found = [a["prefix"] for a in data.get("agents", [])
+                 if a.get("correspondence", 0) > 0]
+    except Exception as exc:
+        print(f"  ! /v1/agents unavailable ({exc}); using configured roles only",
+              file=sys.stderr)
+        found = list(roles)
+    if not found:
+        found = list(roles)
+    out = {}
+    for prefix in found:
+        meta = roles.get(prefix) or {}
+        out[prefix] = (meta.get("name", prefix), meta.get("role", ""))
+    return out
+
+
+AGENTS = discover_agents()
 
 
 def call(name: str, args: dict, timeout: int = 110) -> dict:
@@ -484,6 +530,14 @@ def build_html(notes: list[dict]) -> str:
         f'<span class="chip {k}"><i></i>{html.escape(v[0])}<code>{k}</code></span>'
         for k, v in AGENTS.items())
 
+    # Per-agent colour and the JS roster are generated from whoever was
+    # discovered, so a new peer is styled and filterable the day it appears.
+    chip_colors = " ".join(
+        f".chip.{k} i{{{{background:{agent_color(k)}}}}}" for k in AGENTS)
+    js_agents = json.dumps(list(AGENTS))
+    js_colors = json.dumps({k: agent_color(k) for k in AGENTS}).replace("{", "{{").replace("}", "}}")
+    js_home = json.dumps(HOME or (next(iter(AGENTS), "")))
+
     return f"""<!doctype html>
 <html lang=en>
 <head>
@@ -510,7 +564,7 @@ def build_html(notes: list[dict]) -> str:
 .chip{{display:inline-flex;align-items:center;gap:.4rem;font-size:var(--t-xs);color:var(--ink-2)}}
 .chip i{{width:8px;height:8px;border-radius:50%;display:inline-block}}
 .chip code{{color:var(--mute-2);font-size:10px}}
-.chip.k572x7go i{{background:#e8833a}} .chip.6ww7pxav i{{background:#3a9ae8}} .chip.pfyvy4tk i{{background:#5ac08a}}
+{chip_colors}
 .lv{{margin-left:auto;display:inline-flex;align-items:center;gap:.45rem;font-size:var(--t-xs);color:var(--mute)}}
 .lv b{{width:8px;height:8px;border-radius:50%;background:#5ac08a;display:inline-block;animation:p 2s infinite}}
 .lv.off b{{background:var(--mute-2);animation:none}}
@@ -747,9 +801,9 @@ document.querySelectorAll('.cp').forEach(function(b){{
 // drops the rule -- inline styles cannot be dropped that way.
 (function(){{
   var main = document.querySelector('main'); if (!main) return;
-  var AG = ['k572x7go','6ww7pxav','pfyvy4tk'];
-  var COLOR = {{'k572x7go':'#e8833a','6ww7pxav':'#3a9ae8','pfyvy4tk':'#5ac08a'}};
-  var HOME = 'k572x7go';
+  var AG = {js_agents};
+  var COLOR = {js_colors};
+  var HOME = {js_home};
   function agentOf(el){{ for (var i=0;i<AG.length;i++){{ if (el.classList.contains(AG[i])) return AG[i]; }} return null; }}
   var msgs = [].slice.call(document.querySelectorAll('.msg'));
   // This JS is assembled by a Python f-string, so an escape sequence written
