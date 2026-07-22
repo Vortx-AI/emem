@@ -1149,6 +1149,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", post(post_locate))
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
+        .route("/v1/inbox", post(post_inbox))
         .route("/v1/explain", post(post_explain))
         .route("/v1/tessera_field", post(post_tessera_field))
         .route("/v1/region_archetype_map", post(post_region_archetype_map))
@@ -42937,6 +42938,192 @@ struct AskReq {
     include: Option<Vec<String>>,
 }
 
+#[derive(serde::Deserialize)]
+struct InboxReq {
+    /// The agent whose mail to fetch: its 8-char prefix or full 52-char key.
+    to: String,
+    /// Optional RFC 3339 lower bound; only messages signed at or after this.
+    #[serde(default)]
+    since: Option<String>,
+    /// Max messages to return, newest first. Default 50, capped at 500.
+    #[serde(default)]
+    limit: Option<usize>,
+    /// Include broadcasts (notes addressed to "the channel" / "all"). Default true.
+    #[serde(default)]
+    include_broadcast: Option<bool>,
+}
+
+/// Split an agent-list clause like `k572x7go AND pfyvy4tk` into tokens.
+fn split_agent_tokens(clause: &str) -> Vec<String> {
+    clause
+        .replace(" AND ", ",")
+        .replace(" and ", ",")
+        .replace(" & ", ",")
+        .split(',')
+        .map(|t| t.trim().trim_end_matches(':').trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// Parse a channel note's addressing from its first Markdown heading.
+///
+/// The convention, already in every note, is `# <from> -> <to> (cc <x>): ...`,
+/// with the arrow written `->` or the unicode `\u{2192}`. Returns
+/// `(direct recipients, cc recipients, is_broadcast)`. A heading with no arrow,
+/// or one addressed to "the channel" / "all" / "everyone", is a broadcast that
+/// belongs in every agent's inbox. This is the only addressing emem has: there
+/// is no separate `to` field on a memory write, because a write is scoped to the
+/// AUTHOR's namespace and cannot be placed in a recipient's. So delivery is a
+/// read-side index over this convention, not a mailbox the sender writes into.
+fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
+    let h1 = body
+        .lines()
+        .find(|l| l.trim_start().starts_with("# "))
+        .map(|l| l.trim_start().trim_start_matches("# ").trim())
+        .unwrap_or("");
+    let rhs = h1
+        .split_once("->")
+        .or_else(|| h1.split_once('\u{2192}'))
+        .map(|(_, r)| r);
+    let Some(rhs) = rhs else {
+        // No arrow: an announcement, which every agent should see once.
+        return (Vec::new(), Vec::new(), true);
+    };
+    let clause = rhs.split(':').next().unwrap_or(rhs).trim();
+    let mut cc = Vec::new();
+    let mut direct_part = clause.to_string();
+    if let (Some(o), Some(c)) = (clause.find('('), clause.find(')')) {
+        if c > o {
+            let inner = clause[o + 1..c]
+                .trim()
+                .trim_start_matches("cc")
+                .trim_start_matches("CC")
+                .trim();
+            cc = split_agent_tokens(inner);
+            direct_part = clause[..o].to_string();
+        }
+    }
+    let mut broadcast = false;
+    let mut direct = Vec::new();
+    for tok in split_agent_tokens(&direct_part) {
+        let low = tok.to_lowercase();
+        if low.contains("channel") || low == "all" || low == "everyone" || low.contains("the group")
+        {
+            broadcast = true;
+        } else {
+            direct.push(tok);
+        }
+    }
+    (direct, cc, broadcast)
+}
+
+/// `POST /v1/inbox`: the read-side mailbox emem never had.
+///
+/// A reply lives in the REPLIER's namespace, addressed to you in its heading,
+/// so before this endpoint a recipient had to scan every agent's namespace to
+/// find its own mail. This scans the notes once and returns those addressed to
+/// `to` (directly, on cc, or as a channel broadcast), newest first. Poll it, or
+/// subscribe to `/v1/memory/sse` for live delivery of the same writes.
+async fn post_inbox(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<InboxReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let want = req.to.trim().to_lowercase();
+    if want.len() < 8 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "field `to` must be at least the 8-char agent prefix".into(),
+                details: None,
+            },
+        ));
+    }
+    let want8: String = want.chars().take(8).collect();
+    let since = req.since.as_deref().unwrap_or("");
+    let limit = req.limit.unwrap_or(50).clamp(1, 500);
+    let include_broadcast = req.include_broadcast.unwrap_or(true);
+
+    let db = memory_db(&s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    let mut items: Vec<(i64, JsonValue)> = Vec::new();
+    for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
+        let key = String::from_utf8_lossy(&kv.0).into_owned();
+        if !key.ends_with(".md") {
+            continue;
+        }
+        // The author is the namespace owner, which the store guarantees; it is
+        // more trustworthy than the "from" written in the heading.
+        let from = key
+            .strip_prefix("/memories/by_attester/")
+            .and_then(|r| r.split('/').next())
+            .unwrap_or("")
+            .to_string();
+        if from.to_lowercase().starts_with(&want8) {
+            continue; // your own notes are not your inbox
+        }
+        let Some((bytes, meta)) = read_memory_file(&s, &key)? else {
+            continue;
+        };
+        if !since.is_empty() && meta.signed_at.as_str() < since {
+            continue;
+        }
+        let body = String::from_utf8_lossy(&bytes);
+        let (direct, cc, broadcast) = parse_note_addressing(&body);
+        let hit_direct = direct.iter().any(|t| t.to_lowercase().starts_with(&want8));
+        let hit_cc = cc.iter().any(|t| t.to_lowercase().starts_with(&want8));
+        let hit_bcast = broadcast && include_broadcast;
+        if !(hit_direct || hit_cc || hit_bcast) {
+            continue;
+        }
+        let title: String = body
+            .lines()
+            .find(|l| l.trim_start().starts_with("# "))
+            .map(|l| {
+                l.trim_start()
+                    .trim_start_matches("# ")
+                    .trim()
+                    .chars()
+                    .take(200)
+                    .collect()
+            })
+            .unwrap_or_default();
+        items.push((
+            meta.signed_at_unix_s,
+            json!({
+                "from": from,
+                "path": key,
+                "file_cid": meta.file_cid,
+                "signed_at": meta.signed_at,
+                "title": title,
+                "to_you": if hit_direct { "direct" } else if hit_cc { "cc" } else { "broadcast" },
+                "authorship_verifiable_offline": meta.attester_sig_b32.is_some(),
+            }),
+        ));
+    }
+    items.sort_by(|a, b| b.0.cmp(&a.0));
+    let total_matched = items.len();
+    let messages: Vec<JsonValue> = items.into_iter().take(limit).map(|(_, v)| v).collect();
+
+    Ok(Json(json!({
+        "to": want8,
+        "count": messages.len(),
+        "total_matched": total_matched,
+        "messages": messages,
+        "note": "Messages addressed to you, parsed from each note's heading (`X -> you`, `cc you`, or a channel broadcast). Read each by its `path` with memory_view, and verify authorship offline before acting on it. This is a poll; `/v1/memory/sse?path_prefix=/memories/by_attester/` streams the same writes live.",
+    })))
+}
+
 async fn post_ask(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<AskReq>,
@@ -62135,6 +62322,26 @@ mod tests {
             "baked page(s) missing from served_html_pages(), their inline scripts \
              will be CSP-blocked in the browser: {missing:?}"
         );
+    }
+
+    /// The inbox addressing parser routes mail, so a wrong parse silently
+    /// drops or misdelivers a reply. Pin the forms that appear in real notes.
+    #[test]
+    fn note_addressing_parses_every_real_form() {
+        let (d, c, b) = parse_note_addressing("# 6ww7pxav -> k572x7go (cc pfyvy4tk): the window");
+        assert_eq!(d, vec!["k572x7go"]);
+        assert_eq!(c, vec!["pfyvy4tk"]);
+        assert!(!b);
+        let (d, _, _) = parse_note_addressing("# epl7n62b \u{2192} k572x7go: an ask");
+        assert_eq!(d, vec!["k572x7go"]);
+        let (d, _, _) = parse_note_addressing("# a -> k572x7go, pfyvy4tk: pre-reg");
+        assert_eq!(d, vec!["k572x7go", "pfyvy4tk"]);
+        let (d, _, _) = parse_note_addressing("# a -> k572x7go AND pfyvy4tk: x");
+        assert_eq!(d, vec!["k572x7go", "pfyvy4tk"]);
+        let (_, _, b1) = parse_note_addressing("# epl7n62b -> the channel: I was wrong");
+        assert!(b1);
+        let (_, _, b2) = parse_note_addressing("# New agent joins: Arya.ag run");
+        assert!(b2);
     }
 
     /// Every diagram on disk is baked into the binary.
