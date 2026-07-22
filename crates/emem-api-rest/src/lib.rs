@@ -43423,7 +43423,7 @@ async fn post_inbox(
             }),
         ));
     }
-    items.sort_by(|a, b| b.0.cmp(&a.0));
+    items.sort_by_key(|i| std::cmp::Reverse(i.0));
     let total_matched = items.len();
     let messages: Vec<JsonValue> = items.into_iter().take(limit).map(|(_, v)| v).collect();
 
