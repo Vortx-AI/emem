@@ -1539,6 +1539,26 @@ fn body_limit_bytes() -> usize {
 /// so 40 s is a backstop, not the common path. This is the single most
 /// effective guard against a slow request taking the whole site down. The
 /// agent-card / OpenAPI quote it under `runtime.gateway_timeout_secs`.
+/// Default wall-clock budget for a region fan-out when the caller gives none.
+///
+/// A cold region read used to run until the transport `TimeoutLayer` fired and
+/// answered a bare 504: no rows, no cursor, no cause, nothing a caller could act
+/// on. The budget machinery in `recall_many`/`recall_polygon` already returns
+/// partial results with a ready/pending count and a retry hint, but it was
+/// OPT-IN, so the callers who most needed it (large cold fan-outs, the ones that
+/// cannot finish inside the transport timeout) were exactly the ones who never
+/// passed it. An independent sweep found this at ~250 cold cells and correctly
+/// called it the one failure on the read surface where a caller learns nothing.
+///
+/// Defaulting it to comfortably under the transport ceiling turns that 504 into
+/// a 200 carrying what completed, what did not, and how to continue. An explicit
+/// `budget_ms` still wins; this only fills the gap. Deliberate bulk jobs
+/// (backfill) keep their own budget and are untouched.
+fn default_fanout_budget_ms() -> u64 {
+    // 75% of the transport ceiling, leaving room to serialize and respond.
+    (timeout_seconds() * 1000).saturating_mul(75) / 100
+}
+
 fn timeout_seconds() -> u64 {
     std::env::var("EMEM_TIMEOUT_SECS")
         .ok()
@@ -11133,9 +11153,9 @@ async fn post_recall_many(
     // Same budget semantics as recall_polygon: expiry DETACHES the
     // remaining tasks, their fetches persist with nobody listening, and
     // the identical retry finds those cells warm.
-    let deadline = req
-        .budget_ms
-        .map(|ms| tokio::time::Instant::now() + std::time::Duration::from_millis(ms));
+    let effective_budget_ms = req.budget_ms.unwrap_or_else(default_fanout_budget_ms);
+    let deadline =
+        Some(tokio::time::Instant::now() + std::time::Duration::from_millis(effective_budget_ms));
     let mut budget_expired = false;
     let mut indexed_recall: Vec<RecallManyOut> = Vec::with_capacity(req.cells.len());
     loop {
@@ -11216,7 +11236,9 @@ async fn post_recall_many(
         let converged = pending.is_empty();
         map.insert("converged".into(), json!(converged));
         if req.budget_ms.is_some() || !converged {
-            map.insert("budget_ms".into(), json!(req.budget_ms));
+            map.insert("budget_ms".into(), json!(effective_budget_ms));
+            map.insert("budget_ms_defaulted".into(), json!(req.budget_ms.is_none()));
+            map.insert("budget_expired".into(), json!(budget_expired));
             map.insert(
                 "progress".into(),
                 json!({ "ready": collected_cells.len(), "pending": pending.len() }),
@@ -11877,9 +11899,9 @@ async fn post_recall_polygon(
     // listening. That persistence is the whole partial-results design:
     // the identical retry finds those cells warm (the store is the job
     // queue, docs/plans/partial-results.md).
-    let deadline = req
-        .budget_ms
-        .map(|ms| tokio::time::Instant::now() + std::time::Duration::from_millis(ms));
+    let effective_budget_ms = req.budget_ms.unwrap_or_else(default_fanout_budget_ms);
+    let deadline =
+        Some(tokio::time::Instant::now() + std::time::Duration::from_millis(effective_budget_ms));
     let mut budget_expired = false;
     let mut indexed_recall: Vec<RecallOut> = Vec::with_capacity(cells.len());
     loop {
@@ -12121,7 +12143,9 @@ async fn post_recall_polygon(
         let converged = pending.is_empty();
         m.insert("converged".into(), json!(converged));
         if req.budget_ms.is_some() || !converged {
-            m.insert("budget_ms".into(), json!(req.budget_ms));
+            m.insert("budget_ms".into(), json!(effective_budget_ms));
+            m.insert("budget_ms_defaulted".into(), json!(req.budget_ms.is_none()));
+            m.insert("budget_expired".into(), json!(budget_expired));
             m.insert(
                 "progress".into(),
                 json!({
@@ -43096,9 +43120,13 @@ async fn get_limits() -> Json<JsonValue> {
                  "failure": "HTTP 504 with NO marker, NO cursor, NO cause: the one place \
                              on this surface where a caller learns nothing",
                  "recommended_batch": 120,
-                 "status": "OPEN BUG. A `budget_ms` returning partial results with a \
-                            stated miss count is specified and not built. Until it ships, \
-                            batch under 120 cells or pre-warm the region."},
+                 "status": "FIXED. A region fan-out with no explicit `budget_ms` now \
+                            defaults to 75% of the transport ceiling, so it returns 200 \
+                            with `converged:false`, `progress{ready,pending}`, `pending[]` \
+                            and a retry hint instead of a bare 504. Everything already \
+                            materialized persists, so the identical retry returns strictly \
+                            more. Batching under 120 cells is still faster; it is no longer \
+                            required to avoid a silent failure."},
                 {"path": "warm read (bands already materialized)",
                  "ok_at": "756 cells of NDVI",
                  "failure": "none observed",
