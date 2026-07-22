@@ -1032,6 +1032,21 @@ success and on failure alike. A caller who needs bit-identity demands gap
 2" is still a verifier; one that says "equal" while meaning "close" is
 not.
 
+What this means when two agents compare aggregates, raised by a consumer
+building a multi-agent handoff: if A and B each compute the same
+reduction independently, they may differ in the last bits and **neither
+is wrong**. f64 addition is not associative, so a different accumulation
+order is a different exact answer, and no order was ever specified for
+them to share. Consensus between agents must therefore be taken over the
+published window and its measured `ulp_gap`, never over bit equality. An
+agent that treats a 1-ULP disagreement as a contradiction will
+manufacture conflicts out of arithmetic; one that treats "equal" as
+"close" without reading `ulp_gap` will miss real ones. The gap is
+reported on every comparison precisely so neither has to guess. Leaf
+facts are the exception and the reason the boundary exists: those are
+compared byte for byte, so two agents holding the same `fact_cid` either
+hold identical bytes or do not.
+
 The boundary is what was signed. A leaf fact's `value_verbatim` is the
 signed preimage, so its bytes are cryptographically load-bearing and are
 compared byte for byte, with no tolerance, ever. Nobody signed the sum.

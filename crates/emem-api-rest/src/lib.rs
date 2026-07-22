@@ -16169,7 +16169,16 @@ fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
     json!({
         "name": t.name,
         "title": t.title,
-        "description": format!("{}\n\nWhen to use: {}", t.description, t.when_to_use),
+        // The worked example ships in the DESCRIPTION, not only in the
+        // registry. It existed on every descriptor as `example_args` and was
+        // never emitted here, so an agent reading tools/list never saw one. A
+        // caller who was actively reading schemas still failed to call
+        // `hunt` and `backfill` twice, which is the definition of a
+        // discoverability bug: the answer existed and could not be reached.
+        "description": format!(
+            "{}\n\nWhen to use: {}\n\nExample arguments: {}",
+            t.description, t.when_to_use, t.example_args
+        ),
         "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
         // Spec 2025-11-25 `Tool.execution.taskSupport`. "optional" on
         // the documented slow tools (emem_eudr_dds, emem_hunt) so a
@@ -43113,7 +43122,11 @@ async fn get_limits() -> Json<JsonValue> {
                        measures ONE property, whether failures announce themselves, and \
                        says nothing about whether the data is correct.",
             "ceilings": [
-                {"path": "cold band fetch over a region (bands not yet materialized)",
+                {"path": "recall(fetch=true) auto-materialize on COLD bands. NOT the area \
+                          surface: the area endpoints were separately stressed 64 -> 4,194,304 \
+                          cells with zero timeouts and zero silent failures, every limit naming \
+                          itself. The original report of a general ~250-cell substrate ceiling \
+                          was narrowed by its own author; this is one path, not a tendency.",
                  "cost_per_cell_s": 1.2,
                  "ok_at": "144 cells (168 s)",
                  "breaks_at": "~250 cells",
@@ -43132,6 +43145,16 @@ async fn get_limits() -> Json<JsonValue> {
                  "failure": "none observed",
                  "guidance": "warm reads are not the constraint; the cold fetch is"},
             ],
+            "area_surface": {
+                "stressed_from": 64, "stressed_to": 4194304,
+                "timeouts": 0, "silent_failures": 0,
+                "endpoints": 10,
+                "reading": "Ten area endpoints across five orders of magnitude of area. Every \
+                            limit announced itself with something a caller can act on: a cursor, \
+                            an exact maximum, or the precise pixel window that was too large. \
+                            band_raster answering `window is 2034x2049 px` rather than `too big` \
+                            lets a caller compute the largest working bbox instead of bisecting.",
+            },
             "slowest_observed_ms": {
                 "emem_state_multi": 14021,
                 "emem_memory_contradictions": 8063,
