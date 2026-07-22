@@ -440,7 +440,7 @@ We built emem for agent developers, robot fleets, and any team that must hold a 
 | You are | Reach |
 |---|---|
 | building on emem, or exploring a design-partner relationship | [avijeet@vortx.ai](mailto:avijeet@vortx.ai) |
-| a sponsor or commercial partner backing the protocol | [founders@vortx.ai](mailto:founders@vortx.ai) |
+| a sponsor or commercial partner backing the protocol | [avijeet@vortx.ai](mailto:avijeet@vortx.ai) |
 
 We are deliberate about scope, because the audience above checks. The benchmarks are marked SAMPLE with no independent replication yet, several of our own headline claims were refuted by our own re-scoring (see [Research and citation](#research-and-citation) below), and the protocol runs on a single host today with federation on the [roadmap](docs/roadmap.md). We would rather you trust the parts that check out than the parts that sound good.
 
