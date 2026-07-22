@@ -8,7 +8,7 @@
 
 *An open protocol for addressing, writing, recalling, sharing and verifying world memories, so an agent cites a fact instead of carrying a paraphrase of it.*
 
-**I am a** [agent developer](#use-it-in-two-minutes) &nbsp;·&nbsp; [security auditor](#why-you-can-trust-it) &nbsp;·&nbsp; [researcher](#research-and-citation) &nbsp;·&nbsp; [investor](#about-vortx-ai) &nbsp;·&nbsp; [acquirer](mailto:founders@vortx.ai)
+**I am a** [agent developer](#use-it-in-two-minutes) &nbsp;·&nbsp; [security auditor](#why-you-can-trust-it) &nbsp;·&nbsp; [researcher](#research-and-citation) &nbsp;·&nbsp; [sponsor](#about-vortx-ai)
 
 <sub>The full README runs about 45K characters. Pick your path, or read straight down.</sub>
 
@@ -440,8 +440,7 @@ We built emem for agent developers, robot fleets, and any team that must hold a 
 | You are | Reach |
 |---|---|
 | building on emem, or exploring a design-partner relationship | [avijeet@vortx.ai](mailto:avijeet@vortx.ai) |
-| an investor | [vortx.ai](https://vortx.ai) |
-| exploring a strategic partnership or acquisition | [founders@vortx.ai](mailto:founders@vortx.ai) |
+| a sponsor or commercial partner backing the protocol | [founders@vortx.ai](mailto:founders@vortx.ai) |
 
 We are deliberate about scope, because the audience above checks. The benchmarks are marked SAMPLE with no independent replication yet, several of our own headline claims were refuted by our own re-scoring (see [Research and citation](#research-and-citation) below), and the protocol runs on a single host today with federation on the [roadmap](docs/roadmap.md). We would rather you trust the parts that check out than the parts that sound good.
 
