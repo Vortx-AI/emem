@@ -202,7 +202,7 @@ return a signed hole instead of a value.
 - **A first-class SDK.** In the repo today: typed clients for Python and
   TypeScript, plus a LangChain `BaseStore` adapter (`emem-langmem`) that
   signs its writes, each wrapping the REST surface so a signed receipt is
-  the only new thing a caller learns. **The Python package is installable as of 2026-07-17** (`ememdev` 1.1.0 on PyPI, a real wheel verified by clean-environment install and a live call); the npm first publish is still pending. The history that made this bullet necessary: Every
+  the only new thing a caller learns. **The Python package is installable as of 2026-07-17** (`ememdev` on PyPI, a real wheel verified by clean-environment install and a live call), and the npm client shipped too as `@vortxai/emem` (scoped because npm refuses `ememdev` as too similar to `okemdev`), verified the same way; both registries are at 1.2.1. The history that made this bullet necessary: Every
   `ememdev` release on PyPI (0.0.9, 0.1.0 and 1.0.0) is about 2.4 KB of
   metadata containing no Python modules: a root-anchored `/src/` pattern in
   the repo's `.gitignore` was re-anchored by the build backend to the SDK

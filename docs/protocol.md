@@ -1,4 +1,4 @@
-# emem protocol (v1.1.0)
+# emem protocol (v1.2.1)
 
 > The wire spec below is the concrete encoding; the formal object, the
 > property table, and the memory algebra live in [the memory model](model.md).
