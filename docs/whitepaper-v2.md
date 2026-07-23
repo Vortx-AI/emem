@@ -1472,7 +1472,18 @@ the artefact is the only variable.
 | BM25 over A's dump |     0.0 m |     0.0 m |   0.00% |    0.0% |        0/20 |
 | dense over A's dump|     0.0 m |   100.4 m |   2.48% |   14.8% |        6/20 |
 
-**Corrected 2026-07-23, and the correction is larger than the result.**
+**Final numbers, 2026-07-23, after the long run completed and the scorer
+was audited.** Across 599 turns and 9,318 steps on eight worlds, the
+separation is in CITABILITY and it is structural rather than a matter of
+degree: `emem_bundle` 100% citable and 100% within 1% (n=1624), `context`
+98% citable, `emem_token` 98%. The arms that must LOCATE the value rather
+than being handed it: `rag_bm25` is **0% citable** while 35% land within
+1% (median error 22.5%), and `context_region` 21% citable, 22% within 1%
+(median error 40.7%). A retrieved chunk can carry the right number and
+still be uncitable, because it is not a signed reference. That is the
+finding this protocol can defend.
+
+And the honest frame around it, which is larger than the result.
 Scored across the whole corpus by Wilson 95% interval overlap rather than
 point estimates, every head-to-head is **1 emem win, 16 ties, 0 losses** (after a scorer audit found four bugs and moved every count).
 The one win is `emem_bundle` 99.6% against plain `context` 98.1%
