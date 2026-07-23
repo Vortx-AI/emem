@@ -4479,6 +4479,12 @@ async fn get_scoreboard() -> Json<JsonValue> {
              "headline": "CORRECTED 2026-07-23 by the benchmark author: at n=8 per format the bundle's 38% against prose's 0% is a TIE by Wilson 95% interval, NOT a win. `The only format with survivors` was a point estimate and is not statistically established.",
              "costs_us": "RETRACTED 2026-07-23, and the retraction is against our critics as much as us. We published `with one fact our token LOST, 9/10 against a bare number 10/10`. Wilson95 gives emem_token [60-98%] and number [72-100%], Fisher exact p = 1.000: the LEAST informative possible outcome. Ten trials that cannot distinguish anything from anything. It is not a loss, it is a tie, and the run that produced it died before writing its data. Re-running.",
              "not_claimed": "3/8 is least-bad, not a win; most relays die immediately; the finding is SIZE, not addressing. And relay v1, the one place emem measurably LOST, died before writing its JSON and is re-running: that loss is real and currently undocumented."},
+            {"id": "compaction", "title": "What session compaction costs",
+             "what": "16 confusable facts from one site. One model compacts them, both models then answer about ONE randomly chosen cell.",
+             "n": "288 steps", "when": "2026-07-22", "status": "published",
+             "headline": "Summarisation destroys measured values, and the word budget is NOT what does it: verbatim context 100.0% (72/72), free summary 37.5% (27/72), budgeted summary 1.4% (1/72). Free summarisation with no word limit over the same 16 facts already costs 62 points.",
+             "costs_us": "Not an emem-vs-retrieval result and it favours us over no competitor: it describes what happens to ANY agent's numbers when its session compacts, ours included. And v1 of the run scored the verbatim ceiling at 0/72, which is not credible and indicates a scoring fault in that vintage; v2 only.",
+             "not_claimed": "One site, 16 facts, two 7-12B models. Says nothing about whether a better summariser would do better. Wilson95: context [95.0-100.0], free [27.4-48.9], pressure [0.2-7.5]."},
         ],
         // The whole-corpus board, classified by Wilson 95% interval overlap
         // rather than point estimate, because two arms at 100% and 96% on n=24
@@ -4487,7 +4493,7 @@ async fn get_scoreboard() -> Json<JsonValue> {
         // WEAKNESS of the evidence, not a strength of emem.
         "whole_corpus": {
             "emem_wins": 1, "ties": 16, "emem_loses": 0,
-            "comparisons_valid": 17, "comparisons_excluded": 46,
+            "comparisons_valid": 17, "comparisons_excluded": 30,
             "runs_scored": 10, "runs_unscoreable": 26,
             "superseded": "An audit of the scorer itself (2026-07-23) found four bugs and moved \
                            these counts: 23 runs scored became 10, 13 unscoreable became 26, 26 \
@@ -4505,11 +4511,15 @@ async fn get_scoreboard() -> Json<JsonValue> {
                             the entire measured advantage of addressed memory in this corpus, and \
                             with 17 comparisons at alpha=.05 roughly one false positive is \
                             expected by chance, so it is one result and not a proof.",
-            "why_46_excluded": "42 because the emem arm was HANDED the answer: the target value \
-                                sits verbatim in its payload while the comparator must search for \
-                                it. An arm holding the answer beats an arm that must find it, \
-                                which is a tautology, not a memory-architecture result. Before \
-                                that exclusion the board read 23 wins and was worthless.",
+            "why_30_excluded": "14 ASYMMETRIC, the largest single reason: the emem arm was HANDED \
+                                the answer, sitting verbatim in its payload while the comparator \
+                                had to search for it, which is a tautology and not a \
+                                memory-architecture result. Then 8 handoff_tokens (a 40-token \
+                                context window bug), 6 emem_resolve (no resolver in the loop), 2 \
+                                surveyor (not a comparator at all). This board previously said \
+                                `42 of 46`, which mixed a post-audit valid count with a pre-audit \
+                                excluded count: 17 + 46 does not equal 47. The claim survived, the \
+                                number did not.",
             "why_zero_losses_is_bad": "0 losses is not a good number. The one place emem \
                                        measurably lost (relay v1, emem_token 9/10 against a bare \
                                        number 10/10) lost its data before writing, and relay v2's \
