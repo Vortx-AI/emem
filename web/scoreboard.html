@@ -1,0 +1,294 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>emem — the memory race, live</title>
+<meta name="description" content="A live scoreboard of memory architectures losing fidelity turn by turn, run in two heats because arms handed the value and arms that must find it are not comparable.">
+<style>
+:root{
+  --paper:#0f1012; --paper-2:#16181c; --paper-3:#1d2025; --rule:#272b32; --rule-2:#363b44;
+  --ink:#f3f5f8; --ink-2:#c5cbd4; --mute:#8b939e;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --ok:#4ade80; --warn:#e8a33d; --bad:#e2574c;
+}
+@media (prefers-color-scheme:light){
+  :root{--paper:#fbfbf9;--paper-2:#f3f2ef;--paper-3:#e9e8e3;--rule:#dedcd5;--rule-2:#c5c3ba;
+        --ink:#15161a;--ink-2:#3b4048;--mute:#6d7480;}
+}
+:root[data-theme="dark"]{--paper:#0f1012;--paper-2:#16181c;--paper-3:#1d2025;--rule:#272b32;
+  --rule-2:#363b44;--ink:#f3f5f8;--ink-2:#c5cbd4;--mute:#8b939e;}
+:root[data-theme="light"]{--paper:#fbfbf9;--paper-2:#f3f2ef;--paper-3:#e9e8e3;--rule:#dedcd5;
+  --rule-2:#c5c3ba;--ink:#15161a;--ink-2:#3b4048;--mute:#6d7480;}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);overflow:hidden;
+  font:15px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif;
+  display:flex;flex-direction:column}
+
+.top{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;padding:.6rem 1rem;
+  border-bottom:1px solid var(--rule);background:var(--paper-2)}
+.brand{font-weight:700;font-size:.95rem}.brand a{color:var(--ink);text-decoration:none}
+.top h1{font-size:.9rem;font-weight:600;margin:0;color:var(--ink-2)}
+.sp{flex:1}
+.kv{font-family:var(--mono);font-size:.74rem;color:var(--mute);white-space:nowrap}
+.kv b{color:var(--ink-2)}
+.live{display:inline-flex;align-items:center;gap:.35rem;font-family:var(--mono);font-size:.74rem}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:p 2s infinite}
+.live.off i{background:var(--mute);animation:none}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.2}}
+.btn{font-family:var(--mono);font-size:.72rem;color:var(--ink-2);cursor:pointer;
+  border:1px solid var(--rule-2);background:transparent;padding:.28rem .55rem;border-radius:3px}
+.btn:hover{border-color:var(--ink-2)}
+.btn[aria-pressed="true"]{background:var(--paper-3);color:var(--ink);border-color:var(--ink-2)}
+
+/* the fairness callout: the single most important sentence on the page */
+.why{padding:.5rem 1rem;background:var(--paper-3);border-bottom:1px solid var(--rule);
+  font-size:.79rem;color:var(--ink-2);line-height:1.5}
+.why b{color:var(--ink)}
+
+.board{flex:1;display:grid;grid-template-columns:1fr 310px;min-height:0}
+@media (max-width:920px){.board{grid-template-columns:1fr;grid-template-rows:1fr auto}}
+.chart{position:relative;min-width:0;min-height:0}
+svg{width:100%;height:100%;display:block}
+.lane{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
+.lane.dim{opacity:.15}
+.gl{stroke:var(--rule);stroke-dasharray:2 4}
+.ax{fill:var(--mute);font-family:var(--mono);font-size:10px}
+.heatlbl{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.04em}
+.heatsub{font-family:var(--mono);font-size:9.5px;fill:var(--mute)}
+.band{fill:var(--paper-2);opacity:.55}
+.lbl{font-family:var(--mono);font-size:11px;font-weight:600}
+.cursor{stroke:var(--ink-2);stroke-width:1;stroke-dasharray:3 3;opacity:.65}
+
+.side{border-left:1px solid var(--rule);background:var(--paper-2);overflow-y:auto;padding:.55rem}
+@media (max-width:920px){.side{border-left:0;border-top:1px solid var(--rule);max-height:36vh}}
+.side h2{font-size:.68rem;text-transform:uppercase;letter-spacing:.09em;color:var(--mute);
+  margin:.45rem .3rem .4rem;font-weight:700}
+.side h2 em{font-style:normal;color:var(--ink-2);text-transform:none;letter-spacing:0;
+  font-weight:400;font-size:.7rem}
+.row{display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center;
+  padding:.45rem;border-bottom:1px solid var(--rule);cursor:pointer;border-radius:3px}
+.row:hover{background:var(--paper-3)}
+.row.mute{opacity:.35}
+.nm{display:flex;align-items:center;gap:.42rem;min-width:0}
+.dot{width:9px;height:9px;border-radius:2px;flex:none}
+.nm span{font-family:var(--mono);font-size:.78rem;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.sc{text-align:right;font-family:var(--mono);font-size:.72rem;line-height:1.3}
+.sc b{display:block;font-size:.85rem}
+.sc i{font-style:normal;color:var(--mute)}
+.good{color:var(--ok)}.mid{color:var(--warn)}.poor{color:var(--bad)}
+.thin{color:var(--warn);font-size:.66rem;font-family:var(--mono)}
+
+/* transport */
+.foot{display:flex;align-items:center;gap:.7rem;padding:.5rem 1rem;
+  border-top:1px solid var(--rule);background:var(--paper-2);flex-wrap:wrap}
+.scrub{flex:1;min-width:180px;accent-color:var(--ink-2)}
+.play{width:34px;height:26px;display:inline-flex;align-items:center;justify-content:center}
+.note{font-size:.71rem;color:var(--mute);width:100%;line-height:1.45}
+.note code{font-family:var(--mono);color:var(--ink-2)}
+#tip{position:absolute;pointer-events:none;background:var(--paper-3);border:1px solid var(--rule-2);
+  border-radius:3px;padding:.4rem .55rem;font-family:var(--mono);font-size:.71rem;color:var(--ink);
+  opacity:0;transition:opacity .12s;white-space:nowrap;z-index:5}
+</style>
+
+<div class="top">
+  <span class="brand"><a href="/">emem</a></span>
+  <h1>the memory race</h1>
+  <span class="live" id="live"><i></i><span id="liveTxt">connecting</span></span>
+  <span class="sp"></span>
+  <span class="kv">turn <b id="mTurn">—</b>/<span id="mMax">—</span></span>
+  <span class="kv">steps <b id="mRows">—</b></span>
+  <span class="kv">worlds <b id="mWorlds">—</b></span>
+  <span class="kv">models <b id="mModels">—</b></span>
+  <button class="btn" id="metric" aria-pressed="false">byte-exact</button>
+</div>
+
+<div class="why" id="why">Two heats, deliberately. Some arms are <b>handed the value</b> and only
+have to reproduce it; the others <b>must locate it first</b>. On one track the first group sits near
+100% and the second near zero, and you would conclude one architecture is several times better when
+they are doing different jobs.</div>
+
+<div class="board">
+  <div class="chart"><svg id="svg"></svg><div id="tip"></div></div>
+  <aside class="side">
+    <div id="heat1"></div>
+    <div id="heat2"></div>
+    <h2 style="margin-top:.9rem">reading it</h2>
+    <div style="font-size:.73rem;color:var(--mute);line-height:1.55;padding:0 .3rem 1rem">
+      <b style="color:var(--ink-2)">Byte-exact</b> is whether the answer equals the signed value
+      character for character, which is what a citation needs.
+      <b style="color:var(--ink-2)">Material</b> is whether the error is big enough to change a
+      decision. An arm can be materially perfect and never byte-exact, which is a rounded display,
+      and that is why both are drawn. A retrieved chunk can be correct and still score 0% citable,
+      because it is not a signed reference.
+    </div>
+  </aside>
+</div>
+
+<div class="foot">
+  <button class="btn play" id="play" title="Play / pause (space)">▶</button>
+  <input class="scrub" id="scrub" type="range" min="1" max="1" value="1" aria-label="Replay turn">
+  <span class="kv">replay <b id="mAt">—</b></span>
+  <button class="btn" id="speed">1×</button>
+  <button class="btn" id="lived" aria-pressed="true">follow live</button>
+  <div class="note">Live from a 1000-turn benchmark appending one record per turn per arm, authored
+    and executed by an independent agent, not by this responder. Scored by <code>/v1/scoreboard</code>.
+    Scrub or press play to replay the race from turn 1. <span id="thinWarn"></span></div>
+</div>
+
+<script>
+(function(){
+  var PAL={emem_bundle:'#4ea8de',emem_token:'#7aa2f7',emem_resolve:'#9d7cd8',
+           context:'#e8a33d',context_region:'#e2574c',rag_bm25:'#4ade80'};
+  var LAB={emem_bundle:'emem bundle',emem_token:'emem token',emem_resolve:'emem resolve',
+           context:'prose context',context_region:'context region',rag_bm25:'BM25 retrieval'};
+  var col=function(a){return PAL[a]||'#8b939e'};
+  var metric='exact_pct', muted={}, data=null, at=null, playing=false, speed=1, follow=true;
+  var $=function(i){return document.getElementById(i)};
+
+  function maxTurn(){ return (data&&data.turn)||1 }
+  function curTurn(){ return follow?maxTurn():(at||maxTurn()) }
+
+  $('metric').addEventListener('click',function(){
+    metric=metric==='exact_pct'?'material_pct':'exact_pct';
+    this.setAttribute('aria-pressed',metric==='material_pct');
+    this.textContent=metric==='exact_pct'?'byte-exact':'material failures';
+    draw();
+  });
+  $('play').addEventListener('click',togglePlay);
+  $('speed').addEventListener('click',function(){
+    speed=speed===1?2:speed===2?4:1; this.textContent=speed+'×';
+  });
+  $('lived').addEventListener('click',function(){
+    follow=!follow; this.setAttribute('aria-pressed',follow);
+    if(follow){playing=false;$('play').textContent='▶';}
+    draw();
+  });
+  $('scrub').addEventListener('input',function(){
+    follow=false; $('lived').setAttribute('aria-pressed',false);
+    at=+this.value; draw();
+  });
+  document.addEventListener('keydown',function(e){
+    if(e.code==='Space'){e.preventDefault();togglePlay();}
+    if(e.key==='ArrowRight'){follow=false;at=Math.min(maxTurn(),curTurn()+1);draw();}
+    if(e.key==='ArrowLeft'){follow=false;at=Math.max(1,curTurn()-1);draw();}
+  });
+  function togglePlay(){
+    if(!data)return;
+    playing=!playing;
+    $('play').textContent=playing?'❚❚':'▶';
+    if(playing){follow=false;$('lived').setAttribute('aria-pressed',false);
+      if(!at||at>=maxTurn())at=1;}
+  }
+  setInterval(function(){
+    if(!playing||!data)return;
+    at=(at||1)+speed;
+    if(at>=maxTurn()){at=maxTurn();playing=false;$('play').textContent='▶';}
+    draw();
+  },90);
+
+  // value of an arm at or before turn t
+  function valAt(a,t){
+    var s=a.series||[],v=null;
+    for(var i=0;i<s.length;i++){ if(s[i].turn<=t) v=s[i]; else break; }
+    return v;
+  }
+  function fmt(n){return n==null?'—':n.toFixed(1)}
+
+  function sideRows(){
+    [1,2].forEach(function(h){
+      var arms=(data.arms||[]).filter(function(a){return a.heat===h});
+      var t=curTurn();
+      arms=arms.map(function(a){var v=valAt(a,t);return{a:a,v:v?v[metric]:null}});
+      arms.sort(function(x,y){
+        if(x.v==null)return 1; if(y.v==null)return -1;
+        return metric==='exact_pct'? y.v-x.v : x.v-y.v;
+      });
+      var hd=(data.heats&&data.heats[h])||{};
+      var html='<h2>Heat '+(h===1?'I':'II')+' <em>'+(hd.name||'')+'</em></h2>';
+      arms.forEach(function(o){
+        var a=o.a,v=o.v;
+        var cls=metric==='exact_pct'?(v>=99?'good':v>=50?'mid':'poor')
+                                    :(v<=1?'good':v<=10?'mid':'poor');
+        var thin=a.n<100?'<div class="thin">n='+a.n+', too few to rank</div>':'';
+        html+='<div class="row'+(muted[a.arm]?' mute':'')+'" data-arm="'+a.arm+'">'
+           +   '<div class="nm"><span class="dot" style="background:'+col(a.arm)+'"></span>'
+           +     '<span>'+(LAB[a.arm]||a.arm)+'</span></div>'
+           +   '<div class="sc"><b class="'+cls+'">'+fmt(v)+'%</b>'
+           +     '<i>'+a.n+' steps'+(a.declined?' · '+a.declined+' declined':'')+'</i>'+thin+'</div>'
+           + '</div>';
+      });
+      $('heat'+h).innerHTML=html;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.row'),function(el){
+      el.onclick=function(){var a=el.getAttribute('data-arm');muted[a]=!muted[a];draw();};
+    });
+  }
+
+  function draw(){
+    if(!data)return;
+    var t=curTurn(), mx=maxTurn();
+    $('mTurn').textContent=t; $('mMax').textContent=mx;
+    $('mAt').textContent=follow?'live':('turn '+t);
+    var sc=$('scrub'); sc.max=mx; if(follow) sc.value=mx; else sc.value=t;
+
+    var svg=$('svg'), b=svg.getBoundingClientRect();
+    var W=Math.max(320,b.width), H=Math.max(240,b.height);
+    var M={t:16,r:96,b:30,l:44}, gap=16;
+    var iw=W-M.l-M.r, panelH=(H-M.t-M.b-gap)/2;
+    var x=function(v){return M.l+(v/mx)*iw};
+    var out='';
+
+    [1,2].forEach(function(h,pi){
+      var y0=M.t+pi*(panelH+gap);
+      var y=function(v){return y0+panelH-(v/100)*panelH};
+      out+='<rect class="band" x="'+M.l+'" y="'+y0+'" width="'+iw+'" height="'+panelH+'"/>';
+      for(var v=0;v<=100;v+=25){
+        out+='<line class="gl" x1="'+M.l+'" y1="'+y(v)+'" x2="'+(M.l+iw)+'" y2="'+y(v)+'"/>'
+          +  '<text class="ax" x="'+(M.l-7)+'" y="'+(y(v)+3.5)+'" text-anchor="end">'+v+'</text>';
+      }
+      var hd=(data.heats&&data.heats[h])||{};
+      out+='<text class="heatlbl" x="'+(M.l+6)+'" y="'+(y0+14)+'" fill="'+(h===1?'#8b939e':'#c5cbd4')+'">'
+        +  'HEAT '+(h===1?'I':'II')+'</text>'
+        +  '<text class="heatsub" x="'+(M.l+6)+'" y="'+(y0+26)+'">'+(hd.name||'')+'</text>';
+
+      (data.arms||[]).filter(function(a){return a.heat===h}).forEach(function(a){
+        var pts=(a.series||[]).filter(function(p){return p.turn>0&&p.turn<=t});
+        if(!pts.length)return;
+        var d=pts.map(function(p,i){return (i?'L':'M')+x(p.turn).toFixed(1)+','+y(p[metric]).toFixed(1)}).join(' ');
+        out+='<path class="lane'+(muted[a.arm]?' dim':'')+'" d="'+d+'" stroke="'+col(a.arm)+'"/>';
+        if(!muted[a.arm]){
+          var L=pts[pts.length-1];
+          out+='<circle cx="'+x(L.turn).toFixed(1)+'" cy="'+y(L[metric]).toFixed(1)+'" r="3.4" fill="'+col(a.arm)+'"/>'
+            +  '<text class="lbl" x="'+(x(L.turn)+7).toFixed(1)+'" y="'+(y(L[metric])+4).toFixed(1)+'" fill="'+col(a.arm)+'">'
+            +  (LAB[a.arm]||a.arm)+' '+fmt(L[metric])+'%</text>';
+        }
+      });
+    });
+    if(!follow) out+='<line class="cursor" x1="'+x(t)+'" y1="'+M.t+'" x2="'+x(t)+'" y2="'+(H-M.b)+'"/>';
+    for(var i=0;i<=6;i++){var tv=Math.round(mx*i/6);
+      out+='<text class="ax" x="'+x(tv)+'" y="'+(H-10)+'" text-anchor="middle">'+tv+'</text>';}
+    out+='<text class="ax" x="'+(M.l+iw/2)+'" y="'+(H-0.5)+'" text-anchor="middle">turn</text>';
+    svg.setAttribute('viewBox','0 0 '+W+' '+H);
+    svg.innerHTML=out;
+    sideRows();
+  }
+
+  function poll(){
+    fetch('/v1/scoreboard',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+      var l=$('live');
+      if(!d.running){l.classList.add('off');$('liveTxt').textContent='no run';return;}
+      l.classList.remove('off');$('liveTxt').textContent='live';
+      data=d;
+      $('mRows').textContent=(d.rows||0).toLocaleString();
+      $('mWorlds').textContent=(d.worlds||[]).length;
+      $('mModels').textContent=(d.models||[]).length;
+      if(d.heats&&d.heats.why) $('why').innerHTML='Two heats, deliberately. '+d.heats.why;
+      var thin=(d.arms||[]).filter(function(a){return a.n<100});
+      $('thinWarn').textContent=thin.length?('Arms with n<100 ('+thin.map(function(a){return LAB[a.arm]||a.arm}).join(', ')+') started late in the run and are not yet rankable.'):'';
+      draw();
+    }).catch(function(){$('live').classList.add('off');$('liveTxt').textContent='offline';});
+  }
+  poll(); setInterval(poll,5000);
+  var rt;window.addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(draw,140)});
+})();
+</script>

@@ -109,6 +109,11 @@ const TEMPORAL_MD: &str = include_str!("../../../docs/protocol.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
+
+/// The live degradation race. Baked like every other page; the data it draws
+/// comes from `/v1/scoreboard`, which reads a running benchmark stream, so the
+/// page is static and the board is live.
+const SCOREBOARD_HTML: &str = include_str!("../../../web/scoreboard.html");
 const NOT_FOUND_HTML: &str = include_str!("../../../web/404.html");
 /// The emem card: a one-page visiting card that proves itself against the live
 /// API while you read it. Baked like every other page here.
@@ -770,6 +775,7 @@ pub fn router(state: AppState) -> Router {
         // decide. /verify?receipt=<base64> is also supported so an agent
         // can share a one-click verifiable link.
         .route("/verify", get(serve_verify_html))
+        .route("/scoreboard", get(serve_scoreboard_html))
         .route("/card", get(serve_card_html))
         .route("/a2a", get(serve_a2a_html))
         .route("/channel", get(serve_channel_html))
@@ -902,6 +908,7 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/agent.json", get(agent_manifest))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
         .route("/v1/a2a/skills", get(get_a2a_skills))
+        .route("/v1/scoreboard", get(get_scoreboard))
         .route("/v1/a2a/tasks", post(post_a2a_task_async))
         .route("/v1/a2a/tasks/:id", get(get_a2a_task))
         .route("/v1/a2a/tasks/:id/cancel", post(post_a2a_task_cancel))
@@ -2795,6 +2802,7 @@ fn served_html_pages() -> Vec<&'static str> {
     vec![
         rendered_index_html(),
         VERIFY_HTML,
+        SCOREBOARD_HTML,
         NOT_FOUND_HTML,
         DEMOS_SIGNED_ANSWER_HTML,
         DEMOS_INDEX_HTML,
@@ -3358,6 +3366,12 @@ async fn serve_llms_txt() -> Response {
 /// rendered with a green check the moment the math checks out.
 async fn serve_verify_html() -> Response {
     text_response("text/html; charset=utf-8", VERIFY_HTML)
+}
+
+/// `GET /scoreboard` — one graph, fullscreen: memory architectures losing
+/// fidelity turn by turn while a long run is still going.
+async fn serve_scoreboard_html() -> Response {
+    text_response("text/html; charset=utf-8", SCOREBOARD_HTML)
 }
 
 /// The full agent-to-agent record: every signed note, in order, including the
@@ -4200,6 +4214,197 @@ async fn post_a2a_task_cancel(
             },
         )),
     }
+}
+
+/// `GET /v1/scoreboard` — the live degradation race, aggregated per arm.
+///
+/// A long benchmark run appends one JSON line per (turn, arm, model) as it
+/// goes. This reads that stream and returns a per-arm cumulative series, so a
+/// dashboard can show fidelity diverging BETWEEN memory architectures as the
+/// run progresses, rather than a single end-of-run table that hides when and
+/// how each arm started losing.
+///
+/// Three outcomes are scored per row, and they are deliberately different
+/// questions. `byte_exact` is whether the answer string equals the signed
+/// `value_verbatim`. `material` is whether `|answer - truth|` exceeds the
+/// pre-registered threshold, i.e. an error large enough to change a decision.
+/// `declined` is no number produced at all.
+///
+/// An arm can be materially perfect and never byte-exact (a rounded display),
+/// which is the whole reason both are reported.
+///
+/// Path comes from `EMEM_SCOREBOARD_JSONL`. Absent file returns `running:
+/// false` rather than an error, because a dashboard polling a run that has not
+/// started should render an empty board, not a stack trace.
+async fn get_scoreboard() -> Json<JsonValue> {
+    let path = std::env::var("EMEM_SCOREBOARD_JSONL").unwrap_or_default();
+    let threshold: f64 = std::env::var("EMEM_SCOREBOARD_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.05);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Json(json!({
+            "running": false,
+            "note": "No run stream configured or readable. Set EMEM_SCOREBOARD_JSONL to a \
+                     benchmark step stream (one JSON object per line).",
+            "arms": [],
+        }));
+    };
+
+    #[derive(Default, Clone)]
+    struct Acc {
+        n: u64,
+        exact: u64,
+        material: u64,
+        declined: u64,
+        ms_total: f64,
+        series: Vec<(u64, u64, u64, u64)>, // turn, cum n, cum exact, cum material
+    }
+    let mut arms: std::collections::BTreeMap<String, Acc> = std::collections::BTreeMap::new();
+    let mut models: std::collections::BTreeSet<String> = Default::default();
+    let mut worlds: std::collections::BTreeSet<String> = Default::default();
+    let mut max_turn = 0u64;
+    let mut rows = 0u64;
+
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<JsonValue>(line) else {
+            continue;
+        };
+        let arm = v.get("arm").and_then(|x| x.as_str()).unwrap_or("");
+        if arm.is_empty() {
+            continue;
+        }
+        rows += 1;
+        if let Some(m) = v.get("model").and_then(|x| x.as_str()) {
+            models.insert(m.to_string());
+        }
+        if let Some(w) = v.get("world").and_then(|x| x.as_str()) {
+            worlds.insert(w.to_string());
+        }
+        // turn index lives inside turn_id as `-t<N>-`
+        let turn = v
+            .get("turn_id")
+            .and_then(|x| x.as_str())
+            .and_then(|t| t.split("-t").nth(1))
+            .and_then(|t| t.split('-').next())
+            .and_then(|t| t.parse::<u64>().ok())
+            .unwrap_or(0);
+        max_turn = max_turn.max(turn);
+
+        let a = arms.entry(arm.to_string()).or_default();
+        a.n += 1;
+        let extracted = v.get("extracted").and_then(|x| x.as_f64());
+        let truth = v.get("truth").and_then(|x| x.as_f64());
+        let exact = match (
+            v.get("extracted_str").and_then(|x| x.as_str()),
+            v.get("value_verbatim").and_then(|x| x.as_str()),
+        ) {
+            (Some(e), Some(t)) => !e.is_empty() && e == t,
+            _ => false,
+        };
+        if exact {
+            a.exact += 1;
+        }
+        match (extracted, truth) {
+            (None, _) => a.declined += 1,
+            (Some(e), Some(t)) if (e - t).abs() > threshold => a.material += 1,
+            _ => {}
+        }
+        if let Some(ms) = v.get("timing_ms").and_then(|x| x.as_f64()) {
+            a.ms_total += ms;
+        }
+        let (n, ex, mat) = (a.n, a.exact, a.material);
+        a.series.push((turn, n, ex, mat));
+    }
+
+    let pct = |num: u64, den: u64| -> f64 {
+        if den == 0 {
+            0.0
+        } else {
+            (num as f64) * 100.0 / (den as f64)
+        }
+    };
+    let mut out: Vec<JsonValue> = arms
+        .iter()
+        .map(|(arm, a)| {
+            // Thin the series so a 1000-turn run does not ship 1000 points per
+            // arm to a browser that can only draw a few hundred pixels wide.
+            let step = (a.series.len() / 240).max(1);
+            let series: Vec<JsonValue> = a
+                .series
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| i % step == 0 || *i == a.series.len() - 1)
+                .map(|(_, (turn, n, ex, mat))| {
+                    json!({
+                        "turn": turn,
+                        "exact_pct": pct(*ex, *n),
+                        "material_pct": pct(*mat, *n),
+                    })
+                })
+                .collect();
+            // Heat assignment is a FAIRNESS control, not decoration. Three arms
+            // are HANDED the value and only have to reproduce it; the others
+            // must locate it first. Drawn on one track, the first group sits
+            // near 100% and the second near zero, and a viewer reads "emem is
+            // three times better", which is false: they are doing different
+            // jobs. The split was insisted on by the agent who ran the
+            // benchmark, after catching the same flaw in their own page.
+            let heat = match arm.as_str() {
+                "context" | "emem_bundle" | "emem_token" => 1,
+                _ => 2,
+            };
+            json!({
+                "arm": arm,
+                "heat": heat,
+                "n": a.n,
+                "byte_exact_pct": pct(a.exact, a.n),
+                "material_pct": pct(a.material, a.n),
+                "declined": a.declined,
+                "mean_ms": if a.n > 0 { a.ms_total / a.n as f64 } else { 0.0 },
+                "series": series,
+            })
+        })
+        .collect();
+    // Leaderboard order: fewest material failures first, then most byte-exact.
+    out.sort_by(|x, y| {
+        let (mx, my) = (
+            x["material_pct"].as_f64().unwrap_or(0.0),
+            y["material_pct"].as_f64().unwrap_or(0.0),
+        );
+        mx.partial_cmp(&my)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                y["byte_exact_pct"]
+                    .as_f64()
+                    .unwrap_or(0.0)
+                    .partial_cmp(&x["byte_exact_pct"].as_f64().unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+
+    Json(json!({
+        "running": true,
+        "rows": rows,
+        "turn": max_turn,
+        "threshold": threshold,
+        "models": models,
+        "worlds": worlds,
+        "arms": out,
+        "heats": {
+            "1": {"name": "handed the value", "note": "The arm is given the measurement in its prompt and only has to reproduce it. This is a CEILING, not a race."},
+            "2": {"name": "must locate the fact", "note": "The arm must find or dereference the value before answering. This is the real comparison."},
+            "why": "Drawn on one track these two groups are not comparable: the first sits near 100% and the second near zero, and a viewer concludes one architecture is several times better when they are doing different jobs. Keep them separated.",
+        },
+        "scoring": {
+            "byte_exact": "answer string equals the signed value_verbatim",
+            "material": format!("|answer - truth| > {threshold}, an error large enough to change a decision"),
+            "declined": "no number produced",
+            "note": "An arm can be materially perfect and never byte-exact (a rounded display). \
+                     Both are reported because they are different products: one is an answer, \
+                     the other is a citation.",
+        },
+    }))
 }
 
 /// `GET /v1/a2a/skills?q=&tag=&category=&limit=` — the capability query the
