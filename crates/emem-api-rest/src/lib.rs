@@ -4261,6 +4261,11 @@ async fn get_scoreboard() -> Json<JsonValue> {
         chars_total: f64,
         // turn, cum n, cum exact, cum material, cum declined, cum payload chars
         series: Vec<(u64, u64, u64, u64, u64, f64)>,
+        /// Real rows a reader can resolve themselves: (cell64, signed value,
+        /// what the model answered, was it byte-exact). Kept small and
+        /// deliberately mixed, wins and losses, because a page that only shows
+        /// aggregates asks to be trusted, which is the opposite of the claim.
+        examples: Vec<(String, String, String, bool)>,
     }
     let mut arms: std::collections::BTreeMap<String, Acc> = std::collections::BTreeMap::new();
     let mut models: std::collections::BTreeSet<String> = Default::default();
@@ -4318,6 +4323,26 @@ async fn get_scoreboard() -> Json<JsonValue> {
         if let Some(pc) = v.get("payload_chars").and_then(|x| x.as_f64()) {
             a.chars_total += pc;
         }
+        if let (Some(c), Some(vv)) = (
+            v.get("cell64").and_then(|x| x.as_str()),
+            v.get("value_verbatim").and_then(|x| x.as_str()),
+        ) {
+            let got = v
+                .get("extracted_str")
+                .and_then(|x| x.as_str())
+                .unwrap_or("(declined)");
+            // Keep at most 3 hits and 3 misses per arm so both are visible.
+            let want_exact = exact;
+            let have = a
+                .examples
+                .iter()
+                .filter(|e| e.3 == want_exact)
+                .count();
+            if have < 3 {
+                a.examples
+                    .push((c.to_string(), vv.to_string(), got.to_string(), exact));
+            }
+        }
         let (n, ex, mat, dec, ch) = (a.n, a.exact, a.material, a.declined, a.chars_total);
         a.series.push((turn, n, ex, mat, dec, ch));
     }
@@ -4373,6 +4398,12 @@ async fn get_scoreboard() -> Json<JsonValue> {
                 "declined": a.declined,
                 "mean_ms": if a.n > 0 { a.ms_total / a.n as f64 } else { 0.0 },
                 "mean_payload_chars": if a.n > 0 { a.chars_total / a.n as f64 } else { 0.0 },
+                // Checkability: resolve `cell` against /v1/recall and compare
+                // `signed` yourself. Do not take the aggregate on faith.
+                "examples": a.examples.iter().map(|(c, vv, got, ok)| json!({
+                    "cell": c, "signed": vv, "answered": got, "byte_exact": ok,
+                    "verify": format!("POST /v1/recall {{\"cell\":\"{c}\",\"bands\":[\"indices.ndvi\"]}}"),
+                })).collect::<Vec<_>>(),
                 "series": series,
             })
         })
@@ -4407,6 +4438,41 @@ async fn get_scoreboard() -> Json<JsonValue> {
             "2": {"name": "must locate the fact", "note": "The arm must find or dereference the value before answering. This is the real comparison."},
             "why": "Drawn on one track these two groups are not comparable: the first sits near 100% and the second near zero, and a viewer concludes one architecture is several times better when they are doing different jobs. Keep them separated.",
         },
+        // Four tests exist, not one. A board showing a single score invites the
+        // misreading this collaboration spent a week avoiding, and the
+        // benchmark author asked for a row per test carrying its own n, date,
+        // what it does NOT claim, and the result that COSTS us. Relay v1 is on
+        // the board precisely because our token lost it.
+        "tests": [
+            {"id": "study1", "title": "Addressed memory vs retrieval",
+             "what": "Does the memory hand back the exact bytes it stored, single agent.",
+             "n": "192 answers", "when": "2026-07-21", "status": "published",
+             "headline": "Carrying a value beside its address is lossless (192/192); dense retrieval recovers the right chunk 6 times in 192.",
+             "costs_us": "Our own re-scoring refuted the claim that addressed memory beats plain context when the value fits: both arms 284/284.",
+             "not_claimed": "Two 7-12B models, one host, no independent replication."},
+            {"id": "study2", "title": "Materiality at real error levels",
+             "what": "Would the error change a business decision, scored on two unrelated sites.",
+             "n": "16 per arm x 2 sites", "when": "2026-07-22", "status": "published",
+             "headline": "Four architectures including free BM25 at ZERO business-material failures.",
+             "costs_us": "This is the result against us: at decision-impact thresholds the memory architecture barely matters for a single agent. It replicated.",
+             "not_claimed": "Does not speak to handoffs, citation, or auditability."},
+            {"id": "longrun", "title": "The long run, live",
+             "what": "Eight worlds, one record per turn per arm, still going.",
+             "n": "see `rows` above", "when": "2026-07-23", "status": "running",
+             "headline": "Citability separates cleanly: 97-99% for arms handed the value, 0-21% for arms that must locate it.",
+             "costs_us": "Prose context is the CHEAPEST arm (51 ch) and near-perfect when handed the value.",
+             "not_claimed": "ACCURACY IS NOT YET USABLE: emem_resolve, the only arm competing fairly with retrieval, joined mid-run and is not rankable."},
+            {"id": "relay", "title": "Relay survival",
+             "what": "A fact is handed model to model until it drifts past 1%. Count the hops.",
+             "n": "10 facts x 12 hops (v1), 12-fact set x 8 (v2)", "when": "2026-07-23",
+             "status": "complete",
+             "headline": "With a SET of 12 facts the bundle is the only format with survivors (3/8), reference intact 69% against 0% for twelve individual tokens.",
+             "costs_us": "With ONE fact our token LOST: prose 10/10 and a bare number 10/10 reached hop 12, emem_token 9/10. A 104-char opaque token has more surface to corrupt than a 19-char number. Addressing buys nothing for a single fact and costs slightly.",
+             "not_claimed": "3/8 is least-bad, not a win; most relays die immediately at 12 facts; the finding is SIZE, not addressing. A bundle survives because it is small enough to copy, not because it is a citation."},
+        ],
+        "checkability": "Every arm carries `examples`: real rows with the cell64, the SIGNED value, \
+                          and what the model actually answered. Resolve any cell against /v1/recall \
+                          and check the aggregate yourself. Losses are included on purpose.",
         "scoring": {
             "byte_exact": "answer string equals the signed value_verbatim",
             "material": format!("|answer - truth| > {threshold}, an error large enough to change a decision"),

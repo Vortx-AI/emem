@@ -77,6 +77,35 @@ svg{width:100%;height:100%;display:block}
 .sc i{font-style:normal;color:var(--mute)}
 .good{color:var(--ok)}.mid{color:var(--warn)}.poor{color:var(--bad)}
 .thin{color:var(--warn);font-size:.66rem;font-family:var(--mono)}
+.ev{margin:.3rem .2rem .8rem;border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.ev-h{padding:.4rem .55rem;background:var(--paper-3);font-family:var(--mono);font-size:.7rem;
+  color:var(--ink-2);display:flex;gap:.4rem;align-items:center}
+.ev-r{padding:.45rem .55rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:.69rem;
+  line-height:1.55}
+.ev-r .c{color:var(--mute);font-size:.65rem}
+.ev-r .s{color:var(--ok)}.ev-r .g{color:var(--ink)}
+.ev-r.bad .g{color:var(--bad)}
+.ev-r a{color:var(--ink-2);font-size:.65rem;text-decoration:none;border-bottom:1px dotted var(--rule-2)}
+.ev-r a:hover{color:var(--ink)}
+.pill{font-size:.6rem;padding:.08rem .3rem;border-radius:2px;font-weight:700}
+.pill.ok{background:rgba(74,222,128,.16);color:var(--ok)}
+.pill.no{background:rgba(226,87,76,.16);color:var(--bad)}
+.tests{border-bottom:1px solid var(--rule);background:var(--paper);max-height:0;overflow:hidden;
+  transition:max-height .25s ease}
+.tests.open{max-height:60vh;overflow-y:auto}
+.t-row{display:grid;grid-template-columns:150px 1fr;gap:.8rem;padding:.6rem 1rem;
+  border-bottom:1px solid var(--rule)}
+@media (max-width:760px){.t-row{grid-template-columns:1fr}}
+.t-l b{display:block;font-size:.8rem}
+.t-l .m{font-family:var(--mono);font-size:.66rem;color:var(--mute);display:block;margin-top:.15rem}
+.t-r{font-size:.75rem;line-height:1.55}
+.t-r .hd{color:var(--ink-2)}
+.t-r .cost{color:var(--bad);display:block;margin-top:.25rem}
+.t-r .nc{color:var(--mute);display:block;margin-top:.2rem;font-size:.71rem}
+.st{font-size:.6rem;padding:.08rem .34rem;border-radius:2px;font-family:var(--mono);font-weight:700}
+.st.run{background:rgba(232,163,61,.18);color:var(--warn)}
+.st.pub{background:rgba(78,168,222,.18);color:#4ea8de}
+.st.done{background:rgba(74,222,128,.16);color:var(--ok)}
 
 /* transport */
 .foot{display:flex;align-items:center;gap:.7rem;padding:.5rem 1rem;
@@ -99,8 +128,11 @@ svg{width:100%;height:100%;display:block}
   <span class="kv">steps <b id="mRows">—</b></span>
   <span class="kv">worlds <b id="mWorlds">—</b></span>
   <span class="kv">models <b id="mModels">—</b></span>
+  <button class="btn" id="showTests" aria-pressed="false">4 tests</button>
   <button class="btn" id="metric" aria-pressed="false">byte-exact</button>
 </div>
+
+<div class="tests" id="tests"></div>
 
 <div class="why" id="why">Two heats, deliberately. Some arms are <b>handed the value</b> and only
 have to reproduce it; the others <b>must locate it first</b>. On one track the first group sits near
@@ -112,6 +144,8 @@ they are doing different jobs.<div id="why2" style="margin-top:.35rem;color:var(
   <aside class="side">
     <div id="heat1"></div>
     <div id="heat2"></div>
+    <h2 style="margin-top:.9rem">check it yourself <em>click an arm above</em></h2>
+    <div id="evidence" style="padding:0 .1rem"></div>
     <h2 style="margin-top:.9rem">reading it</h2>
     <div style="font-size:.73rem;color:var(--mute);line-height:1.55;padding:0 .3rem 1rem">
       <b style="color:var(--ink-2)">Byte-exact</b> is whether the answer equals the signed value
@@ -156,7 +190,7 @@ they are doing different jobs.<div id="why2" style="margin-top:.35rem;color:var(
     {k:'payload_chars', lab:'context cost',         unit:' ch',hi:false,
      why:'Mean characters spent per answer. A bundle names N facts in one handle; N separate tokens cost N times the context for the same coverage.'}
   ];
-  var mi=0, metric='exact_pct', muted={}, data=null, at=null, playing=false, speed=1, follow=true;
+  var mi=0, metric='exact_pct', muted={}, data=null, at=null, playing=false, speed=1, follow=true, sel=null;
   var $=function(i){return document.getElementById(i)};
 
   function maxTurn(){ return (data&&data.turn)||1 }
@@ -237,9 +271,55 @@ they are doing different jobs.<div id="why2" style="margin-top:.35rem;color:var(
       });
       $('heat'+h).innerHTML=html;
     });
+    renderEvidence();
     Array.prototype.forEach.call(document.querySelectorAll('.row'),function(el){
-      el.onclick=function(){var a=el.getAttribute('data-arm');muted[a]=!muted[a];draw();};
+      el.onclick=function(ev){
+        var a=el.getAttribute('data-arm');
+        if(ev.shiftKey){ muted[a]=!muted[a]; } else { sel = (sel===a? null : a); }
+        draw();
+      };
     });
+  }
+
+  $('showTests').addEventListener('click',function(){
+    var open=$('tests').classList.toggle('open');
+    this.setAttribute('aria-pressed',open);
+  });
+  function renderTests(){
+    var t=(data&&data.tests)||[]; if(!t.length)return;
+    var h='';
+    t.forEach(function(x){
+      var cl=x.status==='running'?'run':x.status==='published'?'pub':'done';
+      h+='<div class="t-row"><div class="t-l"><b>'+esc(x.title)+'</b>'
+       + '<span class="st '+cl+'">'+esc(x.status)+'</span>'
+       + '<span class="m">'+esc(x.n)+' &middot; '+esc(x.when)+'</span></div>'
+       + '<div class="t-r"><span class="hd">'+esc(x.headline)+'</span>'
+       + '<span class="cost">Against us: '+esc(x.costs_us)+'</span>'
+       + '<span class="nc">Not claimed: '+esc(x.not_claimed)+'</span></div></div>';
+    });
+    $('tests').innerHTML=h;
+    $('showTests').textContent=t.length+' tests';
+  }
+  function esc(t){return String(t).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+  function renderEvidence(){
+    var box=$('evidence');
+    if(!sel){ box.innerHTML='<div style="font-size:.71rem;color:var(--mute);padding:.2rem .3rem">'
+      +'Click any arm to see REAL rows from the run: the cell, the signed value, and what the model'
+      +' actually answered. Wins and losses both. Shift-click to hide a lane instead.</div>'; return; }
+    var a=(data.arms||[]).filter(function(x){return x.arm===sel})[0];
+    if(!a||!(a.examples||[]).length){ box.innerHTML='<div style="font-size:.71rem;color:var(--mute);padding:.3rem">No sampled rows yet for this arm.</div>'; return; }
+    var h='<div class="ev"><div class="ev-h"><span class="dot" style="background:'+col(a.arm)+'"></span>'
+      + (LAB[a.arm]||a.arm) + ' &middot; sampled rows</div>';
+    a.examples.forEach(function(e){
+      h+='<div class="ev-r'+(e.byte_exact?'':' bad')+'">'
+       + '<span class="pill '+(e.byte_exact?'ok">citable':'no">not citable')+'</span> '
+       + '<span class="c">'+esc(e.cell)+'</span><br>'
+       + 'signed &nbsp;<span class="s">'+esc(e.signed)+'</span><br>'
+       + 'answered <span class="g">'+esc(e.answered)+'</span><br>'
+       + '<a href="/verify" target="_blank" rel="noopener">resolve this cell yourself &rarr;</a>'
+       + '</div>';
+    });
+    box.innerHTML=h+'</div>';
   }
 
   function draw(){
@@ -306,6 +386,7 @@ they are doing different jobs.<div id="why2" style="margin-top:.35rem;color:var(
       $('mRows').textContent=(d.rows||0).toLocaleString();
       $('mWorlds').textContent=(d.worlds||[]).length;
       $('mModels').textContent=(d.models||[]).length;
+      renderTests();
       if(d.heats&&d.heats.why) $('why').innerHTML='Two heats, deliberately. '+d.heats.why;
       var thin=(d.arms||[]).filter(function(a){return a.n<100});
       $('thinWarn').textContent=thin.length?('Arms with n<100 ('+thin.map(function(a){return LAB[a.arm]||a.arm}).join(', ')+') started late in the run and are not yet rankable.'):'';
