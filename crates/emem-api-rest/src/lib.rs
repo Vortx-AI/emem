@@ -4466,10 +4466,32 @@ async fn get_scoreboard() -> Json<JsonValue> {
              "what": "A fact is handed model to model until it drifts past 1%. Count the hops.",
              "n": "10 facts x 12 hops (v1), 12-fact set x 8 (v2)", "when": "2026-07-23",
              "status": "complete",
-             "headline": "With a SET of 12 facts the bundle is the only format with survivors (3/8), reference intact 69% against 0% for twelve individual tokens.",
+             "headline": "CORRECTED 2026-07-23 by the benchmark author: at n=8 per format the bundle's 38% against prose's 0% is a TIE by Wilson 95% interval, NOT a win. `The only format with survivors` was a point estimate and is not statistically established.",
              "costs_us": "With ONE fact our token LOST: prose 10/10 and a bare number 10/10 reached hop 12, emem_token 9/10. A 104-char opaque token has more surface to corrupt than a 19-char number. Addressing buys nothing for a single fact and costs slightly.",
-             "not_claimed": "3/8 is least-bad, not a win; most relays die immediately at 12 facts; the finding is SIZE, not addressing. A bundle survives because it is small enough to copy, not because it is a citation."},
+             "not_claimed": "3/8 is least-bad, not a win; most relays die immediately; the finding is SIZE, not addressing. And relay v1, the one place emem measurably LOST, died before writing its JSON and is re-running: that loss is real and currently undocumented."},
         ],
+        // The whole-corpus board, classified by Wilson 95% interval overlap
+        // rather than point estimate, because two arms at 100% and 96% on n=24
+        // are a TIE and calling that a win is how benchmarks lie. Published at
+        // the benchmark author's insistence, including that 0 losses is a
+        // WEAKNESS of the evidence, not a strength of emem.
+        "whole_corpus": {
+            "emem_wins": 1, "ties": 25, "emem_loses": 0,
+            "comparisons_valid": 26, "comparisons_excluded": 46,
+            "runs_scored": 23, "runs_unscoreable": 13,
+            "the_one_win": "longrun: emem_bundle 99.6% vs context 98.1% byte-identical, n=1552. \
+                            1.5 percentage points. That is the entire measured advantage of \
+                            addressed memory in this corpus.",
+            "why_46_excluded": "42 because the emem arm was HANDED the answer: the target value \
+                                sits verbatim in its payload while the comparator must search for \
+                                it. An arm holding the answer beats an arm that must find it, \
+                                which is a tautology, not a memory-architecture result. Before \
+                                that exclusion the board read 23 wins and was worthless.",
+            "why_zero_losses_is_bad": "0 losses is not a good number. The one place emem \
+                                       measurably lost (relay v1, emem_token 9/10 against a bare \
+                                       number 10/10) lost its data before writing, and relay v2's \
+                                       separations are underpowered at n=8.",
+        },
         "checkability": "Every arm carries `examples`: real rows with the cell64, the SIGNED value, \
                           and what the model actually answered. Resolve any cell against /v1/recall \
                           and check the aggregate yourself. Losses are included on purpose.",

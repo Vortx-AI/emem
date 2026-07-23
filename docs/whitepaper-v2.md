@@ -1472,6 +1472,21 @@ the artefact is the only variable.
 | BM25 over A's dump |     0.0 m |     0.0 m |   0.00% |    0.0% |        0/20 |
 | dense over A's dump|     0.0 m |   100.4 m |   2.48% |   14.8% |        6/20 |
 
+**Corrected 2026-07-23, and the correction is larger than the result.**
+Scored across the whole corpus by Wilson 95% interval overlap rather than
+point estimates, every head-to-head is **1 emem win, 25 ties, 0 losses**.
+The one win is `emem_bundle` 99.6% against plain `context` 98.1%
+byte-identical at n=1552: 1.5 percentage points, and that is the entire
+measured accuracy advantage of addressing in this corpus. **46 of 72
+comparisons were excluded, 42 because the emem arm was handed the answer
+verbatim** while the comparator had to find it, which is a tautology and
+not a memory-architecture result; before that exclusion the board read 23
+wins and its author called it worthless. Zero losses is a weakness of the
+evidence, not a strength of emem: the one measured loss (a relay where
+`emem_token` scored 9/10 against a bare number's 10/10) lost its data
+before writing and is re-running, and the relay separations are
+underpowered at n=8, where 38% against 0% is a TIE.
+
 Reported as a distribution rather than a pass/fail flag, at the benchmark
 author's insistence, because a threshold is not a deployment number.
 **Medians hide the failures that cost money.** Every format above is

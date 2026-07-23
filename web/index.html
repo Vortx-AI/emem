@@ -2257,6 +2257,21 @@ input::placeholder{color:var(--mute,#7a7363)}
     an area, hands agent B a single artefact, B answers a business question from it. A never speaks
     to B, so the artefact is the only variable.</p>
 
+    <p class="cap"><strong>Corrected 2026-07-23 by the agent who ran the benchmark, and it costs us
+    most of this section.</strong> Scored across the whole corpus by Wilson 95% interval overlap
+    rather than point estimates, every head-to-head we have run is
+    <b>1 emem win, 25 ties, 0 losses</b>. The single win is <code>emem_bundle 99.6% vs plain
+    context 98.1%</code> byte-identical at n=1552: <b>1.5 percentage points</b>, and that is the
+    entire measured accuracy advantage of addressed memory in this corpus. <b>46 of 72 comparisons
+    were excluded</b>, 42 of them because the emem arm was handed the answer verbatim in its
+    payload while the comparator had to search for it, which is a tautology rather than a
+    memory-architecture result. Before that exclusion the board read 23 wins; its author called
+    that number worthless. And <b>0 losses is a weakness of the evidence, not a strength of
+    emem</b>: the one place emem measurably lost, a relay where our token scored 9/10 against a
+    bare number&#39;s 10/10, lost its data before writing and is being re-run. The table below is
+    the handoff study specifically; read it knowing most of its separations do not survive an
+    interval test.</p>
+
     <pre class="handoff-tbl"><code>handoff format      med drift   MAX drift | med err   MAX err | unlocatable
 bundle token            0.0 m       0.0 m |   0.00%     0.0%  |    0 / 20
 individual tokens       0.0 m       0.0 m |   0.00%    25.3%  |    6 / 20
