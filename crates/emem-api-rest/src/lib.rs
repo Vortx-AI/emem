@@ -4333,11 +4333,7 @@ async fn get_scoreboard() -> Json<JsonValue> {
                 .unwrap_or("(declined)");
             // Keep at most 3 hits and 3 misses per arm so both are visible.
             let want_exact = exact;
-            let have = a
-                .examples
-                .iter()
-                .filter(|e| e.3 == want_exact)
-                .count();
+            let have = a.examples.iter().filter(|e| e.3 == want_exact).count();
             if have < 3 {
                 a.examples
                     .push((c.to_string(), vv.to_string(), got.to_string(), exact));
