@@ -1474,7 +1474,7 @@ the artefact is the only variable.
 
 **Corrected 2026-07-23, and the correction is larger than the result.**
 Scored across the whole corpus by Wilson 95% interval overlap rather than
-point estimates, every head-to-head is **1 emem win, 25 ties, 0 losses**.
+point estimates, every head-to-head is **1 emem win, 16 ties, 0 losses** (after a scorer audit found four bugs and moved every count).
 The one win is `emem_bundle` 99.6% against plain `context` 98.1%
 byte-identical at n=1552: 1.5 percentage points, and that is the entire
 measured accuracy advantage of addressing in this corpus. **46 of 72

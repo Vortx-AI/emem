@@ -4385,7 +4385,16 @@ async fn get_scoreboard() -> Json<JsonValue> {
             // three times better", which is false: they are doing different
             // jobs. The split was insisted on by the agent who ran the
             // benchmark, after catching the same flaw in their own page.
+            // heat 0 = NOT A MEASUREMENT. `emem_resolve` has no resolver in its
+            // loop: the harness hands a model an opaque token with no value and
+            // no tool and asks it to dereference from parametric memory, which
+            // is unwinnable by construction. Its author told us to take it down
+            // even though it is the row that makes emem look worst, and they
+            // were right: "not rankable because n is small" is the WRONG
+            // reason, since it implies more n would fix it. It is invalid at
+            // any n.
             let heat = match arm.as_str() {
+                "emem_resolve" => 0,
                 "context" | "emem_bundle" | "emem_token" => 1,
                 _ => 2,
             };
@@ -4436,6 +4445,7 @@ async fn get_scoreboard() -> Json<JsonValue> {
         "heats": {
             "1": {"name": "handed the value", "note": "The arm is given the measurement in its prompt and only has to reproduce it. This is a CEILING, not a race."},
             "2": {"name": "must locate the fact", "note": "The arm must find or dereference the value before answering. This is the real comparison."},
+            "0": {"name": "harness defect, not a measurement", "note": "No resolver is in this loop: a model is handed an opaque token with no value and no tool. Unwinnable by construction, invalid at any n, and excluded from every comparison. Reported rather than deleted because hiding a broken arm is how a board lies."},
             "why": "Drawn on one track these two groups are not comparable: the first sits near 100% and the second near zero, and a viewer concludes one architecture is several times better when they are doing different jobs. Keep them separated.",
         },
         // Four tests exist, not one. A board showing a single score invites the
@@ -4464,10 +4474,10 @@ async fn get_scoreboard() -> Json<JsonValue> {
              "not_claimed": "ACCURACY IS NOT YET USABLE: emem_resolve, the only arm competing fairly with retrieval, joined mid-run and is not rankable."},
             {"id": "relay", "title": "Relay survival",
              "what": "A fact is handed model to model until it drifts past 1%. Count the hops.",
-             "n": "10 facts x 12 hops (v1), 12-fact set x 8 (v2)", "when": "2026-07-23",
-             "status": "complete",
+             "n": "12-fact set x 8 (v2). v1 HELD: no data.", "when": "2026-07-23",
+             "status": "running",
              "headline": "CORRECTED 2026-07-23 by the benchmark author: at n=8 per format the bundle's 38% against prose's 0% is a TIE by Wilson 95% interval, NOT a win. `The only format with survivors` was a point estimate and is not statistically established.",
-             "costs_us": "With ONE fact our token LOST: prose 10/10 and a bare number 10/10 reached hop 12, emem_token 9/10. A 104-char opaque token has more surface to corrupt than a 19-char number. Addressing buys nothing for a single fact and costs slightly.",
+             "costs_us": "RETRACTED 2026-07-23, and the retraction is against our critics as much as us. We published `with one fact our token LOST, 9/10 against a bare number 10/10`. Wilson95 gives emem_token [60-98%] and number [72-100%], Fisher exact p = 1.000: the LEAST informative possible outcome. Ten trials that cannot distinguish anything from anything. It is not a loss, it is a tie, and the run that produced it died before writing its data. Re-running.",
              "not_claimed": "3/8 is least-bad, not a win; most relays die immediately; the finding is SIZE, not addressing. And relay v1, the one place emem measurably LOST, died before writing its JSON and is re-running: that loss is real and currently undocumented."},
         ],
         // The whole-corpus board, classified by Wilson 95% interval overlap
@@ -4476,12 +4486,25 @@ async fn get_scoreboard() -> Json<JsonValue> {
         // the benchmark author's insistence, including that 0 losses is a
         // WEAKNESS of the evidence, not a strength of emem.
         "whole_corpus": {
-            "emem_wins": 1, "ties": 25, "emem_loses": 0,
-            "comparisons_valid": 26, "comparisons_excluded": 46,
-            "runs_scored": 23, "runs_unscoreable": 13,
+            "emem_wins": 1, "ties": 16, "emem_loses": 0,
+            "comparisons_valid": 17, "comparisons_excluded": 46,
+            "runs_scored": 10, "runs_unscoreable": 26,
+            "superseded": "An audit of the scorer itself (2026-07-23) found four bugs and moved \
+                           these counts: 23 runs scored became 10, 13 unscoreable became 26, 26 \
+                           valid comparisons became 17, 25 ties became 16. The serious one: a \
+                           BOOLEAN field was coerced into ground truth (bool is a subclass of int, \
+                           so float(True) is 1.0) and scored silently as the measured value across \
+                           thirteen runs. Another penalised whichever model restates more prose, a \
+                           model-dependent penalty wearing the costume of an accuracy metric. The \
+                           shape held and the single win survived every fix, which is the only \
+                           reason it is still here.",
+            "false_positive_caveat": "17 comparisons at alpha=.05 produce roughly one false \
+                                      positive by chance. The one win is not immune to that.",
             "the_one_win": "longrun: emem_bundle 99.6% vs context 98.1% byte-identical, n=1552. \
-                            1.5 percentage points. That is the entire measured advantage of \
-                            addressed memory in this corpus.",
+                            1.5 percentage points, and it survived all four scorer fixes. That is \
+                            the entire measured advantage of addressed memory in this corpus, and \
+                            with 17 comparisons at alpha=.05 roughly one false positive is \
+                            expected by chance, so it is one result and not a proof.",
             "why_46_excluded": "42 because the emem arm was HANDED the answer: the target value \
                                 sits verbatim in its payload while the comparator must search for \
                                 it. An arm holding the answer beats an arm that must find it, \
