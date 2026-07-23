@@ -2257,19 +2257,23 @@ input::placeholder{color:var(--mute,#7a7363)}
     an area, hands agent B a single artefact, B answers a business question from it. A never speaks
     to B, so the artefact is the only variable.</p>
 
-    <pre class="handoff-tbl"><code>handoff format        byte-exact   MATERIAL failures
-bundle token                100%   0 / 20
-individual tokens            70%   2 / 20
-A&#39;s own summary               0%   7 / 17   (+3 could not answer)
-BM25 over A&#39;s dump            0%   0 / 20
-dense over A&#39;s dump           0%   0 / 20</code></pre>
+    <pre class="handoff-tbl"><code>handoff format      med drift   MAX drift | med err   MAX err | unlocatable
+bundle token            0.0 m       0.0 m |   0.00%     0.0%  |    0 / 20
+individual tokens       0.0 m       0.0 m |   0.00%    25.3%  |    6 / 20
+A&#39;s own summary            --          -- |  14.03%    96.0%  |   17 / 20
+BM25 over raw dump      0.0 m       0.0 m |   0.00%     0.0%  |    0 / 20
+dense over raw dump     0.0 m     100.4 m |   2.48%    14.8%  |    6 / 20</code></pre>
 
-    <p class="cap">The paraphrase is the only format that fails materially. A competent handover
-    note, written by a capable model in its own words, loses business-material information 41% of
-    the time. The bundle token is the only arm that is both byte-exact and materially perfect;
-    BM25 and dense deliver the right value and nothing citeable. Single agent, the architecture
-    barely matters. Multi-agent, what you hand the next agent matters enormously, and the natural
-    thing to hand it is the one that fails.</p>
+    <p class="cap"><b>Medians hide the failures that cost money.</b> Every format here looks
+    acceptable on a median; two are acceptable on the tail. The paraphrase is not merely lossy: its
+    worst answer is wrong by <b>96%</b>, and <b>17 of its 20 answers correspond to no cell in the
+    surveyed region at all</b> &mdash; the summarising agent is not misreporting a neighbour, it is
+    producing numbers that exist nowhere in what it was handed. Dense retrieval passes a
+    value-only threshold while answering from cells up to <b>100 metres away</b>, which its author
+    published as a limitation of their own metric rather than of the retriever. Only the bundle
+    token and BM25 are clean on every axis. Single agent, the architecture barely matters.
+    Multi-agent, what you hand the next agent matters enormously, and the natural thing to hand it
+    is the one that fails.</p>
 
     <p class="cap">Read it with the limits its author attached: 20 handoffs per arm, two models on
     one host, one area type, measured 2026-07-22 against the then-current build. It says nothing

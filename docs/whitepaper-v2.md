@@ -1464,13 +1464,24 @@ The same author then measured a **handoff**: agent A surveys an area,
 hands agent B one artefact, B answers from it, A never speaks to B, so
 the artefact is the only variable.
 
-| handoff format     | byte-exact | material failures |
-|--------------------|-----------:|------------------:|
-| bundle token       |       100% |              0/20 |
-| individual tokens  |        70% |              2/20 |
-| A's own summary    |         0% |    7/17 (+3 none) |
-| BM25 over A's dump |         0% |              0/20 |
-| dense over A's dump|         0% |              0/20 |
+| handoff format     | med drift | MAX drift | med err | MAX err | unlocatable |
+|--------------------|----------:|----------:|--------:|--------:|------------:|
+| bundle token       |     0.0 m |     0.0 m |   0.00% |    0.0% |        0/20 |
+| individual tokens  |     0.0 m |     0.0 m |   0.00% |   25.3% |        6/20 |
+| A's own summary    |        --  |       --  |  14.03% |   96.0% |       17/20 |
+| BM25 over A's dump |     0.0 m |     0.0 m |   0.00% |    0.0% |        0/20 |
+| dense over A's dump|     0.0 m |   100.4 m |   2.48% |   14.8% |        6/20 |
+
+Reported as a distribution rather than a pass/fail flag, at the benchmark
+author's insistence, because a threshold is not a deployment number.
+**Medians hide the failures that cost money.** Every format above is
+acceptable on a median; two are acceptable on the tail. The paraphrase's
+worst answer is wrong by 96%, and 17 of its 20 answers correspond to no
+cell in the surveyed region at all: it is not misreporting a neighbour,
+it is producing numbers that exist nowhere in what it was handed. Dense
+retrieval passes a value-only threshold while answering from cells up to
+100 m away, which its author published as a limit of their own metric
+rather than of the retriever.
 
 The paraphrase is the only format that fails materially, at 41%. The
 bundle token is the only arm that is simultaneously byte-exact and
