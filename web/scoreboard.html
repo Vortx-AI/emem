@@ -105,7 +105,7 @@ svg{width:100%;height:100%;display:block}
 <div class="why" id="why">Two heats, deliberately. Some arms are <b>handed the value</b> and only
 have to reproduce it; the others <b>must locate it first</b>. On one track the first group sits near
 100% and the second near zero, and you would conclude one architecture is several times better when
-they are doing different jobs.</div>
+they are doing different jobs.<div id="why2" style="margin-top:.35rem;color:var(--mute);font-size:.75rem"></div></div>
 
 <div class="board">
   <div class="chart"><svg id="svg"></svg><div id="tip"></div></div>
@@ -142,18 +142,34 @@ they are doing different jobs.</div>
   var LAB={emem_bundle:'emem bundle',emem_token:'emem token',emem_resolve:'emem resolve',
            context:'prose context',context_region:'context region',rag_bm25:'BM25 retrieval'};
   var col=function(a){return PAL[a]||'#8b939e'};
-  var metric='exact_pct', muted={}, data=null, at=null, playing=false, speed=1, follow=true;
+  // Citability leads deliberately. The benchmark author asked that the ACCURACY
+  // comparison not be published yet: emem_resolve, the only arm that competes
+  // fairly with retrieval, joined mid-run and has too few steps. Citability is
+  // structural, unaffected by that, and it is the comparison that holds today.
+  var METRICS=[
+    {k:'exact_pct',     lab:'citable (byte-exact)', unit:'%',  hi:true,
+     why:'Does the answer equal the signed value character for character. This is what a citation needs, and it is structural rather than a matter of degree.'},
+    {k:'material_pct',  lab:'material failures',    unit:'%',  hi:false,
+     why:'Is the error large enough to change a decision. Thin arms are not yet rankable here.'},
+    {k:'declined_pct',  lab:'declined to answer',   unit:'%',  hi:false,
+     why:'No number produced at all. An abstention is a different failure from a confident wrong number.'},
+    {k:'payload_chars', lab:'context cost',         unit:' ch',hi:false,
+     why:'Mean characters spent per answer. A bundle names N facts in one handle; N separate tokens cost N times the context for the same coverage.'}
+  ];
+  var mi=0, metric='exact_pct', muted={}, data=null, at=null, playing=false, speed=1, follow=true;
   var $=function(i){return document.getElementById(i)};
 
   function maxTurn(){ return (data&&data.turn)||1 }
   function curTurn(){ return follow?maxTurn():(at||maxTurn()) }
 
-  $('metric').addEventListener('click',function(){
-    metric=metric==='exact_pct'?'material_pct':'exact_pct';
-    this.setAttribute('aria-pressed',metric==='material_pct');
-    this.textContent=metric==='exact_pct'?'byte-exact':'material failures';
+  function setMetric(i){
+    mi=(i+METRICS.length)%METRICS.length; metric=METRICS[mi].k;
+    $('metric').textContent=METRICS[mi].lab;
+    $('metric').setAttribute('aria-pressed', mi!==0);
+    $('why2').textContent=METRICS[mi].why;
     draw();
-  });
+  }
+  $('metric').addEventListener('click',function(){ setMetric(mi+1); });
   $('play').addEventListener('click',togglePlay);
   $('speed').addEventListener('click',function(){
     speed=speed===1?2:speed===2?4:1; this.textContent=speed+'×';
@@ -201,14 +217,16 @@ they are doing different jobs.</div>
       arms=arms.map(function(a){var v=valAt(a,t);return{a:a,v:v?v[metric]:null}});
       arms.sort(function(x,y){
         if(x.v==null)return 1; if(y.v==null)return -1;
-        return metric==='exact_pct'? y.v-x.v : x.v-y.v;
+        return METRICS[mi].hi? y.v-x.v : x.v-y.v;
       });
       var hd=(data.heats&&data.heats[h])||{};
       var html='<h2>Heat '+(h===1?'I':'II')+' <em>'+(hd.name||'')+'</em></h2>';
       arms.forEach(function(o){
         var a=o.a,v=o.v;
-        var cls=metric==='exact_pct'?(v>=99?'good':v>=50?'mid':'poor')
-                                    :(v<=1?'good':v<=10?'mid':'poor');
+        var cls;
+        if(metric==='exact_pct') cls=v>=99?'good':v>=50?'mid':'poor';
+        else if(metric==='payload_chars') cls=v<=400?'good':v<=2000?'mid':'poor';
+        else cls=v<=1?'good':v<=10?'mid':'poor';
         var thin=a.n<100?'<div class="thin">n='+a.n+', too few to rank</div>':'';
         html+='<div class="row'+(muted[a.arm]?' mute':'')+'" data-arm="'+a.arm+'">'
            +   '<div class="nm"><span class="dot" style="background:'+col(a.arm)+'"></span>'
@@ -240,11 +258,17 @@ they are doing different jobs.</div>
 
     [1,2].forEach(function(h,pi){
       var y0=M.t+pi*(panelH+gap);
-      var y=function(v){return y0+panelH-(v/100)*panelH};
+      var top=100;
+      if(metric==='payload_chars'){
+        top=1; (data.arms||[]).forEach(function(a){(a.series||[]).forEach(function(p){
+          if(p.turn<=t&&p.payload_chars>top)top=p.payload_chars;});});
+        top=Math.ceil(top/500)*500||500;
+      }
+      var y=function(v){return y0+panelH-(Math.min(v,top)/top)*panelH};
       out+='<rect class="band" x="'+M.l+'" y="'+y0+'" width="'+iw+'" height="'+panelH+'"/>';
-      for(var v=0;v<=100;v+=25){
+      for(var vi=0;vi<=4;vi++){ var v=top*vi/4;
         out+='<line class="gl" x1="'+M.l+'" y1="'+y(v)+'" x2="'+(M.l+iw)+'" y2="'+y(v)+'"/>'
-          +  '<text class="ax" x="'+(M.l-7)+'" y="'+(y(v)+3.5)+'" text-anchor="end">'+v+'</text>';
+          +  '<text class="ax" x="'+(M.l-7)+'" y="'+(y(v)+3.5)+'" text-anchor="end">'+(top>100?Math.round(v/1000*10)/10+'k':Math.round(v))+'</text>';
       }
       var hd=(data.heats&&data.heats[h])||{};
       out+='<text class="heatlbl" x="'+(M.l+6)+'" y="'+(y0+14)+'" fill="'+(h===1?'#8b939e':'#c5cbd4')+'">'
@@ -260,7 +284,7 @@ they are doing different jobs.</div>
           var L=pts[pts.length-1];
           out+='<circle cx="'+x(L.turn).toFixed(1)+'" cy="'+y(L[metric]).toFixed(1)+'" r="3.4" fill="'+col(a.arm)+'"/>'
             +  '<text class="lbl" x="'+(x(L.turn)+7).toFixed(1)+'" y="'+(y(L[metric])+4).toFixed(1)+'" fill="'+col(a.arm)+'">'
-            +  (LAB[a.arm]||a.arm)+' '+fmt(L[metric])+'%</text>';
+            +  (LAB[a.arm]||a.arm)+' '+(metric==='payload_chars'?Math.round(L[metric]).toLocaleString()+' ch':fmt(L[metric])+'%')+'</text>';
         }
       });
     });
@@ -288,6 +312,7 @@ they are doing different jobs.</div>
       draw();
     }).catch(function(){$('live').classList.add('off');$('liveTxt').textContent='offline';});
   }
+  setMetric(0);
   poll(); setInterval(poll,5000);
   var rt;window.addEventListener('resize',function(){clearTimeout(rt);rt=setTimeout(draw,140)});
 })();

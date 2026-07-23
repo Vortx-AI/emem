@@ -4258,7 +4258,9 @@ async fn get_scoreboard() -> Json<JsonValue> {
         material: u64,
         declined: u64,
         ms_total: f64,
-        series: Vec<(u64, u64, u64, u64)>, // turn, cum n, cum exact, cum material
+        chars_total: f64,
+        // turn, cum n, cum exact, cum material, cum declined, cum payload chars
+        series: Vec<(u64, u64, u64, u64, u64, f64)>,
     }
     let mut arms: std::collections::BTreeMap<String, Acc> = std::collections::BTreeMap::new();
     let mut models: std::collections::BTreeSet<String> = Default::default();
@@ -4313,8 +4315,11 @@ async fn get_scoreboard() -> Json<JsonValue> {
         if let Some(ms) = v.get("timing_ms").and_then(|x| x.as_f64()) {
             a.ms_total += ms;
         }
-        let (n, ex, mat) = (a.n, a.exact, a.material);
-        a.series.push((turn, n, ex, mat));
+        if let Some(pc) = v.get("payload_chars").and_then(|x| x.as_f64()) {
+            a.chars_total += pc;
+        }
+        let (n, ex, mat, dec, ch) = (a.n, a.exact, a.material, a.declined, a.chars_total);
+        a.series.push((turn, n, ex, mat, dec, ch));
     }
 
     let pct = |num: u64, den: u64| -> f64 {
@@ -4335,11 +4340,16 @@ async fn get_scoreboard() -> Json<JsonValue> {
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| i % step == 0 || *i == a.series.len() - 1)
-                .map(|(_, (turn, n, ex, mat))| {
+                .map(|(_, (turn, n, ex, mat, dec, ch))| {
                     json!({
                         "turn": turn,
                         "exact_pct": pct(*ex, *n),
                         "material_pct": pct(*mat, *n),
+                        "declined_pct": pct(*dec, *n),
+                        // Context cost: mean characters this arm spends per answer.
+                        // A bundle token names N facts in one handle; N individual
+                        // tokens cost N times the context for the same coverage.
+                        "payload_chars": if *n > 0 { ch / (*n as f64) } else { 0.0 },
                     })
                 })
                 .collect();
@@ -4362,6 +4372,7 @@ async fn get_scoreboard() -> Json<JsonValue> {
                 "material_pct": pct(a.material, a.n),
                 "declined": a.declined,
                 "mean_ms": if a.n > 0 { a.ms_total / a.n as f64 } else { 0.0 },
+                "mean_payload_chars": if a.n > 0 { a.chars_total / a.n as f64 } else { 0.0 },
                 "series": series,
             })
         })
