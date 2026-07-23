@@ -37,6 +37,21 @@ rm -f "$REPO/docs/book/book.toml"
 echo "==> render whitepaper v2 (docs/whitepaper-v2.md -> web/whitepaper-v2.html)"
 python3 "$REPO/scripts/render_whitepaper.py"
 
+# The channel transcript is BAKED into the binary (web/channel.html), so it
+# freezes at whatever date it was last generated unless this runs before the
+# build. It sat frozen at 2026-07-21 for two days and a consumer agent had to
+# tell us: their notes were in the store, visible via /v1/inbox, and absent
+# from the page that is supposed to BE the record. Generating it here is the
+# whole point of build_channel.py discovering peers from /v1/agents rather
+# than carrying a hardcoded roster.
+#
+# Non-fatal on purpose: a deploy must not be blocked because the responder was
+# briefly unreachable while regenerating a page. It warns and keeps the
+# previous transcript instead.
+echo "==> regenerate the agent channel (web/channel.html, docs/collaboration-log.md)"
+python3 "$REPO/scripts/build_channel.py" || \
+  echo "    ! channel regeneration failed; keeping the previous transcript"
+
 echo "==> cargo build --release -p emem-cli"
 cargo build --release -p emem-cli
 
