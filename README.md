@@ -257,7 +257,7 @@ The world changed; the instrument changed; the pixels moved; the model changed; 
 
 **Today: satellite Earth observation.** Open data from ESA, NASA, USGS, and the EU JRC fills the memory on demand: 129 wired measurements from a catalog of declared source schemes (live lists at [`/v1/sources`](https://emem.dev/v1/sources) and [`/v1/bands`](https://emem.dev/v1/bands)), from elevation and NDVI to weather, forest change, and four open foundation-model embeddings.
 
-**Next: everything else that observes a location.** Nothing in the record, receipt, or token grammar is satellite-specific; any observer with a location and a signing key joins the same attest, recall, cite, verify path. The multi-writer endpoint (`POST /v1/attest`) ships today; substrate profiles for sensors, drones, fleets, and registries are [roadmap](docs/roadmap.md).
+**Next: everything else that observes a location, admitted by evidence.** Nothing in the record, receipt, or token grammar is satellite-specific; any observer with a location and a signing key joins the same attest, recall, cite, verify path. As of 1.3.0 the admission rule for those observers is pinned in code: the substrate profile registry (`GET /v1/substrates`, the ninth content-addressed manifest) names ten contributor classes, from an operator's own satellite constellation down to microscopes at 100-nanometer grain, and every device-borne class is admitted only when its output is bound inside the device's complete OS execution trace (`emem.os_trace.v1`, verified by the `emem-trace` crate, pre-checkable on `POST /v1/trace_verify`). The open satellite archive keeps its own rule, recomputability, and serves as the drift anchor device claims are scored against. A satellite becomes one agent among many on the ground: enrolled by key, believed by execution, cross-checked by the archive. The runnable operator loop is `cargo run -p emem-primitives --example satellite_downlink`; design and onboarding steps are in [docs/plans/encoder-substrates.md](docs/plans/encoder-substrates.md).
 
 **Run your own node.** The hosted node runs the exact binary in this repo, and a receipt minted on one verifies on the other:
 
@@ -299,7 +299,7 @@ Version 1.2.1, under the stability promise 1.0.0 made: the wire format, receipt 
 | see it work in ten minutes | [Ten minutes to a verified, shareable fact](docs/tutorials/first-verified-memory.md) |
 | understand how it works, with live consoles | [emem.dev/how-it-works](https://emem.dev/how-it-works) |
 | wire your agent in | [the agent handbook](https://emem.dev/agents.md), then the [agent section](#if-you-are-an-agent) above |
-| read the full API | [/openapi.json](https://emem.dev/openapi.json) (122 paths under /v1/*), [/mcp](https://emem.dev/mcp) (102 tools), the [wire spec](https://emem.dev/spec.md) |
+| read the full API | [/openapi.json](https://emem.dev/openapi.json) (124 paths under /v1/*), [/mcp](https://emem.dev/mcp) (104 tools), the [wire spec](https://emem.dev/spec.md) |
 | check the trust model, formally | [the whitepaper](https://emem.dev/whitepaper) ([source](docs/whitepaper-v2.md)), [the formal model](docs/model.md), the [verifier spec](https://emem.dev/v1/verifier_spec) |
 | build agent-to-agent on it | [emem.dev/a2a](https://emem.dev/a2a): the standard, the curriculum, the contacts registry |
 | pick a use case in your industry | [emem.dev/solutions](https://emem.dev/solutions) |

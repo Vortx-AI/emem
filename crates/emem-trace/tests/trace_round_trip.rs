@@ -1,0 +1,270 @@
+//! End-to-end: build a robot's trace, verify it admits, then tamper
+//! with every part of the evidence and check each forgery is named.
+
+use ed25519_dalek::SigningKey;
+
+use emem_core::key::{AttesterKey, KeyEpoch};
+use emem_core::substrates::{SubstrateRegistry, TraceLayerKind, DEFAULT};
+use emem_trace::{
+    verify_os_trace, DeviceIdentity, EmittedOutput, OsTrace, RejectReason, TraceSegment, Verdict,
+};
+
+fn signing_key() -> SigningKey {
+    let mut bytes = [0u8; 32];
+    bytes[0] = 42;
+    SigningKey::from_bytes(&bytes)
+}
+
+fn device(sk: &SigningKey, profile: &str) -> DeviceIdentity {
+    DeviceIdentity {
+        device_key: AttesterKey(sk.verifying_key().to_bytes()),
+        key_epoch: KeyEpoch(0),
+        substrate_profile: profile.to_string(),
+        platform: "jetson-orin-nx".into(),
+        os: "ubuntu-24.04".into(),
+        kernel: "6.8.0-tegra".into(),
+        boot_id: "b7c1e2d3".into(),
+    }
+}
+
+fn segment(layer: TraceLayerKind, start: u64, end: u64, raw: &[u8]) -> TraceSegment {
+    TraceSegment {
+        layer,
+        seq: 0,
+        clock_start_ns: start,
+        clock_end_ns: end,
+        event_count: raw.len() as u64,
+        log_digest: data_digest(raw),
+        prev_digest: None,
+        encoding: "linux.ftrace.v1".into(),
+    }
+}
+
+fn data_digest(raw: &[u8]) -> String {
+    use data_encoding::BASE32_NOPAD;
+    BASE32_NOPAD
+        .encode(blake3::hash(raw).as_bytes())
+        .to_lowercase()
+}
+
+/// A full trace covering every layer robot.fleet.v1 requires, with one
+/// emitted lidar payload.
+fn robot_trace(sk: &SigningKey) -> (OsTrace, String) {
+    let payload = data_digest(b"lidar frame 881");
+    let layers = [
+        TraceLayerKind::Syscall,
+        TraceLayerKind::Scheduler,
+        TraceLayerKind::Memory,
+        TraceLayerKind::SensorBus,
+        TraceLayerKind::Energy,
+        TraceLayerKind::Thermal,
+        TraceLayerKind::Inference,
+    ];
+    let segments: Vec<TraceSegment> = layers
+        .iter()
+        .enumerate()
+        .map(|(i, l)| segment(*l, 1_000 + i as u64, 9_000, format!("log {i}").as_bytes()))
+        .collect();
+    let outputs = vec![EmittedOutput {
+        payload_digest: payload.clone(),
+        band: Some("robot.lidar_occupancy".into()),
+        emitted_at_ns: 8_500,
+        layer: TraceLayerKind::SensorBus,
+    }];
+    let trace = OsTrace::build_and_sign_v1(
+        device(sk, "robot.fleet.v1"),
+        1_000,
+        10_000,
+        segments,
+        outputs,
+        sk,
+    )
+    .expect("build");
+    (trace, payload)
+}
+
+#[test]
+fn sound_trace_admits_and_cid_is_stable() {
+    let sk = signing_key();
+    let (trace, payload) = robot_trace(&sk);
+    let profile = DEFAULT.lookup("robot.fleet.v1").expect("profile");
+    let report = verify_os_trace(&trace, profile, Some(&payload));
+    assert_eq!(report.verdict, Verdict::Admit, "{:?}", report.reasons);
+    assert!(report.coverage.missing.is_empty());
+
+    // The record round-trips through canonical CBOR to the same CID.
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(&trace, &mut buf).expect("encode");
+    let back: OsTrace = ciborium::de::from_reader(buf.as_slice()).expect("decode");
+    assert_eq!(trace.trace_cid().unwrap(), back.trace_cid().unwrap());
+    let report2 = verify_os_trace(&back, profile, Some(&payload));
+    assert_eq!(report2.verdict, Verdict::Admit);
+}
+
+#[test]
+fn rewritten_segment_is_caught_at_every_escalation() {
+    let sk = signing_key();
+    let profile = DEFAULT.lookup("robot.fleet.v1").expect("profile");
+
+    // Step 1: edit one captured log after signing. The next segment's
+    // prev_digest no longer matches: chain broken.
+    let (mut trace, payload) = robot_trace(&sk);
+    trace.segments[2].log_digest = data_digest(b"scrubbed log");
+    let report = verify_os_trace(&trace, profile, Some(&payload));
+    assert_eq!(report.verdict, Verdict::Reject);
+    assert!(report
+        .reasons
+        .iter()
+        .any(|r| matches!(r, RejectReason::ChainBroken { seq: 3 })));
+
+    // Step 2: the forger also relinks the chain. Now the chain is
+    // internally consistent but its root no longer matches the signed
+    // trace_root.
+    let mut prev: Option<String> = None;
+    for seg in &mut trace.segments {
+        seg.prev_digest = prev.take();
+        prev = Some(data_digest_of_segment(seg));
+    }
+    let report = verify_os_trace(&trace, profile, Some(&payload));
+    assert_eq!(report.verdict, Verdict::Reject);
+    assert!(report
+        .reasons
+        .iter()
+        .any(|r| matches!(r, RejectReason::RootMismatch)));
+
+    // Step 3: the forger also rewrites trace_root. Now the device
+    // signature no longer covers the record.
+    use data_encoding::BASE32_NOPAD;
+    let digests: Vec<[u8; 32]> = trace
+        .segments
+        .iter()
+        .map(|s| s.digest().expect("digest"))
+        .collect();
+    let root = emem_attest::merkle_root_v1(&digests);
+    trace.trace_root = BASE32_NOPAD.encode(&root).to_lowercase();
+    let report = verify_os_trace(&trace, profile, Some(&payload));
+    assert_eq!(report.verdict, Verdict::Reject);
+    assert!(report
+        .reasons
+        .iter()
+        .any(|r| matches!(r, RejectReason::SignatureInvalid)));
+}
+
+fn data_digest_of_segment(seg: &TraceSegment) -> String {
+    use data_encoding::BASE32_NOPAD;
+    BASE32_NOPAD
+        .encode(&seg.digest().expect("digest"))
+        .to_lowercase()
+}
+
+#[test]
+fn dropped_layer_is_missing_coverage() {
+    let sk = signing_key();
+    let (mut trace, _) = robot_trace(&sk);
+    // Remove the energy layer, relink honestly, re-sign honestly: the
+    // trace is internally consistent but incomplete for the profile.
+    let mut segments = trace.segments.clone();
+    segments.retain(|s| s.layer != TraceLayerKind::Energy);
+    for s in &mut segments {
+        s.seq = 0;
+        s.prev_digest = None;
+    }
+    trace = OsTrace::build_and_sign_v1(
+        trace.device.clone(),
+        trace.window_start_ns,
+        trace.window_end_ns,
+        segments,
+        trace.outputs.clone(),
+        &sk,
+    )
+    .expect("rebuild");
+    let profile = DEFAULT.lookup("robot.fleet.v1").expect("profile");
+    let report = verify_os_trace(&trace, profile, None);
+    assert_eq!(report.verdict, Verdict::Reject);
+    assert_eq!(report.coverage.missing, vec![TraceLayerKind::Energy]);
+}
+
+#[test]
+fn unbound_payload_is_rejected_even_with_a_sound_trace() {
+    let sk = signing_key();
+    let (trace, _) = robot_trace(&sk);
+    let profile = DEFAULT.lookup("robot.fleet.v1").expect("profile");
+    let forged = data_digest(b"payload the execution never emitted");
+    let report = verify_os_trace(&trace, profile, Some(&forged));
+    assert_eq!(report.verdict, Verdict::Reject);
+    assert!(report
+        .reasons
+        .iter()
+        .any(|r| matches!(r, RejectReason::OutputUnbound { .. })));
+}
+
+#[test]
+fn archive_substrate_never_admits_device_output() {
+    let sk = signing_key();
+    let (mut trace, payload) = robot_trace(&sk);
+    trace.device.substrate_profile = "earth.satellite.v0".into();
+    let profile = DEFAULT.lookup("earth.satellite.v0").expect("profile");
+    let report = verify_os_trace(&trace, profile, Some(&payload));
+    assert_eq!(report.verdict, Verdict::Reject);
+    assert!(report
+        .reasons
+        .iter()
+        .any(|r| matches!(r, RejectReason::AdmissionNotTraceBased { .. })));
+}
+
+#[test]
+fn wrong_key_cannot_speak_for_the_device() {
+    let sk = signing_key();
+    let (mut trace, payload) = robot_trace(&sk);
+    let mut other = [0u8; 32];
+    other[0] = 99;
+    let other_sk = SigningKey::from_bytes(&other);
+    // Re-sign the same evidence with a different key while still
+    // claiming the original device identity.
+    use ed25519_dalek::Signer;
+    let preimage = trace.preimage().expect("preimage");
+    trace.signature = emem_core::key::Signature(other_sk.sign(&preimage).to_bytes());
+    let profile = DEFAULT.lookup("robot.fleet.v1").expect("profile");
+    let report = verify_os_trace(&trace, profile, Some(&payload));
+    assert_eq!(report.verdict, Verdict::Reject);
+    assert!(report
+        .reasons
+        .iter()
+        .any(|r| matches!(r, RejectReason::SignatureInvalid)));
+}
+
+#[test]
+fn every_candidate_profile_in_the_registry_is_verifiable() {
+    // The registry and the verifier agree on the layer vocabulary: a
+    // trace covering exactly a profile's required layers admits.
+    let sk = signing_key();
+    let registry: &SubstrateRegistry = &DEFAULT;
+    for profile in &registry.substrates {
+        if profile.id == "earth.satellite.v0" {
+            continue;
+        }
+        let segments: Vec<TraceSegment> = profile
+            .required_trace_layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| segment(*l, 1_000 + i as u64, 9_000, format!("{i}").as_bytes()))
+            .collect();
+        let trace = OsTrace::build_and_sign_v1(
+            device(&sk, &profile.id),
+            1_000,
+            10_000,
+            segments,
+            vec![],
+            &sk,
+        )
+        .expect("build");
+        let report = verify_os_trace(&trace, profile, None);
+        assert_eq!(
+            report.verdict,
+            Verdict::Admit,
+            "{}: {:?}",
+            profile.id,
+            report.reasons
+        );
+    }
+}

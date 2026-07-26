@@ -50,6 +50,7 @@
 - [Errors](./errors.md)
 - [Self-host](./self-host.md)
 - [Limits and roadmap](./roadmap.md)
+- [Encoder substrates: the device trust layer](./plans/encoder-substrates.md)
 - [Architecture](./developers/architecture.md)
 - [Data sources](./developers/data-sources.md)
 - [Developing](./developers/developing.md)

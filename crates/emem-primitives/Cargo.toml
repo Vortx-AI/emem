@@ -52,6 +52,7 @@ ort-ndarray     = { package = "ndarray", version = "0.17" }
 tokenizers      = { version = "0.22", default-features = false, features = ["onig"] }
 
 [dev-dependencies]
+emem-trace    = { workspace = true }
 tempfile     = "3"
 rand         = { workspace = true }
 tokio        = { workspace = true, features = ["macros", "rt-multi-thread"] }

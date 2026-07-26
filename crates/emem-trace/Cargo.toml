@@ -1,0 +1,19 @@
+[package]
+name = "emem-trace"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OS execution trace schema (emem.os_trace.v1) and the verification engine that admits or rejects device output against a substrate profile"
+
+[dependencies]
+emem-core     = { workspace = true }
+emem-attest   = { workspace = true }
+blake3        = { workspace = true }
+ed25519-dalek = { workspace = true }
+serde         = { workspace = true }
+ciborium      = { workspace = true }
+thiserror     = { workspace = true }
+data-encoding = { workspace = true }
+
+[dev-dependencies]
+serde_json    = { workspace = true }

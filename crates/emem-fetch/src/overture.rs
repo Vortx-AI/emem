@@ -445,7 +445,7 @@ impl OvertureClient {
                 detail: format!("head: {e}"),
             })?;
         let mut reader =
-            ParquetObjectReader::new(self.store.clone(), path).with_file_size(head.size as u64);
+            ParquetObjectReader::new(self.store.clone(), path).with_file_size(head.size);
         let meta = reader
             .get_metadata(None)
             .await
@@ -483,8 +483,7 @@ impl OvertureClient {
                 key: key.to_string(),
                 detail: format!("head: {e}"),
             })?;
-        let reader =
-            ParquetObjectReader::new(self.store.clone(), path).with_file_size(head.size as u64);
+        let reader = ParquetObjectReader::new(self.store.clone(), path).with_file_size(head.size);
 
         let opts = ArrowReaderOptions::new();
         let builder = ParquetRecordBatchStreamBuilder::new_with_options(reader, opts)

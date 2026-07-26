@@ -11,6 +11,7 @@ members = [
     "crates/emem-cubes",
     "crates/emem-primitives",
     "crates/emem-attest",
+    "crates/emem-trace",
     "crates/emem-intent",
     "crates/emem-mcp",
     "crates/emem-api-rest",
@@ -20,7 +21,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.2.1"
+version = "1.3.0"
 edition = "2021"
 # Bumped 2026-05-28 from 1.88 → 1.91 to accommodate Lance 6.x's MSRV
 # (lance-namespace / lance-table / lance-tokenizer / roaring all require
@@ -43,6 +44,7 @@ emem-storage    = { path = "crates/emem-storage",    version = "1.1.0" }
 emem-cubes      = { path = "crates/emem-cubes",      version = "1.1.0" }
 emem-primitives = { path = "crates/emem-primitives", version = "1.1.0" }
 emem-attest     = { path = "crates/emem-attest",     version = "1.1.0" }
+emem-trace      = { path = "crates/emem-trace",      version = "1.1.0" }
 emem-intent     = { path = "crates/emem-intent",     version = "1.1.0" }
 emem-mcp        = { path = "crates/emem-mcp",        version = "1.1.0" }
 emem-api-rest   = { path = "crates/emem-api-rest",   version = "1.1.0" }

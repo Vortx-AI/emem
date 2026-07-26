@@ -818,6 +818,12 @@ const SCHEMA_VERIFY_RECEIPT: &str = r#"{"type":"object","required":["receipt"],"
 "pubkey_b32":{"type":"string","description":"Optional explicit responder pubkey (base32). When omitted, uses the receipt's embedded pubkey/responder fields."}
 }}"#;
 
+const SCHEMA_TRACE_VERIFY: &str = r#"{"type":"object","required":["trace","profile"],"properties":{
+"trace":{"type":"object","description":"The emem.os_trace.v1 record: device identity, chained trace segments, emitted output digests, trace_root, and the device's ed25519 signature."},
+"profile":{"type":"string","description":"Substrate profile ID to verify against (e.g. robot.fleet.v1, orbital.satellite.v1). GET /v1/substrates lists the registry."},
+"claimed_payload_digest":{"type":"string","description":"Optional payload digest the caller intends to attest; verification additionally checks it is bound among the trace's emitted outputs."}
+}}"#;
+
 const SCHEMA_LOG_STH: &str = r#"{"type":"object","properties":{}}"#;
 
 const SCHEMA_LOG_INCLUSION: &str = r#"{"type":"object","properties":{
@@ -1829,6 +1835,28 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
+        name: "emem_substrates",
+        title: "Substrate profile registry",
+        description: "The written admission contract per contributor class (satellite archive, operator constellation, telescope, microscope, CCTV, mobile, drone, robot, industrial machine, fixed sensor): which admission rule applies (recomputable public archive, or complete OS execution trace), which trace layers a device of that class must capture, the measurement grain range, and which profile is the drift anchor. Content-addressed: the response carries the manifest CID every enrollment pins.",
+        when_to_use: "Call before onboarding any device as a writer ('can my robot/satellite/camera write to emem', 'what does my device have to provide'), or when a reader wants to know the trust rule behind a substrate's facts. Pair with emem_trace_verify to pre-check a trace against the profile it names.",
+        input_schema: SCHEMA_NONE,
+        example_args: r#"{}"#,
+        level: "L0", category: ToolCategory::Introspect,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_trace_verify",
+        title: "Verify a device's OS execution trace",
+        description: "Stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, capture window, per-layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device's ed25519 signature. Returns the full verdict with every failed check named (chain_broken, missing_layer, output_unbound, signature_invalid, ...), never just a boolean, so a device maker can debug an enrollment offline before writing.",
+        when_to_use: "Call while building a device integration ('why was my trace rejected', 'is this trace admissible under robot.fleet.v1'), or to audit the execution evidence behind a fact by resolving its emem:trace: token and re-verifying. Pass `claimed_payload_digest` to additionally check that a specific output is bound inside the trace.",
+        input_schema: SCHEMA_TRACE_VERIFY,
+        example_args: r#"{"profile":"robot.fleet.v1","trace":{"schema":"emem.os_trace.v1"}}"#,
+        level: "L1", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
         name: "emem_temporal_route",
         title: "Plan a temporal recall recipe for a cell",
         description: "Turn a time-shaped question into a ready-to-run recall plan: it figures out WHICH bands to pull at WHICH past time windows (e.g. 'the year before the flood', 'last growing season', 'two vintages to compare') so you don't have to compute tslot offsets by hand. Returns the band + lookback + a `purpose` tag for each step. Algebra: valid(M, a): per-band validity from the physics decay kernel, cite_now versus fetch_for_intent.",
@@ -2149,7 +2177,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
         // emem_echo_verify is the last-mile member: it checks the value you are
         // about to publish against the fact you cited, which is the step where a
         // correctly-resolved fact still becomes a wrong number.
-        &["emem_verify", "emem_triple_consensus", "emem_echo_verify"],
+        &["emem_verify", "emem_triple_consensus", "emem_echo_verify", "emem_trace_verify"],
     ),
     (
         "earth_observation",
@@ -2266,6 +2294,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_benchmark",
             "emem_corpus_state_stats",
             "emem_fleet",
+            "emem_substrates",
         ],
     ),
 ];
@@ -2380,6 +2409,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
             "emem_log_sth", "emem_log_inclusion", "emem_log_consistency", "emem_log_witnesses",
+            "emem_trace_verify",
             // Checks a value a caller is about to publish against the fact it
             // cites. Evidence about evidence, so `proof` rather than `token`:
             // the answer is a verdict on a claim, not a handle to one.
@@ -2407,7 +2437,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_manifests", "emem_algorithms", "emem_explain_algorithm", "emem_functions",
             "emem_materializers", "emem_topics", "emem_errors", "emem_grid_info",
             "emem_data_availability", "emem_coverage_matrix", "emem_benchmark",
-            "emem_corpus_state_stats", "emem_fleet",
+            "emem_corpus_state_stats", "emem_fleet", "emem_substrates",
         ],
     ),
 ];
@@ -2474,6 +2504,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
             "emem_locate", "emem_entity", "emem_elevation", "emem_terrain", "emem_water",
             "emem_recall", "emem_recall_polygon", "emem_state", "emem_state_diff",
             "emem_cell_geojson", "emem_fleet", "emem_trajectory", "emem_at",
+            "emem_substrates", "emem_trace_verify",
         ],
     ),
     (
@@ -2483,6 +2514,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
             "emem_cell_scene_rgb", "emem_data_availability", "emem_coverage_map",
             "emem_coverage_matrix", "emem_fleet", "emem_sources", "emem_manifests",
             "emem_fetch", "emem_backfill", "emem_sar_forest_disturbance",
+            "emem_substrates", "emem_trace_verify",
         ],
     ),
     (

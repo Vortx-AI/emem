@@ -51,12 +51,12 @@ CANON = {
     # 91 = 90 primitives + emem_tools, the catalog tool. It is core
     # because /mcp advertises the core loop rather than the full surface,
     # so exactly one visible tool has to be able to describe the rest.
-    "mcp_tools": 102,
+    "mcp_tools": 104,
     "mcp_core": 15,
-    "mcp_extended": 87,
+    "mcp_extended": 89,
     "algorithms": 168,
-    "rest_paths_v1": 122,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 127,  # all paths in OpenAPI
+    "rest_paths_v1": 124,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 129,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
@@ -64,8 +64,8 @@ CANON = {
     "foundation_encoders": 4,
     "mcp_resources": 18,       # resources/list entries (emem-mcp 7 + emem-api-rest 11)
     "mcp_uri_templates": 8,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
-    "crates": 16,
-    "version": "1.2.1",
+    "crates": 17,
+    "version": "1.3.0",
 }
 
 

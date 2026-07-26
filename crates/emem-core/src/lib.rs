@@ -14,6 +14,7 @@
 //!   - the band ontology (in `data/bands-v0.json`, loaded by [`bands::DEFAULT`])
 //!   - the function registry (in `data/functions-v0.json`)
 //!   - the source-connector registry (in `data/sources-v0.json`)
+//!   - the substrate profile registry (in `data/substrates-v0.json`)
 //!   - the cell64 alphabet (in `crates/emem-codec/data/`)
 //!   - the lcv-1 taxonomy (8 families × 8 leaves, structural IDs in core;
 //!     mnemonic labels live in an operator-published label manifest)
@@ -33,6 +34,7 @@ pub mod polygon;
 pub mod privacy;
 pub mod schema;
 pub mod sources;
+pub mod substrates;
 pub mod taxonomy;
 pub mod topics;
 pub mod tslot;
@@ -49,6 +51,10 @@ pub use polygon::Polygon;
 pub use privacy::PrivacyClass;
 pub use schema::{SchemaFragment, SchemaRegistry};
 pub use sources::{ConnectorKind, Provider, SourceRegistry, SourceScheme};
+pub use substrates::{
+    AdmissionRule, ContributorClass, ProfileStatus, SubstrateProfile, SubstrateRegistry,
+    TraceLayerKind,
+};
 pub use taxonomy::{Lcv1, LcvFamily};
 pub use topics::{Topic, TopicRegistry, TopicRoutingPolicy};
 pub use tslot::{Tempo, Tslot};

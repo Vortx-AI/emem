@@ -186,7 +186,7 @@ new attestations land:
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 114 paths under
-`/v1/*` (120 total in `/openapi.json`), 102 MCP tools (15 core, 87 extended, with
+`/v1/*` (129 total in `/openapi.json`), 104 MCP tools (15 core, 89 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 102), 18 static MCP
 resources + 8 URI templates, 163 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several

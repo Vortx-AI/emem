@@ -326,6 +326,54 @@ pub fn attestation_preimage_v1(
     p.finalize()
 }
 
+/// Segment tags for the v1 OS-trace preimage — the digest a device's key
+/// signs over its execution trace (`emem-trace` crate). Stable wire
+/// constants — never renumber, append only.
+pub mod os_trace_tag {
+    /// Trace schema identifier (e.g. `"emem.os_trace.v1"`).
+    pub const SCHEMA: u8 = 0x01;
+    /// blake3 of the canonical CBOR of the device identity record.
+    pub const DEVICE: u8 = 0x02;
+    /// Substrate profile ID the device claims to write under.
+    pub const PROFILE: u8 = 0x03;
+    /// Capture window: `u64-LE start_ns || u64-LE end_ns`.
+    pub const WINDOW: u8 = 0x04;
+    /// v1 merkle root over the chained segment digests, in chain order.
+    pub const TRACE_ROOT: u8 = 0x05;
+    /// Digests of the sensor payloads emitted inside the window.
+    pub const OUTPUTS: u8 = 0x06;
+}
+
+/// Canonical v1 OS-trace preimage digest — the 32 bytes a device's
+/// ed25519 key signs. Binds the trace schema, the device identity, the
+/// substrate profile, the capture window, the merkle root of the chained
+/// trace segments, and every emitted output digest into one signature,
+/// so no part of the execution evidence can be swapped after signing.
+pub fn os_trace_preimage_v1<'a, O>(
+    schema: &str,
+    device_digest: &[u8; 32],
+    profile_id: &str,
+    window_start_ns: u64,
+    window_end_ns: u64,
+    trace_root: &[u8; 32],
+    output_digests: O,
+) -> [u8; 32]
+where
+    O: IntoIterator<Item = &'a str>,
+{
+    let mut window = [0u8; 16];
+    window[..8].copy_from_slice(&window_start_ns.to_le_bytes());
+    window[8..].copy_from_slice(&window_end_ns.to_le_bytes());
+    let mut p = PreimageV1::new("os_trace");
+    p.seg(os_trace_tag::SCHEMA, schema.as_bytes());
+    p.seg(os_trace_tag::DEVICE, device_digest);
+    p.seg(os_trace_tag::PROFILE, profile_id.as_bytes());
+    p.seg(os_trace_tag::WINDOW, &window);
+    p.seg(os_trace_tag::TRACE_ROOT, trace_root);
+    p.seg_list(os_trace_tag::OUTPUTS, output_digests);
+    p.finalize()
+}
+
 /// v1 leaf promotion: `blake3(0x00 || leaf)`. Verifiers re-derive a
 /// proof's starting node from a fact's CID digest with this.
 pub fn promote_leaf_v1(leaf: &[u8; 32]) -> [u8; 32] {
@@ -434,6 +482,47 @@ pub fn has_adjacent_duplicate(sorted_leaves: &[[u8; 32]]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn os_trace_preimage_binds_every_segment() {
+        let base = os_trace_preimage_v1(
+            "emem.os_trace.v1",
+            &[7u8; 32],
+            "robot.fleet.v1",
+            100,
+            200,
+            &[9u8; 32],
+            ["abc", "def"],
+        );
+        // Any moved field changes the digest.
+        let other_window = os_trace_preimage_v1(
+            "emem.os_trace.v1",
+            &[7u8; 32],
+            "robot.fleet.v1",
+            101,
+            200,
+            &[9u8; 32],
+            ["abc", "def"],
+        );
+        assert_ne!(base, other_window);
+        // Output list boundaries are unambiguous: ["abc","def"] is not
+        // ["abcd","ef"], the collision the v0 concatenation rule allowed.
+        let shifted = os_trace_preimage_v1(
+            "emem.os_trace.v1",
+            &[7u8; 32],
+            "robot.fleet.v1",
+            100,
+            200,
+            &[9u8; 32],
+            ["abcd", "ef"],
+        );
+        assert_ne!(base, shifted);
+        // And the domain is separated from the attestation preimage.
+        assert_ne!(
+            base,
+            attestation_preimage_v1(&[9u8; 32], "robot.fleet.v1", "emem.os_trace.v1")
+        );
+    }
 
     #[test]
     fn empty_root_is_zero() {

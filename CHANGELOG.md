@@ -7,6 +7,69 @@ to verify.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-26
+
+**Satellites join the multi-agent system on the ground.** Until now a
+satellite was where the memory's data came from; from this release it
+can be a member of the system like any other agent: enrolled by key,
+believed only with evidence, cross-checked by peers. The evidence rule
+is the release's one idea, applied uniformly to every machine that
+observes the world (telescope, microscope, CCTV, phone, drone, robot,
+industrial machine, and an operator's own constellation): emem
+respects the device as a contributor and refuses its output alone. A
+device writes only what is bound inside its complete, unaltered OS
+execution trace, and the founding open-archive substrate, which needs
+no trace because anyone can recompute it, becomes the drift anchor
+every device claim is scored against. A satellite operator can run the
+entire loop today, self-hosted: enroll a spacecraft key, bind a
+downlink payload into the pass's signed trace, write through the gate,
+and keep the `emem:fact:`, `emem:trace:`, and `emem:bundle:` handles
+(`cargo run -p emem-primitives --example satellite_downlink`). One
+new crate (`emem-trace`, the 17th), one new manifest
+(`emem-substrates`, the ninth), two new read surfaces
+(`/v1/substrates`, `/v1/trace_verify`), and the repo's first committed
+conformance vectors.
+
+### Added
+- The encoder trust layer, as code: any machine that observes the world
+  (telescope, microscope, CCTV, phone, drone, robot, industrial machine)
+  is respected as a contributor and refused on its word alone. Its output
+  is admitted only when bound inside its complete, unaltered OS execution
+  trace. Three pure pieces ship: the substrate profile registry
+  (`emem-substrates`, the ninth content-addressed manifest, ten profiles
+  with per-class admission rules, required trace layers, and measurement
+  grain down to microns), the `emem.os_trace.v1` record and its
+  domain-separated signing preimage (`os_trace_preimage_v1` in
+  `emem-attest`), and the new `emem-trace` crate holding the verification
+  engine (sixteen named reject reasons, verdict only on an empty list)
+  plus the drift-anchor scoring rule that checks device claims against
+  the recomputable Earth substrate. Design and wiring steps in
+  `docs/plans/encoder-substrates.md`; ingest gating, `/v1/substrates`,
+  and `/v1/trace_verify` are the open wiring work.
+- The storage side of that gate, one commit later: `trace_gate::TraceGate`
+  in `emem-storage` (a device-enrollment tree locking an attester key to
+  an `os_trace_required` profile, a trace store keyed by `trace_cid`, and
+  a fact-to-trace audit edge) and
+  `MaterializingStorage::put_attestation_gated`, which refuses an
+  enrolled key's write unless the trace verifies and binds every primary
+  fact's payload digest, while never-enrolled keys keep the ungated path
+  byte-for-byte. Enrolled keys write traced primary observations only:
+  derivative facts, absences, and edges are refused as an untraced side
+  door until a traced-derivation rule exists.
+- The operator on-ramp, third commit in the series: the
+  `orbital.satellite.v1` profile (a manufacturer's own constellation is a
+  device substrate with the trace rule, distinct from the recomputable
+  public archive), `GET /v1/substrates` and `POST /v1/trace_verify` with
+  matching `emem_substrates` / `emem_trace_verify` MCP tools (104 tools,
+  124 documented `/v1/*` paths), and a runnable end-to-end example,
+  `cargo run -p emem-primitives --example satellite_downlink`: enroll a
+  spacecraft key, bind a downlink payload into its OS trace, write
+  through the gate, and keep the `emem:fact:`, `emem:trace:`, and
+  `emem:bundle:` handles. Plus `emem:trace:` tokens (compose, parse, resolve from
+  the store) and the repo's first committed conformance vectors,
+  `spec/test_vectors/os_trace/` (admit, chain broken, output unbound,
+  archive refused), deterministic and replayed in CI.
+
 ## [1.2.1] - 2026-07-21
 
 A release-plumbing patch. 1.2.0 published unevenly — npm `@vortxai/emem`

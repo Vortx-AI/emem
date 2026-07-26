@@ -31,6 +31,13 @@ pub const MANIFEST_ALGORITHM_REG: &str = "emem-algorithms";
 /// algorithms each topic concerns. Replaces the pre-0.0.3 hardcoded
 /// `TOPIC_KEYWORDS` / `TOPIC_BANDS` / `TOPIC_ALGORITHMS` tables.
 pub const MANIFEST_TOPIC_REG: &str = "emem-topics";
+/// Substrate profile registry manifest identifier — the written profile
+/// every contributor class (satellite archive, telescope, microscope,
+/// CCTV, mobile, robot, industrial machine) must match before its
+/// observations are admitted, including the admission rule (full OS
+/// execution trace, or recomputability from a cited open archive) and
+/// the trace layers that rule requires.
+pub const MANIFEST_SUBSTRATE_REG: &str = "emem-substrates";
 
 /// Errors that can occur loading or validating a manifest.
 #[derive(Debug, thiserror::Error)]

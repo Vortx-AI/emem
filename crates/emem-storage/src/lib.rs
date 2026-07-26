@@ -164,6 +164,7 @@ pub mod artifacts;
 pub mod attesters;
 pub mod merkle_log;
 pub mod server;
+pub mod trace_gate;
 
 pub use attesters::{AttesterRegistry, AttesterStats};
 pub use merkle_log::{AppendOutcome, AttestationLog, VerifyReport};
@@ -261,6 +262,11 @@ pub struct MaterializingStorage {
     /// Per-attester reputation registry. Optional — `None` for ephemeral
     /// (in-memory) deploys; populated when storage is `rooted` to disk.
     pub attesters: Option<AttesterRegistry>,
+    /// Device enrollment + OS-trace gate (`docs/plans/encoder-substrates.md`).
+    /// Optional for the same reason `attesters` is; when present,
+    /// [`MaterializingStorage::put_attestation_gated`] enforces the
+    /// trace-admission rule for enrolled device keys.
+    pub trace_gate: Option<trace_gate::TraceGate>,
 }
 
 /// The protocol-level storage trait. All primitives program against this
@@ -569,6 +575,7 @@ impl MaterializingStorage {
     ) -> Result<Self, StorageError> {
         let hot = Arc::new(SledHotCache::open_temporary()?);
         let attesters = AttesterRegistry::open(hot.db()).ok();
+        let trace_gate = trace_gate::TraceGate::open(hot.db()).ok();
         let log_dir = tempdir_for_log()?;
         let log = Arc::new(AttestationLog::open(log_dir)?);
         let mut fetch = Dispatcher::new();
@@ -582,6 +589,7 @@ impl MaterializingStorage {
             sources,
             log,
             attesters,
+            trace_gate,
         })
     }
 
@@ -597,6 +605,7 @@ impl MaterializingStorage {
         std::fs::create_dir_all(root)?;
         let hot = Arc::new(SledHotCache::open(root.join("cache.sled"))?);
         let attesters = AttesterRegistry::open(hot.db()).ok();
+        let trace_gate = trace_gate::TraceGate::open(hot.db()).ok();
         let log = Arc::new(AttestationLog::open(root.join("log"))?);
         let mut fetch = Dispatcher::new();
         emem_fetch::connectors::register_default_https(&mut fetch);
@@ -609,7 +618,44 @@ impl MaterializingStorage {
             sources,
             log,
             attesters,
+            trace_gate,
         })
+    }
+
+    /// Trace-gated sibling of [`Storage::put_attestation`]: the write
+    /// path every device substrate goes through
+    /// (`docs/plans/encoder-substrates.md`, wiring step 2).
+    ///
+    /// For an attester key enrolled in the
+    /// [`trace_gate::TraceGate`], the attestation must arrive with the
+    /// device's OS execution trace, the trace must verify against the
+    /// enrolled substrate profile, and every primary fact must be an
+    /// output the execution emitted; anything less rejects before a
+    /// byte is stored. For a key that was never enrolled (the founding
+    /// archive writers, every pre-existing attester) this is exactly
+    /// `put_attestation`, so the gate cannot break an existing writer.
+    ///
+    /// On an admitted trace the record is persisted by its `trace_cid`,
+    /// each stored fact gains an audit edge to it, and the returned
+    /// [`trace_gate::AdmittedTrace`] carries the resolvable
+    /// `emem:trace:` token.
+    pub async fn put_attestation_gated(
+        &self,
+        att: &Attestation,
+        trace: Option<&emem_trace::OsTrace>,
+    ) -> Result<(Vec<FactCid>, Option<trace_gate::AdmittedTrace>), StorageError> {
+        let admitted_profile = match &self.trace_gate {
+            Some(gate) => gate.check(att, trace)?,
+            None => None,
+        };
+        let cids = self.put_attestation(att).await?;
+        let admitted = match (admitted_profile, trace, &self.trace_gate) {
+            (Some(profile), Some(trace), Some(gate)) => {
+                Some(gate.persist(trace, &cids, &profile.id)?)
+            }
+            _ => None,
+        };
+        Ok((cids, admitted))
     }
 }
 
@@ -2242,5 +2288,268 @@ mod edge_tests {
             signed_at: "2026-05-29T00:00:00Z".into(),
             served_via: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod trace_gate_tests {
+    //! End-to-end: an enrolled device key cannot write without its OS
+    //! trace, writes with a sound trace that binds its payload, and
+    //! never-enrolled keys keep the ungated path byte-for-byte.
+
+    use super::*;
+    use blake3::Hasher;
+    use ed25519_dalek::{Signer, SigningKey};
+    use emem_attest::merkle_root;
+    use emem_core::substrates::TraceLayerKind;
+    use emem_core::{AttesterKey, KeyEpoch, Signature};
+    use emem_fact::{Attestation, Derivation, Fact, PrimaryFact, RegistryCid, SchemaCid, Source};
+    use emem_trace::{DeviceIdentity, EmittedOutput, OsTrace, TraceSegment};
+
+    fn ephemeral() -> MaterializingStorage {
+        let bands = Arc::new(emem_core::bands::DEFAULT.clone());
+        let functions =
+            Arc::new(emem_core::FunctionRegistry::parse_default().expect("default functions"));
+        let sources =
+            Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
+        MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage")
+    }
+
+    fn mk_fact(value: f64, signer_pk: [u8; 32]) -> Fact {
+        Fact::Primary(PrimaryFact {
+            cell: "damO.zb000.xUti.zde78".into(),
+            band: "indices.ndvi".into(),
+            tslot: 12,
+            value: ciborium::Value::Float(value),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "test".into(),
+                id: "robot-obs".into(),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new("test-schema"),
+            signer: AttesterKey(signer_pk),
+            signed_at: "2026-07-26T00:00:00Z".into(),
+            served_via: None,
+        })
+    }
+
+    fn build_signed(facts: Vec<Fact>, secret: [u8; 32]) -> Attestation {
+        let registry_cid = "test-registry";
+        let schema_cid = "test-schema";
+        let signing = SigningKey::from_bytes(&secret);
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(signing.verifying_key().as_bytes());
+        let mut leaves: Vec<[u8; 32]> = facts
+            .iter()
+            .map(|f| {
+                let mut buf = Vec::new();
+                ciborium::ser::into_writer(f, &mut buf).unwrap();
+                *blake3::hash(&buf).as_bytes()
+            })
+            .collect();
+        leaves.sort();
+        let root = merkle_root(&leaves);
+        let mut h = Hasher::new();
+        h.update(&root);
+        h.update(registry_cid.as_bytes());
+        h.update(schema_cid.as_bytes());
+        let sig = signing.sign(h.finalize().as_bytes());
+        let mut sig_bytes = [0u8; 64];
+        sig_bytes.copy_from_slice(&sig.to_bytes());
+        Attestation {
+            facts,
+            edges: vec![],
+            batch_root: root,
+            attester: AttesterKey(pk),
+            attester_key_epoch: KeyEpoch(0),
+            registry_cid: RegistryCid::new(registry_cid),
+            schema_cid: SchemaCid::new(schema_cid),
+            signature: Signature(sig_bytes),
+            attested_at: "2026-07-26T00:00:00Z".into(),
+            scope: None,
+            preimage_version: 0,
+        }
+    }
+
+    /// A robot.fleet.v1 trace whose emitted output binds `payload`.
+    fn mk_trace(sk: &SigningKey, payload_digest: &str) -> OsTrace {
+        let layers = [
+            TraceLayerKind::Syscall,
+            TraceLayerKind::Scheduler,
+            TraceLayerKind::Memory,
+            TraceLayerKind::SensorBus,
+            TraceLayerKind::Energy,
+            TraceLayerKind::Thermal,
+            TraceLayerKind::Inference,
+        ];
+        let segments: Vec<TraceSegment> = layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| TraceSegment {
+                layer: *l,
+                seq: 0,
+                clock_start_ns: 1_000 + i as u64,
+                clock_end_ns: 9_000,
+                event_count: 7,
+                log_digest: data_encoding::BASE32_NOPAD
+                    .encode(blake3::hash(format!("log {i}").as_bytes()).as_bytes())
+                    .to_lowercase(),
+                prev_digest: None,
+                encoding: "linux.ftrace.v1".into(),
+            })
+            .collect();
+        OsTrace::build_and_sign_v1(
+            DeviceIdentity {
+                device_key: AttesterKey(sk.verifying_key().to_bytes()),
+                key_epoch: KeyEpoch(0),
+                substrate_profile: "robot.fleet.v1".into(),
+                platform: "jetson-orin-nx".into(),
+                os: "ubuntu-24.04".into(),
+                kernel: "6.8.0-tegra".into(),
+                boot_id: "b7c1e2d3".into(),
+            },
+            1_000,
+            10_000,
+            segments,
+            vec![EmittedOutput {
+                payload_digest: payload_digest.into(),
+                band: Some("indices.ndvi".into()),
+                emitted_at_ns: 8_500,
+                layer: TraceLayerKind::SensorBus,
+            }],
+            sk,
+        )
+        .expect("build trace")
+    }
+
+    #[tokio::test]
+    async fn enrolled_device_needs_a_binding_trace() {
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate").clone();
+
+        let mut sec = [0u8; 32];
+        sec[0] = 7;
+        let sk = SigningKey::from_bytes(&sec);
+        let pk = sk.verifying_key().to_bytes();
+        let pk_b32 = data_encoding::BASE32_NOPAD.encode(&pk).to_lowercase();
+        gate.enroll(&pk_b32, "robot.fleet.v1").expect("enroll");
+
+        let fact = mk_fact(0.42, pk);
+        let att = build_signed(vec![fact.clone()], sec);
+
+        // 1. No trace: rejected, nothing stored.
+        let err = storage
+            .put_attestation_gated(&att, None)
+            .await
+            .expect_err("must reject");
+        assert!(err.to_string().contains("none was presented"), "{err}");
+
+        // 2. Sound trace that never emitted this payload: rejected.
+        let other = mk_trace(&sk, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let err = storage
+            .put_attestation_gated(&att, Some(&other))
+            .await
+            .expect_err("must reject unbound payload");
+        assert!(err.to_string().contains("not bound"), "{err}");
+
+        // 3. Trace binding the fact's payload digest: admitted, stored,
+        //    and audit-linked.
+        let payload = match &fact {
+            Fact::Primary(p) => emem_trace::payload_digest_of_value(&p.value).unwrap(),
+            _ => unreachable!(),
+        };
+        let trace = mk_trace(&sk, &payload);
+        let (cids, admitted) = storage
+            .put_attestation_gated(&att, Some(&trace))
+            .await
+            .expect("admit");
+        let admitted = admitted.expect("admitted trace record");
+        assert_eq!(cids.len(), 1);
+        assert_eq!(admitted.profile_id, "robot.fleet.v1");
+        assert!(admitted.token.starts_with("emem:trace:"));
+        assert_eq!(
+            gate.trace_for_fact(&cids[0]),
+            Some(admitted.trace_cid.clone())
+        );
+        let stored = gate.get_trace(&admitted.trace_cid).expect("stored trace");
+        assert_eq!(stored.trace_cid().unwrap(), admitted.trace_cid);
+    }
+
+    #[tokio::test]
+    async fn unenrolled_writers_are_untouched() {
+        let storage = ephemeral();
+        let mut sec = [0u8; 32];
+        sec[0] = 9;
+        let pk = SigningKey::from_bytes(&sec).verifying_key().to_bytes();
+        let att = build_signed(vec![mk_fact(0.85, pk)], sec);
+        let (cids, admitted) = storage
+            .put_attestation_gated(&att, None)
+            .await
+            .expect("ungated write");
+        assert_eq!(cids.len(), 1);
+        assert!(admitted.is_none());
+    }
+
+    #[tokio::test]
+    async fn enrollment_refuses_the_archive_profile() {
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate");
+        let err = gate
+            .enroll("somekey", "earth.satellite.v0")
+            .expect_err("archive profile is not enrollable");
+        assert!(err.to_string().contains("not trace-admitted"), "{err}");
+        assert_eq!(gate.enrolled_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn derivative_facts_are_not_a_side_door() {
+        // An enrolled device presenting a perfectly sound trace still
+        // cannot write a derivative fact: a derivative is a claim about
+        // facts, not an emission of a sensor, and no traced-derivation
+        // rule exists yet.
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate");
+        let mut sec = [0u8; 32];
+        sec[0] = 11;
+        let sk = SigningKey::from_bytes(&sec);
+        let pk = sk.verifying_key().to_bytes();
+        let pk_b32 = data_encoding::BASE32_NOPAD.encode(&pk).to_lowercase();
+        gate.enroll(&pk_b32, "robot.fleet.v1").expect("enroll");
+
+        let deriv = Fact::Derivative(emem_fact::DerivativeFact {
+            cell: "damO.zb000.xUti.zde78".into(),
+            band: "indices.ndvi".into(),
+            tslot_window: [10, 12],
+            op: "mean".into(),
+            parents: vec![],
+            value: ciborium::Value::Float(0.5),
+            confidence: 1.0,
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            schema_cid: SchemaCid::new("test-schema"),
+            signer: AttesterKey(pk),
+            signed_at: "2026-07-26T00:00:00Z".into(),
+        });
+        let att = build_signed(vec![deriv], sec);
+        let payload = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let trace = mk_trace(&sk, payload);
+        let err = storage
+            .put_attestation_gated(&att, Some(&trace))
+            .await
+            .expect_err("derivative must be refused");
+        assert!(err.to_string().contains("primary facts only"), "{err}");
     }
 }

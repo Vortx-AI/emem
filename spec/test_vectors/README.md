@@ -34,6 +34,13 @@ Every vector is a single JSON file matching:
 | `sig`         | ed25519 attestation signature                                            | `sig/`         |
 | `claim_eval`  | claim evaluation against a fact bundle                                   | `claim_eval/`  |
 | `derivation`  | function registry entry produces expected output for fixed inputs        | `derivation/`  |
+| `os_trace`    | OS execution trace verification verdict against a substrate profile      | `os_trace/`    |
+
+The `os_trace/` vectors are the first committed set. They are generated
+deterministically (fixed key, fixed clocks) by
+`crates/emem-trace/tests/vectors.rs`; regenerate after an intentional
+schema change with `EMEM_REGEN_VECTORS=1 cargo test -p emem-trace --test
+vectors` and review the diff as a wire change.
 
 ## Adding vectors
 
