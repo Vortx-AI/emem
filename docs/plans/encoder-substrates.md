@@ -38,9 +38,9 @@ scheduler activity, a sensor-bus emission with no syscall around it)
 plus the drift score against the Earth anchor. Fabrication stops being
 an edit and becomes a simulation project.
 
-The resolution of these substrates varies by nine orders of magnitude,
-from microns under a microscope objective to tens of kilometers per
-weather cell. The profile registry carries that range per profile
+The resolution of these substrates spans more than eleven orders of
+magnitude, from 100 nanometers under a microscope objective to tens of
+kilometers per weather cell. The profile registry carries that range per profile
 (`grain_min_m` to `grain_max_m`), so a reader always knows the grain
 of the instrument behind a fact.
 
@@ -77,7 +77,7 @@ beside `emem-attest`:
 
 3. **The verification engine** (`crates/emem-trace/src/verify.rs`) and
    **the drift rule** (`crates/emem-trace/src/drift.rs`). The verifier
-   collects every failure (fifteen named reject reasons: broken chain,
+   collects every failure (sixteen named reject reasons: broken chain,
    missing layer, clock outside window, unbound output, invalid
    signature, and so on) and admits only on an empty list. The drift
    rule scores a device claim against an anchor readout into `[0, 1]`
@@ -94,6 +94,104 @@ Fourier encodings), `inference` (foundation embeddings with their
 causally linked views contradiction scoring runs across. The numeric
 split of a delta among causes remains the change-attribution road
 already on the roadmap.
+
+## What the open archives actually provide (checked live)
+
+The question comes up immediately: the Earth substrate's direct
+sensors are Sentinel-1 and Sentinel-2, so do those give us OS traces?
+No. No public satellite archive publishes the execution trace of its
+ground processing, and the design does not pretend otherwise. What
+the archives do publish, checked against live Planetary Computer STAC
+items on 2026-07-26, is **declared processing lineage**:
+
+- Sentinel-2 L2A items carry `s2:processing_baseline` (live value
+  `05.12`), `s2:generation_time`, `s2:datastrip_id`, `s2:granule_id`,
+  and `s2:product_uri` naming the exact SAFE product, whose
+  `manifest.safe` records the processing facility and software
+  history.
+- Sentinel-1 items carry `s1:processing_datetime`, `s1:orbit_source`
+  (`RESORB` on the checked item, which orbit solution was used),
+  `s1:instrument_configuration_ID`, `s1:processing_level`, and the
+  full `sat:` orbit block.
+- The [Copernicus Data Space traceability
+  service](https://dataspace.copernicus.eu/analyse/traceability)
+  registers a BLAKE3 checksum for each Sentinel product at creation
+  and through its lifecycle, so a downloaded product can be checked
+  against the publisher's own register. BLAKE3 is the hash this
+  protocol already uses everywhere.
+
+Three consequences, all leverage rather than compromise:
+
+1. Declared lineage is exactly why `earth.satellite.v0` keeps the
+   `archive_recomputable` admission rule instead of a retroactive
+   trace rule: the archive's evidence is re-fetchability plus the
+   publisher's own integrity register, and pretending a SAFE manifest
+   is an execution trace would blur the line the registry exists to
+   draw. The profile's `declared_lineage` field lists these keys so a
+   reader knows what is checkable per fact.
+2. The Copernicus BLAKE3 register closes a documented caveat: the
+   provenance-class docs admit the cited source is pinned "by URL, id
+   and capture time, not by a content hash". Fetching the product's
+   registered checksum at materialization time and carrying it in the
+   fact's `sources[]` turns that URL pin into a content pin, with the
+   publisher on the hook for the digest. That is a small connector
+   change with outsized trust value, and it is now wiring step 4a
+   below.
+3. Processing lineage feeds the sensor term of change attribution: a
+   `processing_baseline` bump is a real, recorded cause of a value
+   moving while the world stands still (baseline changes have shifted
+   Sentinel-2 radiometry before), so the recalled lineage keys belong
+   in the evidence ledger `emem_change_attribution` already serves.
+
+## Standards and demo data to align with
+
+Standards worth conforming to rather than reinventing, each mapped to
+the piece of this design it touches:
+
+- **IETF RATS architecture (RFC 9334).** The remote-attestation
+  vocabulary: the device is the Attester, the responder's verification
+  engine is the Verifier, the write gate is the Relying Party. The
+  os_trace record is RATS Evidence; keeping the roles named this way
+  keeps the door open for hardware Evidence (TPM 2.0 quotes, DICE
+  layered certificates) to ride as an extra segment layer later.
+- **in-toto attestations and SLSA provenance.** The supply-chain
+  world's statement format (subject digest, predicate, DSSE
+  envelope). An os_trace with its emitted output digests is the same
+  shape: subject = payload digest, predicate = execution evidence. An
+  export mapping from `emem.os_trace.v1` to an in-toto statement is
+  cheap and makes device evidence legible to existing SLSA tooling.
+- **W3C PROV and ISO 19115 lineage.** The archival lineage models the
+  geospatial world already speaks; `declared_lineage` keys should map
+  onto PROV activities and ISO lineage steps in the export path, not
+  in the wire record.
+- **STAC and its processing extension.** Already in the fetch path via
+  the `StacPc` connector; the processing extension's
+  `processing:software` and `processing:lineage` fields are the
+  standardized home of the same declared lineage the Sentinel
+  properties carry ad hoc.
+- **CTF, the Common Trace Format (LTTng, barectf, Zephyr).** The
+  segment `encoding` strings already name it (`zephyr.ctf.v1`). CTF is
+  the practical on-disk format for the syscall, scheduler, and memory
+  layers on Linux and on microcontroller OSes; `ros2_tracing` produces
+  LTTng/CTF sessions on robots today, which makes the robot lighthouse
+  concrete: the edge encoder chunks an existing CTF session into
+  segments rather than inventing a capture stack.
+- **eBPF and ftrace** as the Linux capture mechanisms behind those
+  encodings, and **rosbag2** for the sensor-bus layer on ROS 2.
+
+Demo and test data to build against, all public:
+
+- Live Sentinel STAC items (Planetary Computer, already a connector)
+  for declared-lineage extraction, and the Copernicus traceability
+  register for content-pinning a real downloaded granule.
+- LTTng's published example CTF traces and `ros2_tracing` sample
+  sessions, as segment-layer inputs for the fleet-memory upgrade.
+- The DARPA Transparent Computing / OpTC public datasets: large,
+  labeled OS provenance traces (benign plus red-team activity), the
+  right stress test for whether the verifier's layer cross-checks
+  catch execution stories that do not hang together.
+- The repo's own `spec/test_vectors/` format for conformance vectors
+  (`os_trace/` is step 7 of the wiring list).
 
 ## What is deliberately out of scope
 
@@ -132,6 +230,11 @@ Ordered; each step is one reviewable change with its insertion points.
    anchor band at the fact's cell, compute `DriftAnchorCheck`, write
    the result into the contradiction index, and surface it through
    `emem_memory_contradictions` and the change-attribution ledger.
+   Step 4a, same change surface: when a fact's source is a Sentinel
+   product, fetch the product's registered BLAKE3 checksum from the
+   Copernicus traceability service during materialization and carry it
+   in the fact's `sources[]`, turning the URL pin into a content pin
+   against the publisher's own register.
 5. **Token grammar.** Mint `emem:trace:<trace_cid>` as a resolvable
    token kind so an agent can carry the execution evidence the same
    way it carries a fact, and let bundles include trace tokens.

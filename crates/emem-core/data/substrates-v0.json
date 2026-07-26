@@ -17,7 +17,20 @@
       "drift_anchor": true,
       "provenance_class": "direct_sensor",
       "bands": ["copdem30m", "sentinel2", "sentinel1", "esa_worldcover", "chirps", "climate", "geotessera", "clay_v1", "prithvi_eo2", "galileo"],
-      "_note": "The founding substrate and the drift anchor. Its four evidence layers are what a reader can cross-score: trace is the transparency log and receipt chain, signal is the raw band and Fourier encodings, inference is the foundation-model embeddings with their served_via record, weather is the forcing context. Admission needs no OS trace because every cited source is a public archive a third party can re-fetch."
+      "declared_lineage": [
+        "safe.manifest",
+        "s2:processing_baseline",
+        "s2:generation_time",
+        "s2:datastrip_id",
+        "s2:product_uri",
+        "s1:processing_datetime",
+        "s1:orbit_source",
+        "s1:instrument_configuration_ID",
+        "sat:absolute_orbit",
+        "sat:orbit_state",
+        "cdse.traceability.blake3"
+      ],
+      "_note": "The founding substrate and the drift anchor. Its four evidence layers are what a reader can cross-score: trace is the transparency log and receipt chain, signal is the raw band and Fourier encodings, inference is the foundation-model embeddings with their served_via record, weather is the forcing context. Admission needs no OS trace because every cited source is a public archive a third party can re-fetch. The archives publish no OS traces; what they do publish is declared processing lineage (the SAFE manifest, the STAC processing properties, and the Copernicus Data Space traceability register of per-product BLAKE3 checksums), listed under declared_lineage."
     },
     {
       "id": "observatory.telescope.v1",

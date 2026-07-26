@@ -18,7 +18,7 @@ to verify.
   grain down to microns), the `emem.os_trace.v1` record and its
   domain-separated signing preimage (`os_trace_preimage_v1` in
   `emem-attest`), and the new `emem-trace` crate holding the verification
-  engine (fifteen named reject reasons, verdict only on an empty list)
+  engine (sixteen named reject reasons, verdict only on an empty list)
   plus the drift-anchor scoring rule that checks device claims against
   the recomputable Earth substrate. Design and wiring steps in
   `docs/plans/encoder-substrates.md`; ingest gating, `/v1/substrates`,

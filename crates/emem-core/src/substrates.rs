@@ -149,6 +149,19 @@ pub struct SubstrateProfile {
     /// Band keys or family prefixes this substrate writes.
     #[serde(default)]
     pub bands: Vec<String>,
+    /// Lineage metadata keys the substrate's sources publish about how
+    /// a product was made (for the Earth archives: the SAFE manifest's
+    /// processing history, STAC properties like `s2:processing_baseline`
+    /// and `s1:orbit_source`, and the Copernicus Data Space traceability
+    /// register of per-product BLAKE3 checksums). This is **declared**
+    /// lineage: the publisher's statement, checkable against the
+    /// publisher's own register, not verified execution. An OS trace is
+    /// what a device substrate presents instead; declared lineage is
+    /// what an archive substrate has, and it feeds the sensor term of
+    /// change attribution (a processing-baseline bump is a real cause
+    /// of a value moving with the world unchanged).
+    #[serde(default)]
+    pub declared_lineage: Vec<String>,
     /// Editorial note.
     #[serde(default, rename = "_note", skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -297,6 +310,21 @@ mod tests {
             assert!(!p.required_trace_layers.is_empty(), "{}", p.id);
             assert!(!p.drift_anchor, "{}", p.id);
         }
+    }
+
+    #[test]
+    fn earth_declares_its_archive_lineage() {
+        let earth = DEFAULT.lookup("earth.satellite.v0").expect("earth");
+        // The archives publish declared lineage, not OS traces; the
+        // profile says so with real, live-checked metadata keys.
+        assert!(earth
+            .declared_lineage
+            .iter()
+            .any(|k| k == "s2:processing_baseline"));
+        assert!(earth
+            .declared_lineage
+            .iter()
+            .any(|k| k == "cdse.traceability.blake3"));
     }
 
     #[test]
