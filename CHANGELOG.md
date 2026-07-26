@@ -7,6 +7,29 @@ to verify.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-26
+
+**Satellites join the multi-agent system on the ground.** Until now a
+satellite was where the memory's data came from; from this release it
+can be a member of the system like any other agent: enrolled by key,
+believed only with evidence, cross-checked by peers. The evidence rule
+is the release's one idea, applied uniformly to every machine that
+observes the world (telescope, microscope, CCTV, phone, drone, robot,
+industrial machine, and an operator's own constellation): emem
+respects the device as a contributor and refuses its output alone. A
+device writes only what is bound inside its complete, unaltered OS
+execution trace, and the founding open-archive substrate, which needs
+no trace because anyone can recompute it, becomes the drift anchor
+every device claim is scored against. A satellite operator can run the
+entire loop today, self-hosted: enroll a spacecraft key, bind a
+downlink payload into the pass's signed trace, write through the gate,
+and keep the `emem:fact:`, `emem:trace:`, and `emem:bundle:` handles
+(`cargo run -p emem-primitives --example satellite_downlink`). One
+new crate (`emem-trace`, the 17th), one new manifest
+(`emem-substrates`, the ninth), two new read surfaces
+(`/v1/substrates`, `/v1/trace_verify`), and the repo's first committed
+conformance vectors.
+
 ### Added
 - The encoder trust layer, as code: any machine that observes the world
   (telescope, microscope, CCTV, phone, drone, robot, industrial machine)

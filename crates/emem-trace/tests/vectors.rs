@@ -170,7 +170,7 @@ fn vector(
     let v = json!({
         "id": id,
         "kind": "os_trace",
-        "spec": "v1.2.1",
+        "spec": "v1.3.0",
         "level": "L1",
         "input": {
             "profile": profile,

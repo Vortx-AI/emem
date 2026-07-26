@@ -205,5 +205,5 @@
   "kind": "os_trace",
   "level": "L1",
   "notes": "A complete robot.fleet.v1 trace whose emitted output binds the claimed payload digest.",
-  "spec": "v1.2.1"
+  "spec": "v1.3.0"
 }

@@ -157,5 +157,5 @@
   "kind": "os_trace",
   "level": "L1",
   "notes": "earth.satellite.v0 is archive_recomputable; device output cannot enter through the trace path.",
-  "spec": "v1.2.1"
+  "spec": "v1.3.0"
 }

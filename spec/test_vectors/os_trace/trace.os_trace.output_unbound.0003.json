@@ -207,5 +207,5 @@
   "kind": "os_trace",
   "level": "L1",
   "notes": "The trace verifies but the claimed payload digest is not among its emitted outputs.",
-  "spec": "v1.2.1"
+  "spec": "v1.3.0"
 }

@@ -207,5 +207,5 @@
   "kind": "os_trace",
   "level": "L1",
   "notes": "Segment 2's log digest was rewritten after signing; segment 3's prev_digest no longer matches.",
-  "spec": "v1.2.1"
+  "spec": "v1.3.0"
 }
