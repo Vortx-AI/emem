@@ -53,13 +53,16 @@ beside `emem-attest`:
 
 1. **The substrate profile registry** (`crates/emem-core/src/substrates.rs`,
    data in `crates/emem-core/data/substrates-v0.json`, manifest kind
-   `emem-substrates`, the ninth content-addressed manifest). Nine
+   `emem-substrates`, the ninth content-addressed manifest). Ten
    profiles: `earth.satellite.v0` (active, archive-recomputable, the
-   drift anchor) and eight candidate device profiles
-   (`observatory.telescope.v1`, `lab.microscope.v1`, `urban.cctv.v1`,
-   `mobile.handheld.v1`, `aerial.drone.v1`, `robot.fleet.v1`,
-   `industrial.machine.v1`, `fixed.sensor.v1`), every one of them
-   `os_trace_required` with its required trace layers pinned. The
+   drift anchor) and nine candidate device profiles
+   (`orbital.satellite.v1`, `observatory.telescope.v1`,
+   `lab.microscope.v1`, `urban.cctv.v1`, `mobile.handheld.v1`,
+   `aerial.drone.v1`, `robot.fleet.v1`, `industrial.machine.v1`,
+   `fixed.sensor.v1`), every one of them `os_trace_required` with its
+   required trace layers pinned. The satellite class appears twice on
+   purpose: the archive is admitted by recomputability, an operator's
+   own constellation is a device like any other. The
    validator enforces the protocol stance in code: a trace-admitted
    substrate can never be a drift anchor, an archive substrate never
    requires trace layers, and the registry must always contain an
@@ -209,13 +212,11 @@ Demo and test data to build against, all public:
 
 Ordered; each step is one reviewable change with its insertion points.
 
-1. **Expose the registry.** Add `GET /v1/substrates` next to
-   `/v1/sources` in `crates/emem-api-rest/src/lib.rs` (router chain
-   near the other registry routes), serving `substrates::DEFAULT` with
-   its manifest CID. Add an `emem_substrates` descriptor to `TOOLS` in
-   `crates/emem-mcp/src/lib.rs`, a dispatch arm in `mcp_tool_call`,
-   membership in the `robotics` bundle, the openapi path entry, and
-   run `scripts/sync_counts.py` so every quoted count moves together.
+1. **Expose the registry.** Ships: `GET /v1/substrates` serves the
+   registry with its manifest CID, the `emem_substrates` MCP tool
+   rides in the `robotics` and `satellites` bundles, the openapi and
+   capability tables carry both, and the canonical counts moved
+   together (104 tools, 124 documented `/v1/*` paths).
 2. **Gate the write path.** The storage side ships:
    `trace_gate::TraceGate` in `emem-storage` holds the device
    enrollment tree (attester key to profile, enrollable only into
@@ -237,10 +238,10 @@ Ordered; each step is one reviewable change with its insertion points.
    and an enrollment surface, switch the handler to
    `put_attestation_gated`, and append admitted traces to the
    transparency log so inclusion proofs cover them.
-3. **Stateless verification surfaces.** `POST /v1/trace_verify`
-   (mirror of `/v1/verify_receipt`: body in, report out, no state) and
-   an `emem-cli trace verify` subcommand so a device maker can debug
-   an enrollment offline before ever touching the network.
+3. **Stateless verification surfaces.** Ships: `POST /v1/trace_verify`
+   (mirror of `/v1/verify_receipt`: body in, full report out, always
+   200 for parseable JSON) and the `emem_trace_verify` MCP tool. Open:
+   an `emem-cli trace verify` subcommand for the fully offline path.
 4. **Drift-anchor wiring.** On every admitted device fact, recall the
    anchor band at the fact's cell, compute `DriftAnchorCheck`, write
    the result into the contradiction index, and surface it through
@@ -304,6 +305,31 @@ Ordered; each step is one reviewable change with its insertion points.
    your attester reputation; tension is surfaced, not punished;
    contradiction sinks the claim and stains the key, and the whole
    history is public in the log.
+
+## Can a satellite manufacturer use emem today?
+
+Asked directly, answered honestly. Two paths:
+
+**Self-hosted (works today, end to end).** A manufacturer running the
+crates can do the whole loop now, and
+`crates/emem-primitives/examples/satellite_downlink.rs` is the
+runnable proof: enroll a per-spacecraft key under
+`orbital.satellite.v1`, capture the required layers on the payload
+computer (CTF encodings; the ground-segment ingest host is an
+accepted first step while flight software integration matures), bind
+the downlink payload digest into the trace, sign, write through
+`put_attestation_gated`, and keep three handles: the `emem:fact:`
+token, the `emem:trace:` token, and the `emem:bundle:` handle.
+Streaming is windowed by design: a pass is a capture window, a
+constellation is a stream of signed windows, and offline passes sync
+when a link exists.
+
+**Hosted (partially open).** Against a hosted responder the
+manufacturer can read `/v1/substrates` and pre-check traces on
+`/v1/trace_verify` today; what remains before hosted writes is the
+`os_trace` field on `POST /v1/attest`, an authenticated enrollment
+surface (a tenancy decision), and the freshness nonce, which are the
+open items in step 2 above.
 
 ## How this changes what emem is
 

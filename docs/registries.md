@@ -48,7 +48,7 @@ startup.
 | `emem-schema`           | `data/schema-v0.json`                      | `schema::SchemaRegistry`            | 8 fragments | CDDL fragments + pinned hash/sig/cid encoding               |
 | `emem-lcv1`             | `src/taxonomy.rs`                          | `taxonomy::Lcv1` + `LcvFamily`      | 64 leaves   | 8 families x 8 leaves land-cover taxonomy, u8 encoded       |
 | `emem-cell64-alphabet`  | `crates/emem-codec/src/alphabet.rs`        | `build_alphabet_v0()` (no struct)   | 65 536      | CVCV bigrams padded with `z<hex4>` synthetic suffix         |
-| `emem-substrates`       | `data/substrates-v0.json`                  | `substrates::SubstrateRegistry`     | 9 profiles  | per contributor class: admission rule, required trace layers, grain |
+| `emem-substrates`       | `data/substrates-v0.json`                  | `substrates::SubstrateRegistry`     | 10 profiles | per contributor class: admission rule, required trace layers, grain |
 
 The JSON+struct pairs are validated against `crate::manifest::Manifest`.
 `emem-lcv1` is a Rust enum. `emem-cell64-alphabet` is synthesised in code.
@@ -56,8 +56,12 @@ The JSON+struct pairs are validated against `crate::manifest::Manifest`.
 `emem-substrates` is the newest manifest: the substrate profile registry
 behind the encoder trust layer (`docs/plans/encoder-substrates.md`). One
 active profile (`earth.satellite.v0`, archive-recomputable, the drift
-anchor) and eight candidate device profiles, each pinning the OS trace
+anchor) and nine candidate device profiles, each pinning the OS trace
 layers a device of that class must present before its output is admitted.
+The satellite class appears twice on purpose: `earth.satellite.v0` is the
+open public archive, `orbital.satellite.v1` is an operator's own
+constellation writing under its own key, which makes it a device
+substrate with the trace rule like any other.
 It is not yet served by `GET /v1/manifests`; exposing it there is the
 first wiring step in the plan.
 

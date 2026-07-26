@@ -13,7 +13,7 @@ to verify.
   is respected as a contributor and refused on its word alone. Its output
   is admitted only when bound inside its complete, unaltered OS execution
   trace. Three pure pieces ship: the substrate profile registry
-  (`emem-substrates`, the ninth content-addressed manifest, nine profiles
+  (`emem-substrates`, the ninth content-addressed manifest, ten profiles
   with per-class admission rules, required trace layers, and measurement
   grain down to microns), the `emem.os_trace.v1` record and its
   domain-separated signing preimage (`os_trace_preimage_v1` in
@@ -32,7 +32,17 @@ to verify.
   fact's payload digest, while never-enrolled keys keep the ungated path
   byte-for-byte. Enrolled keys write traced primary observations only:
   derivative facts, absences, and edges are refused as an untraced side
-  door until a traced-derivation rule exists. Plus `emem:trace:` tokens (compose, parse, resolve from
+  door until a traced-derivation rule exists.
+- The operator on-ramp, third commit in the series: the
+  `orbital.satellite.v1` profile (a manufacturer's own constellation is a
+  device substrate with the trace rule, distinct from the recomputable
+  public archive), `GET /v1/substrates` and `POST /v1/trace_verify` with
+  matching `emem_substrates` / `emem_trace_verify` MCP tools (104 tools,
+  124 documented `/v1/*` paths), and a runnable end-to-end example,
+  `cargo run -p emem-primitives --example satellite_downlink`: enroll a
+  spacecraft key, bind a downlink payload into its OS trace, write
+  through the gate, and keep the `emem:fact:`, `emem:trace:`, and
+  `emem:bundle:` handles. Plus `emem:trace:` tokens (compose, parse, resolve from
   the store) and the repo's first committed conformance vectors,
   `spec/test_vectors/os_trace/` (admit, chain broken, output unbound,
   archive refused), deterministic and replayed in CI.

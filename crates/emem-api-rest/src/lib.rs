@@ -1133,6 +1133,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/materializers", get(materializers))
         .route("/v1/data_availability", get(data_availability))
         .route("/v1/fleet", get(fleet))
+        .route("/v1/substrates", get(substrates_registry))
+        .route("/v1/trace_verify", post(post_trace_verify))
         .route("/v1/coverage_matrix", get(coverage_matrix))
         .route("/v1/functions", get(functions))
         .route("/v1/sources", get(sources))
@@ -1887,6 +1889,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/data_availability"
         | "/v1/functions"
         | "/v1/sources"
+        | "/v1/substrates"
         | "/v1/manifests"
         | "/v1/capabilities"
         | "/v1/errors"
@@ -6596,6 +6599,64 @@ async fn functions() -> Json<JsonValue> {
     Json(serde_json::to_value(&*emem_core::functions::DEFAULT).unwrap_or(json!({})))
 }
 
+/// GET /v1/substrates — the substrate profile registry, the written
+/// admission contract per contributor class (which classes are admitted
+/// by archive recomputability, which require the device's complete OS
+/// execution trace, and which trace layers each must capture). The
+/// manifest CID is included so an enrollment can pin the exact registry
+/// it was made under. Design: docs/plans/encoder-substrates.md.
+async fn substrates_registry() -> Json<JsonValue> {
+    let reg = &*emem_core::substrates::DEFAULT;
+    Json(json!({
+        "schema": "emem.substrates.v1",
+        "manifest_cid": emem_core::manifest_cid(reg).unwrap_or_default(),
+        "registry": serde_json::to_value(reg).unwrap_or(JsonValue::Null),
+    }))
+}
+
+/// POST /v1/trace_verify — stateless verification of an
+/// `emem.os_trace.v1` record against a substrate profile. Mirrors
+/// /v1/verify_receipt's contract: a structurally-parseable request is
+/// always 200 and the verdict is the payload, with every failed check
+/// named, so a device maker debugging an enrollment sees the whole
+/// story in one call instead of one rejection at a time.
+async fn post_trace_verify(Json(req): Json<JsonValue>) -> Json<JsonValue> {
+    let profile_id = req
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let Some(profile) = emem_core::substrates::DEFAULT.lookup(profile_id) else {
+        return Json(json!({
+            "schema": "emem.trace_verify.v1",
+            "verdict": "reject",
+            "error": format!(
+                "unknown substrate profile '{profile_id}'; GET /v1/substrates lists the registry"
+            ),
+        }));
+    };
+    let trace: emem_trace::OsTrace =
+        match serde_json::from_value(req.get("trace").cloned().unwrap_or(JsonValue::Null)) {
+            Ok(t) => t,
+            Err(e) => {
+                return Json(json!({
+                    "schema": "emem.trace_verify.v1",
+                    "verdict": "reject",
+                    "error": format!("trace does not parse as emem.os_trace.v1: {e}"),
+                }));
+            }
+        };
+    let claimed = req.get("claimed_payload_digest").and_then(|v| v.as_str());
+    let report = emem_trace::verify_os_trace(&trace, profile, claimed);
+    Json(json!({
+        "schema": "emem.trace_verify.v1",
+        "verdict": match report.verdict {
+            emem_trace::Verdict::Admit => "admit",
+            emem_trace::Verdict::Reject => "reject",
+        },
+        "report": serde_json::to_value(&report).unwrap_or(JsonValue::Null),
+    }))
+}
+
 async fn sources() -> Json<JsonValue> {
     Json(serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(json!({})))
 }
@@ -7287,6 +7348,8 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "privacy":          "/privacy",
             "terms":            "/terms",
             "fleet":            "/v1/fleet",
+            "substrates":       "/v1/substrates",
+            "trace_verify":     "/v1/trace_verify",
             "coverage_matrix":  "/v1/coverage_matrix",
             "materializers":    "/v1/materializers",
             "data_availability":"/v1/data_availability",
@@ -18884,6 +18947,8 @@ async fn mcp_tool_call(
             }
         }
         "emem_fleet" => Ok(fleet().await.0),
+        "emem_substrates" => Ok(substrates_registry().await.0),
+        "emem_trace_verify" => Ok(post_trace_verify(Json(args)).await.0),
         "emem_temporal_route" => {
             let req: TemporalRouteReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -19721,6 +19786,8 @@ fn openapi_spec() -> JsonValue {
             "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","responses":{"200":json_ok}}},
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
+            "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
+            "/v1/trace_verify":      {"post":{"summary":"stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, window, layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device ed25519 signature. Always 200 for parseable JSON; the verdict plus every failed check is the payload.","operationId":"emem_trace_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["trace","profile"],"properties":{"trace":{"type":"object","description":"the emem.os_trace.v1 record"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"claimed_payload_digest":{"type":"string","description":"optional output digest to check binding for"}}}}}},"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[

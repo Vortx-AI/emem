@@ -9,6 +9,7 @@ description = "HTTP surface for emem agents and humans (REST + MCP JSON-RPC + Op
 emem-core       = { workspace = true }
 emem-fact       = { workspace = true }
 emem-attest     = { workspace = true }
+emem-trace      = { workspace = true }
 emem-claim      = { workspace = true }
 emem-cache      = { workspace = true }
 emem-storage    = { workspace = true }

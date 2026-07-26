@@ -33,6 +33,22 @@
       "_note": "The founding substrate and the drift anchor. Its four evidence layers are what a reader can cross-score: trace is the transparency log and receipt chain, signal is the raw band and Fourier encodings, inference is the foundation-model embeddings with their served_via record, weather is the forcing context. Admission needs no OS trace because every cited source is a public archive a third party can re-fetch. The archives publish no OS traces; what they do publish is declared processing lineage (the SAFE manifest, the STAC processing properties, and the Copernicus Data Space traceability register of per-product BLAKE3 checksums), listed under declared_lineage."
     },
     {
+      "id": "orbital.satellite.v1",
+      "title": "Operator-contributed satellites, downlink under the operator's key",
+      "contributor_class": "satellite",
+      "status": "candidate",
+      "admission": "os_trace_required",
+      "grain_min_m": 0.3,
+      "grain_max_m": 30000.0,
+      "tempo": "fast",
+      "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "signal", "energy", "thermal", "storage"],
+      "evidence_layers": ["trace", "signal"],
+      "drift_anchor": false,
+      "provenance_class": "direct_sensor",
+      "bands": [],
+      "_note": "The profile for a satellite manufacturer or operator contributing its own constellation's data, distinct from earth.satellite.v0: that profile is the open public archive, admitted by recomputability; this one is a device substrate like any other, admitted only with the platform's OS execution trace. The trace comes from the flight or payload computer (RTOS encodings like zephyr.ctf.v1, or the ground-segment ingest host as a first step), with energy and thermal required because power and thermal telemetry are the spacecraft tracks hardest to fabricate consistently. Operator writes are drift-scored against the open archive where bands overlap, which is exactly the cross-check a proprietary constellation cannot self-provide."
+    },
+    {
       "id": "observatory.telescope.v1",
       "title": "Telescopes observing from a fixed site cell",
       "contributor_class": "telescope",

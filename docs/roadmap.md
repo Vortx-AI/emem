@@ -138,9 +138,13 @@ The profiles above are pinned in the substrates manifest as
 against today, not open ingest. The registry, the trace record, the
 verification engine, the storage-side write gate (device enrollment
 plus `put_attestation_gated`, with `emem:trace:` tokens and the first
-committed conformance vectors) all ship; the REST attest surface, the
-`/v1/trace_verify` route, and the drift-anchor wiring are the open
-work, in that order. The test each substrate must pass is unchanged
+committed conformance vectors), the `GET /v1/substrates` and
+`POST /v1/trace_verify` surfaces with their MCP tools, and a runnable
+satellite-operator example
+(`crates/emem-primitives/examples/satellite_downlink.rs`) all ship;
+the `os_trace` field on the hosted attest surface, an authenticated
+enrollment endpoint, and the drift-anchor wiring are the open work,
+in that order. The test each substrate must pass is unchanged
 and now has a second half: observations sign at the source, resolve
 byte-identically anywhere, verify offline, and carry the execution
 evidence their profile demands.
