@@ -30,7 +30,9 @@ to verify.
   `MaterializingStorage::put_attestation_gated`, which refuses an
   enrolled key's write unless the trace verifies and binds every primary
   fact's payload digest, while never-enrolled keys keep the ungated path
-  byte-for-byte. Plus `emem:trace:` tokens (compose, parse, resolve from
+  byte-for-byte. Enrolled keys write traced primary observations only:
+  derivative facts, absences, and edges are refused as an untraced side
+  door until a traced-derivation rule exists. Plus `emem:trace:` tokens (compose, parse, resolve from
   the store) and the repo's first committed conformance vectors,
   `spec/test_vectors/os_trace/` (admit, chain broken, output unbound,
   archive refused), deterministic and replayed in CI.

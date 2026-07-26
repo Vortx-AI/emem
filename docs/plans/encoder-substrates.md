@@ -225,9 +225,14 @@ Ordered; each step is one reviewable change with its insertion points.
    verifies against its profile and binds every primary fact's
    payload digest (`emem_trace::payload_digest_of_value`, one rule
    for device and gate), or nothing is stored and the full reason
-   list comes back. Never-enrolled keys keep the ungated path
-   unchanged, so the founding archive writers cannot break. Admitted
-   traces persist by `trace_cid` with a fact-to-trace audit edge.
+   list comes back. An enrolled key writes traced primary
+   observations and nothing else: derivative facts, absences, and
+   edges are claims about facts rather than emissions of a sensor,
+   and until a traced-derivation rule exists they would be an
+   untraced side door, so the gate refuses them outright.
+   Never-enrolled keys keep the ungated path unchanged, so the
+   founding archive writers cannot break. Admitted traces persist by
+   `trace_cid` with a fact-to-trace audit edge.
    Open: extend `POST /v1/attest` with the optional `os_trace` field
    and an enrollment surface, switch the handler to
    `put_attestation_gated`, and append admitted traces to the

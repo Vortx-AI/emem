@@ -2511,4 +2511,45 @@ mod trace_gate_tests {
         assert!(err.to_string().contains("not trace-admitted"), "{err}");
         assert_eq!(gate.enrolled_count(), 0);
     }
+
+    #[tokio::test]
+    async fn derivative_facts_are_not_a_side_door() {
+        // An enrolled device presenting a perfectly sound trace still
+        // cannot write a derivative fact: a derivative is a claim about
+        // facts, not an emission of a sensor, and no traced-derivation
+        // rule exists yet.
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate");
+        let mut sec = [0u8; 32];
+        sec[0] = 11;
+        let sk = SigningKey::from_bytes(&sec);
+        let pk = sk.verifying_key().to_bytes();
+        let pk_b32 = data_encoding::BASE32_NOPAD.encode(&pk).to_lowercase();
+        gate.enroll(&pk_b32, "robot.fleet.v1").expect("enroll");
+
+        let deriv = Fact::Derivative(emem_fact::DerivativeFact {
+            cell: "damO.zb000.xUti.zde78".into(),
+            band: "indices.ndvi".into(),
+            tslot_window: [10, 12],
+            op: "mean".into(),
+            parents: vec![],
+            value: ciborium::Value::Float(0.5),
+            confidence: 1.0,
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            schema_cid: SchemaCid::new("test-schema"),
+            signer: AttesterKey(pk),
+            signed_at: "2026-07-26T00:00:00Z".into(),
+        });
+        let att = build_signed(vec![deriv], sec);
+        let payload = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let trace = mk_trace(&sk, payload);
+        let err = storage
+            .put_attestation_gated(&att, Some(&trace))
+            .await
+            .expect_err("derivative must be refused");
+        assert!(err.to_string().contains("primary facts only"), "{err}");
+    }
 }

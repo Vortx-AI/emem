@@ -147,21 +147,40 @@ impl TraceGate {
                 reasons.join("; ")
             )));
         }
-        // Every primary fact must be an output the execution emitted.
+        // An enrolled device writes traced primary observations, and
+        // nothing else. Derivative facts, absences, and edges are
+        // claims about facts rather than emissions of a sensor; until
+        // a traced-derivation rule exists they would be an untraced
+        // side door, so the gate closes it outright.
+        if !att.edges.is_empty() {
+            return Err(StorageError::AttestationInvalid(
+                "os_trace gate: enrolled device keys may not write edges \
+                 (no traced-derivation rule yet)"
+                    .into(),
+            ));
+        }
         for fact in &att.facts {
-            if let Fact::Primary(p) = fact {
-                let digest = payload_digest_of_value(&p.value).map_err(|e| {
-                    StorageError::AttestationInvalid(format!(
-                        "os_trace gate: payload digest failed: {e}"
-                    ))
-                })?;
-                if !trace.outputs.iter().any(|o| o.payload_digest == digest) {
-                    return Err(StorageError::AttestationInvalid(format!(
-                        "os_trace gate: fact at band {} carries payload digest {digest} \
-                         that is not bound in the trace's emitted outputs",
-                        p.band
-                    )));
+            let p = match fact {
+                Fact::Primary(p) => p,
+                Fact::Derivative(_) | Fact::Absence(_) => {
+                    return Err(StorageError::AttestationInvalid(
+                        "os_trace gate: enrolled device keys may write primary \
+                         facts only (no traced-derivation rule yet)"
+                            .into(),
+                    ));
                 }
+            };
+            let digest = payload_digest_of_value(&p.value).map_err(|e| {
+                StorageError::AttestationInvalid(format!(
+                    "os_trace gate: payload digest failed: {e}"
+                ))
+            })?;
+            if !trace.outputs.iter().any(|o| o.payload_digest == digest) {
+                return Err(StorageError::AttestationInvalid(format!(
+                    "os_trace gate: fact at band {} carries payload digest {digest} \
+                     that is not bound in the trace's emitted outputs",
+                    p.band
+                )));
             }
         }
         Ok(Some(profile.clone()))
