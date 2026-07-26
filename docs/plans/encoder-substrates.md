@@ -5,6 +5,9 @@ trace tokens, and the first committed conformance vectors shipped as
 code; the REST/MCP surface and drift-anchor wiring are open. Owner:
 protocol. First written 2026-07-26.
 
+The whole architecture on one page, gaps labeled:
+![Orbit-to-ground trust in one page](../diagrams/39-orbit-to-ground-trust.svg)
+
 ## The one-sentence rule
 
 Every device that contributes to emem, satellite ground segment,
