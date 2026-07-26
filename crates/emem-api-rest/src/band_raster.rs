@@ -1703,8 +1703,8 @@ pub async fn band_cube(req: BandCubeReq, s: &AppState) -> Result<JsonValue, ApiE
     // Fan out in input order (join_all preserves it), like eudr's parallel arm.
     let futs: Vec<_> = dates
         .iter()
-        .cloned()
         .map(|d| {
+            let d = d.clone();
             let bbox = req.bbox.clone();
             let band = req.band.clone();
             async move {

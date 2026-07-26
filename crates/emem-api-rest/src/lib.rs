@@ -21493,7 +21493,8 @@ async fn post_state_multi(
     // still bounds total upstream parallelism, and AppState is Arc-cheap to
     // clone. Results are folded back in the original encoder order so the
     // response shape is byte-identical to the serial path.
-    let recall_futs = encoders.iter().cloned().map(|encoder| {
+    let recall_futs = encoders.iter().map(|encoder| {
+        let encoder = encoder.clone();
         let cell = cell.clone();
         let tslot = req.tslot;
         let as_of_tslot = req.as_of_tslot;
