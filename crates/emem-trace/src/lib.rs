@@ -33,10 +33,13 @@
 
 pub mod drift;
 pub mod schema;
+pub mod token;
 pub mod verify;
 
 pub use drift::{drift_contradiction_score, DriftAnchorCheck, DriftVerdict};
 pub use schema::{
-    DeviceIdentity, EmittedOutput, OsTrace, TraceBuildError, TraceSegment, OS_TRACE_SCHEMA_V1,
+    payload_digest_of_value, DeviceIdentity, EmittedOutput, OsTrace, TraceBuildError, TraceSegment,
+    OS_TRACE_SCHEMA_V1,
 };
+pub use token::{parse_trace_token, trace_token, TRACE_TOKEN_PREFIX};
 pub use verify::{verify_os_trace, Coverage, RejectReason, Verdict, VerificationReport};

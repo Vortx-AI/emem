@@ -14,3 +14,6 @@ serde         = { workspace = true }
 ciborium      = { workspace = true }
 thiserror     = { workspace = true }
 data-encoding = { workspace = true }
+
+[dev-dependencies]
+serde_json    = { workspace = true }

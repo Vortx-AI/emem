@@ -1,7 +1,9 @@
 # Encoder substrates: the trust layer for every machine that observes the world
 
-Status: registry, schema, and verifier shipped as code (this change);
-ingest wiring open. Owner: protocol. First written 2026-07-26.
+Status: registry, schema, verifier, write-path gate (storage side),
+trace tokens, and the first committed conformance vectors shipped as
+code; the REST/MCP surface and drift-anchor wiring are open. Owner:
+protocol. First written 2026-07-26.
 
 ## The one-sentence rule
 
@@ -214,14 +216,22 @@ Ordered; each step is one reviewable change with its insertion points.
    `crates/emem-mcp/src/lib.rs`, a dispatch arm in `mcp_tool_call`,
    membership in the `robotics` bundle, the openapi path entry, and
    run `scripts/sync_counts.py` so every quoted count moves together.
-2. **Gate the write path.** Extend `POST /v1/attest` with an optional
-   `os_trace` field. In `emem-storage`, before `put_attestation`
-   accepts facts from an attester whose substrate profile is
-   `os_trace_required`, run `emem_trace::verify_os_trace` with the
-   fact's payload digest and reject on any non-empty reason list,
-   returning the reasons verbatim in the error body. Persist the
-   `trace_cid` beside the per-fact proofs and append the trace record
-   to the transparency log so inclusion proofs cover it.
+2. **Gate the write path.** The storage side ships:
+   `trace_gate::TraceGate` in `emem-storage` holds the device
+   enrollment tree (attester key to profile, enrollable only into
+   `os_trace_required` profiles), and
+   `MaterializingStorage::put_attestation_gated` enforces the rule:
+   an enrolled key's attestation must arrive with a trace that
+   verifies against its profile and binds every primary fact's
+   payload digest (`emem_trace::payload_digest_of_value`, one rule
+   for device and gate), or nothing is stored and the full reason
+   list comes back. Never-enrolled keys keep the ungated path
+   unchanged, so the founding archive writers cannot break. Admitted
+   traces persist by `trace_cid` with a fact-to-trace audit edge.
+   Open: extend `POST /v1/attest` with the optional `os_trace` field
+   and an enrollment surface, switch the handler to
+   `put_attestation_gated`, and append admitted traces to the
+   transparency log so inclusion proofs cover them.
 3. **Stateless verification surfaces.** `POST /v1/trace_verify`
    (mirror of `/v1/verify_receipt`: body in, report out, no state) and
    an `emem-cli trace verify` subcommand so a device maker can debug
@@ -235,9 +245,10 @@ Ordered; each step is one reviewable change with its insertion points.
    Copernicus traceability service during materialization and carry it
    in the fact's `sources[]`, turning the URL pin into a content pin
    against the publisher's own register.
-5. **Token grammar.** Mint `emem:trace:<trace_cid>` as a resolvable
-   token kind so an agent can carry the execution evidence the same
-   way it carries a fact, and let bundles include trace tokens.
+5. **Token grammar.** Ships: `emem:trace:<trace_cid>` composes and
+   parses in `emem-trace::token`, and the gate resolves a stored
+   token's CID back to the byte-identical record. Open: a public
+   resolve surface and bundle membership for trace tokens.
 6. **Upgrade the robotics placeholder.** Extend
    `examples/fleet-memory/` so each vendor's writer builds and signs
    an `emem.os_trace.v1` window around its observations
@@ -246,10 +257,12 @@ Ordered; each step is one reviewable change with its insertion points.
    (`ros2.bag.v2` encoding) and an eBPF capture profile for Linux
    devices, which is the edge encoder the roadmap's robotics
    lighthouse asks for.
-7. **Conformance.** Commit `spec/test_vectors/os_trace/` vectors in
-   the format `spec/test_vectors/README.md` already defines, add the
-   os-trace section to `docs/protocol.md`, and fold the trust layer
-   into the whitepaper's threat model.
+7. **Conformance.** Ships: the four `spec/test_vectors/os_trace/`
+   vectors (admit, chain broken, output unbound, archive refused),
+   the first committed vectors in the repo, deterministic and
+   replayed in CI by `emem-trace`'s vector test. Open: the os-trace
+   section in `docs/protocol.md` and the whitepaper threat-model
+   update.
 
 ## Steps for an operator or device maker: onboarding an encoder
 

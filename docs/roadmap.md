@@ -135,9 +135,11 @@ now pinned as a profile in the registry:
 
 The profiles above are pinned in the substrates manifest as
 `candidate` status: declared direction a device maker can build
-against today, not open ingest. The registry, the trace record, and
-the verification engine ship; the write-path gate, the
-`/v1/trace_verify` surface, and the drift-anchor wiring are the open
+against today, not open ingest. The registry, the trace record, the
+verification engine, the storage-side write gate (device enrollment
+plus `put_attestation_gated`, with `emem:trace:` tokens and the first
+committed conformance vectors) all ship; the REST attest surface, the
+`/v1/trace_verify` route, and the drift-anchor wiring are the open
 work, in that order. The test each substrate must pass is unchanged
 and now has a second half: observations sign at the source, resolve
 byte-identically anywhere, verify offline, and carry the execution

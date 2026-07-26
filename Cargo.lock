@@ -2734,6 +2734,7 @@ dependencies = [
  "emem-core",
  "emem-fact",
  "emem-fetch",
+ "emem-trace",
  "rand 0.8.6",
  "serde",
  "sled",
@@ -2755,6 +2756,7 @@ dependencies = [
  "emem-attest",
  "emem-core",
  "serde",
+ "serde_json",
  "thiserror 1.0.69",
 ]
 

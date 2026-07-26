@@ -23,6 +23,17 @@ to verify.
   the recomputable Earth substrate. Design and wiring steps in
   `docs/plans/encoder-substrates.md`; ingest gating, `/v1/substrates`,
   and `/v1/trace_verify` are the open wiring work.
+- The storage side of that gate, one commit later: `trace_gate::TraceGate`
+  in `emem-storage` (a device-enrollment tree locking an attester key to
+  an `os_trace_required` profile, a trace store keyed by `trace_cid`, and
+  a fact-to-trace audit edge) and
+  `MaterializingStorage::put_attestation_gated`, which refuses an
+  enrolled key's write unless the trace verifies and binds every primary
+  fact's payload digest, while never-enrolled keys keep the ungated path
+  byte-for-byte. Plus `emem:trace:` tokens (compose, parse, resolve from
+  the store) and the repo's first committed conformance vectors,
+  `spec/test_vectors/os_trace/` (admit, chain broken, output unbound,
+  archive refused), deterministic and replayed in CI.
 
 ## [1.2.1] - 2026-07-21
 

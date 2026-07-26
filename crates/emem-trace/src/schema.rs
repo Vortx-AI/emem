@@ -215,6 +215,16 @@ impl OsTrace {
     }
 }
 
+/// The payload-digest rule the write gate uses to bind a fact to a
+/// trace: `base32(blake3(canonical_cbor(value)))`, over the fact's
+/// already-float-canonicalized CBOR value. The device computes this
+/// over the same bytes it is about to attest, lists it as an
+/// [`EmittedOutput::payload_digest`], and the gate recomputes it from
+/// the submitted fact. One rule, both sides.
+pub fn payload_digest_of_value(value: &ciborium::Value) -> Result<String, TraceBuildError> {
+    Ok(render_digest(&canonical_digest(value)?))
+}
+
 /// blake3 of the canonical CBOR of any serializable record.
 fn canonical_digest<T: Serialize>(v: &T) -> Result<[u8; 32], TraceBuildError> {
     let mut buf = Vec::new();
