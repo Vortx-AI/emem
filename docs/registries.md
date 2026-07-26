@@ -1,6 +1,6 @@
 # Registries
 
-Eight JSON manifests under `crates/emem-core/data/` form the content-addressed
+Nine JSON manifests under `crates/emem-core/data/` form the content-addressed
 backbone of an emem responder. Each manifest's blake3 hash (over canonical
 CBOR) is the registry CID. Every signed receipt cites those CIDs, so a
 verifier can replay an algorithm against the exact manifest set in force at
@@ -11,7 +11,7 @@ before the binary will start.
 
 ## Why content-addressed
 
-Eight manifests live under `crates/emem-core/data/`. They load via
+Nine manifests live under `crates/emem-core/data/`. They load via
 `include_str!()` at process start and their CIDs are derived from the
 canonical CBOR encoding of the parsed structures. When a manifest changes
 (new band, new algorithm version, new mirror), the CID changes. Old facts
@@ -36,7 +36,7 @@ The per-manifest `Manifest::validate` impl runs before the CID is taken, so
 a structurally invalid manifest never gets a CID. The loader panics at
 startup.
 
-## The eight manifests
+## The nine manifests
 
 | Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
 |-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
@@ -48,9 +48,18 @@ startup.
 | `emem-schema`           | `data/schema-v0.json`                      | `schema::SchemaRegistry`            | 8 fragments | CDDL fragments + pinned hash/sig/cid encoding               |
 | `emem-lcv1`             | `src/taxonomy.rs`                          | `taxonomy::Lcv1` + `LcvFamily`      | 64 leaves   | 8 families x 8 leaves land-cover taxonomy, u8 encoded       |
 | `emem-cell64-alphabet`  | `crates/emem-codec/src/alphabet.rs`        | `build_alphabet_v0()` (no struct)   | 65 536      | CVCV bigrams padded with `z<hex4>` synthetic suffix         |
+| `emem-substrates`       | `data/substrates-v0.json`                  | `substrates::SubstrateRegistry`     | 9 profiles  | per contributor class: admission rule, required trace layers, grain |
 
-The first six are JSON+struct pairs validated against `crate::manifest::Manifest`.
+The JSON+struct pairs are validated against `crate::manifest::Manifest`.
 `emem-lcv1` is a Rust enum. `emem-cell64-alphabet` is synthesised in code.
+
+`emem-substrates` is the newest manifest: the substrate profile registry
+behind the encoder trust layer (`docs/plans/encoder-substrates.md`). One
+active profile (`earth.satellite.v0`, archive-recomputable, the drift
+anchor) and eight candidate device profiles, each pinning the OS trace
+layers a device of that class must present before its output is admitted.
+It is not yet served by `GET /v1/manifests`; exposing it there is the
+first wiring step in the plan.
 
 ## emem-bands (bands-v0.json)
 
@@ -550,7 +559,8 @@ CID diverges, which is exactly what content-addressing is for.
 GET /v1/manifests
 ```
 
-Returns a JSON map of `{ identifier -> cid }` for all eight manifests. The
+Returns a JSON map of `{ identifier -> cid }` for the eight manifests wired
+before `emem-substrates` (the ninth joins when its route lands). The
 four headline CIDs (`emem-bands`, `emem-algorithms`, `emem-sources`,
 `emem-schema`) are also embedded in every Receipt as `registry_cid` and
 `schema_cid`, so a verifier can replay an algorithm's evaluation against

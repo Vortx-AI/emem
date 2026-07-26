@@ -7,6 +7,23 @@ to verify.
 
 ## [Unreleased]
 
+### Added
+- The encoder trust layer, as code: any machine that observes the world
+  (telescope, microscope, CCTV, phone, drone, robot, industrial machine)
+  is respected as a contributor and refused on its word alone. Its output
+  is admitted only when bound inside its complete, unaltered OS execution
+  trace. Three pure pieces ship: the substrate profile registry
+  (`emem-substrates`, the ninth content-addressed manifest, nine profiles
+  with per-class admission rules, required trace layers, and measurement
+  grain down to microns), the `emem.os_trace.v1` record and its
+  domain-separated signing preimage (`os_trace_preimage_v1` in
+  `emem-attest`), and the new `emem-trace` crate holding the verification
+  engine (fifteen named reject reasons, verdict only on an empty list)
+  plus the drift-anchor scoring rule that checks device claims against
+  the recomputable Earth substrate. Design and wiring steps in
+  `docs/plans/encoder-substrates.md`; ingest gating, `/v1/substrates`,
+  and `/v1/trace_verify` are the open wiring work.
+
 ## [1.2.1] - 2026-07-21
 
 A release-plumbing patch. 1.2.0 published unevenly — npm `@vortxai/emem`

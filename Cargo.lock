@@ -2745,6 +2745,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "emem-trace"
+version = "1.2.1"
+dependencies = [
+ "blake3",
+ "ciborium",
+ "data-encoding",
+ "ed25519-dalek",
+ "emem-attest",
+ "emem-core",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

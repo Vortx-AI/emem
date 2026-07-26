@@ -51,6 +51,13 @@ What the 60 lines of logic demonstrate:
 
 A ROS 2 client package does not exist yet; this example is plain HTTP
 and runs anywhere Python runs, including on the robot. The substrate
-profile for robot fleets (writing observations under the fleet's own
-keys via `POST /v1/attest`) is tracked in
+profile for robot fleets now ships as `robot.fleet.v1` in the
+substrates manifest (`crates/emem-core/data/substrates-v0.json`): a
+fleet's writes are admitted only with the robot's complete OS
+execution trace (`emem.os_trace.v1`, verified by the `emem-trace`
+crate), covering syscalls, scheduler, memory, sensor bus, energy,
+thermal, and on-device inference. Upgrading this example to
+trace-bound writes is step six in
+[docs/plans/encoder-substrates.md](../../docs/plans/encoder-substrates.md);
+the write-path gate itself is tracked in
 [docs/roadmap.md](../../docs/roadmap.md).

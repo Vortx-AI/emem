@@ -11,6 +11,7 @@ Crate layering, bottom to top:
 emem-core        Tslot, key types (AttesterKey, KeyEpoch, Signature), registries, error codes
 emem-codec       token-economical text codecs: cell64, tslot text, cid64, vec64
 emem-attest      pure hashing: preimages, merkle v0/v1 (no I/O, no deps beyond core)
+emem-trace       emem.os_trace.v1 schema + verification engine + drift-anchor scoring (pure)
 emem-fact        wire structs (Fact, Attestation, Receipt, EdgeFact, Scope) + canonical CBOR
 emem-claim       structural claim algebra (band+op+value+tslot) and evaluator
 emem-cache       sled hot cache, fact CID derivation
@@ -252,5 +253,5 @@ write path from scratch.
 
 `scripts/sync_counts.py --check` verifies the canonical counts (89 tools,
 116 /v1 paths, 46 sources, 43 slots, 124 wired bands, 163 algorithms, 27
-topics, 16 crates) against the registries and the live responder, but no CI
+topics, 17 crates) against the registries and the live responder, but no CI
 workflow runs it. Run it manually after editing any doc that quotes a count.

@@ -90,11 +90,29 @@ What ships today that a new substrate would use unchanged: the
 multi-writer attest endpoint (`POST /v1/attest`, ed25519 envelope over a
 merkle root, no transport auth to configure), per-attester namespaces,
 the provenance classes with in-band cautions, contradiction scoring
-between writers, and the token grammar. What is open per substrate is
-the written profile: which bands, which canonical source scheme, which
-provenance class each measurement carries.
+between writers, and the token grammar.
 
-Candidate substrates, in the order the machinery favours them:
+The next upgrade here is not another substrate. It is a trust layer,
+and its core now ships as code. The written profiles live in the
+ninth content-addressed manifest (`emem-substrates`,
+`crates/emem-core/data/substrates-v0.json`), and every device-borne
+profile carries the same admission rule: the protocol respects the
+device as an observer of the physical world and refuses its output
+alone. A device must present its complete, unaltered OS execution
+trace for the capture window (`emem.os_trace.v1`, the `emem-trace`
+crate), with the layers its profile requires (syscalls, scheduler,
+memory tracks, energy, thermal, signal, sensor bus, network, storage,
+on-device inference), digest-chained, merkle-rooted, and signed by the
+device key together with the emitted output digests. Only output bound
+inside a verified trace is admitted; the verifier names every failure
+it finds. The founding Earth substrate keeps its own rule,
+recomputability from free public archives, and takes the standing role
+of drift anchor: device claims are contradiction-scored against it,
+tension is surfaced rather than dropped, and the full design plus the
+wiring steps live in `docs/plans/encoder-substrates.md`.
+
+Candidate substrates, in the order the machinery favours them, each
+now pinned as a profile in the registry:
 
 - **CCTV and fixed sensors.** A camera or gauge is the simplest case: a
   fixed location, a stream of observations, one key. Its readings land
@@ -115,10 +133,15 @@ Candidate substrates, in the order the machinery favours them:
   permits, environmental monitoring: `human_curated` by class, carrying
   that caution in-band, signed by the issuing authority's key.
 
-None of these profiles ship yet; listing them here is direction, not
-availability. The test each one must pass is the same as the first
-substrate's: observations sign at the source, resolve byte-identically
-anywhere, and verify offline.
+The profiles above are pinned in the substrates manifest as
+`candidate` status: declared direction a device maker can build
+against today, not open ingest. The registry, the trace record, and
+the verification engine ship; the write-path gate, the
+`/v1/trace_verify` surface, and the drift-anchor wiring are the open
+work, in that order. The test each substrate must pass is unchanged
+and now has a second half: observations sign at the source, resolve
+byte-identically anywhere, verify offline, and carry the execution
+evidence their profile demands.
 
 ### Tenancy: closing the memory layer before scaling ingest
 
@@ -253,12 +276,19 @@ return a signed hole instead of a value.
   work directly. Open, and lower priority than the SDK because the bridge
   already covers it.
 - **Robotics, as a single lighthouse.** Real and aligned with the fleet
-  story, and later. It needs an edge encoder, offline sync, and a
-  non-HTTP transport, because ROS 2 and intermittent-connectivity robots
-  are the wrong shape for an HTTP MCP call. Do not start until the SDK,
-  the signed-write path, and tenancy are solid; when it starts, one
-  flagship design partner beats a generic ROS package. A runnable
-  two-vendor HTTP example ships today at `examples/fleet-memory/`.
+  story, and now with its trust contract pinned: the `robot.fleet.v1`
+  profile in the substrates manifest and the `emem.os_trace.v1` record
+  in `emem-trace` define exactly what a robot must capture (syscalls,
+  scheduler, memory, sensor bus, energy, thermal, on-device inference)
+  for its writes to be admitted. What remains is the edge encoder that
+  produces those windows on-robot, offline sync, and a non-HTTP
+  transport, because ROS 2 and intermittent-connectivity robots are
+  the wrong shape for an HTTP MCP call. Do not start the transport
+  until the SDK, the signed-write path, and tenancy are solid; when it
+  starts, one flagship design partner beats a generic ROS package. A
+  runnable two-vendor HTTP example ships today at
+  `examples/fleet-memory/`; upgrading it to trace-bound writes is step
+  six in `docs/plans/encoder-substrates.md`.
 
 ### Distribution: being findable and installable
 
