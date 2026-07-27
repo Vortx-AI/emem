@@ -32,11 +32,15 @@
 #![warn(missing_docs)]
 
 pub mod drift;
+pub mod enroll;
 pub mod schema;
 pub mod token;
 pub mod verify;
 
 pub use drift::{drift_contradiction_score, DriftAnchorCheck, DriftVerdict};
+pub use enroll::{
+    verify_platform_attestation, EnrollmentReport, PlatformAttestation, PLATFORM_ATTESTATION_V0,
+};
 pub use schema::{
     payload_digest_of_value, DeviceIdentity, EmittedOutput, OsTrace, TraceBuildError, TraceSegment,
     OS_TRACE_SCHEMA_V1,

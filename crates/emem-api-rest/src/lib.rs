@@ -1140,6 +1140,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/substrates", get(substrates_registry))
         .route("/v1/device_platforms", get(device_platforms_registry))
         .route("/v1/trace_verify", post(post_trace_verify))
+        .route("/v1/enroll_verify", post(post_enroll_verify))
         .route("/v1/coverage_matrix", get(coverage_matrix))
         .route("/v1/functions", get(functions))
         .route("/v1/sources", get(sources))
@@ -6683,6 +6684,75 @@ async fn post_trace_verify(Json(req): Json<JsonValue>) -> Json<JsonValue> {
     }))
 }
 
+/// POST /v1/enroll_verify — stateless appraisal of a platform attestation
+/// against a device platform's whitelist, the enrollment analogue of
+/// /v1/trace_verify. It changes nothing (enrollment itself is a
+/// privileged operation); it lets a device maker debug their attestation
+/// offline before requesting enrollment. Body: `{platform, attestation,
+/// device_key?}`. `device_key` (base32) is the key you intend to enroll;
+/// omit it to self-check against the attestation's own device key.
+async fn post_enroll_verify(Json(req): Json<JsonValue>) -> Json<JsonValue> {
+    let platform_id = req
+        .get("platform")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let Some(platform) = emem_core::device_platforms::DEFAULT.lookup(platform_id) else {
+        return Json(json!({
+            "schema": "emem.enroll_verify.v1",
+            "verdict": "reject",
+            "error": format!(
+                "unknown device platform '{platform_id}'; GET /v1/device_platforms lists the whitelist"
+            ),
+        }));
+    };
+    let att: emem_trace::PlatformAttestation =
+        match serde_json::from_value(req.get("attestation").cloned().unwrap_or(JsonValue::Null)) {
+            Ok(a) => a,
+            Err(e) => {
+                return Json(json!({
+                    "schema": "emem.enroll_verify.v1",
+                    "verdict": "reject",
+                    "error": format!(
+                        "attestation does not parse as emem.platform_attestation.v0: {e}"
+                    ),
+                }));
+            }
+        };
+    // The enrollee key: an explicit base32 device_key, or the attestation's
+    // own endorsed key when omitted (a self-check).
+    let expected = match req.get("device_key").and_then(|v| v.as_str()) {
+        Some(b32) => match data_encoding::BASE32_NOPAD.decode(b32.to_uppercase().as_bytes()) {
+            Ok(bytes) => match <[u8; 32]>::try_from(bytes) {
+                Ok(arr) => emem_core::key::AttesterKey(arr),
+                Err(_) => {
+                    return Json(json!({
+                        "schema": "emem.enroll_verify.v1",
+                        "verdict": "reject",
+                        "error": "device_key is not a 32-byte base32 key",
+                    }));
+                }
+            },
+            Err(_) => {
+                return Json(json!({
+                    "schema": "emem.enroll_verify.v1",
+                    "verdict": "reject",
+                    "error": "device_key is not valid base32",
+                }));
+            }
+        },
+        None => att.device_key,
+    };
+    let report = emem_trace::verify_platform_attestation(platform, &att, &expected);
+    Json(json!({
+        "schema": "emem.enroll_verify.v1",
+        "verdict": match report.verdict {
+            emem_trace::enroll::Verdict::Admit => "admit",
+            emem_trace::enroll::Verdict::Reject => "reject",
+        },
+        "report": serde_json::to_value(&report).unwrap_or(JsonValue::Null),
+    }))
+}
+
 async fn sources() -> Json<JsonValue> {
     Json(serde_json::to_value(&*emem_core::sources::DEFAULT).unwrap_or(json!({})))
 }
@@ -7377,6 +7447,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "substrates":       "/v1/substrates",
             "device_platforms": "/v1/device_platforms",
             "trace_verify":     "/v1/trace_verify",
+            "enroll_verify":    "/v1/enroll_verify",
             "coverage_matrix":  "/v1/coverage_matrix",
             "materializers":    "/v1/materializers",
             "data_availability":"/v1/data_availability",
@@ -19816,6 +19887,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
             "/v1/device_platforms":  {"get":{"summary":"device-platform whitelist: which hardware platforms may enroll a trace-admitted key and the root-of-trust evidence (TCG DICE, IEEE 802.1AR DevID, TPM 2.0 quote, Arm PSA/EAT) each presents; a trust anchor is a RATS Endorsement for a platform class; content-addressed by manifest CID","operationId":"emem_device_platforms","responses":{"200":json_ok}}},
             "/v1/trace_verify":      {"post":{"summary":"stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, window, layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device ed25519 signature. Always 200 for parseable JSON; the verdict plus every failed check is the payload.","operationId":"emem_trace_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["trace","profile"],"properties":{"trace":{"type":"object","description":"the emem.os_trace.v1 record"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"claimed_payload_digest":{"type":"string","description":"optional output digest to check binding for"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/enroll_verify":     {"post":{"summary":"stateless appraisal of a platform attestation against a device platform's whitelist (the enrollment analogue of trace_verify): checks the EAT profile, the endorsed device key, that a whitelisted trust anchor signed the evidence, and the endorser signature. Admits nothing while every anchor is provisional; lets a device maker debug an attestation before requesting enrollment. Always 200 for parseable JSON.","operationId":"emem_enroll_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["platform","attestation"],"properties":{"platform":{"type":"string","description":"device platform ID, e.g. nvidia.jetson-orin"},"attestation":{"type":"object","description":"the emem.platform_attestation.v0 evidence"},"device_key":{"type":"string","description":"optional base32 device key to enroll; defaults to the attestation's own key"}}}}}},"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[

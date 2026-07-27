@@ -2552,4 +2552,75 @@ mod trace_gate_tests {
             .expect_err("derivative must be refused");
         assert!(err.to_string().contains("primary facts only"), "{err}");
     }
+
+    #[tokio::test]
+    async fn operator_asserted_enrollment_is_labeled_as_such() {
+        // The migration-safe legacy path still works, and a reader can see
+        // it was the operator's assertion, not a hardware attestation.
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate");
+        gate.enroll("somekey", "robot.fleet.v1").expect("enroll");
+        let rec = gate.enrollment_of("somekey").expect("record");
+        assert_eq!(rec.profile_id, "robot.fleet.v1");
+        assert_eq!(rec.platform_id, None);
+        assert_eq!(rec.assurance(), "operator_asserted");
+        assert!(gate.evidence_of("somekey").is_none());
+    }
+
+    #[tokio::test]
+    async fn attested_enrollment_is_refused_while_anchors_are_provisional() {
+        // The safe property of this stage end to end: enroll_attested with
+        // the real (all-provisional) whitelist admits nothing, and the
+        // refusal names why. The device is never enrolled.
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate");
+
+        let device = SigningKey::from_bytes(&[7u8; 32]);
+        let dk = AttesterKey(device.verifying_key().to_bytes());
+        let dk_b32 = data_encoding::BASE32_NOPAD.encode(&dk.0).to_lowercase();
+        let endorser = SigningKey::from_bytes(&[3u8; 32]);
+        let att = emem_trace::PlatformAttestation::build_and_sign_v0(
+            "nvidia.jetson-orin",
+            dk,
+            "jetson-orin-nx",
+            "nvidia",
+            "nonce-1",
+            vec![],
+            &endorser,
+        );
+        let err = gate
+            .enroll_attested(&dk_b32, "robot.fleet.v1", "nvidia.jetson-orin", &att)
+            .expect_err("provisional anchors admit nothing");
+        assert!(
+            err.to_string().contains("no effective trust anchor"),
+            "{err}"
+        );
+        assert!(gate.enrollment_of(&dk_b32).is_none());
+    }
+
+    #[tokio::test]
+    async fn attested_enrollment_refuses_a_platform_that_does_not_serve_the_class() {
+        // A microscope profile cannot be enrolled through an Orin: the
+        // platform does not serve that contributor class. This is refused
+        // before the attestation is even appraised.
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate");
+        let device = SigningKey::from_bytes(&[8u8; 32]);
+        let dk = AttesterKey(device.verifying_key().to_bytes());
+        let dk_b32 = data_encoding::BASE32_NOPAD.encode(&dk.0).to_lowercase();
+        let endorser = SigningKey::from_bytes(&[3u8; 32]);
+        let att = emem_trace::PlatformAttestation::build_and_sign_v0(
+            "nvidia.jetson-orin",
+            dk,
+            "jetson-orin-nx",
+            "nvidia",
+            "n",
+            vec![],
+            &endorser,
+        );
+        let err = gate
+            .enroll_attested(&dk_b32, "lab.microscope.v1", "nvidia.jetson-orin", &att)
+            .expect_err("orin does not serve microscope");
+        assert!(err.to_string().contains("does not serve"), "{err}");
+    }
 }

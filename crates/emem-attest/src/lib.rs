@@ -374,6 +374,63 @@ where
     p.finalize()
 }
 
+/// Segment tags for the v1 platform-attestation preimage — the 32 bytes
+/// a platform's Endorser key signs to vouch that a device key runs on a
+/// genuine, measured instance of a whitelisted platform. Stable wire
+/// constants — never renumber.
+pub mod platform_attestation_tag {
+    /// EAT profile identifier (e.g. `"emem.platform_attestation.v0"`).
+    pub const EAT_PROFILE: u8 = 0x01;
+    /// Device-platform ID the evidence attests to (e.g. `"nvidia.jetson-orin"`).
+    pub const PLATFORM: u8 = 0x02;
+    /// The endorsed device public key (the EAT `ueid`), 32 bytes.
+    pub const DEVICE_KEY: u8 = 0x03;
+    /// EAT `hwmodel` claim.
+    pub const HWMODEL: u8 = 0x04;
+    /// EAT `oemid` claim.
+    pub const OEMID: u8 = 0x05;
+    /// Freshness nonce echoed from the enrolment challenge.
+    pub const NONCE: u8 = 0x06;
+    /// The measured-boot digests (EAT measurements), matched against a
+    /// platform's reference values when those ship.
+    pub const MEASUREMENTS: u8 = 0x07;
+}
+
+/// Canonical v1 platform-attestation preimage digest — the 32 bytes an
+/// Endorser (a whitelisted trust anchor) signs to attest that
+/// `device_key` runs on a genuine, measured instance of `platform_id`.
+/// Binds the EAT profile, the platform, the endorsed device key, the
+/// hardware model and OEM, the freshness nonce, and every boot
+/// measurement into one signature, so no claim can be swapped after
+/// signing. The Endorser key itself is committed to by the platform's
+/// trust anchor in the device-platforms manifest.
+#[allow(clippy::too_many_arguments)]
+pub fn platform_attestation_preimage_v1<'a, M>(
+    eat_profile: &str,
+    platform_id: &str,
+    device_key: &[u8; 32],
+    hwmodel: &str,
+    oemid: &str,
+    nonce: &str,
+    measurements: M,
+) -> [u8; 32]
+where
+    M: IntoIterator<Item = &'a str>,
+{
+    let mut p = PreimageV1::new("platform_attestation");
+    p.seg(
+        platform_attestation_tag::EAT_PROFILE,
+        eat_profile.as_bytes(),
+    );
+    p.seg(platform_attestation_tag::PLATFORM, platform_id.as_bytes());
+    p.seg(platform_attestation_tag::DEVICE_KEY, device_key);
+    p.seg(platform_attestation_tag::HWMODEL, hwmodel.as_bytes());
+    p.seg(platform_attestation_tag::OEMID, oemid.as_bytes());
+    p.seg(platform_attestation_tag::NONCE, nonce.as_bytes());
+    p.seg_list(platform_attestation_tag::MEASUREMENTS, measurements);
+    p.finalize()
+}
+
 /// v1 leaf promotion: `blake3(0x00 || leaf)`. Verifiers re-derive a
 /// proof's starting node from a fact's CID digest with this.
 pub fn promote_leaf_v1(leaf: &[u8; 32]) -> [u8; 32] {

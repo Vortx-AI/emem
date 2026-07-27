@@ -25,17 +25,59 @@
 
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use sled::Tree;
 
+use emem_core::device_platforms;
+use emem_core::key::AttesterKey;
 use emem_core::substrates::{AdmissionRule, SubstrateProfile};
 use emem_fact::{Attestation, Fact, FactCid};
-use emem_trace::{payload_digest_of_value, verify_os_trace, OsTrace, Verdict};
+use emem_trace::enroll::Verdict as EnrollVerdict;
+use emem_trace::{
+    payload_digest_of_value, verify_os_trace, verify_platform_attestation, OsTrace,
+    PlatformAttestation, Verdict,
+};
 
 use crate::StorageError;
 
 const ENROLLMENT_TREE: &str = "emem.device_enrollment";
 const TRACES_TREE: &str = "emem.os_traces";
 const FACT_TRACE_TREE: &str = "emem.fact_trace";
+const EVIDENCE_TREE: &str = "emem.enrollment_evidence";
+
+/// What backs an enrolment. Stored as canonical CBOR under the device key.
+///
+/// Back-compat: entries written before this type existed are the bare
+/// substrate profile ID as raw UTF-8. [`TraceGate::enrollment_of`] decodes
+/// CBOR first and falls back to that legacy shape, so an old enrolment
+/// keeps resolving with `platform_id: None`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnrollmentRecord {
+    /// Substrate profile the key writes under.
+    pub profile_id: String,
+    /// The device platform whose attestation admitted the key, when the
+    /// enrolment was attested. `None` for an operator-asserted enrolment
+    /// (the migration-safe legacy path: the operator vouches, no hardware
+    /// root of trust was presented).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_id: Option<String>,
+    /// The trust anchor (Endorser) that signed the platform attestation,
+    /// on an attested enrolment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endorsed_by: Option<String>,
+}
+
+impl EnrollmentRecord {
+    /// `"platform_attested"` when a whitelisted anchor endorsed the key,
+    /// else `"operator_asserted"`. The assurance level a reader can weigh.
+    pub fn assurance(&self) -> &'static str {
+        if self.platform_id.is_some() {
+            "platform_attested"
+        } else {
+            "operator_asserted"
+        }
+    }
+}
 
 /// Outcome of a successful gate check for an enrolled device.
 #[derive(Debug, Clone)]
@@ -54,6 +96,7 @@ pub struct TraceGate {
     enrollment: Arc<Tree>,
     traces: Arc<Tree>,
     fact_trace: Arc<Tree>,
+    evidence: Arc<Tree>,
 }
 
 impl TraceGate {
@@ -63,15 +106,12 @@ impl TraceGate {
             enrollment: Arc::new(db.open_tree(ENROLLMENT_TREE)?),
             traces: Arc::new(db.open_tree(TRACES_TREE)?),
             fact_trace: Arc::new(db.open_tree(FACT_TRACE_TREE)?),
+            evidence: Arc::new(db.open_tree(EVIDENCE_TREE)?),
         })
     }
 
-    /// Enroll an attester key under a substrate profile. The profile
-    /// must exist in the substrates manifest and carry the
-    /// `os_trace_required` admission rule; enrolling a key under the
-    /// archive profile is refused because the archive path does not
-    /// admit device output at all.
-    pub fn enroll(&self, pubkey_b32: &str, profile_id: &str) -> Result<(), StorageError> {
+    /// Validate that a profile exists and admits device output by trace.
+    fn trace_admitted_profile(profile_id: &str) -> Result<(), StorageError> {
         let registry = &*emem_core::substrates::DEFAULT;
         let profile = registry.lookup(profile_id).ok_or_else(|| {
             StorageError::AttestationInvalid(format!(
@@ -83,11 +123,117 @@ impl TraceGate {
                 "os_trace gate: profile {profile_id} is not trace-admitted"
             )));
         }
+        Ok(())
+    }
+
+    fn write_enrollment(
+        &self,
+        pubkey_b32: &str,
+        record: &EnrollmentRecord,
+    ) -> Result<(), StorageError> {
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(record, &mut buf)
+            .map_err(|e| StorageError::Cbor(e.to_string()))?;
         self.enrollment
-            .insert(pubkey_b32.as_bytes(), profile_id.as_bytes())
+            .insert(pubkey_b32.as_bytes(), buf)
             .map_err(sled_err)?;
         self.enrollment.flush().map_err(sled_err)?;
         Ok(())
+    }
+
+    /// Enroll an attester key under a substrate profile **on the
+    /// operator's assertion alone** — no hardware root of trust is
+    /// presented. This is the migration-safe legacy path: the resulting
+    /// enrolment records `assurance = operator_asserted`, and a reader can
+    /// tell it apart from an attested one. The profile must exist and be
+    /// `os_trace_required`; enrolling under the archive profile is refused
+    /// because the archive path does not admit device output at all.
+    ///
+    /// Prefer [`TraceGate::enroll_attested`] wherever the device can
+    /// present a platform attestation.
+    pub fn enroll(&self, pubkey_b32: &str, profile_id: &str) -> Result<(), StorageError> {
+        Self::trace_admitted_profile(profile_id)?;
+        self.write_enrollment(
+            pubkey_b32,
+            &EnrollmentRecord {
+                profile_id: profile_id.to_string(),
+                platform_id: None,
+                endorsed_by: None,
+            },
+        )
+    }
+
+    /// Enroll an attester key under a substrate profile **only if a
+    /// whitelisted platform attestation vouches for it**. The evidence
+    /// must (1) attest the platform being enrolled under, (2) endorse
+    /// exactly this device key, (3) be signed by a trust anchor the
+    /// device-platforms manifest whitelists for that platform, and the
+    /// platform must serve the profile's contributor class. On admit the
+    /// enrolment records the endorsing anchor and the evidence is stored
+    /// for later audit.
+    ///
+    /// Because every anchor shipped today is provisional, this currently
+    /// rejects every attestation with `no_effective_anchor` — the
+    /// intended no-new-admissions state until a real vendor anchor is
+    /// pinned. It changes nothing prod accepts; it opens the path.
+    pub fn enroll_attested(
+        &self,
+        pubkey_b32: &str,
+        profile_id: &str,
+        platform_id: &str,
+        attestation: &PlatformAttestation,
+    ) -> Result<EnrollmentRecord, StorageError> {
+        Self::trace_admitted_profile(profile_id)?;
+        let profile = emem_core::substrates::DEFAULT
+            .lookup(profile_id)
+            .ok_or_else(|| {
+                StorageError::AttestationInvalid(format!(
+                    "os_trace gate: unknown substrate profile {profile_id}"
+                ))
+            })?;
+        let platform = device_platforms::DEFAULT
+            .lookup(platform_id)
+            .ok_or_else(|| {
+                StorageError::AttestationInvalid(format!(
+                    "os_trace gate: unknown device platform {platform_id}; \
+                 GET /v1/device_platforms lists the whitelist"
+                ))
+            })?;
+        if !platform.serves(profile.contributor_class) {
+            return Err(StorageError::AttestationInvalid(format!(
+                "os_trace gate: platform {platform_id} does not serve the {:?} contributor \
+                 class that profile {profile_id} requires",
+                profile.contributor_class
+            )));
+        }
+        let device_key = decode_key(pubkey_b32).ok_or_else(|| {
+            StorageError::AttestationInvalid(
+                "os_trace gate: enrollee key is not a 32-byte base32 device key".into(),
+            )
+        })?;
+        let report = verify_platform_attestation(platform, attestation, &device_key);
+        if report.verdict != EnrollVerdict::Admit {
+            let reasons: Vec<String> = report.reasons.iter().map(|r| r.to_string()).collect();
+            return Err(StorageError::AttestationInvalid(format!(
+                "os_trace gate: platform attestation rejected: {}",
+                reasons.join("; ")
+            )));
+        }
+        let record = EnrollmentRecord {
+            profile_id: profile_id.to_string(),
+            platform_id: Some(platform_id.to_string()),
+            endorsed_by: report.endorsed_by.clone(),
+        };
+        self.write_enrollment(pubkey_b32, &record)?;
+        // Persist the evidence so an attested enrolment is auditable later.
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(attestation, &mut buf)
+            .map_err(|e| StorageError::Cbor(e.to_string()))?;
+        self.evidence
+            .insert(pubkey_b32.as_bytes(), buf)
+            .map_err(sled_err)?;
+        self.evidence.flush().map_err(sled_err)?;
+        Ok(record)
     }
 
     /// Remove an enrollment. The key returns to the ungated path.
@@ -95,17 +241,40 @@ impl TraceGate {
         self.enrollment
             .remove(pubkey_b32.as_bytes())
             .map_err(sled_err)?;
+        self.evidence
+            .remove(pubkey_b32.as_bytes())
+            .map_err(sled_err)?;
         self.enrollment.flush().map_err(sled_err)?;
+        self.evidence.flush().map_err(sled_err)?;
         Ok(())
+    }
+
+    /// The full enrolment record for a key, if enrolled. Decodes the CBOR
+    /// record, falling back to the legacy raw-profile-ID shape.
+    pub fn enrollment_of(&self, pubkey_b32: &str) -> Option<EnrollmentRecord> {
+        let v = self.enrollment.get(pubkey_b32.as_bytes()).ok().flatten()?;
+        if let Ok(rec) = ciborium::de::from_reader::<EnrollmentRecord, _>(v.as_ref()) {
+            return Some(rec);
+        }
+        // Legacy: the value was the bare profile ID as raw UTF-8.
+        String::from_utf8(v.to_vec())
+            .ok()
+            .map(|profile_id| EnrollmentRecord {
+                profile_id,
+                platform_id: None,
+                endorsed_by: None,
+            })
+    }
+
+    /// The stored platform attestation for an attested key, if any.
+    pub fn evidence_of(&self, pubkey_b32: &str) -> Option<PlatformAttestation> {
+        let v = self.evidence.get(pubkey_b32.as_bytes()).ok().flatten()?;
+        ciborium::de::from_reader(v.as_ref()).ok()
     }
 
     /// The profile an attester key is enrolled under, if any.
     pub fn profile_of(&self, pubkey_b32: &str) -> Option<String> {
-        self.enrollment
-            .get(pubkey_b32.as_bytes())
-            .ok()
-            .flatten()
-            .and_then(|v| String::from_utf8(v.to_vec()).ok())
+        self.enrollment_of(pubkey_b32).map(|r| r.profile_id)
     }
 
     /// Gate an attestation. Returns `Ok(None)` when the attester is not
@@ -243,6 +412,16 @@ impl TraceGate {
 /// base32-nopad lowercase, matching every other digest rendering.
 fn render_key(key: &[u8; 32]) -> String {
     data_encoding::BASE32_NOPAD.encode(key).to_lowercase()
+}
+
+/// Inverse of [`render_key`]: a base32-nopad key string back to an
+/// [`AttesterKey`], or `None` if it is not exactly 32 bytes.
+fn decode_key(pubkey_b32: &str) -> Option<AttesterKey> {
+    let bytes = data_encoding::BASE32_NOPAD
+        .decode(pubkey_b32.to_uppercase().as_bytes())
+        .ok()?;
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    Some(AttesterKey(arr))
 }
 
 fn sled_err(e: sled::Error) -> StorageError {
