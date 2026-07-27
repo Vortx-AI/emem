@@ -460,6 +460,10 @@ const DOCS_DIAGRAMS: &[(&str, &str)] = &[
         "38-agent-to-token.svg",
         include_str!("../../../docs/diagrams/38-agent-to-token.svg"),
     ),
+    (
+        "39-orbit-to-ground-trust.svg",
+        include_str!("../../../docs/diagrams/39-orbit-to-ground-trust.svg"),
+    ),
 ];
 
 const EXAMPLE_CLAUDE_DESKTOP: &str = include_str!("../../../examples/claude-desktop.json");
