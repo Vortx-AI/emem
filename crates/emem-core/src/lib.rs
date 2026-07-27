@@ -38,6 +38,7 @@ pub mod sources;
 pub mod substrates;
 pub mod taxonomy;
 pub mod topics;
+pub mod trace_encodings;
 pub mod tslot;
 
 pub use algorithms::{Algorithm, AlgorithmInput, AlgorithmKind, AlgorithmRegistry};

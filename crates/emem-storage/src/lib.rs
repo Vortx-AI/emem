@@ -294,6 +294,22 @@ pub trait Storage: Send + Sync {
         None
     }
 
+    /// Resolve a stored OS trace by its content ID to the byte-identical
+    /// signed record — what an `emem:trace:` token names. Default `None`
+    /// for backends without a trace gate.
+    fn resolve_os_trace(&self, _trace_cid: &str) -> Option<emem_trace::OsTrace> {
+        None
+    }
+
+    /// Resolve a stored platform attestation by its content ID — what an
+    /// `emem:attestation:` token names. Default `None`.
+    fn resolve_platform_attestation(
+        &self,
+        _attestation_cid: &str,
+    ) -> Option<emem_trace::PlatformAttestation> {
+        None
+    }
+
     /// Lazy materialization entry point: ensure facts exist for these keys,
     /// fetching + computing + attesting on miss. Returns the resolved CIDs
     /// in the same order as inputs.
@@ -670,6 +686,17 @@ fn tempdir_for_log() -> std::io::Result<std::path::PathBuf> {
 impl Storage for MaterializingStorage {
     fn transparency_log(&self) -> Option<&AttestationLog> {
         Some(&self.log)
+    }
+
+    fn resolve_os_trace(&self, trace_cid: &str) -> Option<emem_trace::OsTrace> {
+        self.trace_gate.as_ref()?.get_trace(trace_cid)
+    }
+
+    fn resolve_platform_attestation(
+        &self,
+        attestation_cid: &str,
+    ) -> Option<emem_trace::PlatformAttestation> {
+        self.trace_gate.as_ref()?.get_attestation(attestation_cid)
     }
 
     async fn lookup_canonical_many(
@@ -2484,6 +2511,10 @@ mod trace_gate_tests {
         );
         let stored = gate.get_trace(&admitted.trace_cid).expect("stored trace");
         assert_eq!(stored.trace_cid().unwrap(), admitted.trace_cid);
+        // The Storage-trait resolver (what /v1/trace_resolve calls) sees it too.
+        let via_trait =
+            Storage::resolve_os_trace(&storage, &admitted.trace_cid).expect("resolve via trait");
+        assert_eq!(via_trait.trace_cid().unwrap(), admitted.trace_cid);
     }
 
     #[tokio::test]
@@ -2596,6 +2627,97 @@ mod trace_gate_tests {
             "{err}"
         );
         assert!(gate.enrollment_of(&dk_b32).is_none());
+    }
+
+    /// Like `mk_trace` but every segment carries `encoding`, for exercising
+    /// the gate's trace-encodings enforcement.
+    fn mk_trace_enc(sk: &SigningKey, payload_digest: &str, encoding: &str) -> OsTrace {
+        let layers = [
+            TraceLayerKind::Syscall,
+            TraceLayerKind::Scheduler,
+            TraceLayerKind::Memory,
+            TraceLayerKind::SensorBus,
+            TraceLayerKind::Energy,
+            TraceLayerKind::Thermal,
+            TraceLayerKind::Inference,
+        ];
+        let segments: Vec<TraceSegment> = layers
+            .iter()
+            .enumerate()
+            .map(|(i, l)| TraceSegment {
+                layer: *l,
+                seq: 0,
+                clock_start_ns: 1_000 + i as u64,
+                clock_end_ns: 9_000,
+                event_count: 7,
+                log_digest: data_encoding::BASE32_NOPAD
+                    .encode(blake3::hash(format!("log {i}").as_bytes()).as_bytes())
+                    .to_lowercase(),
+                prev_digest: None,
+                encoding: encoding.into(),
+            })
+            .collect();
+        OsTrace::build_and_sign_v1(
+            DeviceIdentity {
+                device_key: AttesterKey(sk.verifying_key().to_bytes()),
+                key_epoch: KeyEpoch(0),
+                substrate_profile: "robot.fleet.v1".into(),
+                platform: "jetson-orin-nx".into(),
+                os: "ubuntu-24.04".into(),
+                kernel: "6.8.0-tegra".into(),
+                boot_id: "b7c1e2d3".into(),
+            },
+            1_000,
+            10_000,
+            segments,
+            vec![EmittedOutput {
+                payload_digest: payload_digest.into(),
+                band: Some("indices.ndvi".into()),
+                emitted_at_ns: 8_500,
+                layer: TraceLayerKind::SensorBus,
+            }],
+            sk,
+        )
+        .expect("build trace")
+    }
+
+    #[tokio::test]
+    async fn trace_naming_an_unregistered_encoding_is_refused() {
+        // The trace-of-the-trace check: an enrolled device presenting a
+        // sound, signed trace whose segments name a capture encoding the
+        // registry does not define is refused, even though the signature
+        // and chain are perfect.
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate").clone();
+        let mut sec = [0u8; 32];
+        sec[0] = 21;
+        let sk = SigningKey::from_bytes(&sec);
+        let pk = sk.verifying_key().to_bytes();
+        let pk_b32 = data_encoding::BASE32_NOPAD.encode(&pk).to_lowercase();
+        gate.enroll(&pk_b32, "robot.fleet.v1").expect("enroll");
+
+        let fact = mk_fact(0.42, pk);
+        let att = build_signed(vec![fact.clone()], sec);
+        let payload = match &fact {
+            Fact::Primary(p) => emem_trace::payload_digest_of_value(&p.value).unwrap(),
+            _ => unreachable!(),
+        };
+        // Registered encoding admits; unregistered one is refused.
+        let good = mk_trace_enc(&sk, &payload, "linux.ftrace.v1");
+        storage
+            .put_attestation_gated(&att, Some(&good))
+            .await
+            .expect("registered encoding admits");
+
+        let bad = mk_trace_enc(&sk, &payload, "totally.made.up.v9");
+        let err = storage
+            .put_attestation_gated(&att, Some(&bad))
+            .await
+            .expect_err("unregistered encoding must be refused");
+        assert!(
+            err.to_string().contains("unregistered capture encoding"),
+            "{err}"
+        );
     }
 
     #[tokio::test]

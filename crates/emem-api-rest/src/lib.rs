@@ -1139,8 +1139,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/fleet", get(fleet))
         .route("/v1/substrates", get(substrates_registry))
         .route("/v1/device_platforms", get(device_platforms_registry))
+        .route("/v1/trace_encodings", get(trace_encodings_registry))
         .route("/v1/trace_verify", post(post_trace_verify))
         .route("/v1/enroll_verify", post(post_enroll_verify))
+        .route("/v1/trace_resolve", post(post_trace_resolve))
         .route("/v1/coverage_matrix", get(coverage_matrix))
         .route("/v1/functions", get(functions))
         .route("/v1/sources", get(sources))
@@ -1897,6 +1899,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/sources"
         | "/v1/substrates"
         | "/v1/device_platforms"
+        | "/v1/trace_encodings"
         | "/v1/manifests"
         | "/v1/capabilities"
         | "/v1/errors"
@@ -6641,6 +6644,23 @@ async fn device_platforms_registry() -> Json<JsonValue> {
     }))
 }
 
+/// GET /v1/trace_encodings — the trace-encodings registry: the recognized
+/// capture encodings a device may name in a trace segment, the toolchain
+/// that produces each, the layers it can capture, and how that tracer's
+/// own integrity is established (the "trace of the trace"). The device-side
+/// analogue of /v1/algorithms. A device's recognized_encodings in
+/// /v1/device_platforms are all defined here; the write gate rejects a
+/// segment naming an unregistered encoding or a layer its encoding cannot
+/// produce.
+async fn trace_encodings_registry() -> Json<JsonValue> {
+    let reg = &*emem_core::trace_encodings::DEFAULT;
+    Json(json!({
+        "schema": "emem.trace_encodings.v1",
+        "manifest_cid": emem_core::manifest_cid(reg).unwrap_or_default(),
+        "registry": serde_json::to_value(reg).unwrap_or(JsonValue::Null),
+    }))
+}
+
 /// POST /v1/trace_verify — stateless verification of an
 /// `emem.os_trace.v1` record against a substrate profile. Mirrors
 /// /v1/verify_receipt's contract: a structurally-parseable request is
@@ -6753,6 +6773,67 @@ async fn post_enroll_verify(Json(req): Json<JsonValue>) -> Json<JsonValue> {
         // The content-address of the evidence, so a device fact can cite it.
         "attestation_cid": att.attestation_cid(),
         "attestation_token": att.token(),
+    }))
+}
+
+/// POST /v1/trace_resolve — resolve an OS-tracing token to its
+/// byte-identical signed record. Accepts either family member:
+/// `emem:trace:<cid>` returns the stored [`emem_trace::OsTrace`],
+/// `emem:attestation:<cid>` returns the stored
+/// [`emem_trace::PlatformAttestation`]. Body: `{token}`. The record
+/// resolves only if this responder stored it (an enrolled device wrote it
+/// here); otherwise `resolved:false`. Re-verification needs nothing but
+/// the returned record (see `reverify`).
+async fn post_trace_resolve(
+    State(s): State<AppState>,
+    Json(req): Json<JsonValue>,
+) -> Json<JsonValue> {
+    let token = req
+        .get("token")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if let Some(cid) = emem_trace::parse_trace_token(token) {
+        return match s.storage.resolve_os_trace(cid) {
+            Some(trace) => Json(json!({
+                "schema": "emem.trace_resolve.v1",
+                "kind": "trace",
+                "resolved": true,
+                "trace_cid": cid,
+                "trace": serde_json::to_value(&trace).unwrap_or(JsonValue::Null),
+                "reverify": "POST /v1/trace_verify with {trace, profile: trace.device.substrate_profile}",
+            })),
+            None => Json(json!({
+                "schema": "emem.trace_resolve.v1",
+                "kind": "trace",
+                "resolved": false,
+                "trace_cid": cid,
+                "note": "no trace with that CID is stored by this responder",
+            })),
+        };
+    }
+    if let Some(cid) = emem_trace::parse_attestation_token(token) {
+        return match s.storage.resolve_platform_attestation(cid) {
+            Some(att) => Json(json!({
+                "schema": "emem.trace_resolve.v1",
+                "kind": "attestation",
+                "resolved": true,
+                "attestation_cid": cid,
+                "attestation": serde_json::to_value(&att).unwrap_or(JsonValue::Null),
+                "reverify": "POST /v1/enroll_verify with {platform: attestation.platform_id, attestation}",
+            })),
+            None => Json(json!({
+                "schema": "emem.trace_resolve.v1",
+                "kind": "attestation",
+                "resolved": false,
+                "attestation_cid": cid,
+                "note": "no attestation with that CID is stored by this responder",
+            })),
+        };
+    }
+    Json(json!({
+        "schema": "emem.trace_resolve.v1",
+        "resolved": false,
+        "error": "token is neither a well-formed emem:trace: nor emem:attestation: token",
     }))
 }
 
@@ -7449,8 +7530,10 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "fleet":            "/v1/fleet",
             "substrates":       "/v1/substrates",
             "device_platforms": "/v1/device_platforms",
+            "trace_encodings":  "/v1/trace_encodings",
             "trace_verify":     "/v1/trace_verify",
             "enroll_verify":    "/v1/enroll_verify",
+            "trace_resolve":    "/v1/trace_resolve",
             "coverage_matrix":  "/v1/coverage_matrix",
             "materializers":    "/v1/materializers",
             "data_availability":"/v1/data_availability",
@@ -19893,8 +19976,10 @@ fn openapi_spec() -> JsonValue {
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
             "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
             "/v1/device_platforms":  {"get":{"summary":"device-platform whitelist: which hardware platforms may enroll a trace-admitted key and the root-of-trust evidence (TCG DICE, IEEE 802.1AR DevID, TPM 2.0 quote, Arm PSA/EAT) each presents; a trust anchor is a RATS Endorsement for a platform class; content-addressed by manifest CID","operationId":"emem_device_platforms","responses":{"200":json_ok}}},
+            "/v1/trace_encodings":   {"get":{"summary":"trace-encodings registry: recognized capture encodings a trace segment may name (linux.ftrace.v1, ros2.bag.v2, zephyr.ctf.v1, ...), the toolchain producing each, the layers it can capture, and the tracer's own integrity (in_kernel, signed_userspace, open_source_userspace, vendor_runtime) — the 'trace of the trace'; content-addressed by manifest CID","operationId":"emem_trace_encodings","responses":{"200":json_ok}}},
             "/v1/trace_verify":      {"post":{"summary":"stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, window, layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device ed25519 signature. Always 200 for parseable JSON; the verdict plus every failed check is the payload.","operationId":"emem_trace_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["trace","profile"],"properties":{"trace":{"type":"object","description":"the emem.os_trace.v1 record"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"claimed_payload_digest":{"type":"string","description":"optional output digest to check binding for"}}}}}},"responses":{"200":json_ok}}},
             "/v1/enroll_verify":     {"post":{"summary":"stateless appraisal of a platform attestation against a device platform's whitelist (the enrollment analogue of trace_verify): checks the EAT profile, the endorsed device key, that a whitelisted trust anchor signed the evidence, and the endorser signature. Admits nothing while every anchor is provisional; lets a device maker debug an attestation before requesting enrollment. Always 200 for parseable JSON.","operationId":"emem_enroll_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["platform","attestation"],"properties":{"platform":{"type":"string","description":"device platform ID, e.g. nvidia.jetson-orin"},"attestation":{"type":"object","description":"the emem.platform_attestation.v0 evidence"},"device_key":{"type":"string","description":"optional base32 device key to enroll; defaults to the attestation's own key"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/trace_resolve":     {"post":{"summary":"resolve an OS-tracing token to its byte-identical signed record: emem:trace:<cid> returns the stored OsTrace, emem:attestation:<cid> returns the stored PlatformAttestation. Resolves only what this responder stored (an enrolled device wrote it here); re-verification needs nothing but the returned record.","operationId":"emem_trace_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"an emem:trace: or emem:attestation: token"}}}}}},"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[

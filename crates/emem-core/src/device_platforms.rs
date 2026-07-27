@@ -508,4 +508,21 @@ mod tests {
         r.platforms[0].family = "no_such_family".into();
         assert!(r.validate().is_err());
     }
+
+    #[test]
+    fn every_recognized_encoding_is_registered() {
+        // The cross-manifest invariant: a platform cannot advertise a
+        // capture encoding the trace-encodings registry does not define,
+        // or the write gate would reference a vocabulary that isn't there.
+        let enc = &*crate::trace_encodings::DEFAULT;
+        for p in &DEFAULT.platforms {
+            for e in &p.recognized_encodings {
+                assert!(
+                    enc.recognizes(e),
+                    "{} advertises unregistered encoding {e}",
+                    p.id
+                );
+            }
+        }
+    }
 }

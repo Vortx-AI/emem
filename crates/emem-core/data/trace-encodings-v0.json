@@ -1,0 +1,84 @@
+{
+  "manifest": "emem-trace-encodings",
+  "version": "v0",
+  "_note": "The trace-encodings registry: the recognized capture encodings a device may name in a trace segment, the toolchain that produces each, the trace layers it can legitimately capture, and how that capture tool's OWN integrity is established. This is the 'trace of the trace': a trace attests the device's execution, but the tracer is itself software running on the device, so its integrity has to be accounted for too. The device-side analogue of the algorithms registry: algorithms name the deterministic transforms an EO value may be derived by; this names the capture toolchains a trace segment may be produced by. integrity says where the tracer's trust comes from: in_kernel (the tracer is part of the measured kernel/firmware, so its integrity is already covered by the platform's boot measurement, the strongest kind); open_source_userspace (auditable, reproducible-buildable, but its running integrity depends on the platform); signed_userspace (a signed capture binary whose hash is measured); vendor_runtime (a proprietary runtime trusted through the platform's vendor attestation). A device's recognized_encodings in the device-platforms manifest MUST all appear here; a trace segment naming an unregistered encoding, or naming a layer the encoding cannot produce, is rejected at the write gate.",
+  "encodings": [
+    {
+      "id": "linux.ftrace.v1",
+      "title": "Linux ftrace (function and event tracer)",
+      "toolchain": "linux-kernel-ftrace",
+      "os_class": "linux",
+      "layers": ["syscall", "scheduler", "memory", "storage", "network"],
+      "integrity": "in_kernel",
+      "open_source": true,
+      "status": "active",
+      "_note": "The kernel's built-in tracer. Because it lives in the kernel, its code is covered by the same measured boot that attests the rest of the platform: the trace of this trace is the kernel measurement itself."
+    },
+    {
+      "id": "linux.ebpf.raw",
+      "title": "Linux eBPF raw event stream",
+      "toolchain": "linux-kernel-ebpf",
+      "os_class": "linux",
+      "layers": ["syscall", "scheduler", "memory", "network", "storage", "inference"],
+      "integrity": "in_kernel",
+      "open_source": true,
+      "status": "active",
+      "_note": "eBPF programs run in-kernel under the verifier; the attached programs' bytecode can itself be hashed into the trace, so an auditor sees exactly what instrumentation produced the stream."
+    },
+    {
+      "id": "zephyr.ctf.v1",
+      "title": "Zephyr Common Trace Format",
+      "toolchain": "zephyr-rtos-ctf",
+      "os_class": "rtos",
+      "layers": ["syscall", "scheduler", "memory"],
+      "integrity": "in_kernel",
+      "open_source": true,
+      "status": "active",
+      "_note": "The RTOS tracer for payload and instrument computers. Built into the Zephyr image, so its integrity rides on the firmware measurement the PSA/DICE attestation already covers."
+    },
+    {
+      "id": "ros2.bag.v2",
+      "title": "ROS 2 rosbag2 recording",
+      "toolchain": "ros2-rosbag2",
+      "os_class": "ros",
+      "layers": ["sensor_bus", "signal"],
+      "integrity": "open_source_userspace",
+      "open_source": true,
+      "status": "active",
+      "_note": "Records the actual messages on a robot's topics: what the sensors emitted and what the stack consumed. Open source and auditable, but a userspace recorder, so its running integrity depends on the platform measurement, not on the recorder alone."
+    },
+    {
+      "id": "android.perfetto.v1",
+      "title": "Perfetto system trace (Android / Linux)",
+      "toolchain": "perfetto",
+      "os_class": "android",
+      "layers": ["syscall", "scheduler", "memory", "storage"],
+      "integrity": "open_source_userspace",
+      "open_source": true,
+      "status": "candidate",
+      "_note": "The Android and Linux system profiler; it multiplexes ftrace and userspace producers. Open source, but the traced daemon is userspace, so it is one measurement step weaker than pure in-kernel ftrace."
+    },
+    {
+      "id": "nvidia.nsys.v1",
+      "title": "NVIDIA Nsight Systems trace",
+      "toolchain": "nvidia-nsight-systems",
+      "os_class": "linux",
+      "layers": ["inference", "memory", "scheduler"],
+      "integrity": "vendor_runtime",
+      "open_source": false,
+      "status": "candidate",
+      "_note": "Captures on-device model execution: which kernels ran on the GPU over which input. A proprietary NVIDIA runtime, so its trust flows from NVIDIA's platform attestation rather than from source you can read; the inference layer it produces is the one a robot's perception stack rests on."
+    },
+    {
+      "id": "apple.os_signpost.v1",
+      "title": "Apple os_signpost / os_log trace",
+      "toolchain": "apple-os-signpost",
+      "os_class": "ios",
+      "layers": ["syscall", "scheduler"],
+      "integrity": "vendor_runtime",
+      "open_source": false,
+      "status": "candidate",
+      "_note": "Apple's signposting trace on iOS/macOS. Proprietary; trusted through the Secure Enclave attestation of the device. Included so the mobile family has a capture path, at the vendor-runtime assurance level."
+    }
+  ]
+}

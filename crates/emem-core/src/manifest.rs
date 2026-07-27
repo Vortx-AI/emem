@@ -46,6 +46,13 @@ pub const MANIFEST_SUBSTRATE_REG: &str = "emem-substrates";
 /// says where an archive's bytes come from; this says which physical
 /// platforms the protocol will believe and how they prove it.
 pub const MANIFEST_DEVICE_PLATFORMS: &str = "emem-device-platforms";
+/// Trace-encodings registry manifest identifier — the capture encodings a
+/// device may name in a trace segment (`linux.ftrace.v1`, `ros2.bag.v2`,
+/// `zephyr.ctf.v1`, ...), the toolchain that produces each, the trace
+/// layers it can capture, and how that tracer's own integrity is
+/// established. The "trace of the trace": the device-side analogue of the
+/// algorithms registry.
+pub const MANIFEST_TRACE_ENCODINGS: &str = "emem-trace-encodings";
 
 /// Errors that can occur loading or validating a manifest.
 #[derive(Debug, thiserror::Error)]

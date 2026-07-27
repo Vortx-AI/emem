@@ -225,13 +225,20 @@ impl TraceGate {
             endorsed_by: report.endorsed_by.clone(),
         };
         self.write_enrollment(pubkey_b32, &record)?;
-        // Persist the evidence so an attested enrolment is auditable later.
+        // Persist the evidence so an attested enrolment is auditable later,
+        // under both the device key (evidence_of) and the attestation CID
+        // (get_attestation, so an emem:attestation: token resolves).
         let mut buf = Vec::new();
         ciborium::ser::into_writer(attestation, &mut buf)
             .map_err(|e| StorageError::Cbor(e.to_string()))?;
         self.evidence
-            .insert(pubkey_b32.as_bytes(), buf)
+            .insert(pubkey_b32.as_bytes(), buf.clone())
             .map_err(sled_err)?;
+        if let Some(cid) = attestation.attestation_cid() {
+            self.evidence
+                .insert(cid.as_bytes(), buf)
+                .map_err(sled_err)?;
+        }
         self.evidence.flush().map_err(sled_err)?;
         Ok(record)
     }
@@ -272,6 +279,17 @@ impl TraceGate {
         ciborium::de::from_reader(v.as_ref()).ok()
     }
 
+    /// Resolve a stored platform attestation by its content ID — what an
+    /// `emem:attestation:` token names.
+    pub fn get_attestation(&self, attestation_cid: &str) -> Option<PlatformAttestation> {
+        let v = self
+            .evidence
+            .get(attestation_cid.as_bytes())
+            .ok()
+            .flatten()?;
+        ciborium::de::from_reader(v.as_ref()).ok()
+    }
+
     /// The profile an attester key is enrolled under, if any.
     pub fn profile_of(&self, pubkey_b32: &str) -> Option<String> {
         self.enrollment_of(pubkey_b32).map(|r| r.profile_id)
@@ -287,9 +305,10 @@ impl TraceGate {
         trace: Option<&OsTrace>,
     ) -> Result<Option<SubstrateProfile>, StorageError> {
         let pubkey_b32 = render_key(&att.attester.0);
-        let Some(profile_id) = self.profile_of(&pubkey_b32) else {
+        let Some(enrollment) = self.enrollment_of(&pubkey_b32) else {
             return Ok(None);
         };
+        let profile_id = enrollment.profile_id.clone();
         let registry = &*emem_core::substrates::DEFAULT;
         let profile = registry.lookup(&profile_id).ok_or_else(|| {
             StorageError::AttestationInvalid(format!(
@@ -315,6 +334,37 @@ impl TraceGate {
                 "os_trace gate: trace rejected: {}",
                 reasons.join("; ")
             )));
+        }
+        // Every segment's capture encoding must be a registered encoding
+        // (the "trace of the trace": an unknown tracer is not admissible
+        // evidence). For a platform-attested enrolment, the encoding must
+        // additionally be one the enrolled platform is whitelisted to emit,
+        // which binds device-platforms -> trace-encodings -> the trace.
+        // Layer-consistency (an encoding producing only the layers it can
+        // capture) is available in the registry but not yet enforced here,
+        // pending encodings for the energy and thermal layers.
+        let enc_registry = &*emem_core::trace_encodings::DEFAULT;
+        let platform = enrollment
+            .platform_id
+            .as_deref()
+            .and_then(|id| emem_core::device_platforms::DEFAULT.lookup(id));
+        for seg in &trace.segments {
+            if !enc_registry.recognizes(&seg.encoding) {
+                return Err(StorageError::AttestationInvalid(format!(
+                    "os_trace gate: segment {} names unregistered capture encoding {}; \
+                     GET /v1/trace_encodings lists the vocabulary",
+                    seg.seq, seg.encoding
+                )));
+            }
+            if let Some(platform) = platform {
+                if !platform.recognizes_encoding(&seg.encoding) {
+                    return Err(StorageError::AttestationInvalid(format!(
+                        "os_trace gate: platform {} does not emit encoding {}; segment {} is \
+                         outside the platform's recognized encodings",
+                        platform.id, seg.encoding, seg.seq
+                    )));
+                }
+            }
         }
         // An enrolled device writes traced primary observations, and
         // nothing else. Derivative facts, absences, and edges are
