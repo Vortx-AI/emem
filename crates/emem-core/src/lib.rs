@@ -26,6 +26,7 @@ pub mod algorithms;
 pub mod bands;
 pub mod bbox;
 pub mod cell;
+pub mod device_platforms;
 pub mod error;
 pub mod functions;
 pub mod key;

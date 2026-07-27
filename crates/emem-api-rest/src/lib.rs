@@ -1138,6 +1138,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/data_availability", get(data_availability))
         .route("/v1/fleet", get(fleet))
         .route("/v1/substrates", get(substrates_registry))
+        .route("/v1/device_platforms", get(device_platforms_registry))
         .route("/v1/trace_verify", post(post_trace_verify))
         .route("/v1/coverage_matrix", get(coverage_matrix))
         .route("/v1/functions", get(functions))
@@ -1894,6 +1895,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/v1/functions"
         | "/v1/sources"
         | "/v1/substrates"
+        | "/v1/device_platforms"
         | "/v1/manifests"
         | "/v1/capabilities"
         | "/v1/errors"
@@ -6618,6 +6620,26 @@ async fn substrates_registry() -> Json<JsonValue> {
     }))
 }
 
+/// GET /v1/device_platforms — the device-platform whitelist: which
+/// hardware platforms may enroll a key under a trace-admitted substrate
+/// and the root-of-trust evidence (TCG DICE, IEEE 802.1AR DevID, TPM 2.0
+/// quote, Arm PSA / EAT) that turns a self-minted key into an attested
+/// device identity. The device-side analogue of /v1/sources: it names
+/// which physical platforms the protocol will believe and how they prove
+/// it, following the IETF RATS architecture (a trust anchor is an
+/// Endorsement for a platform class; reference values, roadmap, endorse a
+/// specific device). Every entry is candidate and every anchor
+/// provisional until a published vendor anchor is pinned. The manifest
+/// CID lets an enrollment pin the exact whitelist it was made under.
+async fn device_platforms_registry() -> Json<JsonValue> {
+    let reg = &*emem_core::device_platforms::DEFAULT;
+    Json(json!({
+        "schema": "emem.device_platforms.v1",
+        "manifest_cid": emem_core::manifest_cid(reg).unwrap_or_default(),
+        "registry": serde_json::to_value(reg).unwrap_or(JsonValue::Null),
+    }))
+}
+
 /// POST /v1/trace_verify — stateless verification of an
 /// `emem.os_trace.v1` record against a substrate profile. Mirrors
 /// /v1/verify_receipt's contract: a structurally-parseable request is
@@ -7353,6 +7375,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "terms":            "/terms",
             "fleet":            "/v1/fleet",
             "substrates":       "/v1/substrates",
+            "device_platforms": "/v1/device_platforms",
             "trace_verify":     "/v1/trace_verify",
             "coverage_matrix":  "/v1/coverage_matrix",
             "materializers":    "/v1/materializers",
@@ -19791,6 +19814,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
             "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
+            "/v1/device_platforms":  {"get":{"summary":"device-platform whitelist: which hardware platforms may enroll a trace-admitted key and the root-of-trust evidence (TCG DICE, IEEE 802.1AR DevID, TPM 2.0 quote, Arm PSA/EAT) each presents; a trust anchor is a RATS Endorsement for a platform class; content-addressed by manifest CID","operationId":"emem_device_platforms","responses":{"200":json_ok}}},
             "/v1/trace_verify":      {"post":{"summary":"stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, window, layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device ed25519 signature. Always 200 for parseable JSON; the verdict plus every failed check is the payload.","operationId":"emem_trace_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["trace","profile"],"properties":{"trace":{"type":"object","description":"the emem.os_trace.v1 record"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"claimed_payload_digest":{"type":"string","description":"optional output digest to check binding for"}}}}}},"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},

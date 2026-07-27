@@ -38,6 +38,14 @@ pub const MANIFEST_TOPIC_REG: &str = "emem-topics";
 /// execution trace, or recomputability from a cited open archive) and
 /// the trace layers that rule requires.
 pub const MANIFEST_SUBSTRATE_REG: &str = "emem-substrates";
+/// Device-platform whitelist manifest identifier — which hardware
+/// platforms may enrol a key under a trace-admitted substrate, and the
+/// root-of-trust evidence (TCG DICE, IEEE 802.1AR DevID, TPM 2.0 quote,
+/// Arm PSA / EAT) that turns a self-minted key into an attested device
+/// identity. The device-side analogue of the sources registry: sources
+/// says where an archive's bytes come from; this says which physical
+/// platforms the protocol will believe and how they prove it.
+pub const MANIFEST_DEVICE_PLATFORMS: &str = "emem-device-platforms";
 
 /// Errors that can occur loading or validating a manifest.
 #[derive(Debug, thiserror::Error)]

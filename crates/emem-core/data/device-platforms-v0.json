@@ -1,0 +1,99 @@
+{
+  "manifest": "emem-device-platforms",
+  "version": "v0",
+  "_note": "The device-platform whitelist: which hardware platforms may enrol a key under a trace-admitted substrate, and HOW each proves it is a genuine, un-tampered instance of that platform rather than a laptop asserting a string. This is the device-side analogue of the sources registry: sources says where an archive's bytes come from and how to fetch them; this says which physical platforms the protocol will believe and what root-of-trust evidence turns a self-minted ed25519 key into an attested device identity. Grounding: IETF RATS (RFC 9334) roles (Attester -> Evidence -> Verifier appraises vs Endorsements + Reference Values -> Relying Party); EAT (RFC 9711) as the evidence token; TCG DICE and IEEE 802.1AR DevID for layered/birth device identity; TPM 2.0 measured boot for host platforms. A trust_anchor is an Endorsement (a long-lived vendor key that vouches for a platform CLASS); reference_values (roadmap) are the known-good boot measurements that vouch for a specific DEVICE. HONESTY: every platform here is status=candidate and every trust_anchor is provisional=true. We do not yet hold real published vendor anchors, and device ingest is not open. These entries are pinned so device makers and the enrolment gate can be built against a stable shape, exactly as the substrates manifest pins candidate profiles. Placeholder fingerprints are the all-zero digest and are rejected by the enrolment verifier; they whitelist nothing until replaced with a published anchor.",
+  "platforms": [
+    {
+      "id": "nvidia.jetson-orin",
+      "title": "NVIDIA Jetson Orin (AGX / NX / Nano) edge AI module",
+      "vendor": "nvidia",
+      "status": "candidate",
+      "contributor_classes": ["robot", "drone", "industrial_machine", "mobile"],
+      "root_of_trust": "tcg_dice_x509",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {
+          "id": "nvidia.jetson.attestation-ca.v0",
+          "kind": "spki_blake3",
+          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "provisional": true,
+          "_note": "Placeholder for NVIDIA's device-attestation CA. Orin derives a DICE layered identity from an immutable hardware secret; the alias/DeviceID key's certificate chains here. Replace with the published SPKI fingerprint before this platform goes active."
+        }
+      ],
+      "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw", "nvidia.nsys.v1", "ros2.bag.v2"],
+      "reference_values_ref": null,
+      "_note": "The platform the operator most often means by 'my robot/drone can write to emem'. Orin runs Linux under a measured boot with a DICE root of trust, so the device_key is a DICE alias key, not a raw self-minted key: its certificate attests the hardware and the boot layers that produced it. Serves robot/drone/industrial/mobile substrate profiles. On-device model runs are the inference trace layer those profiles can require."
+    },
+    {
+      "id": "tpm2.host",
+      "title": "Linux host with a discrete TPM 2.0 (measured boot + PCR quote)",
+      "vendor": "generic",
+      "status": "candidate",
+      "contributor_classes": ["satellite", "industrial_machine", "fixed_sensor", "cctv"],
+      "root_of_trust": "tpm2_quote",
+      "evidence_format": "tpm2_quote",
+      "device_key_kind": "tpm2_ak",
+      "measured_boot": true,
+      "trust_anchors": [
+        {
+          "id": "tpm2.ek-ca.provisional",
+          "kind": "spki_blake3",
+          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "provisional": true,
+          "_note": "Per-deployment: the operator pins the EK/AK CA of the specific TPM vendor(s) it runs. There is no single global TPM anchor; a deployment adds the anchors for the silicon it actually fields."
+        }
+      ],
+      "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw"],
+      "reference_values_ref": null,
+      "_note": "The ground-segment ingest host and the industrial gateway. Evidence is a TPM 2.0 quote over the boot PCRs signed by an attestation key whose certificate chains to the TPM vendor's EK CA. This is the first-step path a satellite operator uses before the flight computer itself attests: the host that receives the downlink attests its own boot, so the ingest software is measured even when the payload computer cannot yet speak EAT."
+    },
+    {
+      "id": "arm.psa-l2",
+      "title": "Arm PSA Certified L2 device (RTOS / MCU class)",
+      "vendor": "arm-psa",
+      "status": "candidate",
+      "contributor_classes": ["satellite", "telescope", "fixed_sensor", "industrial_machine"],
+      "root_of_trust": "arm_psa",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {
+          "id": "arm.psa.trusted-firmware.provisional",
+          "kind": "spki_blake3",
+          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "provisional": true,
+          "_note": "The signer of the PSA initial attestation token for the device's secure firmware. PSA attestation IS an EAT profile, so this platform slots into the same evidence path as DICE-X509 platforms with a different anchor."
+        }
+      ],
+      "recognized_encodings": ["zephyr.ctf.v1", "linux.ftrace.v1"],
+      "reference_values_ref": null,
+      "_note": "The flight/payload computer and the instrument controller. Small RTOS devices (Zephyr, Trusted Firmware-M) that produce a PSA/EAT initial attestation token rather than a Linux measured boot. Grain and tempo come from the substrate profile, not here; this only certifies the platform is a genuine PSA-Certified part running attested firmware."
+    },
+    {
+      "id": "caliptra.rot",
+      "title": "Caliptra (OCP) DICE root of trust",
+      "vendor": "ocp-caliptra",
+      "status": "candidate",
+      "contributor_classes": ["industrial_machine", "satellite"],
+      "root_of_trust": "caliptra",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {
+          "id": "caliptra.vendor-anchor.provisional",
+          "kind": "spki_blake3",
+          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "provisional": true,
+          "_note": "Caliptra is an open, silicon-level DICE RoT; the anchor is the integrator's provisioning CA. Open silicon means the measurement reference values can themselves be published and audited, which is the strongest end of this registry."
+        }
+      ],
+      "recognized_encodings": ["linux.ebpf.raw", "linux.ftrace.v1"],
+      "reference_values_ref": null,
+      "_note": "The datacenter and industrial-controller end: an open-source, silicon-level DICE root of trust. Included because its reference values are auditable rather than vendor-proprietary, so a third party can check not just that the anchor signed the evidence but that the measured firmware matches published known-good values."
+    }
+  ]
+}
