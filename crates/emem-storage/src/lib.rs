@@ -2462,6 +2462,17 @@ mod trace_gate_tests {
 
     /// A robot.fleet.v1 trace whose emitted output binds `payload`.
     fn mk_trace(sk: &SigningKey, payload_digest: &str) -> OsTrace {
+        mk_trace_chained(sk, payload_digest, None, 1_000)
+    }
+
+    /// Like `mk_trace` but links `prev` (the previous window's trace CID)
+    /// and takes a distinct window start so consecutive windows differ.
+    fn mk_trace_chained(
+        sk: &SigningKey,
+        payload_digest: &str,
+        prev: Option<String>,
+        window_start: u64,
+    ) -> OsTrace {
         let layers = [
             TraceLayerKind::Syscall,
             TraceLayerKind::Scheduler,
@@ -2477,8 +2488,8 @@ mod trace_gate_tests {
             .map(|(i, l)| TraceSegment {
                 layer: *l,
                 seq: 0,
-                clock_start_ns: 1_000 + i as u64,
-                clock_end_ns: 9_000,
+                clock_start_ns: window_start + i as u64,
+                clock_end_ns: window_start + 9_000,
                 event_count: 7,
                 log_digest: data_encoding::BASE32_NOPAD
                     .encode(blake3::hash(format!("log {i}").as_bytes()).as_bytes())
@@ -2487,7 +2498,7 @@ mod trace_gate_tests {
                 encoding: enc_for_layer(*l).into(),
             })
             .collect();
-        OsTrace::build_and_sign_v1(
+        OsTrace::build_and_sign_chained_v1(
             DeviceIdentity {
                 device_key: AttesterKey(sk.verifying_key().to_bytes()),
                 key_epoch: KeyEpoch(0),
@@ -2497,15 +2508,16 @@ mod trace_gate_tests {
                 kernel: "6.8.0-tegra".into(),
                 boot_id: "b7c1e2d3".into(),
             },
-            1_000,
-            10_000,
+            window_start,
+            window_start + 10_000,
             segments,
             vec![EmittedOutput {
                 payload_digest: payload_digest.into(),
                 band: Some("indices.ndvi".into()),
-                emitted_at_ns: 8_500,
+                emitted_at_ns: window_start + 8_500,
                 layer: TraceLayerKind::SensorBus,
             }],
+            prev,
             sk,
         )
         .expect("build trace")
@@ -2760,13 +2772,9 @@ mod trace_gate_tests {
             Fact::Primary(p) => emem_trace::payload_digest_of_value(&p.value).unwrap(),
             _ => unreachable!(),
         };
-        // Registered encoding admits; unregistered one is refused.
-        let good = mk_trace_enc(&sk, &payload, "linux.ftrace.v1");
-        storage
-            .put_attestation_gated(&att, Some(&good))
-            .await
-            .expect("registered encoding admits");
-
+        // Rejections first, while the device has no stream head yet (a
+        // rejected trace never advances it), so each is evaluated on the
+        // encoding, not on chain continuity.
         let bad = mk_trace_enc(&sk, &payload, "totally.made.up.v9");
         let err = storage
             .put_attestation_gated(&att, Some(&bad))
@@ -2786,6 +2794,80 @@ mod trace_gate_tests {
             .await
             .expect_err("encoding-layer mismatch must be refused");
         assert!(err.to_string().contains("cannot capture"), "{err}");
+
+        // A registered, layer-consistent encoding admits.
+        let good = mk_trace_enc(&sk, &payload, "linux.ftrace.v1");
+        storage
+            .put_attestation_gated(&att, Some(&good))
+            .await
+            .expect("registered encoding admits");
+    }
+
+    #[tokio::test]
+    async fn device_trace_stream_must_chain() {
+        // Streaming: consecutive per-window traces from a device form a
+        // chain the gate enforces. The first has no prev; each next must
+        // name the previous; a gap or a wrong link is refused.
+        let storage = ephemeral();
+        let gate = storage.trace_gate.as_ref().expect("gate").clone();
+        let mut sec = [0u8; 32];
+        sec[0] = 31;
+        let sk = SigningKey::from_bytes(&sec);
+        let pk = sk.verifying_key().to_bytes();
+        let pk_b32 = data_encoding::BASE32_NOPAD.encode(&pk).to_lowercase();
+        gate.enroll(&pk_b32, "robot.fleet.v1").expect("enroll");
+
+        let fact = mk_fact(0.42, pk);
+        let att = build_signed(vec![fact.clone()], sec);
+        let payload = match &fact {
+            Fact::Primary(p) => emem_trace::payload_digest_of_value(&p.value).unwrap(),
+            _ => unreachable!(),
+        };
+
+        // Window 0: the stream head (no prev). Admitted; advances the head.
+        let a = mk_trace_chained(&sk, &payload, None, 1_000);
+        let (_c, admitted_a) = storage
+            .put_attestation_gated(&att, Some(&a))
+            .await
+            .expect("head admits");
+        let a_cid = admitted_a.expect("admitted a").trace_cid;
+        assert_eq!(
+            gate.stream_head(&pk_b32, "b7c1e2d3").as_deref(),
+            Some(a_cid.as_str())
+        );
+
+        // Window 1: chains to window 0. Admitted; advances the head.
+        let b = mk_trace_chained(&sk, &payload, Some(a_cid.clone()), 20_000);
+        let (_c, admitted_b) = storage
+            .put_attestation_gated(&att, Some(&b))
+            .await
+            .expect("chained window admits");
+        let b_cid = admitted_b.expect("admitted b").trace_cid;
+        assert_eq!(
+            gate.stream_head(&pk_b32, "b7c1e2d3").as_deref(),
+            Some(b_cid.as_str())
+        );
+
+        // A gap: a fresh head (no prev) after the stream started is refused.
+        let gap = mk_trace_chained(&sk, &payload, None, 30_000);
+        let err = storage
+            .put_attestation_gated(&att, Some(&gap))
+            .await
+            .expect_err("a headless window mid-stream must be refused");
+        assert!(err.to_string().contains("continuity broken"), "{err}");
+
+        // A wrong link: naming a prev that is not the current head is refused.
+        let wrong = mk_trace_chained(&sk, &payload, Some(a_cid.clone()), 40_000);
+        let err = storage
+            .put_attestation_gated(&att, Some(&wrong))
+            .await
+            .expect_err("a wrong prev link must be refused");
+        assert!(err.to_string().contains("continuity broken"), "{err}");
+        // The head did not move on either refusal.
+        assert_eq!(
+            gate.stream_head(&pk_b32, "b7c1e2d3").as_deref(),
+            Some(b_cid.as_str())
+        );
     }
 
     #[tokio::test]

@@ -342,6 +342,10 @@ pub mod os_trace_tag {
     pub const TRACE_ROOT: u8 = 0x05;
     /// Digests of the sensor payloads emitted inside the window.
     pub const OUTPUTS: u8 = 0x06;
+    /// Content ID of the previous trace in this device's stream. Appended
+    /// only when present, so a trace with no predecessor (the stream head)
+    /// hashes byte-identically to a pre-chain trace.
+    pub const PREV_TRACE: u8 = 0x07;
 }
 
 /// Canonical v1 OS-trace preimage digest — the 32 bytes a device's
@@ -349,6 +353,7 @@ pub mod os_trace_tag {
 /// substrate profile, the capture window, the merkle root of the chained
 /// trace segments, and every emitted output digest into one signature,
 /// so no part of the execution evidence can be swapped after signing.
+#[allow(clippy::too_many_arguments)]
 pub fn os_trace_preimage_v1<'a, O>(
     schema: &str,
     device_digest: &[u8; 32],
@@ -357,6 +362,7 @@ pub fn os_trace_preimage_v1<'a, O>(
     window_end_ns: u64,
     trace_root: &[u8; 32],
     output_digests: O,
+    prev_trace_cid: Option<&str>,
 ) -> [u8; 32]
 where
     O: IntoIterator<Item = &'a str>,
@@ -371,6 +377,12 @@ where
     p.seg(os_trace_tag::WINDOW, &window);
     p.seg(os_trace_tag::TRACE_ROOT, trace_root);
     p.seg_list(os_trace_tag::OUTPUTS, output_digests);
+    // Appended only when present: the stream head (no predecessor) hashes
+    // byte-identically to a pre-chain trace, so committed vectors and every
+    // signature minted before chaining stay valid.
+    if let Some(prev) = prev_trace_cid {
+        p.seg(os_trace_tag::PREV_TRACE, prev.as_bytes());
+    }
     p.finalize()
 }
 
@@ -550,6 +562,7 @@ mod tests {
             200,
             &[9u8; 32],
             ["abc", "def"],
+            None,
         );
         // Any moved field changes the digest.
         let other_window = os_trace_preimage_v1(
@@ -560,6 +573,7 @@ mod tests {
             200,
             &[9u8; 32],
             ["abc", "def"],
+            None,
         );
         assert_ne!(base, other_window);
         // Output list boundaries are unambiguous: ["abc","def"] is not
@@ -572,8 +586,22 @@ mod tests {
             200,
             &[9u8; 32],
             ["abcd", "ef"],
+            None,
         );
         assert_ne!(base, shifted);
+        // The stream link is bound: naming a predecessor changes the
+        // digest, and absence (the head) is distinct from any present link.
+        let chained = os_trace_preimage_v1(
+            "emem.os_trace.v1",
+            &[7u8; 32],
+            "robot.fleet.v1",
+            100,
+            200,
+            &[9u8; 32],
+            ["abc", "def"],
+            Some("prevcid"),
+        );
+        assert_ne!(base, chained);
         // And the domain is separated from the attestation preimage.
         assert_ne!(
             base,

@@ -6809,6 +6809,10 @@ async fn post_trace_resolve(
                 "kind": "trace",
                 "resolved": true,
                 "trace_cid": cid,
+                // The predecessor in this device's stream, so a reader can
+                // walk the chain backward token by token.
+                "prev_trace_cid": trace.prev_trace_cid,
+                "prev_trace_token": trace.prev_trace_cid.as_deref().map(emem_trace::trace_token),
                 "trace": serde_json::to_value(&trace).unwrap_or(JsonValue::Null),
                 "reverify": "POST /v1/trace_verify with {trace, profile: trace.device.substrate_profile}",
             })),

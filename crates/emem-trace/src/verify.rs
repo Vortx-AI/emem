@@ -102,6 +102,11 @@ pub enum RejectReason {
         /// The digest the write path claimed.
         payload_digest: String,
     },
+    /// `prev_trace_cid` is present but not a well-formed trace CID. The
+    /// verifier cannot check the predecessor exists (it holds no store);
+    /// the write gate enforces chain continuity. This only checks shape.
+    #[error("prev_trace_cid is not a well-formed trace CID")]
+    PrevTraceMalformed,
     /// The device signature over the preimage does not verify.
     #[error("device signature invalid")]
     SignatureInvalid,
@@ -261,6 +266,15 @@ pub fn verify_os_trace(
             reasons.push(RejectReason::OutputUnbound {
                 payload_digest: claimed.to_string(),
             });
+        }
+    }
+
+    // Stream link: shape-only. A present prev_trace_cid must be a valid
+    // 52-char base32 digest; continuity (does this predecessor exist, is it
+    // this device's latest) is the write gate's job.
+    if let Some(prev) = &trace.prev_trace_cid {
+        if decode_digest(prev).is_none() {
+            reasons.push(RejectReason::PrevTraceMalformed);
         }
     }
 

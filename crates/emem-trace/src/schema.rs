@@ -134,6 +134,14 @@ pub struct OsTrace {
     /// v1 merkle root over the segment digests in chain order,
     /// base32-nopad lowercase.
     pub trace_root: String,
+    /// Content ID of the previous trace in this device's stream, forming a
+    /// verifiable chain across capture windows (a robot or satellite
+    /// streaming continuously). `None` for the first trace (the stream
+    /// head). Bound into the preimage so a window cannot be dropped or
+    /// reordered undetected. Skipped in serialization when `None`, so a
+    /// single-window trace hashes byte-identically to a pre-chain one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_trace_cid: Option<String>,
     /// ed25519 signature by `device.device_key` over
     /// [`emem_attest::os_trace_preimage_v1`].
     pub signature: Signature,
@@ -164,6 +172,7 @@ impl OsTrace {
             self.window_end_ns,
             &root,
             self.outputs.iter().map(|o| o.payload_digest.as_str()),
+            self.prev_trace_cid.as_deref(),
         ))
     }
 
@@ -182,8 +191,34 @@ impl OsTrace {
         device: DeviceIdentity,
         window_start_ns: u64,
         window_end_ns: u64,
+        segments: Vec<TraceSegment>,
+        outputs: Vec<EmittedOutput>,
+        signing: &ed25519_dalek::SigningKey,
+    ) -> Result<Self, TraceBuildError> {
+        Self::build_and_sign_chained_v1(
+            device,
+            window_start_ns,
+            window_end_ns,
+            segments,
+            outputs,
+            None,
+            signing,
+        )
+    }
+
+    /// Build and sign a v1 trace that continues a device's stream: the same
+    /// as [`Self::build_and_sign_v1`] but linking `prev_trace_cid` to the
+    /// previous window's trace, so consecutive windows form a chain a
+    /// reader can walk and the gate can enforce for continuity. Pass `None`
+    /// for the first trace (the stream head).
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_and_sign_chained_v1(
+        device: DeviceIdentity,
+        window_start_ns: u64,
+        window_end_ns: u64,
         mut segments: Vec<TraceSegment>,
         outputs: Vec<EmittedOutput>,
+        prev_trace_cid: Option<String>,
         signing: &ed25519_dalek::SigningKey,
     ) -> Result<Self, TraceBuildError> {
         if segments.is_empty() {
@@ -207,6 +242,7 @@ impl OsTrace {
             segments,
             outputs,
             trace_root: render_digest(&root),
+            prev_trace_cid,
             signature: Signature([0u8; 64]),
         };
         let preimage = trace.preimage()?;

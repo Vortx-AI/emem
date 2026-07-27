@@ -44,6 +44,7 @@ const ENROLLMENT_TREE: &str = "emem.device_enrollment";
 const TRACES_TREE: &str = "emem.os_traces";
 const FACT_TRACE_TREE: &str = "emem.fact_trace";
 const EVIDENCE_TREE: &str = "emem.enrollment_evidence";
+const SESSION_TREE: &str = "emem.trace_session";
 
 /// What backs an enrolment. Stored as canonical CBOR under the device key.
 ///
@@ -97,6 +98,7 @@ pub struct TraceGate {
     traces: Arc<Tree>,
     fact_trace: Arc<Tree>,
     evidence: Arc<Tree>,
+    session: Arc<Tree>,
 }
 
 impl TraceGate {
@@ -107,7 +109,22 @@ impl TraceGate {
             traces: Arc::new(db.open_tree(TRACES_TREE)?),
             fact_trace: Arc::new(db.open_tree(FACT_TRACE_TREE)?),
             evidence: Arc::new(db.open_tree(EVIDENCE_TREE)?),
+            session: Arc::new(db.open_tree(SESSION_TREE)?),
         })
+    }
+
+    /// The CID of a device's most recently admitted trace for a given boot
+    /// — the head of that boot's stream — or `None` if the device has
+    /// written nothing under this boot yet. Keyed by `(device_key, boot_id)`
+    /// so a reboot (a fresh `boot_id` in the signed trace) starts a new
+    /// stream rather than wedging on a head the rebooted device no longer
+    /// remembers.
+    pub fn stream_head(&self, device_key_b32: &str, boot_id: &str) -> Option<String> {
+        self.session
+            .get(session_key(device_key_b32, boot_id).as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|v| String::from_utf8(v.to_vec()).ok())
     }
 
     /// Validate that a profile exists and admits device output by trace.
@@ -322,6 +339,30 @@ impl TraceGate {
                 "os_trace gate: trace device key does not match the attester key".into(),
             ));
         }
+        // Stream continuity: consecutive traces from a device chain via
+        // prev_trace_cid. A device with a stored stream head must present a
+        // trace whose prev_trace_cid equals it; the first trace must carry
+        // no prev. A dropped, duplicated, or reordered window is detected
+        // here at ingest rather than left for a reader to notice.
+        match (
+            self.stream_head(&pubkey_b32, &trace.device.boot_id),
+            trace.prev_trace_cid.as_deref(),
+        ) {
+            (None, None) => {}
+            (Some(head), Some(prev)) if prev == head => {}
+            (Some(head), prev) => {
+                return Err(StorageError::AttestationInvalid(format!(
+                    "os_trace gate: stream continuity broken — this device's stream head is \
+                     {head}, but the trace's prev_trace_cid is {prev:?}"
+                )));
+            }
+            (None, Some(prev)) => {
+                return Err(StorageError::AttestationInvalid(format!(
+                    "os_trace gate: this device has no prior trace, but this one names \
+                     prev_trace_cid {prev}"
+                )));
+            }
+        }
         let report = verify_os_trace(trace, profile, None);
         if report.verdict != Verdict::Admit {
             let reasons: Vec<String> = report.reasons.iter().map(|r| r.to_string()).collect();
@@ -437,8 +478,21 @@ impl TraceGate {
                 .insert(cid.0.as_bytes(), trace_cid.as_bytes())
                 .map_err(sled_err)?;
         }
+        // Advance this boot's stream head so the next window must chain to
+        // this trace.
+        self.session
+            .insert(
+                session_key(
+                    &render_key(&trace.device.device_key.0),
+                    &trace.device.boot_id,
+                )
+                .as_bytes(),
+                trace_cid.as_bytes(),
+            )
+            .map_err(sled_err)?;
         self.traces.flush().map_err(sled_err)?;
         self.fact_trace.flush().map_err(sled_err)?;
+        self.session.flush().map_err(sled_err)?;
         Ok(AdmittedTrace {
             token: emem_trace::trace_token(&trace_cid),
             trace_cid,
@@ -481,6 +535,12 @@ fn decode_key(pubkey_b32: &str) -> Option<AttesterKey> {
         .ok()?;
     let arr: [u8; 32] = bytes.try_into().ok()?;
     Some(AttesterKey(arr))
+}
+
+/// The session tree key for a device's stream under one boot. A NUL joins
+/// the two so distinct `(key, boot)` pairs cannot collide.
+fn session_key(device_key_b32: &str, boot_id: &str) -> String {
+    format!("{device_key_b32}\0{boot_id}")
 }
 
 fn sled_err(e: sled::Error) -> StorageError {

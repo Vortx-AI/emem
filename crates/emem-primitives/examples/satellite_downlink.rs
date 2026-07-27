@@ -234,10 +234,23 @@ fn device(pubkey: [u8; 32]) -> DeviceIdentity {
         device_key: AttesterKey(pubkey),
         key_epoch: KeyEpoch(0),
         substrate_profile: PROFILE.into(),
-        platform: "payload-computer-a53".into(),
-        os: "zephyr-3.7".into(),
-        kernel: "zephyr-3.7.0".into(),
+        platform: "jetson-orin-nx".into(),
+        os: "jetpack-6.0 (ubuntu-22.04)".into(),
+        kernel: "5.15.148-tegra".into(),
         boot_id: "pass-1881-boot".into(),
+    }
+}
+
+/// A registered capture encoding that can produce `layer`. A real payload
+/// trace is multi-source: the kernel tracer for syscalls/scheduling/memory
+/// and storage, the sensor-bus recorder for the instrument and RF path,
+/// and the hardware monitor for power and temperature.
+fn encoding_for(layer: TraceLayerKind) -> &'static str {
+    match layer {
+        TraceLayerKind::SensorBus | TraceLayerKind::Signal => "ros2.bag.v2",
+        TraceLayerKind::Energy | TraceLayerKind::Thermal => "linux.hwmon.v1",
+        TraceLayerKind::Inference => "nvidia.nsys.v1",
+        _ => "linux.ftrace.v1",
     }
 }
 
@@ -252,7 +265,7 @@ fn segment(layer: TraceLayerKind, i: usize, raw: &str) -> TraceSegment {
             .encode(blake3::hash(raw.as_bytes()).as_bytes())
             .to_lowercase(),
         prev_digest: None,
-        encoding: "zephyr.ctf.v1".into(),
+        encoding: encoding_for(layer).into(),
     }
 }
 
