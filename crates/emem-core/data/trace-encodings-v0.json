@@ -26,6 +26,17 @@
       "_note": "eBPF programs run in-kernel under the verifier; the attached programs' bytecode can itself be hashed into the trace, so an auditor sees exactly what instrumentation produced the stream."
     },
     {
+      "id": "linux.hwmon.v1",
+      "title": "Linux hwmon / powercap (thermal + energy telemetry)",
+      "toolchain": "linux-kernel-hwmon",
+      "os_class": "linux",
+      "layers": ["energy", "thermal"],
+      "integrity": "in_kernel",
+      "open_source": true,
+      "status": "active",
+      "_note": "The kernel hardware-monitoring subsystem: on-die and board temperature sensors (thermal zones) and power/current/voltage rails (hwmon + RAPL/powercap). These are the power and thermal tracks a spacecraft or robot is hardest to fabricate consistently, which is why several device profiles require the energy and thermal layers. In-kernel, so covered by the platform's boot measurement."
+    },
+    {
       "id": "zephyr.ctf.v1",
       "title": "Zephyr Common Trace Format",
       "toolchain": "zephyr-rtos-ctf",

@@ -35,7 +35,7 @@ use emem_core::key::{AttesterKey, KeyEpoch};
 use emem_core::substrates::{TraceLayerKind, DEFAULT as SUBSTRATES};
 use emem_fact::{Attestation, Derivation, Fact, PrimaryFact, RegistryCid, SchemaCid, Source};
 use emem_primitives::memory_bundle::{bundle_token, compute_bundle_cid, BundleCitation};
-use emem_storage::MaterializingStorage;
+use emem_storage::{MaterializingStorage, Storage};
 use emem_trace::{
     payload_digest_of_value, verify_os_trace, DeviceIdentity, DriftAnchorCheck, EmittedOutput,
     OsTrace, TraceSegment,

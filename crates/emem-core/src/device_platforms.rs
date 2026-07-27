@@ -123,8 +123,12 @@ pub enum DeviceKeyKind {
 pub struct TrustAnchor {
     /// Stable anchor ID (e.g. `"nvidia.jetson.attestation-ca.v0"`).
     pub id: String,
-    /// How the fingerprint is computed (currently only `"spki_blake3"`:
-    /// blake3 of the anchor's SubjectPublicKeyInfo DER).
+    /// How the fingerprint is computed. The v0 enrolment verifier
+    /// understands `"ed25519_pk_blake3"`: blake3 of the Endorser's raw
+    /// 32-byte ed25519 public key. An anchor declaring any other scheme
+    /// (e.g. a future `"spki_blake3"` over an X.509 SubjectPublicKeyInfo)
+    /// is carried but not matched by the v0 rule, so it cannot admit a
+    /// device under a fingerprint the verifier did not actually compute.
     pub kind: String,
     /// The anchor fingerprint, base32-nopad lowercase. A non-provisional
     /// anchor MUST decode to 32 bytes; a provisional placeholder need not.

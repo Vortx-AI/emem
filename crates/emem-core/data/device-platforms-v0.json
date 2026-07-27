@@ -47,7 +47,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "nvidia.jetson.attestation-ca.v0", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Placeholder for NVIDIA's device-attestation CA. Orin derives a DICE layered identity; the alias/DeviceID cert chains here. Replace with the published SPKI fingerprint before going active."}
+        {"id": "nvidia.jetson.attestation-ca.v0", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Placeholder for NVIDIA's device-attestation CA. Orin derives a DICE layered identity; the alias/DeviceID cert chains here. Replace with the published SPKI fingerprint before going active."}
       ],
       "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw", "nvidia.nsys.v1", "ros2.bag.v2"],
       "reference_values_ref": null,
@@ -65,7 +65,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "nvidia.jetson.attestation-ca.v0", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Same NVIDIA attestation domain as Orin; distinct reference values."}
+        {"id": "nvidia.jetson.attestation-ca.v0", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Same NVIDIA attestation domain as Orin; distinct reference values."}
       ],
       "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw", "nvidia.nsys.v1", "ros2.bag.v2"],
       "reference_values_ref": null,
@@ -83,7 +83,7 @@
       "device_key_kind": "ieee_802_1ar_ldevid",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "qualcomm.attestation-root.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Qualcomm attests via Secure Boot + QTEE with Android hardware key attestation, an X.509 chain to a Qualcomm/Google root. Pin that root here."}
+        {"id": "qualcomm.attestation-root.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Qualcomm attests via Secure Boot + QTEE with Android hardware key attestation, an X.509 chain to a Qualcomm/Google root. Pin that root here."}
       ],
       "recognized_encodings": ["linux.ftrace.v1", "ros2.bag.v2"],
       "reference_values_ref": null,
@@ -101,7 +101,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "rockchip.op-tee.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Arm TrustZone / OP-TEE secure world signer. A PSA-style attestation is only as strong as the firmware provisioning; treat as candidate until measurements are published."}
+        {"id": "rockchip.op-tee.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Arm TrustZone / OP-TEE secure world signer. A PSA-style attestation is only as strong as the firmware provisioning; treat as candidate until measurements are published."}
       ],
       "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw"],
       "reference_values_ref": null,
@@ -119,7 +119,7 @@
       "device_key_kind": "tpm2_ak",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "tpm2.ek-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Per-deployment: the operator pins the EK/AK CA of the TPM vendor(s) it runs. There is no single global TPM anchor."}
+        {"id": "tpm2.ek-ca.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Per-deployment: the operator pins the EK/AK CA of the TPM vendor(s) it runs. There is no single global TPM anchor."}
       ],
       "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw"],
       "reference_values_ref": null,
@@ -137,7 +137,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "intel.dcap.pck-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Intel DCAP PCK certificate root. A TD quote is appraised against this chain plus the TDX module reference values."}
+        {"id": "intel.dcap.pck-ca.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Intel DCAP PCK certificate root. A TD quote is appraised against this chain plus the TDX module reference values."}
       ],
       "recognized_encodings": ["linux.ebpf.raw", "linux.ftrace.v1"],
       "reference_values_ref": null,
@@ -155,7 +155,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "amd.ark-ask.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "AMD ARK/ASK root. A SEV-SNP attestation report is signed by the VCEK, whose certificate chains here."}
+        {"id": "amd.ark-ask.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "AMD ARK/ASK root. A SEV-SNP attestation report is signed by the VCEK, whose certificate chains here."}
       ],
       "recognized_encodings": ["linux.ebpf.raw", "linux.ftrace.v1"],
       "reference_values_ref": null,
@@ -173,7 +173,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "arm.psa.trusted-firmware.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Signer of the PSA initial attestation token for the device's secure firmware. PSA attestation IS an EAT profile."}
+        {"id": "arm.psa.trusted-firmware.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Signer of the PSA initial attestation token for the device's secure firmware. PSA attestation IS an EAT profile."}
       ],
       "recognized_encodings": ["zephyr.ctf.v1", "linux.ftrace.v1"],
       "reference_values_ref": null,
@@ -191,7 +191,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "arm.psa.l3.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "PSA L3 adds physical tamper resistance to the L2 attestation. Same EAT path, higher assurance level."}
+        {"id": "arm.psa.l3.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "PSA L3 adds physical tamper resistance to the L2 attestation. Same EAT path, higher assurance level."}
       ],
       "recognized_encodings": ["zephyr.ctf.v1"],
       "reference_values_ref": null,
@@ -209,7 +209,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "riscv.keystone.sm.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Keystone security-monitor measurement root. Open TEE on open ISA, so the reference values can be published and audited."}
+        {"id": "riscv.keystone.sm.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Keystone security-monitor measurement root. Open TEE on open ISA, so the reference values can be published and audited."}
       ],
       "recognized_encodings": ["zephyr.ctf.v1", "linux.ftrace.v1"],
       "reference_values_ref": null,
@@ -227,7 +227,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "caliptra.vendor-anchor.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Caliptra is an open silicon-level DICE RoT; the anchor is the integrator's provisioning CA. Reference values are auditable."}
+        {"id": "caliptra.vendor-anchor.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Caliptra is an open silicon-level DICE RoT; the anchor is the integrator's provisioning CA. Reference values are auditable."}
       ],
       "recognized_encodings": ["linux.ebpf.raw", "linux.ftrace.v1"],
       "reference_values_ref": null,
@@ -245,7 +245,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "opentitan.provisioning.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "OpenTitan provisioning CA. Open silicon RoT with a DICE-CBOR certificate chain; auditable like Caliptra."}
+        {"id": "opentitan.provisioning.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "OpenTitan provisioning CA. Open silicon RoT with a DICE-CBOR certificate chain; auditable like Caliptra."}
       ],
       "recognized_encodings": ["zephyr.ctf.v1"],
       "reference_values_ref": null,
@@ -263,7 +263,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "nvidia.drive.attestation-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "NVIDIA DRIVE attestation domain, distinct from the Jetson robotics line; automotive safety firmware."}
+        {"id": "nvidia.drive.attestation-ca.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "NVIDIA DRIVE attestation domain, distinct from the Jetson robotics line; automotive safety firmware."}
       ],
       "recognized_encodings": ["ros2.bag.v2", "linux.ftrace.v1", "nvidia.nsys.v1"],
       "reference_values_ref": null,
@@ -281,7 +281,7 @@
       "device_key_kind": "ieee_802_1ar_ldevid",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "qualcomm.ride.attestation-root.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Qualcomm automotive attestation root (X.509 key attestation)."}
+        {"id": "qualcomm.ride.attestation-root.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Qualcomm automotive attestation root (X.509 key attestation)."}
       ],
       "recognized_encodings": ["ros2.bag.v2", "linux.ftrace.v1"],
       "reference_values_ref": null,
@@ -299,7 +299,7 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "apple.attestation-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Apple's app-attest / DeviceCheck attestation root. Keys are Secure-Enclave-bound; the attestation vouches for a genuine, unmodified device."}
+        {"id": "apple.attestation-ca.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Apple's app-attest / DeviceCheck attestation root. Keys are Secure-Enclave-bound; the attestation vouches for a genuine, unmodified device."}
       ],
       "recognized_encodings": ["apple.os_signpost.v1"],
       "reference_values_ref": null,
@@ -317,7 +317,7 @@
       "device_key_kind": "ieee_802_1ar_ldevid",
       "measured_boot": true,
       "trust_anchors": [
-        {"id": "google.hardware-attestation-root.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Google hardware attestation root. A StrongBox key attestation is an X.509 chain to this root that also encodes the verified-boot state."}
+        {"id": "google.hardware-attestation-root.provisional", "kind": "ed25519_pk_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Google hardware attestation root. A StrongBox key attestation is an X.509 chain to this root that also encodes the verified-boot state."}
       ],
       "recognized_encodings": ["android.perfetto.v1", "linux.ftrace.v1"],
       "reference_values_ref": null,

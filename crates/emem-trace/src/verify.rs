@@ -7,7 +7,7 @@
 //! clock or a systematically forged chain. The verdict is Admit only
 //! when the reason list is empty.
 
-use ed25519_dalek::{Verifier, VerifyingKey};
+use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
 use emem_core::substrates::{AdmissionRule, SubstrateProfile, TraceLayerKind};
@@ -269,7 +269,10 @@ pub fn verify_os_trace(
         Ok(preimage) => match VerifyingKey::from_bytes(&trace.device.device_key.0) {
             Ok(vk) => {
                 let sig = ed25519_dalek::Signature::from_bytes(&trace.signature.0);
-                if vk.verify(&preimage, &sig).is_err() {
+                // verify_strict: reject malleable signatures — a malleated
+                // sig would verify yet change trace_cid (blake3 over the
+                // CBOR including the signature), minting a distinct token.
+                if vk.verify_strict(&preimage, &sig).is_err() {
                     reasons.push(RejectReason::SignatureInvalid);
                 }
             }

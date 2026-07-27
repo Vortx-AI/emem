@@ -290,11 +290,6 @@ impl TraceGate {
         ciborium::de::from_reader(v.as_ref()).ok()
     }
 
-    /// The profile an attester key is enrolled under, if any.
-    pub fn profile_of(&self, pubkey_b32: &str) -> Option<String> {
-        self.enrollment_of(pubkey_b32).map(|r| r.profile_id)
-    }
-
     /// Gate an attestation. Returns `Ok(None)` when the attester is not
     /// enrolled (the gate does not apply); `Ok(Some(profile))` with the
     /// enrolled profile when the trace admits; an
@@ -337,23 +332,37 @@ impl TraceGate {
         }
         // Every segment's capture encoding must be a registered encoding
         // (the "trace of the trace": an unknown tracer is not admissible
-        // evidence). For a platform-attested enrolment, the encoding must
-        // additionally be one the enrolled platform is whitelisted to emit,
-        // which binds device-platforms -> trace-encodings -> the trace.
-        // Layer-consistency (an encoding producing only the layers it can
-        // capture) is available in the registry but not yet enforced here,
-        // pending encodings for the energy and thermal layers.
+        // evidence) AND must be able to produce the layer the segment
+        // claims (an encoding that only sees the syscall stream cannot
+        // vouch for a thermal reading). For a platform-attested enrolment,
+        // the encoding must additionally be one the enrolled platform is
+        // whitelisted to emit, binding device-platforms -> trace-encodings
+        // -> the trace.
         let enc_registry = &*emem_core::trace_encodings::DEFAULT;
-        let platform = enrollment
-            .platform_id
-            .as_deref()
-            .and_then(|id| emem_core::device_platforms::DEFAULT.lookup(id));
+        // A recorded platform that has since left the manifest is an error,
+        // not a silent downgrade of the encoding check (mirrors the
+        // profile-missing case above).
+        let platform = match enrollment.platform_id.as_deref() {
+            Some(id) => Some(emem_core::device_platforms::DEFAULT.lookup(id).ok_or_else(|| {
+                StorageError::AttestationInvalid(format!(
+                    "os_trace gate: enrolled platform {id} no longer in the device-platforms manifest"
+                ))
+            })?),
+            None => None,
+        };
         for seg in &trace.segments {
-            if !enc_registry.recognizes(&seg.encoding) {
+            let Some(enc) = enc_registry.lookup(&seg.encoding) else {
                 return Err(StorageError::AttestationInvalid(format!(
                     "os_trace gate: segment {} names unregistered capture encoding {}; \
                      GET /v1/trace_encodings lists the vocabulary",
                     seg.seq, seg.encoding
+                )));
+            };
+            if !enc.can_capture(seg.layer) {
+                return Err(StorageError::AttestationInvalid(format!(
+                    "os_trace gate: encoding {} cannot capture the {:?} layer that segment {} \
+                     claims; a tracer cannot vouch for a layer it does not produce",
+                    seg.encoding, seg.layer, seg.seq
                 )));
             }
             if let Some(platform) = platform {
@@ -476,4 +485,51 @@ fn decode_key(pubkey_b32: &str) -> Option<AttesterKey> {
 
 fn sled_err(e: sled::Error) -> StorageError {
     StorageError::Io(std::io::Error::other(e))
+}
+
+#[cfg(test)]
+mod enrollment_record_tests {
+    use super::*;
+
+    fn temp_gate() -> TraceGate {
+        let db = sled::Config::new()
+            .temporary(true)
+            .open()
+            .expect("temp sled");
+        TraceGate::open(&db).expect("gate")
+    }
+
+    #[test]
+    fn legacy_bare_profile_id_enrollment_still_resolves() {
+        // A pre-EnrollmentRecord entry was the bare profile ID as raw
+        // UTF-8. enrollment_of() must fall back to that shape (a CBOR text
+        // string is not a map, so the struct decode fails first).
+        let gate = temp_gate();
+        gate.enrollment
+            .insert(b"legacykey".as_slice(), b"robot.fleet.v1".as_slice())
+            .expect("insert legacy");
+        let rec = gate.enrollment_of("legacykey").expect("legacy resolves");
+        assert_eq!(rec.profile_id, "robot.fleet.v1");
+        assert_eq!(rec.platform_id, None);
+        assert_eq!(rec.assurance(), "operator_asserted");
+    }
+
+    #[test]
+    fn new_cbor_enrollment_round_trips_and_is_operator_asserted() {
+        let gate = temp_gate();
+        gate.enroll("newkey", "robot.fleet.v1").expect("enroll");
+        let rec = gate.enrollment_of("newkey").expect("resolves");
+        assert_eq!(rec.profile_id, "robot.fleet.v1");
+        assert_eq!(rec.platform_id, None);
+        assert_eq!(rec.assurance(), "operator_asserted");
+    }
+
+    #[test]
+    fn revoke_clears_the_enrollment() {
+        let gate = temp_gate();
+        gate.enroll("k", "robot.fleet.v1").expect("enroll");
+        assert!(gate.enrollment_of("k").is_some());
+        gate.revoke("k").expect("revoke");
+        assert!(gate.enrollment_of("k").is_none());
+    }
 }

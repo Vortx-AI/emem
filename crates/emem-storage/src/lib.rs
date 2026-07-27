@@ -310,6 +310,34 @@ pub trait Storage: Send + Sync {
         None
     }
 
+    /// The trace-gated write path: for an enrolled device key the
+    /// attestation must arrive with its OS execution trace, which must
+    /// verify against the enrolled profile with every fact's payload bound
+    /// in it. For a key that was never enrolled this is exactly
+    /// [`Storage::put_attestation`], so the gate cannot break an existing
+    /// writer. Backends without a gate get the default: ungated, `None`.
+    async fn put_attestation_gated(
+        &self,
+        att: &Attestation,
+        _trace: Option<&emem_trace::OsTrace>,
+    ) -> Result<(Vec<FactCid>, Option<trace_gate::AdmittedTrace>), StorageError> {
+        Ok((self.put_attestation(att).await?, None))
+    }
+
+    /// Enrol a device key by presenting its platform attestation. Default:
+    /// unsupported (no gate). See [`trace_gate::TraceGate::enroll_attested`].
+    fn gate_enroll_attested(
+        &self,
+        _pubkey_b32: &str,
+        _profile_id: &str,
+        _platform_id: &str,
+        _attestation: &emem_trace::PlatformAttestation,
+    ) -> Result<trace_gate::EnrollmentRecord, StorageError> {
+        Err(StorageError::AttestationInvalid(
+            "os_trace enrolment is not supported by this storage backend".into(),
+        ))
+    }
+
     /// Lazy materialization entry point: ensure facts exist for these keys,
     /// fetching + computing + attesting on miss. Returns the resolved CIDs
     /// in the same order as inputs.
@@ -638,40 +666,23 @@ impl MaterializingStorage {
         })
     }
 
-    /// Trace-gated sibling of [`Storage::put_attestation`]: the write
-    /// path every device substrate goes through
-    /// (`docs/plans/encoder-substrates.md`, wiring step 2).
-    ///
-    /// For an attester key enrolled in the
-    /// [`trace_gate::TraceGate`], the attestation must arrive with the
-    /// device's OS execution trace, the trace must verify against the
-    /// enrolled substrate profile, and every primary fact must be an
-    /// output the execution emitted; anything less rejects before a
-    /// byte is stored. For a key that was never enrolled (the founding
-    /// archive writers, every pre-existing attester) this is exactly
-    /// `put_attestation`, so the gate cannot break an existing writer.
-    ///
-    /// On an admitted trace the record is persisted by its `trace_cid`,
-    /// each stored fact gains an audit edge to it, and the returned
-    /// [`trace_gate::AdmittedTrace`] carries the resolvable
-    /// `emem:trace:` token.
-    pub async fn put_attestation_gated(
+    /// Enrol a device key by presenting its platform attestation. Thin
+    /// wrapper over [`trace_gate::TraceGate::enroll_attested`] so the trait
+    /// method (and thus a REST handler) can reach it; errors if this
+    /// storage has no gate. Self-service: the attestation must endorse the
+    /// key and be signed by a whitelisted anchor, so a caller cannot enrol
+    /// a key it has no valid evidence for.
+    pub fn enroll_attested_device(
         &self,
-        att: &Attestation,
-        trace: Option<&emem_trace::OsTrace>,
-    ) -> Result<(Vec<FactCid>, Option<trace_gate::AdmittedTrace>), StorageError> {
-        let admitted_profile = match &self.trace_gate {
-            Some(gate) => gate.check(att, trace)?,
-            None => None,
-        };
-        let cids = self.put_attestation(att).await?;
-        let admitted = match (admitted_profile, trace, &self.trace_gate) {
-            (Some(profile), Some(trace), Some(gate)) => {
-                Some(gate.persist(trace, &cids, &profile.id)?)
-            }
-            _ => None,
-        };
-        Ok((cids, admitted))
+        pubkey_b32: &str,
+        profile_id: &str,
+        platform_id: &str,
+        attestation: &emem_trace::PlatformAttestation,
+    ) -> Result<trace_gate::EnrollmentRecord, StorageError> {
+        let gate = self.trace_gate.as_ref().ok_or_else(|| {
+            StorageError::AttestationInvalid("os_trace gate is not enabled on this storage".into())
+        })?;
+        gate.enroll_attested(pubkey_b32, profile_id, platform_id, attestation)
     }
 }
 
@@ -697,6 +708,35 @@ impl Storage for MaterializingStorage {
         attestation_cid: &str,
     ) -> Option<emem_trace::PlatformAttestation> {
         self.trace_gate.as_ref()?.get_attestation(attestation_cid)
+    }
+
+    async fn put_attestation_gated(
+        &self,
+        att: &Attestation,
+        trace: Option<&emem_trace::OsTrace>,
+    ) -> Result<(Vec<FactCid>, Option<trace_gate::AdmittedTrace>), StorageError> {
+        let admitted_profile = match &self.trace_gate {
+            Some(gate) => gate.check(att, trace)?,
+            None => None,
+        };
+        let cids = self.put_attestation(att).await?;
+        let admitted = match (admitted_profile, trace, &self.trace_gate) {
+            (Some(profile), Some(trace), Some(gate)) => {
+                Some(gate.persist(trace, &cids, &profile.id)?)
+            }
+            _ => None,
+        };
+        Ok((cids, admitted))
+    }
+
+    fn gate_enroll_attested(
+        &self,
+        pubkey_b32: &str,
+        profile_id: &str,
+        platform_id: &str,
+        attestation: &emem_trace::PlatformAttestation,
+    ) -> Result<trace_gate::EnrollmentRecord, StorageError> {
+        self.enroll_attested_device(pubkey_b32, profile_id, platform_id, attestation)
     }
 
     async fn lookup_canonical_many(
@@ -2409,6 +2449,17 @@ mod trace_gate_tests {
         }
     }
 
+    /// A registered encoding that can capture `layer` — so a fixture trace
+    /// passes the gate's layer-consistency check.
+    fn enc_for_layer(layer: TraceLayerKind) -> &'static str {
+        match layer {
+            TraceLayerKind::SensorBus | TraceLayerKind::Signal => "ros2.bag.v2",
+            TraceLayerKind::Energy | TraceLayerKind::Thermal => "linux.hwmon.v1",
+            TraceLayerKind::Inference => "nvidia.nsys.v1",
+            _ => "linux.ftrace.v1",
+        }
+    }
+
     /// A robot.fleet.v1 trace whose emitted output binds `payload`.
     fn mk_trace(sk: &SigningKey, payload_digest: &str) -> OsTrace {
         let layers = [
@@ -2433,7 +2484,7 @@ mod trace_gate_tests {
                     .encode(blake3::hash(format!("log {i}").as_bytes()).as_bytes())
                     .to_lowercase(),
                 prev_digest: None,
-                encoding: "linux.ftrace.v1".into(),
+                encoding: enc_for_layer(*l).into(),
             })
             .collect();
         OsTrace::build_and_sign_v1(
@@ -2654,7 +2705,14 @@ mod trace_gate_tests {
                     .encode(blake3::hash(format!("log {i}").as_bytes()).as_bytes())
                     .to_lowercase(),
                 prev_digest: None,
-                encoding: encoding.into(),
+                // First segment carries the encoding under test; the rest
+                // use a per-layer valid encoding so only the injected one
+                // is exercised against the gate.
+                encoding: if i == 0 {
+                    encoding.into()
+                } else {
+                    enc_for_layer(*l).into()
+                },
             })
             .collect();
         OsTrace::build_and_sign_v1(
@@ -2718,6 +2776,16 @@ mod trace_gate_tests {
             err.to_string().contains("unregistered capture encoding"),
             "{err}"
         );
+
+        // A registered encoding used for a layer it cannot produce is also
+        // refused: the first (Syscall) segment gets hwmon, which only
+        // captures energy/thermal.
+        let wrong_layer = mk_trace_enc(&sk, &payload, "linux.hwmon.v1");
+        let err = storage
+            .put_attestation_gated(&att, Some(&wrong_layer))
+            .await
+            .expect_err("encoding-layer mismatch must be refused");
+        assert!(err.to_string().contains("cannot capture"), "{err}");
     }
 
     #[tokio::test]

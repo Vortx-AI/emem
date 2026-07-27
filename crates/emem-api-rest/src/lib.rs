@@ -1321,7 +1321,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/verify", post(post_verify))
         .route("/v1/intent", post(post_intent))
         .route("/v1/attest", post(post_attest))
+        .route("/v1/attest_traced", post(post_attest_traced))
         .route("/v1/attest_cbor", post(post_attest_cbor))
+        .route("/v1/enroll_attested", post(post_enroll_attested))
         .route("/v1/verify_receipt", post(post_verify_receipt))
         .route("/v1/verifier_spec", get(verifier_spec))
         .route("/.well-known/emem-verifier.json", get(verifier_spec))
@@ -5295,6 +5297,9 @@ async fn well_known(State(s): State<AppState>) -> Response {
             "schema_cid": s.manifests.schema_cid.as_str(),
             "algorithms_cid": ALGORITHMS_CID.clone(),
             "topics_cid": TOPICS_CID.clone(),
+            "substrates_cid": emem_core::manifest_cid(&*emem_core::substrates::DEFAULT).ok(),
+            "device_platforms_cid": emem_core::manifest_cid(&*emem_core::device_platforms::DEFAULT).ok(),
+            "trace_encodings_cid": emem_core::manifest_cid(&*emem_core::trace_encodings::DEFAULT).ok(),
         },
         "responder": {
             "pubkey_b32": pubkey_b32,
@@ -5379,6 +5384,11 @@ async fn manifests(State(s): State<AppState>) -> Json<JsonValue> {
         "schema_cid":    s.manifests.schema_cid.as_str(),
         "algorithms_cid": algorithms_cid,
         "topics_cid":    topics_cid,
+        // The substrate family: how each contributor class is admitted, the
+        // device-platform whitelist, and the capture-encoding vocabulary.
+        "substrates_cid": emem_core::manifest_cid(&*emem_core::substrates::DEFAULT).ok(),
+        "device_platforms_cid": emem_core::manifest_cid(&*emem_core::device_platforms::DEFAULT).ok(),
+        "trace_encodings_cid": emem_core::manifest_cid(&*emem_core::trace_encodings::DEFAULT).ok(),
     }))
 }
 
@@ -7533,6 +7543,8 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "trace_encodings":  "/v1/trace_encodings",
             "trace_verify":     "/v1/trace_verify",
             "enroll_verify":    "/v1/enroll_verify",
+            "enroll_attested":  "/v1/enroll_attested",
+            "attest_traced":    "/v1/attest_traced",
             "trace_resolve":    "/v1/trace_resolve",
             "coverage_matrix":  "/v1/coverage_matrix",
             "materializers":    "/v1/materializers",
@@ -14687,8 +14699,13 @@ async fn post_attest(
     State(s): State<AppState>,
     EmemJson(att): EmemJson<Attestation>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    match s.storage.put_attestation(&att).await {
-        Ok(cids) => {
+    // Routed through the trace gate: identical to put_attestation for any
+    // key that was never enrolled (the archive writers and every existing
+    // attester), but an enrolled device key with no trace is rejected here
+    // and must use /v1/attest_traced. This is where the gate becomes
+    // enforcement rather than doctrine.
+    match s.storage.put_attestation_gated(&att, None).await {
+        Ok((cids, _admitted)) => {
             metrics_inc(&ATTEST_TOTAL);
             let cid_strs: Vec<&str> = cids.iter().map(|c| c.as_str()).collect();
             Ok(Json(json!({ "cids": cid_strs, "count": cids.len() })))
@@ -14697,6 +14714,116 @@ async fn post_attest(
             metrics_inc(&ATTEST_FAIL_TOTAL);
             Err(ApiError::from(e))
         }
+    }
+}
+
+/// POST /v1/attest_traced — the device write path: an enrolled device key
+/// submits its attestation together with the OS execution trace that
+/// produced the facts. Body: `{attestation: <Attestation>, trace:
+/// <emem.os_trace.v1>}`. The gate verifies the trace against the enrolled
+/// profile, binds every fact's payload to an emitted output, checks the
+/// capture encodings, and on admit persists the trace and returns its
+/// `emem:trace:` token. An un-enrolled key may also use this endpoint; its
+/// trace is simply ignored (identical to /v1/attest).
+async fn post_attest_traced(
+    State(s): State<AppState>,
+    Json(req): Json<JsonValue>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let att: Attestation =
+        serde_json::from_value(req.get("attestation").cloned().unwrap_or(JsonValue::Null))
+            .map_err(|e| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::CanonicalEncodingDivergence,
+                        message: format!("attestation does not parse: {e}"),
+                        details: None,
+                    },
+                )
+            })?;
+    let trace: Option<emem_trace::OsTrace> = match req.get("trace") {
+        Some(JsonValue::Null) | None => None,
+        Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::CanonicalEncodingDivergence,
+                    message: format!("trace does not parse as emem.os_trace.v1: {e}"),
+                    details: None,
+                },
+            )
+        })?),
+    };
+    match s.storage.put_attestation_gated(&att, trace.as_ref()).await {
+        Ok((cids, admitted)) => {
+            metrics_inc(&ATTEST_TOTAL);
+            let cid_strs: Vec<&str> = cids.iter().map(|c| c.as_str()).collect();
+            Ok(Json(json!({
+                "cids": cid_strs,
+                "count": cids.len(),
+                "trace_token": admitted.as_ref().map(|a| a.token.clone()),
+                "trace_cid": admitted.as_ref().map(|a| a.trace_cid.clone()),
+            })))
+        }
+        Err(e) => {
+            metrics_inc(&ATTEST_FAIL_TOTAL);
+            Err(ApiError::from(e))
+        }
+    }
+}
+
+/// POST /v1/enroll_attested — enrol a device key by presenting its
+/// platform attestation. Body: `{device_key, profile, platform,
+/// attestation}`. Self-service: the attestation must endorse `device_key`
+/// and be signed by a whitelisted anchor, so a caller cannot enrol a key
+/// it has no valid evidence for. Because every anchor shipped is
+/// provisional, this currently returns the gate's rejection for every
+/// call — the intended no-new-admissions state. On success returns the
+/// enrolment record with its assurance level.
+async fn post_enroll_attested(
+    State(s): State<AppState>,
+    Json(req): Json<JsonValue>,
+) -> Json<JsonValue> {
+    let device_key = req
+        .get("device_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let profile = req
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let platform = req
+        .get("platform")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    let att: emem_trace::PlatformAttestation =
+        match serde_json::from_value(req.get("attestation").cloned().unwrap_or(JsonValue::Null)) {
+            Ok(a) => a,
+            Err(e) => {
+                return Json(json!({
+                    "schema": "emem.enroll_attested.v1",
+                    "enrolled": false,
+                    "error": format!("attestation does not parse: {e}"),
+                }));
+            }
+        };
+    match s
+        .storage
+        .gate_enroll_attested(device_key, profile, platform, &att)
+    {
+        Ok(rec) => Json(json!({
+            "schema": "emem.enroll_attested.v1",
+            "enrolled": true,
+            "profile_id": rec.profile_id,
+            "platform_id": rec.platform_id,
+            "endorsed_by": rec.endorsed_by,
+            "assurance": rec.assurance(),
+        })),
+        Err(e) => Json(json!({
+            "schema": "emem.enroll_attested.v1",
+            "enrolled": false,
+            "error": e.to_string(),
+        })),
     }
 }
 
@@ -14943,6 +15070,39 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 ),
                 "verification": "ed25519_dalek verify_strict, which rejects malleable signatures",
                 "not_preimage_v1": "This is the one construction on the responder that is not preimage_v1. Its shape is pinned by the whitepaper (v2 §6.4) and by every client that already signs against it, so it is deliberately frozen rather than migrated. It is domain-separated and the verb is inside the preimage, so a signature cannot cross verbs or paths; what it lacks is preimage_v1's explicit length prefixes.",
+            },
+            {
+                "name": "os_trace",
+                "direction": "the DEVICE signs and this responder verifies (emem_trace::verify_os_trace, at POST /v1/trace_verify and the write gate on /v1/attest_traced).",
+                "construction": "preimage_v1",
+                "domain": "os_trace",
+                "preimage": "emem_attest::os_trace_preimage_v1",
+                "segments": [
+                    {"tag": emem_attest::os_trace_tag::SCHEMA, "name": "schema", "bytes": "the emem.os_trace.v1 schema id"},
+                    {"tag": emem_attest::os_trace_tag::DEVICE, "name": "device", "bytes": "blake3 of the canonical CBOR of the device identity"},
+                    {"tag": emem_attest::os_trace_tag::PROFILE, "name": "profile", "bytes": "substrate profile id (GET /v1/substrates)"},
+                    {"tag": emem_attest::os_trace_tag::WINDOW, "name": "window", "bytes": "u64-LE start_ns || u64-LE end_ns"},
+                    {"tag": emem_attest::os_trace_tag::TRACE_ROOT, "name": "trace_root", "bytes": "v1 merkle root over the chained segment digests, in chain order"},
+                    {"tag": emem_attest::os_trace_tag::OUTPUTS, "name": "outputs", "bytes": "list segment: every emitted-output payload digest"},
+                ],
+                "verification": "ed25519_dalek verify_strict; the device_key signs. Segment encodings are validated against GET /v1/trace_encodings.",
+            },
+            {
+                "name": "platform_attestation",
+                "direction": "an ENDORSER (a whitelisted trust anchor) signs and this responder verifies (emem_trace::verify_platform_attestation, at POST /v1/enroll_verify and /v1/enroll_attested).",
+                "construction": "preimage_v1",
+                "domain": "platform_attestation",
+                "preimage": "emem_attest::platform_attestation_preimage_v1",
+                "segments": [
+                    {"tag": emem_attest::platform_attestation_tag::EAT_PROFILE, "name": "eat_profile", "bytes": "the emem.platform_attestation.v0 profile id"},
+                    {"tag": emem_attest::platform_attestation_tag::PLATFORM, "name": "platform", "bytes": "device platform id (GET /v1/device_platforms)"},
+                    {"tag": emem_attest::platform_attestation_tag::DEVICE_KEY, "name": "device_key", "bytes": "the endorsed device public key (EAT ueid), 32 bytes"},
+                    {"tag": emem_attest::platform_attestation_tag::HWMODEL, "name": "hwmodel", "bytes": "EAT hwmodel claim"},
+                    {"tag": emem_attest::platform_attestation_tag::OEMID, "name": "oemid", "bytes": "EAT oemid claim"},
+                    {"tag": emem_attest::platform_attestation_tag::NONCE, "name": "nonce", "bytes": "freshness nonce"},
+                    {"tag": emem_attest::platform_attestation_tag::MEASUREMENTS, "name": "measurements", "bytes": "list segment: measured-boot digests"},
+                ],
+                "verification": "ed25519_dalek verify_strict; the endorser_key signs. The platform's trust anchor (kind ed25519_pk_blake3, in GET /v1/device_platforms) commits to blake3 of that endorser key.",
             },
         ],
         "notes": "Every object this responder signs uses one rule: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream. Each segment table above is serialized from the compiled tag constants, so this spec cannot drift from the signer. Two constructions sit outside that rule and both are listed here rather than hidden: the legacy v0 receipt, which is verify-only for pre-cutover receipts and is never emitted, and memory_write under `caller_signed_objects`, which the caller signs rather than the responder.",
@@ -19968,7 +20128,6 @@ fn openapi_spec() -> JsonValue {
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
             "/v1/cells_in_bbox":     {"post":{"summary":"enumerate the cell64s in a bounding box, paged (row-major, north row first). Pure geometry: reads no facts and signs no receipt, because the answer is a deterministic function of the bbox and the active grid. Returns `cells`, `total`, and `next_cursor` (null when exhausted). This is the paging loop as emem's job rather than every client reimplementing a lattice; feed a page's cells to /v1/recall_many with a budget_ms to read them under the partial-results contract. page_size defaults 1024, caps at 4096.","operationId":"emem_cells_in_bbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"page_size":{"type":"integer","minimum":1,"maximum":4096,"default":1024},"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; use the previous response's next_cursor"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
-            "/v1/algorithms/{key}":  {"get":{"summary":"single algorithm detail","operationId":"emem_algorithms_one","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/compare_bands":     {"post":{"summary":"per-band diff at one cell: scalar delta or vector cosine between band A and band B (optionally pinned to specific tslots), with optional consistency predicate","operationId":"emem_compare_bands","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareBandsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":json_ok}}},
             "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","responses":{"200":json_ok}}},
@@ -19980,6 +20139,8 @@ fn openapi_spec() -> JsonValue {
             "/v1/trace_verify":      {"post":{"summary":"stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, window, layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device ed25519 signature. Always 200 for parseable JSON; the verdict plus every failed check is the payload.","operationId":"emem_trace_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["trace","profile"],"properties":{"trace":{"type":"object","description":"the emem.os_trace.v1 record"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"claimed_payload_digest":{"type":"string","description":"optional output digest to check binding for"}}}}}},"responses":{"200":json_ok}}},
             "/v1/enroll_verify":     {"post":{"summary":"stateless appraisal of a platform attestation against a device platform's whitelist (the enrollment analogue of trace_verify): checks the EAT profile, the endorsed device key, that a whitelisted trust anchor signed the evidence, and the endorser signature. Admits nothing while every anchor is provisional; lets a device maker debug an attestation before requesting enrollment. Always 200 for parseable JSON.","operationId":"emem_enroll_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["platform","attestation"],"properties":{"platform":{"type":"string","description":"device platform ID, e.g. nvidia.jetson-orin"},"attestation":{"type":"object","description":"the emem.platform_attestation.v0 evidence"},"device_key":{"type":"string","description":"optional base32 device key to enroll; defaults to the attestation's own key"}}}}}},"responses":{"200":json_ok}}},
             "/v1/trace_resolve":     {"post":{"summary":"resolve an OS-tracing token to its byte-identical signed record: emem:trace:<cid> returns the stored OsTrace, emem:attestation:<cid> returns the stored PlatformAttestation. Resolves only what this responder stored (an enrolled device wrote it here); re-verification needs nothing but the returned record.","operationId":"emem_trace_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"an emem:trace: or emem:attestation: token"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/attest_traced":     {"post":{"summary":"the device write path: submit an attestation together with the emem.os_trace.v1 execution trace that produced its facts. For an enrolled device key the gate verifies the trace against the enrolled profile, binds each fact's payload to an emitted output, checks the capture encodings, and returns the emem:trace: token on admit. An un-enrolled key's trace is ignored (identical to /v1/attest).","operationId":"emem_attest_traced","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attestation"],"properties":{"attestation":{"type":"object","description":"the signed Attestation envelope (same shape as /v1/attest)"},"trace":{"type":"object","description":"the emem.os_trace.v1 record for the capture window"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/enroll_attested":   {"post":{"summary":"enrol a device key by presenting its platform attestation (self-service: the attestation must endorse the key and be signed by a whitelisted anchor). Because every anchor shipped is provisional, this currently returns the gate's rejection for every call. On success returns the enrolment record and its assurance level (platform_attested).","operationId":"emem_enroll_attested","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["device_key","profile","platform","attestation"],"properties":{"device_key":{"type":"string","description":"base32 device key being enrolled"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"platform":{"type":"string","description":"device platform ID, e.g. nvidia.jetson-orin"},"attestation":{"type":"object","description":"the emem.platform_attestation.v0 evidence"}}}}}},"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[

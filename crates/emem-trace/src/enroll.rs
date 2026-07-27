@@ -30,7 +30,7 @@
 //! property this stage is meant to have.
 
 use data_encoding::BASE32_NOPAD;
-use ed25519_dalek::{Signer, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 use emem_core::device_platforms::DevicePlatform;
@@ -226,14 +226,18 @@ pub fn verify_platform_attestation(
         reasons.push(RejectReason::DeviceKeyMismatch);
     }
 
-    // The Endorser must be committed to by an effective anchor. blake3 of
-    // the endorser's ed25519 public key is the v0 anchor fingerprint.
+    // The Endorser must be committed to by an effective anchor. The v0
+    // anchor fingerprint is blake3 of the endorser's raw ed25519 public
+    // key, declared with kind `ed25519_pk_blake3`; an anchor using any
+    // other fingerprint scheme (e.g. a future X.509 SPKI hash) is not
+    // matched by this v0 rule, so it cannot silently admit under the wrong
+    // scheme.
     let endorser_fp = BASE32_NOPAD
         .encode(blake3::hash(&att.endorser_key.0).as_bytes())
         .to_lowercase();
     let matched = platform
         .effective_anchors()
-        .find(|a| a.fingerprint == endorser_fp);
+        .find(|a| a.kind == "ed25519_pk_blake3" && a.fingerprint == endorser_fp);
     let mut endorsed_by = None;
     match matched {
         Some(anchor) => endorsed_by = Some(anchor.id.clone()),
@@ -257,7 +261,11 @@ pub fn verify_platform_attestation(
     match VerifyingKey::from_bytes(&att.endorser_key.0) {
         Ok(vk) => {
             let sig = ed25519_dalek::Signature::from_bytes(&att.endorser_sig.0);
-            if vk.verify(&att.preimage(), &sig).is_err() {
+            // verify_strict rejects malleable signatures: since the
+            // attestation CID is blake3 over the CBOR *including* the
+            // signature, a malleated sig would verify yet mint a distinct
+            // token for the same logical evidence.
+            if vk.verify_strict(&att.preimage(), &sig).is_err() {
                 reasons.push(RejectReason::EndorserSignatureInvalid);
             }
         }
