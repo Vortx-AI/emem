@@ -44,7 +44,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "signal", "energy", "thermal", "storage"],
       "evidence_layers": ["trace", "signal"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "The profile for a satellite manufacturer or operator contributing its own constellation's data, distinct from earth.satellite.v0: that profile is the open public archive, admitted by recomputability; this one is a device substrate like any other, admitted only with the platform's OS execution trace. The trace comes from the flight or payload computer (RTOS encodings like zephyr.ctf.v1, or the ground-segment ingest host as a first step), with energy and thermal required because power and thermal telemetry are the spacecraft tracks hardest to fabricate consistently. Operator writes are drift-scored against the open archive where bands overlap, which is exactly the cross-check a proprietary constellation cannot self-provide."
     },
@@ -60,7 +60,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "signal", "storage"],
       "evidence_layers": ["trace", "signal"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "Native resolution is angular; the grain range states the spatial grain at typical subject distances and is indicative only. The site cell is the anchor address; the observation carries its own pointing metadata."
     },
@@ -76,7 +76,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "storage"],
       "evidence_layers": ["trace", "signal"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "Grain runs from 100 nanometers to 100 microns. The lab's cell is the anchor address; sample identity is an emem:entity: the observation cites."
     },
@@ -92,7 +92,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "network"],
       "evidence_layers": ["trace", "signal"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "The simplest device case: one location, one key, a stream of observations. Privacy classes apply before anything derived from imagery of people is written."
     },
@@ -108,7 +108,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "network", "inference"],
       "evidence_layers": ["trace", "signal", "inference"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "A moving attester with on-device models in the path, so the inference layer is required: which weights ran over which input is part of the evidence."
     },
@@ -124,7 +124,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "energy", "inference"],
       "evidence_layers": ["trace", "signal", "inference"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "A flight is a moving attester writing along a path; each observation lands at the cell it measured, inside the flight's trace window."
     },
@@ -140,7 +140,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "energy", "thermal", "inference"],
       "evidence_layers": ["trace", "signal", "inference"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "The lighthouse profile. Upgrades the fleet-memory example from bare HTTP writes to trace-bound writes: two vendors' robots share one map, and each write carries the execution evidence the other vendor can verify without a shared backend."
     },
@@ -156,7 +156,7 @@
       "required_trace_layers": ["syscall", "scheduler", "memory", "sensor_bus", "energy", "thermal"],
       "evidence_layers": ["trace", "signal"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "Location-pinned observations whose trace shows exactly which process produced the value, down to energy and thermal tracks."
     },
@@ -172,7 +172,7 @@
       "required_trace_layers": ["syscall", "sensor_bus"],
       "evidence_layers": ["trace", "signal"],
       "drift_anchor": false,
-      "provenance_class": "direct_sensor",
+      "provenance_class": "attested_execution",
       "bands": [],
       "_note": "The minimum trace floor: even a river gauge on a microcontroller OS presents its syscall and sensor-bus layers. A device that cannot trace cannot write."
     }

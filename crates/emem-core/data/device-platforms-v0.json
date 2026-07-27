@@ -1,11 +1,44 @@
 {
   "manifest": "emem-device-platforms",
   "version": "v0",
-  "_note": "The device-platform whitelist: which hardware platforms may enrol a key under a trace-admitted substrate, and HOW each proves it is a genuine, un-tampered instance of that platform rather than a laptop asserting a string. This is the device-side analogue of the sources registry: sources says where an archive's bytes come from and how to fetch them; this says which physical platforms the protocol will believe and what root-of-trust evidence turns a self-minted ed25519 key into an attested device identity. Grounding: IETF RATS (RFC 9334) roles (Attester -> Evidence -> Verifier appraises vs Endorsements + Reference Values -> Relying Party); EAT (RFC 9711) as the evidence token; TCG DICE and IEEE 802.1AR DevID for layered/birth device identity; TPM 2.0 measured boot for host platforms. A trust_anchor is an Endorsement (a long-lived vendor key that vouches for a platform CLASS); reference_values (roadmap) are the known-good boot measurements that vouch for a specific DEVICE. HONESTY: every platform here is status=candidate and every trust_anchor is provisional=true. We do not yet hold real published vendor anchors, and device ingest is not open. These entries are pinned so device makers and the enrolment gate can be built against a stable shape, exactly as the substrates manifest pins candidate profiles. Placeholder fingerprints are the all-zero digest and are rejected by the enrolment verifier; they whitelist nothing until replaced with a published anchor.",
+  "_note": "The device-platform whitelist: which hardware platforms may enrol a key under a trace-admitted substrate, and HOW each proves it is a genuine, un-tampered instance rather than a laptop asserting a string. The device-side analogue of the sources registry. Platforms are grouped into FAMILIES: NVIDIA Orin is one member of the edge-AI family the way Sentinel-2 is one source of the Earth substrate, and the population grows family by family toward the full device world the protocol means to integrate. Grounding: IETF RATS (RFC 9334) roles (Attester -> Evidence -> Verifier appraises vs Endorsements + Reference Values -> Relying Party); EAT (RFC 9711) evidence tokens; TCG DICE and IEEE 802.1AR DevID for layered/birth identity; TPM 2.0 measured boot; Intel TDX / AMD SEV-SNP / Arm confidential compute; Apple Secure Enclave and Android Keystore for mobile. A trust_anchor is an Endorsement (a vendor key vouching for a platform CLASS); reference_values (roadmap) endorse a specific DEVICE. HONESTY: every platform is status=candidate and every anchor is provisional=true. We hold no published vendor anchors and device ingest is not open; the shapes are pinned so device makers and the enrolment gate can build against them. A provisional anchor whitelists nothing until replaced with a published anchor.",
+  "families": [
+    {
+      "id": "edge_ai",
+      "title": "Edge AI compute modules",
+      "description": "On-device AI compute for robots, drones, and smart cameras: a Linux SoC under a measured boot with a hardware root of trust, running perception and control alongside a sensor payload."
+    },
+    {
+      "id": "trusted_host",
+      "title": "Trusted hosts and gateways",
+      "description": "Servers, ground-segment ingest hosts, and industrial gateways whose boot is measured by a discrete TPM or a confidential-computing root of trust."
+    },
+    {
+      "id": "secure_mcu",
+      "title": "Secure microcontrollers and RTOS payloads",
+      "description": "Small RTOS devices and secure elements: satellite payload computers, instrument controllers, and fixed sensors that produce a PSA/EAT initial attestation rather than a Linux measured boot."
+    },
+    {
+      "id": "silicon_rot",
+      "title": "Open silicon roots of trust",
+      "description": "Silicon-level DICE roots of trust whose reference values are auditable rather than vendor-proprietary, the strongest end of the registry."
+    },
+    {
+      "id": "automotive",
+      "title": "Automotive compute",
+      "description": "In-vehicle autonomy and ADAS compute. A self-driving vehicle contributes as a mobile robot until a dedicated vehicle substrate profile ships."
+    },
+    {
+      "id": "mobile_se",
+      "title": "Mobile secure elements",
+      "description": "Phone and wearable secure elements that attest a hardware-backed key: Apple Secure Enclave, Android StrongBox / hardware Keystore."
+    }
+  ],
   "platforms": [
     {
       "id": "nvidia.jetson-orin",
       "title": "NVIDIA Jetson Orin (AGX / NX / Nano) edge AI module",
+      "family": "edge_ai",
       "vendor": "nvidia",
       "status": "candidate",
       "contributor_classes": ["robot", "drone", "industrial_machine", "mobile"],
@@ -14,21 +47,70 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {
-          "id": "nvidia.jetson.attestation-ca.v0",
-          "kind": "spki_blake3",
-          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "provisional": true,
-          "_note": "Placeholder for NVIDIA's device-attestation CA. Orin derives a DICE layered identity from an immutable hardware secret; the alias/DeviceID key's certificate chains here. Replace with the published SPKI fingerprint before this platform goes active."
-        }
+        {"id": "nvidia.jetson.attestation-ca.v0", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Placeholder for NVIDIA's device-attestation CA. Orin derives a DICE layered identity; the alias/DeviceID cert chains here. Replace with the published SPKI fingerprint before going active."}
       ],
       "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw", "nvidia.nsys.v1", "ros2.bag.v2"],
       "reference_values_ref": null,
-      "_note": "The platform the operator most often means by 'my robot/drone can write to emem'. Orin runs Linux under a measured boot with a DICE root of trust, so the device_key is a DICE alias key, not a raw self-minted key: its certificate attests the hardware and the boot layers that produced it. Serves robot/drone/industrial/mobile substrate profiles. On-device model runs are the inference trace layer those profiles can require."
+      "_note": "The platform most operators mean by 'my robot/drone can write to emem'. Linux under a measured boot with a DICE root of trust, so the device_key is a DICE alias key whose certificate attests the hardware and boot layers."
+    },
+    {
+      "id": "nvidia.jetson-thor",
+      "title": "NVIDIA Jetson Thor (next-gen robotics module)",
+      "family": "edge_ai",
+      "vendor": "nvidia",
+      "status": "candidate",
+      "contributor_classes": ["robot", "drone"],
+      "root_of_trust": "tcg_dice_x509",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "nvidia.jetson.attestation-ca.v0", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Same NVIDIA attestation domain as Orin; distinct reference values."}
+      ],
+      "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw", "nvidia.nsys.v1", "ros2.bag.v2"],
+      "reference_values_ref": null,
+      "_note": "The successor robotics module. Same DICE-X509 path as Orin, higher on-device inference capacity, so the inference trace layer carries more weight."
+    },
+    {
+      "id": "qualcomm.rb5",
+      "title": "Qualcomm Robotics RB5 / RB6 platform",
+      "family": "edge_ai",
+      "vendor": "qualcomm",
+      "status": "candidate",
+      "contributor_classes": ["robot", "drone", "mobile"],
+      "root_of_trust": "x509_devid",
+      "evidence_format": "x509_chain",
+      "device_key_kind": "ieee_802_1ar_ldevid",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "qualcomm.attestation-root.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Qualcomm attests via Secure Boot + QTEE with Android hardware key attestation, an X.509 chain to a Qualcomm/Google root. Pin that root here."}
+      ],
+      "recognized_encodings": ["linux.ftrace.v1", "ros2.bag.v2"],
+      "reference_values_ref": null,
+      "_note": "Robotics on Qualcomm silicon. Attestation is an X.509 key-attestation chain rather than a DICE/EAT token; lower structural assurance than measured-boot DICE until firmware measurements are pinned as reference values."
+    },
+    {
+      "id": "rockchip.rk3588",
+      "title": "Rockchip RK3588 edge SoC",
+      "family": "edge_ai",
+      "vendor": "rockchip",
+      "status": "candidate",
+      "contributor_classes": ["robot", "cctv", "industrial_machine"],
+      "root_of_trust": "arm_psa",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "rockchip.op-tee.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Arm TrustZone / OP-TEE secure world signer. A PSA-style attestation is only as strong as the firmware provisioning; treat as candidate until measurements are published."}
+      ],
+      "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw"],
+      "reference_values_ref": null,
+      "_note": "A common low-cost edge SoC for cameras and light robotics. TrustZone-based PSA attestation; included so the registry is not NVIDIA-only."
     },
     {
       "id": "tpm2.host",
       "title": "Linux host with a discrete TPM 2.0 (measured boot + PCR quote)",
+      "family": "trusted_host",
       "vendor": "generic",
       "status": "candidate",
       "contributor_classes": ["satellite", "industrial_machine", "fixed_sensor", "cctv"],
@@ -37,21 +119,52 @@
       "device_key_kind": "tpm2_ak",
       "measured_boot": true,
       "trust_anchors": [
-        {
-          "id": "tpm2.ek-ca.provisional",
-          "kind": "spki_blake3",
-          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "provisional": true,
-          "_note": "Per-deployment: the operator pins the EK/AK CA of the specific TPM vendor(s) it runs. There is no single global TPM anchor; a deployment adds the anchors for the silicon it actually fields."
-        }
+        {"id": "tpm2.ek-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Per-deployment: the operator pins the EK/AK CA of the TPM vendor(s) it runs. There is no single global TPM anchor."}
       ],
       "recognized_encodings": ["linux.ftrace.v1", "linux.ebpf.raw"],
       "reference_values_ref": null,
-      "_note": "The ground-segment ingest host and the industrial gateway. Evidence is a TPM 2.0 quote over the boot PCRs signed by an attestation key whose certificate chains to the TPM vendor's EK CA. This is the first-step path a satellite operator uses before the flight computer itself attests: the host that receives the downlink attests its own boot, so the ingest software is measured even when the payload computer cannot yet speak EAT."
+      "_note": "The ground-segment ingest host and industrial gateway. Evidence is a TPM 2.0 quote over the boot PCRs signed by an attestation key whose cert chains to the TPM vendor EK CA. The first-step path a satellite operator uses before the flight computer itself attests."
+    },
+    {
+      "id": "intel.tdx",
+      "title": "Intel TDX confidential VM",
+      "family": "trusted_host",
+      "vendor": "intel",
+      "status": "candidate",
+      "contributor_classes": ["satellite", "industrial_machine"],
+      "root_of_trust": "intel_tdx",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "intel.dcap.pck-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Intel DCAP PCK certificate root. A TD quote is appraised against this chain plus the TDX module reference values."}
+      ],
+      "recognized_encodings": ["linux.ebpf.raw", "linux.ftrace.v1"],
+      "reference_values_ref": null,
+      "_note": "A confidential VM for ingest or processing that must prove the exact software stack ran unmodified. The measured launch of the TD is the evidence; useful where the operator will not run bare metal."
+    },
+    {
+      "id": "amd.sev-snp",
+      "title": "AMD SEV-SNP confidential VM",
+      "family": "trusted_host",
+      "vendor": "amd",
+      "status": "candidate",
+      "contributor_classes": ["satellite", "industrial_machine"],
+      "root_of_trust": "amd_sev_snp",
+      "evidence_format": "x509_chain",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "amd.ark-ask.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "AMD ARK/ASK root. A SEV-SNP attestation report is signed by the VCEK, whose certificate chains here."}
+      ],
+      "recognized_encodings": ["linux.ebpf.raw", "linux.ftrace.v1"],
+      "reference_values_ref": null,
+      "_note": "The AMD counterpart to Intel TDX in the confidential-host family. Report is VCEK-signed; measurement of the guest launch digest is what a reader appraises."
     },
     {
       "id": "arm.psa-l2",
       "title": "Arm PSA Certified L2 device (RTOS / MCU class)",
+      "family": "secure_mcu",
       "vendor": "arm-psa",
       "status": "candidate",
       "contributor_classes": ["satellite", "telescope", "fixed_sensor", "industrial_machine"],
@@ -60,21 +173,52 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {
-          "id": "arm.psa.trusted-firmware.provisional",
-          "kind": "spki_blake3",
-          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "provisional": true,
-          "_note": "The signer of the PSA initial attestation token for the device's secure firmware. PSA attestation IS an EAT profile, so this platform slots into the same evidence path as DICE-X509 platforms with a different anchor."
-        }
+        {"id": "arm.psa.trusted-firmware.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Signer of the PSA initial attestation token for the device's secure firmware. PSA attestation IS an EAT profile."}
       ],
       "recognized_encodings": ["zephyr.ctf.v1", "linux.ftrace.v1"],
       "reference_values_ref": null,
-      "_note": "The flight/payload computer and the instrument controller. Small RTOS devices (Zephyr, Trusted Firmware-M) that produce a PSA/EAT initial attestation token rather than a Linux measured boot. Grain and tempo come from the substrate profile, not here; this only certifies the platform is a genuine PSA-Certified part running attested firmware."
+      "_note": "The flight/payload computer and instrument controller. Small RTOS devices (Zephyr, Trusted Firmware-M) producing a PSA/EAT token rather than a Linux measured boot."
+    },
+    {
+      "id": "arm.psa-l3",
+      "title": "Arm PSA Certified L3 device (SESIP L3 / tamper-resistant)",
+      "family": "secure_mcu",
+      "vendor": "arm-psa",
+      "status": "candidate",
+      "contributor_classes": ["satellite", "fixed_sensor", "industrial_machine"],
+      "root_of_trust": "arm_psa",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "arm.psa.l3.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "PSA L3 adds physical tamper resistance to the L2 attestation. Same EAT path, higher assurance level."}
+      ],
+      "recognized_encodings": ["zephyr.ctf.v1"],
+      "reference_values_ref": null,
+      "_note": "The high-assurance secure element: L3 defends against physical attack, the level to require where a sensor sits in an adversarial location."
+    },
+    {
+      "id": "riscv.keystone",
+      "title": "RISC-V Keystone enclave",
+      "family": "secure_mcu",
+      "vendor": "riscv-keystone",
+      "status": "candidate",
+      "contributor_classes": ["telescope", "fixed_sensor", "industrial_machine"],
+      "root_of_trust": "tcg_dice_cbor",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "riscv.keystone.sm.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Keystone security-monitor measurement root. Open TEE on open ISA, so the reference values can be published and audited."}
+      ],
+      "recognized_encodings": ["zephyr.ctf.v1", "linux.ftrace.v1"],
+      "reference_values_ref": null,
+      "_note": "An open-source enclave on an open ISA. Included alongside the proprietary secure MCUs so a builder wanting an auditable stack has a path."
     },
     {
       "id": "caliptra.rot",
       "title": "Caliptra (OCP) DICE root of trust",
+      "family": "silicon_rot",
       "vendor": "ocp-caliptra",
       "status": "candidate",
       "contributor_classes": ["industrial_machine", "satellite"],
@@ -83,17 +227,101 @@
       "device_key_kind": "dice_alias",
       "measured_boot": true,
       "trust_anchors": [
-        {
-          "id": "caliptra.vendor-anchor.provisional",
-          "kind": "spki_blake3",
-          "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "provisional": true,
-          "_note": "Caliptra is an open, silicon-level DICE RoT; the anchor is the integrator's provisioning CA. Open silicon means the measurement reference values can themselves be published and audited, which is the strongest end of this registry."
-        }
+        {"id": "caliptra.vendor-anchor.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Caliptra is an open silicon-level DICE RoT; the anchor is the integrator's provisioning CA. Reference values are auditable."}
       ],
       "recognized_encodings": ["linux.ebpf.raw", "linux.ftrace.v1"],
       "reference_values_ref": null,
-      "_note": "The datacenter and industrial-controller end: an open-source, silicon-level DICE root of trust. Included because its reference values are auditable rather than vendor-proprietary, so a third party can check not just that the anchor signed the evidence but that the measured firmware matches published known-good values."
+      "_note": "The datacenter/industrial end: an open silicon DICE root of trust whose measured firmware can be checked against published known-good values, not just a vendor signature."
+    },
+    {
+      "id": "google.opentitan",
+      "title": "OpenTitan silicon root of trust",
+      "family": "silicon_rot",
+      "vendor": "opentitan",
+      "status": "candidate",
+      "contributor_classes": ["industrial_machine", "fixed_sensor"],
+      "root_of_trust": "tcg_dice_cbor",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "opentitan.provisioning.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "OpenTitan provisioning CA. Open silicon RoT with a DICE-CBOR certificate chain; auditable like Caliptra."}
+      ],
+      "recognized_encodings": ["zephyr.ctf.v1"],
+      "reference_values_ref": null,
+      "_note": "An open, transparent silicon root of trust for discrete secure elements. Pairs with Caliptra as the auditable-silicon path."
+    },
+    {
+      "id": "nvidia.drive-orin",
+      "title": "NVIDIA DRIVE Orin (automotive)",
+      "family": "automotive",
+      "vendor": "nvidia",
+      "status": "candidate",
+      "contributor_classes": ["robot", "mobile"],
+      "root_of_trust": "tcg_dice_x509",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "nvidia.drive.attestation-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "NVIDIA DRIVE attestation domain, distinct from the Jetson robotics line; automotive safety firmware."}
+      ],
+      "recognized_encodings": ["ros2.bag.v2", "linux.ftrace.v1", "nvidia.nsys.v1"],
+      "reference_values_ref": null,
+      "_note": "In-vehicle autonomy compute. A self-driving vehicle contributes as a mobile robot until a dedicated vehicle substrate profile ships; recorded here so automotive is a first-class family."
+    },
+    {
+      "id": "qualcomm.snapdragon-ride",
+      "title": "Qualcomm Snapdragon Ride (automotive)",
+      "family": "automotive",
+      "vendor": "qualcomm",
+      "status": "candidate",
+      "contributor_classes": ["robot", "mobile"],
+      "root_of_trust": "x509_devid",
+      "evidence_format": "x509_chain",
+      "device_key_kind": "ieee_802_1ar_ldevid",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "qualcomm.ride.attestation-root.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Qualcomm automotive attestation root (X.509 key attestation)."}
+      ],
+      "recognized_encodings": ["ros2.bag.v2", "linux.ftrace.v1"],
+      "reference_values_ref": null,
+      "_note": "The Qualcomm counterpart in the automotive family. X.509 key attestation as on RB5, in a functional-safety envelope."
+    },
+    {
+      "id": "apple.secure-enclave",
+      "title": "Apple Secure Enclave (iOS / macOS)",
+      "family": "mobile_se",
+      "vendor": "apple",
+      "status": "candidate",
+      "contributor_classes": ["mobile"],
+      "root_of_trust": "apple_secure_enclave",
+      "evidence_format": "eat_cwt",
+      "device_key_kind": "dice_alias",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "apple.attestation-ca.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Apple's app-attest / DeviceCheck attestation root. Keys are Secure-Enclave-bound; the attestation vouches for a genuine, unmodified device."}
+      ],
+      "recognized_encodings": ["apple.os_signpost.v1"],
+      "reference_values_ref": null,
+      "_note": "A phone or wearable as a handheld sensor. The Secure Enclave attests a hardware-bound key; the OS-signpost trace is the execution evidence. Grain and tempo come from the mobile substrate profile."
+    },
+    {
+      "id": "android.strongbox",
+      "title": "Android StrongBox / hardware Keystore",
+      "family": "mobile_se",
+      "vendor": "android",
+      "status": "candidate",
+      "contributor_classes": ["mobile"],
+      "root_of_trust": "android_keystore",
+      "evidence_format": "x509_chain",
+      "device_key_kind": "ieee_802_1ar_ldevid",
+      "measured_boot": true,
+      "trust_anchors": [
+        {"id": "google.hardware-attestation-root.provisional", "kind": "spki_blake3", "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "provisional": true, "_note": "Google hardware attestation root. A StrongBox key attestation is an X.509 chain to this root that also encodes the verified-boot state."}
+      ],
+      "recognized_encodings": ["android.perfetto.v1", "linux.ftrace.v1"],
+      "reference_values_ref": null,
+      "_note": "The Android counterpart in the mobile family. StrongBox is a dedicated secure element; the key attestation carries the verified-boot state a reader can appraise."
     }
   ]
 }

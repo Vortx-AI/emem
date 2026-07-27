@@ -704,15 +704,25 @@ and are not equally checkable. Collapsing them into one trust surface
 would be the interesting lie: everything looks verified, so nothing is.
 
 Every band therefore declares a **tamper-provenance class**
-(`crates/emem-core/src/bands.rs:64`). There are five.
+(`crates/emem-core/src/bands.rs:64`). There are six.
 
 | class | `tamper_evidence` | deterministic | rank |
 |---|---|---|---|
-| `direct_sensor` | `recomputable_from_source` | yes | 4 |
-| `deterministic_index` | `recomputable_from_source` | yes | 3 |
+| `direct_sensor` | `recomputable_from_source` | yes | 5 |
+| `deterministic_index` | `recomputable_from_source` | yes | 4 |
+| `attested_execution` | `verified_execution_trace` | no | 3 |
 | `model_output` | `signed_model_checkpoint` | no | 2 |
 | `human_curated` | `attester_only` | no | 1 |
 | `unclassified` | `attester_only` | no | 0 |
+
+`attested_execution` is the device-substrate class. A robot, telescope,
+microscope, or operator satellite cannot offer recomputability the way
+the open Earth archive can: a sensor reading is a one-time physical event.
+Its value is admitted instead through a verified OS execution trace whose
+merkle root and device signature bind the emitted output, from a device
+key attested to a whitelisted platform. Tamper-evident, but through
+verified execution rather than re-derivation, so it ranks below the two
+recomputable classes and above a model checkpoint.
 
 `unclassified` is not a placeholder. It is the serde default, so a band
 that fails to declare a class fails *closed*, at the lowest rank,

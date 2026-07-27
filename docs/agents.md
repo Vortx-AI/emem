@@ -55,9 +55,12 @@ Recall also filters on tamper-provenance: pass `deterministic: true`
 facts recomputable from the cited raw source come back. The filter runs
 before the receipt is signed, so the receipt covers exactly the returned
 facts; `bands_already_attested_at_cell` stays unfiltered. Non-deterministic
-classes (`model_output`, `human_curated`, `unclassified`) carry an in-band
-`caution` string inside the `provenance` block naming their failure mode,
-so the caveat arrives in the same payload as the value.
+classes (`attested_execution`, `model_output`, `human_curated`,
+`unclassified`) carry an in-band `caution` string inside the `provenance`
+block naming their failure mode, so the caveat arrives in the same payload
+as the value. `attested_execution` is a device reading trusted through its
+verified OS execution trace and platform attestation rather than
+recomputation.
 
 The read surface implements the memory algebra defined in
 [the memory model](model.md); every verb is an existing endpoint:

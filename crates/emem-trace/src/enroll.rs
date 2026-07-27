@@ -76,6 +76,24 @@ pub struct PlatformAttestation {
 }
 
 impl PlatformAttestation {
+    /// Content ID of the whole signed attestation:
+    /// `base32(blake3(canonical_cbor(self)))`, the same rule facts and
+    /// traces use. This is the CID an `emem:attestation:` token names.
+    pub fn attestation_cid(&self) -> Option<String> {
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(self, &mut buf).ok()?;
+        Some(
+            data_encoding::BASE32_NOPAD
+                .encode(blake3::hash(&buf).as_bytes())
+                .to_lowercase(),
+        )
+    }
+
+    /// The `emem:attestation:` token for this evidence, if it encodes.
+    pub fn token(&self) -> Option<String> {
+        Some(crate::token::attestation_token(&self.attestation_cid()?))
+    }
+
     /// The 32 bytes the Endorser key signs.
     pub fn preimage(&self) -> [u8; 32] {
         emem_attest::platform_attestation_preimage_v1(

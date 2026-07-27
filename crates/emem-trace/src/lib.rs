@@ -45,5 +45,8 @@ pub use schema::{
     payload_digest_of_value, DeviceIdentity, EmittedOutput, OsTrace, TraceBuildError, TraceSegment,
     OS_TRACE_SCHEMA_V1,
 };
-pub use token::{parse_trace_token, trace_token, TRACE_TOKEN_PREFIX};
+pub use token::{
+    attestation_token, parse_attestation_token, parse_trace_token, trace_token,
+    ATTESTATION_TOKEN_PREFIX, TRACE_TOKEN_PREFIX,
+};
 pub use verify::{verify_os_trace, Coverage, RejectReason, Verdict, VerificationReport};

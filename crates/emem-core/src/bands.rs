@@ -84,6 +84,19 @@ pub enum ProvenanceClass {
     /// that the upstream bytes are unchanged. No learned weights, no human
     /// edit.
     DeterministicIndex,
+    /// A direct device reading admitted through a **verified OS execution
+    /// trace** (`emem.os_trace.v1`), from a device key **attested to a
+    /// whitelisted platform** (`emem-device-platforms`). Tamper-evident
+    /// through verified execution rather than recomputation: a third party
+    /// cannot re-derive a one-time physical reading, but can verify that
+    /// the trace's merkle root and device signature bind the emitted
+    /// output, and that a whitelisted trust anchor endorsed the device.
+    /// This is the device-substrate analogue of [`Self::DirectSensor`],
+    /// which is reserved for values recomputable from a public archive.
+    /// The founding Earth substrate stays `direct_sensor`; a robot,
+    /// telescope, microscope, or operator satellite writes
+    /// `attested_execution`.
+    AttestedExecution,
     /// Output of a trained model or a published ML / statistical product
     /// (e.g. Tessera / Clay / Prithvi / Galileo embeddings, ESA WorldCover,
     /// SoilGrids, WorldPop, GHSL, Hansen, CHIRPS, forecast blends). A model,
@@ -124,19 +137,23 @@ impl ProvenanceClass {
     pub fn tamper_evidence(self) -> &'static str {
         match self {
             Self::DirectSensor | Self::DeterministicIndex => "recomputable_from_source",
+            Self::AttestedExecution => "verified_execution_trace",
             Self::ModelOutput => "signed_model_checkpoint",
             Self::HumanCurated | Self::Unclassified => "attester_only",
         }
     }
 
     /// Monotonic rank for the "promote tamper-proof first" ordering. Higher
-    /// is more independently reproducible: direct sensor reads and
-    /// deterministic indices (tamper-evident) rank above model and human
-    /// products (with a model or human in the loop).
+    /// is more independently verifiable. The two recomputable classes rank
+    /// highest (any party re-derives them from a cited public source);
+    /// attested execution is tamper-evident but not recomputable (a
+    /// one-time physical reading, trusted through its verified trace); a
+    /// model checkpoint and human curation carry no execution evidence.
     pub fn trust_rank(self) -> u8 {
         match self {
-            Self::DirectSensor => 4,
-            Self::DeterministicIndex => 3,
+            Self::DirectSensor => 5,
+            Self::DeterministicIndex => 4,
+            Self::AttestedExecution => 3,
             Self::ModelOutput => 2,
             Self::HumanCurated => 1,
             Self::Unclassified => 0,
@@ -148,6 +165,7 @@ impl ProvenanceClass {
         match self {
             Self::DirectSensor => "direct_sensor",
             Self::DeterministicIndex => "deterministic_index",
+            Self::AttestedExecution => "attested_execution",
             Self::ModelOutput => "model_output",
             Self::HumanCurated => "human_curated",
             Self::Unclassified => "unclassified",
@@ -164,6 +182,13 @@ impl ProvenanceClass {
     pub fn caution(self) -> Option<&'static str> {
         match self {
             Self::DirectSensor | Self::DeterministicIndex => None,
+            Self::AttestedExecution => Some(
+                "device reading: trusted through its verified OS execution trace \
+                 and the device's platform attestation, not through recomputation. \
+                 A genuine but miscalibrated or spoofed sensor still produces a \
+                 signed trace; corroborate against the recomputable drift anchor \
+                 where bands overlap.",
+            ),
             Self::ModelOutput => Some(
                 "model output: a learned representation, not a measurement. \
                  Subject to training bias, domain shift, and encoder revision; \
@@ -444,6 +469,28 @@ mod tests {
         let unknown = r.provenance_class_for("no_such_band.at_all");
         assert_eq!(unknown, ProvenanceClass::Unclassified);
         assert!(!unknown.is_deterministic());
+    }
+
+    #[test]
+    fn attested_execution_is_tamper_evident_but_not_recomputable() {
+        let p = ProvenanceClass::AttestedExecution;
+        // Trusted through the verified trace, not by re-derivation: it must
+        // NOT claim the recomputable-from-source property, or a device
+        // reading would masquerade as an archive value an agent can re-fetch.
+        assert!(!p.is_deterministic());
+        assert_eq!(p.tamper_evidence(), "verified_execution_trace");
+        assert_eq!(p.as_str(), "attested_execution");
+        assert!(p.caution().is_some());
+        // Ranks below the two recomputable classes, above model / human.
+        assert!(p.trust_rank() < ProvenanceClass::DeterministicIndex.trust_rank());
+        assert!(p.trust_rank() > ProvenanceClass::ModelOutput.trust_rank());
+        // The wire string round-trips through serde.
+        let j = serde_json::to_string(&p).unwrap();
+        assert_eq!(j, "\"attested_execution\"");
+        assert_eq!(
+            serde_json::from_str::<ProvenanceClass>(&j).unwrap(),
+            ProvenanceClass::AttestedExecution
+        );
     }
 
     #[test]

@@ -521,7 +521,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <a id="7-tamper-provenance" class="anchor-alias"></a>
       <h2><span class="num">7</span>Tamper-provenance</h2>
       <p>A signature proves who attested a value and that the bytes have not changed. It says nothing about how the value came to exist. A satellite radiance, an index recomputed from that radiance, a neural encoder's embedding, and a human cartographer's judgement are all equally signable and are not equally checkable. Collapsing them into one trust surface would be the interesting lie: everything looks verified, so nothing is.</p>
-      <p>Every band therefore declares a <strong>tamper-provenance class</strong> (<code>crates/emem-core/src/bands.rs:64</code>). There are five.</p>
+      <p>Every band therefore declares a <strong>tamper-provenance class</strong> (<code>crates/emem-core/src/bands.rs:64</code>). There are six.</p>
       <div class="tbl-wrap"><table class="t">
         <thead><tr>
         <th>class</th>
@@ -530,13 +530,15 @@ input::placeholder{color:var(--mute,#7a7363)}
         <th>rank</th>
         </tr></thead>
         <tbody>
-        <tr><td><code>direct_sensor</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>4</td></tr>
-        <tr><td><code>deterministic_index</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>3</td></tr>
+        <tr><td><code>direct_sensor</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>5</td></tr>
+        <tr><td><code>deterministic_index</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>4</td></tr>
+        <tr><td><code>attested_execution</code></td><td><code>verified_execution_trace</code></td><td>no</td><td>3</td></tr>
         <tr><td><code>model_output</code></td><td><code>signed_model_checkpoint</code></td><td>no</td><td>2</td></tr>
         <tr><td><code>human_curated</code></td><td><code>attester_only</code></td><td>no</td><td>1</td></tr>
         <tr><td><code>unclassified</code></td><td><code>attester_only</code></td><td>no</td><td>0</td></tr>
         </tbody>
         </table></div>
+      <p><code>attested_execution</code> is the device-substrate class. A robot, telescope, microscope, or operator satellite cannot offer recomputability the way the open Earth archive can: a sensor reading is a one-time physical event. Its value is admitted instead through a verified OS execution trace whose merkle root and device signature bind the emitted output, from a device key attested to a whitelisted platform. Tamper-evident, but through verified execution rather than re-derivation, so it ranks below the two recomputable classes and above a model checkpoint.</p>
       <p><code>unclassified</code> is not a placeholder. It is the serde default, so a band that fails to declare a class fails <em>closed</em>, at the lowest rank, claiming no tamper-evidence. An unknown band key resolves to it rather than to an optimistic guess.</p>
       <p>The 43 bands of the active ontology distribute as 23 <code>model_output</code>, 7 <code>deterministic_index</code>, 6 <code>direct_sensor</code>, 5 <code>human_curated</code>, and 2 reserved slots left <code>unclassified</code>. Sentinel-1/2 raw, the DEMs, nightlights, and GMRT are <code>direct_sensor</code>; spectral indices, terrain derivatives, and phenology are <code>deterministic_index</code>, of which only spectral indices are wired to a materializer and the remaining six are declared slots with no connector; the foundation encoders, land cover, surface water, and climate are <code>model_output</code>; Overture, protected areas, ecoregions, and admin boundaries are <code>human_curated</code>.</p>
       <h3>7.1 The reader's controls</h3>

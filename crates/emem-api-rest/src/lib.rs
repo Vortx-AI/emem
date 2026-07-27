@@ -6750,6 +6750,9 @@ async fn post_enroll_verify(Json(req): Json<JsonValue>) -> Json<JsonValue> {
             emem_trace::enroll::Verdict::Reject => "reject",
         },
         "report": serde_json::to_value(&report).unwrap_or(JsonValue::Null),
+        // The content-address of the evidence, so a device fact can cite it.
+        "attestation_cid": att.attestation_cid(),
+        "attestation_token": att.token(),
     }))
 }
 
@@ -8057,9 +8060,10 @@ fn resolve_provenance_filter(
     deterministic: Option<bool>,
 ) -> Result<Option<Vec<String>>, String> {
     use emem_core::bands::ProvenanceClass as Pc;
-    const ALL: [Pc; 5] = [
+    const ALL: [Pc; 6] = [
         Pc::DirectSensor,
         Pc::DeterministicIndex,
+        Pc::AttestedExecution,
         Pc::ModelOutput,
         Pc::HumanCurated,
         Pc::Unclassified,
@@ -8081,8 +8085,8 @@ fn resolve_provenance_filter(
                     None => {
                         return Err(format!(
                             "unknown provenance class {s:?}: accepted values are \
-                             direct_sensor, deterministic_index, model_output, \
-                             human_curated, unclassified"
+                             direct_sensor, deterministic_index, attested_execution, \
+                             model_output, human_curated, unclassified"
                         ));
                     }
                 }
@@ -8100,7 +8104,7 @@ fn resolve_provenance_filter(
                 "provenance filter excludes every class: the listed classes and \
                  deterministic={det} have no overlap. deterministic=true matches \
                  direct_sensor and deterministic_index; deterministic=false matches \
-                 model_output, human_curated, and unclassified."
+                 attested_execution, model_output, human_curated, and unclassified."
             ));
         }
     }
@@ -8147,10 +8151,13 @@ mod provenance_filter_tests {
     }
 
     #[test]
-    fn deterministic_false_folds_to_the_attested_only_classes() {
+    fn deterministic_false_folds_to_the_non_recomputable_classes() {
+        // attested_execution joins the non-recomputable set: a device
+        // reading is tamper-evident through its trace, not re-derivable.
         assert_eq!(
             resolve_provenance_filter(None, Some(false)),
             Ok(Some(vec![
+                "attested_execution".to_string(),
                 "model_output".to_string(),
                 "human_curated".to_string(),
                 "unclassified".to_string(),

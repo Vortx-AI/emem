@@ -66,6 +66,18 @@ pub enum RootOfTrust {
     X509Devid,
     /// Caliptra: an open-source silicon-level DICE root of trust (OCP).
     Caliptra,
+    /// Intel TDX confidential-VM attestation (a TD quote appraised via the
+    /// Intel DCAP PCK certificate chain).
+    IntelTdx,
+    /// AMD SEV-SNP attestation (a report signed by the VCEK, whose
+    /// certificate chains to AMD's ARK/ASK).
+    AmdSevSnp,
+    /// Apple Secure Enclave attestation (DeviceCheck / app attest keys
+    /// rooted in Apple's attestation CA).
+    AppleSecureEnclave,
+    /// Android hardware-backed Keystore / StrongBox key attestation (an
+    /// X.509 chain to the Google hardware attestation root).
+    AndroidKeystore,
 }
 
 /// The wire format the platform's attestation evidence arrives in.
@@ -93,8 +105,10 @@ pub enum DeviceKeyKind {
     DiceAlias,
     /// IEEE 802.1AR LDevID: a locally significant identity enrolled onto
     /// the device, chaining to the manufacturer IDevID / vendor CA.
+    #[serde(rename = "ieee_802_1ar_ldevid")]
     Ieee8021arLdevid,
     /// IEEE 802.1AR IDevID: the manufacturer's burned-in birth identity.
+    #[serde(rename = "ieee_802_1ar_idevid")]
     Ieee8021arIdevid,
     /// A TPM 2.0 attestation key certified by the TPM's endorsement key.
     Tpm2Ak,
@@ -133,6 +147,22 @@ impl TrustAnchor {
     }
 }
 
+/// A device family: the organizing layer above individual platforms,
+/// analogous to how the Earth substrate draws from many sources. A single
+/// platform (NVIDIA Orin) is one member of a family (edge-AI compute), the
+/// way Sentinel-2 is one source in the Earth substrate. Families make the
+/// registry legible as it grows from a handful of platforms to the full
+/// device population the protocol means to integrate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceFamily {
+    /// Stable family ID (e.g. `"edge_ai"`, `"trusted_host"`).
+    pub id: String,
+    /// Human-readable title.
+    pub title: String,
+    /// One-line description of what the family covers.
+    pub description: String,
+}
+
 /// One whitelisted device platform.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DevicePlatform {
@@ -140,6 +170,10 @@ pub struct DevicePlatform {
     pub id: String,
     /// Human-readable title.
     pub title: String,
+    /// The device family this platform belongs to (a declared
+    /// [`DeviceFamily::id`]). Orin is one member of `edge_ai`, the way
+    /// Sentinel-2 is one source in the Earth substrate.
+    pub family: String,
     /// Vendor / trust-domain owner (e.g. `"nvidia"`, `"arm-psa"`).
     pub vendor: String,
     /// Lifecycle state. `Candidate` means the shape is pinned for device
@@ -198,6 +232,9 @@ pub struct DevicePlatformRegistry {
     pub manifest: String,
     /// Version, e.g. `"v0"`.
     pub version: String,
+    /// Device families — the organizing layer above platforms.
+    #[serde(default)]
+    pub families: Vec<DeviceFamily>,
     /// Platform entries.
     pub platforms: Vec<DevicePlatform>,
     /// Editorial note.
@@ -215,12 +252,27 @@ impl Manifest for DevicePlatformRegistry {
                 actual: self.manifest.clone(),
             });
         }
+        let mut fam_seen: std::collections::HashSet<&str> = Default::default();
+        for f in &self.families {
+            if !fam_seen.insert(&f.id) {
+                return Err(ManifestError::Invalid(format!(
+                    "duplicate device family: {}",
+                    f.id
+                )));
+            }
+        }
         let mut seen: std::collections::HashSet<&str> = Default::default();
         for p in &self.platforms {
             if !seen.insert(&p.id) {
                 return Err(ManifestError::Invalid(format!(
                     "duplicate device platform: {}",
                     p.id
+                )));
+            }
+            if !fam_seen.contains(p.family.as_str()) {
+                return Err(ManifestError::Invalid(format!(
+                    "{}: unknown device family {}",
+                    p.id, p.family
                 )));
             }
             if p.contributor_classes.is_empty() {
@@ -288,6 +340,19 @@ impl DevicePlatformRegistry {
         class: ContributorClass,
     ) -> impl Iterator<Item = &DevicePlatform> {
         self.platforms.iter().filter(move |p| p.serves(class))
+    }
+
+    /// Look up a family by ID.
+    pub fn family(&self, id: &str) -> Option<&DeviceFamily> {
+        self.families.iter().find(|f| f.id == id)
+    }
+
+    /// Platforms in a given family.
+    pub fn platforms_in_family<'a>(
+        &'a self,
+        family_id: &'a str,
+    ) -> impl Iterator<Item = &'a DevicePlatform> {
+        self.platforms.iter().filter(move |p| p.family == family_id)
     }
 }
 
@@ -403,5 +468,44 @@ mod tests {
     fn platforms_for_class_finds_orin_for_robot() {
         let n = DEFAULT.platforms_for_class(ContributorClass::Robot).count();
         assert!(n >= 1);
+    }
+
+    #[test]
+    fn orin_is_one_member_of_the_edge_ai_family() {
+        // The whole point of the family layer: Orin is one of several, not
+        // the substrate itself.
+        let orin = DEFAULT.lookup("nvidia.jetson-orin").expect("orin");
+        assert_eq!(orin.family, "edge_ai");
+        assert!(DEFAULT.family("edge_ai").is_some());
+        let edge = DEFAULT.platforms_in_family("edge_ai").count();
+        assert!(
+            edge >= 2,
+            "edge_ai should have more than just Orin, got {edge}"
+        );
+    }
+
+    #[test]
+    fn every_platform_names_a_declared_family() {
+        // validate() enforces this, but assert it holds for the shipped
+        // registry so a stray family typo is caught in unit tests too.
+        for p in &DEFAULT.platforms {
+            assert!(
+                DEFAULT.family(&p.family).is_some(),
+                "{} names undeclared family {}",
+                p.id,
+                p.family
+            );
+        }
+        assert!(
+            DEFAULT.families.len() >= 5,
+            "expected several device families"
+        );
+    }
+
+    #[test]
+    fn platform_in_an_undeclared_family_is_rejected() {
+        let mut r = DEFAULT.clone();
+        r.platforms[0].family = "no_such_family".into();
+        assert!(r.validate().is_err());
     }
 }
