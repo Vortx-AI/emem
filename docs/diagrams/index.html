@@ -5,7 +5,7 @@
 <title>emem: visual suite (diagrams)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="color-scheme" content="light dark"/>
-<meta name="description" content="Thirty-two diagrams: the first ten describe the protocol, twenty are one-page industry pitches, and two cover the encoder split. Live renders at /docs/gallery."/>
+<meta name="description" content="Thirty-eight diagrams: the first ten describe the protocol, twenty are one-page industry pitches, and two cover the encoder split. Live renders at /docs/gallery."/>
 <link rel="canonical" href="https://emem.dev/docs/diagrams/"/>
 <meta property="og:type" content="website"/>
 <meta property="og:url" content="https://emem.dev/docs/diagrams/"/>
@@ -117,10 +117,10 @@
 <div class="statusbar"><div class="statusbar-inner"><a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a><span class="spacer"></span><a href="/">home</a><a href="/how-it-works">how it works</a><a href="/solutions">solutions</a><a href="/reference">reference</a><a href="/docs" class="on">docs</a><a href="/verify">verify</a><a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a></div></div>
 <header>
   <h1>the visual suite</h1>
-  <p>Thirty-two diagrams. The first ten describe the protocol, the next twenty are
+  <p>Thirty-eight diagrams. The first ten describe the protocol, twenty are
      one-page pitches, one chart, one line, for the businesses, governments, and
-     industries deploying real AI agents in 2026, and the last two cover the
-     encoder split. Each is a 16:9 SVG with calm motion; open any tile to see it
+     industries deploying real AI agents in 2026, and the rest cover the encoder
+     split, shared memory, and the orbit-to-ground device-trust substrate. Each is a 16:9 SVG with calm motion; open any tile to see it
      full size. For live, signed renders of real cells, see
      <a href="/docs/gallery">/docs/gallery</a>.</p>
 </header>
@@ -380,10 +380,25 @@
       <figcaption><div class="num">36 · MEMORY</div><h2>Memory outlives the context window</h2><p>compaction keeps the one-line address and drops the payload; the payload re-hydrates on demand</p></figcaption>
     </a></figure>
 
+    <figure id="37"><a href="/docs/diagrams/37-change-decomposition.svg">
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/37-change-decomposition.svg" aria-label="change decomposition"><img src="/docs/diagrams/37-change-decomposition.svg" alt="Change decomposition" loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">37 · MEMORY</div><h2>Change decomposition</h2><p>why a readout moved, split into the encoder, the world, and the reference terms, each with fact ids</p></figcaption>
+    </a></figure>
+
+    <figure id="38"><a href="/docs/diagrams/38-agent-to-token.svg">
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/38-agent-to-token.svg" aria-label="agent to token"><img src="/docs/diagrams/38-agent-to-token.svg" alt="Agent to token" loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">38 · MEMORY</div><h2>Agent to token</h2><p>an agent hands another a single token that resolves to the byte-identical signed record and verifies offline</p></figcaption>
+    </a></figure>
+
+    <figure id="39"><a href="/docs/diagrams/39-orbit-to-ground-trust.svg">
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/39-orbit-to-ground-trust.svg" aria-label="orbit to ground trust"><img src="/docs/diagrams/39-orbit-to-ground-trust.svg" alt="Orbit to ground trust" loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">39 · SUBSTRATE</div><h2>Orbit-to-ground trust</h2><p>the open archive admitted by recomputability vs an operator device admitted by its OS execution trace, one gate, one memory</p></figcaption>
+    </a></figure>
+
   </div>
 </main>
 <footer>
-  Thirty-two SVGs · 1920×1080 · animated SMIL · standalone, no JS · made to be embedded anywhere.
+  Thirty-eight SVGs · 1920×1080 · animated SMIL · standalone, no JS · made to be embedded anywhere.
   <br/>
   <a href="/docs/gallery">gallery</a> ·
   <a href="/whitepaper.md">whitepaper</a> ·

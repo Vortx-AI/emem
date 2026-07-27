@@ -58,7 +58,7 @@ blake3 of a domain-separated, tagged, length-prefixed segment stream
 primitive accepts two optional bounds, `as_of_tslot` (observation time)
 and `as_of_signed_at` (transaction time); both enter the signed preimage,
 so a verifier in year *t+k* replays the exact query a system answered in
-year *t*. Every band declares how its values are produced, in one of five
+year *t*. Every band declares how its values are produced, in one of six
 tamper-provenance classes (§7). An append-only log records attestation
 batches under the RFC 6962 tree construction (§8). Callers may register
 derivations over parent facts under their own key (§9).
@@ -1128,14 +1128,46 @@ wants a different ontology recompiles. The module's own header claims a
 hot-swap capability that does not exist in the code, and §16 records
 that.
 
-### 10.2 Beyond satellites
+### 10.2 Beyond satellites: the device substrate
 
 Any observer with a location and a signing key can join the same attest,
 recall, cite, verify path. `POST /v1/attest` is the multi-writer endpoint
-and ships today. Substrate profiles for fixed sensors, drones, robot
-fleets, industrial machines, and government registries are roadmap work,
-not claims about this build. Location stays the first key for all of
-them.
+that ships today. What also ships now is the machinery that admits a
+*device* (a robot, telescope, microscope, drone, or operator satellite)
+whose one-time physical reading no third party can recompute:
+
+- The **substrate-profile registry** (`GET /v1/substrates`, the ninth
+  content-addressed manifest) states, per contributor class, the admission
+  rule and the trace layers it requires. The founding Earth substrate is
+  admitted by recomputability from open archives; every device-borne
+  profile is admitted by **execution evidence**.
+- The **device-platform whitelist** (`GET /v1/device_platforms`) names
+  which hardware platforms the protocol will believe and how each proves
+  it is genuine: a root of trust (TCG DICE, IEEE 802.1AR DevID, TPM 2.0
+  quote, Arm PSA / EAT) whose anchor endorses the device key, following
+  the IETF RATS architecture (RFC 9334). Platforms are grouped into
+  families (edge AI, trusted hosts, secure MCUs, silicon roots of trust,
+  automotive, mobile secure elements); NVIDIA Jetson Orin is one member of
+  the edge-AI family, the way Sentinel-2 is one source of the Earth
+  substrate.
+- The **OS execution trace** (`emem.os_trace.v1`, verified by the
+  `emem-trace` crate, pre-checkable at `POST /v1/trace_verify`) binds the
+  device's emitted output inside a signed, chained record; the
+  **trace-encodings registry** (`GET /v1/trace_encodings`) states which
+  capture toolchains a segment may name and how each tracer's own
+  integrity is established (the "trace of the trace"). The write gate on
+  `POST /v1/attest_traced` admits a device fact only when its trace
+  verifies and every fact's payload is bound in it.
+- The evidence is citeable and resolvable: `emem:trace:<trace_cid>` and
+  `emem:attestation:<attestation_cid>` (`POST /v1/trace_resolve`), and the
+  resulting fact carries the `attested_execution` provenance class (§7).
+
+**What is not open:** every device platform is `candidate` status, every
+trust anchor is `provisional`, and device ingest is not enabled: the
+registries, trace verifier, write gate, and tokens all ship, but no real
+vendor anchor is pinned, so the gate admits no device yet. Authenticated
+enrollment against published anchors and drift-anchor wiring are the
+remaining work (§16). Location stays the first key for all of them.
 
 ### 10.3 Change attribution: what a readout change means
 
@@ -1640,8 +1672,9 @@ entries below record what was claimed, not what is still claimed.
 - Any token "resolves to the byte-identical signed object", applied
   across the family. True for `emem:fact:`, false for `emem:entity:`,
   vacuous for `emem:cell:` (§3).
-- "Four provenance classes." There are **five**; `unclassified` is the
-  fail-safe default (§7).
+- "Four provenance classes." There are **six**; `attested_execution` is
+  the device-substrate class (§7, §10.2) and `unclassified` is the
+  fail-safe default.
 - "Hot-swap the ontology without recompiling." The ontology is compiled
   in (§10.1).
 - "`pip install ememdev`", presented as a working install path. Every

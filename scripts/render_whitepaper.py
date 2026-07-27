@@ -41,7 +41,7 @@ TITLE = "emem whitepaper v2: an external identity layer for verifiable agent mem
 DESC = (
     "The emem whitepaper, version 2. An external identity layer for verifiable agent "
     "memory: the token grammar, cell64 + tslot addressing, canonical CBOR + BLAKE3 CIDs, "
-    "ed25519 receipts over a domain-separated tagged preimage, five tamper-provenance "
+    "ed25519 receipts over a domain-separated tagged preimage, six tamper-provenance "
     "classes, the RFC 6962 tree construction, and caller-registered derivations. "
     "Supersedes v1."
 )

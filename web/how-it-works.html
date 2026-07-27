@@ -596,7 +596,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     <div class="idx"><span class="idx-num">03</span><span class="idx-label">Provenance</span></div>
     <dl>
       <dt>the question</dt><dd>could a human or a model have touched this value?</dd>
-      <dt>five classes</dt><dd>direct_sensor &middot; deterministic_index &middot; model_output &middot; human_curated &middot; unclassified</dd>
+      <dt>six classes</dt><dd>direct_sensor &middot; deterministic_index &middot; attested_execution &middot; model_output &middot; human_curated &middot; unclassified</dd>
       <dt>recomputable</dt><dd>direct_sensor &middot; deterministic_index (<span id="pv-aside">14 of 43</span> bands)</dd>
       <dt>attested by</dt><dd>bands_cid, already in the receipt preimage (section&nbsp;02)</dd>
       <dt>on the wire</dt><dd>/v1/recall band_metadata &middot; /v1/memory_token/resolve &middot; /v1/bands</dd>
@@ -607,12 +607,13 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
     <h2><span class="num">03</span>Provenance: could a human or a model have touched the value</h2>
     <p class="lede">A signature proves who signed and that the bytes never changed. It does not, on its own, say whether a person could have edited the number before it was signed. So emem tags every band with how its value is produced, and an agent can tell a raw sensor reading from a model&rsquo;s estimate before it decides how far to trust either.</p>
 
-    <p>The tag is one of five classes. A <span class="band">direct_sensor</span> value is the instrument product itself, with no algorithm in the path. A <span class="band">deterministic_index</span> value is a fixed formula over raw pixels, cell coordinates, or a time series, so anyone holding the cited source recomputes the identical number with no learned weights and no human edit. A <span class="band">model_output</span> value came from a trained model or a published statistical product, so trust rests on a signed model checkpoint rather than on recomputation. A <span class="band">human_curated</span> value traces back to geometry a person drew or placed. A band that has not been tagged yet is <span class="band">unclassified</span>: treated as the lowest trust, and it never claims to be reproducible.</p>
+    <p>The tag is one of six classes. A <span class="band">direct_sensor</span> value is the instrument product itself, with no algorithm in the path. A <span class="band">deterministic_index</span> value is a fixed formula over raw pixels, cell coordinates, or a time series, so anyone holding the cited source recomputes the identical number with no learned weights and no human edit. An <span class="band">attested_execution</span> value is a device reading admitted through a verified OS execution trace and platform attestation &mdash; a one-time physical measurement no third party can recompute, trusted through its verified execution rather than re-derivation. A <span class="band">model_output</span> value came from a trained model or a published statistical product, so trust rests on a signed model checkpoint rather than on recomputation. A <span class="band">human_curated</span> value traces back to geometry a person drew or placed. A band that has not been tagged yet is <span class="band">unclassified</span>: treated as the lowest trust, and it never claims to be reproducible.</p>
 
     <table class="absent-table">
       <tbody>
         <tr><td>direct_sensor</td><td>instrument reading, no algorithm in the path (Copernicus DEM, Sentinel-2 L2A, Sentinel-1 RTC, VIIRS nightlights)</td><td>recomputable_from_source</td></tr>
         <tr><td>deterministic_index</td><td>fixed formula over raw pixels, coordinates, or time (NDVI, Horn slope, Fourier position encodings, JRC water rules)</td><td>recomputable_from_source</td></tr>
+        <tr><td>attested_execution</td><td>a device reading admitted through a verified OS execution trace + platform attestation (robots, telescopes, operator satellites)</td><td>verified_execution_trace</td></tr>
         <tr><td>model_output</td><td>trained model or published ML product (Tessera, Clay, Prithvi, Galileo, ESA WorldCover, SoilGrids, WorldPop, Hansen)</td><td>signed_model_checkpoint</td></tr>
         <tr><td>human_curated</td><td>a person drew or placed the geometry (OpenStreetMap, Overture, WDPA, GADM admin, WWF ecoregions)</td><td>attester_only</td></tr>
         <tr><td>unclassified</td><td>not yet tagged; fail-safe lowest trust, never claims tamper-evidence</td><td>attester_only</td></tr>
@@ -1531,7 +1532,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) {
       if (!d || !Array.isArray(d.bands) || !d.bands.length) return;
-      var c = { direct_sensor: 0, deterministic_index: 0, model_output: 0, human_curated: 0, unclassified: 0 };
+      var c = { direct_sensor: 0, deterministic_index: 0, attested_execution: 0, model_output: 0, human_curated: 0, unclassified: 0 };
       d.bands.forEach(function (b) {
         var k = b.provenance_class || "unclassified";
         c[k] = (c[k] || 0) + 1;
