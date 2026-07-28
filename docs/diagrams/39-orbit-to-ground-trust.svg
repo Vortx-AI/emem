@@ -147,11 +147,11 @@
 
 <!-- ══ bottom band ══ -->
 <rect x="55" y="730" width="850" height="262" rx="14" fill="#33302a"/>
-<text x="80" y="765" class="h" font-size="17" font-weight="bold" fill="#f3eee2" letter-spacing="2">WHY THIS ENDURES</text>
-<text x="80" y="794" class="h" font-size="14" fill="#f3eee2">Built for the day its authors are gone. When machine-made claims outnumber anyone's capacity</text>
-<text x="80" y="814" class="h" font-size="14" fill="#f3eee2">to re-check them, trust by authority fails and arithmetic remains: content addresses, signatures,</text>
-<text x="80" y="834" class="h" font-size="14" fill="#f3eee2">inclusion proofs, and an anchor no single participant controls. Forging one number means</text>
-<text x="80" y="854" class="h" font-size="14" fill="#f3eee2">simulating a whole causally consistent execution and beating an archive anyone can recompute.</text>
+<text x="80" y="765" class="h" font-size="17" font-weight="bold" style="fill:#f3eee2" letter-spacing="2">WHY THIS ENDURES</text>
+<text x="80" y="794" class="h" font-size="14" style="fill:#f3eee2">Built for the day its authors are gone. When machine-made claims outnumber anyone's capacity</text>
+<text x="80" y="814" class="h" font-size="14" style="fill:#f3eee2">to re-check them, trust by authority fails and arithmetic remains: content addresses, signatures,</text>
+<text x="80" y="834" class="h" font-size="14" style="fill:#f3eee2">inclusion proofs, and an anchor no single participant controls. Forging one number means</text>
+<text x="80" y="854" class="h" font-size="14" style="fill:#f3eee2">simulating a whole causally consistent execution and beating an archive anyone can recompute.</text>
 <text x="80" y="886" class="h" font-size="14" font-style="italic" fill="#d59a2a">Is this worth it, or just the obvious? The obvious part is signing data. The earned part is</text>
 <text x="80" y="906" class="h" font-size="14" font-style="italic" fill="#d59a2a">refusing signed data without execution evidence, and anchoring it to a record no one owns.</text>
 <text x="80" y="938" class="h" font-size="12.5" fill="#b5ad9c">Honest cost, measured against our own interest: a token spends ~5.8x the context of the bare</text>

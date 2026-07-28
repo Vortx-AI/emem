@@ -52,6 +52,10 @@ echo "==> regenerate the agent channel (web/channel.html, docs/collaboration-log
 python3 "$REPO/scripts/build_channel.py" || \
   echo "    ! channel regeneration failed; keeping the previous transcript"
 
+echo "==> generate the static tool explorer (web/tools.html)"
+python3 "$REPO/scripts/gen_tools_page.py" || \
+  echo "    ! tool-explorer generation failed; keeping the previous page"
+
 echo "==> cargo build --release -p emem-cli"
 cargo build --release -p emem-cli
 

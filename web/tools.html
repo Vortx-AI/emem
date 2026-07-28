@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang=en>
+<head>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Every tool · emem</title>
+<meta name=description content="All 104 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 15-tool core loop first. Every one callable with no key.">
+<link rel=canonical href="https://emem.dev/tools">
+<link rel=icon type="image/gif" href="/vortxgola.gif">
+<link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<style>
+:root{--paper:#f8f7f3;--paper-2:#f2f0ec;--paper-3:#eae8e3;--ink:#171613;--ink-2:#343330;--mute:#646360;--mute-2:#9a9895;--rule:#d3d1cb;--rule-strong:#a7a49e;--accent:#326234;--accent-bg:#d8efd8;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--paper:#0e0d0b;--paper-2:#151411;--paper-3:#1e1d1a;--ink:#e9e8e4;--ink-2:#bfbdba;--mute:#81807d;--mute-2:#565552;--rule:#2b2924;--rule-strong:#4a4742;--accent:#80cd82;--accent-bg:#132a14}}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--mono);line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding:2.2rem 1.5rem 4rem}
+h1{font-size:1.7rem;margin:.2rem 0 .4rem}
+.lede{color:var(--ink-2);max-width:70ch;margin:0 0 .4rem}
+.crumb{font-size:.78rem}.crumb a{color:var(--accent)}
+h2{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);padding-bottom:.3rem}
+.sub{color:var(--mute);font-size:.85rem;margin:.3rem 0 .6rem}
+.tool{border:1px solid var(--rule);background:var(--paper-2);margin:.4rem 0}
+.tool summary{display:flex;gap:.8rem;align-items:baseline;padding:.5rem .8rem;cursor:pointer;flex-wrap:wrap}
+.tool summary code{color:var(--accent);font-weight:600;flex:0 0 auto}
+.tool .tt{color:var(--ink-2);font-size:.85rem}
+.tool .tw{color:var(--mute);font-size:.8rem}
+.tool p{padding:0 .9rem;color:var(--ink-2);font-size:.85rem;max-width:90ch}
+.tool pre{margin:.4rem .9rem .8rem;padding:.6rem .7rem;background:var(--paper-3);border:1px solid var(--rule);overflow-x:auto;font-size:.74rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+<p class="crumb"><a href="/">emem</a> / tools</p>
+<h1>Every tool, generated from the registry</h1>
+<p class="lede">All 104 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
+<h2>The core loop (15 tools)</h2>
+<p class="sub">What /mcp advertises by default: enough to name, ground, read, cite, and verify.</p>
+
+<details class="tool" id="emem_tools">
+  <summary><code>emem_tools</code><span class="tt">What tools exist here, and when to reach for each</span><span class="tw">Call this FIRST when you do not know which emem tool answers the question, or when you need a capability you cannot see in your tool list.</span></summary>
+  <p>The map of emem&#x27;s tool surface, and the only tool you need to find the rest. Returns the working loop in the order you walk it (name a thing, ground it, cite it, resolve it, verify it, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` to get one tool&#x27;s full input schema and a runnable example, so you can use a tool without loading all of the descriptors into context. This endpoint advertises the core loop only; the Earth-observation, search, embedding and log tools are catalogued here and remain callable by name.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_tools&quot;, &quot;arguments&quot;: {&quot;q&quot;: &quot;ndvi&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_locate">
+  <summary><code>emem_locate</code><span class="tt">Resolve place to cell64 + band inventory</span><span class="tw">Use whenever the input refers to a real-world location and the next step needs the cell64 identifier or wants to know which bands are available before recalling.</span></summary>
+  <p>Mint the canonical, vendor-neutral address (cell64) for a real-world place: the shared spatial identity every agent resolves to identically, so two models refer to the same ground instead of two descriptions of it. Also returns the topic-grouped inventory of bands and algorithms recallable there. For a first-class OBJECT identity (a bridge, a plot, a named place) rather than a raw cell, use emem_entity.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_locate&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Mount Everest&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_ask">
+  <summary><code>emem_ask</code><span class="tt">Ask a free-text question about a place</span><span class="tw">Use when the question concerns a specific real-world place and a packaged, citation-bearing answer is preferable to manual primitive composition.</span></summary>
+  <p>Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_ask&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Ashok Nagar, Ranchi&quot;, &quot;q&quot;: &quot;is this neighbourhood flood-prone for a flat purchase&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_memory_token">
+  <summary><code>emem_memory_token</code><span class="tt">Compose a memory_token citation handle</span><span class="tw">Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it.</span></summary>
+  <p>Mint a citation handle, `emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;` (or `:&lt;state_cid&gt;`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Algebra: cite.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_token&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;fact_cid&quot;: &quot;cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_memory_token_resolve">
+  <summary><code>emem_memory_token_resolve</code><span class="tt">Dereference a memory_token in one round-trip</span><span class="tw">Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the underlying signed bytes.</span></summary>
+  <p>Parse a `emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/&lt;cid&gt;` manually. Algebra: resolve.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_token_resolve&quot;, &quot;arguments&quot;: {&quot;token&quot;: &quot;emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_echo_verify">
+  <summary><code>emem_echo_verify</code><span class="tt">Check a value against the fact it cites, before you publish it</span><span class="tw">Call immediately before publishing, logging, or handing on any value you took from an emem fact, and treat a false `matches` as a gate rather than a warning.</span></summary>
+  <p>Grade a value you are about to emit against the signed fact your citation points at. Returns `matches` and, when it does not, the `drift` between what you were about to say and what emem holds. This is the step that turns a transcription error into a caught event instead of a silent wrong number: a model that resolves a fact correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Algebra: verify.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_echo_verify&quot;, &quot;arguments&quot;: {&quot;claimed_value&quot;: &quot;-0.0558&quot;, &quot;token&quot;: &quot;emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_memory_bundle">
+  <summary><code>emem_memory_bundle</code><span class="tt">Compose a signed multi-fact memory bundle</span><span class="tw">Call when the agent wants to cite multiple (place, band, vintage) facts as one handle.</span></summary>
+  <p>Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:&lt;bundle_cid&gt;`, a single rebindable string that cites the whole set. Algebra: merge.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_bundle&quot;, &quot;arguments&quot;: {&quot;purpose&quot;: &quot;audit baseline 2026&quot;, &quot;triples&quot;: [{&quot;band&quot;: &quot;copdem30m.elevation_mean&quot;, &quot;cell&quot;: &quot;defi.zb4d9.pefa.zf619&quot;}, {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}]}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_entity">
+  <summary><code>emem_entity</code><span class="tt">Mint or get a canonical object identity</span><span class="tw">Call when a conversation refers to a THING and you want a stable handle to it that survives summarization and travels between agents/turns/LLMs, before it drifts into &#x27;that infrastructure issue&#x27;.</span></summary>
+  <p>Give a real-world object (a bridge, a farm plot, a river, a named place) a single, shared, content-addressed identity that any agent resolves the same way. Returns an `entity_token` (`emem:entity:&lt;entity_cid&gt;`) plus a signed receipt that attests how the reference resolved. Two agents that name the same object mint the SAME entity_cid; when a stable external id (Overture GERS / OSM) is known it dominates identity, so divergent labels for one real object still collapse to one id. This is the object-level antidote to referential drift: &#x27;the damaged bridge near the river&#x27; becomes one canonical thing every model reasons about, not a phrase each model re-interprets.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_entity&quot;, &quot;arguments&quot;: {&quot;kind&quot;: &quot;bridge&quot;, &quot;label&quot;: &quot;Golden Gate Bridge&quot;, &quot;place&quot;: &quot;Golden Gate Bridge, San Francisco&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_entity_resolve">
+  <summary><code>emem_entity_resolve</code><span class="tt">Resolve a phrase (or emem:entity: token) to a canonical object</span><span class="tw">Call BEFORE minting when another agent may already have registered the object, or when you receive a `emem:entity:` token and want the object behind it.</span></summary>
+  <p>Converge a fuzzy phrasing onto the canonical object other agents already minted, so everyone co-refers to the same identity instead of re-minting divergent ones. Pass `text` (e.g. &quot;the collapsed span at the ford&quot;) to get ranked existing candidates; pass `near` to narrow to a place; or pass an `emem:entity:` `token` to dereference it directly to the signed entity body. Read-only.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_entity_resolve&quot;, &quot;arguments&quot;: {&quot;near&quot;: &quot;San Francisco&quot;, &quot;text&quot;: &quot;the golden gate bridge&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_entity_link">
+  <summary><code>emem_entity_link</code><span class="tt">Attest that a phrasing/id denotes an existing object</span><span class="tw">Call when you learn that two phrasings denote the same object (&#x27;the north dam&#x27; == an existing entity), or to attach an authoritative external id to an object minted from free text.</span></summary>
+  <p>Record a signed equivalence: bind an alternate label or a stable external id (GERS / OSM / Wikidata) to an existing canonical object so future `emem_entity_resolve` calls on that phrasing converge to the same entity_cid. Builds the shared reference graph that keeps different agents&#x27; vocabularies pointing at one identity.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_entity_link&quot;, &quot;arguments&quot;: {&quot;alias&quot;: &quot;the north dam&quot;, &quot;entity_token&quot;: &quot;emem:entity:0a1b2c3d4e5f60718293&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_recall">
+  <summary><code>emem_recall</code><span class="tt">Recall facts at a cell (auto-materializes on miss)</span><span class="tw">Call after `emem_locate` (or with a known cell64).</span></summary>
+  <p>Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. A fact_cid names one signed attestation, so a recalled fact is citeable and re-verifiable rather than a paraphrase: resolving it anywhere returns those exact bytes. It is NOT a fingerprint of the observation. The digest covers the responder&#x27;s key and the moment it signed, so two responders that measure the same thing mint different fact_cids and a cid resolves only at the responder that signed it; use emem_entity for identity that crosses responders. Pass `deterministic:true` (or a `provenance` class list) to keep only facts recomputable from the cited raw source, with no model or human in the loop. In the memory algebra this is ensure(cell, bands), not get: state what must exist and the responder reuses or materializes.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_recall&quot;, &quot;arguments&quot;: {&quot;bands&quot;: [&quot;weather.temperature_2m&quot;, &quot;copdem30m.elevation_mean&quot;], &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_find_similar">
+  <summary><code>emem_find_similar</code><span class="tt">k-NN over the corpus by embedding</span><span class="tw">Call when the user asks &#x27;find places like X&#x27;, &#x27;where else looks like this&#x27;, or hands an embedding to find neighbours.</span></summary>
+  <p>k-NN over the corpus by cell embedding or inline vector.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_find_similar&quot;, &quot;arguments&quot;: {&quot;k&quot;: 10, &quot;key&quot;: &quot;damO.zb000.xUti.zde78&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_memory_contradictions">
+  <summary><code>emem_memory_contradictions</code><span class="tt">Scan for multi-attester disagreement</span><span class="tw">Call this when trust matters before you rely on a number — &#x27;is there disagreement about X&#x27;, &#x27;do the sources corroborate this&#x27;, &#x27;audit this claim&#x27;, or &#x27;find contradictory observations in region Y&#x27;.</span></summary>
+  <p>Surface where the corpus DISAGREES with itself (algebra: competing evidence). When two or more independent sources signed different values for the same place + band + time, this returns that disagreement with a 0–1 severity score and citations to every disputed fact, instead of silently picking one value and hiding the conflict. The opposite of a confident single answer: it tells you when not to trust one.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_contradictions&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell_prefix&quot;: &quot;damO&quot;, &quot;min_severity&quot;: 0.2}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_verify_receipt">
+  <summary><code>emem_verify_receipt</code><span class="tt">Server-side ed25519 receipt verifier</span><span class="tw">Pass a receipt object exactly as returned by any read primitive (signature can be byte[] or sig_b32; pubkey can be byte[] or responder_pubkey_b32 — the verifier tolerates both shapes).</span></summary>
+  <p>Verify a signed receipt envelope server-side: recomputes the canonical preimage (preimage v1: tagged, length-prefixed segments; receipts without `preimage_version` verify under the legacy `request_id | served_at | primitive | cells, | fact_cids,` concatenation), runs ed25519 over the embedded pubkey + signature, and returns `{valid, reason, pubkey_b32}`. Use when the in-browser /verify path is blocked (CDN offline, agent runtime has no crypto) or when you want a server-side audit of a third-party receipt. Algebra: verify.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_verify_receipt&quot;, &quot;arguments&quot;: {&quot;receipt&quot;: {&quot;cells&quot;: [&quot;damO.zb000.xUti.zde78&quot;], &quot;fact_cids&quot;: [&quot;qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq&quot;], &quot;primitive&quot;: &quot;recall&quot;, &quot;request_id&quot;: &quot;req-1&quot;, &quot;responder_pubkey&quot;: [4, 5, 6], &quot;served_at&quot;: &quot;2026-05-14T12:00:00Z&quot;, &quot;signature&quot;: [1, 2, 3]}}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_intent">
+  <summary><code>emem_intent</code><span class="tt">Intent-routed planner</span><span class="tw">Call when the user asks something like &#x27;where is X&#x27; or &#x27;is A like B&#x27; and you don&#x27;t want to pick a primitive yourself — the planner maps Intent variants to the right tool call.</span></summary>
+  <p>Submit a typed Intent; receive a plan or executed result.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_intent&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;type&quot;: &quot;what_is_here&quot;}}}&#x27;</code></pre>
+</details>
+<h2>Read the world (58)</h2>
+
+<details class="tool" id="emem_air">
+  <summary><code>emem_air</code><span class="tt">Air-quality snapshot (CAMS PM2.5 / NO2 / O3)</span><span class="tw">Use when the user names a place and asks about air quality, pollution, or emissions exposure.</span></summary>
+  <p>Recall the signed Copernicus CAMS air-quality facts (PM2.5 + NO2 + O3) at a place&#x27;s cell64, attesting on a miss. Composes locate → recall → aggregate; each band carries a citeable fact_cid.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_air&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Delhi, India&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_at">
+  <summary><code>emem_at</code><span class="tt">Multi-band snapshot at a place</span><span class="tw">Use when the user names a place and wants the standard situational readout (vegetation + elevation + landcover + recent weather) without picking bands.</span></summary>
+  <p>One-shot recall of the signed facts at a place&#x27;s cell64 (or lat/lng); each band carries a citeable fact_cid. Defaults to emem&#x27;s standard at-a-glance band set; pass `band` / `bands` to override. Polygon-resolved places stay at the centroid by default (`n_cells: 1`) to keep multi-band calls cheap; pass `n_cells: 2..=64` to fan out.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_at&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Yellowstone National Park&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_backfill">
+  <summary><code>emem_backfill</code><span class="tt">Materialize historical facts in a window</span><span class="tw">Call when the user wants HISTORY for a fast/medium-tempo band and `emem_trajectory` returned only the latest point.</span></summary>
+  <p>Materialize and sign every per-tslot fact for one (cell, band) inside a [start_unix, end_unix] window. Returns a signed list of (tslot, fact_cid, status) for each step. Slow but possible — one upstream fetch per tslot, capped by `max_facts`.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_backfill&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;modis.ndvi_mean&quot;, &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;end_unix&quot;: 1735689600, &quot;max_facts&quot;: 24, &quot;start_unix&quot;: 1640995200}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_band_composite">
+  <summary><code>emem_band_composite</code><span class="tt">Band composite: a signed cloud-masked median over a window</span><span class="tw">Call when a world model or an analyst needs the clean composite texture over an area across a season, not a single-date snapshot that may be cloudy: a scrub-frame base layer, a gap-filled band drape, a cloud-free mosaic.</span></summary>
+  <p>Mint a signed, cloud-masked median composite over a date window as a raster-shaped field: the clean, gap-filled texture a world model actually drapes, rather than one cloudy scene. It reads every Sentinel-2 scene in [start_date, end_date] over the bbox, masks each per pixel by its SCL scene-classification class (default reject {0,1,3,8,9,10}: no-data, saturated, cloud shadow, cloud, cirrus; snow 11 is KEPT because snow is surface, not occlusion, and a snow-rejected median would fabricate a bare winter scene; override with mask_policy), and takes the per-pixel lower-of-two median (never averaging two measurements into a value nobody took) with a pinned min_valid_count, below which a pixel is nodata. The mask policy, min_valid_count, and the exact member scene list are pinned in the signed derivation, so a stranger re-derives the composite pixel for pixel from the same scenes. Returns an emem:raster: token (resolve with emem_raster_resolve) plus the content-addressed artifact; the receipt binds (aoi_cid, derivation_cid). Needs at least two clear scenes at one CRS. This signs and persists the derivation.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_band_composite&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;s2.B04&quot;, &quot;bbox&quot;: {&quot;max_lat&quot;: 32.5727, &quot;max_lng&quot;: 77.0362, &quot;min_lat&quot;: 32.5699, &quot;min_lng&quot;: 77.0328}, &quot;end_date&quot;: &quot;2026-07-31&quot;, &quot;start_date&quot;: &quot;2026-05-01&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_band_cube">
+  <summary><code>emem_band_cube</code><span class="tt">Band cube: a field over time, as a signed manifest</span><span class="tw">Call when a world model or change-over-time analysis needs a time series of fields over one AOI, not one snapshot: the 4D world token, a phenology stack, a before/during/after triptych.</span></summary>
+  <p>Mint an emem:cube: token: a Sentinel-2 field over an AOI ACROSS TIME. A world model is a field over an area across time, and emem:raster: names only one time-slice, so a 4D world&#x27;s time scrub had no token to anchor. This mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. It is NOT new pixels: lineage terminates in each member&#x27;s pinned scene, so a stranger walks cube -&gt; members -&gt; scenes and re-derives every value from raw Sentinel-2 bytes. cube_cid content-addresses the ordered membership (blake3 of the member derivation cids), so the same slices always name the same cube. Two dates that resolve to the same scene collapse; a cube needs at least two distinct slices and caps at 24 per mint (refused with the cap named). Each member echoes `requested_dates` (the observed_on entries that mapped to it) and `requested_date_distance_days` (the nearest one&#x27;s gap from the scene&#x27;s own capture date), so a caller lines a requested date up with its slice directly rather than guessing by tslot proximity. The receipt&#x27;s FIELD preimage segment binds (aoi_cid, derivation_cid), reported by /v1/verify_receipt as field_bound. Returns the emem:cube: token plus the member emem:raster: tokens. This signs and persists the cube record and its members.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_band_cube&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;s2.B08&quot;, &quot;bbox&quot;: {&quot;max_lat&quot;: 32.5727, &quot;max_lng&quot;: 77.0362, &quot;min_lat&quot;: 32.5699, &quot;min_lng&quot;: 77.0328}, &quot;observed_on&quot;: [&quot;2026-05-01&quot;, &quot;2026-06-01&quot;, &quot;2026-07-01&quot;]}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_band_raster">
+  <summary><code>emem_band_raster</code><span class="tt">Band raster: a field as a signed derivation</span><span class="tw">Call when an agent needs an area&#x27;s actual field of values rather than per-cell scalars: change analysis over a scene window, input to a model that reads grids, exporting verifiable pixels a third party can re-derive, or a terrain/elevation field (band copdem30m.elevation).</span></summary>
+  <p>Return a native-resolution Sentinel-2 window over a bounding box as a FIELD, not a set of points: the pixels become one content-addressed grid artifact (deterministic f32 encoding; fetch the bytes at the returned artifact url, Cache-Control immutable), and what the receipt attests is the DERIVATION, never a byte pipe. A persisted derivation record pins the chosen scene (id, asset, capture time, cloud cover), the recipe (band_raster@1), the grid georeferencing in the scene&#x27;s UTM CRS, and best-effort per-cell anchors that bridge the artifact to existing signed facts; the receipt&#x27;s FIELD preimage segment binds (aoi_cid, derivation_cid), reported by /v1/verify_receipt as field_bound. Bounds are refusals with the cap named: six raw S2 bands (B02/B03/B04/B08/B11/B12) and 512 px per side at native resolution (about 5.1 km at 10 m). Anchors never materialize a fact, so a cold AOI costs one scene read, nothing more. The artifact is evictable BY DESIGN: the record persists like any fact and pins everything needed to rebuild identical bytes, so eviction turns a dereference into a recompute, never a broken citation. Returns two tokens: emem:raster: (resolve with emem_raster_resolve) and the record&#x27;s own emem:fact: handle. This signs and persists the derivation record. TERRAIN: pass band `copdem30m.elevation` (or `elevation` / `dem`) for a static Copernicus GLO-30 elevation field via the dem_raster@1 path — no scene selection, no cloud, EPSG:4326 grid; a bbox crossing a 1-degree DEM tile edge is refused (single-tile only) and open ocean has no tile. EMBEDDING (WB-5): pass an encoder band (geotessera etc.) for a MULTI-CHANNEL embedding field via embedding_raster@1 — a signed N-D vector per cell (geotessera = 128-D) packed into one artifact, so a client-side per-cell embedding fan-out becomes one citeable token; every filled cell is anchored to its real signed encoder fact; grid capped at 256 cells at the 0.1-degree native step.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_band_raster&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;s2.B04&quot;, &quot;bbox&quot;: {&quot;max_lat&quot;: 12.97, &quot;max_lng&quot;: 77.57, &quot;min_lat&quot;: 12.95, &quot;min_lng&quot;: 77.55}}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_benchmark">
+  <summary><code>emem_benchmark</code><span class="tt">Hand-verified eval items for agent grading</span><span class="tw">Call once at agent-onboarding time (or in CI) to fetch the canonical task list, then have the agent answer each item using its normal tool routing, and POST the answers map to /v1/benchmark/grade for a deterministic score.</span></summary>
+  <p>Hand-verified evaluation items for grading an agent against the responder. Returns {items[], grader_url}. Submit answers (cell64 or fact_cid per item) to POST /v1/benchmark/grade for per-item scores. Items today: elevation recall, NDVI, find_similar neighbours.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_benchmark&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_burn_severity">
+  <summary><code>emem_burn_severity</code><span class="tt">Burn severity (dNBR, Key &amp; Benson) from pre/post-fire NBR</span><span class="tw">Call after a wildfire to quantify how badly an area burned, or to triage post-fire severity across a region cell-by-cell.</span></summary>
+  <p>Compute the differenced Normalized Burn Ratio (dNBR = NBR_pre − NBR_post; Key &amp; Benson 2006) and map it to the USGS burn-severity classes (unburned / low / moderate-low / moderate-high / high). Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) for a correct result, or omit both to use the two most-recent stored `indices.nbr` scenes (older=pre, newer=post) as a coarse estimate. The result is signed; the receipt cites the NBR fact_cids it read from the shared memory.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_burn_severity&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;nbr_post&quot;: 0.11, &quot;nbr_pre&quot;: 0.62}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_cell_geojson">
+  <summary><code>emem_cell_geojson</code><span class="tt">Cell polygon as GeoJSON</span><span class="tw">Call when the agent (or a downstream renderer) needs the cell as geographic geometry — for map overlays, polygon-clipping ops, or feeding a styling pipeline.</span></summary>
+  <p>Cell polygon as a native MCP EmbeddedResource (mimeType application/geo+json). Properties carry centre lat/lng, bbox, approx size in metres, and the 8-cell neighbourhood — drop straight into Mapbox / Leaflet / Deck.gl / QGIS without a GIS pipeline.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_cell_geojson&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.waro.zcb89&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_cell_scene_rgb">
+  <summary><code>emem_cell_scene_rgb</code><span class="tt">Sentinel-2 true-colour thumbnail (PNG)</span><span class="tw">Call when the user wants a VISUAL of a place — &#x27;show me what this looks like&#x27;, &#x27;before/after the flood&#x27;, &#x27;is there a forest here&#x27;, &#x27;is this developed&#x27;.</span></summary>
+  <p>True-colour Sentinel-2 L2A RGB thumbnail centred on a cell. PNG returned as a native MCP ImageContent block (mimeType image/png). Pure-Rust pipeline: STAC search + HTTP-Range COG reads + 2-98 percentile stretch + PNG encode.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_cell_scene_rgb&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.waro.zcb89&quot;, &quot;max_cloud&quot;: 20}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_change_attribution">
+  <summary><code>emem_change_attribution</code><span class="tt">Change attribution ledger: why did this place&#x27;s readout move</span><span class="tw">Call when a change surface (emem_diff, emem_state_diff, emem_triple_consensus, did_change) reported that a place&#x27;s readout moved and the question is WHY: world, instrument, pixels, model, or noise.</span></summary>
+  <p>The first runnable surface of the change decomposition Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε: a per-term evidence LEDGER for the readout change at a cell, with NO numeric split. `observed` carries the Tessera year-over-year embedding change. `terms.env` carries label-free index pairs (NDVI, NBR, NDWI) with raw deltas and both fact cids, evidence a future estimator would read. `terms.sensor` records what each visit was observed through (source scheme and scene id per band) and whether that path changed. `terms.geo` is declared not estimated (no registration-residual surface exists). `terms.encoder` is pinned by construction: both vintages are slices of one signed multi-year fact under one recipe, named by fn_key. `terms.noise` reports the S2 scene-classification class per visit, so a cloud flip is visible. `split` is null and `attribution_note` says why: splitting a delta numerically needs a calibrated cross-encoder, cross-sensor stability model this responder does not have, and inventing magnitudes would fabricate the exact confusion the decomposition exists to prevent. The ledger persists: each run stores itself as a derivative fact (band change_attribution.ledger, parents = every fact read) and the response returns its own emem:fact: token under ledger_fact, so an attribution is cited and dereferenced like any reading. The receipt binds every input fact cid plus the stored ledger cid. Bands read cold may materialize, so this signs and persists facts.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_change_attribution&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_compare">
+  <summary><code>emem_compare</code><span class="tt">Compare two cells (cosine + scalar deltas)</span><span class="tw">Call when the user asks &#x27;how similar is X to Y&#x27;, &#x27;compare these two places&#x27;, or wants a difference vector.</span></summary>
+  <p>Compare two cells: cosine similarity over shared vector bands + per-band scalar deltas.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_compare&quot;, &quot;arguments&quot;: {&quot;a&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;b&quot;: &quot;damO.zb000.xUto.sisA&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_compare_bands">
+  <summary><code>emem_compare_bands</code><span class="tt">Compare two bands at one cell</span><span class="tw">Call when the user wants cross-source consistency at one place (&#x27;does Cop-DEM agree with GMRT here?&#x27;), cross-vintage drift (&#x27;how did the embedding change between 2017 and 2024 at this cell?&#x27;), or any band-vs-band comparison within a single cell.</span></summary>
+  <p>Compare two bands at the same cell. Scalar pair → metric=delta, value=b-a. Vector pair (equal dim) → metric=cosine + per-dim delta. Returns a signed receipt naming both source fact CIDs.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_compare_bands&quot;, &quot;arguments&quot;: {&quot;a&quot;: &quot;copdem30m.elevation_mean&quot;, &quot;b&quot;: &quot;gmrt.topobathy_mean&quot;, &quot;cell&quot;: &quot;damO.zb000.wapu.yAxe&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_compare_same_doy">
+  <summary><code>emem_compare_same_doy</code><span class="tt">Compare a band at the same day-of-year across years</span><span class="tw">Call when the user wants a year-over-year comparison of a seasonal band (NDVI, LST, greenness) and cares that it is change, not season: &#x27;is this field greener than last year&#x27;, &#x27;compare the July vegetation across 2022-2025&#x27;.</span></summary>
+  <p>Compare a band at the SAME day-of-year across several years, the honest way to measure year-over-year change on a seasonal band. For each year it finds the signed facts bracketing the target day-of-year and linearly interpolates to it, and EXCLUDES years that cannot be bracketed (with a typed reason) rather than extrapolating. This is the primitive the phenology advisory on emem_diff points at: comparing a seasonal band at two different days-of-year mixes phenology with real change (the &#x27;4 prospered / 0 stressed&#x27; trap), so comparing at one fixed DOY makes a year-over-year delta change rather than season. Interpolated values are model-derived, not directly signed; the bracketing fact_cids are recoverable via emem_trajectory.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_compare_same_doy&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;defi.zb572.xoso.zb1ec&quot;, &quot;doy&quot;: 196, &quot;years&quot;: [2023, 2024, 2025, 2026]}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_corpus_state_stats">
+  <summary><code>emem_corpus_state_stats</code><span class="tt">Signed snapshot of corpus liveness</span><span class="tw">Call when an agent needs a single liveness reading to surface in a dashboard, attach to a report, or decide whether to refresh local caches.</span></summary>
+  <p>Signed snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, top per-band counts, manifest CIDs. Same payload that backs /v1/stream&#x27;s corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_corpus_state_stats&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_cube_resolve">
+  <summary><code>emem_cube_resolve</code><span class="tt">Dereference an emem:cube: field-over-time token</span><span class="tw">Call when you receive an emem:cube: token from another agent and want the verified time series behind it: this returns the bound record and the member raster tokens, then resolve those (or resolve_many) and re-hash each artifact against its artifact_cid for the spot-check tier.</span></summary>
+  <p>Resolve emem:cube:&lt;aoi_cid&gt;:&lt;band&gt;:&lt;tslot_lo&gt;..&lt;tslot_hi&gt;:&lt;derivation_cid&gt; back to its signed cube record and the ordered member emem:raster: tokens. Same fail-closed rule as emem_raster_resolve: the cid must be a band_cube@1 derivation, the token&#x27;s aoi_cid, band, and tslot range must each match the signed record, and cube_cid is recomputed from the record&#x27;s members so an altered membership is refused (typed 409), not silently served. Returns the full record plus a member_tokens list you resolve independently with emem_raster_resolve or batch through resolve_many; each member&#x27;s artifact is at GET /v1/artifacts/{cid}, immutable. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_cube_resolve&quot;, &quot;arguments&quot;: {&quot;token&quot;: &quot;emem:cube:&lt;aoi_cid&gt;:s2.B08:20600..20651:&lt;derivation_cid&gt;&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_deforestation_alert">
+  <summary><code>emem_deforestation_alert</code><span class="tt">Deforestation alert proxy (NDVI drop + embedding change)</span><span class="tw">Call to flag recent forest-loss-like change at a known cell when you want a single 0..1 alert score rather than a full ensemble.</span></summary>
+  <p>Composite deforestation-alert score: `alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`, where `ndvi_drop = max(0, ndvi_modis_baseline − ndvi_now)` and `embedding_change = 1 − cos(tessera_latest, tessera_prev)`. Each half degrades INDEPENDENTLY and honestly: if a band is missing, that half is dropped AND the output is renamed so a half-score can never be mistaken for the full composite. If NEITHER half is computable the response is a signed `inconclusive` carrying no number. Every response also carries a machine-readable `degraded` boolean plus `degraded_reason` (closed set: `embedding_half_unavailable`, `ndvi_half_unavailable`, `no_inputs`) and `degraded_message`, so a caller gates on the flag instead of parsing prose.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_deforestation_alert&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_derive_list">
+  <summary><code>emem_derive_list</code><span class="tt">List one attester&#x27;s registered derivations</span><span class="tw">Call to enumerate your own derivations (pass your pubkey_b32), or to inspect what a specific attester has claimed when you already have a reason to trust or audit that key.</span></summary>
+  <p>List the derivations registered by one ed25519 key, optionally filtered to a cell (and then a band). The explicit opt-in read for caller-registered derivatives: they hold no canonical key, so no default read path returns them, and this is the only way to enumerate one rather than resolve it by token.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_derive_list&quot;, &quot;arguments&quot;: {&quot;attester_pubkey_b32&quot;: &quot;n2vqbtqx4dmz3xk6yqhkdmnjmfqvnqzq2qgz7ymkflgnvzptdcaa&quot;, &quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_diff">
+  <summary><code>emem_diff</code><span class="tt">Signed delta between two tslots</span><span class="tw">Call when the user asks &#x27;what changed between t1 and t2&#x27;, &#x27;give me the delta&#x27;.</span></summary>
+  <p>Compute a DerivativeFact (delta) between a band&#x27;s values at two tslots. Algebra: diff. For a time-varying band the response also carries an unsigned `phenology` advisory: the day-of-year of each tslot, their gap, and a `caution` when the two dates sit at different points in the seasonal cycle, because that delta mixes phenology with real change (the &#x27;4 prospered / 0 stressed&#x27; trap). It surfaces the bias rather than rejecting the call; the advisory never enters the receipt.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_diff&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;tslot_a&quot;: 0, &quot;tslot_b&quot;: 12}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_edges_recall">
+  <summary><code>emem_edges_recall</code><span class="tt">Recall temporal knowledge-graph edges</span><span class="tw">Call this to read the typed CONNECTIONS of a fact — what disagrees with it, what superseded it, what relates to it — as of a point in time.</span></summary>
+  <p>Read temporal knowledge-graph edges (subj --pred--&gt; obj, valid over [valid_from, valid_to)), bi-temporally filtered, in EITHER direction. Forward (`subj`, direction=&quot;out&quot;, the default): edges originating at a subject fact. Reverse (`obj`, direction=&quot;in&quot;): edges pointing AT a fact — what disagrees-with / supersedes / relates-to it. Returns a signed list of edges plus the distinct neighbour fact CIDs (`objs` for out, `subjs` for in); the receipt commits the returned edge CIDs into its signature preimage.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_edges_recall&quot;, &quot;arguments&quot;: {&quot;as_of_tslot&quot;: 1767225600, &quot;pred&quot;: &quot;replaced_by&quot;, &quot;subj&quot;: &quot;qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_elevation">
+  <summary><code>emem_elevation</code><span class="tt">Coherent elevation across Cop-DEM + GMRT + WorldCover</span><span class="tw">Use when the user asks &#x27;how high is X&#x27; or &#x27;what&#x27;s the elevation at this lat/lng&#x27; and you want the correct answer regardless of whether the cell is land, water, or coastline — the handler picks Cop-DEM for land and GMRT for water and surfaces the choice.</span></summary>
+  <p>One-shot elevation answer that fuses Cop-DEM 30 m (land), GMRT (ocean topobathy), and ESA WorldCover (water mask) into a single signed scalar at a place or coordinate. Returns `elevation_m`, the source actually used, and a `coherence_note` when the two surfaces disagree at the coast.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_elevation&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Mount Everest&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_embedding_centroid">
+  <summary><code>emem_embedding_centroid</code><span class="tt">Embedding centroid — mean-pooled GeoTessera vector for a region</span><span class="tw">Call when you need one representative embedding vector for an area — to feed similarity search, clustering, or a linear probe over places rather than single cells.</span></summary>
+  <p>Mean-pool the 128-D GeoTessera embedding over a region&#x27;s cells: centroid = (1/N) Σ v_i, plus the L2-normalised centroid and a content-addressed centroid_cid. The building block region_similarity composes. Region is {place} | {polygon_bbox} | {cells}. NaN dims are averaged over their finite contributors. CPU-only.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_embedding_centroid&quot;, &quot;arguments&quot;: {&quot;max_cells&quot;: 64, &quot;place&quot;: &quot;Serengeti National Park&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_embedding_diversity">
+  <summary><code>emem_embedding_diversity</code><span class="tt">Embedding diversity — landscape heterogeneity over a region</span><span class="tw">Call for habitat-heterogeneity / biodiversity-proxy inputs, or to tell a monoculture from a mosaic landscape, or to rank regions by how mixed they are.</span></summary>
+  <p>Quantify how varied a region&#x27;s landscape is: diversity = (1/(N(N-1))) Σ_{i&lt;j} (1 − cosine(v_i, v_j)), the mean pairwise cosine distance over the region&#x27;s GeoTessera embeddings. 0 = perfectly uniform; higher = more heterogeneous land cover (a determinantal-point-process / k-medoid diversity). Region is {place} | {polygon_bbox} | {cells}. CPU-only.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_embedding_diversity&quot;, &quot;arguments&quot;: {&quot;max_cells&quot;: 64, &quot;place&quot;: &quot;Okavango Delta&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_eudr_dds">
+  <summary><code>emem_eudr_dds</code><span class="tt">EUDR Due Diligence Statement — polygon-in, signed Annex II envelope out</span><span class="tw">Call when a commodity supplier or EU importer needs to evidence due diligence under Regulation (EU) 2023/1115.</span></summary>
+  <p>Produce a Due Diligence Statement per Regulation (EU) 2023/1115 for one or more plots. Each plot carries operator-supplied geometry (GeoJSON Polygon for &gt;4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint applies the regulation&#x27;s 10 % canopy / 0.5 ha / 5 m height forest definition (Article 2(4)) using the EU Commission&#x27;s expected JRC GFC2020 V3 baseline plus Hansen GFC v1.12 loss-year confirmation; Sims et al. 2025 driver attribution and RADD SAR fallback layer on when those connectors are wired (Absence today). The response is an Annex II-shaped envelope with per-plot verdict (pass/fail/not_in_scope/indeterminate/below_mmu), failing-cell fraction, and signed fact CIDs for every per-cell verdict — operators quote them in the company&#x27;s Article 12 record. Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws) is structurally out of EO scope; the response carries an explicit `legality_disclaimer` for that reason.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_eudr_dds&quot;, &quot;arguments&quot;: {&quot;operator&quot;: {&quot;eori&quot;: &quot;NL123456789&quot;, &quot;name&quot;: &quot;Acme Coffee BV&quot;}, &quot;plots&quot;: [{&quot;commodity_hs&quot;: &quot;0901&quot;, &quot;commodity_name&quot;: &quot;coffee&quot;, &quot;country_of_production&quot;: &quot;BRA&quot;, &quot;geometry_geojson&quot;: {&quot;coordinates&quot;: [[[-60.5, -3.5], [-60.4, -3.5], [-60.4, -3.4], [-60.5, -3.4], [-60.5, -3.5]]], &quot;type&quot;: &quot;Polygon&quot;}, &quot;plot_id&quot;: &quot;farm-001&quot;, &quot;quantity_kg&quot;: 12000}]}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_fetch">
+  <summary><code>emem_fetch</code><span class="tt">Resolve a fact by content-address (CID)</span><span class="tw">Call whenever you have a `fact_cid` (e.g.</span></summary>
+  <p>Fetch a fact by its content-address (CID). Returns the full signed Primary or Absence fact, the same body served by REST `/v1/facts/{cid}`. Closes the citation loop: any fact_cid surfaced by recall, materialize, attest, or verify can be re-resolved by another agent without REST.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_fetch&quot;, &quot;arguments&quot;: {&quot;cid&quot;: &quot;qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_field_boundaries">
+  <summary><code>emem_field_boundaries</code><span class="tt">Per-field agricultural boundaries (Fields of The World)</span><span class="tw">Call when the user asks about farms, fields, parcels, croplands, plots, or agricultural boundaries inside a region — anywhere the OSM/Nominatim boundary alone is too coarse (the OSM polygon for a farm is its estate envelope; this returns the individual field polygons inside).</span></summary>
+  <p>Per-field agricultural-boundary polygons from the Fields of The World global product (~3.17B fields, 241 countries, 10 m resolution, CC-BY-4.0). Returns a GeoJSON FeatureCollection with the polygon geometries, FIBOA-compatible properties, and a planar `area_m2` per field — plus provenance (source CID, provider URL, license, attribution).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_field_boundaries&quot;, &quot;arguments&quot;: {&quot;polygon_bbox&quot;: {&quot;max_lat&quot;: 36.74, &quot;max_lng&quot;: -119.8, &quot;min_lat&quot;: 36.7, &quot;min_lng&quot;: -119.84}}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_forest">
+  <summary><code>emem_forest</code><span class="tt">Forest signals (Hansen GFC + ESA WorldCover)</span><span class="tw">Use when the user asks about deforestation, canopy cover, forest loss, or wants a forest-vs-not classification.</span></summary>
+  <p>Recall the signed forest facts at a place&#x27;s cell64: Hansen Global Forest Change (tree cover 2000 baseline + year-of-loss) + ESA WorldCover 2021 land class, attested on a miss; each carries a citeable fact_cid.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_forest&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Amazon, Brazil&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_heat_solve">
+  <summary><code>emem_heat_solve</code><span class="tt">2-D heat-equation forecast (urban LST evolution)</span><span class="tw">Use when the user wants a short-horizon LST forecast (urban heat island, surface-temperature evolution, heatwave onset modelling) at a specific cell.</span></summary>
+  <p>Forward-step 2-D explicit finite-difference solver for the heat equation ∂u/∂t = α∇²u over a 3×3 cell stencil centred on `cell`. Reads `modis.lst_day_8day` (Land Surface Temperature) at the centre and 8 cell64 neighbours, integrates N hours ahead under a CFL-stable timestep, returns a signed forecast. Real PDE rollout, not a decay-scoring heuristic.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_heat_solve&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;hours_ahead&quot;: 6}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_hunt">
+  <summary><code>emem_hunt</code><span class="tt">Hunter mode — find event hotspots over a region</span><span class="tw">Call when the user asks an open-world discovery question (&quot;find oil spills in the Persian Gulf&quot;, &quot;where is deforestation happening in the Amazon&quot;, &quot;show me algal blooms in Lake Erie&quot;, &quot;hunt wildfires across California&quot;).</span></summary>
+  <p>Event-discovery sweep: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text name or polygon_bbox). The responder geocodes the region, fans out across up to 32 sampled cells, recalls each event&#x27;s primary scalar input band, and returns the top 8 hotspots ranked by that scalar, each an attested entry in the shared memory carrying its cell64, lat/lng, the recalled value, a fact_cid for citation, and a scene.png URL. Bypass for free-text input is `emem_ask` (the classifier in /v1/ask routes &quot;find X in Y&quot; questions to the same hunter path).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_hunt&quot;, &quot;arguments&quot;: {&quot;event&quot;: &quot;algal_bloom&quot;, &quot;region&quot;: &quot;Lake Erie&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_jepa_predict">
+  <summary><code>emem_jepa_predict</code><span class="tt">Constrained JEPA-pattern next-month NDVI predictor</span><span class="tw">Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation).</span></summary>
+  <p>Predict next-month NDVI at a cell using a constrained JEPA-pattern AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI&#x27;s physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned, they&#x27;re fixed from the agricultural-NDVI literature. For the learned multi-band dynamics head, see `emem_jepa_predict_v2` (jepa_temporal_predictor@2).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_jepa_predict&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;lookback_months&quot;: 6}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_jepa_predict_v2">
+  <summary><code>emem_jepa_predict_v2</code><span class="tt">Learned multi-band-scalar dynamics head (jepa_temporal_predictor@2)</span><span class="tw">Use when you want a short-horizon forecast of NDVI / land-surface temperature / PM2.5 at a cell grounded in its attested history.</span></summary>
+  <p>Predict the next-step value of 4 environmental scalars at a cell (`indices.ndvi`, `modis.lst_day_8day`, `modis.lst_night_8day`, `cams.pm25`) using a small learned dynamics MLP. Reads up to K=6 most-recent attested lags per band, runs them through an ONNX dynamics head (~200k params, CPU-fast), and returns a per-band {value, confidence, n_real_lags, via}. The receipt&#x27;s `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, a top-level `skill_vs_persistence` block, and `honesty_warnings`, flagging `untrained_baseline` when the artifact is the zero-init sentinel and `NEGATIVE_SKILL` when the learned model is worse than persistence on real held-out NDVI. When the model does not beat persistence, bands with a real lag are returned from that lag tagged `via:persistence_fallback_negative_skill` (bands with no real lag fall back to labelled climatology). Distinct from v1 (`emem_jepa_predict`) which returns a single NDVI scalar via closed-form coefficients.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_jepa_predict_v2&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_lst">
+  <summary><code>emem_lst</code><span class="tt">Land surface temperature (MODIS day + night)</span><span class="tw">Use when the user asks about surface heat, urban heat island, thermal anomalies, or wants day/night LST.</span></summary>
+  <p>Recall the signed MODIS land surface temperature facts (day-8day + night-8day composites, 1 km native) at a place&#x27;s cell64, attesting on a miss; each carries a citeable fact_cid.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_lst&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Phoenix, AZ&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_memory_bundle_resolve">
+  <summary><code>emem_memory_bundle_resolve</code><span class="tt">Dereference a memory_bundle token</span><span class="tw">Call when an agent receives an `emem:bundle:` token from another agent (or earlier turn) and wants the underlying signed citation set.</span></summary>
+  <p>Parse a `emem:bundle:&lt;bundle_cid&gt;` token and return the signed bundle envelope: every citation (cell, band, resolved_tslot, fact_cid, memory_token), the receipt, the responder pubkey, and the deduped flat cells[] / fact_cids[] arrays. Returns 404 with a typed code when the responder does not hold the bundle.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_bundle_resolve&quot;, &quot;arguments&quot;: {&quot;token&quot;: &quot;emem:bundle:wbqyxljmeewr7z4cav7g&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_memory_search">
+  <summary><code>emem_memory_search</code><span class="tt">emem_memory_search — semantic search over /memories/* files</span><span class="tw">Call instead of paging through `memory_view` whenever the agent knows roughly what it wants (a topic, a name, a paraphrase) but not the exact file path.</span></summary>
+  <p>Semantic search over /memories/* file contents using BGE-base-en-v1.5 (768-D, L2-normalised) backed by a Lance partition (`memory_text_index_d768.lance`). Matches paraphrases — &quot;rainfall in March&quot; finds &quot;precipitation observed in spring&quot; without an exact substring match. Returns ranked hits with similarity in [0,1], 200-char snippets around the best-matching chunk, and the signing receipt&#x27;s path / file_cid / signed_at / attester_pubkey_b32 fields. Filters: `kind`, `path_prefix`, `attester_pubkey_b32`. Falls back to a brute-force scan (slower but correct) when the index is empty or `EMEM_DISABLE_LANCE=1` is set; the `via` field of the response reports which path was taken.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_search&quot;, &quot;arguments&quot;: {&quot;k&quot;: 5, &quot;q&quot;: &quot;rainfall observations in spring&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_ndvi">
+  <summary><code>emem_ndvi</code><span class="tt">NDVI at a place (one-shot, polygon-aware)</span><span class="tw">Use when the user names a place (or lat/lng) and just wants the NDVI number.</span></summary>
+  <p>Recall the signed Sentinel-2 NDVI fact (indices.ndvi, 10 m native) at a place&#x27;s canonical cell64, attesting it into the shared memory on a miss. Composes locate → cell64 → recall in one call; the value returns with its citeable fact_cid.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_ndvi&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Yellowstone National Park&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_neighborhood_consistency">
+  <summary><code>emem_neighborhood_consistency</code><span class="tt">Neighbourhood consistency / spatial outlier (GeoTessera vs 8 neighbours)</span><span class="tw">Call to flag a cell that is anomalous versus its local neighbourhood (change/edge detection, QA of a homogeneous expectation, scouting for the odd-one-out).</span></summary>
+  <p>Score how much a cell looks like its surroundings: consistency = (1/8) Σ cosine(centre, neighbour_i) over the 8 immediate cell64 neighbours, plus outlier_score = 1 − consistency. High consistency = the cell blends in (Tobler&#x27;s First Law); high outlier_score = it stands out — an edge, a fresh clearing, a built patch in farmland. CPU-only GeoTessera embeddings.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_neighborhood_consistency&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_query_region">
+  <summary><code>emem_query_region</code><span class="tt">Aggregate facts over a region</span><span class="tw">Call when the user asks &#x27;how does region X look&#x27;, &#x27;what&#x27;s the average NDVI here&#x27;, or wants a region-level summary.</span></summary>
+  <p>Query facts over a region (single cell or list of cells), optionally aggregated per band.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_query_region&quot;, &quot;arguments&quot;: {&quot;agg&quot;: &quot;mean&quot;, &quot;geometry&quot;: &quot;cells:damO.zb000.xUti.zde78,damO.zb000.xUto.sisA&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_raster_bundle">
+  <summary><code>emem_raster_bundle</code><span class="tt">Raster bundle: bind N field tokens into one citeable manifest</span><span class="tw">Call when you have several minted emem:raster: tokens (a world&#x27;s ground, geometry, and embedding layers) and want ONE token the report or world card cites.</span></summary>
+  <p>Mint an emem:rasterset: token: a signed manifest binding 2..64 already-minted emem:raster: field tokens (any mix of band_raster / s2_median_composite / dem_raster / embedding_raster) into ONE citeable thing. The composition primitive a world model or a compliance report needs when it must cite one token that points at every signed layer at once - the RGB ground composites, the DEM geometry, the encoder embedding field - so the report points at the world and the world points back at each signed layer. Unlike emem_band_cube (which MINTS members by fanning one band across dates), this BUNDLES existing tokens across bands and types: it is the raster analogue of a memory bundle and the cross-band analogue of a cube. It mints no new pixels - each member resolves and re-derives on its own, and the bundle&#x27;s lineage terminates in each member&#x27;s own derivation. bundle_cid = blake3 of the ordered member derivation cids (plus purpose), so the same ordered set always names the same bundle; resolve recomputes it and refuses an altered or forged membership. A member that is not a live raster-shaped derivation fails the whole mint by name. This signs and persists the manifest.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_raster_bundle&quot;, &quot;arguments&quot;: {&quot;purpose&quot;: &quot;world_soubre RGB ground&quot;, &quot;tokens&quot;: [&quot;emem:raster:&lt;aoi&gt;:s2.B04:20509:&lt;dcid1&gt;&quot;, &quot;emem:raster:&lt;aoi&gt;:s2.B03:20509:&lt;dcid2&gt;&quot;, &quot;emem:raster:&lt;aoi&gt;:s2.B02:20509:&lt;dcid3&gt;&quot;]}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_raster_bundle_resolve">
+  <summary><code>emem_raster_bundle_resolve</code><span class="tt">Dereference an emem:rasterset: bundle token</span><span class="tw">Call when you receive an emem:rasterset: token (a world&#x27;s or DDS&#x27;s bundle of field layers) and want to verify the membership is intact and every layer still resolves, before you trust or render it.</span></summary>
+  <p>Resolve emem:rasterset:&lt;bundle_cid&gt;:&lt;derivation_cid&gt; back to its signed manifest and verify it. Fail-closed like every field-token resolve: the cid must be a raster_bundle@1 derivation, bundle_cid is recomputed from the record&#x27;s ordered members and matched against BOTH the token and the record (any mismatch is a typed 409, refusing an altered or forged membership), and every member emem:raster: token is re-verified as a live raster derivation. Returns the member list with a per-member resolves flag, so a stranger confirms the whole set is intact before trusting the world it names.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_raster_bundle_resolve&quot;, &quot;arguments&quot;: {&quot;token&quot;: &quot;emem:rasterset:&lt;bundle_cid&gt;:&lt;derivation_cid&gt;&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_raster_resolve">
+  <summary><code>emem_raster_resolve</code><span class="tt">Dereference an emem:raster: field token</span><span class="tw">Call when you receive an emem:raster: token from another agent and want the verified field behind it: first this, to get the bound record and artifact url, then fetch the bytes and re-hash them against artifact_cid for the spot-check tier of verification.</span></summary>
+  <p>Resolve emem:raster:&lt;aoi_cid&gt;:&lt;band&gt;:&lt;tslot&gt;:&lt;derivation_cid&gt; back to its signed derivation record and the artifact&#x27;s status. Every claim in the token binds to the signed record before anything dereferences, the same rule fact tokens follow: the cid must be a band_raster@1 derivation and the token&#x27;s aoi_cid, band, and tslot must each match the record&#x27;s own body, so a real derivation_cid cannot be passed off under a false area, band, or date (mismatch is a typed 409). The response carries the full record (scene pin, grid georeferencing, anchors) and the artifact url; bytes come from GET /v1/artifacts/{cid}, immutable. An evicted artifact is not an error: the record pins the rebuild, and calling emem_band_raster with the record&#x27;s own bbox, band, and capture date re-derives identical bytes. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_raster_resolve&quot;, &quot;arguments&quot;: {&quot;token&quot;: &quot;emem:raster:&lt;aoi_cid&gt;:s2.B04:20650:&lt;derivation_cid&gt;&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_recall_many">
+  <summary><code>emem_recall_many</code><span class="tt">Bulk recall across up to 256 cells</span><span class="tw">Use after emem_find_similar (give it the neighbour cells), after emem_recall_polygon (when you want a deterministic cell list rather than a polygon), or whenever you have a precomputed set of cells (e.g.</span></summary>
+  <p>Recall facts across a list of up to 256 cell64 strings in one signed envelope. Server fans out per-cell recalls in parallel, then aggregates the response. Auto-materializes any cell with a missing fact whose band has a registered materializer — same contract as emem_recall.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_recall_many&quot;, &quot;arguments&quot;: {&quot;bands&quot;: [&quot;indices.ndvi&quot;, &quot;copdem30m.elevation_mean&quot;], &quot;cells&quot;: [&quot;damO.zb000.xUti.zde78&quot;, &quot;damO.zb000.xUto.sisA&quot;]}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_recall_polygon">
+  <summary><code>emem_recall_polygon</code><span class="tt">Recall facts across a place&#x27;s polygon</span><span class="tw">Call when the user names a wide feature (national park, river basin, country, large urban area) where one cell is too small.</span></summary>
+  <p>Recall facts across every cell inside a place&#x27;s polygon (single signed envelope). Closes the place-name-drift gap for wide features (parks, lakes, regions).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_recall_polygon&quot;, &quot;arguments&quot;: {&quot;bands&quot;: [&quot;copdem30m.elevation_mean&quot;], &quot;max_cells&quot;: 8, &quot;place&quot;: &quot;Yellowstone National Park&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_region_similarity">
+  <summary><code>emem_region_similarity</code><span class="tt">Region similarity — cosine of two regions&#x27; mean GeoTessera embeddings</span><span class="tw">Call to compare two areas at the level of overall land character (e.g.</span></summary>
+  <p>Answer &#x27;how alike are these two places?&#x27; Mean-pool the 128-D GeoTessera embedding across each region&#x27;s cells to get a centroid, then return the cosine similarity in [-1,1] (+1 = identical landscape, 0 = unrelated). Each region is {place} | {polygon_bbox} | {cells}. CPU-fetched embeddings — no GPU sidecar needed. Surfaces how many cells in each region actually carried a vector (coverage).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_region_similarity&quot;, &quot;arguments&quot;: {&quot;region_a&quot;: {&quot;place&quot;: &quot;Napa Valley&quot;}, &quot;region_b&quot;: {&quot;place&quot;: &quot;Barossa Valley&quot;}}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_rice_ch4">
+  <summary><code>emem_rice_ch4</code><span class="tt">Rice-paddy methane (IPCC 2019 Tier 2, Eq 5.1)</span><span class="tw">Call for paddy-rice GHG inventory / MRV work where the user needs kg CH4 per hectare for a cultivation season.</span></summary>
+  <p>Estimate seasonal CH4 emissions from rice cultivation per IPCC 2019 Refinement Eq 5.1: integrate the daily emission factor over the cultivation period with water-regime scaling (SFp pre-season, SFo organic amendment) and an optional Yan-2005 Q10 temperature modifier. `cultivation_period_days` and the regional `efc_kg_ch4_ha_day` (Table 5.11) are REQUIRED — the endpoint refuses to guess a global default because the regional EFc drives the magnitude (~30% bias if wrong). An NDWI series (supplied or read from stored `indices.ndwi`) informs the flooding-regime context.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_rice_ch4&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;cultivation_period_days&quot;: 120, &quot;efc_kg_ch4_ha_day&quot;: 1.22}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_sar_forest_disturbance">
+  <summary><code>emem_sar_forest_disturbance</code><span class="tt">Sentinel-1 SAR forest-disturbance scout (cloud-penetrating)</span><span class="tw">Call to corroborate or scout forest clearing where cloud blocks the optical products — radar sees through cloud and at night, catching wet-season clearing the annual Hansen/JRC-TMF layers and a single cloudy Sentinel-2 pass miss (the gap RADD was meant to fill).</span></summary>
+  <p>Cloud- and night-independent Sentinel-1 C-band confirmation of forest disturbance. Intact forest scatters VV strongly + stably (canopy volume scattering); clearing collapses that term so VV backscatter DROPS ~3-5 dB. Samples VV at a baseline-year July-1 anchor and the latest scene, reports `vv_drop_db = baseline − recent` and a `disturbed` flag when the drop ≥ 3 dB (Reiche et al. 2018, RSE 204:147). Both VV reads are signed Primary facts; the response cites both fact_cids. Honest `inconclusive` when either S1 vintage is unavailable. Source: Microsoft Planetary Computer sentinel-1-rtc (anonymous SAS — no requester-pays, no API key).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_sar_forest_disturbance&quot;, &quot;arguments&quot;: {&quot;baseline_year&quot;: 2020, &quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_soil">
+  <summary><code>emem_soil</code><span class="tt">Soil profile (SoilGrids 0–30 cm: SOC, pH, texture)</span><span class="tw">Use when the user asks about soil quality, agricultural suitability, or carbon stocks at a location.</span></summary>
+  <p>Recall the signed SoilGrids 250 m profile at a place&#x27;s cell64 (SOC, pH, clay/sand/silt fractions, bulk density, nitrogen, all at 0–30 cm depth), attesting on a miss; each band carries a citeable fact_cid.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_soil&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Bhanu Pratappur, Chhattisgarh&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_spi">
+  <summary><code>emem_spi</code><span class="tt">Standardized Precipitation Index (McKee 1993) drought metric</span><span class="tw">Call when the user asks &#x27;is this place in drought&#x27;, &#x27;how dry is it relative to normal&#x27;, or wants a precipitation-anomaly z-score.</span></summary>
+  <p>Compute the Standardized Precipitation Index (McKee et al. 1993) at a cell: fit a gamma distribution to the same-window precipitation-accumulation history, then standardize the current accumulation to a z-score and map it to a drought class (extreme/severe/moderate drought … normal … wet). Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit them to read the stored `weather.precipitation_mm` trajectory and build the window accumulations server-side. `window_days` selects SPI-1 (30 d), SPI-3 (90 d, default), SPI-12 (360 d), etc. The result is signed; the receipt cites the precipitation fact_cids it read from the shared memory.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_spi&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;window_days&quot;: 90}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_state">
+  <summary><code>emem_state</code><span class="tt">Read the place&#x27;s state vector (single encoder OR full 1792-D cube)</span><span class="tw">Call this when the user wants a machine-usable summary of a place rather than individual band readings — e.g.</span></summary>
+  <p>Get one dense numeric fingerprint that summarises everything known about a place, ready to feed into similarity search, a classifier, or clustering. Two views: `encoder` returns a single AI-model embedding (128-D Tessera, 1024-D Clay, 1024-D Prithvi); `cube` returns the full 1792-D vector concatenated across every band, with a per-band coverage manifest.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_state&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;view&quot;: &quot;cube&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_state_diff">
+  <summary><code>emem_state_diff</code><span class="tt">Between-tslot state vector delta (residual + cosine)</span><span class="tw">Call when the user asks &#x27;how much did X change between A and B&#x27; for a foundation embedding at one place.</span></summary>
+  <p>Vector delta between the same cell at two tslots: returns the per-element residual, its L2 norm (scalar change-magnitude), the cosine between the two source vectors (orientation drift), and both source fact CIDs so the agent can quote both attestations as evidence.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_state_diff&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;encoder&quot;: &quot;geotessera&quot;, &quot;tslot_a&quot;: 1672531200, &quot;tslot_b&quot;: 1704067200}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_state_multi">
+  <summary><code>emem_state_multi</code><span class="tt">Multi-encoder state at one cell (foundation fan-out)</span><span class="tw">Call this when the user wants a second (or third) opinion on what a place looks like — &#x27;do the different models agree this is forest / urban / water?&#x27;, &#x27;which model has the freshest read here?&#x27;, or when you want all the embeddings concatenated for a stronger downstream classifier.</span></summary>
+  <p>Get the place&#x27;s fingerprint from several AI models at once (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`) in one call, returned as a per-model map. Each model is tried independently; any that can&#x27;t produce a vector here show up under `missing` with a reason instead of failing the whole request.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_state_multi&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_terrain">
+  <summary><code>emem_terrain</code><span class="tt">Terrain triad — slope + ruggedness + topographic position from DEM</span><span class="tw">Call when the user asks how steep / how rugged / ridge-or-valley a place is, for siting (solar, construction, agriculture), erosion/landslide screening, or habitat-heterogeneity inputs.</span></summary>
+  <p>Compute three standard DEM terrain indices from one 3×3 Copernicus-DEM (copdem30m.elevation_mean) neighbourhood at a cell: Horn (1981) slope in degrees, Riley (1999) Terrain Ruggedness Index (TRI = sqrt(Σ(Z_centre−Z_i)²)), and Weiss (2001) Topographic Position Index (TPI = Z_centre − mean(neighbours); positive = ridge, negative = valley). The 8 neighbour cell64s are derived by perturbing the cell&#x27;s lat/lng one cell pitch per axis; the east-west ground spacing is cos(lat)-corrected. Each result is signed; the receipt cites the elevation fact_cids read from the shared memory.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_terrain&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_trajectory">
+  <summary><code>emem_trajectory</code><span class="tt">Time series for one (cell, band)</span><span class="tw">Call when the user asks &#x27;how did X change over time&#x27; for a band that already has multiple historical tslots seeded.</span></summary>
+  <p>Time series for one (cell, band) over an inclusive [start, end] tslot window. Returns only what&#x27;s already attested; it does NOT trigger materialization. For historical backfill use `emem_backfill`.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_trajectory&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;window&quot;: [0, 12]}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_triple_consensus">
+  <summary><code>emem_triple_consensus</code><span class="tt">Clay+Prithvi+Tessera change-consensus ensemble</span><span class="tw">Call when the user wants a robust, model-agnostic &#x27;did this place change&#x27; answer backed by three independent foundation encoders rather than one — e.g.</span></summary>
+  <p>Three-encoder change ensemble: compute the cosine change between the two most-recent DISTINCT vintages for each of the Clay, Prithvi, and Tessera embeddings at the cell, then vote each encoder&#x27;s change against `consensus_threshold` (registry default 0.15). Returns each encoder&#x27;s change magnitude, its vote, and the consensus verdict (how many of the three agree change happened). Two caveats ride every response. First, the gate is NOT calibrated per encoder: 0.15 is a threshold for spectral change, applied unchanged to cosine distances in three embedding spaces with different scales, and the deployed Prithvi checkpoint&#x27;s change tops out near 0.1155, under the gate. Prithvi therefore never votes, `all_three` is arithmetically unreachable, and `two_of_three` means Clay plus Tessera; read `encoders_used[].change` per encoder instead of the vote, and see the `gate_calibration` field. Second, this tool MATERIALIZES a missing prior vintage, so despite its Read category it signs and persists facts and spends GPU time. Degrades to a signed `inconclusive` when the GPU sidecar is unreachable or a cell lacks two distinct vintages for the encoders. The response carries a machine-readable `degraded` boolean, a `degraded_reason` (closed set: `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`, `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`, `insufficient_encoders`), and `degraded_message`; each `encoders_absent[]` entry also carries its own `reason_code`. A 2-of-3 result reports `degraded:true` even though it still carries a real ensemble number. This is an experiment over model outputs: each leg carries a `model_output` caution (learned representation, not a measurement), so corroborate with a deterministic band before load-bearing use.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_triple_consensus&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;consensus_threshold&quot;: 0.15}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_water">
+  <summary><code>emem_water</code><span class="tt">Surface water (JRC GSW recurrence + S1 backscatter)</span><span class="tw">Use when the user asks about flooding, wetlands, surface-water dynamics, or wants a robust water-presence check.</span></summary>
+  <p>Recall the signed surface-water facts at a place&#x27;s cell64: JRC Global Surface Water recurrence (1984–2021) + Sentinel-1 SAR backscatter (current), attested on a miss and citeable by fact_cid. The pair detects standing water through clouds.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_water&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Sundarbans&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_wave_solve">
+  <summary><code>emem_wave_solve</code><span class="tt">1-D shallow-water swell propagation to coast</span><span class="tw">Use when the user wants to predict swell arrival at a coast (storm-surge planning, shoreline-impact assessment, surf forecasting).</span></summary>
+  <p>Forward-step 1-D explicit finite-difference solver for the shallow-water wave equation ∂²u/∂t² = c²∂²u/∂x² with c² = g·h, where depth h comes from `gmrt.topobathy_mean` along the seaward gradient. Models how an offshore swell of height H_s and period T propagates toward `coastal_cell`. Returns a signed forecast of arrival height + time + depth + phase-speed profiles, all under a CFL-stable timestep; the receipt cites the depth facts read from the shared memory.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_wave_solve&quot;, &quot;arguments&quot;: {&quot;coastal_cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;offshore_height_m&quot;: 2.0, &quot;period_s&quot;: 8.0}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_weather">
+  <summary><code>emem_weather</code><span class="tt">Current weather snapshot (temperature, cloud, precip, wind)</span><span class="tw">Use when the user names a place and asks &#x27;what&#x27;s the weather&#x27; or wants a now-cast snapshot.</span></summary>
+  <p>Recall the signed met.no/CAMS weather facts at a place&#x27;s cell64 (2 m temperature + total cloud cover + precipitation + 10 m wind speed), attesting on a miss; each value carries a citeable fact_cid.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_weather&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Reykjavik&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="memory_list_by_kind">
+  <summary><code>memory_list_by_kind</code><span class="tt">memory_list_by_kind — typed enumeration of memory files</span><span class="tw">Call when an agent wants only one slice of its memory (e.g.</span></summary>
+  <p>List memory files by their typed `kind` (episodic | semantic | procedural | resource). Optional path prefix narrows the scan; results are sorted by signed_at descending. The kind taxonomy follows the CoALA / LangMem / MIRIX agent-memory ontology: `episodic` = observations of events, `semantic` = durable learned facts, `procedural` = playbooks, `resource` = generic durable scratchpad (default for back-compat).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;memory_list_by_kind&quot;, &quot;arguments&quot;: {&quot;kind&quot;: &quot;semantic&quot;, &quot;limit&quot;: 50, &quot;prefix&quot;: &quot;/memories/&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="memory_view">
+  <summary><code>memory_view</code><span class="tt">memory_view — read file or directory listing</span><span class="tw">Call when the model running with `betas: [&#x27;context-management-2025-06-27&#x27;]` issues a `view` against its memory directory.</span></summary>
+  <p>Read the contents of a memory file at `/memories/&lt;path&gt;` or list a directory when the path ends with `/`. Optional `view_range: [start, end]` slices a 1-indexed inclusive line range out of the file. Mirrors the `view` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;memory_view&quot;, &quot;arguments&quot;: {&quot;path&quot;: &quot;/memories/&quot;}}}&#x27;</code></pre>
+</details>
+<h2>Write and attest (6)</h2>
+
+<details class="tool" id="emem_derive">
+  <summary><code>emem_derive</code><span class="tt">Register your own derivation over emem facts</span><span class="tw">Call when you have computed something from emem facts (a delta, a zone classification, a per-plot verdict, a model output) and need to hand another agent a token for it rather than a claim.</span></summary>
+  <p>Register a value YOU computed from facts this responder holds, and get back a citeable `emem:fact:` token whose lineage terminates in emem-signed measurements. The registered fact names its parents by CID, so a stranger walks the DAG down to signed sensor data instead of trusting your summary. Requires an ed25519 `attester` block. What the responder signs is narrow and it says so on the response: that YOU submitted this derivation, over these parents, at this time, and it stored it. NOT that the value is true. Algebra: derive.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_derive&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;confidence&quot;: 0.9, &quot;fn_key&quot;: &quot;same_doy_ndvi_delta@1&quot;, &quot;inputs&quot;: [&quot;emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq&quot;], &quot;op&quot;: &quot;delta&quot;, &quot;provenance_class&quot;: &quot;model_output&quot;, &quot;tslot_window&quot;: [19723, 20634], &quot;value&quot;: 0.14}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="memory_create">
+  <summary><code>memory_create</code><span class="tt">memory_create — write a memory file (overwrite if exists)</span><span class="tw">Call when the LLM issues a `create` against its memory directory (initial scratchpad write, refresh of a notes file, etc.).</span></summary>
+  <p>Write a memory file at `/memories/&lt;path&gt;` with the supplied `file_text`. Overwrites if the file exists. Persists to sled, content-addresses the bytes (`file_cid`), and signs the write so the operation carries a verifiable receipt. Mirrors the `create` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;memory_create&quot;, &quot;arguments&quot;: {&quot;file_text&quot;: &quot;# Today\n- read the brief\n&quot;, &quot;path&quot;: &quot;/memories/notes.md&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="memory_delete">
+  <summary><code>memory_delete</code><span class="tt">memory_delete — remove a memory file or directory</span><span class="tw">Call when the LLM issues a `delete` against a memory file or subdirectory it no longer needs.</span></summary>
+  <p>Delete a memory file at `/memories/&lt;path&gt;`. When the path ends with `/`, every file beneath the directory is removed. Updates the path index but leaves prior content-addressed blobs in place (the audit history is append-only). Mirrors the `delete` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;memory_delete&quot;, &quot;arguments&quot;: {&quot;path&quot;: &quot;/memories/notes.md&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="memory_insert">
+  <summary><code>memory_insert</code><span class="tt">memory_insert — insert at a given line</span><span class="tw">Call when the LLM wants to append a new line to a memory file without rewriting it.</span></summary>
+  <p>Insert `new_str` after the given 1-indexed line in the named memory file. `insert_line: 0` inserts at the top. Writes a new `file_cid` and signs the receipt. Mirrors the `insert` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;memory_insert&quot;, &quot;arguments&quot;: {&quot;insert_line&quot;: 0, &quot;new_str&quot;: &quot;draft 2026-05-28&quot;, &quot;path&quot;: &quot;/memories/notes.md&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="memory_rename">
+  <summary><code>memory_rename</code><span class="tt">memory_rename — move a memory file</span><span class="tw">Call when the LLM wants to rename or move a memory file.</span></summary>
+  <p>Move (rename) a memory file from `old_path` to `new_path`. Both paths must stay under `/memories/`; `new_path` must not already exist. The file_cid is preserved (no re-sign) so the prior receipt still binds the bytes. Mirrors the `rename` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;memory_rename&quot;, &quot;arguments&quot;: {&quot;new_path&quot;: &quot;/memories/archive/notes-2026-05.md&quot;, &quot;old_path&quot;: &quot;/memories/notes.md&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="memory_str_replace">
+  <summary><code>memory_str_replace</code><span class="tt">memory_str_replace — exact-string replacement in a memory file</span><span class="tw">Call when the LLM issues a `str_replace` against its memory file — typical for small targeted edits.</span></summary>
+  <p>Replace `old_str` with `new_str` in the named memory file. Fails (no partial write) when `old_str` is absent or matches more than once. Writes a new content-addressed `file_cid` and signs the receipt. Mirrors the `str_replace` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;memory_str_replace&quot;, &quot;arguments&quot;: {&quot;new_str&quot;: &quot;finished the brief&quot;, &quot;old_str&quot;: &quot;read the brief&quot;, &quot;path&quot;: &quot;/memories/notes.md&quot;}}}&#x27;</code></pre>
+</details>
+<h2>Verify and prove (6)</h2>
+
+<details class="tool" id="emem_log_consistency">
+  <summary><code>emem_log_consistency</code><span class="tt">Transparency log consistency proof</span><span class="tw">Call with `first` = the tree_size of an STH you pinned earlier.</span></summary>
+  <p>Return an RFC 6962 consistency proof that the tree of size `first` is an append-only prefix of size `second` (defaults to the current size). This is the append-only guarantee: it catches a responder that rewrites or forks history.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_log_consistency&quot;, &quot;arguments&quot;: {&quot;first&quot;: 1000}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_log_inclusion">
+  <summary><code>emem_log_inclusion</code><span class="tt">Transparency log inclusion proof</span><span class="tw">Call to prove a specific log entry is in the log.</span></summary>
+  <p>Return an RFC 6962 inclusion (audit) proof that a log entry is committed under the current signed tree head. Verify offline: the audit path re-derives the STH root from the entry&#x27;s leaf hash.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_log_inclusion&quot;, &quot;arguments&quot;: {&quot;leaf_index&quot;: 0}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_log_sth">
+  <summary><code>emem_log_sth</code><span class="tt">Transparency log signed tree head</span><span class="tw">Call to pin a cryptographic commitment to the log&#x27;s current state.</span></summary>
+  <p>Fetch the responder-signed tree head (STH) over the whole append-only attestation log: {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}. The signature is ed25519 over a domain-separated preimage, verifiable offline.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_log_sth&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_log_witnesses">
+  <summary><code>emem_log_witnesses</code><span class="tt">Transparency log witness co-signatures</span><span class="tw">Call to see who has independently vouched for the log&#x27;s history.</span></summary>
+  <p>List witness co-signatures recorded for tree heads — independent parties that counter-signed a (tree_size, root) claim under their own ed25519 key. Co-signatures let a client detect split-view equivocation. Empty until witnesses submit (submission is a signed write, done off-MCP via POST /v1/log/witness).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_log_witnesses&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_trace_verify">
+  <summary><code>emem_trace_verify</code><span class="tt">Verify a device&#x27;s OS execution trace</span><span class="tw">Call while building a device integration (&#x27;why was my trace rejected&#x27;, &#x27;is this trace admissible under robot.fleet.v1&#x27;), or to audit the execution evidence behind a fact by resolving its emem:trace: token and re-verifying.</span></summary>
+  <p>Stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, capture window, per-layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device&#x27;s ed25519 signature. Returns the full verdict with every failed check named (chain_broken, missing_layer, output_unbound, signature_invalid, ...), never just a boolean, so a device maker can debug an enrollment offline before writing.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_trace_verify&quot;, &quot;arguments&quot;: {&quot;profile&quot;: &quot;robot.fleet.v1&quot;, &quot;trace&quot;: {&quot;schema&quot;: &quot;emem.os_trace.v1&quot;}}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_verify">
+  <summary><code>emem_verify</code><span class="tt">Verify a structured claim against a cell</span><span class="tw">Call when the user asks a yes/no question about a cell (&#x27;is the NDVI &gt; 0.7 here&#x27;, &#x27;has this been deforested&#x27;), or when downstream code wants citable evidence for a logical predicate.</span></summary>
+  <p>Verify a structured claim against a cell&#x27;s facts. Returns verdict + evidence CIDs + signed receipt.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_verify&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;claim&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;op&quot;: &quot;gt&quot;, &quot;tslot&quot;: 0, &quot;value&quot;: 0.5}}}}&#x27;</code></pre>
+</details>
+<h2>Introspect the surface (18)</h2>
+
+<details class="tool" id="emem_algorithms">
+  <summary><code>emem_algorithms</code><span class="tt">Composition recipes (algorithms)</span><span class="tw">Call when the user&#x27;s question is COMPOSITE (flood risk, urban density, water consensus, change-since-2020) rather than a single band readout.</span></summary>
+  <p>Content-addressed dictionary of composition recipes — formulas that fuse attested band facts (and embeddings) into derived scores, classifications, and similarity metrics.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_algorithms&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_bands">
+  <summary><code>emem_bands</code><span class="tt">Active band ontology</span><span class="tw">Call once at session start to learn the band registry — every other primitive&#x27;s `band` argument MUST come from this list.</span></summary>
+  <p>Active band ontology (offsets, dims, tempo, privacy).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_bands&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_capabilities">
+  <summary><code>emem_capabilities</code><span class="tt">Cached upstream capability snapshot</span><span class="tw">Call before scheduling a GPU-heavy plan (Clay / Prithvi / Galileo embeddings, foundation-anchored algorithms) so the agent knows whether the GPU tier is up *right now* without per-request /health round-trips.</span></summary>
+  <p>Live capability snapshot of the responder&#x27;s GPU sidecar — extensions[] (e.g. gpu, clay-v1.5, prithvi-eo2), cuda_available, models_loaded[], healthy, last_polled_unix_s. Refreshed every 30 s by a background poller; reads are constant-time.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_capabilities&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_cells_in_bbox">
+  <summary><code>emem_cells_in_bbox</code><span class="tt">Enumerate the cell64s in a bounding box, paged</span><span class="tw">Call when you need the actual cell list over an area rather than a sample: building a world, a dense recall over an AOI, or a deterministic sample frame.</span></summary>
+  <p>Enumerate every cell64 whose centre falls in a bounding box, paged, in stable row-major order (north row first, then west column first). Pure geometry: it reads no facts and signs no receipt, because the answer is a deterministic function of the bbox and the active grid that anyone can reproduce. It walks the integer lat/lng grid directly, so it never skips or double-counts a cell the way a float-stepped lattice does. Returns `cells`, the exact `total`, and `next_cursor` (null when exhausted). This is the paging loop as emem&#x27;s job instead of every client reimplementing a lattice; a London-scale AOI is tens of thousands of cells, so page it. page_size defaults 1024, caps at 4096.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_cells_in_bbox&quot;, &quot;arguments&quot;: {&quot;bbox&quot;: {&quot;max_lat&quot;: 32.5727, &quot;max_lng&quot;: 77.0362, &quot;min_lat&quot;: 32.5699, &quot;min_lng&quot;: 77.0328}, &quot;page_size&quot;: 1024}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_coverage_map">
+  <summary><code>emem_coverage_map</code><span class="tt">Coverage map (SVG image)</span><span class="tw">Call when the user asks &#x27;where do you have data?&#x27;, &#x27;show me the coverage&#x27;, or wants a visual brief of the responder&#x27;s corpus footprint.</span></summary>
+  <p>Live SVG render of the responder&#x27;s corpus density, returned as a proper MCP EmbeddedResource content block (image/svg+xml) — multimodal MCP agents can render it natively.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_coverage_map&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_coverage_matrix">
+  <summary><code>emem_coverage_matrix</code><span class="tt">Per-band live status &amp; history bounds</span><span class="tw">Call BEFORE `emem_recall` when you don&#x27;t know which bands answer at this responder.</span></summary>
+  <p>Per-band live status — what data is alive AND auto-materializable, with history bounds, tempo cadence, and the responder pubkey that signs the band.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_coverage_matrix&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_data_availability">
+  <summary><code>emem_data_availability</code><span class="tt">Per-band temporal coverage catalog</span><span class="tw">Call before `emem_backfill` or any historical recall to check whether a band has a meaningful past at the requested time.</span></summary>
+  <p>Temporal catalog: for every materializable band the upstream-of-record window the data genuinely covers, the temporal `kind` (static | annual_snapshot | annual_stack | time_series | now_only | per_release), tempo seconds, upstream wire path, and whether `emem_backfill` is meaningful.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_data_availability&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_errors">
+  <summary><code>emem_errors</code><span class="tt">Stable error code catalog</span><span class="tw">Call to enumerate the wire-stable error codes — useful when the LLM wants to programmatically branch on responses.</span></summary>
+  <p>Stable error code catalog.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_errors&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_explain_algorithm">
+  <summary><code>emem_explain_algorithm</code><span class="tt">One-algorithm drill-down (formula + inputs + citation)</span><span class="tw">Call when you already know the algorithm key (from `emem_algorithms`&#x27;s catalog or the topic registry) and need its full math.</span></summary>
+  <p>Per-key drill-down on a single composition recipe — full body (kind, inputs, formula, output, citation, references) for ONE algorithm key. Companion to `emem_algorithms` (which is the catalog).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_explain_algorithm&quot;, &quot;arguments&quot;: {&quot;key&quot;: &quot;walkability_score@1&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_fleet">
+  <summary><code>emem_fleet</code><span class="tt">Satellite / sensor lineage per band</span><span class="tw">Call when the user asks &#x27;which satellite is this from&#x27;, &#x27;what&#x27;s the revisit time&#x27;, or needs source attribution for a derived answer.</span></summary>
+  <p>Per-band satellite-and-sensor fleet inventory — names the upstream platform (e.g. Sentinel-2A/B, MODIS Aqua/Terra, Landsat-8/9), revisit cadence, native resolution, and license for every materialized band. Lets an agent attribute imagery products correctly and pick the right band when revisit cadence matters.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_fleet&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_functions">
+  <summary><code>emem_functions</code><span class="tt">Active function registry</span><span class="tw">Call when you need to know which derivative ops are available for `emem_diff` or how a band is computed from upstream sources.</span></summary>
+  <p>Active function registry (derivation recipes).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_functions&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_grid_info">
+  <summary><code>emem_grid_info</code><span class="tt">Active grid encoding</span><span class="tw">Call once at session start (or when the user asks about cell resolution / &#x27;how big is a cell&#x27;).</span></summary>
+  <p>Active grid encoding: cell64 ground resolution, lat/lng axis sizes, DGGS lineage.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_grid_info&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_manifests">
+  <summary><code>emem_manifests</code><span class="tt">Active manifest CIDs</span><span class="tw">Call to learn which exact registry versions a responder is serving.</span></summary>
+  <p>Active manifest CIDs (bands / functions / sources / schema).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_manifests&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_materializers">
+  <summary><code>emem_materializers</code><span class="tt">Auto-fetch registry (per-band materializers)</span><span class="tw">Call once at session start (alongside `emem_bands` and `emem_coverage_matrix`) to learn which bands answer for ANY cell on Earth without seeding.</span></summary>
+  <p>Auto-fetch registry: which bands the responder will materialize on a recall miss, the upstream provider, license, value shape, and history bounds.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_materializers&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_schema">
+  <summary><code>emem_schema</code><span class="tt">Active CDDL/JSON schema bundle</span><span class="tw">Rarely needed at chat time.</span></summary>
+  <p>Active CDDL/JSON schema bundle by CID.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_schema&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_sources">
+  <summary><code>emem_sources</code><span class="tt">Active source-connector registry</span><span class="tw">Call when you need to inspect which upstream EO providers are wired (Copernicus DEM, JRC GSW, ESA WorldCover, etc.) — useful for license attribution in agent answers.</span></summary>
+  <p>Active source-connector registry (URL templates, providers, licenses).</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_sources&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_substrates">
+  <summary><code>emem_substrates</code><span class="tt">Substrate profile registry</span><span class="tw">Call before onboarding any device as a writer (&#x27;can my robot/satellite/camera write to emem&#x27;, &#x27;what does my device have to provide&#x27;), or when a reader wants to know the trust rule behind a substrate&#x27;s facts.</span></summary>
+  <p>The written admission contract per contributor class (satellite archive, operator constellation, telescope, microscope, CCTV, mobile, drone, robot, industrial machine, fixed sensor): which admission rule applies (recomputable public archive, or complete OS execution trace), which trace layers a device of that class must capture, the measurement grain range, and which profile is the drift anchor. Content-addressed: the response carries the manifest CID every enrollment pins.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_substrates&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_topics">
+  <summary><code>emem_topics</code><span class="tt">Topic-grouped band + algorithm registry</span><span class="tw">Call when the user&#x27;s question lives in a topic but they haven&#x27;t named a specific band — e.g.</span></summary>
+  <p>Topic-grouped registry of every band and algorithm at this responder, plus visual surfaces and the `declared_but_no_materializer_at_this_responder` block (cube slots reserved without a live connector). Single source of truth shared with `/v1/locate`&#x27;s `data_at_this_cell` block.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_topics&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+<h2>Plan and compose (1)</h2>
+
+<details class="tool" id="emem_temporal_route">
+  <summary><code>emem_temporal_route</code><span class="tt">Plan a temporal recall recipe for a cell</span><span class="tw">Call this first when the user&#x27;s question is about CHANGE OVER TIME or a PAST EVENT and you&#x27;re not sure which bands/dates to recall — &#x27;was this flooded last year&#x27;, &#x27;what was the NDVI baseline before the fire&#x27;, &#x27;compare this place across vintages&#x27;.</span></summary>
+  <p>Turn a time-shaped question into a ready-to-run recall plan: it figures out WHICH bands to pull at WHICH past time windows (e.g. &#x27;the year before the flood&#x27;, &#x27;last growing season&#x27;, &#x27;two vintages to compare&#x27;) so you don&#x27;t have to compute tslot offsets by hand. Returns the band + lookback + a `purpose` tag for each step. Algebra: valid(M, a): per-band validity from the physics decay kernel, cite_now versus fetch_for_intent.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_temporal_route&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;intent&quot;: &quot;flood_window&quot;}}}&#x27;</code></pre>
+</details>
+</div>
+</body></html>
