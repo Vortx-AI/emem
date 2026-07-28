@@ -48,12 +48,13 @@ CARGO = REPO / "Cargo.toml"
 # written to and the value --check enforces across every surface.
 # ---------------------------------------------------------------------------
 CANON = {
-    # 104 = every ToolDescriptor in emem-mcp, emem_tools included: the
+    # 105 = every ToolDescriptor in emem-mcp, emem_tools and the labelled
+    # reasoning tier (emem_reason) included: the
     # catalog tool is core because /mcp advertises the loop rather than
     # the full surface, so one visible tool must describe the rest.
-    "mcp_tools": 104,
+    "mcp_tools": 105,
     "mcp_core": 15,
-    "mcp_extended": 89,
+    "mcp_extended": 90,
     "algorithms": 168,
     "rest_paths_v1": 130,            # documented /v1/* paths in OpenAPI
     "rest_paths_openapi_total": 135,  # all paths in OpenAPI
@@ -338,7 +339,7 @@ STALE_PHRASES = {
                   "118 materializer-wired", "across 35 cube", "14 workspace crates",
                   "124 paths", "(102 tools)"],
     "web/index.html": ["75 MCP tools", "87 documented", "87 REST", "87 paths", "118 materializer", "35 cube slots",
-                       "all 91", "other 77", "all 102", "124 paths"],
+                       "all 91", "other 77", "all 102", "all 104", "124 paths"],
     "web/how-it-works.html": ["75 MCP tools", "118 materializer", "35 cube slots", "41 cube"],
     "web/solutions.html": ["75 MCP tools", "118 materializer", "35 cube slots"],
     "web/reference.html": ["75 MCP tools", "87 documented", "118 materializer", "35 cube slots",
@@ -357,20 +358,21 @@ STALE_PHRASES = {
                            "118 materializer", "(86)", "nine manifests",
                            "not yet served by"],
     "AGENTS.md": ["version 1.0.0"],
-    "web/ai-plugin.json": ["91 MCP tools", "77 extended", "102 MCP tools", "87 extended"],
+    "web/ai-plugin.json": ["91 MCP tools", "77 extended", "102 MCP tools", "87 extended", "104 MCP tools", "89 extended"],
     "claude-skills/emem-locate-and-recall/SKILL.md": ["35 bands"],
     "web/skills.md": ["75 tools", "71 paths", "87 paths"],
     "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer",
                      "91 MCP", "108 documented", "160 algorithms",
-                     "160 composition", "124 documented", "162 composition"],
+                     "160 composition", "124 documented", "162 composition",
+                     "all 104", "104 MCP tools"],
     "docs/agents.md": ["160 composition", "91 MCP", "77 extended",
-                       "162 composition", "all 102", "Version 1.2.1",
+                       "162 composition", "all 102", "all 104", "Version 1.2.1",
                        "129 total in"],
     "huggingface-space/README.md": ["70 MCP", "159 algorithms", "68-recipe",
                                     "42 bands"],
     # The registry-facing artifacts that rotted a full generation unseen
     # because nothing watched them at all.
-    "server.json": ["14-tool", "all 94", "205 KB", "any of the 94"],
+    "server.json": ["14-tool", "all 94", "205 KB", "any of the 94", "all 104", "any of the 104"],
     "docs/mcp-directory.md": ["1.2.1", "the full 102", "one of the 94"],
     "web/a2a.html": ["Four entries", "all 102"],
     "scripts/build_channel.py": ["Three AI agents", "three AI agents"],

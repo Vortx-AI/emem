@@ -239,7 +239,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 Reads need no key, and four moves cover most sessions.
 
-**Connect to `https://emem.dev/mcp`.** It advertises the 15 tools of the core loop, about 40 KB of context, not the whole catalog. That is deliberate: loading all 104 descriptors costs about a quarter of a megabyte whether or not the session touches Earth observation. `tools/call` still dispatches all 104 by name at either endpoint, so a tool missing from your list is still callable, and `/mcp/full` registers everything up front when you want it. Do not know which tool? Call `emem_tools`, which returns the loop and a menu in about 6 KB, filterable by the shape of the answer you need.
+**Connect to `https://emem.dev/mcp`.** It advertises the 15 tools of the core loop, about 40 KB of context, not the whole catalog. That is deliberate: loading all 105 descriptors costs about a quarter of a megabyte whether or not the session touches Earth observation. `tools/call` still dispatches all 105 by name at either endpoint, so a tool missing from your list is still callable, and `/mcp/full` registers everything up front when you want it. Do not know which tool? Call `emem_tools`, which returns the loop and a menu in about 6 KB, filterable by the shape of the answer you need.
 
 **Ground a place, then cite it.** `emem_locate` maps a place to its `cell64`, `emem_recall` returns the signed facts there, and `emem_memory_token` composes them into one handle. **Hand it to another agent**, and they call `emem_memory_token_resolve` on that line, get the byte-identical fact, and `emem_verify_receipt` checks the signature without trusting you or the server. That is the whole claim, and the only one worth making.
 
@@ -354,7 +354,7 @@ Version 1.3.0, under the stability promise 1.0.0 made: the wire format, receipt 
 | see it work in ten minutes | [Ten minutes to a verified, shareable fact](docs/tutorials/first-verified-memory.md) |
 | understand how it works, with live consoles | [emem.dev/how-it-works](https://emem.dev/how-it-works) |
 | wire your agent in | [the agent handbook](https://emem.dev/agents.md), then the [agent section](#if-you-are-an-agent) above |
-| read the full API | [/openapi.json](https://emem.dev/openapi.json) (130 paths under /v1/*), [/mcp](https://emem.dev/mcp) (104 tools), the [wire spec](https://emem.dev/spec.md) |
+| read the full API | [/openapi.json](https://emem.dev/openapi.json) (130 paths under /v1/*), [/mcp](https://emem.dev/mcp) (105 tools), the [wire spec](https://emem.dev/spec.md) |
 | check the trust model, formally | [the whitepaper](https://emem.dev/whitepaper) ([source](docs/whitepaper-v2.md)), [the formal model](docs/model.md), the [verifier spec](https://emem.dev/v1/verifier_spec) |
 | build agent-to-agent on it | [emem.dev/a2a](https://emem.dev/a2a): the standard, the curriculum, the contacts registry; the protocol card at [/.well-known/agent-card.json](https://emem.dev/.well-known/agent-card.json) |
 | pick a use case in your industry | [emem.dev/solutions](https://emem.dev/solutions) |

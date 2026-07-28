@@ -506,6 +506,9 @@ const SCHEMA_MEMORY_DELETE: &str = r#"{"type":"object","required":["path"],"prop
 "attester":{"type":"object","description":"Optional ed25519 caller binding. Required for `/memories/by_attester/<pubkey8>/...`. Body is empty for delete; sig signs blake3(\"emem.memory_write|delete|path|body_hash\") where body_hash = blake3(\"\").","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
+const SCHEMA_REASON: &str = r#"{"type":"object","required":["q"],"properties":{
+  "q":{"type":"string","description":"The plain-language question to reason about."}}}"#;
+
 const SCHEMA_TOOLS: &str = r#"{"type":"object","properties":{
 "name":{"type":"string","description":"Return the full descriptor for exactly this tool (input schema, runnable example, annotations), e.g. `emem_ndvi`. Use this when you already know the name and want its schema without loading the whole catalog."},
 "q":{"type":"string","description":"Free-text filter over tool names, titles and trigger text, e.g. `ndvi`, `cloud`, `flood`, `verify`, `token`."},
@@ -2029,6 +2032,18 @@ pub const TOOLS: &[ToolDescriptor] = &[
         level: "L1", category: ToolCategory::Verify,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
+    },
+    // ── The reasoning tier: the ONE seam where a language model exists ──
+    ToolDescriptor {
+        name: "emem_reason",
+        title: "Compose a prose answer over signed facts (LLM, labelled)",
+        description: "The opt-in reasoning tier: grounds your question through emem_ask (deterministic, signed), then has the responder's local model compose a prose answer over that envelope. The prose is model_output and signed:false by construction — it is never evidence; the grounding block beside it (fact_cids + receipt) is. Runs the model greedily (temperature 0) with a single-flight lock, so a cold load never fans out. For anything a signed envelope already answers, use emem_ask instead and skip the model entirely.",
+        when_to_use: "Reach for this only when the question needs prose composition across several facts and the caller explicitly wants a model in the loop — an A2A peer sending metadata.mode=\"reasoning\", or a human asking for a narrative. Everything it says is bounded by the signed grounding it returns beside the prose; if the envelope cannot support an answer the model must abstain. Prefer emem_ask (no language model, signed) for every factual readout.",
+        input_schema: SCHEMA_REASON,
+        example_args: r#"{"q":"how has vegetation around Nashik changed this season, and what should a grower do?"}"#,
+        level: "L0", category: ToolCategory::Plan,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+    tier: "extended",
     },
 ];
 

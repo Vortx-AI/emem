@@ -913,7 +913,10 @@ pub fn router(state: AppState) -> Router {
         // Well-known
         .route("/.well-known/emem.json", get(well_known))
         .route("/.well-known/ai-plugin.json", get(ai_plugin))
-        .route("/.well-known/agent.json", get(agent_manifest))
+        // Sweep F7: this is the LEGACY A2A well-known path older clients
+        // read; it must serve the protocol card, not the capabilities
+        // essay (which stays at /agent.json for the manifest readers).
+        .route("/.well-known/agent.json", get(well_known_agent_card))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
         .route("/v1/a2a/skills", get(get_a2a_skills))
         .route("/v1/scoreboard", get(get_scoreboard))
@@ -1205,7 +1208,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", post(post_locate))
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
-        .route("/v1/inbox", post(post_inbox))
+        .route("/v1/inbox", post(post_inbox).get(get_inbox))
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
@@ -4217,7 +4220,7 @@ struct A2aTaskReq {
 /// `input-required` state is NOT emitted, because nothing on this responder ever
 /// pauses to ask a caller for more input; claiming it would be advertising a
 /// transition that can never fire.
-fn a2a_task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
+fn a2a_task_object(s: &AppState, task_id: &str, slot: &McpTaskSlot) -> JsonValue {
     let state = match slot.status.as_str() {
         "completed" => "completed",
         "failed" => "failed",
@@ -4226,6 +4229,8 @@ fn a2a_task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
     };
     let mut task = json!({
         "id": task_id,
+        // Spec-required grouping id (sweep F7): one task, one context here.
+        "contextId": format!("{task_id}-ctx"),
         "kind": "task",
         "status": {
             "state": state,
@@ -4237,15 +4242,91 @@ fn a2a_task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
         "pollIntervalMs": mcp_task_poll_interval_ms(),
     });
     // A2A separates the conversational message from the final artifact. The
-    // tool result is the artifact, carried as a DataPart because every result
-    // this responder produces is JSON.
-    if let Some(result) = slot.result.clone() {
+    // artifact carries the RAW tool result (never the MCP wire-budget wrap:
+    // sweep F1 caught fact_cids whose receipts the wrap had slimmed away),
+    // plus a sibling receipts part signed by this responder over the
+    // fact_cids served, so the artifact verifies offline on its own.
+    let payload = slot
+        .result
+        .clone()
+        .map(|wrapped| slot.raw_result.clone().unwrap_or(wrapped));
+    if let Some(result) = payload {
+        let mut parts = vec![json!({"kind": "data", "data": result})];
+        if let Some(rp) = a2a_receipt_part(s, &result) {
+            parts.push(rp);
+        }
         task["artifacts"] = json!([{
             "artifactId": format!("{task_id}-result"),
-            "parts": [{"kind": "data", "data": result}],
+            "name":       format!("{}_result", slot.skill),
+            "parts":      parts,
         }]);
     }
     task
+}
+
+/// Walk a result for every `fact_cid` string it carries (scalar fields and
+/// `fact_cids` arrays alike), depth-first, deduplicated, capped.
+fn a2a_collect_fact_cids(v: &JsonValue, out: &mut Vec<String>) {
+    match v {
+        JsonValue::Object(map) => {
+            for (k, val) in map {
+                if k == "fact_cid" {
+                    if let Some(c) = val.as_str() {
+                        if !out.iter().any(|x| x == c) && out.len() < 512 {
+                            out.push(c.to_string());
+                        }
+                    }
+                } else if k == "fact_cids" {
+                    if let Some(arr) = val.as_array() {
+                        for c in arr.iter().filter_map(|x| x.as_str()) {
+                            if !out.iter().any(|x| x == c) && out.len() < 512 {
+                                out.push(c.to_string());
+                            }
+                        }
+                    }
+                } else {
+                    a2a_collect_fact_cids(val, out);
+                }
+            }
+        }
+        JsonValue::Array(arr) => {
+            for val in arr {
+                a2a_collect_fact_cids(val, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The sibling receipts part every fact-bearing A2A artifact carries
+/// (sweep F1): this responder's signature over exactly the fact_cids the
+/// artifact serves, offline-verifiable with no second surface.
+fn a2a_receipt_part(s: &AppState, result: &JsonValue) -> Option<JsonValue> {
+    let mut cids = Vec::new();
+    a2a_collect_fact_cids(result, &mut cids);
+    if cids.is_empty() {
+        return None;
+    }
+    let fact_cids: Vec<emem_fact::FactCid> = cids
+        .iter()
+        .map(|c| emem_fact::FactCid::new(c.clone()))
+        .collect();
+    let receipt = s.sign_receipt(
+        "emem.a2a_artifact",
+        Vec::new(),
+        fact_cids,
+        true,
+        std::time::Instant::now(),
+        None,
+    );
+    Some(json!({
+        "kind": "data",
+        "data": {
+            "schema":   "emem.a2a.receipts.v1",
+            "receipt":  receipt,
+            "note":     "This responder's ed25519 signature over the fact_cids the sibling part serves. Verify offline, or POST it to /v1/verify_receipt; the preimage rules are /v1/verifier_spec.",
+        },
+    }))
 }
 
 /// `POST /v1/a2a/tasks` — submit a skill as an A2A task.
@@ -4289,7 +4370,7 @@ async fn post_a2a_task_async(
                 .to_string();
             let map = mcp_tasks_lock();
             let body = match map.get(&id) {
-                Some(slot) => a2a_task_object(&id, slot),
+                Some(slot) => a2a_task_object(&s, &id, slot),
                 None => json!({"id": id, "kind": "task",
                                "status": {"state": "working"}}),
             };
@@ -4308,18 +4389,19 @@ async fn post_a2a_task_async(
 
 /// `GET /v1/a2a/tasks/:id` — the A2A task state, including a terminal `failed`.
 async fn get_a2a_task(
+    State(s): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<JsonValue>, ApiError> {
     mcp_tasks_reap(now_unix_ms());
     let map = mcp_tasks_lock();
     match map.get(&id) {
-        Some(slot) => Ok(Json(a2a_task_object(&id, slot))),
+        Some(slot) => Ok(Json(a2a_task_object(&s, &id, slot))),
         None => Err(ApiError(
             StatusCode::NOT_FOUND,
             ErrorBody {
                 code: emem_core::error::ErrorCode::CidNotFound,
                 message: format!(
-                    "no task `{id}`. Tasks are retained for their TTL after completion and then reaped; a task that completed long ago is gone rather than failed, and those are different things."
+                    "no task `{id}`. Tasks live in memory and are retained for their TTL after completion, then reaped — and a responder restart clears the whole registry, so a deploy mid-poll loses live task ids (that, not a retention bug, is the usual cause inside TTL). A task that is gone is gone rather than failed; re-submit it."
                 ),
                 details: None,
             },
@@ -4329,6 +4411,7 @@ async fn get_a2a_task(
 
 /// `POST /v1/a2a/tasks/:id/cancel` — move a live task to `canceled`.
 async fn post_a2a_task_cancel(
+    State(s): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let mut map = mcp_tasks_lock();
@@ -4341,7 +4424,7 @@ async fn post_a2a_task_cancel(
                 slot.last_updated_iso = iso8601_now_utc();
                 slot.last_updated_ms = now_unix_ms();
             }
-            Ok(Json(a2a_task_object(&id, slot)))
+            Ok(Json(a2a_task_object(&s, &id, slot)))
         }
         None => Err(ApiError(
             StatusCode::NOT_FOUND,
@@ -4797,9 +4880,14 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "documentationUrl":   format!("{origin}/agents.md"),
         "iconUrl":            format!("{origin}/favicon.svg"),
         "capabilities": {
-            "streaming":            true,
+            // Sweep F3: declare only what a stock client can actually call.
+            // message/stream is not implemented (live events are the SSE
+            // surfaces, which are NOT the A2A streaming method), and Task
+            // objects carry no history array — so both are false, the same
+            // honesty pushNotifications already had.
+            "streaming":            false,
             "pushNotifications":    false,
-            "stateTransitionHistory": true,
+            "stateTransitionHistory": false,
             // Extension field: where the async task lifecycle lives. The
             // sync door completes in-call; these three run it detached.
             "dev.emem/asyncTasks": {
@@ -16991,6 +17079,13 @@ struct McpTaskSlot {
     /// `Some` once the tool finished and we captured the `CallToolResult`
     /// JSON (success) or a synthesised `isError` result (tool error).
     result: Option<JsonValue>,
+    /// The tool's RAW result JSON, before the MCP wire-budget wrap slims
+    /// it. The A2A surface serves THIS, so a foreign agent gets receipts
+    /// and full payloads rather than a translation of a translation (the
+    /// sweep's F1: fact_cids with the receipts slimmed away).
+    raw_result: Option<JsonValue>,
+    /// The skill this task runs, for A2A artifact naming + receipts.
+    skill: String,
     /// Abort handle for an in-flight task; `None` once terminal.
     abort: Option<tokio::task::AbortHandle>,
 }
@@ -17133,8 +17228,12 @@ fn mcp_spawn_task(
     let created_iso_for_future = iso8601_now_utc();
     let ttl_for_future = ttl_ms;
     let join = tokio::spawn(async move {
+        let mut raw_result: Option<JsonValue> = None;
         let result = match mcp_tool_call(&name_owned, args, &state).await {
-            Ok(inner) => mcp_wrap_call_tool_result(inner),
+            Ok(inner) => {
+                raw_result = Some(inner.clone());
+                mcp_wrap_call_tool_result(inner)
+            }
             Err((code, msg)) => {
                 if code == -32601 {
                     json!({
@@ -17185,6 +17284,7 @@ fn mcp_spawn_task(
                 if slot.status != TASK_STATUS_CANCELLED {
                     slot.status = terminal_status;
                     slot.status_message = err_summary;
+                    slot.raw_result = raw_result.clone();
                     slot.result = Some(result);
                 }
                 slot.abort = None;
@@ -17206,6 +17306,8 @@ fn mcp_spawn_task(
                         last_updated_ms: fin,
                         ttl_ms: ttl_for_future,
                         result: Some(result),
+                        raw_result,
+                        skill: name_owned.clone(),
                         abort: None,
                     },
                 );
@@ -17223,6 +17325,8 @@ fn mcp_spawn_task(
         last_updated_ms: now,
         ttl_ms,
         result: None,
+        raw_result: None,
+        skill: name.to_string(),
         abort: Some(join.abort_handle()),
     };
     let task_json = {
@@ -17655,6 +17759,117 @@ fn mcp_origin_allowed(origin: &str) -> bool {
 /// with the emem response as a `data` artifact part — A2A clients on
 /// Vertex Agent Builder / Microsoft Copilot Studio import this without
 /// any extra adapter on their side.
+
+/// Compose the reasoning tier's answer: prose from the local model over the
+/// signed emem_ask envelope. Discipline per the ratified standard's rule 7:
+/// the shared model host is called directly, greedily (temperature 0, so
+/// sampling noise never confounds a result), under a global single-flight
+/// permit (a cold load must never fan out), with a timeout of at least
+/// 120 s. The prose is `model_output` and `signed: false` by construction;
+/// the grounding block beside it carries the fact_cids and receipt.
+async fn a2a_reason_compose(q: &str, ask_env: JsonValue) -> Result<JsonValue, (i64, String)> {
+    static REASON_FLIGHT: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    let sema = REASON_FLIGHT.get_or_init(|| tokio::sync::Semaphore::new(1));
+    let _permit = sema
+        .acquire()
+        .await
+        .map_err(|_| (-32050i64, "reasoning tier is shutting down".to_string()))?;
+
+    let url = std::env::var("EMEM_A2A_LLM_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5014/v1/chat/completions".into());
+    // The sanctioned shape for the shared model host (ratified standard
+    // rule 7, and the host enforces it): field `base_model` (not OpenAI's
+    // `model`) plus `family`, called directly at :5014.
+    let base_model = std::env::var("EMEM_A2A_LLM_BASE_MODEL")
+        .unwrap_or_else(|_| "google/gemma-4-12B-it".into());
+    let family = std::env::var("EMEM_A2A_LLM_FAMILY").unwrap_or_else(|_| "gemma".into());
+    let timeout_s = std::env::var("EMEM_A2A_LLM_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(150)
+        .clamp(120, 600);
+
+    // The grounding the model is allowed to speak from, bounded so a huge
+    // envelope cannot blow the model's context.
+    let mut grounding = serde_json::to_string(&ask_env).unwrap_or_default();
+    grounding.truncate(12_000);
+
+    let payload = json!({
+        "base_model": base_model,
+        "family": family,
+        "temperature": 0.0,
+        "max_tokens": 700,
+        "messages": [
+            {"role": "system", "content":
+                "You are the reasoning tier of emem, a shared verifiable memory for AI agents. \
+                 You are given a question and a SIGNED evidence envelope (JSON) produced by the \
+                 deterministic ask pipeline. Compose a concise, plain-language answer USING ONLY \
+                 values present in the envelope, citing bands by name. If the envelope cannot \
+                 support an answer, reply exactly: ABSTAIN: followed by what is missing. Never \
+                 invent a number."},
+            {"role": "user", "content": format!("Question: {q}\n\nSigned envelope:\n{grounding}")}
+        ],
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_s))
+        .build()
+        .map_err(|e| (-32050i64, format!("reasoning tier client: {e}")))?;
+    let resp = client
+        .post(&url)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| {
+            (
+                -32050i64,
+                format!(
+                    "the reasoning tier is unavailable ({e}); emem_ask still answers signed, with no model in the loop"
+                ),
+            )
+        })?;
+    let status = resp.status();
+    let body: JsonValue = resp.json().await.map_err(|e| {
+        (
+            -32050i64,
+            format!("reasoning tier returned non-JSON ({status}): {e}"),
+        )
+    })?;
+    let prose = body
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if prose.is_empty() {
+        return Err((
+            -32050i64,
+            format!("the reasoning tier returned an empty completion ({status}); use emem_ask for the signed answer"),
+        ));
+    }
+
+    let pick = |k: &str| ask_env.get(k).cloned().unwrap_or(JsonValue::Null);
+    Ok(json!({
+        "schema":           "emem.reason.v1",
+        "question":         q,
+        "answer_prose":     prose,
+        "provenance_class": "model_output",
+        "signed":           false,
+        "base_model":       base_model,
+        "decoding":         "greedy (temperature 0)",
+        "note":             "The prose is a model composition and is never evidence; the grounding block is. Cite grounding.fact_cids, verify grounding.receipt offline.",
+        "grounding": {
+            "routed_to": pick("routed_to"),
+            "answer":    pick("answer"),
+            "fact_cids": pick("fact_cids"),
+            "receipt":   pick("receipt"),
+            "caveats":   pick("caveats"),
+        },
+    }))
+}
+
 async fn post_a2a_task(
     State(s): State<AppState>,
     body: axum::body::Bytes,
@@ -17670,107 +17885,288 @@ async fn post_a2a_task(
         )
     })?;
 
-    // Resolve skill_id + args from either shape.
-    let (skill, args, caller_id) = if v.get("method").and_then(|m| m.as_str())
-        == Some("message/send")
-    {
-        // A2A strict JSON-RPC envelope.
-        let id = v.get("id").cloned().unwrap_or(JsonValue::Null);
-        let params = v
-            .get("params")
-            .ok_or_else(|| a2a_bad_request("missing `params` for method=message/send"))?;
-        let skill = params
-            .get("metadata")
-            .and_then(|m| m.get("skill_id"))
-            .and_then(|s| s.as_str())
-            .ok_or_else(|| a2a_bad_request(
-                "missing `params.metadata.skill_id` — set it to one of the skills listed in /.well-known/agent-card.json",
-            ))?
-            .to_string();
-        let args = params
-            .get("message")
-            .and_then(|m| m.get("parts"))
-            .and_then(|p| p.as_array())
-            .and_then(|parts| {
-                parts.iter().find_map(|p| {
-                    let kind = p.get("kind").and_then(|k| k.as_str()).unwrap_or("");
-                    if kind == "data" {
-                        p.get("data").cloned()
-                    } else if kind == "text" {
-                        // Some hosts emit text-only — parse as JSON if it looks like one.
-                        p.get("text")
-                            .and_then(|t| t.as_str())
-                            .and_then(|s| serde_json::from_str::<JsonValue>(s).ok())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .unwrap_or(JsonValue::Null);
-        (skill, args, id)
-    } else if let Some(skill) = v.get("skill").and_then(|s| s.as_str()) {
-        // Friendly shape.
-        let args = v.get("args").cloned().unwrap_or(JsonValue::Null);
-        let id = v.get("id").cloned().unwrap_or(JsonValue::Null);
-        (skill.to_string(), args, id)
-    } else {
-        return Err(a2a_bad_request(
-            "request must be either A2A `{method:\"message/send\", params:{...}}` \
-             or the friendly `{skill:\"emem_*\", args:{...}}` shape",
-        ));
+    let method = v.get("method").and_then(|m| m.as_str());
+    let rpc_id = v.get("id").cloned().unwrap_or(JsonValue::Null);
+
+    // JSON-RPC errors for JSON-RPC callers (sweep F6): spec code + message,
+    // with the emem.error.v1 body preserved under error.data so the
+    // self-teaching text survives machine parsing.
+    let rpc_err = |id: JsonValue, code: i64, message: String, data: JsonValue| {
+        Ok(Json(json!({
+            "jsonrpc": "2.0", "id": id,
+            "error": { "code": code, "message": message, "data": data },
+        })))
     };
 
-    let result = mcp_tool_call(&skill, args, &s)
-        .await
-        .map_err(|(code, msg)| {
-            ApiError(
-                StatusCode::BAD_REQUEST,
-                ErrorBody {
-                    code: ErrorCode::InvalidArgument,
-                    message: format!("a2a skill `{skill}` failed: ({code}) {msg}"),
-                    details: Some(json!({
-                        "a2a_skill": skill,
-                        "mcp_error_code": code,
-                    })),
-                },
-            )
-        })?;
+    match method {
+        // ── tasks/get + tasks/cancel as real JSON-RPC methods (sweep F4) ──
+        Some("tasks/get") | Some("tasks/cancel") => {
+            let id = v
+                .get("params")
+                .and_then(|p| p.get("id"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+            if id.is_empty() {
+                return rpc_err(
+                    rpc_id,
+                    -32602,
+                    "params.id is required".into(),
+                    json!({"schema": "emem.error.v1", "hint": "pass the Task id message/send or /v1/a2a/tasks returned"}),
+                );
+            }
+            mcp_tasks_reap(now_unix_ms());
+            let mut map = mcp_tasks_lock();
+            match map.get_mut(&id) {
+                Some(slot) => {
+                    if method == Some("tasks/cancel") {
+                        if let Some(h) = slot.abort.take() {
+                            h.abort();
+                            slot.status = "cancelled".into();
+                            slot.status_message = Some("canceled by request".into());
+                            slot.last_updated_iso = iso8601_now_utc();
+                            slot.last_updated_ms = now_unix_ms();
+                        }
+                    }
+                    let obj = a2a_task_object(&s, &id, slot);
+                    Ok(Json(json!({"jsonrpc": "2.0", "id": rpc_id, "result": obj})))
+                }
+                None => rpc_err(
+                    rpc_id,
+                    -32001,
+                    format!("TaskNotFound: no task `{id}`"),
+                    json!({"schema": "emem.error.v1",
+                           "message": "tasks live in memory for their TTL after completion; a responder restart clears the registry, so a deploy mid-poll loses live ids — re-submit"}),
+                ),
+            }
+        }
 
-    // ULID-style id derived from blake3(time + skill + request_body).
-    // We don't bring in a ULID dep just for this; the unique-by-clock+input
-    // hash is sufficient for an A2A task-id.
+        // ── message/send ──
+        Some("message/send") => {
+            let params = match v.get("params") {
+                Some(p) => p,
+                None => {
+                    return rpc_err(
+                        rpc_id,
+                        -32602,
+                        "missing `params` for message/send".into(),
+                        json!({"schema": "emem.error.v1", "spec": "https://a2a-protocol.org/dev/specification/"}),
+                    );
+                }
+            };
+            let parts = params
+                .get("message")
+                .and_then(|m| m.get("parts"))
+                .and_then(|p| p.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let data_part = parts.iter().find_map(|p| {
+                (p.get("kind").and_then(|k| k.as_str()) == Some("data"))
+                    .then(|| p.get("data").cloned())
+                    .flatten()
+            });
+            let text_part = parts.iter().find_map(|p| {
+                (p.get("kind").and_then(|k| k.as_str()) == Some("text"))
+                    .then(|| {
+                        p.get("text")
+                            .and_then(|t| t.as_str())
+                            .map(|t| t.trim().to_string())
+                    })
+                    .flatten()
+            });
+            let skill_id = params
+                .get("metadata")
+                .and_then(|m| m.get("skill_id"))
+                .and_then(|x| x.as_str())
+                .map(|x| x.to_string());
+            let mode = params
+                .get("metadata")
+                .and_then(|m| m.get("mode"))
+                .and_then(|x| x.as_str())
+                .unwrap_or("");
+
+            // The reasoning tier (opt-in, labelled): run as an async task —
+            // the model may cold-load, and a Task with pollIntervalMs is
+            // exactly the right shape for that. The returned Task id is
+            // retrievable via tasks/get here or GET /v1/a2a/tasks/{id}.
+            if mode == "reasoning" {
+                let q = text_part
+                    .clone()
+                    .or_else(|| {
+                        data_part
+                            .as_ref()
+                            .and_then(|d| d.get("q").and_then(|x| x.as_str()).map(String::from))
+                    })
+                    .unwrap_or_default();
+                if q.is_empty() {
+                    return rpc_err(
+                        rpc_id,
+                        -32602,
+                        "mode=reasoning needs a text part (or data.q) carrying the question".into(),
+                        json!({"schema": "emem.error.v1"}),
+                    );
+                }
+                return match mcp_spawn_task("emem_reason", json!({"q": q}), 600_000, &s) {
+                    Ok(created) => {
+                        let id = created
+                            .get("task")
+                            .and_then(|t| t.get("taskId"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        let map = mcp_tasks_lock();
+                        let obj = map.get(&id)
+                            .map(|slot| a2a_task_object(&s, &id, slot))
+                            .unwrap_or_else(|| json!({"id": id, "kind": "task", "status": {"state": "working"}}));
+                        Ok(Json(json!({"jsonrpc": "2.0", "id": rpc_id, "result": obj})))
+                    }
+                    Err((code, msg)) => rpc_err(
+                        rpc_id,
+                        -32000,
+                        format!("could not spawn the reasoning task ({code})"),
+                        json!({"schema": "emem.error.v1", "message": msg}),
+                    ),
+                };
+            }
+
+            // Deterministic routing first (sweep F2): a plain text part with
+            // no skill_id is a question, not a protocol error. emem_ask
+            // answers it signed, with no language model in the loop.
+            let (skill, args) = match (skill_id, data_part, text_part) {
+                (Some(skill), Some(data), _) => (skill, data),
+                (Some(skill), None, Some(text)) => {
+                    if skill == "emem_ask" {
+                        (skill, json!({"q": text}))
+                    } else {
+                        // A text utterance aimed at a structured skill:
+                        // parse as JSON args if it is JSON, else refuse
+                        // with the schema pointer rather than a null-args
+                        // internal error.
+                        match serde_json::from_str::<JsonValue>(&text) {
+                            Ok(parsed) => (skill, parsed),
+                            Err(_) => {
+                                let hint = format!("/v1/a2a/skills?q={skill}");
+                                return rpc_err(rpc_id, -32602,
+                                    format!("skill `{skill}` takes structured args; the text part is not JSON"),
+                                    json!({"schema": "emem.error.v1",
+                                           "hint": format!("send a data part matching the skill's input schema ({hint}), or drop skill_id to have the text answered by emem_ask, signed")}));
+                            }
+                        }
+                    }
+                }
+                (Some(skill), None, None) => (skill, JsonValue::Null),
+                (None, _, Some(text)) => ("emem_ask".to_string(), json!({"q": text})),
+                (None, Some(data), None) => {
+                    // Data with no skill named: if it has a question, route it.
+                    match data.get("q").and_then(|x| x.as_str()) {
+                        Some(q) => ("emem_ask".to_string(), json!({"q": q})),
+                        None => {
+                            return rpc_err(rpc_id, -32602,
+                                "no skill_id and no question: name a skill in params.metadata.skill_id, or send a text part to have it answered by emem_ask".into(),
+                                json!({"schema": "emem.error.v1", "skills": "/v1/a2a/skills?q="}));
+                        }
+                    }
+                }
+                (None, None, None) => {
+                    return rpc_err(rpc_id, -32602,
+                        "message has no parts: send a text part (routed to emem_ask, signed) or a data part with metadata.skill_id".into(),
+                        json!({"schema": "emem.error.v1", "card": "/.well-known/agent-card.json"}));
+                }
+            };
+
+            match mcp_tool_call(&skill, args, &s).await {
+                Ok(result) => Ok(Json(json!({
+                    "jsonrpc": "2.0", "id": rpc_id,
+                    "result": a2a_message_result(&s, &skill, result),
+                }))),
+                Err((code, msg)) => rpc_err(
+                    rpc_id,
+                    -32602,
+                    format!("skill `{skill}` refused the call"),
+                    json!({"schema": "emem.error.v1",
+                           "mcp_error_code": code,
+                           "message": a2a_scrub_error(&skill, &msg),
+                           "skills": format!("/v1/a2a/skills?q={skill}")}),
+                ),
+            }
+        }
+
+        Some(other) => rpc_err(
+            rpc_id,
+            -32601,
+            format!("method `{other}` is not implemented here"),
+            json!({"schema": "emem.error.v1",
+                   "supported": ["message/send", "tasks/get", "tasks/cancel"],
+                   "async": "/v1/a2a/tasks",
+                   "note": "message/stream is deliberately absent and the card says streaming:false; live events are /v1/memory/sse, which is not the A2A streaming method"}),
+        ),
+
+        // ── friendly shape: bare result, no JSON-RPC envelope (sweep F6) ──
+        None => {
+            let Some(skill) = v.get("skill").and_then(|x| x.as_str()).map(String::from) else {
+                return Err(a2a_bad_request(
+                    "request must be A2A JSON-RPC (`method`: message/send, tasks/get, tasks/cancel) \
+                     or the friendly `{skill:\"emem_*\", args:{...}}` shape",
+                ));
+            };
+            let args = v.get("args").cloned().unwrap_or(JsonValue::Null);
+            let result = mcp_tool_call(&skill, args, &s)
+                .await
+                .map_err(|(code, msg)| {
+                    ApiError(
+                        StatusCode::BAD_REQUEST,
+                        ErrorBody {
+                            code: ErrorCode::InvalidArgument,
+                            message: format!(
+                                "a2a skill `{skill}` failed: ({code}) {}",
+                                a2a_scrub_error(&skill, &msg)
+                            ),
+                            details: Some(json!({"a2a_skill": skill, "mcp_error_code": code})),
+                        },
+                    )
+                })?;
+            Ok(Json(a2a_message_result(&s, &skill, result)))
+        }
+    }
+}
+
+/// A completed sync exchange is a Message, not a Task (sweep F4): the spec
+/// allows either, and a Task id no surface can retrieve again is the one
+/// thing it does not contemplate. The parts are the raw result plus the
+/// responder-signed receipts part (sweep F1).
+fn a2a_message_result(s: &AppState, skill: &str, result: JsonValue) -> JsonValue {
     let mut h = blake3::Hasher::new();
     h.update(iso8601_now_utc().as_bytes());
     h.update(skill.as_bytes());
-    h.update(&body);
-    let task_id = format!("a2a-{}", &h.finalize().to_hex().to_string()[..26]);
-    let now = iso8601_now_utc();
-
-    Ok(Json(json!({
-        "jsonrpc": "2.0",
-        "id":      caller_id,
-        "result": {
-            "id":     task_id,
-            "kind":   "task",
-            "status": {
-                "state":     "completed",
-                "timestamp": now,
-            },
-            "artifacts": [{
-                "artifactId": format!("{}-result", task_id),
-                "name":       format!("{skill}_result"),
-                "parts": [{
-                    "kind": "data",
-                    "data": result,
-                }],
-            }],
-            "metadata": {
-                "skill":            skill,
-                "protocolVersion":  "1.2.0",
-                "emem_responder":   format!("{}/mcp", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
-            },
+    let mid = format!("a2a-msg-{}", &h.finalize().to_hex().to_string()[..26]);
+    let mut parts = vec![json!({"kind": "data", "data": result})];
+    if let Some(rp) = a2a_receipt_part(s, &parts[0]["data"]) {
+        parts.push(rp);
+    }
+    json!({
+        "kind":      "message",
+        "role":      "agent",
+        "messageId": mid,
+        "contextId": format!("{mid}-ctx"),
+        "parts":     parts,
+        "metadata": {
+            "skill":           skill,
+            "protocolVersion": "1.2.0",
+            "emem_responder":  format!("{}/mcp", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
         },
-    })))
+    })
+}
+
+/// Never leak an internal type name to a public caller (sweep F2): map the
+/// serde deserialization prose onto the schema pointer instead.
+fn a2a_scrub_error(skill: &str, msg: &str) -> String {
+    if msg.contains("expected struct") || msg.contains("invalid type") {
+        format!(
+            "args did not match the skill's input schema; GET /v1/a2a/skills?q={skill} returns the schema and a runnable example"
+        )
+    } else {
+        msg.to_string()
+    }
 }
 
 fn a2a_bad_request(msg: &str) -> ApiError {
@@ -19395,6 +19791,29 @@ async fn mcp_tool_call(
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
+        }
+        // ── The reasoning tier: the ONE seam where a language model runs
+        // (sweep spec "where the LLM goes"). Deterministic grounding first
+        // (emem_ask, signed), then the local model composes prose over
+        // that envelope — greedy, single-flight, labelled model_output,
+        // never dressed as measured. The grounding block IS the evidence.
+        "emem_reason" => {
+            let q = args
+                .get("q")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string();
+            if q.is_empty() {
+                return Err((
+                    -32602,
+                    "emem_reason requires `q`, the plain-language question. For a signed \
+                     answer with no language model at all, call emem_ask."
+                        .into(),
+                ));
+            }
+            let ask_env = Box::pin(mcp_tool_call("emem_ask", json!({ "q": q }), s)).await?;
+            a2a_reason_compose(&q, ask_env).await
         }
         "emem_ask" => {
             // Single-shot free-text answer. Same routing as POST /v1/ask;
@@ -45040,6 +45459,32 @@ fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
 /// find its own mail. This scans the notes once and returns those addressed to
 /// `to` (directly, on cc, or as a channel broadcast), newest first. Poll it, or
 /// subscribe to `/v1/memory/sse` for live delivery of the same writes.
+/// Sweep F8: a read verb behind POST with a field named `to` misled its
+/// first real user into thinking they were SENDING. The read is now also
+/// a GET with an honest parameter name; sending remains what it always
+/// was, a signed memory write with the `X -> Y` heading convention.
+#[derive(serde::Deserialize)]
+struct InboxQuery {
+    agent: Option<String>,
+    to: Option<String>,
+    since: Option<String>,
+    limit: Option<usize>,
+    include_broadcast: Option<bool>,
+}
+
+async fn get_inbox(
+    State(s): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<InboxQuery>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let req = InboxReq {
+        to: q.agent.or(q.to).unwrap_or_default(),
+        since: q.since,
+        limit: q.limit,
+        include_broadcast: q.include_broadcast,
+    };
+    post_inbox(State(s), EmemJson(req)).await
+}
+
 async fn post_inbox(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<InboxReq>,
@@ -63063,6 +63508,8 @@ mod tests {
                     last_updated_ms: 0, // ancient
                     ttl_ms: 1,          // already past
                     result: None,
+                    raw_result: None,
+                    skill: String::new(),
                     abort: None, // is_terminal() keys off abort; force working below
                 },
             );
@@ -63163,6 +63610,8 @@ mod tests {
             last_updated_ms: updated_ms,
             ttl_ms: 60_000,
             result: if terminal { Some(json!({})) } else { None },
+            raw_result: None,
+            skill: String::new(),
             // is_terminal() keys off `abort.is_none()`. A non-terminal slot
             // needs a live abort handle; a terminal one has None.
             abort: if terminal {
