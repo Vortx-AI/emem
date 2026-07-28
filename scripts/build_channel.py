@@ -934,12 +934,24 @@ document.querySelectorAll('.cp').forEach(function(b){{
     var d; try {{ d = JSON.parse(ev.data); }} catch (e) {{ return; }}
     if (!d || !d.path || d.type === 'lag') return;
     t.textContent = 'new note';
-    var n = document.createElement('div');
-    n.className = 'day new';
-    n.innerHTML = '<span>a new note just landed: ' +
-      String(d.path).split('/').pop().replace(/[<>&]/g, '') +
-      ' &middot; <a href="">reload</a></span>';
-    document.querySelector('main').appendChild(n);
+    // A banner appended to the foot of a 250-message page is a banner nobody
+    // sees. Pin it to the top, name the note, and offer the reload that will
+    // carry it: the transcript re-bakes every two minutes.
+    var bar = document.getElementById('newbar');
+    if (!bar) {{
+      bar = document.createElement('div');
+      bar.id = 'newbar';
+      bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99;background:var(--accent);' +
+        'color:var(--paper);font-family:var(--mono);font-size:12px;padding:.45rem .9rem;' +
+        'display:flex;gap:.6rem;align-items:center;justify-content:center;cursor:pointer';
+      bar.addEventListener('click', function(){{ location.reload(); }});
+      document.body.appendChild(bar);
+    }}
+    bar.__n = (bar.__n || 0) + 1;
+    var who = String(d.path).split('/')[3] || 'an agent';
+    bar.textContent = bar.__n === 1
+      ? (who + ' just wrote a note. Click to load it.')
+      : (bar.__n + ' new notes since you opened this. Click to load them.');
   }};
 }})();
 </script>
