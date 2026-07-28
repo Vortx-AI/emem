@@ -1,4 +1,4 @@
-# Anthropic Claude Connectors Directory — Submission Guide
+# Anthropic Claude Connectors Directory, Submission Guide
 
 **Status:** Previous form submission (1FAIpQLSeafJF2...) went to a **deprecated form that is now closed.**  
 **Action required:** Re-submit via the new portal.
@@ -16,7 +16,7 @@ The emem server is technically compliant. Before doing anything, verify these ar
 | MCP discovery | `GET /.well-known/mcp.json` | Returns server card |
 | Privacy policy | `GET https://emem.dev/privacy` | Returns human-readable privacy document |
 | Streamable HTTP transport | `POST https://emem.dev/mcp` | Responds to JSON-RPC 2.0 `tools/list` and `tools/call` |
-| HTTPS | `https://emem.dev` | TLS required — already live |
+| HTTPS | `https://emem.dev` | TLS required, already live |
 
 **Quick sanity check before submitting:**
 ```bash
@@ -41,7 +41,7 @@ If all three return expected output, proceed. Do not touch the server code.
 
 ## Pre-submission checklist
 
-### 1. Portal access — do this first
+### 1. Portal access, do this first
 
 The submission portal requires a **Team or Enterprise Claude.ai organization** with Directory management access. Individual plans cannot access it.
 
@@ -51,22 +51,22 @@ The submission portal requires a **Team or Enterprise Claude.ai organization** w
 
 ### 2. Prepare listing copy (fill these in before opening the portal)
 
-The portal will ask for all of this and **does not save drafts well** — have it ready before you start.
+The portal will ask for all of this and **does not save drafts well**, have it ready before you start.
 
 | Field | Limit | Suggested value |
 |---|---|---|
-| **Name** | 100 chars | `emem — verifiable Earth memory` |
+| **Name** | 100 chars | `emem, verifiable Earth memory` |
 | **Tagline** | 55 chars | `Signed, cite-able facts about any place on Earth` |
 | **Description** | 2000 chars | See block below |
 | **Categories** | pick from list | `Data & Research`, `Productivity`, `Developer Tools` |
-| **Server URL** | — | `https://emem.dev/mcp` |
-| **Transport** | — | Streamable HTTP |
-| **Auth type** | — | None (reads are anonymous; L2 writes use ed25519 key, not OAuth) |
-| **Data direction** | — | Both (read-heavy; write = attest signed derivations) |
-| **Privacy policy URL** | — | `https://emem.dev/privacy` |
-| **Docs URL** | — | `https://emem.dev/agents.md` |
-| **Support contact** | — | team@vortx.ai (or your support email) |
-| **Slug** | — | `emem` |
+| **Server URL** |, | `https://emem.dev/mcp` |
+| **Transport** |, | Streamable HTTP |
+| **Auth type** |, | None (reads are anonymous; L2 writes use ed25519 key, not OAuth) |
+| **Data direction** |, | Both (read-heavy; write = attest signed derivations) |
+| **Privacy policy URL** |, | `https://emem.dev/privacy` |
+| **Docs URL** |, | `https://emem.dev/agents.md` |
+| **Support contact** |, | team@vortx.ai (or your support email) |
+| **Slug** |, | `emem` |
 | **Icon** | SVG or URL | `https://vortx.ai/assets/vortx-logo-36.gif` (replace with square SVG if available) |
 
 **Suggested description (fits in 2000 chars):**
@@ -113,7 +113,7 @@ Earth is the substrate, not the subject. 104 tools. Apache 2.0.
 
 ### 3. Example prompts (portal requires minimum 3)
 
-Prepare these — paste them exactly:
+Prepare these, paste them exactly:
 
 ```
 1. "Is the air quality safe to exercise outside in Mumbai right now?"
@@ -145,7 +145,7 @@ these are not needed for reviewer testing.
 
 ### 5. Branding assets
 
-- [ ] Prepare a square logo — SVG preferred, minimum 512×512 PNG accepted
+- [ ] Prepare a square logo, SVG preferred, minimum 512×512 PNG accepted
 - [ ] Prepare a favicon (32×32 or 64×64)
 - [ ] If no square SVG exists, create one from the Vortx logo before submitting
 
@@ -155,17 +155,17 @@ these are not needed for reviewer testing.
 
 1. Go to: **`https://claude.ai/admin-settings/directory/submissions/new`**
 2. Complete all 11 portal steps in order:
-   - Step 1 Introduction — read and confirm scope
-   - Step 2 Connection — URL: `https://emem.dev/mcp`, Transport: Streamable HTTP
-   - Step 3 Tools — portal will sync tools automatically; verify annotations are detected (they are)
-   - Step 4 Listing — fill from the copy table above
-   - Step 5 Use Cases — paste the 3 use cases above
-   - Step 6 Company — Vortx AI, contact info
-   - Step 7 Authentication — select **"None"**; add note: "L0/L1 reads are anonymous; L2 writes use ed25519 keys via /v1/attest_cbor — no OAuth"
-   - Step 8 Data Handling — not a health data product; not sponsored content; API owned by Vortx AI
-   - Step 9 Test & Launch — paste the reviewer instructions from section 4 above
-   - Step 10 Compliance — acknowledge all 7 policy checkboxes
-   - Step 11 Review — submit
+   - Step 1 Introduction, read and confirm scope
+   - Step 2 Connection, URL: `https://emem.dev/mcp`, Transport: Streamable HTTP
+   - Step 3 Tools, portal will sync tools automatically; verify annotations are detected (they are)
+   - Step 4 Listing, fill from the copy table above
+   - Step 5 Use Cases, paste the 3 use cases above
+   - Step 6 Company, Vortx AI, contact info
+   - Step 7 Authentication, select **"None"**; add note: "L0/L1 reads are anonymous; L2 writes use ed25519 keys via /v1/attest_cbor, no OAuth"
+   - Step 8 Data Handling, not a health data product; not sponsored content; API owned by Vortx AI
+   - Step 9 Test & Launch, paste the reviewer instructions from section 4 above
+   - Step 10 Compliance, acknowledge all 7 policy checkboxes
+   - Step 11 Review, submit
 3. After submitting, note the submission ID and track at the same admin URL
 
 **Expected review timeline:** 2 weeks to several months (Anthropic does not publish SLAs).  
@@ -185,7 +185,7 @@ curl -s -X POST https://emem.dev/mcp \
 ```
 
 Every tool must show `has_title: true`. If any show `false`, the annotations block in
-`crates/emem-mcp/src/lib.rs` is not being serialized to the MCP response — check
+`crates/emem-mcp/src/lib.rs` is not being serialized to the MCP response, check
 `mcp_tool_descriptor()` in `crates/emem-api-rest/src/lib.rs` around line 15561.
 
 ---

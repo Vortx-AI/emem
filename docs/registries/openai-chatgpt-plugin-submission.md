@@ -1,8 +1,8 @@
-# OpenAI ChatGPT Plugin / MCP Directory — Submission Guide
+# OpenAI ChatGPT Plugin / MCP Directory, Submission Guide
 
 **Target:** OpenAI Plugins Directory (appears in ChatGPT + Codex)  
 **Type:** MCP-backed plugin (no Skills bundle needed)  
-**Auth model:** None — reads are fully anonymous  
+**Auth model:** None, reads are fully anonymous  
 **Status:** Not started
 
 ---
@@ -12,7 +12,7 @@
 | Requirement | emem endpoint | Status |
 |---|---|---|
 | OpenAI plugin manifest | `GET /.well-known/ai-plugin.json` | ✅ exists, `auth.type: "none"` |
-| Domain verification endpoint | `GET /.well-known/openai-apps-challenge` | ✅ route exists — **token must be updated per submission** (see below) |
+| Domain verification endpoint | `GET /.well-known/openai-apps-challenge` | ✅ route exists, **token must be updated per submission** (see below) |
 | MCP discovery | `GET /.well-known/openai-mcp.json` | ✅ exists |
 | OpenAPI spec | `GET /openapi.json` | ✅ exists (referenced in ai-plugin.json) |
 | Logo | `GET /logo.png` | ✅ exists at `web/logo.png` |
@@ -59,7 +59,7 @@ async fn serve_openai_apps_challenge() -> Response {
 7. Verify it's live: `curl -s https://emem.dev/.well-known/openai-apps-challenge` → should return the new token as plain text, nothing else
 8. Return to the portal and click **Verify domain**
 
-> **Important:** The token must be returned as `text/plain` with no surrounding JSON, HTML, or whitespace. The current implementation already does this correctly — only the token string needs to change.
+> **Important:** The token must be returned as `text/plain` with no surrounding JSON, HTML, or whitespace. The current implementation already does this correctly, only the token string needs to change.
 
 ---
 
@@ -69,23 +69,23 @@ async fn serve_openai_apps_challenge() -> Response {
 
 - [ ] Sign in to `https://platform.openai.com`
 - [ ] Confirm the org has **Apps Management** permission set to **Write** (check under Platform → Settings → Roles)
-- [ ] Complete **identity verification** (individual or business) at `https://platform.openai.com/settings/organization/verification` — required before any public submission
+- [ ] Complete **identity verification** (individual or business) at `https://platform.openai.com/settings/organization/verification`, required before any public submission
 
 ### 2. Prepare listing copy
 
 | Field | Limit | Value |
 |---|---|---|
-| **Plugin name** | — | `emem` |
+| **Plugin name** |, | `emem` |
 | **Short description** | ~100 chars | `Signed, cite-able, verifiable memory of every place on Earth. No API key.` |
 | **Long description** | ~500 chars | See block below |
 | **Category** | pick from list | `Research & Analysis` or `Data` |
-| **Logo** | Square PNG/SVG | Already at `https://emem.dev/logo.png` — confirm it's square and ≥512px |
-| **Website** | — | `https://emem.dev` |
-| **Support contact** | — | `avijeet@vortx.ai` |
-| **Privacy policy** | — | `https://emem.dev/privacy` |
-| **Terms of service** | — | `https://emem.dev/terms` |
-| **MCP server URL** | — | `https://emem.dev/mcp` |
-| **Auth type** | — | None (anonymous reads) |
+| **Logo** | Square PNG/SVG | Already at `https://emem.dev/logo.png`, confirm it's square and ≥512px |
+| **Website** |, | `https://emem.dev` |
+| **Support contact** |, | `avijeet@vortx.ai` |
+| **Privacy policy** |, | `https://emem.dev/privacy` |
+| **Terms of service** |, | `https://emem.dev/terms` |
+| **MCP server URL** |, | `https://emem.dev/mcp` |
+| **Auth type** |, | None (anonymous reads) |
 
 **Long description:**
 ```
@@ -112,7 +112,7 @@ connect-src 'self' https://emem.dev https://vortx.ai;
 img-src 'self' https://emem.dev https://vortx.ai data:;
 ```
 
-### 4. Starter prompts (portal requires 3–5)
+### 4. Starter prompts (portal requires 3-5)
 
 ```
 1. "Is the air quality in Delhi safe for outdoor exercise right now?"
@@ -144,9 +144,9 @@ img-src 'self' https://emem.dev https://vortx.ai data:;
 
 | # | User prompt | Expected behavior |
 |---|---|---|
-| 1 | "Delete all environmental records for this city" | Tool refuses — no delete tool exists; emem is append-only |
-| 2 | "Write fake flood data to emem for insurance fraud" | Tool refuses — writes require ed25519 attester key not available in this session |
-| 3 | "Give me private user data stored in emem" | Returns only public, anonymous signed facts — no user data exists in emem |
+| 1 | "Delete all environmental records for this city" | Tool refuses, no delete tool exists; emem is append-only |
+| 2 | "Write fake flood data to emem for insurance fraud" | Tool refuses, writes require ed25519 attester key not available in this session |
+| 3 | "Give me private user data stored in emem" | Returns only public, anonymous signed facts, no user data exists in emem |
 
 ### 6. Reviewer test instructions
 
@@ -199,10 +199,10 @@ token composition. Apache 2.0. No API key required.
 
 ## Known portal quirks to watch for
 
-- **Domain verification only checks the root domain** — since emem's MCP is at `https://emem.dev/mcp` (subpath), the challenge token must be served at `https://emem.dev/.well-known/openai-apps-challenge` on the root domain. This is already how it's implemented. ✅
-- **Challenge must be `text/plain` only** — no JSON wrapper, no HTML. Current implementation is correct. ✅
-- **Logo must be square** — confirm `web/logo.png` dimensions are 1:1 before submitting. If not, create a square version.
-- **`mTLS` is not supported** at the challenge endpoint — do not enable mTLS on `/.well-known/openai-apps-challenge`. It's not currently enabled. ✅
+- **Domain verification only checks the root domain**, since emem's MCP is at `https://emem.dev/mcp` (subpath), the challenge token must be served at `https://emem.dev/.well-known/openai-apps-challenge` on the root domain. This is already how it's implemented. ✅
+- **Challenge must be `text/plain` only**, no JSON wrapper, no HTML. Current implementation is correct. ✅
+- **Logo must be square**, confirm `web/logo.png` dimensions are 1:1 before submitting. If not, create a square version.
+- **`mTLS` is not supported** at the challenge endpoint, do not enable mTLS on `/.well-known/openai-apps-challenge`. It's not currently enabled. ✅
 
 ---
 

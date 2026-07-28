@@ -1,8 +1,8 @@
-# Google Gemini / Vertex AI — Integration Guide
+# Google Gemini / Vertex AI, Integration Guide
 
 **Status:** Not started  
 **Note:** Vertex AI was rebranded to **Gemini Enterprise Agent Platform** in 2026.  
-There are **four distinct integration paths** — pursue them in priority order.
+There are **four distinct integration paths**, pursue them in priority order.
 
 ---
 
@@ -24,13 +24,13 @@ curl -s https://emem.dev/gemini-extension.json | jq '{name, version, transport: 
 
 ---
 
-## Path 1 — Gemini CLI Extensions catalog (highest reach, do first)
+## Path 1, Gemini CLI Extensions catalog (highest reach, do first)
 
 The `gemini-cli-extensions` GitHub org (66+ extensions, Google-maintained) is the primary discovery surface for Gemini CLI users. Getting listed here puts emem alongside official Google extensions (workspace, bigquery, spanner, security, etc.).
 
 ### Step 1: Submit to the community awesome-lists (immediate, no approval needed)
 
-These are open PRs — do both in parallel:
+These are open PRs, do both in parallel:
 
 **A. `Piebald-AI/awesome-gemini-cli-extensions`**
 ```
@@ -56,7 +56,7 @@ Action: Fork → add emem → PR
 The official org (`github.com/gemini-cli-extensions`) requires Google to invite you. File a request via:
 
 1. Open an issue at `https://github.com/google-gemini/gemini-cli` titled:  
-   `[Extension Submission] emem — verifiable Earth memory MCP server`
+   `[Extension Submission] emem, verifiable Earth memory MCP server`
 
 2. Body of the issue:
 ```
@@ -97,16 +97,16 @@ gemini extensions install https://emem.dev/gemini-extension.json
 # Should call emem_locate then emem_recall and return a signed fact.
 ```
 
-If this fails, debug `examples/gemini-extension.json` — check:
+If this fails, debug `examples/gemini-extension.json`, check:
 - `mcpServers.emem.url` is `https://emem.dev/mcp`
 - `mcpServers.emem.transport` is `streamable-http`
 - The manifest is valid JSON (run `jq . examples/gemini-extension.json`)
 
 ---
 
-## Path 2 — Gemini Enterprise Agent Platform / Vertex AI Agent Registry
+## Path 2, Gemini Enterprise Agent Platform / Vertex AI Agent Registry
 
-This is the **enterprise path** — not a public marketplace listing, but documentation that lets Google Cloud customers register emem into their own Agent Registry in minutes.
+This is the **enterprise path**, not a public marketplace listing, but documentation that lets Google Cloud customers register emem into their own Agent Registry in minutes.
 
 ### What this looks like for a customer
 
@@ -159,7 +159,7 @@ https://github.com/GoogleCloudPlatform/vertex-ai-samples
 
 ---
 
-## Path 3 — Google for Startups (credits — do in parallel, independent)
+## Path 3, Google for Startups (credits, do in parallel, independent)
 
 Up to **$350K in Google Cloud + Vertex AI credits**. Gemini and Earth Engine (GEE) are fully covered.
 
@@ -170,17 +170,17 @@ Up to **$350K in Google Cloud + Vertex AI credits**. Gemini and Earth Engine (GE
 | Field | Value |
 |---|---|
 | Company name | Vortx AI Private Limited |
-| Product description | Shared, verifiable Earth memory infrastructure for AI agents — signed, cite-able spatial facts at 9.55m resolution, no API key |
-| AI/ML use | Yes — satellite foundation models (Clay, Prithvi, Tessera, Galileo), BGE-768 embeddings, GeoTessera spatial encoders |
+| Product description | Shared, verifiable Earth memory infrastructure for AI agents, signed, cite-able spatial facts at 9.55m resolution, no API key |
+| AI/ML use | Yes, satellite foundation models (Clay, Prithvi, Tessera, Galileo), BGE-768 embeddings, GeoTessera spatial encoders |
 | Google products used | Vertex AI, Google Earth Engine, Cloud Run / GKE |
 | Stage | Early stage / seed |
 | Use of credits | Vertex AI for inference, GEE for satellite data processing, Cloud Run for MCP server hosting |
 
-**Expected:** $50K–$350K credits depending on accelerator partnership and stage. Apply even if rejected — re-applications after traction are common.
+**Expected:** $50K-$350K credits depending on accelerator partnership and stage. Apply even if rejected, re-applications after traction are common.
 
 ---
 
-## Path 4 — Google Earth Engine Community Tool
+## Path 4, Google Earth Engine Community Tool
 
 GEE has a large academic + commercial user base (researchers, NGOs, governments). Listing emem as a community tool gives access to this audience directly.
 
@@ -205,9 +205,9 @@ The notebook should show:
 | 0 | PR to `Piebald-AI/awesome-gemini-cli` | 10 min | None |
 | 0 | Apply Google for Startups | 30 min | None |
 | 1 | Issue at `google-gemini/gemini-cli` to get into official extensions org | 20 min | Needs Google approval |
-| 2 | PR to `GoogleCloudPlatform/generative-ai` (Agent Engine example) | 2–3 hrs | Notebook must work end-to-end |
-| 2 | PR to `google/earthengine-community` | 2–3 hrs | GEE account needed |
-| 3 | Google Cloud Partner Advantage (for marketplace listing) | 1–2 days | Business verification needed |
+| 2 | PR to `GoogleCloudPlatform/generative-ai` (Agent Engine example) | 2-3 hrs | Notebook must work end-to-end |
+| 2 | PR to `google/earthengine-community` | 2-3 hrs | GEE account needed |
+| 3 | Google Cloud Partner Advantage (for marketplace listing) | 1-2 days | Business verification needed |
 
 ---
 

@@ -1,9 +1,9 @@
-# Microsoft Copilot Studio + Semantic Kernel — Integration Guide
+# Microsoft Copilot Studio + Semantic Kernel, Integration Guide
 
 **Status:** Not started  
 **Two Microsoft paths, pursue in order:**
-1. M365 Copilot Federated Connector (form submission — fastest)
-2. Copilot Studio MCP Certification (Partner Center — broader reach)
+1. M365 Copilot Federated Connector (form submission, fastest)
+2. Copilot Studio MCP Certification (Partner Center, broader reach)
 3. Semantic Kernel example (code contribution)
 
 ---
@@ -21,19 +21,19 @@
 | AutoGen example (close relative) | `examples/autogen/emem_mcp_geospatial_agent.py` | ✅ exists |
 
 **Missing:**
-- 32×32 white-on-transparent outline PNG (`outline.png`) — must be created
-- `mcptools.json` — tool definitions file for Copilot Studio package
-- `manifest.json` — Teams/Copilot Studio package manifest
-- `intro.md` — connector documentation file
+- 32×32 white-on-transparent outline PNG (`outline.png`), must be created
+- `mcptools.json`, tool definitions file for Copilot Studio package
+- `manifest.json`, Teams/Copilot Studio package manifest
+- `intro.md`, connector documentation file
 - Semantic Kernel example (`examples/semantic-kernel/`)
 
 ---
 
-## Path 1 — M365 Copilot Federated Connector (do first)
+## Path 1, M365 Copilot Federated Connector (do first)
 
-This lists emem in the **Microsoft 365 Copilot connectors gallery** — available to all M365 enterprise tenants whose admins approve it. Fastest path. No Partner Center needed.
+This lists emem in the **Microsoft 365 Copilot connectors gallery**, available to all M365 enterprise tenants whose admins approve it. Fastest path. No Partner Center needed.
 
-### Auth blocker — email first
+### Auth blocker, email first
 
 The docs say "Authenticated scenarios use OAuth 2.0." emem has **no auth for reads**. Before filling the form, email Microsoft to confirm no-auth servers are accepted:
 
@@ -55,21 +55,21 @@ Thank you,
 Vortx AI
 ```
 
-**If they confirm no-auth is OK**, proceed with the form. If OAuth is required, emem would need to add a lightweight OAuth wrapper for the reads — but this is unlikely to be required for a fully public read API.
+**If they confirm no-auth is OK**, proceed with the form. If OAuth is required, emem would need to add a lightweight OAuth wrapper for the reads, but this is unlikely to be required for a fully public read API.
 
 ### Prepare before filling the form
 
 | Field | Limit | Value |
 |---|---|---|
-| **MCP server URL** | — | `https://emem.dev/mcp` |
-| **Connector display name** | — | `emem — verifiable Earth memory` |
+| **MCP server URL** |, | `https://emem.dev/mcp` |
+| **Connector display name** |, | `emem, verifiable Earth memory` |
 | **Short description** | ≤80 chars | `Signed, cite-able Earth observation facts for any place. No API key.` |
 | **Synonyms** (keywords) | ≤10 | `earth observation, geospatial, climate risk, satellite, air quality, flood, deforestation, vegetation, signed memory, MCP` |
-| **Color logo** | 192×192 PNG | `web/icon-192.png` — already correct size ✅ |
-| **Outline logo** | 32×32 white-on-transparent PNG | **Must be created** — see below |
-| **Privacy policy** | — | `https://emem.dev/privacy` |
-| **Docs / support** | — | `https://emem.dev/agents.md` |
-| **Contact** | — | `avijeet@vortx.ai` |
+| **Color logo** | 192×192 PNG | `web/icon-192.png`, already correct size ✅ |
+| **Outline logo** | 32×32 white-on-transparent PNG | **Must be created**, see below |
+| **Privacy policy** |, | `https://emem.dev/privacy` |
+| **Docs / support** |, | `https://emem.dev/agents.md` |
+| **Contact** |, | `avijeet@vortx.ai` |
 
 **Create the 32×32 outline PNG:**
 ```bash
@@ -128,9 +128,9 @@ All read tools work anonymously. Verify any returned receipt at https://emem.dev
 
 ---
 
-## Path 2 — Copilot Studio MCP Certification (Partner Center)
+## Path 2, Copilot Studio MCP Certification (Partner Center)
 
-This lists emem in **Copilot Studio + Azure Foundry** — broader than M365 Copilot alone.
+This lists emem in **Copilot Studio + Azure Foundry**, broader than M365 Copilot alone.
 
 ### Prerequisites (complete before building the package)
 
@@ -138,11 +138,11 @@ This lists emem in **Copilot Studio + Azure Foundry** — broader than M365 Copi
 - [ ] Complete **business verification** in Partner Center
 - [ ] Enroll in the **Microsoft 365 and Copilot program** inside Partner Center
 - [ ] Create an **Azure subscription** (needed for Key Vault)
-- [ ] Create an **Azure Key Vault** (required even for no-auth — store placeholder secrets)
+- [ ] Create an **Azure Key Vault** (required even for no-auth, store placeholder secrets)
 
 ### Package files to create
 
-**1. `manifest.json`** — save to `examples/copilot-studio/manifest.json`:
+**1. `manifest.json`**, save to `examples/copilot-studio/manifest.json`:
 ```json
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
@@ -191,7 +191,7 @@ This lists emem in **Copilot Studio + Azure Foundry** — broader than M365 Copi
 ```
 Replace `<your-keyvault>` with your actual Azure Key Vault URI.
 
-**2. `mcptools.json`** — save to `examples/copilot-studio/mcptools.json`:
+**2. `mcptools.json`**, save to `examples/copilot-studio/mcptools.json`:
 
 Generate from the live server:
 ```bash
@@ -207,7 +207,7 @@ curl -s -X POST https://emem.dev/mcp \
     }]' > examples/copilot-studio/mcptools.json
 ```
 
-**3. `intro.md`** — save to `examples/copilot-studio/intro.md`:
+**3. `intro.md`**, save to `examples/copilot-studio/intro.md`:
 ```markdown
 # emem — verifiable Earth memory
 
@@ -244,7 +244,7 @@ Write operations (attesting derivations) require an ed25519 key — not relevant
 - Email: avijeet@vortx.ai
 ```
 
-**4. Icons** — copy existing assets:
+**4. Icons**, copy existing assets:
 ```bash
 cp web/icon-192.png examples/copilot-studio/icon-192.png
 # Create outline-32.png (32x32 white-on-transparent):
@@ -260,7 +260,7 @@ convert web/logo-mark.png -resize 32x32 -background transparent examples/copilot
 
 ---
 
-## Path 3 — Semantic Kernel example
+## Path 3, Semantic Kernel example
 
 Semantic Kernel is Microsoft's .NET + Python agent framework with native MCP support. An example in their repo gives emem visibility to a large enterprise developer audience.
 
@@ -268,7 +268,7 @@ Semantic Kernel is Microsoft's .NET + Python agent framework with native MCP sup
 
 **File: `examples/semantic-kernel/emem_mcp_geospatial_agent.py`**
 
-Base it on `examples/autogen/emem_mcp_geospatial_agent.py` — the pattern is the same. Use `MCPStreamableHttpPlugin`:
+Base it on `examples/autogen/emem_mcp_geospatial_agent.py`, the pattern is the same. Use `MCPStreamableHttpPlugin`:
 
 ```python
 """
@@ -337,7 +337,7 @@ Add emem as an example under "Adding MCP plugins"
 | 3 | Create `examples/semantic-kernel/` example + README | None | 1 hr |
 | 4 | Submit PR to `microsoft/semantic-kernel` | Working example | 30 min |
 | 5 | Submit Federated Connector form (`https://aka.ms/FccSubmissionForm`) | Email response from step 1 | 30 min |
-| 6 | Set up Partner Center + Azure Key Vault | Microsoft account | 1–2 days |
+| 6 | Set up Partner Center + Azure Key Vault | Microsoft account | 1-2 days |
 | 7 | Build Copilot Studio package (manifest + mcptools.json + intro.md) | Partner Center setup | 2 hrs |
 | 8 | Submit Partner Center "Apps and Agents for M365 and Copilot" | Package complete | 1 hr |
 

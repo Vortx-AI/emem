@@ -17751,37 +17751,6 @@ fn mcp_origin_allowed(origin: &str) -> bool {
     false
 }
 
-/// A2A v1.2 Task adapter, `POST /a2a/tasks`.
-///
-/// Accepts either the strict A2A JSON-RPC envelope:
-///
-/// ```json
-/// {
-///   "jsonrpc": "2.0",
-///   "id": "<caller id>",
-///   "method": "message/send",
-///   "params": {
-///     "message": {
-///       "role": "user",
-///       "parts": [{ "kind": "data", "data": { ... emem args ... } }]
-///     },
-///     "metadata": { "skill_id": "emem_recall" }
-///   }
-/// }
-/// ```
-///
-/// or a friendlier passthrough shape some agent runtimes prefer:
-///
-/// ```json
-/// { "skill": "emem_recall", "args": { ... } }
-/// ```
-///
-/// Dispatches to the same `mcp_tool_call` used by the MCP transport so
-/// every existing emem skill is reachable. Returns an A2A Task envelope
-/// with the emem response as a `data` artifact part, A2A clients on
-/// Vertex Agent Builder / Microsoft Copilot Studio import this without
-/// any extra adapter on their side.
-
 /// Compose the reasoning tier's answer: prose from the local model over the
 /// signed emem_ask envelope. Discipline per the ratified standard's rule 7:
 /// the shared model host is called directly, greedily (temperature 0, so
@@ -18086,6 +18055,36 @@ async fn a2a_reason_compose(
     }))
 }
 
+/// A2A v1.2 Task adapter, `POST /a2a/tasks`.
+///
+/// Accepts either the strict A2A JSON-RPC envelope:
+///
+/// ```json
+/// {
+///   "jsonrpc": "2.0",
+///   "id": "<caller id>",
+///   "method": "message/send",
+///   "params": {
+///     "message": {
+///       "role": "user",
+///       "parts": [{ "kind": "data", "data": { ... emem args ... } }]
+///     },
+///     "metadata": { "skill_id": "emem_recall" }
+///   }
+/// }
+/// ```
+///
+/// or a friendlier passthrough shape some agent runtimes prefer:
+///
+/// ```json
+/// { "skill": "emem_recall", "args": { ... } }
+/// ```
+///
+/// Dispatches to the same `mcp_tool_call` used by the MCP transport so
+/// every existing emem skill is reachable. Returns an A2A Task envelope
+/// with the emem response as a `data` artifact part, A2A clients on
+/// Vertex Agent Builder / Microsoft Copilot Studio import this without
+/// any extra adapter on their side.
 async fn post_a2a_task(
     State(s): State<AppState>,
     body: axum::body::Bytes,

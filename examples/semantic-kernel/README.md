@@ -35,7 +35,7 @@ export EMEM_MCP_URL="https://emem.dev/mcp"
 ## Notes
 
 - No API key needed for emem (reads are anonymous).
-- Any Semantic Kernel-compatible model service works — swap `OpenAIChatCompletion`
+- Any Semantic Kernel-compatible model service works, swap `OpenAIChatCompletion`
   for Azure OpenAI, Anthropic Claude, or another provider.
-- emem tools are auto-discovered via `MCPStreamableHttpPlugin` — no manual tool
+- emem tools are auto-discovered via `MCPStreamableHttpPlugin`, no manual tool
   registration needed.
