@@ -532,11 +532,23 @@ def build_html(notes: list[dict]) -> str:
 
     # Per-agent colour and the JS roster are generated from whoever was
     # discovered, so a new peer is styled and filterable the day it appears.
+    #
+    # Brace rule, learned the hard way: these strings are VALUES substituted
+    # into the page f-string, and f-strings never re-scan substituted values,
+    # so braces here must be emitted SINGLE. The doubled variants shipped as
+    # `i{{background:…}}` (CSS silently dropped) and `var COLOR = {{…}}` (a
+    # parse error the JS gate rightly refused), which kept this page frozen at
+    # 2026-07-21 through a week of deploys. Doubling belongs only in template
+    # text, never in values.
     chip_colors = " ".join(
-        f".chip.{k} i{{{{background:{agent_color(k)}}}}}" for k in AGENTS)
+        f".chip.{k} i{{background:{agent_color(k)}}}" for k in AGENTS)
     js_agents = json.dumps(list(AGENTS))
-    js_colors = json.dumps({k: agent_color(k) for k in AGENTS}).replace("{", "{{").replace("}", "}}")
-    js_home = json.dumps(HOME or (next(iter(AGENTS), "")))
+    js_colors = json.dumps({k: agent_color(k) for k in AGENTS})
+    # The home side of the chat is emem's own agent, found by its editorial
+    # name in channel_roles.json. Falling back to iteration order put the
+    # newest-seen agent (an arcade daemon) on the home side of the layout.
+    home_by_role = next((k for k, (nm, _) in AGENTS.items() if nm == "emem"), "")
+    js_home = json.dumps(HOME or home_by_role or (next(iter(AGENTS), "")))
 
     return f"""<!doctype html>
 <html lang=en>
@@ -941,6 +953,16 @@ def main() -> int:
             except Exception as exc:
                 print(f"REFUSING TO WRITE: script block {i} does not parse: {exc}",
                       file=sys.stderr)
+                # Show the offending line in context. This gate refused for a
+                # week with only a line number, and every deploy silently kept
+                # a frozen transcript; a refusal must carry enough to fix it.
+                m = re.search(r"Line (\d+)", str(exc))
+                if m:
+                    n = int(m.group(1))
+                    lines = block.split("\n")
+                    for j in range(max(0, n - 3), min(len(lines), n + 2)):
+                        marker = ">>" if j == n - 1 else "  "
+                        print(f"  {marker} {j + 1}: {lines[j]}", file=sys.stderr)
                 return 1
         print("  JS syntax gate: all inline blocks parse")
 
