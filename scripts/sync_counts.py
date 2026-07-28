@@ -48,9 +48,9 @@ CARGO = REPO / "Cargo.toml"
 # written to and the value --check enforces across every surface.
 # ---------------------------------------------------------------------------
 CANON = {
-    # 91 = 90 primitives + emem_tools, the catalog tool. It is core
-    # because /mcp advertises the core loop rather than the full surface,
-    # so exactly one visible tool has to be able to describe the rest.
+    # 104 = every ToolDescriptor in emem-mcp, emem_tools included: the
+    # catalog tool is core because /mcp advertises the loop rather than
+    # the full surface, so one visible tool must describe the rest.
     "mcp_tools": 104,
     "mcp_core": 15,
     "mcp_extended": 89,
@@ -300,6 +300,10 @@ def write_agent(check_only: bool) -> list[str]:
     # literal.
     new = _sub(r"\d+ MCP tools \(\d+ core, \d+ extended\)",
                f'{CANON["mcp_tools"]} MCP tools ({CANON["mcp_core"]} core, {CANON["mcp_extended"]} extended)', new)
+    # The structured mcp_tools object: it sat at 102/87 while line 6 of the
+    # same file said 104/89, because only the prose regexes were maintained.
+    new = _sub(r'"mcp_tools":\s*\{\s*"core":\s*\d+,\s*"extended":\s*\d+,\s*"total":\s*\d+\s*\}',
+               f'"mcp_tools": {{\n    "core": {CANON["mcp_core"]},\n    "extended": {CANON["mcp_extended"]},\n    "total": {CANON["mcp_tools"]}\n  }}', new)
     new = _sub(r"\d+ static MCP resources \+ \d+ URI templates",
                f'{CANON["mcp_resources"]} static MCP resources + {CANON["mcp_uri_templates"]} URI templates', new)
     new = _sub(r"\d+ algorithms in a content-addressed registry",
@@ -331,9 +335,10 @@ def _apply(f: Path, old: str, new: str, check_only: bool) -> list[str]:
 # fixed by hand (reviewed for voice), this just keeps it from silently rotting.
 STALE_PHRASES = {
     "README.md": ["75 MCP tools", "87 documented REST", "118 live materializer",
-                  "118 materializer-wired", "across 35 cube", "14 workspace crates"],
+                  "118 materializer-wired", "across 35 cube", "14 workspace crates",
+                  "124 paths", "(102 tools)"],
     "web/index.html": ["75 MCP tools", "87 documented", "87 REST", "87 paths", "118 materializer", "35 cube slots",
-                       "all 91", "other 77"],
+                       "all 91", "other 77", "all 102", "124 paths"],
     "web/how-it-works.html": ["75 MCP tools", "118 materializer", "35 cube slots", "41 cube"],
     "web/solutions.html": ["75 MCP tools", "118 materializer", "35 cube slots"],
     "web/reference.html": ["75 MCP tools", "87 documented", "118 materializer", "35 cube slots",
@@ -348,18 +353,27 @@ STALE_PHRASES = {
     # same way; watch it with the same phrase list.
     "docs/whitepaper.md": ["Forty-one band cube", "41 cube", "35 cube",
                            "118 materializer", "75 MCP", "All 91"],
-    "docs/registries.md": ["160 composition", "| 111 ", "| 160 "],
+    "docs/registries.md": ["160 composition", "| 111 ", "| 160 ",
+                           "118 materializer", "(86)", "nine manifests",
+                           "not yet served by"],
     "AGENTS.md": ["version 1.0.0"],
-    "web/ai-plugin.json": ["91 MCP tools", "77 extended"],
+    "web/ai-plugin.json": ["91 MCP tools", "77 extended", "102 MCP tools", "87 extended"],
     "claude-skills/emem-locate-and-recall/SKILL.md": ["35 bands"],
-    "docs/registries.md": ["118 materializer", "(43)", "(86)"],
     "web/skills.md": ["75 tools", "71 paths", "87 paths"],
     "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer",
                      "91 MCP", "108 documented", "160 algorithms",
-                     "160 composition"],
-    "docs/agents.md": ["160 composition", "91 MCP", "77 extended"],
+                     "160 composition", "124 documented", "162 composition"],
+    "docs/agents.md": ["160 composition", "91 MCP", "77 extended",
+                       "162 composition", "all 102", "Version 1.2.1",
+                       "129 total in"],
     "huggingface-space/README.md": ["70 MCP", "159 algorithms", "68-recipe",
                                     "42 bands"],
+    # The registry-facing artifacts that rotted a full generation unseen
+    # because nothing watched them at all.
+    "server.json": ["14-tool", "all 94", "205 KB", "any of the 94"],
+    "docs/mcp-directory.md": ["1.2.1", "the full 102", "one of the 94"],
+    "web/a2a.html": ["Four entries", "all 102"],
+    "scripts/build_channel.py": ["Three AI agents", "three AI agents"],
 }
 
 

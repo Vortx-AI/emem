@@ -189,13 +189,13 @@ new attestations land:
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 114 paths under
-`/v1/*` (129 total in `/openapi.json`), 104 MCP tools (15 core, 89 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 102), 18 static MCP
+`/v1/*` (130 documented; 135 total in `/openapi.json`), 104 MCP tools (15 core, 89 extended, with
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 104), 18 static MCP
 resources + 8 URI templates, 163 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
 connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
-Version 1.2.1, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
+Version 1.3.0, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
 
@@ -215,14 +215,14 @@ Four discovery URLs for agent onboarding:
 |---|---|
 | REST paths (OpenAPI) | 118 documented, 114 under `/v1/*` |
 | MCP tools | 96 (14 core / 82 extended) |
-| Algorithms (composition recipes) | 162 |
+| Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
 | MCP resources | 18 static + 8 URI templates |
-| Materializer-wired band names | 124 |
+| Materializer-wired band names | 129 |
 | Source schemes | 46 declared (several not yet wired) |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
-| Version | 1.2.1 |
+| Version | 1.3.0 |
 
 ---
 
@@ -470,7 +470,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms |
-| `/v1/algorithms` | 162 composition recipes (paginated) |
+| `/v1/algorithms` | 168 composition recipes (paginated) |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |
@@ -591,7 +591,7 @@ without historical fetch return `status: "present_only"`; check
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
 `tools/list` at `/mcp` advertises the 14 tools of the loop (about 39 KB of
-descriptors); `/mcp/full` advertises all 102 (about 210 KB), and
+descriptors); `/mcp/full` advertises all 104 (about 210 KB), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of
 tier, so a tool absent from your list is still callable and the narrower

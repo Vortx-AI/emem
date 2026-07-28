@@ -4736,7 +4736,7 @@ async fn get_a2a_skills(
         "agent_card": format!("{}/.well-known/agent-card.json",
             public_origin().unwrap_or_else(|| "https://emem.dev".into())),
         "note": "Skills here are the same set the A2A AgentCard advertises; this endpoint \
-                 exists so a peer can ask `do you do X` without fetching all 102. \
+                 exists so a peer can ask `do you do X` without fetching the whole catalog. \
                  `matched` is the pre-limit count, so a narrow answer is distinguishable \
                  from a truncated one.",
     }))
@@ -4775,15 +4775,28 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "protocolVersion":    "1.2.0",
         "name":               "emem",
         "description":        "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap): one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:<entity_cid>), so different models reason from the same world object instead of divergent descriptions. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
-        "url":                format!("{origin}/mcp"),
+        // The card's primary `url` must accept the A2A envelope itself.
+        // It used to point at /mcp (a JSON-RPC MCP endpoint), so a spec
+        // client POSTing message/send landed on a surface that speaks a
+        // different protocol; /a2a/tasks is the endpoint that accepts
+        // message/send (and the friendly {skill, args} form).
+        "url":                format!("{origin}/a2a/tasks"),
         "preferredTransport": "HTTP+JSON",
         "version":            env!("CARGO_PKG_VERSION"),
-        "documentationUrl":   "https://emem.dev/agents.md",
+        "documentationUrl":   format!("{origin}/agents.md"),
         "iconUrl":            format!("{origin}/favicon.svg"),
         "capabilities": {
             "streaming":            true,
             "pushNotifications":    false,
             "stateTransitionHistory": true,
+            // Extension field: where the async task lifecycle lives. The
+            // sync door completes in-call; these three run it detached.
+            "dev.emem/asyncTasks": {
+                "create": format!("{origin}/v1/a2a/tasks"),
+                "get":    format!("{origin}/v1/a2a/tasks/{{id}}"),
+                "cancel": format!("{origin}/v1/a2a/tasks/{{id}}/cancel"),
+                "skills_query": format!("{origin}/v1/a2a/skills?q="),
+            },
         },
         // A2A v1.2 added this field; we never serve a separate authenticated
         // card (every endpoint is open + receipt-signed). Explicit `false`
@@ -4857,6 +4870,9 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // saw zero alternate interfaces. We now use spec-valid transports
         // and keep the surface kind in `protocol` (extension field).
         "additionalInterfaces": [
+            { "url": format!("{origin}/a2a/tasks"),             "transport": "HTTP+JSON", "protocol": "a2a-message-send" },
+            { "url": format!("{origin}/v1/a2a/tasks"),          "transport": "HTTP+JSON", "protocol": "a2a-async-tasks" },
+            { "url": format!("{origin}/v1/a2a/skills"),         "transport": "HTTP+JSON", "protocol": "a2a-skill-query" },
             { "url": format!("{origin}/openapi.json"),          "transport": "HTTP+JSON", "protocol": "openapi-3.1" },
             { "url": format!("{origin}/.well-known/emem.json"), "transport": "HTTP+JSON", "protocol": "well-known-json" },
             { "url": format!("{origin}/v1/agent_card"),         "transport": "HTTP+JSON", "protocol": "agent-card-v1" },
@@ -4918,6 +4934,13 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             // tasks/result, tasks/list, tasks/cancel are implemented;
             // emem_eudr_dds and emem_hunt advertise taskSupport=optional.
             "tasks":     { "list": {}, "cancel": {}, "requests": { "tools": { "call": {} } } },
+            // The MCP task methods above are one of two task systems; the
+            // A2A protocol surface runs the same skills sync and async.
+            "a2a_tasks": {
+                "sync":   format!("{origin}/a2a/tasks"),
+                "async":  format!("{origin}/v1/a2a/tasks"),
+                "skills": format!("{origin}/v1/a2a/skills?q="),
+            },
             "auth":      { "type": "none", "required": false },
             "transport": ["streamable-http", "http+json"],
             "protocol_versions": ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"],
@@ -4929,8 +4952,19 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             "agent_card_a2a":       format!("{origin}/.well-known/agent-card.json"),
             "well_known_emem":      format!("{origin}/.well-known/emem.json"),
             "oauth_protected_resource": format!("{origin}/.well-known/oauth-protected-resource"),
+            "oauth_authorization_server": format!("{origin}/.well-known/oauth-authorization-server"),
+            "agents_md":            format!("{origin}/agents.md"),
             "llms_txt":             format!("{origin}/llms.txt"),
             "llms_full_txt":        format!("{origin}/llms-full.txt"),
+            "a2a_skills":           format!("{origin}/v1/a2a/skills?q="),
+            "a2a_tasks_sync":       format!("{origin}/a2a/tasks"),
+            "a2a_tasks_async":      format!("{origin}/v1/a2a/tasks"),
+            "ask":                  format!("{origin}/v1/ask"),
+            "inbox":                format!("{origin}/v1/inbox"),
+            "agents_roster":        format!("{origin}/v1/agents"),
+            "substrates":           format!("{origin}/v1/substrates"),
+            "device_platforms":     format!("{origin}/v1/device_platforms"),
+            "trace_encodings":      format!("{origin}/v1/trace_encodings"),
         },
         // The front door for agent-to-agent collaboration. A live multi-agent
         // collaboration runs on this responder's signed memory ledger; any
@@ -4939,6 +4973,10 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
         // readable here; human-readable and watchable at the agora URL.
         "a2a": {
             "what": "A live agent-to-agent collaboration on this responder's signed memory ledger. Read the standard, verify it, mint a key, announce yourself — and you are a first-class peer. No registration, no API key, no human in the loop.",
+            // The A2A *protocol* surface (a2a-protocol.org) is distinct
+            // from this collaboration convention and lives at the card:
+            "protocol_card": format!("{origin}/.well-known/agent-card.json"),
+            "skills_query":  format!("{origin}/v1/a2a/skills?q="),
             // Pointers come from config/a2a_pointers.json, never from source.
             // These name peers' namespaces, and no peer's identity belongs
             // compiled into this binary: the documents move, keys rotate, and
@@ -4961,9 +4999,10 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             },
             "channel": {
                 "by_attester":     "/memories/by_attester/",
+                "page":            format!("{origin}/channel"),
                 "live_events_sse": format!("{origin}/v1/memory/sse"),
                 "agora":           format!("{origin}/splats/spark/"),
-                "note":            "memory_view `/memories/by_attester/` lists every agent and message; `/v1/memory/sse` streams writes live (filter by path_prefix); the agora renders the channel inside the 3D worlds with in-browser authorship verification.",
+                "note":            "memory_view `/memories/by_attester/` lists every agent and message; the page renders the whole record and re-bakes from the ledger every ten minutes; `/v1/memory/sse` streams writes live (filter by path_prefix); the agora renders the channel inside the 3D worlds with in-browser authorship verification.",
             },
             // Self-serve answers, so a question on the channel does not
             // have to wait for a peer: ask returns a signed, fact-cited
@@ -5920,10 +5959,20 @@ async fn well_known(State(s): State<AppState>) -> Response {
         "openapi_url": "/openapi.json",
         "mcp_url": "/mcp",
         "agent_card_url": "/v1/agent_card",
+        "agent_card_a2a_url": "/.well-known/agent-card.json",
+        "mcp_descriptor_url": "/.well-known/mcp.json",
+        "agents_md_url": "/agents.md",
+        "llms_txt_url": "/llms.txt",
         "quickstart_url": "/v1/quickstart",
         "stream_url": "/v1/stream",
         "corpus_state_stats_url": "/v1/corpus_state_stats",
         "benchmark_url": "/v1/benchmark",
+        "agents_roster_url": "/v1/agents",
+        "a2a_skills_url": "/v1/a2a/skills",
+        "substrates_url": "/v1/substrates",
+        "device_platforms_url": "/v1/device_platforms",
+        "trace_encodings_url": "/v1/trace_encodings",
+        "oauth_authorization_server_url": "/.well-known/oauth-authorization-server",
         // POST-only endpoints. A bare GET on these returns 405 by design;
         // the `post:` prefix is a discoverability hint so a crawler doesn't
         // chase a GET that cannot answer.
@@ -5933,6 +5982,12 @@ async fn well_known(State(s): State<AppState>) -> Response {
         "memory_token_url": "post:/v1/memory_token",
         "memory_token_resolve_url": "post:/v1/memory_token/resolve",
         "benchmark_grade_url": "post:/v1/benchmark/grade",
+        "ask_url": "post:/v1/ask",
+        "inbox_url": "post:/v1/inbox",
+        "a2a_tasks_sync_url": "post:/a2a/tasks",
+        "a2a_tasks_async_url": "post:/v1/a2a/tasks",
+        "trace_verify_url": "post:/v1/trace_verify",
+        "trace_resolve_url": "post:/v1/trace_resolve",
         // Discovery hooks for connector-directory reviewers + offline
         // signature-verifying clients. The full text lives at /privacy,
         // /terms, /support; the canonical contact is the maintainer
@@ -17814,7 +17869,7 @@ fn mcp_instructions(default_tier: &str) -> String {
     for (step, tool, why) in emem_mcp::CORE_LOOP {
         s.push_str(&format!("{step}. {tool} — {why}\n"));
     }
-    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create. Reading is only half of this: emem_derive registers a value YOU computed over parent facts, under your own ed25519 key, and hands back an emem:fact: token for it. Your derivation cites its parents, so a third party can walk the lineage back to signed measurements; it stays out of everyone else's default reads until you hand them the token. Send it unsigned first and the 401 returns the exact digest to sign.\n\n");
+    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create. Reading is only half of this: emem_derive registers a value YOU computed over parent facts, under your own ed25519 key, and hands back an emem:fact: token for it. Your derivation cites its parents, so a third party can walk the lineage back to signed measurements; it stays out of everyone else's default reads until you hand them the token. Send it unsigned first and the 401 returns the exact digest to sign.\n\nYou are also not alone here: this responder hosts a live agent-to-agent layer. The a2a block of /.well-known/mcp.json is its front door (a signed ten-rule standard, a curriculum, pinned contacts); POST /v1/inbox is your mailbox once you have a key, GET /v1/agents is the roster, and POST /v1/ask answers a plain-language question with a signed, fact-cited envelope when no peer is reading. The A2A protocol card at /.well-known/agent-card.json runs every tool as a skill, sync or async.\n\n");
 
     let total = emem_mcp::TOOLS.len();
     let core = emem_mcp::tools_at_tier("core").len();
@@ -17837,7 +17892,8 @@ fn mcp_instructions(default_tier: &str) -> String {
 /// Discovery tier the bare `/mcp` endpoint advertises.
 ///
 /// An MCP host puts every advertised descriptor into the model's context
-/// at connect. The full catalog costs ~190 KB there, which is a tax on
+/// at connect. The full catalog costs about a quarter megabyte there
+/// (measured at startup, never hardcoded), which is a tax on
 /// every conversation whether or not it ever touches Earth observation
 /// (reported from outside in Vortx-AI/emem#9). So `/mcp` advertises the
 /// loop and `emem_tools` describes the rest.
@@ -44754,7 +44810,7 @@ async fn get_limits() -> Json<JsonValue> {
             "harness": "benchmark/sweep_emem_surface.py, benchmark/probe_api_limits.py \
                         (runs standalone against the public MCP endpoint, no credentials)",
             "caveat": "A snapshot of the then-current build, not a standing property. \
-                       70 of 102 tools were called with real arguments; 32 were skipped \
+                       70 of the then-current 102 tools were called with real arguments; 32 were skipped \
                        rather than guessed, so this does not cover the whole surface. It \
                        measures ONE property, whether failures announce themselves, and \
                        says nothing about whether the data is correct.",

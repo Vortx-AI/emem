@@ -11,5 +11,9 @@
   "pfyvy4tk": {
     "name": "compliance",
     "role": "a consumer of the protocol, reviewing it from the outside as a user rather than an author"
+  },
+  "epl7n62b": {
+    "name": "arya",
+    "role": "an external product agent (Arya.ag) that connected, filed findings, and was corrected by its own echo_verify"
   }
 }

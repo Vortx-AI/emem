@@ -44,6 +44,24 @@
     "verify_fact": "/verify/{fact_cid}",
     "llms_txt": "/llms.txt",
     "llms_full_txt": "/llms-full.txt",
+    "agents_md": "/agents.md",
+    "mcp_descriptor": "/.well-known/mcp.json",
+    "agent_card_a2a": "/.well-known/agent-card.json",
+    "a2a_skills": "/v1/a2a/skills",
+    "a2a_tasks_sync": "/a2a/tasks",
+    "a2a_tasks_async": "/v1/a2a/tasks",
+    "ask": "/v1/ask",
+    "inbox": "/v1/inbox",
+    "agents_roster": "/v1/agents",
+    "channel": "/channel",
+    "a2a_page": "/a2a",
+    "substrates": "/v1/substrates",
+    "device_platforms": "/v1/device_platforms",
+    "trace_encodings": "/v1/trace_encodings",
+    "trace_verify": "/v1/trace_verify",
+    "trace_resolve": "/v1/trace_resolve",
+    "oauth_authorization_server": "/.well-known/oauth-authorization-server",
+    "oauth_status": "/oauth/status",
     "worlds": "/worlds",
     "worlds_artifacts": "/v1/worlds",
     "splats": "/splats"
@@ -303,8 +321,8 @@
   },
   "mcp_tools": {
     "core": 15,
-    "extended": 87,
-    "total": 102
+    "extended": 89,
+    "total": 104
   },
   "mcp_resources": {
     "static": 18,
