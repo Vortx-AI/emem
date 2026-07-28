@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate web/tools.html — the static tool explorer — from the live
+"""Generate web/tools.html, the static tool explorer, from the live
 tool registry, so it can never be hand-maintained or drift.
 
 Runs inside the deploy ritual (before cargo build; the page is baked via
@@ -35,7 +35,7 @@ def fetch() -> dict:
         try:
             with urllib.request.urlopen(u, timeout=30) as r:
                 return json.load(r)
-        except Exception as exc:  # noqa: BLE001 — try the next source
+        except Exception as exc:  # noqa: BLE001, try the next source
             last = exc
     raise SystemExit(f"could not fetch the tool registry: {last}")
 

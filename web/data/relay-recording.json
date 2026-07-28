@@ -1,0 +1,59 @@
+{
+ "schema": "emem.relay.recording.v1",
+ "recorded_at": "2026-07-28T15:09:45Z",
+ "place": "Manali, Himachal Pradesh",
+ "band": "indices.ndvi",
+ "cell": "defi.zb56f.dAwe.zb8ea",
+ "fact_cid": "fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq",
+ "token": "emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq",
+ "exact_value": 0.2072951451322887,
+ "prose_chain": [
+  {
+   "hop": 1,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "The NDVI value at cell defi.zb56f.dAwe.zb8ea is 0.207295.",
+   "ms": 3970
+  },
+  {
+   "hop": 2,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.2073.",
+   "ms": 6537
+  },
+  {
+   "hop": 3,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "The NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.2073.",
+   "ms": 3727
+  }
+ ],
+ "token_chain": [
+  {
+   "hop": 1,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq",
+   "token_intact": true
+  },
+  {
+   "hop": 2,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 3,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  }
+ ],
+ "resolved_value": 0.2072951451322887,
+ "resolved_matches_exact": true,
+ "note": "Every frame is what the named model actually wrote at temperature 0. The prose chain is one signed fact carried as a summary through three hops across two model families; the token chain carries the handle instead. Re-run scripts/record_relay.py to regenerate."
+}

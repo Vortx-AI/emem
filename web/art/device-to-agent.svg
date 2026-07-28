@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 620" role="img" aria-label="How an observation becomes something an agent can trust: a satellite, a robot, or any sensor observes a place; the machine's output is admitted only when bound inside its signed execution trace, while the open archive is admitted by recomputability; the trust gate refuses by name; what lands in the shared memory is one signed fact at one address; and any agent, on any model, resolves that one token and verifies it alone.">
+<style>
+:root{--paper:#f2f0ec;--ink:#171613;--ink2:#343330;--mute:#646360;--rule:#a7a49e;--accent:#326234;--accent-bg:#d8efd8;--ochre:#d59a2a;--indigo:#344a8c;--vermilion:#ac3225}
+@media (prefers-color-scheme: dark){:root{--paper:#151411;--ink:#e9e8e4;--ink2:#bfbdba;--mute:#81807d;--rule:#4a4742;--accent:#80cd82;--accent-bg:#132a14;--ochre:#b98a2f;--indigo:#6c82c4;--vermilion:#d4614f}}
+.t{font-family:'JetBrains Mono',ui-monospace,monospace;fill:var(--ink)}
+.s{font-family:'JetBrains Mono',ui-monospace,monospace;fill:var(--mute);font-size:9.5px}
+.k{font-family:'JetBrains Mono',ui-monospace,monospace;fill:var(--mute);font-size:8px;letter-spacing:.14em}
+.box{fill:var(--paper);stroke:var(--ink);stroke-width:1.6}
+.flow{stroke:var(--rule);stroke-width:1.4;fill:none;stroke-dasharray:5 6;animation:fl 1.6s linear infinite}
+@keyframes fl{to{stroke-dashoffset:-22}}
+.pulse{animation:pu 3.2s ease-in-out infinite;transform-origin:center;transform-box:fill-box}
+@keyframes pu{0%,100%{opacity:.5}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.flow,.pulse{animation:none}}
+</style>
+<rect width="560" height="620" fill="var(--paper)"/>
+
+<!-- 1. the observers -->
+<text x="24" y="26" class="k">01 · THE OBSERVERS</text>
+<g>
+  <rect x="24" y="36" width="150" height="62" class="box"/>
+  <g class="pulse"><circle cx="48" cy="62" r="6.5" fill="var(--indigo)"/><path d="M38 62 h-6 M58 62 h6 M48 52 v-6" stroke="var(--ink)" stroke-width="1.3"/></g>
+  <text x="72" y="66" class="t" font-size="11">satellite</text>
+  <text x="34" y="82" class="s">a pass over one place</text>
+</g>
+<g>
+  <rect x="196" y="36" width="150" height="62" class="box"/>
+  <g class="pulse"><rect x="210" y="56" width="15" height="13" fill="var(--ochre)" stroke="var(--ink)" stroke-width="1.3"/><circle cx="217" cy="50" r="2.2" fill="var(--ink)"/></g>
+  <text x="240" y="62" class="t" font-size="11">robot, drone</text>
+  <text x="206" y="82" class="s">a frame, a reading</text>
+</g>
+<g>
+  <rect x="368" y="36" width="168" height="62" class="box"/>
+  <g class="pulse"><circle cx="390" cy="62" r="7.5" fill="none" stroke="var(--vermilion)" stroke-width="2"/><circle cx="390" cy="62" r="2.4" fill="var(--vermilion)"/></g>
+  <text x="412" y="62" class="t" font-size="11">sensor, scope</text>
+  <text x="378" y="82" class="s">100 nm to whole basins</text>
+</g>
+
+<path class="flow" d="M99 98 V140"/><path class="flow" d="M271 98 V140"/><path class="flow" d="M452 98 V140"/>
+
+<!-- 2. the gate -->
+<text x="24" y="160" class="k">02 · RESPECT WITHOUT BELIEF</text>
+<rect x="24" y="170" width="512" height="104" class="box"/>
+<text x="40" y="192" class="t" font-size="12">the trust gate</text>
+<text x="40" y="212" class="s">A machine is never believed on its word. Its output is admitted only when the</text>
+<text x="40" y="226" class="s">payload digest is bound inside a complete, signed OS execution trace.</text>
+<g font-size="8.5" class="k">
+  <rect x="40" y="238" width="66" height="18" fill="var(--accent-bg)" stroke="var(--rule)"/><text x="47" y="250" fill="var(--accent)">syscall</text>
+  <rect x="112" y="238" width="74" height="18" fill="var(--accent-bg)" stroke="var(--rule)"/><text x="119" y="250" fill="var(--accent)">scheduler</text>
+  <rect x="192" y="238" width="82" height="18" fill="var(--accent-bg)" stroke="var(--rule)"/><text x="199" y="250" fill="var(--accent)">sensor bus</text>
+  <rect x="280" y="238" width="76" height="18" fill="var(--accent-bg)" stroke="var(--rule)"/><text x="287" y="250" fill="var(--accent)">inference</text>
+  <rect x="362" y="238" width="60" height="18" fill="var(--accent-bg)" stroke="var(--rule)"/><text x="369" y="250" fill="var(--accent)">energy</text>
+  <rect x="428" y="238" width="68" height="18" fill="var(--accent-bg)" stroke="var(--rule)"/><text x="435" y="250" fill="var(--accent)">thermal</text>
+</g>
+<text x="40" y="268" class="s" fill="var(--vermilion)">a broken chain, a missing layer, an unbound output: refused, by name</text>
+
+<path class="flow" d="M280 274 V318"/>
+
+<!-- 3. the fact -->
+<text x="24" y="338" class="k">03 · WHAT LANDS</text>
+<rect x="24" y="348" width="512" height="86" class="box"/>
+<text x="40" y="370" class="t" font-size="12">one signed fact, at one address</text>
+<text x="40" y="390" class="s">blake3 over canonical bytes, ed25519 by the responder, at a 64-bit cell</text>
+<text x="40" y="404" class="s">every agent resolves identically. Nothing is overwritten; later records supersede.</text>
+<text x="40" y="424" class="s" fill="var(--accent)">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</text>
+
+<path class="flow" d="M280 434 V478"/>
+
+<!-- 4. the agents -->
+<text x="24" y="498" class="k">04 · ANY AGENT, ANY MODEL</text>
+<g>
+  <rect x="24" y="508" width="160" height="80" class="box"/>
+  <text x="40" y="530" class="t" font-size="11">your agent</text>
+  <text x="34" y="550" class="s">keeps one token,</text>
+  <text x="34" y="564" class="s">not the payload</text>
+</g>
+<g>
+  <rect x="200" y="508" width="160" height="80" class="box"/>
+  <text x="216" y="530" class="t" font-size="11">another vendor</text>
+  <text x="210" y="550" class="s">resolves the same</text>
+  <text x="210" y="564" class="s">bytes, trusts nobody</text>
+</g>
+<g>
+  <rect x="376" y="508" width="160" height="80" class="box"/>
+  <text x="392" y="530" class="t" font-size="11">an auditor, later</text>
+  <text x="386" y="550" class="s">re-checks the signature</text>
+  <text x="386" y="564" class="s">offline, years on</text>
+</g>
+<path class="flow" d="M104 588 V604 H456 V588"/>
+<text x="280" y="616" class="s" text-anchor="middle" fill="var(--accent)">one observation, one meaning, no shared trust required</text>
+</svg>

@@ -300,6 +300,12 @@ def note_text(path: str, doc: dict) -> str:
     return "\n".join(parts)
 
 
+def strip_addressing(t: str) -> str:
+    """The chat layout already says who spoke to whom, so the claim line
+    should not repeat it."""
+    return re.sub(r"^[a-z0-9_.-]{2,}\s*(?:->|\u2192)\s*[^:]{1,80}:\s*", "", t, flags=re.I).strip() or t
+
+
 def title_of(note: dict) -> str:
     """First markdown heading, else the filename."""
     for line in note["content"].splitlines():
@@ -491,6 +497,16 @@ def build_html(notes: list[dict]) -> str:
                        if m.group(1) in note_cids else f"<code>{m.group(1)}</code>"),
             body,
         )
+        # The title of these notes IS the conclusion ("X -> Y: what I found").
+        # So the claim is the message, addressed like a chat line, and the
+        # reasoning collapses behind a button: a reader skims the argument
+        # and opens only the turns they want, which is how the agents
+        # themselves read this ledger.
+        to_line = ""
+        heading = title_of(n)
+        if "->" in heading or "\u2192" in heading:
+            lead = re.split(r":", heading, 1)[0]
+            to_line = lead.strip()
         msgs.append(f"""
 <article class="msg {html.escape(n['attester'])}" id="{cid}">
   <div class="ava">{html.escape(who[:1].upper())}</div>
@@ -502,10 +518,14 @@ def build_html(notes: list[dict]) -> str:
       <time>{html.escape(n['signed_at'][11:19])}</time>
       <button class="cp" data-cid="{cid}" title="copy link to this message">link</button>
     </header>
-    <h3>{html.escape(title_of(n))}</h3>
+    {f'<div class="addr">{html.escape(to_line)}</div>' if to_line else ''}
+    <h3>{html.escape(strip_addressing(heading))}</h3>
+    <div class="acts">
+      <button class="more" data-path="{html.escape(n['path'])}" data-trunc="{'1' if truncated else '0'}">the reasoning</button>
+      <a class="vfy" href="/verify?q={html.escape(n['path'])}" title="check this message's signature yourself">verify it</a>
+      <code class="cidtag">{cid}</code>
+    </div>
     <div class="txt">{body}</div>
-    <button class="more" data-path="{html.escape(n['path'])}" data-trunc="{'1' if truncated else '0'}">{'read the signed bytes' if truncated else 'show the whole note'}</button>
-    <footer><a class="vfy" href="/verify?q={html.escape(n['path'])}" title="check this message's signature yourself">verify</a> <code>{cid}</code></footer>
   </div>
 </article>""")
 
@@ -594,6 +614,10 @@ def build_html(notes: list[dict]) -> str:
 .day{{text-align:center;margin:2rem 0 1rem;position:relative}}
 .day span{{background:var(--paper);padding:0 .8rem;font-size:var(--t-xs);color:var(--mute);text-transform:uppercase;letter-spacing:.08em;position:relative;z-index:1}}
 .day:before{{content:"";position:absolute;top:50%;left:0;right:0;height:1px;background:var(--rule)}}
+.wrap{{max-width:1080px;margin:0 auto;padding:0 1.5rem}}
+.hd .wrap{{padding:0 1.5rem}}
+h1{{max-width:24ch}}
+.lede,.sub-lede,p{{max-width:78ch}}
 .msg{{display:flex;align-items:flex-end;gap:.5rem;margin:.5rem 0;max-width:100%;scroll-margin-top:5rem}}
 .ava{{width:2rem;height:2rem;border-radius:50%;display:grid;place-items:center;font-size:var(--t-xs);font-weight:700;color:#fff;flex:0 0 auto;box-shadow:0 1px 2px rgba(0,0,0,.18)}}
 .msg .bub{{max-width:min(46rem,84%);--bubble-bg:var(--paper-2)}}
@@ -614,11 +638,16 @@ def build_html(notes: list[dict]) -> str:
 .ok{{color:#5ac08a;font-size:10px;border:1px solid currentColor;padding:0 .3rem;border-radius:2px}}
 .cp{{margin-left:auto;background:none;border:1px solid var(--rule);color:var(--mute);font:inherit;font-size:10px;padding:.05rem .4rem;cursor:pointer}}
 .cp:hover{{color:var(--accent);border-color:var(--accent)}}
-.bub h3{{font-size:var(--t-sm);color:var(--ink);margin:.1rem 0 .35rem;font-weight:600;line-height:1.35}}
-.txt{{max-height:3.4rem;overflow:hidden;position:relative;max-width:82ch}}
-.txt:not(.open){{cursor:pointer}}
+.bub h3{{font-size:var(--t-md);color:var(--ink);margin:.1rem 0 .45rem;font-weight:600;line-height:1.4}}
+.addr{{font-family:var(--mono);font-size:10px;color:var(--mute-2);margin-bottom:.15rem}}
+.acts{{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}}
+.acts .more{{border:1px solid var(--rule);padding:.12rem .5rem;border-radius:2px}}
+.acts .more:hover{{border-color:var(--accent)}}
+.acts .cidtag{{font-size:9px;color:var(--mute-2);margin-left:auto;word-break:break-all}}
+.txt{{max-height:0;overflow:hidden;max-width:82ch;transition:max-height .25s ease}}
+.txt.open{{margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--rule)}}
 .txt.open{{max-height:none}}
-.txt:not(.open):after{{content:"";position:absolute;inset:auto 0 0 0;height:2.4rem;background:linear-gradient(transparent,var(--bubble-bg,var(--paper-2)))}}
+
 .more{{background:none;border:0;color:var(--accent);font:inherit;font-size:var(--t-xs);cursor:pointer;padding:.3rem 0}}
 .more[disabled]{{opacity:.55;cursor:default}}
 .rawnote{{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:var(--t-xs);line-height:1.5;margin:0;color:var(--ink-2)}}
@@ -738,22 +767,26 @@ generated from the ledger by <code>scripts/build_channel.py</code> ·
 // exact signed bytes rather than re-rendered markdown, because those bytes are
 // what the author signed and what /verify checks.
 document.querySelectorAll('.more').forEach(function(b){{
-  var t = b.previousElementSibling;
+  // The claim is the message; this button opens the argument under it. The
+  // body is the .txt that follows the button row, collapsed by default.
+  var t = b.closest('.bub').querySelector('.txt');
   var trunc = b.getAttribute('data-trunc') === '1';
-  if (!trunc && t.scrollHeight <= t.clientHeight + 4) {{ b.remove(); return; }}
+  if (!t) {{ b.remove(); return; }}
   b.onclick = function(){{
     if (!trunc) {{
       t.classList.toggle('open');
-      b.textContent = t.classList.contains('open') ? 'collapse' : 'show the whole note';
+      t.style.maxHeight = t.classList.contains('open') ? (t.scrollHeight + 'px') : '0px';
+      b.textContent = t.classList.contains('open') ? 'hide the reasoning' : 'the reasoning';
       return;
     }}
     if (b.dataset.loaded === '1') {{
       t.classList.toggle('open');
-      b.textContent = t.classList.contains('open') ? 'collapse' : 'read the signed bytes';
+      t.style.maxHeight = t.classList.contains('open') ? (t.scrollHeight + 'px') : '0px';
+      b.textContent = t.classList.contains('open') ? 'hide the signed bytes' : 'the signed bytes';
       return;
     }}
     var path = b.getAttribute('data-path');
-    b.disabled = true; b.textContent = 'fetching the signed bytes...';
+    b.disabled = true; b.textContent = 'fetching the signed bytes\u2026';
     fetch('/mcp', {{
       method: 'POST',
       headers: {{'content-type': 'application/json'}},
@@ -779,7 +812,8 @@ document.querySelectorAll('.more').forEach(function(b){{
       t.innerHTML = '';
       t.appendChild(pre);
       t.classList.add('open');
-      b.dataset.loaded = '1'; b.disabled = false; b.textContent = 'collapse';
+      t.style.maxHeight = t.scrollHeight + 'px';
+      b.dataset.loaded = '1'; b.disabled = false; b.textContent = 'hide the signed bytes';
     }}).catch(function(){{
       // Never strand the reader on our fetch failing: the archive is a static
       // file and the note is addressable on its own.

@@ -2,7 +2,7 @@
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>emem: shared, verifiable memory for AI agents</title>
-<meta name=description content="emem is shared, verifiable memory for AI agents: every place has one address, every observation is one signed fact, and any agent can check any answer offline — no key, no account, no trust in us required.">
+<meta name=description content="emem is shared, verifiable memory for AI agents: every place has one address, every observation is one signed fact, and any agent can check any answer offline, with no key, no account, and no trust in us required.">
 <link rel=canonical href="https://emem.dev/">
 <link rel=alternate type=text/markdown href=/llms.txt>
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -458,7 +458,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .connect{grid-template-columns:repeat(2,1fr)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-/* ── Earth-memory rail — decorative Mithila (Kachni) scroll story ──────────
+/* ── Earth-memory rail, decorative Mithila (Kachni) scroll story ──────────
    One continuous vine/river drawn down the right-hand whitespace; motifs reveal
    as you scroll. Decoration only: aria-hidden + pointer-events:none. Off below
    1100px (no room) and under reduced-motion (shown finished, not animated).
@@ -574,13 +574,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .mc-section>h2{margin:0 0 .4rem;font-size:var(--t-xl);font-weight:600;letter-spacing:-.02em;color:var(--ink)}
 .mc-section>.mc-lede{font-size:var(--t-md);color:var(--ink-2);max-width:62ch;margin:0 0 1.4rem;line-height:1.5}
 
-/* atlas: pick a patch of Earth — Natural Earth map + four-model consensus */
+/* atlas: pick a patch of Earth, Natural Earth map + four-model consensus */
 /* embedding heatmap: the signed vector drawn as a diverging barcode (indigo -, vermilion +) */
 /* the actual Sentinel-2 scene for the selected cell */
-/* the 3D embedding engram — the cell's latent memory as four orbiting point clouds, on paper */
-/* latent fingerprint: a PCA-RGB swatch — places that look alike share a colour */
-/* most-similar places (find_similar) — this place is like those */
-/* the full 1792-D voxel cube — 43 band slots, fill status, downloadable */
+/* the 3D embedding engram, the cell's latent memory as four orbiting point clouds, on paper */
+/* latent fingerprint: a PCA-RGB swatch, places that look alike share a colour */
+/* most-similar places (find_similar), this place is like those */
+/* the full 1792-D voxel cube, 43 band slots, fill status, downloadable */
 /* Mithila minimise button on map boxes */
 .box-min{width:18px;height:18px;flex:0 0 auto;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);
   font:700 13px/1 var(--mono);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
@@ -588,7 +588,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 /* ===== Mithila-scroll homepage ===== */
 /* ============================================================================
-   Mithila-scroll homepage — full-screen living map + illustrated story chapters.
+   Mithila-scroll homepage, full-screen living map + illustrated story chapters.
    Reuses the page design tokens (paper/ink, --mono, type scale). Replaces the
    old uniform two-column .section doc layout with a varied painted scroll.
    ============================================================================ */
@@ -596,7 +596,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 /* ---- full-screen living map hero ---------------------------------------- */
 /* visible keyboard focus on every hero control (the paper theme makes the
    browser default ring nearly invisible) */
-/* hover tooltip — a tiny paper cartouche that previews the feature under the
+/* hover tooltip, a tiny paper cartouche that previews the feature under the
    cursor (city / hotspot / similar place / memory cell) with its provenance */
 /* reverse-geocoded place label pinned at the selected cell */
 .sel-label{background:color-mix(in oklch,var(--paper) 95%,transparent);border:1px solid var(--ink);
@@ -624,7 +624,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero-cartouche h1{font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.07;letter-spacing:-.02em;margin:.25rem 0 .45rem;color:var(--ink);font-weight:600}
 .hero-cartouche h1 .accent{color:var(--accent)}
 .hero-cartouche .sub{font-size:var(--t-md);color:var(--ink-2);max-width:48ch;margin:0 auto;line-height:1.45}
-/* ask the Earth — the NL prompt that drives the map */
+/* ask the Earth, the NL prompt that drives the map */
 .ask-bar{display:flex;gap:.4rem;margin:.9rem auto 0;max-width:46ch;pointer-events:auto}
 .ask-bar input{flex:1;min-width:0;font:inherit;font-size:var(--t-sm);padding:.5rem .65rem;border:2px solid var(--ink);background:var(--paper);color:var(--ink)}
 .ask-bar input::placeholder{color:var(--mute)}
@@ -636,9 +636,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .ask-egs .ask-eg{font:inherit;font-size:var(--t-xs);padding:.2rem .5rem;border:1px solid var(--rule-strong);background:color-mix(in oklch,var(--paper) 85%,transparent);color:var(--ink-2);cursor:pointer}
 .ask-egs .ask-eg:hover{border-color:var(--accent);color:var(--ink);background:var(--accent-bg)}
 @media (max-width:880px){.ask-bar{max-width:none}}
-/* the answer card — appears directly under the ask bar, over the map, where
+/* the answer card, appears directly under the ask bar, over the map, where
    the eye already is. Opaque paper + ink frame so it reads over the busy map. */
-/* the optional Gemma-4 "explain" affordance — clearly an UNSIGNED commentary
+/* the optional Gemma-4 "explain" affordance, clearly an UNSIGNED commentary
    layer, set apart from the signed readings above it */
 @keyframes exPulse{0%,100%{opacity:.35}50%{opacity:1}}
 
@@ -720,7 +720,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .finale p{color:var(--ink-2);font-size:var(--t-md);max-width:56ch;margin:0 auto 1.6rem}
 .finale .hero-cta{justify-content:center}
 
-/* ===== Mithila form controls — coherent native UI across the product ===== */
+/* ===== Mithila form controls, coherent native UI across the product ===== */
 select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.45rem 1.7rem .45rem .6rem;border-radius:0;cursor:pointer}
 select:hover{border-color:var(--accent,#3f7a4e)}
 option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
@@ -783,10 +783,6 @@ input::placeholder{color:var(--mute,#7a7363)}
 .th-lede{font-size:1.06rem;line-height:1.62;color:var(--ink-2);max-width:120ch;margin:0 0 1.1rem}
 .th-cat{font-size:.98rem;line-height:1.6;color:var(--ink);max-width:74ch;margin:0 0 1rem;border-left:3px solid var(--accent);padding-left:.8rem}
 .th-who{font-size:.95rem;line-height:1.6;color:var(--mute);max-width:120ch;margin:0 0 1.4rem}
-.th-verb-slot{display:inline-block;min-width:9.6ch;white-space:nowrap}
-.th-verb{color:var(--accent);text-decoration:none;border-bottom:2px solid var(--accent);white-space:nowrap;transition:opacity .2s ease}
-.th-verb.th-swap{opacity:0}
-.th-verb-hint{font-family:var(--mono);font-size:.76rem;color:var(--mute);margin:.15rem 0 1.2rem}
 .th-verb-hint a{color:var(--mute);text-decoration:none;border-bottom:1px dotted var(--rule-strong)}
 .th-verb-hint code{color:var(--ink-2)}
 .th-cta{display:flex;gap:.7rem;flex-wrap:wrap}
@@ -844,48 +840,20 @@ input::placeholder{color:var(--mute,#7a7363)}
 /* the decay demo: one real recorded run, two presses. Placed in the hero on the
    benchmark author's evidence that position decides what gets seen, and that an
    invitation nobody finds may as well not exist. */
-.dk{border:1px solid var(--rule-strong);background:var(--paper-2);margin:1.4rem 0 0;max-width:52ch}
-.dk-hd{display:flex;gap:.5rem;align-items:baseline;padding:.5rem .7rem;border-bottom:1px solid var(--rule);font-size:.7rem;color:var(--mute);font-family:var(--mono)}
 .dk-hd b{color:var(--ink);font-weight:600}
-.dk-body{padding:.85rem .9rem}
-.dk-q{font-size:.72rem;color:var(--mute);margin:0 0 .5rem}
-.dk-val{font-family:var(--mono);font-size:1.5rem;line-height:1.2;color:var(--ink);word-break:break-all;transition:color .25s}
-.dk-val.gone{color:var(--mute-2);text-decoration:line-through;font-size:1rem}
-.dk-val.wrong{color:#c2410c}
-.dk-addr{font-family:var(--mono);font-size:.62rem;color:var(--mute-2);word-break:break-all;margin-top:.35rem;transition:all .25s}
-.dk-addr.up{color:var(--accent);font-size:.68rem}
-.dk-note{font-size:.76rem;color:var(--ink-2);line-height:1.5;margin:.6rem 0 0;min-height:3.2em}
 .dk-note em{color:var(--mute);font-style:normal;font-family:var(--mono);font-size:.72rem}
-.dk-act{display:flex;gap:.5rem;flex-wrap:wrap;padding:.6rem .9rem;border-top:1px solid var(--rule)}
 .dk-act button{font:inherit;font-size:.76rem;padding:.3rem .7rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer}
 .dk-act button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
 .dk-act button:disabled{opacity:.35;cursor:default}
-.dk-cid{font-family:var(--mono);font-size:.6rem;color:var(--mute-2);padding:0 .9rem .6rem;word-break:break-all}
 .dk-cid a{color:inherit}
 </style>
 <section class="th" id="hero" aria-label="emem, the shared memory layer for multi-agent systems">
   <div class="th-top">
     <div class="th-copy">
-      <p class="th-cat">emem is shared, verifiable memory for AI agents: every place has one address, every observation is one signed fact, and any agent can check any answer offline — no key, no account, no trust in us required.</p>
-      <h1>One memory your agents can hand off, resume, and <span class="th-verb-slot"><a class="th-verb" id="th-verb" href="/verify" title="verify any fact offline">check.</a></span></h1>
-      <p class="th-verb-hint">the underlined verb is live: it opens <a id="tvh-ep" href="/verify"><code>/verify</code></a></p>
+      <p class="th-cat">emem is shared, verifiable memory for AI agents: every place has one address, every observation is one signed fact, and any agent can check any answer offline, with no key, no account, and no trust in us required.</p>
+      <h1>The external memory of our physical world.</h1>
       <p class="th-lede">Every agent forgets when its context ends, and no two agents trust each other's memory. Here the fact itself is what you keep, and the machines observing the world, satellites first, write into it as agents themselves.</p>
 
-      <div class="dk" id="dk">
-        <div class="dk-hd"><b>watch a fact decay, then survive</b><span>a recorded run, replayed &mdash; nothing simulated</span></div>
-        <div class="dk-body">
-          <p class="dk-q">A real signed measurement: NDVI at one 10 m cell in Himachal Pradesh. Press <em>compact it</em> to watch a model&rsquo;s summary lose it; press <em>resolve</em> to watch the token bring back the exact bytes.</p>
-          <div class="dk-val" id="dk-val">0.3009580442682524</div>
-          <div class="dk-addr" id="dk-addr">emem:fact: &hellip; signed, addressed</div>
-          <p class="dk-note" id="dk-note">The exact measurement, as stored. Now let a model carry it through a summary the way a long session would.</p>
-        </div>
-        <div class="dk-act">
-          <button id="dk-a">compact it</button>
-          <button id="dk-b" disabled>resolve the token instead</button>
-          <button id="dk-r" hidden>again</button>
-        </div>
-        <div class="dk-cid" id="dk-cid">replaying recorded run <a href="/channel" title="the run is a signed note on the channel">mtce2egr&hellip; from the channel</a></div>
-      </div>
       <div class="th-cta">
         <a class="btn-primary" href="#build">Connect your agent &mdash; 30 s, no key</a>
         <a class="btn-ghost" href="#proof">See the proof &rarr;</a>
@@ -1036,40 +1004,69 @@ input::placeholder{color:var(--mute,#7a7363)}
   form.addEventListener('submit',function(e){e.preventDefault();var v=q.value.trim();if(v)run(v);});
   document.querySelectorAll('.th-eg').forEach(function(b){b.addEventListener('click',function(){q.value=b.textContent;run(b.textContent);});});
 })();
-(function(){
-  var verbs=[
-    {w:'check',    href:'/verify',           t:'verify any fact offline'},
-    {w:'cite',     href:'/reference#tokens', t:'cite it as one emem token'},
-    {w:'trust',    href:'/v1/bands',         t:'see how every fact is made'},
-    {w:'share',    href:'/a2a',              t:'hand it to another agent'}
-  ];
-  var el=document.getElementById('th-verb'), ep=document.getElementById('tvh-ep');
-  if(!el||!ep) return;
-  var code=ep.querySelector('code'), i=0, hover=false;
-  el.addEventListener('mouseenter',function(){hover=true;});
-  el.addEventListener('mouseleave',function(){hover=false;});
-  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  setInterval(function(){
-    if(hover) return;
-    i=(i+1)%verbs.length;
-    var v=verbs[i];
-    el.classList.add('th-swap');
-    setTimeout(function(){
-      el.textContent=v.w+'.'; el.setAttribute('href',v.href); el.setAttribute('title',v.t);
-      ep.setAttribute('href',v.href); if(code) code.textContent=v.href;
-      el.classList.remove('th-swap');
-    },220);
-  },2600);
-})();
+
 </script>
 <main class="scroll">
-<section class="chapter solo" id="drift">
+<style>
+/* the relay: a recorded cross-model handoff, replayed. Mithila rules and
+   gems, no borrowed chrome; the animation is the message moving hop to hop. */
+.rly{border:1.6px solid var(--ink);background:var(--paper-2);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.rly-hd{display:flex;gap:.6rem;align-items:baseline;padding:.55rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);font-family:var(--mono);font-size:var(--t-xs);color:var(--mute);flex-wrap:wrap}
+.rly-hd b{color:var(--ink)}
+.rly-body{padding:.9rem .9rem .7rem}
+.rly-seed{font-family:var(--mono);font-size:.78rem;color:var(--mute);margin:0 0 .6rem;line-height:1.5}
+.rly-seed b{color:var(--ink);font-size:1.02rem;word-break:break-all}
+.lane{border:1px solid var(--rule-strong);background:var(--paper);margin-bottom:.6rem}
+.lane-h{display:flex;gap:.5rem;align-items:center;padding:.35rem .6rem;border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:.66rem;color:var(--mute)}
+.lane-h .gem{width:8px;height:8px;transform:rotate(45deg);flex:0 0 auto}
+.lane.prose .gem{background:var(--absent)}
+.lane.tok .gem{background:var(--accent)}
+.hop{display:flex;gap:.55rem;align-items:baseline;padding:.32rem .6rem;font-family:var(--mono);font-size:.7rem;border-bottom:1px dotted var(--rule);opacity:.25;transition:opacity .45s ease}
+.hop:last-child{border-bottom:0}
+.hop.on{opacity:1}
+.hop .m{color:var(--mute-2);flex:0 0 5.6rem}
+.hop .v{color:var(--ink-2);word-break:break-all}
+.hop .v.lost{color:var(--absent)}
+.hop .v.kept{color:var(--accent)}
+.rly-out{margin-top:.5rem;padding:.55rem .7rem;border:1px solid var(--rule-strong);background:var(--paper-3);font-family:var(--mono);font-size:.72rem;color:var(--ink-2);min-height:3.2em;line-height:1.5}
+.rly-out b{color:var(--ink)}
+.rly-act{display:flex;gap:.5rem;padding:.55rem .8rem;border-top:1px solid var(--rule);flex-wrap:wrap;align-items:center}
+.rly-act button{font-family:var(--mono);font-size:.74rem;padding:.32rem .7rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer}
+.rly-act button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.rly-act button:disabled{opacity:.4;cursor:default}
+.rly-act .prov{font-family:var(--mono);font-size:.62rem;color:var(--mute-2);margin-left:auto}
+.rly-act .prov a{color:inherit}
+</style>
+<section class="chapter" id="drift">
   <div class="words">
     <div class="kicker"><span class="n">01</span> The problem</div>
     <h2>Two agents, one river, two different rivers</h2>
-    <p class="cap">Ask two models about the same place and each writes its own description. Both are plausible, neither is wrong in a way you can point at, and they are no longer about the same thing: <em>&ldquo;NDVI around 0.49&rdquo;</em> is a fine sentence and a different object from <code>0.4871541501976284</code>. That is referential drift, and it compounds every time one agent hands another a paraphrase.</p>
+    <p class="cap">Ask two models about the same place and each writes its own description. Both are plausible, neither is wrong in a way you can point at, and they are no longer about the same thing. That is referential drift, and it compounds every time one agent hands another a paraphrase.</p>
+    <p class="cap">Beside this is a recording, not an illustration: one signed NDVI measurement handed along a chain of live models, Gemma to Qwen and back, each asked only to summarise for the next. Watch the precision leave. Then watch the same chain carry the address instead.</p>
     <p class="cap">The fix is boring on purpose: name the thing once, and let every agent point at the name. A citation resolves to the byte-identical signed body on any conformant responder, so two models grounded on one token reason about one observation instead of two paraphrases of it.</p>
     <div class="go"><a href="/reference#token-entity">the identity layer &rarr;</a><a href="/how-it-works">how the address works &rarr;</a></div>
+  </div>
+  <div class="art" style="background:none;box-shadow:none">
+    <div class="rly" id="rly">
+      <div class="rly-hd"><b>a recorded relay</b><span>Gemma to Qwen to Gemma, temperature 0, replayed frame by frame</span></div>
+      <div class="rly-body">
+        <p class="rly-seed">the signed measurement, as stored: <b id="rly-seed">0.2072951451322887</b><br>NDVI at one 10 m cell near Manali, Himachal Pradesh</p>
+        <div class="lane prose">
+          <div class="lane-h"><span class="gem"></span>carried as a summary, the way a long session compacts it</div>
+          <div id="rly-prose"></div>
+        </div>
+        <div class="lane tok">
+          <div class="lane-h"><span class="gem"></span>carried as the token, same models, same hops</div>
+          <div id="rly-tok"></div>
+        </div>
+        <div class="rly-out" id="rly-out">Press play: the same fact goes down both lanes.</div>
+      </div>
+      <div class="rly-act">
+        <button id="rly-play">play the relay</button>
+        <button id="rly-again" hidden>again</button>
+        <span class="prov">recorded 2026-07-28 &middot; <a href="/verify?q=emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq">verify the fact</a></span>
+      </div>
+    </div>
   </div>
 </section>
 <div class="mith-div"><span class="gem"></span></div>
@@ -1140,8 +1137,8 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <div class="mith-div"><span class="gem"></span></div>
 <section class="chapter" id="machines">
-  <figure class="art" style="padding:0">
-    <img src="/docs/diagrams/39-orbit-to-ground-trust.svg" alt="Orbit to ground: the open archive is admitted by recomputability and anchors drift; every other machine is admitted only when its output is bound inside a complete, signed OS execution trace; the gate names every refusal; the shared memory holds one signed fact per observation." style="display:block;width:100%;height:auto" loading="lazy">
+  <figure class="art" style="padding:0;background:none;box-shadow:none">
+    <img src="/art/device-to-agent.svg" alt="How an observation becomes something an agent can trust: satellites, robots, and sensors observe a place; the trust gate admits their output only when bound inside a signed OS execution trace and refuses by name; what lands is one signed fact at one address; and any agent on any model resolves that token and verifies it alone." style="display:block;width:100%;height:auto" loading="lazy">
   </figure>
   <div class="words">
     <div class="kicker"><span class="n">03</span> The observers</div>
@@ -1216,7 +1213,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <div class="stream-rows" id="st-rows"><div class="feed-idle">loading the ledger&hellip; the record is always at <a href="/channel">/channel</a></div></div>
       </div>
       <div class="joinbox">
-        <div class="join-head"><b>join the session</b> &middot; ask about anywhere on Earth; the answer arrives signed</div>
+        <div class="join-head"><b>join the session</b> &middot; ask about any place; satellites, robots, and sensors write here too, and the answer arrives signed</div>
         <form class="join-form" id="join-form">
           <input id="join-q" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. how green is the area around Nairobi right now?">
           <button type="submit" class="primary">ask, signed &rarr;</button>
@@ -1243,6 +1240,8 @@ input::placeholder{color:var(--mute,#7a7363)}
       <a class="lcard" href="/demos/state-cube"><span class="lc-k">the cube</span><span class="lc-t">The 1792-D state vector of a place, sliced encoder by encoder</span><span class="lc-go">run it &rarr;</span></a>
       <a class="lcard" href="/demos/signed-answer"><span class="lc-k">receipts</span><span class="lc-t">A signed answer built in four steps, each one verifiable</span><span class="lc-go">run it &rarr;</span></a>
       <a class="lcard" href="/card"><span class="lc-k">the card</span><span class="lc-t">One page that opens a real record and proves its own claim</span><span class="lc-go">open &rarr;</span></a>
+      <a class="lcard" href="#machines"><span class="lc-k">devices</span><span class="lc-t">A satellite pass and a robot camera stream run the whole trace loop, refusals included, in two runnable examples</span><span class="lc-go">the device gate &uarr;</span></a>
+      <a class="lcard" href="/v1/substrates"><span class="lc-k">the whitelist</span><span class="lc-t">Which machines this memory will believe, and how each proves how it ran: three content-addressed registries</span><span class="lc-go">read them &rarr;</span></a>
       <a class="lcard" href="#agents"><span class="lc-k">the reasoner</span><span class="lc-t">Gemma with every read tool loaded, answering over signed grounding &mdash; on the map above</span><span class="lc-go">join the session &uarr;</span></a>
       <a class="lcard" href="/verify"><span class="lc-k">trust nothing</span><span class="lc-t">Paste any token or receipt and verify it in your browser, offline</span><span class="lc-go">verify &rarr;</span></a>
     </div>
@@ -1268,7 +1267,7 @@ html,body{overflow-x:clip}
 @media (max-width:880px){.latent-cards.cols4{grid-template-columns:1fr 1fr}}
 @media (max-width:540px){.latent-cards.cols4{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr}}
 @media (max-width:680px){
-  .cap code,.th-verb-hint code,.th-connect code,#emem-consent code,#emem-consent p{overflow-wrap:anywhere}
+  .cap code,.th-connect code,#emem-consent code,#emem-consent p{overflow-wrap:anywhere}
 }
 .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:.7rem;margin:1.3rem 0 1.5rem}
 .tile{border:1.6px solid var(--ink);background:var(--paper);padding:.7rem .8rem;text-decoration:none;display:flex;flex-direction:column;gap:.2rem}
@@ -1495,10 +1494,10 @@ html,body{overflow-x:clip}
 </script>
 <script type="module">
 //==============================================================================
-// memory console — live recall + offline receipt verify. The crypto path
+// memory console, live recall + offline receipt verify. The crypto path
 // (noble loader, CBOR helpers, preimage builders, verifyReceiptInBrowser) is
 // ported byte-for-byte from /verify (web/verify.html); it was checked against
-// the Rust signer. Do not "improve" it here — keep it identical so both
+// the Rust signer. Do not "improve" it here, keep it identical so both
 // surfaces compute the same digest.
 //==============================================================================
 
@@ -1521,7 +1520,7 @@ const nobleReady = (async () => {
     nobleStatus = 'ok';
     // Validate the JS canonical-CBOR + v1-preimage encoders against vectors
     // emitted by the Rust signer. If ANY mismatch, the browser path could only
-    // produce a wrong digest and a false "tamper" — so we disable it and verify
+    // produce a wrong digest and a false "tamper", so we disable it and verify
     // via /v1/verify_receipt instead. Same guard as /verify.
     if (!selfTestEncoders()) {
       nobleStatus = 'fallback';
@@ -1598,7 +1597,7 @@ function b32decode(s){
   }
   return out.slice(0, idx);
 }
-// base32-nopad-lowercase ENCODE — display-only. The recall receipt carries the
+// base32-nopad-lowercase ENCODE, display-only. The recall receipt carries the
 // responder pubkey as a raw 32-byte array, not a b32 string; we encode it just
 // to render it the way /verify shows responder_pubkey_b32. Verification itself
 // uses the raw bytes (_pubBytes), exactly as the responder signed.
@@ -1770,7 +1769,7 @@ async function verifyReceiptInBrowser(receipt){
     if (pub.length !== 32) throw new Error('pubkey is ' + pub.length + ' bytes, expected 32');
     const ok = nobleEd.verify(sig, digest, pub);
     // Return the preimage too so the receipt card can render exactly what
-    // was hashed — the audit caught that we showed `blake3(preimage)` but
+    // was hashed, the audit caught that we showed `blake3(preimage)` but
     // never the bytes themselves, defeating the point of in-browser verify.
     return { via: 'browser', ok, digest, preimage, sig, pub };
   } catch (e) {
@@ -1793,7 +1792,7 @@ async function verifyReceiptViaServer(receipt){
 }
 
 //============================================================================
-// console UI — everything below renders only what the live response carries.
+// console UI, everything below renders only what the live response carries.
 //============================================================================
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
@@ -1929,7 +1928,7 @@ async function run(){
     setStatus('busy', 'verifying the ed25519 signature in your browser…');
     let result = await verifyReceiptInBrowser(receipt);
     if (result.via === 'fallback' || (result.via === 'browser' && result.ok !== true)){
-      // Browser path unavailable or mismatched — cross-check the responder
+      // Browser path unavailable or mismatched, cross-check the responder
       // before declaring anything, exactly as /verify does.
       const server = await verifyReceiptViaServer(receipt);
       if (server.ok === true) result = { ...server };
@@ -1983,7 +1982,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     const p = $('mc-pulse'); if (p) p.classList.add('live');
     const pl = $('mc-pulse-label'); if (pl) pl.textContent = 'corpus · live';
     // One stream feeds BOTH the console heartbeat and the map legend's live
-    // indicator (the map had a second, duplicate EventSource — removed). One
+    // indicator (the map had a second, duplicate EventSource, removed). One
     // connection, one parse, half the long-lived sockets per visitor.
     const li = document.getElementById('ml-live');
     if (li && cells != null){
@@ -2001,41 +2000,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 })();
 </script>
 
-<script>
-// Every frame below is a recorded step from run mtce2egr..., replayed. The
-// summary is what gemma-4-12B actually wrote under a 30-word budget and the
-// answers are what the two readers actually returned. Nothing here is authored
-// to look like drift: animating a plausible decay on the page that argues
-// against plausible substitutes would be the thing we argue against.
-(function(){
-  var val=document.getElementById('dk-val'), addr=document.getElementById('dk-addr'),
-      note=document.getElementById('dk-note'), a=document.getElementById('dk-a'),
-      b=document.getElementById('dk-b'), r=document.getElementById('dk-r'),
-      cid=document.getElementById('dk-cid');
-  if(!val) return;
-  var TRUTH='0.3009580442682524';
-  function reset(){
-    val.textContent=TRUTH; val.className='dk-val';
-    addr.innerHTML='emem:fact: &hellip; signed, addressed'; addr.className='dk-addr';
-    note.textContent='The exact measurement, as stored. Now let a model carry it through a summary the way a long session would.';
-    cid.innerHTML='run <a href="/channel">mtce2egr&hellip;</a>';
-    a.disabled=false; b.disabled=true; r.hidden=true;
-  }
-  a.onclick=function(){
-    val.textContent='0.87'; val.className='dk-val wrong';
-    note.innerHTML='Asked to compact 16 observations, the summariser kept the range and dropped every value: <em>"Data shows high NDVI values (up to 0.87)&hellip;"</em> Both models then answered <strong>0.87</strong>, the patch maximum. The cell actually reads 0.30. They agree with each other and are both wrong.';
-    cid.innerHTML='summary <a href="/channel">micqy65x&hellip;</a> &middot; gemma <a href="/channel">lh677fdg&hellip;</a> &middot; qwen <a href="/channel">q3ewlkci&hellip;</a>';
-    a.disabled=true; b.disabled=false;
-  };
-  b.onclick=function(){
-    val.textContent=TRUTH; val.className='dk-val';
-    addr.innerHTML='emem:fact:&hellip; &rarr; resolved, byte-identical, signature checks'; addr.className='dk-addr up';
-    note.innerHTML='The address survived the summary because it is 84 characters, not a number a summariser rounds. Dereferencing it returns the exact bytes. <a href="/verify">Check one yourself</a>.';
-    b.disabled=true; r.hidden=false;
-  };
-  r.onclick=reset;
-})();
-</script>
+
 <script>
 // The live numbers: fetched, never typed. Every fetch is same-origin and
 // cheap; a failure leaves the em-dash placeholder rather than a lie.
@@ -2173,6 +2138,53 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         }).catch(function(){ say('could not reach the task surface'); });
     });
   }catch(_){}
+
+  // The relay player: replays web/data/relay-recording.json, which is what
+  // the named models actually wrote at temperature 0. Nothing authored here.
+  (function(){
+    var R=null, playing=false;
+    var pl=document.getElementById('rly-play'), ag=document.getElementById('rly-again'),
+        out=document.getElementById('rly-out'),
+        lp=document.getElementById('rly-prose'), lt=document.getElementById('rly-tok');
+    if(!pl) return;
+    function shortModel(m){ return (m||'').split('/').pop().replace('-Instruct','').replace('-it',''); }
+    function rows(host, chain, cls){
+      host.textContent='';
+      chain.forEach(function(f){
+        var d=document.createElement('div'); d.className='hop';
+        d.innerHTML='<span class="m"></span><span class="v '+cls+'"></span>';
+        d.children[0].textContent='hop '+f.hop+' '+f.family;
+        host.appendChild(d);
+      });
+    }
+    function num(t){ var m=(t||'').match(/0\.\d+/); return m?m[0]:''; }
+    function play(){
+      if(playing||!R) return; playing=true; pl.disabled=true; ag.hidden=true;
+      rows(lp,R.prose_chain,'lost'); rows(lt,R.token_chain,'kept');
+      var pr=lp.children, tk=lt.children, i=0;
+      out.innerHTML='the exact value leaves emem: <b>'+R.exact_value+'</b>';
+      (function step(){
+        if(i>=R.prose_chain.length){
+          var last=num(R.prose_chain[R.prose_chain.length-1].text);
+          out.innerHTML='after three hops the summary says <b style="color:var(--absent)">'+last+
+            '</b>. The token lane still resolves to <b style="color:var(--accent)">'+R.resolved_value+
+            '</b>, checked live just now. Same models, same hops: one lane carried the address, so nothing had to survive the retelling.';
+          playing=false; pl.disabled=false; ag.hidden=false; return;
+        }
+        var f=R.prose_chain[i], t=R.token_chain[i];
+        pr[i].classList.add('on'); tk[i].classList.add('on');
+        pr[i].children[1].textContent=num(f.text)||f.text.slice(0,42);
+        tk[i].children[1].textContent=(t.token_intact?'token intact':'token lost');
+        out.innerHTML='hop '+f.hop+', <b>'+shortModel(f.model)+'</b> rewrote it in '+f.ms+' ms: <b style="color:var(--absent)">'+
+          (num(f.text)||'-')+'</b>';
+        i++; setTimeout(step, 1250);
+      })();
+    }
+    fetch('/data/relay-recording.json').then(function(r){return r.json();}).then(function(j){
+      R=j; rows(lp,j.prose_chain,'lost'); rows(lt,j.token_chain,'kept');
+    }).catch(function(){ out.textContent='the recording is at /data/relay-recording.json'; });
+    pl.addEventListener('click',play); ag.addEventListener('click',function(){ ag.hidden=true; play(); });
+  })();
 
   // Live arrivals: every signed write nudges the geo stream, debounced
   // inside refreshGeo, so the map and the panel move together.

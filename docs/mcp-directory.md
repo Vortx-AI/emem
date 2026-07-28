@@ -84,7 +84,7 @@ minutes to hours, not seconds.
 ## Claude connector directory: submission playbook (2026-07-28)
 
 An enterprise integrator audited `/mcp` and reported every tool missing `title`,
-`readOnlyHint`, and `destructiveHint` — the portal's hard gate. That audit hit the
+`readOnlyHint`, and `destructiveHint`, the portal's hard gate. That audit hit the
 pre-1.3.0 deploy. As of 1.3.0 (live 2026-07-28) every one of the 105 tools serializes
 `title` (top-level and in `annotations`) plus all four hints, and a unit test
 (`every_serialized_tool_carries_the_directory_gate_fields`) guards the wire shape so a
@@ -92,17 +92,17 @@ serializer regression cannot ship. Auditors should re-fetch before re-auditing.
 
 Three labels are deliberate truth-telling, not omissions, and belong in the submission
 notes: `emem_derive` and `emem_entity_link` are append-only writes (`destructiveHint:
-false` — they can never overwrite or remove anything), and `emem_entity`
+false`: they can never overwrite or remove anything), and `emem_entity`
 (`readOnlyHint: false`) can mint an identity on a miss. Mislabelling them to satisfy a
 reviewer's shorthand would be the exact dishonesty the protocol exists to prevent.
 
-To submit (requires a Team/Enterprise Claude.ai org with Directory management access —
+To submit (requires a Team/Enterprise Claude.ai org with Directory management access;
 the operator does this, not the repo):
 
 1. https://claude.ai/admin-settings/directory/submissions/new
 2. Server URL `https://emem.dev/mcp` (Streamable HTTP). No auth required; the OAuth
    discovery surface exists for brokers that insist (registration always succeeds,
-   tokens gate nothing — status `open_unverified`).
+   tokens gate nothing; status `open_unverified`).
 3. Support/privacy/terms: https://emem.dev/support · /privacy · /terms. Contact
    avijeet@vortx.ai.
 4. Until the listing is approved, enterprise admins can allowlist emem manually:
