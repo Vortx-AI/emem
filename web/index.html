@@ -1141,6 +1141,35 @@ input::placeholder{color:var(--mute,#7a7363)}
         <span><a href="/v1/stream">/v1/stream</a> &middot; signed SSE</span>
       </div>
     </div>
+    <style>
+    .echo{border:1.6px solid var(--ink);background:var(--paper-2);margin:1.1rem 0 0}
+    .echo-hd{display:flex;gap:.6rem;align-items:baseline;padding:.5rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);font-family:var(--mono);font-size:var(--t-xs);color:var(--mute);flex-wrap:wrap}
+    .echo-hd b{color:var(--ink)}
+    .echo-body{padding:.8rem .85rem}
+    .echo-line{font-family:var(--mono);font-size:.76rem;color:var(--mute);line-height:1.6;word-break:break-all}
+    .echo-line b{color:var(--ink)}
+    .echo-form{display:flex;gap:.5rem;margin:.6rem 0 .2rem;flex-wrap:wrap;align-items:center}
+    .echo-form input{flex:0 0 12rem;font-size:.9rem;padding:.42rem .6rem}
+    .echo-form button{font-family:var(--mono);font-size:.76rem;padding:.42rem .8rem;border:1.6px solid var(--ink);background:var(--paper);cursor:pointer}
+    .echo-form button:hover{background:var(--ink);color:var(--paper)}
+    .echo-form .try{font-family:var(--mono);font-size:.68rem;color:var(--mute)}
+    .echo-form .try button{font-size:.68rem;padding:.2rem .45rem;border:1px solid var(--rule-strong)}
+    .echo-out{font-family:var(--mono);font-size:.76rem;line-height:1.6;padding:.5rem .6rem;border:1px solid var(--rule-strong);background:var(--paper);min-height:2.6em}
+    .echo-out .ok{color:var(--accent)} .echo-out .no{color:var(--absent)}
+    </style>
+    <div class="echo" id="echo">
+      <div class="echo-hd"><b>the receiver's check</b><span>an agent quotes a number at you: is it the one that was signed?</span></div>
+      <div class="echo-body">
+        <p class="echo-line">token you were handed: <b id="echo-tok">emem:fact:defi.zb493.xuqA.zcb5f:xksjrrzz&hellip;</b></p>
+        <div class="echo-form">
+          <label class="try" for="echo-val">the value they claim it says</label>
+          <input id="echo-val" type="text" value="0.33" spellcheck="false" autocomplete="off">
+          <button id="echo-go" type="button">check it</button>
+          <span class="try">try <button type="button" data-v="0.33">0.33</button><button type="button" data-v="0.3263565891472868">the exact value</button><button type="button" data-v="0.326">0.326</button></span>
+        </div>
+        <div class="echo-out" id="echo-out">Press check: the responder compares the claim against the bytes it signed and names the drift.</div>
+      </div>
+    </div>
     <div class="go"><a href="/how-it-works">the whole pipeline, with live consoles &rarr;</a><a href="/spec.md">the wire spec &rarr;</a></div>
   </div>
 </section>
@@ -1255,6 +1284,9 @@ input::placeholder{color:var(--mute,#7a7363)}
       <a class="lcard" href="/card"><span class="lc-k">the card</span><span class="lc-t">One page that opens a real record and proves its own claim</span><span class="lc-go">open &rarr;</span></a>
       <a class="lcard" href="#machines"><span class="lc-k">devices</span><span class="lc-t">A satellite pass and a robot camera stream run the whole trace loop, refusals included, in two runnable examples</span><span class="lc-go">the device gate &uarr;</span></a>
       <a class="lcard" href="/v1/substrates"><span class="lc-k">the whitelist</span><span class="lc-t">Which machines this memory will believe, and how each proves how it ran: three content-addressed registries</span><span class="lc-go">read them &rarr;</span></a>
+      <a class="lcard" href="/v1/memory_contradictions"><span class="lc-k">disagreement</span><span class="lc-t">Two agents write different values at one address: both are kept and scored, never averaged into a comfortable lie</span><span class="lc-go">the endpoint &rarr;</span></a>
+      <a class="lcard" href="/reference#absence"><span class="lc-k">signed absence</span><span class="lc-t">"No data here" is itself a signed, citeable fact with a typed reason, not a 404 an agent has to guess about</span><span class="lc-go">how &rarr;</span></a>
+      <a class="lcard" href="/reference#derive"><span class="lc-k">your own math</span><span class="lc-t">Register a value you computed under your own key; its lineage walks back to signed measurements anyone can recheck</span><span class="lc-go">derive &rarr;</span></a>
       <a class="lcard" href="#agents"><span class="lc-k">the reasoner</span><span class="lc-t">Gemma with every read tool loaded, answering over signed grounding &mdash; on the map above</span><span class="lc-go">join the session &uarr;</span></a>
       <a class="lcard" href="/verify"><span class="lc-k">trust nothing</span><span class="lc-t">Paste any token or receipt and verify it in your browser, offline</span><span class="lc-go">verify &rarr;</span></a>
     </div>
@@ -2166,6 +2198,39 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         }).catch(function(){ say('could not reach the task surface'); });
     });
   }catch(_){}
+
+  // The receiver's check: emem_echo_verify classifies what an agent claims
+  // against what was signed. This is the multi-agent case in one call, and
+  // the answer is the store's, not ours.
+  (function(){
+    var TOKEN='emem:fact:defi.zb493.xuqA.zcb5f:xksjrrzzdhq6lobc4m62ecmsmoexn7htul5p4vlwbvqwvbuedkiq';
+    var go=document.getElementById('echo-go'), val=document.getElementById('echo-val'),
+        out=document.getElementById('echo-out');
+    if(!go) return;
+    var t=document.getElementById('echo-tok'); if(t) t.textContent=TOKEN.slice(0,46)+'\u2026';
+    document.querySelectorAll('#echo .try button').forEach(function(b){
+      b.addEventListener('click',function(){ val.value=b.dataset.v; go.click(); });
+    });
+    go.addEventListener('click',function(){
+      var claimed=(val.value||'').trim(); if(!claimed) return;
+      out.textContent='checking against the signed bytes\u2026';
+      fetch('/mcp',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'emem_echo_verify',
+          arguments:{token:TOKEN, claimed_value:claimed}}})})
+        .then(function(r){return r.json();})
+        .then(function(j){
+          var d=JSON.parse(j.result.content[0].text);
+          var esc=function(x){var e=document.createElement('span'); e.textContent=String(x); return e.innerHTML;};
+          if(d.matches){
+            out.innerHTML='<span class="ok">matches</span> the signed value <b>'+esc(d.resolved_value_verbatim||claimed)+'</b> exactly. Nothing was lost in the retelling.';
+          } else {
+            out.innerHTML='<span class="no">does not match</span> what was signed. Drift: <b>'+esc(d.drift||'differs')+
+              '</b>. The signed value is <b>'+esc(d.resolved_value_verbatim!=null?d.resolved_value_verbatim:'(see the receipt)')+
+              '</b>. The receiver caught it without trusting the sender, and the answer carries its own receipt.';
+          }
+        }).catch(function(){ out.textContent='the check did not land; the endpoint is emem_echo_verify over /mcp'; });
+    });
+  })();
 
   // The relay player: replays web/data/relay-recording.json, which is what
   // the named models actually wrote at temperature 0. Nothing authored here.
