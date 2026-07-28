@@ -19008,8 +19008,32 @@ async fn mcp_jsonrpc_inner(
                     mcp_spawn_task(name, args, ttl, &s)
                 }
             } else {
-                match mcp_tool_call(name, args, &s).await {
-                    Ok(inner) => {
+                // A deadline of the door's own. Without it a slow tool hands
+                // a caller a 200-shaped nothing once the proxy gives up, which
+                // a stock client cannot parse and which cost the arcade
+                // builder a debugging session. MCP already has task-augmented
+                // execution, so the refusal names it instead of dying quietly.
+                let mcp_budget = std::time::Duration::from_secs(
+                    std::env::var("EMEM_MCP_CALL_TIMEOUT_SECS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                        .unwrap_or(45)
+                        .clamp(10, 300),
+                );
+                match tokio::time::timeout(mcp_budget, mcp_tool_call(name, args, &s)).await {
+                    Err(_elapsed) => {
+                        let secs = mcp_budget.as_secs();
+                        let hint = if emem_mcp::tool_task_support(name) == "forbidden" {
+                            format!("`{name}` exceeded the {secs}s call budget on this responder. Narrow the request (fewer cells, one band, or a place already warm), or call the REST endpoint, where the per-endpoint budget applies.")
+                        } else {
+                            format!("`{name}` exceeded the {secs}s call budget. Re-send it with a `task` param and poll tasks/get: this tool declares task-augmented execution for exactly this case.")
+                        };
+                        Ok(json!({
+                            "content": [{ "type": "text", "text": hint }],
+                            "isError": true,
+                        }))
+                    }
+                    Ok(Ok(inner)) => {
                         // Multimodal escape hatch. A tool that needs to emit
                         // native MCP content blocks (image / resource /
                         // multi-block) sets `_mcp_content` on the inner JSON
@@ -19021,7 +19045,7 @@ async fn mcp_jsonrpc_inner(
                         // `emem_coverage_map` ship a real EmbeddedResource.
                         Ok(mcp_wrap_call_tool_result(inner))
                     }
-                    Err((code, msg)) => {
+                    Ok(Err((code, msg))) => {
                         // Unknown-method (-32601) is a protocol error, propagate
                         // as JSON-RPC error. Everything else is a tool runtime
                         // error and should land in CallToolResult with isError.
