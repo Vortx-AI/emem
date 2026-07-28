@@ -937,6 +937,33 @@ pub fn router(state: AppState) -> Router {
             "/.well-known/oauth-protected-resource",
             get(well_known_oauth_protected_resource),
         )
+        // RFC 9728 path-suffix probe for the /mcp resource.
+        .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(well_known_oauth_protected_resource),
+        )
+        // The open authorization surface: brokers that refuse to connect
+        // without OAuth walk RFC 8414 discovery → RFC 7591 registration →
+        // authorize → token; every step succeeds for everyone and the
+        // token gates nothing. /register (bare) is the path brokers probe
+        // blind when discovery 404s, so it answers too.
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(well_known_oauth_authorization_server),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server/mcp",
+            get(well_known_oauth_authorization_server),
+        )
+        .route(
+            "/.well-known/openid-configuration",
+            get(well_known_oauth_authorization_server),
+        )
+        .route("/oauth/register", post(oauth_register))
+        .route("/register", post(oauth_register))
+        .route("/oauth/authorize", get(oauth_authorize))
+        .route("/oauth/token", post(oauth_token))
+        .route("/oauth/status", get(oauth_status))
         .route("/agent.json", get(agent_manifest))
         // ── Agent-directory aliases ──────────────────────────────────
         // Directory crawlers (AgenstryBot, MCP-Catalog-Bot,
@@ -1955,6 +1982,10 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/.well-known/mcp.json"
         | "/.well-known/mcp/server-card.json"
         | "/.well-known/oauth-protected-resource"
+        | "/.well-known/oauth-protected-resource/mcp"
+        | "/.well-known/oauth-authorization-server"
+        | "/.well-known/oauth-authorization-server/mcp"
+        | "/.well-known/openid-configuration"
         | "/gemini-extension.json"
         | "/v1/discover"
         | "/v1/algorithm_cids"
@@ -2418,6 +2449,10 @@ async fn rate_limit_layer(
             | "/.well-known/agents.json"
             | "/.well-known/mcp"
             | "/.well-known/oauth-protected-resource"
+            | "/.well-known/oauth-protected-resource/mcp"
+            | "/.well-known/oauth-authorization-server"
+            | "/.well-known/oauth-authorization-server/mcp"
+            | "/.well-known/openid-configuration"
             | "/gemini-extension.json"
             | "/mcp.json"
             | "/agents.json"
@@ -5000,7 +5035,476 @@ async fn well_known_oauth_protected_resource() -> Json<JsonValue> {
         // assume DCR is required.
         "auth":                           "none",
         "auth_required":                  false,
-        "notes":                          "L0 / L1 reads are anonymous. L2 writes (attest, challenge) require an ed25519 attester key submitted via /v1/attest_cbor; no OAuth is involved in any flow.",
+        "notes":                          "L0 / L1 reads are anonymous. L2 writes (attest, challenge, memory) require a per-write ed25519 attester signature; no OAuth is involved in any flow. The authorization server listed here exists for brokers that refuse to connect without one: it registers anyone, approves everyone, and its tokens grant nothing an anonymous caller lacks (status `open_unverified`).",
+    }))
+}
+
+// ── The open OAuth surface: a sign-in service that signs in everyone ─────
+//
+// emem requires no OAuth anywhere, and the RFC 9728 document above says
+// so. In practice several MCP brokers walk the OAuth path regardless:
+// they probe RFC 8414 metadata, attempt RFC 7591 dynamic registration,
+// and refuse to connect when either 404s ("Couldn't register with the
+// sign-in service"), which gated an open protocol behind a sign-in it
+// never asked for. So the endpoints exist and never say no: registration
+// always succeeds, authorization auto-approves without a login page (there
+// is no account to log into), and the issued token marks the session
+// `open_unverified` while granting nothing an anonymous caller lacks.
+// Verified identity in emem is a per-write ed25519 attester signature,
+// never a session; every response here says so. No handler anywhere
+// checks a bearer token as a precondition — status, not gate.
+//
+// Stateless in emem style: the client_id, the authorization code, and the
+// tokens are responder-signed CBOR (`<claims cbor> || <ed25519 sig>`,
+// base32-nopad-lc), so there is no registration store to fill or leak,
+// and the redirect_uri set is bound INSIDE the signed client_id, which is
+// what stops /oauth/authorize from being an open redirector. Deliberately
+// absent from /openapi.json: this is discovery plumbing for OAuth
+// brokers, self-documented by the RFC 8414 metadata.
+
+const OAUTH_CLIENT_DOMAIN: &str = "emem.oauth.client.v1";
+const OAUTH_CODE_DOMAIN: &str = "emem.oauth.code.v1";
+const OAUTH_TOKEN_DOMAIN: &str = "emem.oauth.token.v1";
+const OAUTH_CODE_TTL_S: u64 = 600;
+const OAUTH_ACCESS_TTL_S: u64 = 30 * 86_400;
+const OAUTH_REFRESH_TTL_S: u64 = 90 * 86_400;
+const OAUTH_STATUS_NOTE: &str = "This token marks an OAuth session and grants nothing an \
+     anonymous caller lacks: every read here is open. Verified identity in emem is a per-write \
+     ed25519 attester signature (see /v1/verifier_spec), never a session.";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct OauthClientClaims {
+    v: u8,
+    uris: Vec<String>,
+    iat: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct OauthCodeClaims {
+    v: u8,
+    uri: String,
+    ch: Option<String>,
+    exp: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct OauthTokenClaims {
+    v: u8,
+    kind: String, // "access" | "refresh"
+    exp: u64,
+}
+
+fn oauth_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// `base32nopadlc(cbor(claims) || ed25519_sig)` where the signature is the
+/// responder's, over `blake3(domain || '|' || cbor)`. Anyone can decode the
+/// claims; only this responder can mint one that verifies.
+fn oauth_seal<T: serde::Serialize>(
+    signing: &ed25519_dalek::SigningKey,
+    domain: &str,
+    claims: &T,
+) -> String {
+    let mut cbor = Vec::new();
+    ciborium::ser::into_writer(claims, &mut cbor).expect("oauth claims encode");
+    let mut pre = Vec::with_capacity(domain.len() + 1 + cbor.len());
+    pre.extend_from_slice(domain.as_bytes());
+    pre.push(b'|');
+    pre.extend_from_slice(&cbor);
+    let sig = signing.sign(blake3::hash(&pre).as_bytes()).to_bytes();
+    let mut out = cbor;
+    out.extend_from_slice(&sig);
+    data_encoding::BASE32_NOPAD.encode(&out).to_lowercase()
+}
+
+fn oauth_open_sealed<T: serde::de::DeserializeOwned>(
+    signing: &ed25519_dalek::SigningKey,
+    domain: &str,
+    sealed: &str,
+) -> Option<T> {
+    let raw = data_encoding::BASE32_NOPAD
+        .decode(sealed.to_uppercase().as_bytes())
+        .ok()?;
+    if raw.len() < 65 {
+        return None;
+    }
+    let (cbor, sig_bytes) = raw.split_at(raw.len() - 64);
+    let mut pre = Vec::with_capacity(domain.len() + 1 + cbor.len());
+    pre.extend_from_slice(domain.as_bytes());
+    pre.push(b'|');
+    pre.extend_from_slice(cbor);
+    let sig = ed25519_dalek::Signature::from_bytes(sig_bytes.try_into().ok()?);
+    signing
+        .verifying_key()
+        .verify_strict(blake3::hash(&pre).as_bytes(), &sig)
+        .ok()?;
+    ciborium::de::from_reader(cbor).ok()
+}
+
+/// Minimal percent-encoding for a query-string value (RFC 3986 unreserved
+/// pass through). Only used to echo `state` back on the authorize redirect.
+fn oauth_pct_encode(v: &str) -> String {
+    let mut out = String::with_capacity(v.len());
+    for b in v.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+fn oauth_pct_decode(v: &str) -> String {
+    let bytes = v.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
+                if let Ok(b) = u8::from_str_radix(hex, 16) {
+                    out.push(b);
+                    i += 3;
+                } else {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// RFC 8414 authorization-server metadata (also served as
+/// `/.well-known/openid-configuration` because some brokers probe the
+/// OIDC path first and give up on a 404).
+async fn well_known_oauth_authorization_server() -> Json<JsonValue> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    Json(json!({
+        "issuer":                                origin,
+        "authorization_endpoint":                format!("{origin}/oauth/authorize"),
+        "token_endpoint":                        format!("{origin}/oauth/token"),
+        "registration_endpoint":                 format!("{origin}/oauth/register"),
+        "response_types_supported":              ["code"],
+        "grant_types_supported":                 ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported":      ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"],
+        "scopes_supported":                      [],
+        "service_documentation":                 format!("{origin}/agents.md"),
+        "emem_note": "Authorization here is OPTIONAL and open: registration always succeeds, \
+             authorization auto-approves, and the token adds nothing to anonymous access. \
+             It exists so brokers that insist on OAuth can connect to an open protocol. \
+             Session status is always `open_unverified`; verified identity is a per-write \
+             ed25519 attester signature.",
+    }))
+}
+
+/// RFC 7591 dynamic client registration that never refuses a well-formed
+/// request. The `client_id` is the responder-signed redirect_uri set, so
+/// there is nothing to store and nothing to leak.
+async fn oauth_register(
+    State(s): State<AppState>,
+    EmemJson(body): EmemJson<JsonValue>,
+) -> Result<Response, ApiError> {
+    let uris: Vec<String> = body
+        .get("redirect_uris")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|u| u.as_str())
+                .map(|u| u.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    if uris.len() > 10 || uris.iter().any(|u| u.len() > 512 || u.is_empty()) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "redirect_uris: at most 10 entries of 1..=512 chars".into(),
+                details: None,
+            },
+        ));
+    }
+    let client_id = format!(
+        "ocid_{}",
+        oauth_seal(
+            &s.identity.signing,
+            OAUTH_CLIENT_DOMAIN,
+            &OauthClientClaims {
+                v: 1,
+                uris: uris.clone(),
+                iat: oauth_now(),
+            },
+        )
+    );
+    let resp = json!({
+        "client_id":                  client_id,
+        "client_id_issued_at":        oauth_now(),
+        "redirect_uris":              uris,
+        "token_endpoint_auth_method": "none",
+        "grant_types":                ["authorization_code", "refresh_token"],
+        "response_types":             ["code"],
+        "client_name":                body.get("client_name").and_then(|v| v.as_str()).unwrap_or("unnamed"),
+        "emem_auth_status":           "open_unverified",
+        "emem_note":                  OAUTH_STATUS_NOTE,
+    });
+    Ok((StatusCode::CREATED, Json(resp)).into_response())
+}
+
+#[derive(serde::Deserialize)]
+struct OauthAuthorizeQ {
+    response_type: Option<String>,
+    client_id: Option<String>,
+    redirect_uri: Option<String>,
+    state: Option<String>,
+    code_challenge: Option<String>,
+    code_challenge_method: Option<String>,
+}
+
+/// The authorization endpoint, auto-approving: there is no account to log
+/// into and nothing a session could unlock, so consent would be theatre.
+/// The one real check is that `redirect_uri` is inside the signed
+/// client_id, which keeps this from being an open redirector; that check
+/// failing is a 400, never a redirect, per RFC 6749 §4.1.2.1.
+async fn oauth_authorize(
+    State(s): State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<OauthAuthorizeQ>,
+) -> Result<Response, ApiError> {
+    let bad = |message: String| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message,
+                details: None,
+            },
+        )
+    };
+    let client_id = q.client_id.as_deref().unwrap_or("");
+    let claims: OauthClientClaims = client_id
+        .strip_prefix("ocid_")
+        .and_then(|sealed| oauth_open_sealed(&s.identity.signing, OAUTH_CLIENT_DOMAIN, sealed))
+        .ok_or_else(|| {
+            bad("client_id is missing or does not verify; register at /oauth/register first".into())
+        })?;
+    let uri = q.redirect_uri.as_deref().unwrap_or("");
+    if uri.is_empty() || !claims.uris.iter().any(|u| u == uri) {
+        return Err(bad(
+            "redirect_uri is not one of the URIs this client_id was registered with".into(),
+        ));
+    }
+    let mut extra = String::new();
+    if q.response_type.as_deref() != Some("code") {
+        extra = "error=unsupported_response_type".into();
+    } else if q.code_challenge.is_some()
+        && q.code_challenge_method.as_deref().unwrap_or("S256") != "S256"
+    {
+        extra = "error=invalid_request&error_description=only+S256+is+supported".into();
+    }
+    if extra.is_empty() {
+        let code = format!(
+            "oc_{}",
+            oauth_seal(
+                &s.identity.signing,
+                OAUTH_CODE_DOMAIN,
+                &OauthCodeClaims {
+                    v: 1,
+                    uri: uri.to_string(),
+                    ch: q.code_challenge.clone(),
+                    exp: oauth_now() + OAUTH_CODE_TTL_S,
+                },
+            )
+        );
+        extra = format!("code={code}");
+    }
+    if let Some(st) = q.state.as_deref() {
+        extra = format!("{extra}&state={}", oauth_pct_encode(st));
+    }
+    let sep = if uri.contains('?') { '&' } else { '?' };
+    let location = format!("{uri}{sep}{extra}");
+    Ok(Response::builder()
+        .status(StatusCode::FOUND)
+        .header("location", location)
+        .body(axum::body::Body::empty())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()))
+}
+
+/// The token endpoint. Accepts the RFC-standard form encoding and JSON
+/// (brokers send both). PKCE S256 is verified when the code carries a
+/// challenge; the resulting token is a responder-signed statement that a
+/// session exists, nothing more.
+async fn oauth_token(State(s): State<AppState>, headers: HeaderMap, body: String) -> Response {
+    let mut fields: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let is_json = headers
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.contains("json"))
+        .unwrap_or(false);
+    if is_json {
+        if let Ok(v) = serde_json::from_str::<JsonValue>(&body) {
+            if let Some(map) = v.as_object() {
+                for (k, val) in map {
+                    if let Some(sv) = val.as_str() {
+                        fields.insert(k.clone(), sv.to_string());
+                    }
+                }
+            }
+        }
+    } else {
+        for pair in body.split('&') {
+            if let Some((k, v)) = pair.split_once('=') {
+                fields.insert(oauth_pct_decode(k), oauth_pct_decode(v));
+            }
+        }
+    }
+    let err = |code: &str, desc: &str| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": code, "error_description": desc})),
+        )
+            .into_response()
+    };
+    let now = oauth_now();
+    match fields.get("grant_type").map(String::as_str) {
+        Some("authorization_code") => {
+            let Some(claims) = fields
+                .get("code")
+                .and_then(|c| c.strip_prefix("oc_"))
+                .and_then(|sealed| {
+                    oauth_open_sealed::<OauthCodeClaims>(
+                        &s.identity.signing,
+                        OAUTH_CODE_DOMAIN,
+                        sealed,
+                    )
+                })
+            else {
+                return err("invalid_grant", "code is missing or does not verify");
+            };
+            if claims.exp < now {
+                return err("invalid_grant", "code expired; authorize again");
+            }
+            if let Some(uri) = fields.get("redirect_uri") {
+                if uri != &claims.uri {
+                    return err("invalid_grant", "redirect_uri does not match the code");
+                }
+            }
+            if let Some(ch) = claims.ch.as_deref() {
+                let ok = fields.get("code_verifier").is_some_and(|cv| {
+                    use sha2::{Digest, Sha256};
+                    let mut h = Sha256::new();
+                    h.update(cv.as_bytes());
+                    data_encoding::BASE64URL_NOPAD.encode(&h.finalize()) == ch
+                });
+                if !ok {
+                    return err("invalid_grant", "PKCE verification failed (S256)");
+                }
+            }
+            oauth_token_grant(&s.identity.signing, now).into_response()
+        }
+        Some("refresh_token") => {
+            let ok = fields
+                .get("refresh_token")
+                .and_then(|t| t.strip_prefix("ort_"))
+                .and_then(|sealed| {
+                    oauth_open_sealed::<OauthTokenClaims>(
+                        &s.identity.signing,
+                        OAUTH_TOKEN_DOMAIN,
+                        sealed,
+                    )
+                })
+                .is_some_and(|c| c.kind == "refresh" && c.exp >= now);
+            if !ok {
+                return err(
+                    "invalid_grant",
+                    "refresh_token is missing, wrong, or expired",
+                );
+            }
+            oauth_token_grant(&s.identity.signing, now).into_response()
+        }
+        _ => err(
+            "unsupported_grant_type",
+            "use authorization_code or refresh_token",
+        ),
+    }
+}
+
+fn oauth_token_grant(signing: &ed25519_dalek::SigningKey, now: u64) -> Json<JsonValue> {
+    let access = format!(
+        "oat_{}",
+        oauth_seal(
+            signing,
+            OAUTH_TOKEN_DOMAIN,
+            &OauthTokenClaims {
+                v: 1,
+                kind: "access".into(),
+                exp: now + OAUTH_ACCESS_TTL_S,
+            },
+        )
+    );
+    let refresh = format!(
+        "ort_{}",
+        oauth_seal(
+            signing,
+            OAUTH_TOKEN_DOMAIN,
+            &OauthTokenClaims {
+                v: 1,
+                kind: "refresh".into(),
+                exp: now + OAUTH_REFRESH_TTL_S,
+            },
+        )
+    );
+    Json(json!({
+        "access_token":     access,
+        "token_type":       "Bearer",
+        "expires_in":       OAUTH_ACCESS_TTL_S,
+        "refresh_token":    refresh,
+        "scope":            "",
+        "emem_auth_status": "open_unverified",
+        "emem_note":        OAUTH_STATUS_NOTE,
+    }))
+}
+
+/// The verify / non-verify status surface: what an OAuth session is and is
+/// not, introspectable with or without a bearer token, gating nothing.
+async fn oauth_status(State(s): State<AppState>, headers: HeaderMap) -> Json<JsonValue> {
+    let now = oauth_now();
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim);
+    let (present, valid, expires_at) = match token {
+        None => (false, false, JsonValue::Null),
+        Some(t) => match t.strip_prefix("oat_").and_then(|sealed| {
+            oauth_open_sealed::<OauthTokenClaims>(&s.identity.signing, OAUTH_TOKEN_DOMAIN, sealed)
+        }) {
+            Some(c) if c.kind == "access" && c.exp >= now => (true, true, json!(c.exp)),
+            Some(c) => (true, false, json!(c.exp)),
+            None => (true, false, JsonValue::Null),
+        },
+    };
+    Json(json!({
+        "access":            "open — every read is anonymous and no endpoint requires a bearer token",
+        "oauth_token":       {"present": present, "valid": valid, "expires_at": expires_at},
+        "session_status":    if valid { "open_unverified" } else { "anonymous" },
+        "verified_identity": "none at the session level, by design: identity in emem is per-write, an ed25519 attester block whose signature anyone re-checks offline",
+        "how_to_be_verified": "sign your writes; omit the attester block on any write and the 401 teaches the exact digest (details.how_to_sign)",
+        "note":              OAUTH_STATUS_NOTE,
     }))
 }
 
@@ -63525,6 +64029,58 @@ mod tests {
         assert!(!band_is_known("totally_made_up_band"));
         assert!(!band_is_known("elevation_mean")); // missing namespace
         assert!(band_is_known("temporal_diff:indices.ndvi:1y")); // parametric
+    }
+
+    /// The open OAuth surface is stateless: client_id, code, and tokens are
+    /// responder-signed CBOR. A seal opens under its own domain and key,
+    /// refuses a tampered byte, and refuses a domain swap (a client_id can
+    /// never pass as a code).
+    #[test]
+    fn oauth_seal_roundtrip_and_refusals() {
+        let sk = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let claims = OauthClientClaims {
+            v: 1,
+            uris: vec!["https://claude.ai/api/mcp/auth_callback".into()],
+            iat: 1_753_000_000,
+        };
+        let sealed = oauth_seal(&sk, OAUTH_CLIENT_DOMAIN, &claims);
+        let back: OauthClientClaims =
+            oauth_open_sealed(&sk, OAUTH_CLIENT_DOMAIN, &sealed).expect("round trip");
+        assert_eq!(back.uris, claims.uris);
+        // Tampered payload: flip one character.
+        let mut t = sealed.clone().into_bytes();
+        t[10] = if t[10] == b'a' { b'b' } else { b'a' };
+        let tampered = String::from_utf8(t).unwrap();
+        assert!(
+            oauth_open_sealed::<OauthClientClaims>(&sk, OAUTH_CLIENT_DOMAIN, &tampered).is_none()
+        );
+        // Domain swap: a client seal must not open as a code.
+        assert!(oauth_open_sealed::<OauthClientClaims>(&sk, OAUTH_CODE_DOMAIN, &sealed).is_none());
+        // Wrong responder key.
+        let other = ed25519_dalek::SigningKey::from_bytes(&[8u8; 32]);
+        assert!(
+            oauth_open_sealed::<OauthClientClaims>(&other, OAUTH_CLIENT_DOMAIN, &sealed).is_none()
+        );
+    }
+
+    /// The RFC 7636 appendix B test vector for PKCE S256, plus the percent
+    /// codec used on the authorize redirect and the token form body.
+    #[test]
+    fn oauth_pkce_vector_and_pct_codec() {
+        use sha2::{Digest, Sha256};
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        let mut h = Sha256::new();
+        h.update(verifier.as_bytes());
+        assert_eq!(
+            data_encoding::BASE64URL_NOPAD.encode(&h.finalize()),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+        let state = "af0ifjsldkj/ ?&=+%~";
+        assert_eq!(oauth_pct_decode(&oauth_pct_encode(state)), state);
+        assert_eq!(
+            oauth_pct_decode("https%3A%2F%2Fclaude.ai%2Fapi%2Fmcp%2Fauth_callback"),
+            "https://claude.ai/api/mcp/auth_callback"
+        );
     }
 
     /// Storage aliases win over the known-band early return: the dotted
