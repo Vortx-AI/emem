@@ -215,6 +215,7 @@ const OG_IMAGE_PNG: &[u8] = include_bytes!("../../../web/og-image.png");
 /// (rather than re-inlined per page) to keep each page lean. See
 /// `serve_art_panel` + the `/art/:name` route.
 const ART_PANELS: &[(&str, &str)] = &[
+    ("world-mithila.svg", include_str!("../../../web/art/world-mithila.svg")),
     ("p1.svg", include_str!("../../../web/art/p1.svg")),
     ("p2.svg", include_str!("../../../web/art/p2.svg")),
     ("p3.svg", include_str!("../../../web/art/p3.svg")),
