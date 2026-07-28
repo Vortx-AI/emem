@@ -1,6 +1,6 @@
 {
  "schema": "emem.relay.recording.v1",
- "recorded_at": "2026-07-28T16:43:11Z",
+ "recorded_at": "2026-07-28T17:13:33Z",
  "place": "Manali, Himachal Pradesh",
  "band": "indices.ndvi",
  "cell": "defi.zb56f.dAwe.zb8ea",
@@ -13,187 +13,136 @@
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "thought\nThe NDVI value at cell defi.zb56f.dAwe.zb8ea is 0.207295.",
-   "ms": 4280,
-   "value": 0.207295,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 4242,
+   "value": 0.207295
   },
   {
    "hop": 2,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.207.",
-   "ms": 1541,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 1528,
+   "value": 0.207
   },
   {
    "hop": 3,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "The NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.207.",
-   "ms": 3472,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 3527,
+   "value": 0.207
   },
   {
    "hop": 4,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
-   "ms": 1463,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 1475,
+   "value": 0.207
   },
   {
    "hop": 5,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "The NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
-   "ms": 3389,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 3384,
+   "value": 0.207
   },
   {
    "hop": 6,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
-   "ms": 1520,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 1455,
+   "value": 0.207
   },
   {
    "hop": 7,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "The NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
-   "ms": 3353,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 3367,
+   "value": 0.207
   },
   {
    "hop": 8,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI of 0.207 for cell defi.zb56f.dAwe.zb8ea.",
-   "ms": 1486,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 1481,
+   "value": 0.207
   },
   {
    "hop": 9,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "Cell defi.zb56f.dAwe.zb8ea has NDVI 0.207.",
-   "ms": 3133,
-   "value": 0.207,
-   "addr_full": true,
-   "addr_partial": false,
-   "addr_gone": false
+   "ms": 3087,
+   "value": 0.207
   },
   {
    "hop": 10,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI 0.207 for zb56f.dAwe.zb8ea.",
-   "ms": 1210,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 1211,
+   "value": 0.207
   },
   {
    "hop": 11,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "NDVI 0.207 for zb56f.dAwe.zb8ea.",
-   "ms": 2905,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 2831,
+   "value": 0.207
   },
   {
    "hop": 12,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI value: 0.207 for zb56f.dAwe.zb8ea.",
-   "ms": 1329,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 1313,
+   "value": 0.207
   },
   {
    "hop": 13,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "NDVI 0.207 for zb56f.dAwe.zb8ea.",
-   "ms": 2884,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 2852,
+   "value": 0.207
   },
   {
    "hop": 14,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI value: 0.207 for zb56f.dAwe.zb8ea.",
-   "ms": 1324,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 1293,
+   "value": 0.207
   },
   {
    "hop": 15,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "NDVI is 0.207 for zb56f.",
-   "ms": 2121,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 2109,
+   "value": 0.207
   },
   {
    "hop": 16,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI 0.207 for zb56f.",
-   "ms": 837,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 821,
+   "value": 0.207
   },
   {
    "hop": 17,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "zb56f NDVI is 0.207.",
-   "ms": 1849,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": true,
-   "addr_gone": false
+   "ms": 1826,
+   "value": 0.207
   },
   {
    "hop": 18,
@@ -201,76 +150,55 @@
    "family": "qwen",
    "text": "NDVI value is 0.207.",
    "ms": 671,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": false,
-   "addr_gone": true
+   "value": 0.207
   },
   {
    "hop": 19,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "NDVI is 0.207.",
-   "ms": 1461,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": false,
-   "addr_gone": true
+   "ms": 1429,
+   "value": 0.207
   },
   {
    "hop": 20,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI value: 0.207.",
-   "ms": 670,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": false,
-   "addr_gone": true
+   "ms": 672,
+   "value": 0.207
   },
   {
    "hop": 21,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "NDVI is 0.207.",
-   "ms": 1470,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": false,
-   "addr_gone": true
+   "ms": 1429,
+   "value": 0.207
   },
   {
    "hop": 22,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI value: 0.207.",
-   "ms": 673,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": false,
-   "addr_gone": true
+   "ms": 681,
+   "value": 0.207
   },
   {
    "hop": 23,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
    "text": "NDVI is 0.207.",
-   "ms": 1462,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": false,
-   "addr_gone": true
+   "ms": 1464,
+   "value": 0.207
   },
   {
    "hop": 24,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
    "text": "NDVI value: 0.207.",
-   "ms": 669,
-   "value": 0.207,
-   "addr_full": false,
-   "addr_partial": false,
-   "addr_gone": true
+   "ms": 673,
+   "value": 0.207
   }
  ],
  "stop_reason": "max_hops",
@@ -447,6 +375,345 @@
  ],
  "resolved_value": 0.2072951451322887,
  "resolved_matches_exact": true,
- "note": "Every frame is what the named model actually wrote at temperature 0. The prose chain is one signed fact carried as a summary through three hops across two model families; the token chain carries the handle instead. Re-run scripts/record_relay.py to regenerate.",
- "address_note": "The value rounds once and then holds; the ADDRESS is what dies. Full cell64 through hop 9, truncated by hop 10, a single fragment by 15, gone by 18: a number that no longer knows what it is about."
+ "set": {
+  "bands": [
+   "copdem30m.elevation_mean",
+   "indices.ndvi",
+   "weather.temperature_2m",
+   "weather.precipitation_mm",
+   "cams.pm25",
+   "modis.lst_day_8day"
+  ],
+  "facts": [
+   {
+    "band": "cams.pm25",
+    "value": 6.2,
+    "fact_cid": "jmuo56htarfbptvxby522dwotqi2lo5pvkvnugfx3ztcfljye3ha"
+   },
+   {
+    "band": "copdem30m.elevation_mean",
+    "value": 2035.8638916015625,
+    "fact_cid": "i4aeonqdruhuvbwh5fhgi3gidgqhpkol6cynukxsyb4blla5732q"
+   },
+   {
+    "band": "indices.ndvi",
+    "value": 0.2072951451322887,
+    "fact_cid": "fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq"
+   },
+   {
+    "band": "modis.lst_day_8day",
+    "value": 291.1,
+    "fact_cid": "vm53kq4vdibcjwzucf4kiyrcr2mgvp7vxetcbw6werjicibb5fxq"
+   },
+   {
+    "band": "weather.precipitation_mm",
+    "value": 0.9,
+    "fact_cid": "3v6n543db3saxkilxa6fpblefy4zyer3ymrexow2cbxqhi7pk7iq"
+   },
+   {
+    "band": "weather.temperature_2m",
+    "value": 17.8,
+    "fact_cid": "ak5yrxrgqea27bd6t7jxxciwwy37kplhjnatic7vp7qnbnr6hxwa"
+   }
+  ],
+  "bundle_token": "emem:bundle:or2u7d6lcsnykcn7b2wr2jfrxi",
+  "prose_chain": [
+   {
+    "hop": 1,
+    "family": "gemma",
+    "text": "Here is the data for the next step:\n- PM2.5: 6.2\n- Elevation: 2035.86m\n- NDVI: 0.207\n- LST (8-day): 291.1K\n- Precipitation: 0.9mm\n- Temp (2m): 17.8\u00b0C",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 2,
+    "family": "qwen",
+    "text": "PM2.5: 6.2, Elevation: 2035.86m, NDVI: 0.207, LST: 291.1K, Precip: 0.9mm, Temp: 17.8\u00b0C.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 3,
+    "family": "gemma",
+    "text": "Data received: PM2.5 is 6.2, elevation 2035.86m, NDVI 0.207, LST 291.1K, precipitation 0.9mm, and temperature 17.8\u00b0C. All parameters are recorded for the next stage of analysis.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 4,
+    "family": "qwen",
+    "text": "PM2.5: 6.2, Elevation: 2035.86m, NDVI: 0.207, LST: 291.1K, Precipitation: 0.9mm, Temp: 17.8\u00b0C. Ready for analysis.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 5,
+    "family": "gemma",
+    "text": "Data received: PM2.5 is 6.2, elevation 2035.86m, NDVI 0.207, LST 291.1K, precipitation 0.9mm, and temp 17.8\u00b0C. All parameters are recorded and ready for your analysis. Over to you.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 6,
+    "family": "qwen",
+    "text": "PM2.5: 6.2, Elevation: 2035.86m, NDVI: 0.207, LST: 291.1K, Precip: 0.9mm, Temp: 17.8\u00b0C. Ready for analysis. Over.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 7,
+    "family": "gemma",
+    "text": "Data received: PM2.5 (6.2), Elevation (2035.86m), NDVI (0.207), LST (291.1K), Precip (0.9mm), Temp (17.8\u00b0C). Ready for your analysis. Over.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 8,
+    "family": "qwen",
+    "text": "Received: PM2.5 6.2, Elevation 2035.86m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and proceed.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 9,
+    "family": "gemma",
+    "text": "Data received: PM2.5 6.2, Elev 2035.86m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Please analyze and proceed.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 10,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035.86m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 5,
+    "of": 6
+   },
+   {
+    "hop": 11,
+    "family": "gemma",
+    "text": "Data: PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 12,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze & act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 13,
+    "family": "gemma",
+    "text": "Data: PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 14,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze & act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 15,
+    "family": "gemma",
+    "text": "Data: PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 16,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze & act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 17,
+    "family": "gemma",
+    "text": "Data: PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 18,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze conditions, take action.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 19,
+    "family": "gemma",
+    "text": "Data: PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 20,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze & act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 21,
+    "family": "gemma",
+    "text": "Data: PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 22,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze & act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 23,
+    "family": "gemma",
+    "text": "Data: PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze and act.",
+    "values_kept": 4,
+    "of": 6
+   },
+   {
+    "hop": 24,
+    "family": "qwen",
+    "text": "PM2.5 6.2, Elev 2035m, NDVI 0.207, LST 291.1K, Precip 0.9mm, Temp 17.8\u00b0C. Analyze & act.",
+    "values_kept": 4,
+    "of": 6
+   }
+  ],
+  "token_chain": [
+   {
+    "hop": 1,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 2,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 3,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 4,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 5,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 6,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 7,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 8,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 9,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 10,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 11,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 12,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 13,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 14,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 15,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 16,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 17,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 18,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 19,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 20,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 21,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 22,
+    "family": "qwen",
+    "token_intact": true
+   },
+   {
+    "hop": 23,
+    "family": "gemma",
+    "token_intact": true
+   },
+   {
+    "hop": 24,
+    "family": "qwen",
+    "token_intact": true
+   }
+  ],
+  "resolved_count": 6,
+  "resolve_path": "GET /v1/memory_bundle/{token}",
+  "bundle_len": 38,
+  "prose_kept_final": 4,
+  "prose_kept_first": 5
+ },
+ "note": "Every frame is what the named model actually wrote at temperature 0. The prose chain is one signed fact carried as a summary through three hops across two model families; the token chain carries the handle instead. Re-run scripts/record_relay.py to regenerate."
 }

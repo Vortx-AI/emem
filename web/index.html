@@ -1065,7 +1065,11 @@ input::placeholder{color:var(--mute,#7a7363)}
           <div class="lane-h"><span class="gem"></span>carried as the token: same models, same hops</div>
           <div id="rly-tok"></div>
         </div>
-        <div class="rly-out" id="rly-out">Press play: the same fact goes down both lanes.</div>
+        <div class="lane set">
+          <div class="lane-h"><span class="gem" style="background:var(--indigo,#344a8c)"></span>and a SET of six facts: written out, against one bundle handle</div>
+          <div id="rly-set"></div>
+        </div>
+        <div class="rly-out" id="rly-out">Press play: one fact, then a set of six, down each lane.</div>
       </div>
       <div class="rly-act">
         <button id="rly-play">play the relay</button>
@@ -2169,7 +2173,8 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     var R=null, playing=false;
     var pl=document.getElementById('rly-play'), ag=document.getElementById('rly-again'),
         out=document.getElementById('rly-out'),
-        lp=document.getElementById('rly-prose'), lt=document.getElementById('rly-tok');
+        lp=document.getElementById('rly-prose'), lt=document.getElementById('rly-tok'),
+        ls=document.getElementById('rly-set');
     if(!pl) return;
     function shortModel(m){ return (m||'').split('/').pop().replace('-Instruct','').replace('-it',''); }
     // Long chains, short panel: the first three hops, a fold, the last three.
@@ -2201,7 +2206,8 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     function play(){
       if(playing||!R) return; playing=true; pl.disabled=true; ag.hidden=true;
       rows(lp,R.prose_chain,'lost'); rows(lt,R.token_chain,'kept');
-      var pr=lp.__rows, tk=lt.__rows, i=0;
+      if(R.set){ rows(ls,R.set.prose_chain,'lost'); }
+      var pr=lp.__rows, tk=lt.__rows, sr=(ls.__rows||[]), i=0;
       out.innerHTML='the exact value leaves emem: <b>'+R.exact_value+'</b>';
       (function step(){
         if(i>=R.prose_chain.length){
@@ -2210,7 +2216,11 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
             (R.prose_chain[R.prose_chain.length-1].value)+'</b>, and it no longer says <b>where</b>: the cell64 '+
             'survived to hop 9, was truncated by 10, and was gone by 18. A number that no longer knows what it is about '+
             'is not a measurement. The token lane carried the address every hop, and still resolves to <b style="color:var(--accent)">'+
-            R.resolved_value+'</b>, checked live just now.';
+            R.resolved_value+'</b>, checked live just now.'+
+            (R.set ? ('<br><br>And a SET is where prose actually breaks: six signed facts written out arrive as <b style="color:var(--absent)">'+
+              R.set.prose_kept_final+' of '+R.set.facts.length+'</b>, the survivors rounded. The same six behind one <b>'+
+              R.set.bundle_len+'-character</b> bundle handle survived every hop and resolve to <b style="color:var(--accent)">'+
+              R.set.resolved_count+' of '+R.set.facts.length+'</b>, exact.') : '');
           playing=false; pl.disabled=false; ag.hidden=false; return;
         }
         var f=R.prose_chain[i], t=R.token_chain[i];
@@ -2220,6 +2230,13 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         if(!f.addr_full) pr[i].children[2].classList.add('gone');
         tk[i].children[1].textContent=(t.token_intact?'token intact':'token lost');
         tk[i].children[2].textContent=t.token_intact?'address kept':'address gone';
+        if(R.set && sr[i]){
+          var sf=R.set.prose_chain[i];
+          sr[i].classList.add('on');
+          sr[i].children[1].textContent=sf.values_kept+' of '+sf.of+' values';
+          if(sf.values_kept<sf.of) sr[i].children[1].classList.add('lost');
+          sr[i].children[2].textContent='bundle: 6 of 6';
+        }
         out.innerHTML='hop '+f.hop+', <b>'+shortModel(f.model)+'</b>: value <b style="color:var(--absent)">'+
           (f.value!=null?f.value:'-')+'</b>, '+(f.addr_full?'address still whole':(f.addr_partial?'address truncated':'<b style="color:var(--absent)">address gone</b>'));
         i++; setTimeout(step, 1250);
@@ -2227,6 +2244,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     }
     fetch('/data/relay-recording.json').then(function(r){return r.json();}).then(function(j){
       R=j; rows(lp,j.prose_chain,'lost'); rows(lt,j.token_chain,'kept');
+      if(j.set) rows(ls,j.set.prose_chain,'lost');
     }).catch(function(){ out.textContent='the recording is at /data/relay-recording.json'; });
     pl.addEventListener('click',play); ag.addEventListener('click',function(){ ag.hidden=true; play(); });
   })();

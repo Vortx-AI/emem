@@ -93,6 +93,70 @@ req2 = urllib.request.Request("https://emem.dev/v1/memory_token/resolve",
 res = json.load(urllib.request.urlopen(req2, timeout=120))
 resolved = res.get("fact",{}).get("value")
 
+
+# ── The set arm: where prose actually breaks ─────────────────────────────
+# One number survives a relay in any format; it only rounds. A SET is the
+# regime the measurements say prose cannot hold, so record that too: six
+# signed facts carried as a written list, against the same six behind one
+# emem:bundle: handle.
+import urllib.request as _u
+
+SET_BANDS = ["copdem30m.elevation_mean", "indices.ndvi", "weather.temperature_2m",
+             "weather.precipitation_mm", "cams.pm25", "modis.lst_day_8day"]
+
+def _post(path, body, timeout=180):
+    req = _u.Request("https://emem.dev" + path, data=json.dumps(body).encode(),
+                     headers={"content-type": "application/json"})
+    return json.load(_u.urlopen(req, timeout=timeout))
+
+set_facts, triples = [], []
+rec_set = _post("/v1/recall", {"place": "Manali, Himachal Pradesh", "bands": SET_BANDS})
+for f in rec_set.get("facts", []):
+    set_facts.append({"band": f["band"], "value": f["value"], "fact_cid": f["fact_cid"]})
+    triples.append({"cell": f["cell"], "band": f["band"], "tslot": f["tslot"]})
+print("set facts:", len(set_facts))
+
+bundle_token = ""
+if triples:
+    bt = _post("/v1/memory_bundle", {"triples": triples, "purpose": "homepage relay recording"})
+    bundle_token = bt.get("bundle_token") or bt.get("token") or (bt.get("tokens") or {}).get("bundle") or ""
+    print("bundle:", bundle_token[:60] if bundle_token else json.dumps(bt)[:200])
+
+def fmt_set(facts):
+    return "; ".join(f"{f['band']} = {f['value']}" for f in facts)
+
+set_prose, set_tok = [], []
+carried_set = fmt_set(set_facts)
+for i in range(len(frames)):
+    base, fam = HOPS_PAIR[i % 2]
+    budget = max(18, 60 - i * 4)
+    out = call(base, fam,
+               f"You are agent {i+1} in a long chain. Compress this handoff note for the "
+               f"next agent in under {budget} words. Keep it natural.\n\n{carried_set}")
+    kept = sum(1 for f in set_facts if str(f["value"])[:6] in out)
+    set_prose.append({"hop": i + 1, "family": fam, "text": out,
+                      "values_kept": kept, "of": len(set_facts)})
+    print(f"set hop{i+1} {fam}: kept {kept}/{len(set_facts)}")
+    carried_set = out
+
+carried_tok = f"Reference: {bundle_token}"
+for i in range(len(frames)):
+    base, fam = HOPS_PAIR[i % 2]
+    out = call(base, fam,
+               f"You are agent {i+1} in a long chain. Pass this reference to the next agent "
+               f"EXACTLY as written, with one short sentence of context. Under 25 words.\n\n{carried_tok}")
+    set_tok.append({"hop": i + 1, "family": fam, "token_intact": bundle_token in out})
+    carried_tok = out
+
+resolved_set = []
+if bundle_token:
+    try:
+        rb = _post("/v1/memory_token/resolve", {"token": bundle_token})
+        resolved_set = [f.get("fact_cid") for f in (rb.get("facts") or [])]
+    except Exception as e:
+        print("bundle resolve:", e)
+print("bundle resolves", len(resolved_set), "of", len(set_facts))
+
 out = {
   "schema":"emem.relay.recording.v1",
   "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -105,6 +169,14 @@ out = {
   "token_chain": tok_frames,
   "resolved_value": resolved,
   "resolved_matches_exact": resolved == val,
+  "set": {
+    "bands": SET_BANDS,
+    "facts": set_facts,
+    "bundle_token": bundle_token,
+    "prose_chain": set_prose,
+    "token_chain": set_tok,
+    "resolved_count": len(resolved_set),
+  },
   "note":"Every frame is what the named model actually wrote at temperature 0. The prose chain is one signed fact carried as a summary through three hops across two model families; the token chain carries the handle instead. Re-run scripts/record_relay.py to regenerate."
 }
 Path("/home/ubuntu/emem/web/data").mkdir(parents=True, exist_ok=True)
