@@ -18074,9 +18074,21 @@ async fn a2a_reason_compose(
             _ => {
                 // A model that wrapped its answer in JSON we could not parse
                 // strictly still meant the answer, not the wrapper.
-                prose = serde_json::from_str::<JsonValue>(stripped)
-                    .ok()
-                    .and_then(|v| v.get("answer").and_then(|a| a.as_str()).map(String::from))
+                // A model that wrapped its answer in JSON we could not parse
+                // strictly still meant the answer, not the wrapper. Try the
+                // whole string, then the widest {...} span inside it, so a
+                // trailing sentence after the object cannot leak the wrapper
+                // into the prose field.
+                let unwrap = |t: &str| -> Option<String> {
+                    serde_json::from_str::<JsonValue>(t)
+                        .ok()
+                        .and_then(|v| v.get("answer").and_then(|a| a.as_str()).map(String::from))
+                };
+                prose = unwrap(stripped)
+                    .or_else(|| {
+                        let (a, b) = (stripped.find('{')?, stripped.rfind('}')?);
+                        (a < b).then(|| unwrap(&stripped[a..=b]))?
+                    })
                     .unwrap_or_else(|| content.clone());
                 break;
             }
