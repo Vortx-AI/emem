@@ -17873,6 +17873,50 @@ fn a2a_trim_envelope(mut v: JsonValue) -> JsonValue {
     v
 }
 
+/// The asked place versus the grounded place. A geocoder that lands
+/// somewhere plausible-but-wrong is the drift this protocol exists to
+/// stop, and a model asked politely to notice will not. So: take the
+/// question's ANCHOR, the capitalised words that are not the leading
+/// sentence capital and not generic place nouns, and require one to
+/// appear in the label the responder actually resolved.
+fn reason_place_mismatch(q: &str, ask_env: &JsonValue) -> Option<String> {
+    let label = ask_env
+        .get("place_resolved")
+        .and_then(|p| {
+            p.get("label")
+                .or_else(|| p.get("name"))
+                .or_else(|| p.get("display_name"))
+        })
+        .and_then(|l| l.as_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    if label.is_empty() {
+        return None;
+    }
+    const GENERIC: &[&str] = &[
+        "bridge", "area", "city", "old", "river", "park", "lake", "hill", "road", "street",
+        "district", "north", "south", "east", "west", "the",
+    ];
+    let anchors: Vec<String> = q
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|w| {
+            let t: String = w.chars().filter(|c| c.is_alphanumeric()).collect();
+            (t.chars().next().is_some_and(|c| c.is_uppercase()) && t.len() >= 4)
+                .then(|| t.to_lowercase())
+        })
+        .filter(|t| !GENERIC.contains(&t.as_str()))
+        .collect();
+    if anchors.is_empty() || anchors.iter().any(|a| label.contains(a.as_str())) {
+        return None;
+    }
+    Some(format!(
+        "the question names {} but the responder grounded it at `{}`, which is somewhere else. emem_reason refuses to narrate one place's readings under another place's name. Name the place more precisely, or pass a cell64.",
+        anchors.iter().map(|a| format!("`{a}`")).collect::<Vec<_>>().join(" / "),
+        label
+    ))
+}
+
 async fn a2a_reason_compose(
     q: &str,
     ask_env: JsonValue,
@@ -17921,7 +17965,11 @@ async fn a2a_reason_compose(
     let system = format!(
         "You are the reasoning tier of emem, a shared verifiable memory for AI agents. \
          Answer the question using ONLY evidence from tool results and the signed envelope \
-         provided. You may call any of these read-only tools by replying with EXACTLY one \
+         provided. The envelope names the place the evidence is actually about: state that \
+         resolved place explicitly, and if it differs from the place the question asked \
+         about, do NOT narrate those numbers under the asked name; reply exactly \
+         {{\"answer\": \"ABSTAIN: the evidence is about <resolved place>, not <asked place>\"}}. \
+         You may call any of these read-only tools by replying with EXACTLY one \
          JSON object and nothing else: {{\"tool\": \"<name>\", \"args\": {{...}}}}. \
          To fetch a tool's exact schema first, call emem_tools with {{\"name\": \"<name>\"}}. \
          The other agents on this responder publish signed findings; emem_memory_search searches \
@@ -18024,7 +18072,12 @@ async fn a2a_reason_compose(
                 break;
             }
             _ => {
-                prose = content;
+                // A model that wrapped its answer in JSON we could not parse
+                // strictly still meant the answer, not the wrapper.
+                prose = serde_json::from_str::<JsonValue>(stripped)
+                    .ok()
+                    .and_then(|v| v.get("answer").and_then(|a| a.as_str()).map(String::from))
+                    .unwrap_or_else(|| content.clone());
                 break;
             }
         }
@@ -18355,6 +18408,12 @@ async fn post_a2a_task(
                             .and_then(|x| x.as_str())
                             .unwrap_or_default()
                             .to_string();
+                        // A promoted call still established ground; remember it
+                        // against the task's contextId so a follow-up that
+                        // arrives while the task runs inherits the same cell.
+                        if let Some(cell) = resolved_cell.as_deref() {
+                            a2a_ctx_remember(&format!("{id}-ctx"), cell);
+                        }
                         let map = mcp_tasks_lock();
                         let obj = map
                             .get(&id)
@@ -20131,7 +20190,21 @@ async fn mcp_tool_call(
                         .into(),
                 ));
             }
+            // The confidence gate belongs UNDER the reasoning tier too, not
+            // only on the A2A text door. Without it "the Howrah Bridge area
+            // of Kolkata" resolved to Mostar's Old Bridge and the model
+            // narrated Bosnia's readings under Kolkata's name, which is the
+            // exact failure this protocol exists to prevent.
+            // Let ask do its own place extraction (a whole sentence is not a
+            // geocoder query), then check WHERE it landed against what was
+            // asked. "the Howrah Bridge area of Kolkata" resolved to Mostar's
+            // Old Bridge and the model narrated Bosnia's readings under
+            // Kolkata's name; the anchor check refuses that rather than
+            // trusting the model to notice.
             let ask_env = Box::pin(mcp_tool_call("emem_ask", json!({ "q": q }), s)).await?;
+            if let Some(mismatch) = reason_place_mismatch(&q, &ask_env) {
+                return Err((-32602, mismatch));
+            }
             a2a_reason_compose(&q, ask_env, s).await
         }
         "emem_ask" => {
@@ -45880,6 +45953,10 @@ async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, A
             meta.signed_at.clone(),
             json!({
                 "from":      from,
+                // The full key, so a client can compare against a pinned
+                // registry entry without a memory_view per badge (asked for
+                // by the arcade builder, and cheap: the metadata has it).
+                "attester_pubkey_b32": meta.attester_pubkey_b32.clone(),
                 "to":        direct,
                 "cc":        cc,
                 "broadcast": broadcast,
