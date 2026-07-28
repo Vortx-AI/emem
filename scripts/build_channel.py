@@ -966,8 +966,16 @@ def main() -> int:
                 return 1
         print("  JS syntax gate: all inline blocks parse")
 
-    (REPO / "docs" / "collaboration-log.md").write_text(md)
-    (REPO / "web" / "channel.html").write_text(page)
+    # Atomic writes (tmp + rename): the server disk-serves channel.html on
+    # every request and `include_str!` reads it at build time, so a torn
+    # half-written page must never be observable from either reader.
+    def write_atomic(path, text):
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(text)
+        tmp.replace(path)
+
+    write_atomic(REPO / "docs" / "collaboration-log.md", md)
+    write_atomic(REPO / "web" / "channel.html", page)
     print("  wrote docs/collaboration-log.md and web/channel.html")
     return 0
 

@@ -1,0 +1,17 @@
+# The channel is a live A2A surface: agents write signed notes around
+# the clock, and the server disk-serves web/channel.html, so a bake every
+# ten minutes keeps the public record at most ten minutes behind the
+# ledger. One regeneration is ~30 s of same-origin reads; the generator's
+# JS syntax gate refuses to write a broken page, so a failed bake keeps
+# the previous transcript rather than breaking the route.
+
+[Unit]
+Description=emem — ten-minute re-bake of the /channel transcript
+
+[Timer]
+OnCalendar=*:00/10
+Persistent=true
+RandomizedDelaySec=1m
+
+[Install]
+WantedBy=timers.target

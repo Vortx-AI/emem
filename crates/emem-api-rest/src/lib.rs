@@ -3391,8 +3391,85 @@ async fn serve_scoreboard_html() -> Response {
 
 /// The full agent-to-agent record: every signed note, in order, including the
 /// retractions and the published nulls.
+///
+/// Disk-first: `scripts/build_channel.py` regenerates `web/channel.html`
+/// (the emem-channel-bake timer runs it every ten minutes; the deploy
+/// ritual runs it before every build), and serving the file makes a
+/// regeneration live on the next request with no rebuild or restart. The
+/// page froze at 2026-07-21 for a week precisely because it could only
+/// change at a deploy. The baked copy answers when the file is absent
+/// (a container that ships only the binary). CSP: the global header only
+/// lists hashes of pages compiled into the binary, so a disk-served page
+/// grants its own inline hashes from the exact bytes it is about to send;
+/// cached by (mtime, len) so steady-state requests do not re-hash ~475 KB.
 async fn serve_channel_html() -> Response {
+    const PATH: &str = "web/channel.html";
+    struct Cached {
+        mtime: std::time::SystemTime,
+        len: u64,
+        body: axum::body::Bytes,
+        csp: HeaderValue,
+    }
+    static CACHE: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+
+    let stat = tokio::fs::metadata(PATH).await.ok();
+    if let Some((mtime, len)) = stat.and_then(|m| m.modified().ok().map(|t| (t, m.len()))) {
+        if let Some(c) = CACHE.lock().ok().and_then(|g| {
+            g.as_ref()
+                .filter(|c| c.mtime == mtime && c.len == len)
+                .map(|c| (c.body.clone(), c.csp.clone()))
+        }) {
+            return channel_response(c.0, c.1);
+        }
+        if let Ok(html) = tokio::fs::read_to_string(PATH).await {
+            let csp = disk_page_csp(&html);
+            let body = axum::body::Bytes::from(html);
+            if let Ok(mut g) = CACHE.lock() {
+                *g = Some(Cached {
+                    mtime,
+                    len,
+                    body: body.clone(),
+                    csp: csp.clone(),
+                });
+            }
+            return channel_response(body, csp);
+        }
+    }
+    // Fallback: the copy baked at build time, covered by the global CSP.
     text_response("text/html; charset=utf-8", CHANNEL_HTML)
+}
+
+fn channel_response(body: axum::body::Bytes, csp: HeaderValue) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .header("content-security-policy", csp)
+        .body(axum::body::Body::from(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Grant a disk-served document page its own inline hashes under the
+/// standard policy (`build_csp`). The global `csp_header_value` can only
+/// hash pages compiled into the binary; a page read from disk at request
+/// time must be hashed as served or the browser silently drops its
+/// inline blocks (see `splats_html_csp` for the same rule on /splats).
+fn disk_page_csp(html: &str) -> HeaderValue {
+    let mut scripts = std::collections::BTreeSet::new();
+    let mut styles = std::collections::BTreeSet::new();
+    extract_inline_blocks(html, "script", |open_tag, body| {
+        if !has_src_attr(open_tag) && !body.trim().is_empty() {
+            scripts.insert(sha256_b64(body));
+        }
+    });
+    extract_inline_blocks(html, "style", |_open_tag, body| {
+        if !body.trim().is_empty() {
+            styles.insert(sha256_b64(body));
+        }
+    });
+    let join = |set: &std::collections::BTreeSet<String>| -> String {
+        set.iter().map(|h| format!(" 'sha256-{h}'")).collect()
+    };
+    HeaderValue::from_str(&build_csp(&join(&scripts), &join(&styles))).expect("CSP header is ASCII")
 }
 
 async fn serve_card_html() -> Response {

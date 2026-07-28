@@ -1,0 +1,26 @@
+# Regenerate the /channel transcript from the live ledger. The server
+# disk-serves web/channel.html (with a per-file CSP hashed from the bytes
+# it sends), so this bake is all it takes for the public page to follow
+# the ledger between deploys. The page sat frozen at 2026-07-21 for a
+# week when regeneration only ever happened inside the deploy ritual.
+# Triggered by emem-channel-bake.timer; run once manually with
+#   systemctl --user start emem-channel-bake.service
+#
+# Install:
+#   cp ops/systemd/emem-channel-bake.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now emem-channel-bake.timer
+
+[Unit]
+Description=emem — regenerate the /channel transcript from the ledger
+# Reads the roster and every note from the local responder over /mcp.
+After=emem-server.service
+Wants=emem-server.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/emem
+ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/build_channel.py
+# Reading ~250 notes over the wire takes tens of seconds; a wedged run
+# must not linger into the next tick.
+TimeoutStartSec=10m
