@@ -1,5 +1,5 @@
 //! Orin NX streaming, end to end: an NVIDIA Jetson Orin NX streams
-//! OS-traced camera frames, and each frame becomes a 52-character token
+//! OS-traced camera frames, and each frame becomes a 63-character token
 //! that reconstructs the *verified provenance* of that frame on the
 //! ground.
 //!
@@ -14,13 +14,18 @@
 //! It reconstructs the attested provenance of the image** — who captured
 //! it, on what measured platform, that its execution verifies, and the
 //! digest that lets you check the pixels wherever they actually live. The
-//! frame bytes travel out of band; the token is 52 characters and carries
+//! frame bytes travel out of band; the token is 63 characters and carries
 //! proof, not payload. That is the design working, not failing: a video
 //! stream is not memory, but *what a frame means and that it is genuine*
 //! is.
 //!
-//! Everything runs offline and deterministically (fixed key, fixed clocks,
-//! synthetic frames), so it is CI-runnable proof rather than a demo:
+//! The frames are real: four Sentinel-2 true-colour crops of the Nile
+//! Delta cells this example grounds, committed under
+//! `examples/data/orin_frames/` (provenance in its `SOURCE.md`). Set
+//! `EMEM_FRAMES_DIR` to a directory of your own captures to stream those
+//! instead; the tracing, chaining, refusal, and tokens are unchanged.
+//! Everything still runs offline and deterministically (committed frames,
+//! fixed key, fixed clocks), so it is CI-runnable proof rather than a demo:
 //!
 //! ```bash
 //! cargo run -p emem-primitives --example orin_stream
@@ -43,9 +48,8 @@ use emem_trace::{
 const PROFILE: &str = "robot.fleet.v1";
 const PLATFORM: &str = "nvidia.jetson-orin";
 const BAND: &str = "indices.ndvi";
-const FRAMES: usize = 4;
-/// A 1920x1080 NV12 frame is 1080 * 1920 * 3 / 2 bytes. We do not
-/// materialize megabytes; we size the finding against the real number.
+/// A raw 1920x1080 NV12 capture is 1080 * 1920 * 3 / 2 bytes; the second
+/// yardstick in act 5, next to the committed frame's actual file size.
 const NV12_1080P_BYTES: usize = 1920 * 1080 * 3 / 2;
 
 #[tokio::main(flavor = "current_thread")]
@@ -111,20 +115,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // ── Act 2: stream the frames, each chained to the last. ────────────
-    println!("\nact 2  streaming {FRAMES} camera frames, each an OS-traced window:");
+    let frames = load_frames()?;
+    assert!(
+        frames.len() >= 2,
+        "need at least two frames to stream a chain"
+    );
+    println!(
+        "\nact 2  streaming {} camera frames, each an OS-traced window:",
+        frames.len()
+    );
     let cell = emem_codec::cell64_from_latlng(30.7901, 31.0007);
     let mut prev_trace: Option<String> = None;
     let mut tokens: Vec<(String, String)> = Vec::new(); // (trace_token, fact_token)
     let mut image_digests: Vec<String> = Vec::new();
 
-    for f in 0..FRAMES {
+    for (f, (frame_name, image)) in frames.iter().enumerate() {
         let window_start = 1_000 + (f as u64) * 100_000;
 
-        // The Orin's camera + ISP produced a frame; its model scored it.
-        // We synthesize the frame bytes deterministically and take their
-        // digest — the digest is what the trace binds, not the bytes.
-        let image = synth_frame(f);
-        let image_digest = render(&blake3::hash(&image));
+        // The Orin's camera + ISP produced this frame — real bytes from
+        // the frames directory. The trace binds their digest, not the
+        // bytes themselves.
+        let image_digest = render(&blake3::hash(image));
         image_digests.push(image_digest.clone());
 
         // The fact is the compact on-device readout for this frame: the
@@ -191,7 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let admitted = admitted.expect("gated admission");
         let fact_token = format!("emem:fact:{cell}:{}", cids[0].as_str());
         println!(
-            "       frame {f}: {}  chained<-{}",
+            "       frame {f} ({frame_name}): {}  chained<-{}",
             admitted.token,
             prev_trace.as_deref().unwrap_or("(stream head)")
         );
@@ -204,8 +215,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // head. The gate refuses it — a gap in a stream is not a private loss,
     // it is a detectable break.
     println!("\nact 3  drop a frame (a window that does not chain to the head):");
-    let orphan_image = synth_frame(99);
-    let orphan_digest = render(&blake3::hash(&orphan_image));
+    let orphan_image = &frames[frames.len() - 1].1; // captured, but its window skipped the chain
+    let orphan_digest = render(&blake3::hash(orphan_image));
     let orphan_fact = mk_fact(&cell, 99, 0.5, &orphan_digest, pubkey, &schema_cid);
     let orphan_desc = match &orphan_fact {
         Fact::Primary(p) => payload_digest_of_value(&p.value)?,
@@ -256,8 +267,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // frame of the new boot legitimately has no prev and is admitted — the
     // device is not wedged.
     println!("\nact 3b the Orin reboots (fresh boot_id) and streams again:");
-    let reboot_image = synth_frame(0);
-    let reboot_digest = render(&blake3::hash(&reboot_image));
+    let reboot_image = &frames[0].1; // the camera re-captures the same scene after reboot
+    let reboot_digest = render(&blake3::hash(reboot_image));
     let reboot_fact = mk_fact(&cell, 0, 0.61, &reboot_digest, pubkey, &schema_cid);
     let reboot_desc = match &reboot_fact {
         Fact::Primary(p) => payload_digest_of_value(&p.value)?,
@@ -344,25 +355,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Act 5: the flaw, stated plainly. ───────────────────────────────
     let token_bytes = tokens[0].0.len();
+    let frame_bytes = frames[0].1.len();
     println!("\nact 5  what reconstruction returns — the honest boundary:");
     println!(
-        "       the token is {token_bytes} bytes; a 1080p NV12 frame is {} bytes.",
-        NV12_1080P_BYTES
+        "       the token is {token_bytes} bytes; frame 0 ({}) is {frame_bytes} bytes",
+        frames[0].0
     );
+    println!("       on disk, and a raw 1080p NV12 capture is {NV12_1080P_BYTES} bytes.");
     println!(
-        "       ratio ~{}x. The token does not carry the frame; it carries",
+        "       ratio ~{}x against this file, ~{}x against raw NV12.",
+        frame_bytes / token_bytes,
         NV12_1080P_BYTES / token_bytes
     );
+    println!("       The token does not carry the frame; it carries");
     println!("       PROOF: the verified execution trace and the frame's digest.");
     println!("       Resolving it reconstructs the provenance, not the pixels.");
     println!("       The image travels out of band; blake3 == the bound digest");
     println!("       proves it was not altered. emem is memory, not a blob store:");
     println!("       putting the frame bytes in as a fact value would make every");
-    println!("       fact_cid a hash of megabytes and defeat the 52-byte handoff.");
+    println!("       fact_cid a hash of megabytes and defeat the 63-byte handoff.");
 
-    // Prove the integrity check an out-of-band consumer would run.
-    let refetched = synth_frame(0); // as if pulled from the CDN by digest
-    assert_eq!(render(&blake3::hash(&refetched)), image_digests[0]);
+    // Prove the integrity check an out-of-band consumer would run: pull
+    // the pixels from where they actually live (here, the frames
+    // directory again) and check them against the digest the trace bound.
+    let refetched = load_frames()?;
+    assert_eq!(render(&blake3::hash(&refetched[0].1)), image_digests[0]);
     println!("\n       out-of-band frame 0 re-fetched: blake3 matches the bound");
     println!("       digest, so the pixels are provably the ones the Orin emitted.");
 
@@ -375,21 +392,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("\ndone   {FRAMES} frames streamed, chained, and reconstructed; a dropped");
+    println!(
+        "\ndone   {} frames streamed, chained, and reconstructed; a dropped",
+        frames.len()
+    );
     println!("       frame refused; the image bound by digest, not swallowed.");
     Ok(())
 }
 
-/// A deterministic synthetic frame for frame index `f`. Stands in for a
-/// real Orin camera capture; the bytes never leave this process, only
-/// their digest is bound into the trace.
-fn synth_frame(f: usize) -> Vec<u8> {
-    // A small, deterministic buffer — enough to have a stable digest.
-    let mut v = vec![0u8; 4096];
-    for (i, b) in v.iter_mut().enumerate() {
-        *b = ((i as u64 * 2_654_435_761 + f as u64 * 40_503) % 251) as u8;
+/// Where the frames come from: `EMEM_FRAMES_DIR` if set (point it at a
+/// directory of your own captures), else the committed sample frames —
+/// real Sentinel-2 true-colour crops of the cells this example grounds
+/// (provenance in `examples/data/orin_frames/SOURCE.md`). Files are read
+/// as bytes, sorted by name; the format never matters because only the
+/// digest enters the trace.
+fn load_frames() -> Result<Vec<(String, Vec<u8>)>, std::io::Error> {
+    let dir = std::env::var("EMEM_FRAMES_DIR").unwrap_or_else(|_| {
+        concat!(env!("CARGO_MANIFEST_DIR"), "/examples/data/orin_frames").into()
+    });
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&dir)?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x != "md"))
+        .collect();
+    paths.sort();
+    let mut frames = Vec::with_capacity(paths.len());
+    for p in paths {
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        frames.push((name, std::fs::read(&p)?));
     }
-    v
+    Ok(frames)
 }
 
 fn render(h: &blake3::Hash) -> String {
