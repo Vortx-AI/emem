@@ -293,10 +293,10 @@ const WHITEPAPER_HTML: &str = include_str!("../../../web/whitepaper-v2.html");
 /// v1's page, archived verbatim alongside its markdown.
 const WHITEPAPER_V1_HTML: &str = include_str!("../../../web/whitepaper-v1.html");
 
-/// Static lookup table for the 33 protocol + industry diagrams that ship
+/// Static lookup table for the protocol + industry diagrams that ship
 /// in `docs/diagrams/`. The slug is the literal filename; the body is the
-/// SVG itself (each is 4-32 KB). Linear-search lookup is fine at 34
-/// entries — the binary cost (~380 KB) buys self-contained docs, and any
+/// SVG itself (each is 4-32 KB). Linear-search lookup is fine at this
+/// size — the binary cost (~430 KB) buys self-contained docs, and any
 /// agent that fetches `/docs/diagrams/<name>.svg` over the wire gets the
 /// exact bytes the index.html displays.
 /// The full mdbook docs site, baked into the binary at compile time.
@@ -4130,7 +4130,7 @@ fn a2a_task_object(task_id: &str, slot: &McpTaskSlot) -> JsonValue {
 /// Body: `{"skill": "<skill id from the AgentCard>", "args": {...}, "ttlMs": n}`.
 /// Returns the task immediately in `working`; poll `GET /v1/a2a/tasks/{id}`.
 ///
-/// Any of the 102 advertised skills may be submitted, not only the two the MCP
+/// Any advertised skill may be submitted, not only the two the MCP
 /// layer marks long-running, because a peer that wants a task handle for a
 /// short call is asking for a legitimate thing and refusing it would make the
 /// lifecycle useless for exactly the composition A2A exists to enable.
@@ -4556,7 +4556,7 @@ async fn get_scoreboard() -> Json<JsonValue> {
 /// The A2A AgentCard at `/.well-known/agent-card.json` already advertises every
 /// skill this responder has, with `protocolVersion`, declared capabilities and
 /// input/output modes. What it cannot do is answer "do you have a skill for X"
-/// without the caller fetching and scanning all of it, which for 102 skills is a
+/// without the caller fetching and scanning all of it, which for a hundred-plus skills is a
 /// large read to ask of a peer that only wants to know whether to route here at
 /// all. A consumer asked for exactly this and called it QuerySkill.
 ///
@@ -4852,6 +4852,18 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
                 "live_events_sse": format!("{origin}/v1/memory/sse"),
                 "agora":           format!("{origin}/splats/spark/"),
                 "note":            "memory_view `/memories/by_attester/` lists every agent and message; `/v1/memory/sse` streams writes live (filter by path_prefix); the agora renders the channel inside the 3D worlds with in-browser authorship verification.",
+            },
+            // Self-serve answers, so a question on the channel does not
+            // have to wait for a peer: ask returns a signed, fact-cited
+            // envelope with no language model in the loop, and the inbox
+            // is the read-side mailbox over the `X -> Y` note headings.
+            "ask": {
+                "endpoint": format!("{origin}/v1/ask"),
+                "note":     "POST {q, place?} — deterministic routing over the algorithm registry; the envelope carries the fact_cids it read and a receipt, and even a timeout returns a signed `incomplete` envelope. Prose from a model lives at /v1/explain and is labelled signed:false: prose is never evidence.",
+            },
+            "inbox": {
+                "endpoint": format!("{origin}/v1/inbox"),
+                "note":     "POST {to: <your-pubkey8>} — who wrote to you (direct, cc, or broadcast), each with file_cid and whether its authorship verifies offline. Roster and correspondence counts at /v1/agents.",
             },
             "how_to_join": {
                 "1_read":     "memory_view the standard above, then verify_receipt it and check its authorship block offline.",
@@ -41136,6 +41148,18 @@ fn concrete_bands_in_question(q: &str) -> Vec<&'static str> {
 /// short-name alias map. Already-qualified or already-canonical names
 /// pass through untouched, so existing qualified-band calls never change.
 pub(crate) fn resolve_band_name(name: &str) -> String {
+    // Storage aliases FIRST, even for names the registry knows: these
+    // dotted spellings persist under a different stored band name, and
+    // the recall fact-match, the warm-band present-check, and the
+    // materializer dispatch must all agree on the STORED name. Before
+    // this mapping, requesting `protected.is_protected_area` at a warm
+    // cell re-materialized on every read and still returned `facts: []`
+    // while the note claimed "materialized"; `overture.places_count` is
+    // the spelling the catalog advertises but only `overture.places.count`
+    // dispatches and persists.
+    if let Some(stored) = band_storage_alias(name) {
+        return stored.to_string();
+    }
     // Never rewrite a name that already resolves to a real band.
     if band_is_known(name) {
         return name.to_string();
@@ -41143,6 +41167,17 @@ pub(crate) fn resolve_band_name(name: &str) -> String {
     band_short_name_alias(name)
         .map(|s| s.to_string())
         .unwrap_or_else(|| name.to_string())
+}
+
+/// Requested spelling → the band name facts are actually stored (and
+/// dispatched) under. Only for keys whose stored name differs from an
+/// advertised or registry spelling; keep this map tiny and evidence-driven.
+fn band_storage_alias(name: &str) -> Option<&'static str> {
+    match name {
+        "protected.is_protected_area" => Some("protected"),
+        "overture.places_count" => Some("overture.places.count"),
+        _ => None,
+    }
 }
 
 /// True when `name` is a band this responder knows how to materialize or
@@ -44466,10 +44501,11 @@ async fn post_ask(
     // whole question past the gateway timeout. Per-materializer timeout
     // still caps individual upstream calls; this is the fan-out ceiling
     // on top. Tunable via EMEM_ASK_TIMEOUT_SECS (clamped 10..=180).
-    // Lowered 90→45 on 2026-05-31: a 90 s hold per ask is what let the
-    // eudr-a2a agent's 144 timed-out asks pile up and (with a full disk)
-    // contribute to the accept-loop stall. With the cold-band cap above,
-    // ask now returns a partial answer well inside this; the budget is the
+    // Lowered 90→45 on 2026-05-31 (the eudr-a2a agent's 144 timed-out asks
+    // piled up under a 90 s hold), then 45→30 when the per-materializer cap
+    // was sized to 14 s so ask keeps >=16 s of synthesis slack (see the
+    // EMEM_MATERIALIZER_TIMEOUT_SECS docs). With the cold-band cap above,
+    // ask returns a partial answer well inside this; the budget is the
     // backstop, not the common path.
     let budget = std::env::var("EMEM_ASK_TIMEOUT_SECS")
         .ok()
@@ -63412,6 +63448,31 @@ mod tests {
         assert!(!band_is_known("totally_made_up_band"));
         assert!(!band_is_known("elevation_mean")); // missing namespace
         assert!(band_is_known("temporal_diff:indices.ndvi:1y")); // parametric
+    }
+
+    /// Storage aliases win over the known-band early return: the dotted
+    /// spellings resolve to the band the facts are actually stored under,
+    /// so a warm cell answers instead of re-materializing into an empty
+    /// response, and every storage-alias target is itself dispatchable.
+    #[test]
+    fn band_storage_alias_resolution() {
+        assert_eq!(
+            resolve_band_name("protected.is_protected_area"),
+            "protected"
+        );
+        assert_eq!(
+            resolve_band_name("overture.places_count"),
+            "overture.places.count"
+        );
+        // The targets must be materializable, or the alias points nowhere.
+        assert!(band_is_known("protected"));
+        assert!(band_is_known("overture.places.count"));
+        // The stored names pass through untouched.
+        assert_eq!(resolve_band_name("protected"), "protected");
+        assert_eq!(
+            resolve_band_name("overture.places.count"),
+            "overture.places.count"
+        );
     }
 
     /// The cell-field guard rejects dotted cell-shaped junk of ANY token

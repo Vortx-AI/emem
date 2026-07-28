@@ -82,7 +82,7 @@
 <rect x="718" y="278" width="112" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="774" y="293" text-anchor="middle">missing_layer</text>
 <rect x="836" y="278" width="120" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="896" y="293" text-anchor="middle">output_unbound</text>
 <rect x="600" y="306" width="136" height="22" rx="11" fill="#2e8c84" opacity="0.15"/><text x="668" y="321" text-anchor="middle">signature_invalid</text>
-<text x="750" y="321" class="h dim" font-size="12">…sixteen named refusals, never a bare no</text>
+<text x="750" y="321" class="h dim" font-size="12">…seventeen named refusals, never a bare no</text>
 </g>
 <text x="600" y="352" class="h dim" font-size="12.5">Un-enrolled writers are untouched: the gate cannot break the archive.</text>
 

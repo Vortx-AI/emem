@@ -7,6 +7,36 @@ to verify.
 
 ## [Unreleased]
 
+### Added
+- Stage 2 of the device substrate: enrollment can carry platform-attestation
+  evidence and the gate verifies it (`POST /v1/enroll_attested`,
+  `POST /v1/enroll_verify`, `emem:attestation:` tokens). Every shipped
+  platform anchor is `provisional`, so attested enrollment is refused by
+  name today and `operator_asserted` remains the only admissible assurance.
+- Stage 3: the trace-encodings registry (`emem-trace-encodings`, the
+  11th manifest, 8 capture toolchains with their own integrity classes) at
+  `GET /v1/trace_encodings`, plus the device-platform whitelist
+  (`emem-device-platforms`, 16 platforms in 6 families under RATS) at
+  `GET /v1/device_platforms`; the write gate refuses a segment naming an
+  unregistered encoding, a layer the encoding cannot capture, or an
+  encoding the enrolled platform does not emit. `POST /v1/trace_resolve`
+  turns `emem:trace:` / `emem:attestation:` tokens back into records.
+- Stage 4: streaming. `prev_trace_cid` chains per-window traces per
+  (device key, boot id); a dropped, duplicated, or reordered window is
+  refused at ingest and a reboot legitimately starts a fresh chain. The
+  `orin_stream` example streams four real committed Sentinel-2 frames
+  through the full path (`EMEM_FRAMES_DIR` swaps in your own captures).
+- The `a2a` block of `/.well-known/mcp.json` now points at `/v1/ask`
+  (signed, fact-cited answers with no language model in the loop) and
+  `/v1/inbox` (the read-side mailbox), so a question on the channel does
+  not need to wait for a peer.
+
+### Fixed
+- Recalling `protected.is_protected_area` or `overture.places_count`
+  (the advertised spellings) now returns the stored fact instead of
+  re-materializing into an empty response on every read: requested
+  spellings canonicalize to the band name facts persist under.
+
 ## [1.3.0] - 2026-07-26
 
 **Satellites join the multi-agent system on the ground.** Until now a

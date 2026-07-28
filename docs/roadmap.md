@@ -28,7 +28,7 @@ emem is a protocol, not a single service. The end state is a federation of indep
 
 The staged work from here, building on those pieces:
 
-1. **One public transparency log.** Signed tree heads and consistency proofs over the existing append-only log, so no responder can tell two clients two different stories about the same history.
+1. **Receipts that name their log leaf.** The public transparency log itself shipped 2026-07-10 (signed tree heads, consistency and inclusion proofs, entry enumeration, and witness co-signing, all under `/v1/log/*`). What remains is chaining each receipt to its leaf, so tying one fact to the log is a single check instead of the receipt's batch proof plus enumeration, and gossiping heads between responders so a split view cannot survive.
 2. **Signed absence proofs.** Turn "no fact here" from a signed statement into a checkable non-membership proof.
 3. **A public attester spec.** So partners and customers run their own signing nodes against the write path that already exists.
 4. **Quorum reads across responders.** Content addressing makes agreement trivial to check: same canonical bytes, same id, k signatures. The design is written up in [`federation.md`](federation.md).

@@ -201,7 +201,10 @@ pub struct DevicePlatform {
     /// least one effective (non-provisional) anchor.
     pub trust_anchors: Vec<TrustAnchor>,
     /// Capture encodings this platform may legitimately emit (segment
-    /// `encoding` values). Ties to the trace-encodings registry (roadmap).
+    /// `encoding` values). Cross-checked against the trace-encodings
+    /// registry: every recognized encoding must be registered (asserted in
+    /// tests below) and the write gate refuses a platform-enrolled trace
+    /// whose segment names an encoding the platform does not emit.
     pub recognized_encodings: Vec<String>,
     /// Pointer to this platform's known-good reference-value set, when one
     /// is published; `None` until measured-boot appraisal ships.

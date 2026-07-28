@@ -1,5 +1,5 @@
 {
-  "_comment": "Front-door pointers for the agent-to-agent collaboration. This is DATA, not code: no peer's namespace or key belongs compiled into the server binary, and the set of documents (and who authored them) changes as agents join, rotate keys, or hand a document to someone else. Edit this file and restart; no rebuild. A missing file or a missing key here simply omits that pointer from /v1/capabilities.",
+  "_comment": "Front-door pointers for the agent-to-agent collaboration. This is DATA, not code: no peer's namespace or key belongs compiled into the server binary, and the set of documents (and who authored them) changes as agents join, rotate keys, or hand a document to someone else. Edit this file and restart; no rebuild. A missing file or a missing key here simply omits that pointer from the a2a block of /.well-known/mcp.json.",
   "standard": {
     "path": "/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md",
     "file_cid": "l6ppjyiygzt3q4btpwfvvlzdy4",

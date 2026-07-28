@@ -36,12 +36,12 @@ The per-manifest `Manifest::validate` impl runs before the CID is taken, so
 a structurally invalid manifest never gets a CID. The loader panics at
 startup.
 
-## The nine manifests
+## The eleven manifests
 
 | Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
 |-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
 | `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 43 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
-| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 162         | composition recipes (solo / combined / embedding)           |
+| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 168         | composition recipes (solo / combined / embedding)           |
 | `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 23          | derivation functions (primary / derivative / negative)      |
 | `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 46 schemes  | ordered providers per scheme                                |
 | `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 27 topics   | `/v1/ask` routing (description + aliases + bands)           |
@@ -49,9 +49,14 @@ startup.
 | `emem-lcv1`             | `src/taxonomy.rs`                          | `taxonomy::Lcv1` + `LcvFamily`      | 64 leaves   | 8 families x 8 leaves land-cover taxonomy, u8 encoded       |
 | `emem-cell64-alphabet`  | `crates/emem-codec/src/alphabet.rs`        | `build_alphabet_v0()` (no struct)   | 65 536      | CVCV bigrams padded with `z<hex4>` synthetic suffix         |
 | `emem-substrates`       | `data/substrates-v0.json`                  | `substrates::SubstrateRegistry`     | 10 profiles | per contributor class: admission rule, required trace layers, grain |
+| `emem-device-platforms` | `data/device-platforms-v0.json`            | `device_platforms::DevicePlatformRegistry` | 16 platforms | whitelisted device platforms: family, root of trust, anchors, recognized encodings |
+| `emem-trace-encodings`  | `data/trace-encodings-v0.json`             | `trace_encodings::TraceEncodingRegistry`   | 8 encodings  | recognized capture toolchains: layers each may capture, tracer's own integrity |
 
 The JSON+struct pairs are validated against `crate::manifest::Manifest`.
 `emem-lcv1` is a Rust enum. `emem-cell64-alphabet` is synthesised in code.
+The nine JSON-backed manifests are served with their CIDs by
+`GET /v1/manifests`; the two code-synthesised ones are pinned by the
+binary itself.
 
 `emem-substrates` is the newest manifest: the substrate profile registry
 behind the encoder trust layer (`docs/plans/encoder-substrates.md`). One
@@ -62,8 +67,9 @@ The satellite class appears twice on purpose: `earth.satellite.v0` is the
 open public archive, `orbital.satellite.v1` is an operator's own
 constellation writing under its own key, which makes it a device
 substrate with the trace rule like any other.
-It is not yet served by `GET /v1/manifests`; exposing it there is the
-first wiring step in the plan.
+It is served by `GET /v1/manifests` alongside `emem-device-platforms`
+and `emem-trace-encodings`, the two registries that say which hardware
+the trace rule will believe and which tracers a trace may name.
 
 ## emem-bands (bands-v0.json)
 
