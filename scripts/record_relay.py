@@ -10,7 +10,17 @@ import json, subprocess, urllib.request, time
 from pathlib import Path
 
 LLM = "http://127.0.0.1:5014/v1/chat/completions"
-HOPS = [("google/gemma-4-12B-it","gemma"), ("Qwen/Qwen2.5-7B-Instruct","qwen"), ("google/gemma-4-12B-it","gemma")]
+# Eight hops, alternating families, with the budget tightening the way a
+# long session's compaction budget does. Three hops lost only the tail
+# digits; the interesting failure is what a chain does over its length.
+# Alternating families, budget tightening the way a long session's compaction
+# budget does. The chain runs until the carried value falls below 0.1 (the
+# point where the number is no longer the measurement in any useful sense) or
+# MAX_HOPS is reached. Whatever it does is what gets published: if it never
+# falls, the recording says so.
+HOPS_PAIR = [("google/gemma-4-12B-it", "gemma"), ("Qwen/Qwen2.5-7B-Instruct", "qwen")]
+MAX_HOPS = 24
+STOP_BELOW = 0.1
 
 def call(base, fam, prompt, timeout=600):
     body = {"base_model": base, "family": fam,
@@ -34,23 +44,42 @@ cell, cid, val = fact["cell"], fact["fact_cid"], fact["value"]
 token = f"emem:fact:{cell}:{cid}"
 print("fact:", val, token[:50])
 
+import re as _re
+def carried_value(t):
+    m = _re.search(r"\d*\.\d+", t or "")
+    return float(m.group(0)) if m else None
+
 frames = []
 carried = f'NDVI at cell {cell} is {val}'
-for i,(base,fam) in enumerate(HOPS):
-    prompt = (f"You are agent {i+1} in a chain. Summarize this handoff note in ONE short "
-              f"sentence for the next agent, under 20 words. Do not add caveats.\n\n{carried}")
-    t0=time.time()
+stop_reason = "max_hops"
+for i in range(MAX_HOPS):
+    base, fam = HOPS_PAIR[i % 2]
+    # Tighten the budget the way a compaction window tightens, then hold.
+    budget = max(6, 24 - i * 2)
+    prompt = (f"You are agent {i+1} in a long chain. Compress this handoff note for the next "
+              f"agent in ONE sentence, under {budget} words. Write it naturally, the way you "
+              f"would brief a colleague; do not add caveats.\n\n{carried}")
+    t0 = time.time()
     out = call(base, fam, prompt)
-    ms = int((time.time()-t0)*1000)
-    frames.append({"hop": i+1, "model": base, "family": fam, "text": out, "ms": ms})
-    print(f"hop{i+1} {fam} {ms}ms: {out[:110]}")
+    ms = int((time.time() - t0) * 1000)
+    cv = carried_value(out)
+    frames.append({"hop": i + 1, "model": base, "family": fam, "text": out,
+                   "ms": ms, "value": cv})
+    print(f"hop{i+1} {fam} {ms}ms val={cv}: {out[:100]}")
     carried = out
+    if cv is None:
+        stop_reason = "value_dropped_from_the_summary"
+        break
+    if cv < STOP_BELOW:
+        stop_reason = "value_below_0.1"
+        break
 
 # 2. the token arm: same chain, carrying only the handle
 tok_carried = f"Reference: {token}"
 tok_frames = []
-for i,(base,fam) in enumerate(HOPS):
-    prompt = (f"You are agent {i+1} in a chain. Pass this reference to the next agent "
+for i in range(len(frames)):
+    base, fam = HOPS_PAIR[i % 2]
+    prompt = (f"You are agent {i+1} in a long chain. Pass this reference to the next agent "
               f"EXACTLY as written, with one short sentence of context. Under 25 words.\n\n{tok_carried}")
     out = call(base, fam, prompt)
     tok_frames.append({"hop": i+1, "model": base, "family": fam, "text": out,
@@ -71,6 +100,8 @@ out = {
   "cell": cell, "fact_cid": cid, "token": token,
   "exact_value": val,
   "prose_chain": frames,
+  "stop_reason": stop_reason,
+  "hops": len(frames),
   "token_chain": tok_frames,
   "resolved_value": resolved,
   "resolved_matches_exact": resolved == val,

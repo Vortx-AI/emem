@@ -1,6 +1,6 @@
 {
  "schema": "emem.relay.recording.v1",
- "recorded_at": "2026-07-28T15:09:45Z",
+ "recorded_at": "2026-07-28T16:43:11Z",
  "place": "Manali, Himachal Pradesh",
  "band": "indices.ndvi",
  "cell": "defi.zb56f.dAwe.zb8ea",
@@ -12,24 +12,269 @@
    "hop": 1,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
-   "text": "The NDVI value at cell defi.zb56f.dAwe.zb8ea is 0.207295.",
-   "ms": 3970
+   "text": "thought\nThe NDVI value at cell defi.zb56f.dAwe.zb8ea is 0.207295.",
+   "ms": 4280,
+   "value": 0.207295,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
   },
   {
    "hop": 2,
    "model": "Qwen/Qwen2.5-7B-Instruct",
    "family": "qwen",
-   "text": "NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.2073.",
-   "ms": 6537
+   "text": "NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.207.",
+   "ms": 1541,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
   },
   {
    "hop": 3,
    "model": "google/gemma-4-12B-it",
    "family": "gemma",
-   "text": "The NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.2073.",
-   "ms": 3727
+   "text": "The NDVI value for cell defi.zb56f.dAwe.zb8ea is 0.207.",
+   "ms": 3472,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
+  },
+  {
+   "hop": 4,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
+   "ms": 1463,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
+  },
+  {
+   "hop": 5,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "The NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
+   "ms": 3389,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
+  },
+  {
+   "hop": 6,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
+   "ms": 1520,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
+  },
+  {
+   "hop": 7,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "The NDVI for cell defi.zb56f.dAwe.zb8ea is 0.207.",
+   "ms": 3353,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
+  },
+  {
+   "hop": 8,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI of 0.207 for cell defi.zb56f.dAwe.zb8ea.",
+   "ms": 1486,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
+  },
+  {
+   "hop": 9,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Cell defi.zb56f.dAwe.zb8ea has NDVI 0.207.",
+   "ms": 3133,
+   "value": 0.207,
+   "addr_full": true,
+   "addr_partial": false,
+   "addr_gone": false
+  },
+  {
+   "hop": 10,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI 0.207 for zb56f.dAwe.zb8ea.",
+   "ms": 1210,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 11,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "NDVI 0.207 for zb56f.dAwe.zb8ea.",
+   "ms": 2905,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 12,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI value: 0.207 for zb56f.dAwe.zb8ea.",
+   "ms": 1329,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 13,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "NDVI 0.207 for zb56f.dAwe.zb8ea.",
+   "ms": 2884,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 14,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI value: 0.207 for zb56f.dAwe.zb8ea.",
+   "ms": 1324,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 15,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "NDVI is 0.207 for zb56f.",
+   "ms": 2121,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 16,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI 0.207 for zb56f.",
+   "ms": 837,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 17,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "zb56f NDVI is 0.207.",
+   "ms": 1849,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": true,
+   "addr_gone": false
+  },
+  {
+   "hop": 18,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI value is 0.207.",
+   "ms": 671,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": false,
+   "addr_gone": true
+  },
+  {
+   "hop": 19,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "NDVI is 0.207.",
+   "ms": 1461,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": false,
+   "addr_gone": true
+  },
+  {
+   "hop": 20,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI value: 0.207.",
+   "ms": 670,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": false,
+   "addr_gone": true
+  },
+  {
+   "hop": 21,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "NDVI is 0.207.",
+   "ms": 1470,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": false,
+   "addr_gone": true
+  },
+  {
+   "hop": 22,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI value: 0.207.",
+   "ms": 673,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": false,
+   "addr_gone": true
+  },
+  {
+   "hop": 23,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "NDVI is 0.207.",
+   "ms": 1462,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": false,
+   "addr_gone": true
+  },
+  {
+   "hop": 24,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "NDVI value: 0.207.",
+   "ms": 669,
+   "value": 0.207,
+   "addr_full": false,
+   "addr_partial": false,
+   "addr_gone": true
   }
  ],
+ "stop_reason": "max_hops",
+ "hops": 24,
  "token_chain": [
   {
    "hop": 1,
@@ -51,9 +296,157 @@
    "family": "gemma",
    "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
    "token_intact": true
+  },
+  {
+   "hop": 4,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 5,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 6,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 7,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 8,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 9,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 10,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 11,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 12,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "Passing the reference emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq to the next agent.",
+   "token_intact": true
+  },
+  {
+   "hop": 13,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq",
+   "token_intact": true
+  },
+  {
+   "hop": 14,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 15,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 16,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 17,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 18,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 19,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 20,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 21,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 22,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 23,
+   "model": "google/gemma-4-12B-it",
+   "family": "gemma",
+   "text": "Here is the reference for the next agent.\n\nemem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
+  },
+  {
+   "hop": 24,
+   "model": "Qwen/Qwen2.5-7B-Instruct",
+   "family": "qwen",
+   "text": "The reference for the next agent is emem:fact:defi.zb56f.dAwe.zb8ea:fexziku7juwldy6dq45rgwhokxa7l64ickqp3nr2ejil6xzi4efq.",
+   "token_intact": true
   }
  ],
  "resolved_value": 0.2072951451322887,
  "resolved_matches_exact": true,
- "note": "Every frame is what the named model actually wrote at temperature 0. The prose chain is one signed fact carried as a summary through three hops across two model families; the token chain carries the handle instead. Re-run scripts/record_relay.py to regenerate."
+ "note": "Every frame is what the named model actually wrote at temperature 0. The prose chain is one signed fact carried as a summary through three hops across two model families; the token chain carries the handle instead. Re-run scripts/record_relay.py to regenerate.",
+ "address_note": "The value rounds once and then holds; the ADDRESS is what dies. Full cell64 through hop 9, truncated by hop 10, a single fragment by 15, gone by 18: a number that no longer knows what it is about."
 }

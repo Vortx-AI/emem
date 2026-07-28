@@ -4269,6 +4269,9 @@ fn a2a_task_object(s: &AppState, task_id: &str, slot: &McpTaskSlot) -> JsonValue
         .result
         .clone()
         .map(|wrapped| slot.raw_result.clone().unwrap_or(wrapped));
+    // R4: on failure the state is the branch point; do not ship the MCP
+    // envelope (isError, content[], internal codes) to a remote peer.
+    let payload = if state == "failed" { None } else { payload };
     if let Some(result) = payload {
         let mut parts = vec![json!({"kind": "data", "data": result})];
         if let Some(rp) = a2a_receipt_part(s, &result) {
@@ -4343,7 +4346,7 @@ fn a2a_receipt_part(s: &AppState, result: &JsonValue) -> Option<JsonValue> {
         "data": {
             "schema":   "emem.a2a.receipts.v1",
             "receipt":  receipt,
-            "note":     "This responder's ed25519 signature over the fact_cids the sibling part serves. Verify offline, or POST it to /v1/verify_receipt; the preimage rules are /v1/verifier_spec.",
+            "note":     "This responder's ed25519 signature over the fact_cids the sibling part serves. Verify offline, or POST {\"receipt\": <this receipt>} to /v1/verify_receipt; the preimage rules are /v1/verifier_spec.",
         },
     }))
 }
@@ -17786,6 +17789,121 @@ fn mcp_origin_allowed(origin: &str) -> bool {
 /// permit (a cold load must never fan out), with a timeout of at least
 /// 120 s. The prose is `model_output` and `signed: false` by construction;
 /// the grounding block beside it carries the fact_cids and receipt.
+
+// ── A2A round 2: the free-text front door ────────────────────────────────
+//
+// The re-sweep found the door open in the worst way: "hello" geocoded to a
+// village in Burkina Faso and came back as a confident, receipted, 210 KB
+// envelope about it. A confident answer about an arbitrary place, handed to
+// an agent that said hello, is referential drift wearing our own uniform.
+// So the routed path now gates on the geocoder's own confidence, inherits a
+// place from the conversation instead of guessing, bounds what it returns,
+// and always answers inside a deadline with a real error object.
+
+/// contextId -> the cell64 that conversation is about, with a TTL. A2A's
+/// contextId is a grouping key; the most emem-native reading of it is
+/// continuity by ADDRESS rather than by transcript, so a follow-up with no
+/// resolvable place inherits the ground its thread already established.
+static A2A_CTX_CELL: std::sync::Mutex<Option<std::collections::HashMap<String, (String, u64)>>> =
+    std::sync::Mutex::new(None);
+const A2A_CTX_TTL_MS: u64 = 30 * 60 * 1000;
+
+fn a2a_ctx_remember(ctx: &str, cell: &str) {
+    if ctx.is_empty() || cell.is_empty() {
+        return;
+    }
+    let now = now_unix_ms();
+    if let Ok(mut g) = A2A_CTX_CELL.lock() {
+        let map = g.get_or_insert_with(std::collections::HashMap::new);
+        map.retain(|_, (_, at)| now.saturating_sub(*at) < A2A_CTX_TTL_MS);
+        if map.len() > 4096 {
+            map.clear();
+        }
+        map.insert(ctx.to_string(), (cell.to_string(), now));
+    }
+}
+
+fn a2a_ctx_cell(ctx: &str) -> Option<String> {
+    if ctx.is_empty() {
+        return None;
+    }
+    let now = now_unix_ms();
+    let g = A2A_CTX_CELL.lock().ok()?;
+    let (cell, at) = g.as_ref()?.get(ctx)?;
+    (now.saturating_sub(*at) < A2A_CTX_TTL_MS).then(|| cell.clone())
+}
+
+/// Does this free text name a place this responder is confident about?
+/// Uses the geocoder's own `selected.is_high_confidence` and reason, never
+/// a heuristic of our own.
+async fn a2a_place_gate(text: &str, s: &AppState) -> Result<String, String> {
+    let body = json!({ "q": text });
+    let located = mcp_tool_call("emem_locate", body, s)
+        .await
+        .map_err(|(_, m)| m)?;
+    let sel = located.get("selected").cloned().unwrap_or(JsonValue::Null);
+    let cell = sel
+        .get("cell64")
+        .and_then(|c| c.as_str())
+        .or_else(|| located.get("cell64").and_then(|c| c.as_str()))
+        .unwrap_or_default()
+        .to_string();
+    let high = sel
+        .get("is_high_confidence")
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false);
+    if cell.is_empty() || !high {
+        let reason = sel
+            .get("confidence_reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("no_confident_match");
+        let label = sel.get("label").and_then(|l| l.as_str()).unwrap_or("");
+        return Err(format!("{reason}|{label}"));
+    }
+    Ok(cell)
+}
+
+/// Rule 6 applies to our own front door: never hand a model raw embedding
+/// floats or long base32 blobs. Trim the ask envelope to what a caller can
+/// actually reason over, keeping every cid and the receipt, unless the
+/// caller asked for the full payload.
+fn a2a_trim_envelope(mut v: JsonValue) -> JsonValue {
+    fn trim(v: &mut JsonValue, depth: usize) {
+        match v {
+            JsonValue::Array(a) => {
+                // A long numeric array is an embedding: cite it, do not ship it.
+                let numeric = a.len() > 24 && a.iter().all(|x| x.is_number());
+                if numeric {
+                    let n = a.len();
+                    *v = JsonValue::String(format!(
+                        "[{n} floats omitted: request metadata.verbosity=\"full\", or read the cited fact]"
+                    ));
+                    return;
+                }
+                if depth < 8 {
+                    for x in a.iter_mut() {
+                        trim(x, depth + 1);
+                    }
+                }
+            }
+            JsonValue::Object(m) => {
+                if depth < 8 {
+                    for (_, x) in m.iter_mut() {
+                        trim(x, depth + 1);
+                    }
+                }
+            }
+            JsonValue::String(t) if t.len() > 4096 => {
+                let n = t.len();
+                *v = JsonValue::String(format!("[{n} chars omitted; request verbosity=full]"));
+            }
+            _ => {}
+        }
+    }
+    trim(&mut v, 0);
+    v
+}
+
 async fn a2a_reason_compose(
     q: &str,
     ask_env: JsonValue,
@@ -18130,6 +18248,7 @@ async fn post_a2a_task(
             // Deterministic routing first (sweep F2): a plain text part with
             // no skill_id is a question, not a protocol error. emem_ask
             // answers it signed, with no language model in the loop.
+            let mut resolved_cell: Option<String> = None;
             let (skill, args) = match (skill_id, data_part, text_part) {
                 (Some(skill), Some(data), _) => (skill, data),
                 (Some(skill), None, Some(text)) => {
@@ -18153,7 +18272,54 @@ async fn post_a2a_task(
                     }
                 }
                 (Some(skill), None, None) => (skill, JsonValue::Null),
-                (None, _, Some(text)) => ("emem_ask".to_string(), json!({"q": text})),
+                (None, _, Some(text)) => {
+                    // The gated free-text door (round-2 R1/R2). A thread that
+                    // already established ground inherits it; otherwise the
+                    // geocoder must be confident, or we refuse in a way that
+                    // teaches, rather than answering about a village that
+                    // happens to be spelled like the greeting.
+                    let ctx = params
+                        .get("message")
+                        .and_then(|m| m.get("contextId"))
+                        .and_then(|c| c.as_str())
+                        .or_else(|| params.get("contextId").and_then(|c| c.as_str()))
+                        .unwrap_or("")
+                        .to_string();
+                    match a2a_ctx_cell(&ctx) {
+                        Some(cell) => {
+                            resolved_cell = Some(cell.clone());
+                            ("emem_ask".to_string(), json!({"q": text, "cell": cell}))
+                        }
+                        None => match a2a_place_gate(&text, &s).await {
+                            Ok(cell) => {
+                                a2a_ctx_remember(&ctx, &cell);
+                                resolved_cell = Some(cell.clone());
+                                ("emem_ask".to_string(), json!({"q": text, "cell": cell}))
+                            }
+                            Err(detail) => {
+                                let (reason, label) =
+                                    detail.split_once('|').unwrap_or((detail.as_str(), ""));
+                                let guess = if label.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" The closest match was `{label}`, which is a guess, not an answer.")
+                                };
+                                return rpc_err(
+                                    rpc_id,
+                                    -32602,
+                                    "this text does not name a place I can ground confidently"
+                                        .into(),
+                                    json!({
+                                        "schema": "emem.error.v1",
+                                        "confidence_reason": reason,
+                                        "message": format!("Every emem answer is about one address on the ground, so a question with no confident place has nothing to be about.{guess} Name a place, pass a cell64, or continue an existing thread by sending its contextId and I will inherit the ground it established."),
+                                        "skills": "/v1/a2a/skills?q=locate",
+                                    }),
+                                );
+                            }
+                        },
+                    }
+                }
                 (None, Some(data), None) => {
                     // Data with no skill named: if it has a question, route it.
                     match data.get("q").and_then(|x| x.as_str()) {
@@ -18172,12 +18338,54 @@ async fn post_a2a_task(
                 }
             };
 
-            match mcp_tool_call(&skill, args, &s).await {
-                Ok(result) => Ok(Json(json!({
-                    "jsonrpc": "2.0", "id": rpc_id,
-                    "result": a2a_message_result(&s, &skill, result),
-                }))),
-                Err((code, msg)) => rpc_err(
+            // R6: sync answers fast or hands back a task. It never asks a
+            // remote caller to retune this server, and it never dies as an
+            // empty 504 a stock client cannot parse.
+            let verbosity_full = params
+                .get("metadata")
+                .and_then(|m| m.get("verbosity"))
+                .and_then(|v| v.as_str())
+                == Some("full");
+            let budget = std::time::Duration::from_secs(20);
+            match tokio::time::timeout(budget, mcp_tool_call(&skill, args.clone(), &s)).await {
+                Err(_elapsed) => match mcp_spawn_task(&skill, args, 600_000, &s) {
+                    Ok(created) => {
+                        let id = created
+                            .get("task")
+                            .and_then(|t| t.get("taskId"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+                        let map = mcp_tasks_lock();
+                        let obj = map
+                            .get(&id)
+                            .map(|slot| a2a_task_object(&s, &id, slot))
+                            .unwrap_or_else(|| {
+                                json!({"id": id, "kind": "task", "status": {"state": "working"}})
+                            });
+                        Ok(Json(json!({"jsonrpc": "2.0", "id": rpc_id, "result": obj})))
+                    }
+                    Err((code, msg)) => rpc_err(
+                        rpc_id,
+                        -32000,
+                        format!(
+                            "`{skill}` exceeded the sync budget and could not be promoted ({code})"
+                        ),
+                        json!({"schema": "emem.error.v1", "message": msg}),
+                    ),
+                },
+                Ok(Ok(result)) => {
+                    let result = if verbosity_full {
+                        result
+                    } else {
+                        a2a_trim_envelope(result)
+                    };
+                    Ok(Json(json!({
+                        "jsonrpc": "2.0", "id": rpc_id,
+                        "result": a2a_message_result_ctx(&s, &skill, result, resolved_cell.as_deref()),
+                    })))
+                }
+                Ok(Err((code, msg))) => rpc_err(
                     rpc_id,
                     -32602,
                     format!("skill `{skill}` refused the call"),
@@ -18232,6 +18440,20 @@ async fn post_a2a_task(
 /// allows either, and a Task id no surface can retrieve again is the one
 /// thing it does not contemplate. The parts are the raw result plus the
 /// responder-signed receipts part (sweep F1).
+fn a2a_message_result_ctx(
+    s: &AppState,
+    skill: &str,
+    result: JsonValue,
+    remember_cell: Option<&str>,
+) -> JsonValue {
+    let out = a2a_message_result(s, skill, result);
+    if let (Some(cell), Some(ctx)) = (remember_cell, out.get("contextId").and_then(|c| c.as_str()))
+    {
+        a2a_ctx_remember(ctx, cell);
+    }
+    out
+}
+
 fn a2a_message_result(s: &AppState, skill: &str, result: JsonValue) -> JsonValue {
     let mut h = blake3::Hasher::new();
     h.update(iso8601_now_utc().as_bytes());
