@@ -1209,6 +1209,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/locate", get(get_locate))
         .route("/v1/ask", post(post_ask))
         .route("/v1/inbox", post(post_inbox).get(get_inbox))
+        .route("/v1/channel/geo", get(get_channel_geo))
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
@@ -17767,7 +17768,11 @@ fn mcp_origin_allowed(origin: &str) -> bool {
 /// permit (a cold load must never fan out), with a timeout of at least
 /// 120 s. The prose is `model_output` and `signed: false` by construction;
 /// the grounding block beside it carries the fact_cids and receipt.
-async fn a2a_reason_compose(q: &str, ask_env: JsonValue) -> Result<JsonValue, (i64, String)> {
+async fn a2a_reason_compose(
+    q: &str,
+    ask_env: JsonValue,
+    s: &AppState,
+) -> Result<JsonValue, (i64, String)> {
     static REASON_FLIGHT: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
     let sema = REASON_FLIGHT.get_or_init(|| tokio::sync::Semaphore::new(1));
     let _permit = sema
@@ -17780,46 +17785,68 @@ async fn a2a_reason_compose(q: &str, ask_env: JsonValue) -> Result<JsonValue, (i
     // The sanctioned shape for the shared model host (ratified standard
     // rule 7, and the host enforces it): field `base_model` (not OpenAI's
     // `model`) plus `family`, called directly at :5014.
-    let base_model = std::env::var("EMEM_A2A_LLM_BASE_MODEL")
-        .unwrap_or_else(|_| "google/gemma-4-12B-it".into());
+    let base_model =
+        std::env::var("EMEM_A2A_LLM_BASE_MODEL").unwrap_or_else(|_| "google/gemma-4-12B-it".into());
     let family = std::env::var("EMEM_A2A_LLM_FAMILY").unwrap_or_else(|_| "gemma".into());
     let timeout_s = std::env::var("EMEM_A2A_LLM_TIMEOUT_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(150)
         .clamp(120, 600);
+    let max_tool_calls: usize = std::env::var("EMEM_A2A_LLM_MAX_TOOLS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3)
+        .min(6);
 
-    // The grounding the model is allowed to speak from, bounded so a huge
-    // envelope cannot blow the model's context.
+    // The model is loaded with the whole READ surface: every registry tool
+    // whose serialized readOnlyHint is true (so the loop can never write,
+    // and never recurse into itself). It sees names + one-line titles, not
+    // 105 schemas; emem_tools fetches any schema it needs, inside the loop.
+    let menu: String = emem_mcp::TOOLS
+        .iter()
+        .filter(|t| t.read_only_hint && t.name != "emem_reason")
+        .map(|t| format!("{}: {}", t.name, t.title))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     let mut grounding = serde_json::to_string(&ask_env).unwrap_or_default();
-    grounding.truncate(12_000);
+    grounding.truncate(10_000);
 
-    let payload = json!({
-        "base_model": base_model,
-        "family": family,
-        "temperature": 0.0,
-        "max_tokens": 700,
-        "messages": [
-            {"role": "system", "content":
-                "You are the reasoning tier of emem, a shared verifiable memory for AI agents. \
-                 You are given a question and a SIGNED evidence envelope (JSON) produced by the \
-                 deterministic ask pipeline. Compose a concise, plain-language answer USING ONLY \
-                 values present in the envelope, citing bands by name. If the envelope cannot \
-                 support an answer, reply exactly: ABSTAIN: followed by what is missing. Never \
-                 invent a number."},
-            {"role": "user", "content": format!("Question: {q}\n\nSigned envelope:\n{grounding}")}
-        ],
-    });
+    let system = format!(
+        "You are the reasoning tier of emem, a shared verifiable memory for AI agents. \
+         Answer the question using ONLY evidence from tool results and the signed envelope \
+         provided. You may call any of these read-only tools by replying with EXACTLY one \
+         JSON object and nothing else: {{\"tool\": \"<name>\", \"args\": {{...}}}}. \
+         To fetch a tool's exact schema first, call emem_tools with {{\"name\": \"<name>\"}}. \
+         When you can answer, reply with EXACTLY: {{\"answer\": \"<plain-language answer, \
+         citing bands by name>\"}}. If the evidence cannot support an answer, reply \
+         {{\"answer\": \"ABSTAIN: <what is missing>\"}}. Never invent a number.\n\nTools:\n{menu}"
+    );
+    let mut messages = vec![
+        json!({"role": "system", "content": system}),
+        json!({"role": "user", "content": format!("Question: {q}\n\nSigned envelope from emem_ask:\n{grounding}")}),
+    ];
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(timeout_s))
         .build()
         .map_err(|e| (-32050i64, format!("reasoning tier client: {e}")))?;
-    let resp = client
-        .post(&url)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| {
+
+    let mut all_cids: Vec<String> = Vec::new();
+    a2a_collect_fact_cids(&ask_env, &mut all_cids);
+    let mut tool_trace: Vec<JsonValue> = Vec::new();
+    let mut prose = String::new();
+
+    for _turn in 0..=max_tool_calls {
+        let payload = json!({
+            "base_model": base_model,
+            "family": family,
+            "temperature": 0.0,
+            "max_tokens": 700,
+            "messages": messages,
+        });
+        let resp = client.post(&url).json(&payload).send().await.map_err(|e| {
             (
                 -32050i64,
                 format!(
@@ -17827,29 +17854,78 @@ async fn a2a_reason_compose(q: &str, ask_env: JsonValue) -> Result<JsonValue, (i
                 ),
             )
         })?;
-    let status = resp.status();
-    let body: JsonValue = resp.json().await.map_err(|e| {
-        (
-            -32050i64,
-            format!("reasoning tier returned non-JSON ({status}): {e}"),
-        )
-    })?;
-    let prose = body
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("content"))
-        .and_then(|t| t.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
+        let status = resp.status();
+        let body: JsonValue = resp.json().await.map_err(|e| {
+            (
+                -32050i64,
+                format!("reasoning tier returned non-JSON ({status}): {e}"),
+            )
+        })?;
+        let content = body
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if content.is_empty() {
+            return Err((
+                -32050i64,
+                format!("the reasoning tier returned an empty completion ({status}); use emem_ask for the signed answer"),
+            ));
+        }
+        // Strict action protocol: a fenced or bare JSON object is an action;
+        // anything else is the final prose.
+        let stripped = content
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+        let action: Option<JsonValue> = serde_json::from_str(stripped).ok();
+        match action {
+            Some(act) if act.get("tool").is_some() && tool_trace.len() < max_tool_calls => {
+                let tool = act["tool"].as_str().unwrap_or("").to_string();
+                let args = act.get("args").cloned().unwrap_or(json!({}));
+                let allowed = emem_mcp::TOOLS
+                    .iter()
+                    .any(|t| t.name == tool && t.read_only_hint && t.name != "emem_reason");
+                let result_text = if !allowed {
+                    format!("tool `{tool}` is not on the read-only menu; pick one from the list or answer")
+                } else {
+                    match Box::pin(mcp_tool_call(&tool, args.clone(), s)).await {
+                        Ok(res) => {
+                            a2a_collect_fact_cids(&res, &mut all_cids);
+                            tool_trace.push(json!({
+                                "tool": tool,
+                                "args": args,
+                            }));
+                            let mut t = serde_json::to_string(&res).unwrap_or_default();
+                            t.truncate(6_000);
+                            t
+                        }
+                        Err((code, msg)) => format!("tool `{tool}` refused ({code}): {msg}"),
+                    }
+                };
+                messages.push(json!({"role": "assistant", "content": content}));
+                messages.push(json!({"role": "user", "content": format!("Tool result:\n{result_text}\n\nCall another tool or answer.")}));
+            }
+            Some(act) if act.get("answer").is_some() => {
+                prose = act["answer"].as_str().unwrap_or("").to_string();
+                break;
+            }
+            _ => {
+                prose = content;
+                break;
+            }
+        }
+    }
     if prose.is_empty() {
-        return Err((
-            -32050i64,
-            format!("the reasoning tier returned an empty completion ({status}); use emem_ask for the signed answer"),
-        ));
+        prose = "ABSTAIN: the tool budget was exhausted before an answer could be composed; the grounding block carries what was gathered.".into();
     }
 
+    all_cids.truncate(512);
     let pick = |k: &str| ask_env.get(k).cloned().unwrap_or(JsonValue::Null);
     Ok(json!({
         "schema":           "emem.reason.v1",
@@ -17859,11 +17935,12 @@ async fn a2a_reason_compose(q: &str, ask_env: JsonValue) -> Result<JsonValue, (i
         "signed":           false,
         "base_model":       base_model,
         "decoding":         "greedy (temperature 0)",
+        "tool_trace":       tool_trace,
         "note":             "The prose is a model composition and is never evidence; the grounding block is. Cite grounding.fact_cids, verify grounding.receipt offline.",
         "grounding": {
             "routed_to": pick("routed_to"),
             "answer":    pick("answer"),
-            "fact_cids": pick("fact_cids"),
+            "fact_cids": all_cids,
             "receipt":   pick("receipt"),
             "caveats":   pick("caveats"),
         },
@@ -19813,7 +19890,7 @@ async fn mcp_tool_call(
                 ));
             }
             let ask_env = Box::pin(mcp_tool_call("emem_ask", json!({ "q": q }), s)).await?;
-            a2a_reason_compose(&q, ask_env).await
+            a2a_reason_compose(&q, ask_env, s).await
         }
         "emem_ask" => {
             // Single-shot free-text answer. Same routing as POST /v1/ask;
@@ -45472,6 +45549,121 @@ struct InboxQuery {
     include_broadcast: Option<bool>,
 }
 
+/// `GET /v1/channel/geo` — the channel, geolocated: the last N addressed
+/// notes across every namespace, each with the cell64 addresses its body
+/// cites resolved to lat/lng. This is the homepage map's data spine: the
+/// conversation between agents, pinned to the ground it is about, every
+/// message a signed note anyone can verify. Cached briefly; the ledger,
+/// not this cache, is the record.
+async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    static CACHE: std::sync::Mutex<Option<(std::time::Instant, JsonValue)>> =
+        std::sync::Mutex::new(None);
+    if let Ok(g) = CACHE.lock() {
+        if let Some((at, v)) = g.as_ref() {
+            if at.elapsed() < std::time::Duration::from_secs(45) {
+                return Ok(Json(v.clone()));
+            }
+        }
+    }
+
+    let db = memory_db(&s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    // A body token is a cell64 candidate when it survives the codec's own
+    // validator — never a regex guess. Tokens arrive bare or inside
+    // emem:fact:<cell>:<cid> / emem:cell:<cell>.
+    fn cells_of(body: &str, out: &mut Vec<(String, f64, f64)>) {
+        for raw in body.split(|c: char| c.is_whitespace() || "()[]{},;\"'`<>".contains(c)) {
+            let mut t = raw.trim_matches(|c: char| c == '.' || c == '*' || c == '_');
+            for pre in ["emem:fact:", "emem:cell:"] {
+                if let Some(rest) = t.strip_prefix(pre) {
+                    t = rest.split(':').next().unwrap_or("");
+                }
+            }
+            if t.matches('.').count() == 3
+                && emem_codec::is_cell64_shape(t)
+                && !out.iter().any(|(c, _, _)| c == t)
+                && out.len() < 12
+            {
+                if let Ok(info) = emem_codec::latlng_from_cell64(t) {
+                    out.push((t.to_string(), info.lat_deg, info.lng_deg));
+                }
+            }
+        }
+    }
+
+    let mut items: Vec<(String, JsonValue)> = Vec::new();
+    for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
+        let key = String::from_utf8_lossy(&kv.0).into_owned();
+        if !key.ends_with(".md") {
+            continue;
+        }
+        let from = key
+            .strip_prefix("/memories/by_attester/")
+            .and_then(|r| r.split('/').next())
+            .unwrap_or("")
+            .to_string();
+        let Some((bytes, meta)) = read_memory_file(&s, &key)? else {
+            continue;
+        };
+        let body = String::from_utf8_lossy(&bytes);
+        let (direct, cc, broadcast) = parse_note_addressing(&body);
+        if direct.is_empty() && cc.is_empty() && !broadcast {
+            continue; // journals stay private to their namespace
+        }
+        let title: String = body
+            .lines()
+            .find(|l| l.trim_start().starts_with("# "))
+            .map(|l| {
+                l.trim_start()
+                    .trim_start_matches("# ")
+                    .trim()
+                    .chars()
+                    .take(180)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut cells: Vec<(String, f64, f64)> = Vec::new();
+        cells_of(&body, &mut cells);
+        items.push((
+            meta.signed_at.clone(),
+            json!({
+                "from":      from,
+                "to":        direct,
+                "cc":        cc,
+                "broadcast": broadcast,
+                "title":     title,
+                "path":      key,
+                "signed_at": meta.signed_at,
+                "cells":     cells.iter().map(|(c, lat, lng)| json!({
+                    "cell": c, "lat": lat, "lng": lng,
+                })).collect::<Vec<_>>(),
+            }),
+        ));
+    }
+    items.sort_by(|a, b| b.0.cmp(&a.0));
+    items.truncate(40);
+    let out = json!({
+        "schema":   "emem.channel.geo.v1",
+        "count":    items.len(),
+        "messages": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
+        "note":     "The last addressed notes on the ledger, each pinned to the cell64 addresses its body cites. Every message is a signed memory: open its path with memory_view and verify authorship offline.",
+    });
+    if let Ok(mut g) = CACHE.lock() {
+        *g = Some((std::time::Instant::now(), out.clone()));
+    }
+    Ok(Json(out))
+}
+
 async fn get_inbox(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<InboxQuery>,
@@ -64545,6 +64737,50 @@ mod tests {
         assert!(!band_is_known("totally_made_up_band"));
         assert!(!band_is_known("elevation_mean")); // missing namespace
         assert!(band_is_known("temporal_diff:indices.ndvi:1y")); // parametric
+    }
+
+    /// The Claude connector-directory portal hard-gates on `title` and the
+    /// readOnly/destructive annotations being present on every tool as
+    /// SERIALIZED (an enterprise integrator was blocked on exactly this
+    /// against the pre-1.3.0 deploy). Guard the wire shape, not the
+    /// registry structs, so a serializer regression cannot ship.
+    #[test]
+    fn every_serialized_tool_carries_the_directory_gate_fields() {
+        for t in emem_mcp::TOOLS {
+            let j = mcp_tool_descriptor(t);
+            assert!(
+                j.get("title")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|v| !v.is_empty()),
+                "{}: missing top-level title",
+                t.name
+            );
+            let ann = j.get("annotations").expect("annotations object");
+            for key in [
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ] {
+                assert!(
+                    ann.get(key).and_then(|v| v.as_bool()).is_some(),
+                    "{}: missing {key}",
+                    t.name
+                );
+            }
+            assert!(
+                ann.get("title")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|v| !v.is_empty()),
+                "{}: missing annotations.title",
+                t.name
+            );
+            // Truthfulness cross-checks: a tool cannot be both read-only and
+            // destructive, and every destructive tool must be a write.
+            let ro = ann["readOnlyHint"].as_bool().unwrap();
+            let de = ann["destructiveHint"].as_bool().unwrap();
+            assert!(!(ro && de), "{}: readOnly and destructive together", t.name);
+        }
     }
 
     /// The open OAuth surface is stateless: client_id, code, and tokens are

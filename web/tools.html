@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All 104 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 15-tool core loop first. Every one callable with no key.">
+<meta name=description content="All 105 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 15-tool core loop first. Every one callable with no key.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -32,7 +32,7 @@ h2{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);pa
 <div class="wrap">
 <p class="crumb"><a href="/">emem</a> / tools</p>
 <h1>Every tool, generated from the registry</h1>
-<p class="lede">All 104 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
+<p class="lede">All 105 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
 <h2>The core loop (15 tools)</h2>
 <p class="sub">What /mcp advertises by default: enough to name, ground, read, cite, and verify.</p>
 
@@ -657,7 +657,13 @@ h2{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);pa
   <p>Topic-grouped registry of every band and algorithm at this responder, plus visual surfaces and the `declared_but_no_materializer_at_this_responder` block (cube slots reserved without a live connector). Single source of truth shared with `/v1/locate`&#x27;s `data_at_this_cell` block.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_topics&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
 </details>
-<h2>Plan and compose (1)</h2>
+<h2>Plan and compose (2)</h2>
+
+<details class="tool" id="emem_reason">
+  <summary><code>emem_reason</code><span class="tt">Compose a prose answer over signed facts (LLM, labelled)</span><span class="tw">Reach for this only when the question needs prose composition across several facts and the caller explicitly wants a model in the loop — an A2A peer sending metadata.mode=&quot;reasoning&quot;, or a human asking for a narrative.</span></summary>
+  <p>The opt-in reasoning tier: grounds your question through emem_ask (deterministic, signed), then has the responder&#x27;s local model compose a prose answer over that envelope. The prose is model_output and signed:false by construction — it is never evidence; the grounding block beside it (fact_cids + receipt) is. Runs the model greedily (temperature 0) with a single-flight lock, so a cold load never fans out. For anything a signed envelope already answers, use emem_ask instead and skip the model entirely.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_reason&quot;, &quot;arguments&quot;: {&quot;q&quot;: &quot;how has vegetation around Nashik changed this season, and what should a grower do?&quot;}}}&#x27;</code></pre>
+</details>
 
 <details class="tool" id="emem_temporal_route">
   <summary><code>emem_temporal_route</code><span class="tt">Plan a temporal recall recipe for a cell</span><span class="tw">Call this first when the user&#x27;s question is about CHANGE OVER TIME or a PAST EVENT and you&#x27;re not sure which bands/dates to recall — &#x27;was this flooded last year&#x27;, &#x27;what was the NDVI baseline before the fire&#x27;, &#x27;compare this place across vintages&#x27;.</span></summary>
