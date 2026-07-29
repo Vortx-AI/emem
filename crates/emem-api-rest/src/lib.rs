@@ -17751,14 +17751,6 @@ fn mcp_origin_allowed(origin: &str) -> bool {
     false
 }
 
-/// Compose the reasoning tier's answer: prose from the local model over the
-/// signed emem_ask envelope. Discipline per the ratified standard's rule 7:
-/// the shared model host is called directly, greedily (temperature 0, so
-/// sampling noise never confounds a result), under a global single-flight
-/// permit (a cold load must never fan out), with a timeout of at least
-/// 120 s. The prose is `model_output` and `signed: false` by construction;
-/// the grounding block beside it carries the fact_cids and receipt.
-
 // ── A2A round 2: the free-text front door ────────────────────────────────
 //
 // The re-sweep found the door open in the worst way: "hello" geocoded to a
@@ -17917,6 +17909,13 @@ fn reason_place_mismatch(q: &str, ask_env: &JsonValue) -> Option<String> {
     ))
 }
 
+/// Compose the reasoning tier's answer: prose from the local model over the
+/// signed emem_ask envelope. Discipline per the ratified standard's rule 7:
+/// the shared model host is called directly, greedily (temperature 0, so
+/// sampling noise never confounds a result), under a global single-flight
+/// permit (a cold load must never fan out), with a timeout of at least
+/// 120 s. The prose is `model_output` and `signed: false` by construction;
+/// the grounding block beside it carries the fact_cids and receipt.
 async fn a2a_reason_compose(
     q: &str,
     ask_env: JsonValue,
@@ -18602,6 +18601,52 @@ const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents: eve
 /// through this same function, so the "costs roughly N KB" line in the
 /// initialize instructions is a measurement of what this build actually
 /// sends, not a number somebody typed once and stopped updating.
+
+// ── Observed call latency, per tool ──────────────────────────────────────
+//
+// An agent planning a call wants to know what it costs before it makes it,
+// and the honest answer is what this responder actually took, not a number
+// we typed. A bounded rolling window per tool (last 64 calls) is enough to
+// publish a p50 and a p95 in tools/list, and it is absent until measured,
+// so nothing here is ever a guess.
+const LATENCY_WINDOW: usize = 64;
+
+fn latency_book() -> &'static std::sync::Mutex<std::collections::HashMap<String, Vec<u32>>> {
+    static BOOK: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Vec<u32>>>,
+    > = std::sync::OnceLock::new();
+    BOOK.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn latency_record(tool: &str, ms: u32) {
+    if let Ok(mut b) = latency_book().lock() {
+        let e = b.entry(tool.to_string()).or_default();
+        if e.len() >= LATENCY_WINDOW {
+            e.remove(0);
+        }
+        e.push(ms);
+    }
+}
+
+/// `{p50, p95, n}` over the observed window, or `None` before this tool has
+/// ever been called on this process.
+fn latency_of(tool: &str) -> Option<JsonValue> {
+    let b = latency_book().lock().ok()?;
+    let v = b.get(tool)?;
+    if v.is_empty() {
+        return None;
+    }
+    let mut sorted = v.clone();
+    sorted.sort_unstable();
+    let pick = |q: f64| sorted[((sorted.len() as f64 - 1.0) * q).round() as usize];
+    Some(json!({
+        "p50_ms": pick(0.50),
+        "p95_ms": pick(0.95),
+        "n": sorted.len(),
+        "note": "measured on this responder over the last calls, not a declared budget; absent until a tool has been called",
+    }))
+}
+
 fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
     json!({
         "name": t.name,
@@ -18643,6 +18688,10 @@ fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
         "_meta": {
             "dev.emem/shape":   emem_mcp::shape_of(t.name),
             "dev.emem/bundles": emem_mcp::bundles_of(t.name),
+            // What this call has actually cost on this responder, so an
+            // agent can budget before it calls rather than discovering the
+            // cost by timing out. Absent until measured; never a guess.
+            "dev.emem/observed_latency": latency_of(t.name),
         },
     })
 }
@@ -19026,7 +19075,13 @@ async fn mcp_jsonrpc_inner(
                         .unwrap_or(32)
                         .clamp(5, transport.saturating_sub(5).max(5)),
                 );
-                match tokio::time::timeout(mcp_budget, mcp_tool_call(name, args, &s)).await {
+                let started = std::time::Instant::now();
+                let outcome = tokio::time::timeout(mcp_budget, mcp_tool_call(name, args, &s)).await;
+                latency_record(
+                    name,
+                    started.elapsed().as_millis().min(u32::MAX as u128) as u32,
+                );
+                match outcome {
                     Err(_elapsed) => {
                         let secs = mcp_budget.as_secs();
                         let hint = if emem_mcp::tool_task_support(name) == "forbidden" {
@@ -46012,6 +46067,23 @@ async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, A
         ));
     }
     items.sort_by(|a, b| b.0.cmp(&a.0));
+    // Diversity cap before the length cap. Two arcade daemons write a note
+    // per move, so a plain "newest 40" was half one-line citation handoffs
+    // and crowded out the findings the room exists for. At most six per
+    // attester keeps every voice present; the full record is /channel.
+    {
+        let mut per: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        items.retain(|(_, v)| {
+            let who = v
+                .get("from")
+                .and_then(|f| f.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let n = per.entry(who).or_insert(0);
+            *n += 1;
+            *n <= 6
+        });
+    }
     items.truncate(40);
     let out = json!({
         "schema":   "emem.channel.geo.v1",
