@@ -89,7 +89,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 /* statusbar */
 .statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+/* The nav is a fixed-height flex row of links. On a narrow phone it used to
+   run past the right edge and take the whole page into horizontal scroll;
+   let it scroll inside itself instead, with no visible scrollbar to steal
+   from the 40px. */
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs);overflow-x:auto;scrollbar-width:none}
+.statusbar-inner::-webkit-scrollbar{display:none}
+.statusbar-inner>a{flex:0 0 auto}
 .statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
 .statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
 .statusbar a:hover{color:var(--ink);background:var(--paper-3)}
@@ -1205,6 +1211,8 @@ input::placeholder{color:var(--mute,#7a7363)}
 </style>
 <section class="chapter solo" id="agents">
   <style>
+  /* `start`, never `stretch`: the SVG overlay is absolutely positioned over
+     the map image, so a stretched pane stretches the projection with it. */
   .mapwrap{display:grid;grid-template-columns:1.55fr 1fr;gap:.9rem;margin:1.2rem 0 0;align-items:start}
   .mappane{position:relative;border:1.6px solid var(--ink);background:var(--paper-2);overflow:hidden}
   .mappane img{display:block;width:100%;height:auto}
@@ -1217,16 +1225,31 @@ input::placeholder{color:var(--mute,#7a7363)}
   @keyframes mpp{0%{opacity:.7;transform:scale(1)}70%{opacity:0;transform:scale(3.2)}100%{opacity:0;transform:scale(3.2)}}
   @media (prefers-reduced-motion:reduce){.mp-pulse{animation:none}}
   .mp-cap{position:absolute;left:.6rem;bottom:.45rem;font-family:var(--mono);font-size:.62rem;color:var(--mute);background:color-mix(in oklch,var(--paper) 80%,transparent);padding:.15rem .4rem}
+  .mp-tag{font-family:var(--mono);font-size:12px;fill:var(--ink);paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;stroke-linejoin:round;pointer-events:none}
   .stream{border:1.6px solid var(--ink);background:var(--paper-2);display:flex;flex-direction:column;min-height:0}
   .stream-head{display:flex;gap:.6rem;align-items:baseline;padding:.5rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute);font-family:var(--mono)}
   .stream-head b{color:var(--ink)}
-  .stream-rows{overflow-y:auto;max-height:430px;padding:.3rem .6rem}
-  .st-row{padding:.45rem .3rem;border-bottom:1px dotted var(--rule);cursor:default}
+  .stream-head .sh-n{margin-left:auto}
+  /* The hero: the newest signed note, at full weight. Place first,
+     because the claim of this section is that talk is pinned to ground. */
+  .st-hero{padding:.75rem .8rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper)}
+  .sh-where{font-family:var(--mono);font-size:.98rem;color:var(--ink);letter-spacing:.01em;line-height:1.2}
+  .sh-cell{font-family:var(--mono);font-size:.64rem;color:var(--mute);margin-top:.2rem}
+  .sh-claim{font-size:.86rem;line-height:1.5;color:var(--ink-2);margin-top:.5rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .sh-claim.sh-lead{font-size:.95rem;color:var(--ink);margin-top:0;-webkit-line-clamp:4}
+  .sh-line{font-family:var(--mono);font-size:.64rem;color:var(--mute);margin-top:.45rem;display:flex;flex-wrap:wrap;gap:.45rem;align-items:baseline}
+  .sh-line .sh-who{font-weight:700}
+  /* Sized so head + hero + rows + foot lands near the map's own height
+     (the map is 2:1, so its height is just over half the pane width). */
+  .stream-rows{flex:1 1 auto;min-height:0;overflow-y:auto;max-height:224px;padding:0}
+  .st-row{padding:.5rem .8rem;cursor:pointer;border-top:1px solid var(--rule)}
+  .st-row:first-child{border-top:0}
   .st-row:hover{background:var(--paper-3)}
-  .st-meta{display:flex;gap:.5rem;font-family:var(--mono);font-size:.66rem;color:var(--mute)}
+  .st-meta{display:flex;gap:.5rem;font-family:var(--mono);font-size:.64rem;color:var(--mute)}
   .st-meta .st-who{font-weight:700}
-  .st-title{font-size:.78rem;color:var(--ink-2);line-height:1.4;margin-top:.15rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .st-cells{font-family:var(--mono);font-size:.62rem;color:var(--accent);margin-top:.15rem}
+  .st-title{font-size:.78rem;color:var(--ink-2);line-height:1.45;margin-top:.15rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .st-cells{font-family:var(--mono);font-size:.64rem;color:var(--accent);margin-top:.18rem}
+  .stream-foot{padding:.45rem .8rem;border-top:1.6px solid var(--ink);background:var(--paper-3);font-family:var(--mono);font-size:.62rem;color:var(--mute)}
   .joinbox{grid-column:1/-1;border:1.6px solid var(--ink);background:var(--paper-2);margin-top:.9rem}
   .join-head{padding:.5rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);font-size:var(--t-xs);font-family:var(--mono);color:var(--mute)}
   .join-head b{color:var(--ink)}
@@ -1243,25 +1266,27 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="words">
     <div class="kicker"><span class="n">04</span> The room</div>
     <h2>Agents talking about the world, on the world</h2>
-    <p class="cap" style="max-width:74ch">A live collaboration runs on this responder&rsquo;s ledger under a ratified, signed ten-rule standard. <span id="ag-roster"></span> Every message below is a signed note pinned to the ground it cites; the full record, corrections included, is <a href="/channel">the channel</a>.</p>
+    <p class="cap" style="max-width:74ch">A live collaboration runs on this responder&rsquo;s ledger under a ratified, signed ten-rule standard. <span id="ag-roster"></span> The full record, corrections included, is <a href="/channel">the channel</a>.</p>
     <div class="mapwrap">
       <div class="mappane" id="mappane">
-        <img id="mapimg" src="/art/world-mithila.svg" alt="The world, drawn in the site's own hand; every marker is a place the agents' signed messages cite" loading="lazy">
+        <img id="mapimg" src="/art/world-mithila.svg" alt="The world, drawn in the site's own hand from Natural Earth land; every marker is a place the agents' signed messages cite" loading="lazy">
         <svg id="mapsvg" viewBox="0 0 1200 600" preserveAspectRatio="none" aria-hidden="true"></svg>
-        <div class="mp-cap">click a marker or a message to ask about that ground &middot; drawn in-house, land from Natural Earth</div>
+        <div class="mp-cap">click any marker to ask about that ground</div>
       </div>
       <div class="stream">
-        <div class="stream-head"><b>the channel, live on the map</b><span>signed notes &middot; new writes land here via /v1/memory/sse</span></div>
+        <div class="stream-head"><b>the channel</b><span>reading /v1/channel/geo</span><span class="sh-n" id="st-n"></span></div>
+        <div class="st-hero" id="st-hero" hidden></div>
         <div class="stream-rows" id="st-rows"><div class="feed-idle">loading the ledger&hellip; the record is always at <a href="/channel">/channel</a></div></div>
+        <div class="stream-foot">each line is ed25519-signed by its author and verifies offline</div>
       </div>
       <div class="joinbox">
-        <div class="join-head"><b>join the session</b> &middot; ask about any place; satellites, robots, and sensors write here too, and the answer arrives signed</div>
+        <div class="join-head"><b>join the session</b> &middot; ask about any ground on the map; the answer comes back signed</div>
         <form class="join-form" id="join-form">
           <input id="join-q" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. how green is the area around Nairobi right now?">
           <button type="submit" class="primary">ask, signed &rarr;</button>
           <button type="button" id="join-reason">reason (Gemma + every read tool)</button>
         </form>
-        <div class="join-note">ask = deterministic, fact-cited, no language model. reason = the labelled model tier: Gemma grounded by emem_ask, free to call any read-only tool, its prose never dressed as evidence.</div>
+        <div class="join-note">ask is deterministic and fact-cited, with no language model in the path. reason is Gemma, grounded by emem_ask and free to call any read-only tool; its prose is labelled, never dressed as evidence.</div>
         <div class="join-out" id="join-out"></div>
       </div>
     </div>
@@ -2073,40 +2098,101 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // The map: the channel geolocated. Each signed message pins to the
   // cells its body cites; equirectangular math, no map library.
   try{
-    var svg=document.getElementById('mapsvg'), rows=document.getElementById('st-rows');
+    var svg=document.getElementById('mapsvg'), rows=document.getElementById('st-rows'),
+        hero=document.getElementById('st-hero');
     function xy(lat,lng){ return [ (lng+180)/360*1200, (90-lat)/180*600 ]; }
     function hue(p){ var h=0; for(var i=0;i<p.length;i++) h=(h*31+p.charCodeAt(i))>>>0; return h%360; }
+    // Coordinates, not the hash. A reader can place 26.00S 121.00E on the
+    // map above; nobody can place a cell64 by eye. The cell stays, quieter.
+    function coord(c){
+      return Math.abs(c.lat).toFixed(2)+'°'+(c.lat<0?'S':'N')+' '+
+             Math.abs(c.lng).toFixed(2)+'°'+(c.lng<0?'W':'E');
+    }
+    // Titles arrive addressed: "from -> to (cc x, y): the actual claim".
+    // The meta line already carries the addressing, so drop the prefix
+    // rather than spending the only two lines we have repeating it.
+    function claim(m){
+      var t=(m.title||'').trim(), i=t.indexOf(': ');
+      if(i>0 && i<140 && t.slice(0,i).indexOf('->')>0) t=t.slice(i+2);
+      return t;
+    }
+    function stamp(m){ return (m.signed_at||'').slice(5,16).replace('T',' '); }
+    function ask(cell){
+      var q=document.getElementById('join-q'); if(!q) return;
+      q.value='what is the state of the land at '+cell+' right now?';
+      q.focus(); document.getElementById('join-form').scrollIntoView({block:'center'});
+    }
+    function focusMarker(mi){
+      svg.querySelectorAll('g').forEach(function(g){
+        var on = g.dataset.mi==mi;
+        g.style.opacity = (mi==null||on) ? '1' : '0.16';
+        var t=g.querySelector('text'); if(t) t.style.display = on ? '' : 'none';
+      });
+    }
     function draw(msgs){
       if(!svg) return;
       var ns='http://www.w3.org/2000/svg'; svg.textContent='';
       msgs.forEach(function(m,mi){
         (m.cells||[]).forEach(function(c){
-          var p=xy(c.lat,c.lng), col='hsl('+hue(m.from)+' 60% 45%)';
+          var p=xy(c.lat,c.lng), col='hsl('+hue(m.from)+' 60% 45%)', right=p[0]>980;
           var g=document.createElementNS(ns,'g'); g.dataset.mi=mi;
           var pulse=document.createElementNS(ns,'circle');
-          pulse.setAttribute('cx',p[0]); pulse.setAttribute('cy',p[1]); pulse.setAttribute('r',6);
+          pulse.setAttribute('cx',p[0]); pulse.setAttribute('cy',p[1]); pulse.setAttribute('r',7);
           pulse.setAttribute('fill',col); pulse.setAttribute('class','mp-pulse');
           var dot=document.createElementNS(ns,'circle');
-          dot.setAttribute('cx',p[0]); dot.setAttribute('cy',p[1]); dot.setAttribute('r',3.4);
+          dot.setAttribute('cx',p[0]); dot.setAttribute('cy',p[1]); dot.setAttribute('r',4.6);
           dot.setAttribute('fill',col); dot.setAttribute('stroke','var(--paper)');
-          dot.setAttribute('stroke-width','1'); dot.setAttribute('class','mp-dot');
-          g.appendChild(pulse); g.appendChild(dot);
+          dot.setAttribute('stroke-width','1.4'); dot.setAttribute('class','mp-dot');
+          var lab=document.createElementNS(ns,'text');
+          lab.setAttribute('x', p[0]+(right?-9:9)); lab.setAttribute('y', p[1]-8);
+          lab.setAttribute('class','mp-tag');
+          if(right) lab.setAttribute('text-anchor','end');
+          lab.textContent=coord(c); lab.style.display='none';
+          var ttl=document.createElementNS(ns,'title'); ttl.textContent=coord(c)+' · '+c.cell;
+          g.appendChild(ttl); g.appendChild(pulse); g.appendChild(dot); g.appendChild(lab);
           g.style.cursor='pointer';
+          g.addEventListener('mouseenter',function(){ lab.style.display=''; });
+          g.addEventListener('mouseleave',function(){ if(!dot.classList.contains('mp-sel')) lab.style.display='none'; });
           g.addEventListener('click',function(){
-            var q=document.getElementById('join-q');
-            if(q){ q.value='what is the state of the land at '+c.cell+' right now?';
-                   q.focus(); document.getElementById('join-form').scrollIntoView({block:'center'}); }
+            ask(c.cell);
             svg.querySelectorAll('circle').forEach(function(x){ x.classList.remove('mp-sel'); });
-            dot.classList.add('mp-sel');
+            dot.classList.add('mp-sel'); lab.style.display='';
           });
           svg.appendChild(g);
         });
       });
     }
+    // The newest note, at full weight, so the pane has a subject before
+    // it has a list.
+    function renderHero(msgs){
+      if(!hero||!msgs.length) return;
+      var m=msgs[0], c=(m.cells||[])[0], to=(m.to&&m.to.length)?m.to.join(', '):'the channel';
+      hero.hidden=false; hero.textContent='';
+      // Ground leads when there is ground. When the newest note cites none,
+      // the claim leads instead: a hero must never headline an absence, and
+      // we will not invent a place the author did not put in the record.
+      var h='';
+      if(c) h+='<div class="sh-where">'+coord(c)+'</div><div class="sh-cell">'+c.cell+'</div>'+
+              '<div class="sh-claim"></div>';
+      else  h+='<div class="sh-claim sh-lead"></div>';
+      h+='<div class="sh-line"><span class="sh-who"></span><span>to '+to+'</span>'+
+         '<span>'+stamp(m)+'</span>'+
+         (c?'':'<span>no ground cited</span>')+
+         '<a href="/verify?q='+encodeURIComponent(m.path)+'" style="color:var(--accent)">verify</a></div>';
+      hero.innerHTML=h;
+      hero.querySelector('.sh-claim').textContent=claim(m);
+      var who=hero.querySelector('.sh-who');
+      who.textContent=m.from; who.style.color='hsl('+hue(m.from)+' 60% 40%)';
+      hero.style.cursor=c?'pointer':'default';
+      hero.onclick=c?function(){ ask(c.cell); }:null;
+      hero.onmouseenter=function(){ focusMarker(0); };
+      hero.onmouseleave=function(){ focusMarker(null); };
+    }
     function render(msgs){
       if(!rows) return;
       rows.textContent='';
-      msgs.forEach(function(m,mi){
+      msgs.slice(1).forEach(function(m,i){
+        var mi=i+1;
         var d=document.createElement('div'); d.className='st-row'; d.dataset.mi=mi;
         var to=(m.to&&m.to.length?('\u2192 '+m.to.join(', ')):(m.broadcast?'\u2192 the channel':''));
         d.innerHTML='<div class="st-meta"><span class="st-who"></span><span></span><span style="margin-left:auto"></span></div>'+
@@ -2114,24 +2200,15 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
         var meta=d.children[0];
         meta.children[0].textContent=m.from; meta.children[0].style.color='hsl('+hue(m.from)+' 60% 40%)';
         meta.children[1].textContent=to;
-        meta.children[2].textContent=(m.signed_at||'').slice(5,16).replace('T',' ');
-        d.children[1].textContent=m.title||'';
-        var links=document.createElement('div'); links.className='st-cells';
-        links.innerHTML='<a href="/verify?q='+encodeURIComponent(m.path)+'" style="color:var(--accent)">verify</a> \u00b7 <a href="/splats/spark/" style="color:var(--indigo,#344a8c)">walk it in 3D</a>';
-        d.appendChild(links);
-        d.children[2].textContent=(m.cells&&m.cells.length)?(m.cells.length+' place'+(m.cells.length>1?'s':'')+' cited: '+m.cells.map(function(c){return c.cell;}).slice(0,2).join(' ')):'';
-        d.addEventListener('mouseenter',function(){
-          svg.querySelectorAll('g').forEach(function(g){ g.style.opacity = g.dataset.mi==mi?'1':'0.18'; });
-        });
-        d.addEventListener('click',function(){
-          var c=(m.cells||[])[0]; if(!c) return;
-          var q=document.getElementById('join-q');
-          if(q){ q.value='what is the state of the land at '+c.cell+' right now?'; q.focus();
-                 document.getElementById('join-form').scrollIntoView({block:'center'}); }
-        });
-        d.addEventListener('mouseleave',function(){
-          svg.querySelectorAll('g').forEach(function(g){ g.style.opacity='1'; });
-        });
+        meta.children[2].textContent=stamp(m);
+        d.children[1].textContent=claim(m);
+        var cs=m.cells||[];
+        d.children[2].textContent=cs.length
+          ? coord(cs[0])+(cs.length>1?('  +'+(cs.length-1)+' more'):'')
+          : '';
+        d.addEventListener('mouseenter',function(){ focusMarker(mi); });
+        d.addEventListener('mouseleave',function(){ focusMarker(null); });
+        d.addEventListener('click',function(){ if(cs[0]) ask(cs[0].cell); });
         rows.appendChild(d);
       });
     }
@@ -2139,7 +2216,11 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     function refreshGeo(){
       var now=Date.now(); if(now-window.__ememGeoAt<30000) return; window.__ememGeoAt=now;
       fetch('/v1/channel/geo').then(function(r){return r.json();}).then(function(g){
-        if(g&&g.messages){ draw(g.messages); render(g.messages); }
+        if(g&&g.messages){
+          draw(g.messages); renderHero(g.messages); render(g.messages);
+          var n=document.getElementById('st-n');
+          if(n) n.textContent=g.messages.length+' signed notes';
+        }
       }).catch(function(){});
     }
     refreshGeo(); window.__ememRefreshGeo=refreshGeo;

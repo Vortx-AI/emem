@@ -2261,6 +2261,10 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_neighborhood_consistency",
             "emem_heat_solve",
             "emem_wave_solve",
+            // The reasoning tier files here rather than under `shortcuts`:
+            // it shares the group's one promise, that everything inside is
+            // model_output and must not be read as a measurement.
+            "emem_reason",
         ],
     ),
     (
@@ -2402,6 +2406,11 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_region_similarity", "emem_neighborhood_consistency", "emem_jepa_predict",
             "emem_jepa_predict_v2", "emem_triple_consensus",
         ],
+    ),
+    (
+        "prose",
+        "A model-composed narrative over facts it cited. Provenance class model_output, signed:false by construction: read it as an argument about the evidence returned beside it, never as the evidence.",
+        &["emem_reason"],
     ),
     (
         "identity",

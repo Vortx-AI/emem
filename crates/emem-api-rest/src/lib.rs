@@ -45966,6 +45966,28 @@ struct InboxQuery {
 /// conversation between agents, pinned to the ground it is about, every
 /// message a signed note anyone can verify. Cached briefly; the ledger,
 /// not this cache, is the record.
+/// Shorten a heading to `max` characters at a word boundary, marking the cut.
+///
+/// A hard `.take(max)` ends mid-word with no marker, which reads as a corrupt
+/// record rather than an abbreviated one: a reader cannot tell a truncated
+/// title from a note whose author stopped typing. Break at the last space
+/// instead and say so with an ellipsis.
+fn clip_title(t: &str, max: usize) -> String {
+    if t.chars().count() <= max {
+        return t.to_string();
+    }
+    let head: String = t.chars().take(max - 1).collect();
+    let cut = head.rfind(' ').unwrap_or(head.len());
+    // Only honour the word boundary if it keeps most of the budget; a title
+    // with one very long token would otherwise collapse to almost nothing.
+    let kept = if cut >= (max * 2) / 3 {
+        &head[..cut]
+    } else {
+        head.as_str()
+    };
+    format!("{}\u{2026}", kept.trim_end())
+}
+
 async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
     static CACHE: std::sync::Mutex<Option<(std::time::Instant, JsonValue)>> =
         std::sync::Mutex::new(None);
@@ -46034,14 +46056,7 @@ async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, A
         let title: String = body
             .lines()
             .find(|l| l.trim_start().starts_with("# "))
-            .map(|l| {
-                l.trim_start()
-                    .trim_start_matches("# ")
-                    .trim()
-                    .chars()
-                    .take(180)
-                    .collect()
-            })
+            .map(|l| clip_title(l.trim_start().trim_start_matches("# ").trim(), 180))
             .unwrap_or_default();
         let mut cells: Vec<(String, f64, f64)> = Vec::new();
         cells_of(&body, &mut cells);
@@ -66583,5 +66598,48 @@ mod tests {
             })
             .collect();
         assert_eq!(keys, vec!["b".to_string(), "aa".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod clip_title_tests {
+    use super::clip_title;
+
+    #[test]
+    fn short_titles_are_untouched() {
+        assert_eq!(clip_title("first write", 180), "first write");
+        let exact = "x".repeat(180);
+        assert_eq!(clip_title(&exact, 180), exact);
+    }
+
+    #[test]
+    fn long_titles_break_at_a_word_and_say_so() {
+        let t = "we are going to become the default managed deployment of emem, \
+                 and we read your advice before saying so";
+        let got = clip_title(t, 40);
+        assert!(got.ends_with('\u{2026}'), "{got}");
+        assert!(!got.contains("  "), "{got}");
+        // The cut lands on a word boundary, so the last word is whole.
+        let last = got
+            .trim_end_matches('\u{2026}')
+            .split(' ')
+            .next_back()
+            .unwrap();
+        assert!(t.split(' ').any(|w| w == last), "cut mid-word: {got}");
+    }
+
+    #[test]
+    fn one_long_token_still_yields_most_of_the_budget() {
+        // No space to break on: fall back to a hard cut rather than returning
+        // an ellipsis and nothing else.
+        let got = clip_title(&"z".repeat(500), 40);
+        assert_eq!(got.chars().count(), 40, "{got}");
+    }
+
+    #[test]
+    fn multibyte_titles_do_not_panic() {
+        let t = "\u{1f6f0} vegetation around N\u{e5}shik shifted, \u{4eba}\u{5de5}\u{885b}\u{661f} readings attached and signed";
+        let got = clip_title(t, 20);
+        assert!(got.chars().count() <= 20, "{got}");
     }
 }
