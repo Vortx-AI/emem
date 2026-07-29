@@ -1894,8 +1894,16 @@ async fn cors_layer(
         "access-control-expose-headers",
         // Expose the MCP session header so JS clients can read it after
         // initialize and echo it on subsequent requests.
+        //
+        // The x-emem-scene-* trio is what lets a cross-origin embedder caption
+        // our imagery honestly. Without them a partner fetching scene.png gets
+        // the pixels but not the pass that produced them, and a crop of the
+        // Earth that cannot say which overpass it came from is decoration
+        // rather than evidence.
         HeaderValue::from_static(
-            "etag, x-emem-receipt-cid, traceparent, mcp-session-id, mcp-protocol-version",
+            "etag, x-emem-receipt-cid, traceparent, mcp-session-id, mcp-protocol-version, \
+             x-emem-scene-item-id, x-emem-scene-datetime, x-emem-scene-cloud-cover, \
+             x-emem-scene-epsg",
         ),
     );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
@@ -3055,7 +3063,7 @@ fn build_csp(script_src_extra: &str, style_src_extra: &str) -> String {
         "default-src 'self'; \
          script-src 'self' https://www.googletagmanager.com https://esm.sh https://cdn.redocly.com{script_src_extra}; \
          connect-src 'self' https://www.google-analytics.com https://esm.sh https://server.arcgisonline.com; \
-         img-src 'self' data: https:; \
+         img-src 'self' data: blob: https:; \
          style-src 'self' https://fonts.googleapis.com{style_src_extra}; \
          style-src-attr 'unsafe-inline'; \
          font-src 'self' data: https://fonts.gstatic.com; \
@@ -17499,13 +17507,37 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
             };
             body.insert(key.to_string(), a.clone());
         }
-        json!({
-            "method": "POST",
-            "path":   p,
-            "url":    format!("{}{p}", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
-            "body":   JsonValue::Object(body),
-            "why":    "returns the complete, signed payload including the fields omitted above, the MCP host caps a single tool result, REST does not",
-        })
+        // The verb has to match the router or the escape hatch is a 405. Most
+        // read endpoints are POST, but a sizeable minority are GET-only, and
+        // an agent that follows a wrong hint gets an error where we promised
+        // it the full payload.
+        let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+        if rest_path_is_get_only(&p) {
+            let qs: String = body
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| format!("{k}={}", urlencoding(s))))
+                .collect::<Vec<_>>()
+                .join("&");
+            let url = if qs.is_empty() {
+                format!("{origin}{p}")
+            } else {
+                format!("{origin}{p}?{qs}")
+            };
+            json!({
+                "method": "GET",
+                "path":   p,
+                "url":    url,
+                "why":    "returns the complete, signed payload including the fields omitted above, the MCP host caps a single tool result, REST does not",
+            })
+        } else {
+            json!({
+                "method": "POST",
+                "path":   p,
+                "url":    format!("{origin}{p}"),
+                "body":   JsonValue::Object(body),
+                "why":    "returns the complete, signed payload including the fields omitted above, the MCP host caps a single tool result, REST does not",
+            })
+        }
     });
     let note = json!({
         "reason": "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). Run `fetch` for the complete signed payload, or pass a pagination cursor (cursor, page, max_cells, encoders) to fit the MCP cap.",
@@ -17515,6 +17547,43 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
     });
     map.insert("_emem_truncation".to_string(), note.clone());
     (JsonValue::Object(map), note)
+}
+
+/// REST paths the router serves on GET only.
+///
+/// The truncation escape hatch used to hint `POST` for everything, so an agent
+/// told to re-fetch `/v1/coverage_matrix` got a 405 instead of the payload we
+/// had just promised it. Kept as an explicit list rather than derived from the
+/// router because the router is built with typed handlers that cannot be
+/// enumerated at runtime; the test below pins it against the real routes.
+const GET_ONLY_REST_PATHS: &[&str] = &[
+    "/v1/agent_card",
+    "/v1/agents",
+    "/v1/algorithm_cids",
+    "/v1/bands",
+    "/v1/benchmark",
+    "/v1/coverage_matrix",
+    "/v1/coverage_map.svg",
+    "/v1/data_availability",
+    "/v1/demos",
+    "/v1/discover",
+    "/v1/elevation",
+    "/v1/errors",
+    "/v1/locate",
+    "/v1/lst",
+    "/v1/manifests",
+    "/v1/models",
+    "/v1/schema",
+    "/v1/sources",
+    "/v1/substrates",
+    "/v1/trace_encodings",
+    "/v1/water",
+    "/v1/weather",
+];
+
+/// Whether the truncation hint should say GET rather than POST for `path`.
+fn rest_path_is_get_only(path: &str) -> bool {
+    GET_ONLY_REST_PATHS.contains(&path)
 }
 
 /// Map a response `schema` ("emem.<tool>.vN") to its REST path ("/v1/<tool>"),
@@ -66687,5 +66756,50 @@ mod csp_embed_tests {
             !fa.split_whitespace().any(|t| t == "*"),
             "bare wildcard: {fa}"
         );
+    }
+}
+
+#[cfg(test)]
+mod truncation_hint_tests {
+    use super::{rest_path_is_get_only, schema_to_rest_path, GET_ONLY_REST_PATHS};
+
+    /// The escape hatch we hand an agent after slimming a result has to name a
+    /// verb the router actually accepts. 3yuyyhuo followed the hint for
+    /// coverage_matrix and got a 405, which is worse than no hint: we told
+    /// them where the full payload was and then refused the call.
+    #[test]
+    fn coverage_matrix_is_hinted_as_get() {
+        let p = schema_to_rest_path("emem.coverage_matrix.v1").unwrap();
+        assert_eq!(p, "/v1/coverage_matrix");
+        assert!(rest_path_is_get_only(&p), "coverage_matrix must hint GET");
+    }
+
+    #[test]
+    fn post_tools_still_hint_post() {
+        for schema in [
+            "emem.recall.v1",
+            "emem.query_region.v1",
+            "emem.trajectory.v1",
+        ] {
+            let p = schema_to_rest_path(schema).unwrap();
+            assert!(
+                !rest_path_is_get_only(&p),
+                "{schema} -> {p} should stay POST"
+            );
+        }
+    }
+
+    /// Guards against a stale entry: every listed path must still be one the
+    /// schema mapper can actually produce, or be a real /v1 path.
+    #[test]
+    fn the_get_only_list_is_well_formed() {
+        for p in GET_ONLY_REST_PATHS {
+            assert!(p.starts_with("/v1/"), "not a v1 path: {p}");
+            assert!(!p.contains(':'), "path params cannot be hinted: {p}");
+        }
+        let mut sorted = GET_ONLY_REST_PATHS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), GET_ONLY_REST_PATHS.len(), "duplicate entry");
     }
 }
