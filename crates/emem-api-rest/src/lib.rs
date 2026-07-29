@@ -18594,14 +18594,6 @@ const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents: eve
 /// endpoint the client reached: telling an agent on `/mcp` that it can see
 /// the whole catalog would be false, and telling an agent on `/mcp/full` to go
 /// find the rest would be noise.
-/// One MCP tool descriptor, exactly as `tools/list` emits it.
-///
-/// Extracted so the advertised bytes and the *measured* advertised bytes
-/// cannot disagree: [`FULL_CATALOG_BYTES`] serializes the whole catalog
-/// through this same function, so the "costs roughly N KB" line in the
-/// initialize instructions is a measurement of what this build actually
-/// sends, not a number somebody typed once and stopped updating.
-
 // ── Observed call latency, per tool ──────────────────────────────────────
 //
 // An agent planning a call wants to know what it costs before it makes it,
@@ -18647,6 +18639,13 @@ fn latency_of(tool: &str) -> Option<JsonValue> {
     }))
 }
 
+/// One MCP tool descriptor, exactly as `tools/list` emits it.
+///
+/// Extracted so the advertised bytes and the *measured* advertised bytes
+/// cannot disagree: [`FULL_CATALOG_BYTES`] serializes the whole catalog
+/// through this same function, so the "costs roughly N KB" line in the
+/// initialize instructions is a measurement of what this build actually
+/// sends, not a number somebody typed once and stopped updating.
 fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
     json!({
         "name": t.name,
