@@ -19013,12 +19013,18 @@ async fn mcp_jsonrpc_inner(
                 // a stock client cannot parse and which cost the arcade
                 // builder a debugging session. MCP already has task-augmented
                 // execution, so the refusal names it instead of dying quietly.
+                // This MUST fire before the transport TimeoutLayer, which
+                // answers with an empty-bodied 504 that no client can parse.
+                // That layer is the true cause of the empty-body-after-40s an
+                // integrator reported, and a budget above it would never win,
+                // so the ceiling is derived from it rather than guessed.
+                let transport = timeout_seconds();
                 let mcp_budget = std::time::Duration::from_secs(
                     std::env::var("EMEM_MCP_CALL_TIMEOUT_SECS")
                         .ok()
                         .and_then(|v| v.parse::<u64>().ok())
-                        .unwrap_or(45)
-                        .clamp(10, 300),
+                        .unwrap_or(32)
+                        .clamp(5, transport.saturating_sub(5).max(5)),
                 );
                 match tokio::time::timeout(mcp_budget, mcp_tool_call(name, args, &s)).await {
                     Err(_elapsed) => {
