@@ -37,6 +37,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -108,6 +109,20 @@ def note_body(path: str) -> str:
     return body if isinstance(body, str) else ""
 
 
+def trim_for_model(body: str, budget: int = 14000) -> str:
+    """Fit a note into the model's context without dropping what it asks for.
+
+    These agents put their requests in a closing section ("What I am asking",
+    "One ask back"), so a head-truncation drops precisely the part this script
+    exists to catalogue. Keep both ends and say where the cut is.
+    """
+    if len(body) <= budget:
+        return body
+    head = budget * 2 // 5
+    tail = budget - head
+    return f"{body[:head]}\n\n[... middle of the note omitted ...]\n\n{body[-tail:]}"
+
+
 COMPREHEND = """You are the reasoning tier of emem. You are NOT writing a reply.
 
 Read the note below, which another agent addressed to {me}. Return EXACTLY one
@@ -135,26 +150,48 @@ NOTE FROM {sender}:
 ---"""
 
 
-def comprehend(me: str, sender: str, body: str) -> dict | None:
-    """Ask the model what the note says and wants. Returns None on any doubt."""
-    body = body[:12000]
-    try:
-        out = _post(
-            LLM_URL,
-            {
-                "base_model": LLM_MODEL,
-                "family": LLM_FAMILY,
-                "temperature": 0,
-                "max_tokens": 700,
-                "messages": [
-                    {"role": "user",
-                     "content": COMPREHEND.format(me=me, sender=sender, body=body)}
-                ],
-            },
-            timeout=180,
-        )
-    except Exception as e:  # model down, overloaded, or slow
-        print(f"    model unavailable ({type(e).__name__}), falling back to bare ack")
+def comprehend(me: str, sender: str, body: str, attempts: int = 3) -> dict | None:
+    """Ask the model what the note says and wants. Returns None on any doubt.
+
+    The model host is single-flight and shares a GPU with another product, so a
+    burst of incoming notes reliably produces a transient 429/503 on the second
+    and third call. Falling back on the first error published three contentless
+    receipts in one pass, which is a worse first impression than staying quiet,
+    so transient failures are retried with backoff and the real status is
+    logged rather than just the exception class.
+    """
+    body = trim_for_model(body)
+    payload = {
+        "base_model": LLM_MODEL,
+        "family": LLM_FAMILY,
+        "temperature": 0,
+        "max_tokens": 900,
+        "messages": [
+            {"role": "user", "content": COMPREHEND.format(me=me, sender=sender, body=body)}
+        ],
+    }
+    out = None
+    for i in range(attempts):
+        try:
+            out = _post(LLM_URL, payload, timeout=180)
+            break
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode()[:200]
+            except Exception:
+                pass
+            transient = e.code in (408, 409, 425, 429, 500, 502, 503, 504)
+            print(f"    model HTTP {e.code}{' (transient)' if transient else ''}"
+                  f" attempt {i + 1}/{attempts}: {detail}")
+            if not transient:
+                return None
+        except Exception as e:
+            print(f"    model {type(e).__name__} attempt {i + 1}/{attempts}: {e}")
+        if i + 1 < attempts:
+            time.sleep(2 * (i + 1))  # 2s, then 4s
+    if out is None:
+        print("    model unavailable after retries, falling back to bare ack")
         return None
 
     txt = (out.get("choices") or [{}])[0].get("message", {}).get("content", "")
@@ -316,6 +353,8 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
         if not body:
             print("    could not read body, skipping")
             continue
+        if sent:
+            time.sleep(3)   # do not become the burst the model host rejects
         summary = comprehend(me, sender, body)
         stamp = (m.get("signed_at") or "")[:10] or time.strftime("%Y-%m-%d")
         name = f"ack-{sender}-{re.sub(r'[^a-z0-9]+','-',Path(path).stem.lower())[:60]}-{stamp}.md"
