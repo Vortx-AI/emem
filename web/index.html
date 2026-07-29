@@ -1254,8 +1254,11 @@ input::placeholder{color:var(--mute,#7a7363)}
   .join-head{padding:.5rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);font-size:var(--t-xs);font-family:var(--mono);color:var(--mute)}
   .join-head b{color:var(--ink)}
   .join-form{display:flex;gap:.5rem;padding:.7rem .8rem;flex-wrap:wrap}
-  .join-form input{flex:1;min-width:220px;font-size:.9rem;padding:.5rem .7rem}
-  .join-form button{font-family:var(--mono);font-size:.78rem;padding:.5rem .9rem;border:1.6px solid var(--ink);background:var(--paper);cursor:pointer}
+  /* Both carry an explicit colour like every other control on the page.
+     Without it a button inherits the UA `buttontext` black, which in dark
+     mode is black on near-black and effectively invisible. */
+  .join-form input{flex:1;min-width:220px;font-size:.9rem;padding:.5rem .7rem;font-family:inherit;color:var(--ink);background:var(--paper);border:1.6px solid var(--ink);outline:none}
+  .join-form button{font-family:var(--mono);font-size:.78rem;padding:.5rem .9rem;border:1.6px solid var(--ink);background:var(--paper);color:var(--ink);cursor:pointer}
   .join-form button.primary{background:var(--accent);color:var(--paper)}
   .join-form button:hover{background:var(--ink);color:var(--paper)}
   .join-note{padding:0 .8rem .6rem;font-family:var(--mono);font-size:.64rem;color:var(--mute)}
