@@ -3060,7 +3060,7 @@ fn build_csp(script_src_extra: &str, style_src_extra: &str) -> String {
          style-src-attr 'unsafe-inline'; \
          font-src 'self' data: https://fonts.gstatic.com; \
          worker-src 'self' blob:; \
-         frame-ancestors 'self' https://huggingface.co https://*.hf.space; \
+         frame-ancestors 'self' https://huggingface.co https://*.hf.space https://geo.qa https://*.geo.qa; \
          base-uri 'self'; \
          form-action 'self'"
     )
@@ -66641,5 +66641,51 @@ mod clip_title_tests {
         let t = "\u{1f6f0} vegetation around N\u{e5}shik shifted, \u{4eba}\u{5de5}\u{885b}\u{661f} readings attached and signed";
         let got = clip_title(t, 20);
         assert!(got.chars().count() <= 20, "{got}");
+    }
+}
+
+#[cfg(test)]
+mod csp_embed_tests {
+    use super::build_csp;
+
+    /// The overworld is embedded by partner deployments as their "learn emem"
+    /// surface. `frame-ancestors` is the only thing standing between that and
+    /// a browser-refused iframe, and the failure is silent in server logs, so
+    /// the allowed origins are asserted rather than assumed.
+    #[test]
+    fn partner_origins_may_embed_us() {
+        let csp = build_csp("", "");
+        let fa = csp
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("frame-ancestors"))
+            .expect("frame-ancestors directive present");
+        for origin in [
+            "'self'",
+            "https://huggingface.co",
+            "https://*.hf.space",
+            "https://geo.qa",
+            "https://*.geo.qa",
+        ] {
+            assert!(fa.contains(origin), "frame-ancestors lost {origin}: {fa}");
+        }
+    }
+
+    #[test]
+    fn we_did_not_open_the_frame_to_everyone() {
+        let csp = build_csp("", "");
+        let fa = csp
+            .split(';')
+            .map(str::trim)
+            .find(|d| d.starts_with("frame-ancestors"))
+            .unwrap();
+        assert!(
+            !fa.contains('*') || !fa.contains("https://*;"),
+            "wildcard host: {fa}"
+        );
+        assert!(
+            !fa.split_whitespace().any(|t| t == "*"),
+            "bare wildcard: {fa}"
+        );
     }
 }
