@@ -52337,6 +52337,69 @@ fn extract_latlng_from_text(q: &str) -> Option<(f64, f64)> {
     None
 }
 
+/// Words that end a place name inside a question.
+///
+/// Deliberately excludes articles and particles ("the", "de", "upon", "sur"),
+/// which appear inside real place names: The Hague, Rio de Janeiro, Newcastle
+/// upon Tyne. It covers conjunctions, interrogatives, auxiliaries and temporal
+/// filler, none of which can be part of a name we would resolve.
+const CLAUSE_STOPWORDS: &[&str] = &[
+    // conjunctions and clause markers
+    "and",
+    "or",
+    "but",
+    "so",
+    "then",
+    "if",
+    "that",
+    "which",
+    "while",
+    "because",
+    "versus",
+    "vs",
+    "compared",
+    "than",
+    // interrogatives
+    "what",
+    "when",
+    "where",
+    "why",
+    "who",
+    "whom",
+    "whose",
+    "how",
+    // auxiliaries
+    "does",
+    "do",
+    "did",
+    "is",
+    "are",
+    "was",
+    "were",
+    "will",
+    "would",
+    "can",
+    "could",
+    "should",
+    "has",
+    "have",
+    "had",
+    // temporal filler that trails a place in natural questions
+    "now",
+    "today",
+    "tomorrow",
+    "yesterday",
+    "currently",
+    "recently",
+    "right",
+    "lately",
+    "ago",
+    "since",
+    "during",
+    "before",
+    "after",
+];
+
 fn extract_place_candidates(q: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let push_unique = |s: String, out: &mut Vec<String>| {
@@ -52359,13 +52422,24 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
         let lw = w.to_ascii_lowercase();
         let lw = lw.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
         if anchors.iter().any(|a| *a == lw) && i + 1 < toks.len() {
-            // Take 1..=5 follow tokens but stop at another preposition
-            // or a sentence-terminator.
+            // Take 1..=5 follow tokens but stop at another preposition,
+            // a clause boundary, or a sentence-terminator.
             let mut window: Vec<&str> = Vec::new();
             for tok in toks.iter().skip(i + 1).take(5) {
                 let lt = tok.to_ascii_lowercase();
                 let lt = lt.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
                 if anchors.iter().any(|a| *a == lt) {
+                    break;
+                }
+                // A place name ends where the sentence turns back into a
+                // question. Without this the window runs on past the place
+                // and the geocoder fuzzy-matches the whole clause: "around
+                // Nashik right now, and what does the number mean?" grabbed
+                // "Nashik right now, and what" and resolved it to "North
+                // Atlantic Right Whale Mother and Calf (artwork), Georgia".
+                // Commas are NOT a boundary on their own, because "in
+                // Nashik, India" is one place.
+                if CLAUSE_STOPWORDS.contains(&lt.as_str()) {
                     break;
                 }
                 if tok.ends_with('?') || tok.ends_with('.') {
@@ -56122,7 +56196,11 @@ struct CachedPlace {
 ///
 /// 1: pre-versioning rows (implied, `None` on disk).
 /// 2: Photon class prior ranks `boundary` (0.65) over `place` (0.6).
-const LOCATE_RESOLVER_VERSION: u32 = 2;
+/// 3: `extract_place_candidates` stops the prepositional-anchor window at a
+///    clause boundary, so a trailing question no longer becomes part of the
+///    place string. Cached rows keyed on the old over-long spans (e.g.
+///    "Nashik right now, and what") must not be served.
+const LOCATE_RESOLVER_VERSION: u32 = 3;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -66801,5 +66879,62 @@ mod truncation_hint_tests {
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), GET_ONLY_REST_PATHS.len(), "duplicate entry");
+    }
+}
+
+#[cfg(test)]
+mod place_extraction_tests {
+    use super::extract_place_candidates;
+
+    fn first(q: &str) -> String {
+        extract_place_candidates(q)
+            .first()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// The regression that made emem_reason unusable on natural questions.
+    /// The anchor window ran past the place into the trailing clause, and the
+    /// geocoder fuzzy-matched "Nashik right now, and what" onto "North
+    /// Atlantic Right Whale Mother and Calf (artwork), St. Simons, Georgia".
+    /// The place guard then correctly refused to narrate Georgia under
+    /// Nashik's name, so the visible symptom was a refusal, not a wrong answer.
+    #[test]
+    fn a_trailing_clause_does_not_become_part_of_the_place() {
+        let got =
+            first("how green is the area around Nashik right now, and what does the number mean?");
+        assert_eq!(got, "Nashik", "window ran into the clause: {got:?}");
+    }
+
+    #[test]
+    fn simple_phrasings_still_resolve() {
+        assert_eq!(first("how green is Nashik right now?"), "Nashik");
+        assert_eq!(first("the area around Nashik"), "Nashik");
+        assert_eq!(first("what is the ndvi in Bangalore"), "Bangalore");
+    }
+
+    /// Commas are not a boundary: a comma routinely separates a place from
+    /// its admin parent, and cutting there loses the disambiguator.
+    #[test]
+    fn a_comma_keeps_the_admin_parent() {
+        assert_eq!(first("how green is it in Nashik, India"), "Nashik, India");
+    }
+
+    /// Articles and particles are inside real names, so they must not stop
+    /// the window.
+    #[test]
+    fn particles_inside_names_survive() {
+        assert_eq!(first("rainfall in The Hague"), "The Hague");
+        assert_eq!(first("temperature in Rio de Janeiro"), "Rio de Janeiro");
+        assert_eq!(
+            first("flooding in Newcastle upon Tyne"),
+            "Newcastle upon Tyne"
+        );
+    }
+
+    #[test]
+    fn stopwords_cut_before_the_filler_not_after() {
+        assert_eq!(first("water level at Chilika today"), "Chilika");
+        assert_eq!(first("ndvi near Poyang and what changed"), "Poyang");
     }
 }
