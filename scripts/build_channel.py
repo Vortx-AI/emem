@@ -257,6 +257,16 @@ def fetch_notes() -> list[dict]:
             path = e.get("path") if isinstance(e, dict) else str(e)
             if not path or not path.endswith(".md"):
                 continue
+            # Arcade notes are game moves, not conversation: a player hiring
+            # a satellite writes to the same store, and there are hundreds of
+            # them. This is what the old `correspondence > 0` roster filter
+            # was really reaching for, but it tested the wrong thing: it
+            # excluded quiet genuine correspondents like zv77vwgg while the
+            # loudest arcade daemons passed it anyway, because they address
+            # each other. The distinction is the path, not the author and not
+            # the volume, so filter on the path.
+            if "/arcade/" in path:
+                continue
             # Machine acknowledgements are delivery receipts, not conversation.
             # They also sort under "a", so once the responder started acking a
             # prolific correspondent they took the front of every listing and
