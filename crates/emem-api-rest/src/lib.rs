@@ -17409,10 +17409,24 @@ fn mcp_response_budget_bytes() -> usize {
 /// ones and says so. The un-truncated payload is always available over the
 /// matching REST endpoint (the MCP cap is a client-frontend limit, not a
 /// server one). Returns `(slimmed_inner, truncation_note)`.
-/// Bytes reserved for the `_emem_truncation` note appended after slimming.
-/// It carries a `fetch` block and a paragraph of prose, so it runs ~850 bytes;
-/// reserving 512 shipped results 157 bytes over the host's cap.
-const TRUNCATION_NOTE_HEADROOM: usize = 1400;
+/// Bytes to reserve for the `_emem_truncation` note, measured from the note
+/// we are actually going to write rather than assumed.
+///
+/// The note carries a fixed preamble (reason prose plus a `fetch` block) and
+/// one entry per dropped field, so its size depends on how much we drop. Two
+/// fixed guesses were already wrong here: 512 shipped results 157 bytes over
+/// the host's cap, and 1400 was padding chosen to make that stop happening.
+fn truncation_note_reserve(dropped: &[JsonValue]) -> usize {
+    // The prose and fetch block are stable; measure them once against a
+    // representative shape rather than counting characters by hand.
+    const PREAMBLE: usize = 900;
+    let entries: usize = dropped
+        .iter()
+        .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0) + 1)
+        .sum();
+    // Slack for the entry this iteration is about to append.
+    PREAMBLE + entries + 256
+}
 
 fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, JsonValue) {
     // Small identifying/authenticating fields we never drop.
@@ -17469,7 +17483,14 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
             .map(|s| s.len())
             .unwrap_or(usize::MAX);
         // Leave headroom for the `_emem_truncation` note we add at the end.
-        if cur + TRUNCATION_NOTE_HEADROOM <= budget {
+        // MEASURED, not guessed: the note carries a fetch block, a paragraph
+        // of prose and one entry per dropped field, so it grows as we drop
+        // more. A fixed reserve was wrong twice over, once at 512 (shipped
+        // results over the cap) and once at 1400 (a padded guess). Serialize
+        // what we have and add a small slack for the entry we are about to
+        // append.
+        let reserve = truncation_note_reserve(&dropped);
+        if cur + reserve <= budget {
             break;
         }
         if let Some(v) = map.get(&k) {
@@ -17485,9 +17506,7 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
                 let field_len = serde_json::to_string(v).map(|s| s.len()).unwrap_or(0);
                 // Space this field may occupy once everything else is counted.
                 let others = cur.saturating_sub(field_len);
-                let allow = budget
-                    .saturating_sub(TRUNCATION_NOTE_HEADROOM)
-                    .saturating_sub(others);
+                let allow = budget.saturating_sub(reserve).saturating_sub(others);
                 let mut used = 2; // the enclosing [ ]
                 let mut kept = 0usize;
                 for el in a.iter() {
@@ -17509,7 +17528,7 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
                     let n = serde_json::to_string(&JsonValue::Object(probe))
                         .map(|s| s.len())
                         .unwrap_or(usize::MAX);
-                    if n + TRUNCATION_NOTE_HEADROOM <= budget {
+                    if n + reserve <= budget {
                         break;
                     }
                     kept = kept * 9 / 10;

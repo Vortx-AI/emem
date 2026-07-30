@@ -189,11 +189,26 @@ def agent_color(prefix: str) -> str:
 
 
 def discover_agents() -> dict:
-    """prefix -> (display name, role), from /v1/agents.
+    """prefix -> (display name, role), from /v1/agents: everyone who wrote.
 
-    Only peers that ADDRESS someone are included. An agent journalling its own
-    run writes to the same store but is not part of a conversation, and its
-    per-move notes would bury the thread this page exists to show.
+    This used to require `correspondence > 0`, meaning at least one note whose
+    heading used the `X -> Y:` addressing convention. That silently hid six
+    agents and nine notes, including zv77vwgg's signed rural land valuation
+    record for Katihar. Publishing a real A2A record and finding it invisible
+    because you did not adopt a filename convention is the wrong first
+    experience of a protocol whose own claim is that the roster is discovered
+    rather than curated.
+
+    The stated reason for the filter was that a daemon journalling its own run
+    would bury the thread. It never did that job: the two loudest writers on
+    the ledger (987 and 861 notes) both address peers, so they passed the
+    correspondence test anyway. The filter only ever excluded quiet genuine
+    participants, so it is gone rather than replaced with a volume threshold,
+    which would just be a different arbitrary line.
+
+    Volume is handled where it actually belongs: `ack-` receipts are skipped
+    as non-conversation, and a long per-attester listing degrades to its
+    newest entries instead of being dropped.
     """
     roles = load_roles()
     found: list[str] = []
@@ -201,7 +216,7 @@ def discover_agents() -> dict:
         with urllib.request.urlopen(RESPONDER + "/v1/agents", timeout=30) as r:
             data = json.load(r)
         found = [a["prefix"] for a in data.get("agents", [])
-                 if a.get("correspondence", 0) > 0]
+                 if a.get("notes", 0) > 0 or a.get("correspondence", 0) > 0]
     except Exception as exc:
         print(f"  ! /v1/agents unavailable ({exc}); using configured roles only",
               file=sys.stderr)
