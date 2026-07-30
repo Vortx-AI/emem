@@ -1281,6 +1281,9 @@ pub fn router(state: AppState) -> Router {
         // individually signed, the underlying file's receipt remains
         // the verification surface).
         .route("/v1/memory/sse", get(get_memory_sse))
+        // The canonical path we print everywhere is now readable at that
+        // path: markdown for a human, JSON envelope on Accept.
+        .route("/memories/*path", get(get_memory_markdown))
         .route(
             "/v1/memory_contradictions",
             post(post_memory_contradictions).get(get_memory_contradictions),
@@ -29276,6 +29279,62 @@ struct MemoryListByKindReq {
     prefix: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+}
+
+/// Serve a memory's full body at its own canonical path.
+///
+/// Until now the only way to read a note's markdown was the MCP `memory_view`
+/// tool. `/verify` proves a receipt but renders no body, the channel shows an
+/// excerpt, and `GET /memories/by_attester/<who>/<note>.md` (the first thing
+/// anyone tries, because it is the identifier we print everywhere) returned
+/// 404. A protocol whose claim is "resolve it yourself" cannot hand a reader
+/// a path they cannot open.
+///
+/// It also closes a gap that showed up elsewhere: the MCP truncation note's
+/// `fetch` block was `null` for listings because `schema_to_rest_path` had no
+/// REST route to point at. Now there is one.
+///
+/// Content negotiation: `text/markdown` by default, JSON on `Accept:
+/// application/json` (the full signed envelope, receipt included), so an
+/// agent and a browser get the shape each expects from one URL.
+async fn get_memory_markdown(
+    State(s): State<AppState>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let full = format!("/memories/{}", path.trim_start_matches('/'));
+    let doc = memory_view_inner(
+        &s,
+        MemoryViewReq {
+            path: full.clone(),
+            view_range: None,
+            kind: None,
+            vault_capability: None,
+        },
+    )
+    .await?;
+
+    let accept = headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if accept.contains("application/json") {
+        return Ok(Json(doc).into_response());
+    }
+
+    // A directory listing has no body to serve as markdown; hand back the
+    // JSON rather than an empty page.
+    let Some(body) = doc.get("content").and_then(|c| c.as_str()) else {
+        return Ok(Json(doc).into_response());
+    };
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/markdown; charset=utf-8",
+        )],
+        body.to_string(),
+    )
+        .into_response())
 }
 
 async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue, ApiError> {
@@ -67113,5 +67172,36 @@ mod slimmer_degrade_tests {
         let before = big_listing(3);
         let (slim, _) = mcp_slim_inner_to_budget(before.clone(), 24_000);
         assert_eq!(slim.get("entries").unwrap().as_array().unwrap().len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod memory_markdown_route_tests {
+    /// The path we print in every note header, every channel row and every
+    /// citation must be openable. It used to 404, so a reader handed
+    /// `/memories/by_attester/zv77vwgg/first-rural-land-valuation-a2a.md` had
+    /// no way to read it: /verify proves the receipt without rendering the
+    /// body, and the channel shows only an excerpt.
+    #[test]
+    fn the_route_is_registered_under_memories() {
+        let src = include_str!("lib.rs");
+        assert!(
+            src.contains(r#".route("/memories/*path", get(get_memory_markdown))"#),
+            "the /memories/*path reader is not wired into the router"
+        );
+    }
+
+    /// Markdown by default, the signed envelope on request. One URL, two
+    /// audiences, neither of which should have to know about MCP.
+    #[test]
+    fn it_negotiates_markdown_and_json() {
+        let src = include_str!("lib.rs");
+        let f = src
+            .split("async fn get_memory_markdown")
+            .nth(1)
+            .expect("handler present");
+        let body = &f[..f.len().min(2000)];
+        assert!(body.contains("text/markdown"), "no markdown content type");
+        assert!(body.contains("application/json"), "no JSON negotiation");
     }
 }
