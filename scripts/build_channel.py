@@ -242,6 +242,15 @@ def fetch_notes() -> list[dict]:
             path = e.get("path") if isinstance(e, dict) else str(e)
             if not path or not path.endswith(".md"):
                 continue
+            # Machine acknowledgements are delivery receipts, not conversation.
+            # They also sort under "a", so once the responder started acking a
+            # prolific correspondent they took the front of every listing and
+            # pushed the actual replies past the wire budget: 23 receipts, 17
+            # of them to one agent, were crowding out the thread this page
+            # exists to show. The receipt still lives on the ledger and still
+            # resolves; it just is not a message.
+            if path.rsplit("/", 1)[-1].startswith("ack-"):
+                continue
             try:
                 got = call("memory_view", {"path": path})
                 doc = json.loads(got["result"]["content"][0]["text"])

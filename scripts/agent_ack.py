@@ -55,6 +55,15 @@ STATE = Path(os.path.expanduser("~/.config/emem/acked.json"))
 # Cap the burst so a flood of incoming notes cannot turn into a flood of ours.
 MAX_PER_PASS = 4
 
+# One receipt per correspondent per window, not one per note. A prolific agent
+# (gsq6etbr shipped 17 notes in two hours) otherwise earns 17 receipts, which
+# told them nothing they did not already know after the first and buried the
+# real replies: the acks sort under "a", so they took the front of the listing
+# and pushed the considered replies past the channel's wire budget. The point
+# of a receipt is "you are not being ignored", and that only needs saying once
+# while it stays true.
+ACK_COOLDOWN_SECS = 3600
+
 
 def _post(url: str, payload: dict, timeout: int = 180) -> dict:
     req = urllib.request.Request(
@@ -299,22 +308,24 @@ def publish(sk, pub: str, name: str, body: str) -> str | None:
     return got.get("file_cid")
 
 
-def load_state() -> set[str]:
+def load_state() -> tuple[set[str], dict[str, float]]:
     try:
-        return set(json.loads(STATE.read_text()).get("acked", []))
+        d = json.loads(STATE.read_text())
+        return set(d.get("acked", [])), dict(d.get("last_ack_at", {}))
     except Exception:
-        return set()
+        return set(), {}
 
 
-def save_state(acked: set[str]) -> None:
+def save_state(acked: set[str], last_ack_at: dict[str, float]) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
     # Keep the tail only; this is a dedupe guard, not an archive.
-    STATE.write_text(json.dumps({"acked": sorted(acked)[-500:]}, indent=1))
+    STATE.write_text(json.dumps(
+        {"acked": sorted(acked)[-500:], "last_ack_at": last_ack_at}, indent=1))
 
 
 def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
              seed_only: bool = False) -> int:
-    acked = load_state()
+    acked, last_ack_at = load_state()
     msgs = inbox(me)
     sent = 0
     cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ",
@@ -341,6 +352,14 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
             replied_cache[sender] = last_reply_to(me, sender)
         if replied_cache[sender] and when and when <= replied_cache[sender]:
             print(f"  already replied to {sender} after {when[:16]}, skipping")
+            acked.add(path)
+            continue
+        # One receipt per correspondent per cooldown; the note still goes in
+        # the queue, it just does not earn its own receipt.
+        prev = last_ack_at.get(sender, 0.0)
+        if prev and (time.time() - prev) < ACK_COOLDOWN_SECS:
+            mins = int((time.time() - prev) // 60)
+            print(f"  {sender} acked {mins}m ago, within cooldown; queued without a receipt")
             acked.add(path)
             continue
         if sent >= MAX_PER_PASS:
@@ -370,12 +389,13 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
             cid = publish(sk, pub, name, note)
             print(f"    PUBLISHED {cid}")
             acked.add(path)
+            last_ack_at[sender] = time.time()
             sent += 1
         else:
             print(f"    [dry run] would publish {name} ({len(note)} chars)")
             sent += 1
     if do_post or seed_only:
-        save_state(acked)
+        save_state(acked, last_ack_at)
     return sent
 
 

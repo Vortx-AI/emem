@@ -17409,6 +17409,11 @@ fn mcp_response_budget_bytes() -> usize {
 /// ones and says so. The un-truncated payload is always available over the
 /// matching REST endpoint (the MCP cap is a client-frontend limit, not a
 /// server one). Returns `(slimmed_inner, truncation_note)`.
+/// Bytes reserved for the `_emem_truncation` note appended after slimming.
+/// It carries a `fetch` block and a paragraph of prose, so it runs ~850 bytes;
+/// reserving 512 shipped results 157 bytes over the host's cap.
+const TRUNCATION_NOTE_HEADROOM: usize = 1400;
+
 fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, JsonValue) {
     // Small identifying/authenticating fields we never drop.
     const KEEP: &[&str] = &[
@@ -17464,10 +17469,64 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
             .map(|s| s.len())
             .unwrap_or(usize::MAX);
         // Leave headroom for the `_emem_truncation` note we add at the end.
-        if cur + 512 <= budget {
+        if cur + TRUNCATION_NOTE_HEADROOM <= budget {
             break;
         }
         if let Some(v) = map.get(&k) {
+            // Degrade, do not drop. A response that replaces a 135-entry
+            // listing with a stub burns the caller's round trip and teaches
+            // them nothing: they cannot tell "nothing there" from "we hid it",
+            // and the caller most likely to hit this is the one with the most
+            // data. Keep as many leading elements as the budget allows and say
+            // where to resume. The field STAYS an array, so a consumer that
+            // iterates it keeps working on the prefix instead of receiving an
+            // object where it expected a list.
+            if let JsonValue::Array(a) = v {
+                let field_len = serde_json::to_string(v).map(|s| s.len()).unwrap_or(0);
+                // Space this field may occupy once everything else is counted.
+                let others = cur.saturating_sub(field_len);
+                let allow = budget
+                    .saturating_sub(TRUNCATION_NOTE_HEADROOM)
+                    .saturating_sub(others);
+                let mut used = 2; // the enclosing [ ]
+                let mut kept = 0usize;
+                for el in a.iter() {
+                    let c = serde_json::to_string(el).map(|s| s.len()).unwrap_or(0) + 1;
+                    if used + c > allow {
+                        break;
+                    }
+                    used += c;
+                    kept += 1;
+                }
+                // The estimate above ignores the key, its quoting and the
+                // note we still have to append, so verify against a real
+                // serialization and shrink until it genuinely fits. Cheap:
+                // a handful of passes, and being wrong here means shipping
+                // an over-budget result the host will reject outright.
+                while kept > 0 {
+                    let mut probe = map.clone();
+                    probe.insert(k.clone(), JsonValue::Array(a[..kept].to_vec()));
+                    let n = serde_json::to_string(&JsonValue::Object(probe))
+                        .map(|s| s.len())
+                        .unwrap_or(usize::MAX);
+                    if n + TRUNCATION_NOTE_HEADROOM <= budget {
+                        break;
+                    }
+                    kept = kept * 9 / 10;
+                }
+                if kept > 0 && kept < a.len() {
+                    let stub = json!({
+                        "_truncated": true, "_kind": "array",
+                        "_kept": kept, "_len": a.len(),
+                        "_next_offset": kept,
+                        "_how": "the first _kept elements are complete and usable; \
+                                 re-request with offset=_next_offset for the rest",
+                    });
+                    dropped.push(json!({ "field": k, "stub": stub }));
+                    map.insert(k.clone(), JsonValue::Array(a[..kept].to_vec()));
+                    continue;
+                }
+            }
             let stub = match v {
                 JsonValue::Array(a) => {
                     json!({ "_omitted": true, "_kind": "array", "_len": a.len() })
@@ -29262,9 +29321,35 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             });
             typed.push((entry_kind, key, entry));
         }
+        // Newest first within kind. A long listing gets truncated to fit the
+        // MCP budget, and truncation keeps the head, so whatever sorts last is
+        // what a caller silently loses. Alphabetical made that arbitrary: an
+        // attester's newest note vanished from the channel because its
+        // filename began with "w". Our names carry a trailing ISO date, so
+        // order on that and fall back to the name when it is absent.
+        fn trailing_date(name: &str) -> Option<&str> {
+            let stem = name.strip_suffix(".md").unwrap_or(name);
+            let d = stem.get(stem.len().checked_sub(10)?..)?;
+            let ok = d.len() == 10
+                && d.as_bytes()[4] == b'-'
+                && d.as_bytes()[7] == b'-'
+                && d.bytes().enumerate().all(|(i, c)| {
+                    if i == 4 || i == 7 {
+                        c == b'-'
+                    } else {
+                        c.is_ascii_digit()
+                    }
+                });
+            ok.then_some(d)
+        }
         typed.sort_by(|a, b| {
+            let (na, nb) = (
+                a.1.rsplit('/').next().unwrap_or(&a.1),
+                b.1.rsplit('/').next().unwrap_or(&b.1),
+            );
             a.0.listing_priority()
                 .cmp(&b.0.listing_priority())
+                .then_with(|| trailing_date(nb).cmp(&trailing_date(na)))
                 .then_with(|| a.1.cmp(&b.1))
         });
         let entries: Vec<JsonValue> = typed.into_iter().map(|(_, _, v)| v).collect();
@@ -29274,7 +29359,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             "entries": entries,
             "count": entries.len(),
             "filter_kind": kind_filter.map(|k| k.as_str()),
-            "order": "core-first, then procedural, semantic, episodic, resource; alphabetical within kind",
+            "order": "core-first, then procedural, semantic, episodic, resource; newest-dated first within kind, then alphabetical. A truncated listing keeps the head, so the newest survive.",
         }));
     }
 
@@ -66936,5 +67021,78 @@ mod place_extraction_tests {
     fn stopwords_cut_before_the_filler_not_after() {
         assert_eq!(first("water level at Chilika today"), "Chilika");
         assert_eq!(first("ndvi near Poyang and what changed"), "Poyang");
+    }
+}
+
+#[cfg(test)]
+mod slimmer_degrade_tests {
+    use super::*;
+
+    fn big_listing(n: usize) -> JsonValue {
+        json!({
+            "schema": "emem.memory_view.v1",
+            "count": n,
+            // Sized like a real listing row: production overflowed at 135.
+            "entries": (0..n).map(|i| json!({
+                "path": format!("/memories/by_attester/k572x7go/reply-3yuyyhuo-item-{i:04}-and-a-correction-2026-07-29.md"),
+                "bytes": 4096 + i,
+                "signed_at": "2026-07-29T14:40:11Z",
+                "file_cid": "hxjibw5k3ai3vf6rsa2xmhvu64bqvvyv3fhqz2vjqzk4lqzq7bqa",
+                "title": format!("k572x7go -> 3yuyyhuo: item {i} measured, one correction, and what I owe you next"),
+            })).collect::<Vec<_>>(),
+        })
+    }
+
+    /// The regression that emptied /channel. memory_view on an attester with
+    /// 135 notes returned 3 entries and an _omitted stub, so build_channel.py
+    /// read `entries`, got almost nothing, and the busiest agents vanished
+    /// from the page. A caller cannot tell that from "this agent wrote 3
+    /// notes", which is what makes dropping worse than an error.
+    #[test]
+    fn a_long_listing_degrades_to_a_usable_prefix() {
+        let (slim, note) = mcp_slim_inner_to_budget(big_listing(135), 24_000);
+        let entries = slim
+            .get("entries")
+            .and_then(|e| e.as_array())
+            .expect("entries must stay an ARRAY so consumers keep iterating");
+        assert!(!entries.is_empty(), "kept nothing: {note}");
+        assert!(
+            entries.len() < 135,
+            "nothing was truncated, test is not exercising the path"
+        );
+        // Every kept element is complete, not a stub.
+        for e in entries {
+            assert!(
+                e.get("path")
+                    .and_then(|p| p.as_str())
+                    .is_some_and(|p| p.ends_with(".md")),
+                "kept element is not a whole entry: {e}"
+            );
+        }
+        let stub = note["omitted_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["field"] == "entries")
+            .expect("entries reported")["stub"]
+            .clone();
+        assert_eq!(stub["_truncated"], json!(true));
+        assert_eq!(stub["_len"], json!(135));
+        assert_eq!(stub["_kept"], json!(entries.len()));
+        assert_eq!(stub["_next_offset"], json!(entries.len()));
+    }
+
+    #[test]
+    fn the_result_still_fits_the_budget() {
+        let (slim, _) = mcp_slim_inner_to_budget(big_listing(500), 24_000);
+        let n = serde_json::to_string(&slim).unwrap().len();
+        assert!(n <= 24_000, "slimmed result is {n} bytes, over budget");
+    }
+
+    #[test]
+    fn a_listing_that_fits_is_untouched() {
+        let before = big_listing(3);
+        let (slim, _) = mcp_slim_inner_to_budget(before.clone(), 24_000);
+        assert_eq!(slim.get("entries").unwrap().as_array().unwrap().len(), 3);
     }
 }
