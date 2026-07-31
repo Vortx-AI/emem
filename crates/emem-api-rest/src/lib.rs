@@ -5050,6 +5050,13 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
     Json(json!({
         "$schema":     "https://modelcontextprotocol.io/schemas/draft/well-known-mcp.json",
         "name":        "emem",
+        // The name this server is published under in the official MCP
+        // registry, so a broker that found us one way can cross-check the
+        // other. The version below is what THIS process is running; a caller
+        // comparing it against the registry's latest can tell at a glance
+        // whether the listing has gone stale.
+        "registry_name": "io.github.Vortx-AI/emem",
+        "registry":      "https://registry.modelcontextprotocol.io/v0/servers?search=emem",
         "version":     env!("CARGO_PKG_VERSION"),
         "description": "Shared, verifiable memory for AI agents: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:), so different models reason from the same world object, not divergent descriptions. Content-addressed and signed; every read returns an ed25519 receipt. No API keys for L0/L1.",
         "homepage":    "https://emem.dev",

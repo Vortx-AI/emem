@@ -10,7 +10,7 @@
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
-[![MCP Registry](https://img.shields.io/badge/MCP-Registry-black)](https://registry.modelcontextprotocol.io)
+[![MCP Registry: io.github.Vortx-AI/emem](https://img.shields.io/badge/MCP%20Registry-io.github.Vortx--AI%2Femem-black)](https://registry.modelcontextprotocol.io/v0/servers?search=emem)
 [![Whitepaper: Zenodo](https://img.shields.io/badge/whitepaper-Zenodo%20DOI-3b5?logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.20706893)
 
 [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
@@ -368,7 +368,7 @@ emem is built by **[Vortx AI Private Limited](https://vortx.ai)** (India), which
 What ships today, each independently checkable rather than asserted:
 
 - **A live production responder** at [emem.dev](https://emem.dev), open to read with no key: measured warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node.
-- **Distributed where agents already look:** the [official MCP Registry](https://registry.modelcontextprotocol.io) (`io.github.Vortx-AI/emem`) plus Glama, Smithery, PulseMCP, mcp.so, MCP Market and Loomal; PyPI ([`ememdev`](https://pypi.org/p/ememdev)); npm ([`@vortxai/emem`](https://www.npmjs.com/package/@vortxai/emem)); a container at `ghcr.io/vortx-ai/emem`.
+- **Listed in the [official MCP registry](https://registry.modelcontextprotocol.io/v0/servers?search=emem)** as `io.github.Vortx-AI/emem`, published under the GitHub organisation that owns this repository. The registry entry tracks the running server rather than lagging behind it: the version marked latest there is the version this responder answers on, and you can check both in one call each. Also on Glama, Smithery, PulseMCP, mcp.so, MCP Market and Loomal; PyPI ([`ememdev`](https://pypi.org/p/ememdev)); npm ([`@vortxai/emem`](https://www.npmjs.com/package/@vortxai/emem)); a container at `ghcr.io/vortx-ai/emem`.
 - **An open, citable preprint** ([DOI 10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893), CC-BY-4.0, not yet peer-reviewed) and a companion open model, [TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA).
 - **A regulated workflow carried end to end:** EUDR deforestation evidence at [eudr.dev](https://eudr.dev).
 

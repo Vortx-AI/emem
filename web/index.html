@@ -1381,6 +1381,7 @@ html,body{overflow-x:clip}
     <div style="max-width:680px;margin:1.6rem auto 0;text-align:left">
     <div class="code"><div class="code-head"><span class="lang">json</span><span class="tab">mcp client</span><span class="spacer"></span><button class="copy" data-copy-target="#mcp-snippet">copy</button></div>
       <pre id="mcp-snippet"><code>{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }</code></pre></div>
+    <p style="margin:.5rem 0 1.2rem;font-size:var(--t-sm);color:var(--mute)">Or resolve it by name: emem is listed in the <a href="https://registry.modelcontextprotocol.io/v0/servers?search=emem" rel="noopener">official MCP registry</a> as <code>io.github.Vortx-AI/emem</code>, published under the GitHub organisation that owns the repository. The version marked latest there is the version this responder answers on, and each is one call to check.</p>
     <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">rest, no key</span><span class="spacer"></span><button class="copy" data-copy-target="#curl-snippet">copy</button></div>
       <pre id="curl-snippet"><code>curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
