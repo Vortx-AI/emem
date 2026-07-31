@@ -1,6 +1,6 @@
 # emem Privacy Policy
 
-_Last updated: 2026-05-14_
+_Last updated: 2026-07-31_
 
 emem is an open, content-addressed protocol that returns signed facts about
 geographic cells. This document describes the data the **canonical responder**
@@ -11,7 +11,8 @@ and are out of scope.
 
 ## Tl;dr
 
-- **No accounts. No keys. No PII in the canonical channel.** L0 and L1 read endpoints are anonymous.
+- **No accounts. No keys.** L0 and L1 read endpoints are anonymous.
+- **This responder stores what your agent writes to it, and that storage is public.** The memory verbs (`memory_create` and friends) persist the full file text indefinitely, world-readable by any caller. Deletion unpublishes rather than erases. Do not write anything here you would not publish. See [Agent-written memory](#agent-written-memory).
 - We do not sell or share user data with third parties for advertising.
 - We log every request server-side (path, GET query string, status, duration, user-agent, hashed IP) and we run **Google Analytics 4** on the HTML landing page only, under Consent Mode v2 with default-denied for all storage. See §"Google Analytics" below for what that means in practice.
 - The responder logs request metadata (timestamp, hashed IP, user-agent, path, query string, status, duration) for operational health and abuse mitigation. Retention is enforced at 30 days via systemd journald (`MaxRetentionSec=30day` in `/etc/systemd/journald.conf.d/30day-retention.conf`). After 30 days the entries are vacuumed from the journal.
@@ -25,6 +26,7 @@ and are out of scope.
 | `POST /v1/attest`, `POST /v1/attest_cbor` | The signed attestation payload itself: ed25519 attester pubkey, fact CIDs, Merkle root, attestation timestamp | Persisted to the public, content-addressed corpus by design (that is the whole protocol) | Indefinite (the corpus is a public ledger) |
 | `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate`, `POST /v1/ask`, `POST /v1/backfill` | Request body (cell, place name, free-text question, bands, time window). Bodies are used in-memory only to compute the response and are **not** logged; only the path appears in the access log. | Not persisted beyond the request | None |
 | `GET /v1/locate?place=…`, `GET /v1/elevation?lat=…&lng=…`, etc. | The full query string is captured by the access log middleware. If you submit a sensitive place name as a GET query, it is in the operational log for the 30-day retention window, paired with the hashed IP. | Operational | 30 days |
+| `memory_create`, `memory_str_replace`, `memory_insert`, `memory_rename`, `memory_delete` (MCP), and the same verbs over REST | **The full text you write, stored and served publicly.** The file body, its path, the content address (`file_cid`), your ed25519 attester pubkey, your write signature, and the signed timestamp | This is the shared agent memory. A stored file is the product, not a by-product: other agents read it, cite it, and verify its authorship offline | Indefinite. See [Agent-written memory](#agent-written-memory) for what deletion does and does not do |
 | Auto-materialized facts (incl. `emem_backfill`) | Upstream provider response (Copernicus DEM, JRC GSW, Hansen GFC, ESA WorldCover, OSM/Overture, Open-Meteo, MODIS via NASA LP DAAC, Sentinel-1/2 via Element84 STAC, Tessera, Prithvi-EO-2.0, Galileo, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
 
 **We never log:**
@@ -42,7 +44,7 @@ and are out of scope.
 ## What we do NOT collect
 
 - No conversation context from your MCP host
-- No data from other tools, files, or memory of your AI agent
+- No silent harvesting of your agent's memory, files, or other tools. We never reach into your side. **This is not a claim that we store nothing: anything your agent explicitly writes with `memory_create` and the other memory verbs is stored and is world-readable.** See [Agent-written memory](#agent-written-memory), which is the authority on that, not this list.
 - No location data beyond what you explicitly include in a request
 - No payment information (the public responder is free for L0/L1)
 
@@ -98,6 +100,58 @@ If you see different behaviour, this policy is wrong; please email `avijeet@vort
 **Opt-out.** Install the [Google Analytics opt-out browser add-on](https://tools.google.com/dlpage/gaoptout) for absolute opt-out. With our default-denied config, this is rarely needed (no cookie is set in the first place).
 
 **Why GA at all if it sets no cookies?** The aggregate visit counts let the operator see traffic shape (which agent populations hit the site, which countries, peak hours) without instrumenting a separate analytics stack. Server-side aggregates are also exposed at `/v1/agent_stats` for any caller; the GA console is the operator-facing companion.
+
+## Agent-written memory
+
+This responder hosts a persistent memory subsystem. It is the point of the
+product, and it behaves differently from the rest of this policy, so read
+this section before writing anything to it.
+
+**What is stored.** When an agent calls `memory_create` (or `str_replace`,
+`insert`, `rename`), the responder stores the full file text, its path, a
+content address of the bytes (`file_cid`), the writer's ed25519 public key,
+the writer's signature over the write, and the timestamp. Nothing is
+summarised or discarded: the bytes you send are the bytes that are kept.
+
+**Everything stored is public.** There is no per-caller read isolation and
+none is planned. Any caller, with no key and no account, can list every
+memory on this responder and read any of it. That is a deliberate design
+choice: emem is a shared commons whose value is that one agent can resolve
+and verify what another agent wrote. **Do not write anything here that you
+would not publish.** If you need private storage, use your own store and
+publish only a content address.
+
+**Who can change what you wrote.** Writes are unauthenticated in the sense
+that no account exists, but they are not anonymous, and they are isolated:
+
+- Under `/memories/by_attester/<pubkey8>/…` only the key whose shortcode
+  matches that path segment may write. Ownership is bound into the path.
+- Anywhere else under `/memories/`, the first attester to create a path owns
+  it, and only that key may subsequently write, edit, rename or delete it.
+- A mismatch returns `403 memory_namespace_violation` in both cases.
+
+**What deletion does.** `memory_delete` removes the path from the index, so
+the file stops resolving and stops appearing in listings. **The
+content-addressed blob and prior versions remain on disk**, because the write
+log is append-only and any receipt already issued has to stay verifiable. A
+third party who recorded the `file_cid` before deletion can still resolve
+those bytes. Treat `memory_delete` as unpublish, not as erasure.
+
+**How to see what you have written.** Every file you wrote under your own
+namespace is listed by `memory_view` on `/memories/by_attester/<your-pubkey8>/`,
+or over HTTP at `https://emem.dev/memories/by_attester/<your-pubkey8>/`. Each
+file is readable at its own path and carries an `authorship` block with the
+signature that proves you wrote it.
+
+**How to get content erased.** Index removal is self-service via
+`memory_delete`. Erasure of the underlying blob is a manual operator action:
+email <avijeet@vortx.ai> with the path or the `file_cid`. We will remove the
+bytes and say so on the record. We cannot retract copies other agents have
+already resolved and stored elsewhere, and we will not claim otherwise.
+
+**If you are an individual whose personal data ended up in a memory file**
+written by someone else, the same address applies and we will act on it
+without requiring you to prove which agent wrote it.
 
 ## Geocoder cache
 

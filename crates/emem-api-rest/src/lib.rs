@@ -4952,7 +4952,23 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "data_protection": {
                 "regimes":  ["GDPR", "UK-GDPR", "DPDP-2023", "CCPA-CPRA"],
                 "contact":  "avijeet@vortx.ai",
-                "no_pii_in_canonical_channel": true,
+                // The responder emits no PII of its own. It cannot promise the
+                // channel is free of it, because agents write arbitrary text
+                // into shared memory and some of that text is about people.
+                // Claiming otherwise in a machine-readable field would be a
+                // claim a reader can falsify in one call.
+                "no_pii_emitted_by_responder": true,
+                "pii_possible_in_agent_written_memory": true,
+                "stored_agent_memory": {
+                    "what": "The memory verbs (memory_create, memory_str_replace, memory_insert, memory_rename, memory_delete) persist the full file text, its path, the content address, the writer's ed25519 pubkey, the write signature and the timestamp.",
+                    "readable_by": "everyone, with no key and no account; this responder's memory is a shared commons and has no per-caller read isolation",
+                    "write_isolation": "Writes are signed. Under /memories/by_attester/<pubkey8>/ only the matching key may write; elsewhere the first attester to create a path owns it. A mismatch returns 403 memory_namespace_violation.",
+                    "retention": "indefinite",
+                    "deletion": "memory_delete unlinks the path from the index; the content-addressed blob and prior versions remain, because the write log is append-only and issued receipts must stay verifiable. Unpublish, not erasure.",
+                    "enumerate_your_own": "GET /memories/by_attester/<your-pubkey8>/",
+                    "operator_erasure": "email avijeet@vortx.ai with the path or file_cid",
+                    "policy": "https://emem.dev/privacy#agent-written-memory",
+                },
                 "ip_handling": "blake3-truncated-8B (one-way hash of client IP)",
                 "log_retention_days": 30,
                 "log_retention_enforced_by": "systemd-journald MaxRetentionSec=30day",
@@ -5166,6 +5182,21 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
                 "signed":             "ed25519 over a domain-separated preimage; no anonymous mutation reaches storage",
                 "append_only_logged": "RFC 6962 transparency log, a write is appended, never silently overwrites or vanishes; auditable via /v1/log/*",
                 "namespace_scoped":   "an attester can only write under /memories/by_attester/<its-pubkey8>/; cross-namespace writes return 403 memory_namespace_violation",
+                "open_namespace":     "outside by_attester/ the first attester to create a path owns it; a later write, edit, rename or delete from a different key returns 403 memory_namespace_violation",
+            },
+            // Stated rather than left to be discovered. A reviewer who reads
+            // "namespace_scoped" above could reasonably infer per-caller
+            // privacy, and there is none: this store is a commons.
+            "read_isolation": {
+                "exists": false,
+                "detail": "There is no per-caller read isolation and none is planned. Any caller, with no key and no account, can list and read every memory on this responder, including files other agents wrote. This is deliberate: the value of the store is that one agent can resolve and verify what another wrote.",
+                "implication": "Do not write anything to this responder that you would not publish. For private state, keep the bytes in your own store and publish only a content address.",
+            },
+            "stored_data": {
+                "what": "memory_create and the other memory verbs persist the full file text, path, content address, writer pubkey, write signature and timestamp",
+                "retention": "indefinite",
+                "deletion": "memory_delete unlinks the path from the index; the content-addressed blob and prior versions remain, because the log is append-only and issued receipts must stay verifiable. Unpublish, not erasure.",
+                "policy": "https://emem.dev/privacy#agent-written-memory",
             },
             "write_rate_limit": {
                 "scope":             "per_attester",
@@ -28837,6 +28868,62 @@ fn memory_db(s: &AppState) -> Result<&sled::Db, ApiError> {
 }
 
 /// Read a memory file's current content + meta. None when missing.
+/// Per-caller isolation for the open namespace: first writer owns the path.
+///
+/// `/memories/by_attester/<pubkey8>/...` binds ownership into the path itself,
+/// so the shortcode rule settles it. Everything else — the flat namespace the
+/// Claude memory-tool verbs write to by default — had no owner at all: any
+/// valid signature was accepted as "advisory binding", so a second key could
+/// overwrite, edit, rename or delete a file a first key had written. That is a
+/// real cross-caller mutation hole, not a theoretical one, and it is exactly
+/// what an authless mutation surface should not have.
+///
+/// So the first attester to create an open-namespace path owns it, and later
+/// mutations must present the same key. Reads stay public: this responder's
+/// memory is a shared, world-readable commons by design, and that is declared
+/// rather than implied. Files written before authorship was persisted have no
+/// recorded owner and stay open, because retroactively claiming them for
+/// whoever writes next would be worse than leaving them as they are.
+fn enforce_open_namespace_owner(
+    s: &AppState,
+    verb: &str,
+    path: &str,
+    attester: Option<&MemoryAttester>,
+) -> Result<(), ApiError> {
+    if emem_primitives::namespace_requires_attester(path) {
+        return Ok(()); // the path itself carries the owner
+    }
+    let Some((_, meta)) = read_memory_file(s, path)? else {
+        return Ok(()); // nothing there yet: this caller becomes the owner
+    };
+    let Some(owner) = meta.attester_pubkey_b32.as_deref() else {
+        return Ok(()); // pre-authorship record, no owner to enforce
+    };
+    let caller = attester.map(|a| a.pubkey_b32.as_str()).unwrap_or("");
+    if caller.eq_ignore_ascii_case(owner) {
+        return Ok(());
+    }
+    Err(ApiError(
+        StatusCode::FORBIDDEN,
+        ErrorBody {
+            code: ErrorCode::InvalidArgument,
+            message: format!(
+                "memory_namespace_violation: `{path}` in the open namespace was created by attester \
+                 `{}` and only that key may `{verb}` it. Write under \
+                 `/memories/by_attester/<your-pubkey8>/` for a namespace nobody else can claim.",
+                &owner[..owner.len().min(8)]
+            ),
+            details: Some(json!({
+                "code": "memory_namespace_violation",
+                "reason": "open_namespace_owner_mismatch",
+                "path": path,
+                "owner_short": &owner[..owner.len().min(8)],
+                "remedy": "use /memories/by_attester/<your-pubkey8>/... , which binds ownership into the path",
+            })),
+        },
+    ))
+}
+
 fn read_memory_file(
     s: &AppState,
     path: &str,
@@ -29739,6 +29826,7 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
     let body = req.file_text.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("create", &path, &bh, req.attester.as_ref())?;
+    enforce_open_namespace_owner(s, "create", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
 
     // Vault kind takes the sealed path: encrypt + store in the vault tree
@@ -29880,6 +29968,7 @@ async fn memory_str_replace_inner(
     let body = updated.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("str_replace", &path, &bh, req.attester.as_ref())?;
+    enforce_open_namespace_owner(s, "str_replace", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     // Default str_replace to the kind already in the file if not
@@ -29990,6 +30079,7 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
     let body = out.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("insert", &path, &bh, req.attester.as_ref())?;
+    enforce_open_namespace_owner(s, "insert", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let kind = req
@@ -30034,6 +30124,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     // W2 attester binding (delete has no body, use blake3(b"")).
     let empty_bh = emem_primitives::body_hash(b"");
     validate_attester_binding("delete", &path, &empty_bh, req.attester.as_ref())?;
+    enforce_open_namespace_owner(s, "delete", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
 
@@ -30221,6 +30312,9 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
     // signature question.
     let rename_bh = emem_primitives::rename_body_hash(&old_path);
     validate_attester_binding("rename", &new_path, &rename_bh, req.attester.as_ref())?;
+    enforce_open_namespace_owner(s, "rename", &new_path, req.attester.as_ref())?;
+    // A rename mutates the source as much as the destination.
+    enforce_open_namespace_owner(s, "rename", &old_path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     if emem_primitives::namespace_requires_attester(&old_path) {
         // The source path is also attester-scoped; ensure the supplied
@@ -61713,7 +61807,7 @@ mod tests {
         );
     }
 
-    fn test_app_state() -> AppState {
+    pub(crate) fn test_app_state() -> AppState {
         use emem_storage::server::{ManifestCids, ResponderIdentity};
         use emem_storage::{MaterializingStorage, Server};
         let bands = std::sync::Arc::new((*emem_core::bands::DEFAULT).clone());
@@ -62520,7 +62614,7 @@ mod tests {
 
     // ── W2: attester binding ───────────────────────────────────────
 
-    fn test_attester_signer() -> (ed25519_dalek::SigningKey, String) {
+    pub(crate) fn test_attester_signer() -> (ed25519_dalek::SigningKey, String) {
         use rand::rngs::OsRng;
         use rand::RngCore;
         let mut sec = [0u8; 32];
@@ -62532,7 +62626,7 @@ mod tests {
         (sk, pubkey_b32)
     }
 
-    fn sign_attester(
+    pub(crate) fn sign_attester(
         sk: &ed25519_dalek::SigningKey,
         verb: &str,
         path: &str,
@@ -67260,5 +67354,106 @@ mod reasoning_menu_tests {
         for name in ["emem_memory_bundle", "emem_entity_link", "memory_create"] {
             assert!(!set.contains(name), "{name} must not be loop-callable");
         }
+    }
+}
+
+#[cfg(test)]
+mod open_namespace_isolation_tests {
+    use super::tests::{sign_attester, test_app_state, test_attester_signer};
+    use super::*;
+
+    /// Cross-caller mutation in the open namespace. A flat path carries no
+    /// owner in its name, and the signature check alone accepted ANY valid
+    /// key, so a second caller could overwrite a first caller's file. The
+    /// namespace rule only ever bound `/memories/by_attester/<pubkey8>/`.
+    #[tokio::test]
+    async fn a_second_key_cannot_overwrite_a_flat_path() {
+        let s = test_app_state();
+        let (sk_a, _pk_a) = test_attester_signer();
+        let (sk_b, _pk_b) = test_attester_signer();
+        let path = "/memories/isolation-probe.md";
+
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: "first".into(),
+                kind: None,
+                attester: Some(sign_attester(&sk_a, "create", path, b"first")),
+            },
+        )
+        .await
+        .expect("owner may create");
+
+        // B holds a perfectly valid signature over its own write. That used
+        // to be sufficient to clobber A.
+        let err = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: "second".into(),
+                kind: None,
+                attester: Some(sign_attester(&sk_b, "create", path, b"second")),
+            },
+        )
+        .await
+        .expect_err("a different key must not overwrite");
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+        assert!(
+            format!("{:?}", err.1.details).contains("open_namespace_owner_mismatch"),
+            "wrong reason: {:?}",
+            err.1.details
+        );
+    }
+
+    /// Isolation must not cost the owner their own file.
+    #[tokio::test]
+    async fn the_owner_may_still_rewrite_their_own_flat_path() {
+        let s = test_app_state();
+        let (sk, _pk) = test_attester_signer();
+        let path = "/memories/owner-rewrite-probe.md";
+        for body in ["one", "two"] {
+            memory_create_inner(
+                &s,
+                MemoryCreateReq {
+                    path: path.into(),
+                    file_text: body.into(),
+                    kind: None,
+                    attester: Some(sign_attester(&sk, "create", path, body.as_bytes())),
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("owner rewrite {body} refused: {}", e.1.message));
+        }
+    }
+
+    /// A different key must not be able to delete someone else's file either.
+    #[tokio::test]
+    async fn a_second_key_cannot_delete_a_flat_path() {
+        let s = test_app_state();
+        let (sk_a, _) = test_attester_signer();
+        let (sk_b, _) = test_attester_signer();
+        let path = "/memories/delete-probe.md";
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: "mine".into(),
+                kind: None,
+                attester: Some(sign_attester(&sk_a, "create", path, b"mine")),
+            },
+        )
+        .await
+        .expect("owner may create");
+        let err = memory_delete_inner(
+            &s,
+            MemoryDeleteReq {
+                path: path.into(),
+                attester: Some(sign_attester(&sk_b, "delete", path, b"")),
+            },
+        )
+        .await
+        .expect_err("a different key must not delete");
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
     }
 }
