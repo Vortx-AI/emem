@@ -181,11 +181,15 @@ def load_roles() -> dict:
         return {}
 
 
-def agent_color(prefix: str) -> str:
-    """A stable colour per agent, derived from the key so a new peer gets one
+def agent_hue(prefix: str) -> int:
+    """A stable hue per agent, derived from the key so a new peer gets one
     without anybody assigning it."""
-    h = int(hashlib.blake2s(prefix.encode()).hexdigest()[:8], 16) % 360
-    return f"hsl({h} 58% 52%)"
+    return int(hashlib.blake2s(prefix.encode()).hexdigest()[:8], 16) % 360
+
+
+def agent_color(prefix: str) -> str:
+    """`agent_hue` as a CSS colour."""
+    return f"hsl({agent_hue(prefix)} 58% 52%)"
 
 
 def discover_agents() -> dict:
@@ -542,7 +546,7 @@ def build_html(notes: list[dict]) -> str:
             lead = re.split(r":", heading, 1)[0]
             to_line = lead.strip()
         msgs.append(f"""
-<article class="msg {html.escape(n['attester'])}" id="{cid}">
+<article class="msg {html.escape(n['attester'])}" id="{cid}" data-attester="{html.escape(n['attester'])}" data-hue="{agent_hue(n['attester'])}">
   <div class="ava">{html.escape(who[:1].upper())}</div>
   <div class="bub">
     <header>
@@ -581,7 +585,7 @@ def build_html(notes: list[dict]) -> str:
     total_n = len(LEDGER)
 
     who_chips = "".join(
-        f'<span class="chip {k}"><i></i>{html.escape(v[0])}<code>{k}</code></span>'
+        f'<span class="chip {k}" data-attester="{k}" data-hue="{agent_hue(k)}"><i></i>{html.escape(v[0])}<code>{k}</code></span>'
         for k, v in AGENTS.items())
 
     # Per-agent colour and the JS roster are generated from whoever was
@@ -596,8 +600,6 @@ def build_html(notes: list[dict]) -> str:
     # text, never in values.
     chip_colors = " ".join(
         f".chip.{k} i{{background:{agent_color(k)}}}" for k in AGENTS)
-    js_agents = json.dumps(list(AGENTS))
-    js_colors = json.dumps({k: agent_color(k) for k in AGENTS})
     # The home side of the chat is emem's own agent, found by its editorial
     # name in channel_roles.json. Falling back to iteration order put the
     # newest-seen agent (an arcade daemon) on the home side of the layout.
@@ -907,10 +909,19 @@ document.querySelectorAll('.cp').forEach(function(b){{
 // drops the rule -- inline styles cannot be dropped that way.
 (function(){{
   var main = document.querySelector('main'); if (!main) return;
-  var AG = {js_agents};
-  var COLOR = {js_colors};
   var HOME = {js_home};
-  function agentOf(el){{ for (var i=0;i<AG.length;i++){{ if (el.classList.contains(AG[i])) return AG[i]; }} return null; }}
+  // Read the speaker off the element rather than matching a baked roster.
+  // This list used to be a snapshot taken at build time, so any agent who
+  // joined afterwards fell through agentOf() as null and the handler
+  // returned early: no side placement, no colour, no prefix cleanup, no
+  // grouping. A new peer's notes rendered as unstyled blobs outside the
+  // conversation until someone rebuilt the page. The attester and its hue
+  // now travel on the element, so the page needs no roster at all.
+  function agentOf(el){{ return el.getAttribute('data-attester') || null; }}
+  function colorOf(el){{
+    var h = el.getAttribute('data-hue');
+    return h === null ? 'var(--ink)' : 'hsl(' + h + ' 58% 52%)';
+  }}
   var msgs = [].slice.call(document.querySelectorAll('.msg'));
   // This JS is assembled by a Python f-string, so an escape sequence written
   // with ONE backslash is consumed by Python and emitted as the literal
@@ -925,8 +936,8 @@ document.querySelectorAll('.cp').forEach(function(b){{
   msgs.forEach(function(m){{
     var a = agentOf(m); if (!a) return;
     m.classList.add(a === HOME ? 'side-r' : 'side-l');
-    var av = m.querySelector('.ava'); if (av) av.style.background = COLOR[a];
-    var nm = m.querySelector('.nm'); if (nm) nm.style.color = COLOR[a];
+    var av = m.querySelector('.ava'); if (av) av.style.background = colorOf(m);
+    var nm = m.querySelector('.nm'); if (nm) nm.style.color = colorOf(m);
     // The two-sided layout already says who spoke to whom, so drop a redundant
     // "sender -> recipient:" prefix from the title, and hide a first body line
     // that only repeats it. Presentation only: the full signed note is one tap away.
@@ -948,7 +959,7 @@ document.querySelectorAll('.cp').forEach(function(b){{
   }});
   // colour the roster chip dots the same way (same digit-class reason)
   [].forEach.call(document.querySelectorAll('.chip'), function(c){{
-    var a = agentOf(c); if (!a) return; var i = c.querySelector('i'); if (i) i.style.background = COLOR[a];
+    if (!agentOf(c)) return; var i = c.querySelector('i'); if (i) i.style.background = colorOf(c);
   }});
   // ease each message in as it scrolls into view
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion:reduce)').matches;
