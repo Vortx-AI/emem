@@ -878,7 +878,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_ASK,
         example_args: r#"{"q":"is this neighbourhood flood-prone for a flat purchase","place":"Ashok Nagar, Ranchi"}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -1215,7 +1215,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_MEMORY_BUNDLE,
         example_args: r#"{"triples":[{"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},{"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi"}],"purpose":"audit baseline 2026"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "core",
     },
     ToolDescriptor {
@@ -1260,7 +1260,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_ENTITY_LINK,
         example_args: r#"{"entity_token":"emem:entity:0a1b2c3d4e5f60718293","alias":"the north dam"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "core",
     },
     // ── Anthropic memory tool (context-management-2025-06-27) ──
@@ -1388,7 +1388,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_RECALL,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","bands":["weather.temperature_2m","copdem30m.elevation_mean"]}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -1454,7 +1454,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_FIND_SIMILAR,
         example_args: r#"{"key":"damO.zb000.xUti.zde78","k":10}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -1984,7 +1984,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_INTENT,
         example_args: r#"{"type":"what_is_here","cell":"damO.zb000.xUti.zde78"}"#,
         level: "L0", category: ToolCategory::Plan,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
 
