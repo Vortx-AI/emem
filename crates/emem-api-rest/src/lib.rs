@@ -5056,7 +5056,10 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
         // comparing it against the registry's latest can tell at a glance
         // whether the listing has gone stale.
         "registry_name": "io.github.Vortx-AI/emem",
-        "registry":      "https://registry.modelcontextprotocol.io/v0/servers?search=emem",
+        "registries": [
+            "https://github.com/mcp/Vortx-AI/emem",
+            "https://registry.modelcontextprotocol.io/v0/servers?search=emem",
+        ],
         "version":     env!("CARGO_PKG_VERSION"),
         "description": "Shared, verifiable memory for AI agents: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:), so different models reason from the same world object, not divergent descriptions. Content-addressed and signed; every read returns an ed25519 receipt. No API keys for L0/L1.",
         "homepage":    "https://emem.dev",

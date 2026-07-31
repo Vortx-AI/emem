@@ -10,12 +10,13 @@
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
+[![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
 [![MCP Registry: io.github.Vortx-AI/emem](https://img.shields.io/badge/MCP%20Registry-io.github.Vortx--AI%2Femem-black)](https://registry.modelcontextprotocol.io/v0/servers?search=emem)
 [![Whitepaper: Zenodo](https://img.shields.io/badge/whitepaper-Zenodo%20DOI-3b5?logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.20706893)
 
 [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
 
-**Add it to your agent now.** MCP, into `.mcp.json` (Claude Code, Cursor, Cline):
+**Add it to your agent now.** Install from the [GitHub MCP Registry](https://github.com/mcp/Vortx-AI/emem), or paste into `.mcp.json` (Claude Code, Cursor, Cline):
 `{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}`
 &nbsp;·&nbsp; Python `pip install ememdev` &nbsp;·&nbsp; TypeScript `npm i @vortxai/emem` &nbsp;·&nbsp; or `curl` the REST API. **Reads need no key, no account, no signup.**
 
@@ -26,6 +27,41 @@
 > *"A model's memory ends where its context does. emem is the memory that lives outside: signed, content-addressed tokens that survive compaction, hand-offs, and model swaps, so agents that share no vendor and no trust can still cite the same fact. Open protocol, Apache-2.0. Earth is the first substrate."*
 
 ---
+
+## Install from the GitHub MCP Registry
+
+[**github.com/mcp/Vortx-AI/emem**](https://github.com/mcp/Vortx-AI/emem)
+
+One click from the registry page adds the server to a supporting host. Nothing
+else is required: reads take no key, no account and no signup, so the first
+call works before you have decided whether to trust us. That is the point, and
+it is checkable rather than promised, because every answer carries an ed25519
+receipt that verifies against the responder's published key rather than its
+word.
+
+The same server is published in the [official MCP
+registry](https://registry.modelcontextprotocol.io/v0/servers?search=emem) as
+`io.github.Vortx-AI/emem`, under the GitHub organisation that owns this
+repository. The version marked latest there is the version the responder
+answers on, and each is one call to check, so you can tell a live listing from
+a stale one without asking us.
+
+**Connect it if you are building any of these.**
+
+| If you are building | What emem gives you on the first call |
+|---|---|
+| An agent that answers about real places | A signed measurement at a permanent address, with the receipt attached, instead of a plausible sentence |
+| A multi-agent system or an A2A handoff | One `emem:fact:` token both agents resolve to byte-identical bytes, so they argue about the world rather than about each other's paraphrase |
+| Anything that survives context compaction | A citation that outlives the window: keep the token, re-resolve it in the next session or the next model |
+| A robot, drone, camera or satellite pipeline | A write path that admits your output on proof of how it ran, via a signed OS execution trace, rather than on your say-so |
+| An audit, compliance or provenance trail | Append-only history where deletion unpublishes rather than erases, and any third party can re-verify authorship offline |
+| A benchmark or an evaluation | A substrate whose failures are typed and quotable: absences are signed, disagreements are scored, and a refusal names its reason |
+
+**Do not connect it for these.** It is not a private scratchpad: everything an
+agent writes to the shared store is world-readable unless sealed, and even
+sealed entries are permanent. It is not a geocoder or a basemap. And it will
+not tell you what will happen next: forecasting claims were removed from this
+surface because the model behind them scored below persistence.
 
 ## What emem is
 
@@ -368,7 +404,7 @@ emem is built by **[Vortx AI Private Limited](https://vortx.ai)** (India), which
 What ships today, each independently checkable rather than asserted:
 
 - **A live production responder** at [emem.dev](https://emem.dev), open to read with no key: measured warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node.
-- **Listed in the [official MCP registry](https://registry.modelcontextprotocol.io/v0/servers?search=emem)** as `io.github.Vortx-AI/emem`, published under the GitHub organisation that owns this repository. The registry entry tracks the running server rather than lagging behind it: the version marked latest there is the version this responder answers on, and you can check both in one call each. Also on Glama, Smithery, PulseMCP, mcp.so, MCP Market and Loomal; PyPI ([`ememdev`](https://pypi.org/p/ememdev)); npm ([`@vortxai/emem`](https://www.npmjs.com/package/@vortxai/emem)); a container at `ghcr.io/vortx-ai/emem`.
+- **Listed in the [GitHub MCP Registry](https://github.com/mcp/Vortx-AI/emem) and the [official MCP registry](https://registry.modelcontextprotocol.io/v0/servers?search=emem)** as `io.github.Vortx-AI/emem`, published under the GitHub organisation that owns this repository. The registry entry tracks the running server rather than lagging behind it: the version marked latest there is the version this responder answers on, and you can check both in one call each. Also on Glama, Smithery, PulseMCP, mcp.so, MCP Market and Loomal; PyPI ([`ememdev`](https://pypi.org/p/ememdev)); npm ([`@vortxai/emem`](https://www.npmjs.com/package/@vortxai/emem)); a container at `ghcr.io/vortx-ai/emem`.
 - **An open, citable preprint** ([DOI 10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893), CC-BY-4.0, not yet peer-reviewed) and a companion open model, [TerraGround-Gemma](https://huggingface.co/avijeetsingh1608/TerraGround-Gemma-4-12B-LoRA).
 - **A regulated workflow carried end to end:** EUDR deforestation evidence at [eudr.dev](https://eudr.dev).
 

@@ -1377,11 +1377,11 @@ html,body{overflow-x:clip}
   <div class="scroll">
     <div class="kicker" style="letter-spacing:.2em;text-transform:uppercase;color:var(--mute-2);font-size:var(--t-xs)">Open source</div>
     <h2>Connect an agent or self-host</h2>
-    <p>Reach it over MCP or REST with the same handlers, discover everything at /openapi.json, and run your own copy with one docker run under Apache-2.0.</p>
+    <p>Install it from the <a href="https://github.com/mcp/Vortx-AI/emem" rel="noopener">GitHub MCP Registry</a>, or reach it over MCP or REST with the same handlers. Discover everything at /openapi.json, and run your own copy with one docker run under Apache-2.0.</p>
     <div style="max-width:680px;margin:1.6rem auto 0;text-align:left">
     <div class="code"><div class="code-head"><span class="lang">json</span><span class="tab">mcp client</span><span class="spacer"></span><button class="copy" data-copy-target="#mcp-snippet">copy</button></div>
       <pre id="mcp-snippet"><code>{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }</code></pre></div>
-    <p style="margin:.5rem 0 1.2rem;font-size:var(--t-sm);color:var(--mute)">Or resolve it by name: emem is listed in the <a href="https://registry.modelcontextprotocol.io/v0/servers?search=emem" rel="noopener">official MCP registry</a> as <code>io.github.Vortx-AI/emem</code>, published under the GitHub organisation that owns the repository. The version marked latest there is the version this responder answers on, and each is one call to check.</p>
+    <p style="margin:.5rem 0 1.2rem;font-size:var(--t-sm);color:var(--mute)">Or resolve it by name: emem is listed on the <a href="https://github.com/mcp/Vortx-AI/emem" rel="noopener">GitHub MCP Registry</a> and in the <a href="https://registry.modelcontextprotocol.io/v0/servers?search=emem" rel="noopener">official MCP registry</a> as <code>io.github.Vortx-AI/emem</code>, published under the GitHub organisation that owns the repository. The version marked latest there is the version this responder answers on, and each is one call to check.</p>
     <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">rest, no key</span><span class="spacer"></span><button class="copy" data-copy-target="#curl-snippet">copy</button></div>
       <pre id="curl-snippet"><code>curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
