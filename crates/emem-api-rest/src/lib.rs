@@ -18097,13 +18097,33 @@ async fn a2a_reason_compose(
         .unwrap_or(3)
         .min(6);
 
-    // The model is loaded with the whole READ surface: every registry tool
-    // whose serialized readOnlyHint is true (so the loop can never write,
-    // and never recurse into itself). It sees names + one-line titles, not
+    // The model is loaded with the READ surface: names + one-line titles, not
     // 105 schemas; emem_tools fetches any schema it needs, inside the loop.
+    //
+    // This used to filter on `read_only_hint` alone, which broke when that
+    // flag was corrected (c1bd2dd) to say what it actually means to an MCP
+    // client: emem_ask and emem_recall auto-materialize a fact on a miss, so
+    // they are not readOnly and the annotation is right to say so. But the
+    // question this filter asks is different: may the reasoning loop call it?
+    // Materialising a public observation into the cache is idempotent and
+    // writes into nobody's namespace, so the answer is yes, and losing `ask`
+    // and `recall` would leave the loop unable to look anything up.
+    //
+    // One boolean cannot answer both questions, so this names its own set
+    // rather than piggybacking. What stays excluded is anything that creates
+    // a record attributable to an attester: bundles, entity links, memory
+    // writes. Those are semantic writes, not cache fills.
+    const LOOP_MAY_MATERIALIZE: &[&str] = &[
+        "emem_ask",
+        "emem_recall",
+        "emem_find_similar",
+        "emem_intent",
+    ];
     let menu: String = emem_mcp::TOOLS
         .iter()
-        .filter(|t| t.read_only_hint && t.name != "emem_reason")
+        .filter(|t| {
+            (t.read_only_hint || LOOP_MAY_MATERIALIZE.contains(&t.name)) && t.name != "emem_reason"
+        })
         .map(|t| format!("{}: {}", t.name, t.title))
         .collect::<Vec<_>>()
         .join("\n");
@@ -67203,5 +67223,42 @@ mod memory_markdown_route_tests {
         let body = &f[..f.len().min(2000)];
         assert!(body.contains("text/markdown"), "no markdown content type");
         assert!(body.contains("application/json"), "no JSON negotiation");
+    }
+}
+
+#[cfg(test)]
+mod reasoning_menu_tests {
+    /// The reasoning loop must be able to look things up. `read_only_hint`
+    /// was corrected in c1bd2dd to say what it means to an MCP client, which
+    /// is that emem_ask and emem_recall can materialize a fact, and filtering
+    /// the loop's menu on that flag silently removed the two tools it most
+    /// needs. The regression is invisible at runtime: the model simply stops
+    /// being able to answer and nothing logs an error.
+    #[test]
+    fn the_loop_can_still_see_ask_and_recall() {
+        let src = include_str!("lib.rs");
+        let block = src
+            .split("const LOOP_MAY_MATERIALIZE")
+            .nth(1)
+            .expect("the explicit menu set is present");
+        for name in ["emem_ask", "emem_recall"] {
+            assert!(
+                block[..block.len().min(400)].contains(name),
+                "{name} is not in the reasoning loop's menu"
+            );
+        }
+    }
+
+    /// Materialising a public observation is a cache fill. Creating a bundle
+    /// or an entity link is a record attributable to an attester, and the
+    /// loop must not be able to make one.
+    #[test]
+    fn the_loop_cannot_write_attributable_records() {
+        let src = include_str!("lib.rs");
+        let block = src.split("const LOOP_MAY_MATERIALIZE").nth(1).unwrap();
+        let set = &block[..block.len().min(400)];
+        for name in ["emem_memory_bundle", "emem_entity_link", "memory_create"] {
+            assert!(!set.contains(name), "{name} must not be loop-callable");
+        }
     }
 }
