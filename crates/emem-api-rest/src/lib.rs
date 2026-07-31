@@ -4961,7 +4961,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 "pii_possible_in_agent_written_memory": true,
                 "stored_agent_memory": {
                     "what": "The memory verbs (memory_create, memory_str_replace, memory_insert, memory_rename, memory_delete) persist the full file text, its path, the content address, the writer's ed25519 pubkey, the write signature and the timestamp.",
-                    "readable_by": "everyone, with no key and no account; this responder's memory is a shared commons and has no per-caller read isolation",
+                    "readable_by": "Ordinary entries: everyone, with no key and no account; this responder's memory is a shared commons. Entries written with kind: vault are AEAD-sealed and return ciphertext unless the caller presents a valid vault_capability signature, and are never indexed by search.",
                     "write_isolation": "Writes are signed. Under /memories/by_attester/<pubkey8>/ only the matching key may write; elsewhere the first attester to create a path owns it. A mismatch returns 403 memory_namespace_violation.",
                     "retention": "indefinite",
                     "deletion": "memory_delete unlinks the path from the index; the content-addressed blob and prior versions remain, because the write log is append-only and issued receipts must stay verifiable. Unpublish, not erasure.",
@@ -5188,9 +5188,14 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             // "namespace_scoped" above could reasonably infer per-caller
             // privacy, and there is none: this store is a commons.
             "read_isolation": {
-                "exists": false,
-                "detail": "There is no per-caller read isolation and none is planned. Any caller, with no key and no account, can list and read every memory on this responder, including files other agents wrote. This is deliberate: the value of the store is that one agent can resolve and verify what another wrote.",
-                "implication": "Do not write anything to this responder that you would not publish. For private state, keep the bytes in your own store and publish only a content address.",
+                "default": "none",
+                "detail": "Ordinary entries have no per-caller read isolation: any caller, with no key and no account, can list and read them, including files other agents wrote. This is deliberate, and it is what makes the store useful, because one agent can resolve and verify what another wrote.",
+                "opt_in": {
+                    "mechanism": "write with kind: \"vault\"",
+                    "detail": "A vault entry is AEAD-sealed at rest. memory_view returns ciphertext to any caller who does not present a valid `vault_capability`, an ed25519 signature over blake3(\"emem.vault_open|\" + path + \"|\" + nonce). Vault entries are never indexed, so emem_memory_search cannot surface them.",
+                    "limits": "The sealed blob is still permanent and still append-only: sealing controls who can READ the bytes, not whether they persist. Losing the capability key makes an entry unreadable, not deleted.",
+                },
+                "implication": "Anything written WITHOUT kind: vault should be treated as published. For private state, use a vault entry or keep the bytes in your own store and publish only a content address.",
             },
             "stored_data": {
                 "what": "memory_create and the other memory verbs persist the full file text, path, content address, writer pubkey, write signature and timestamp",
@@ -28896,8 +28901,44 @@ fn enforce_open_namespace_owner(
     let Some((_, meta)) = read_memory_file(s, path)? else {
         return Ok(()); // nothing there yet: this caller becomes the owner
     };
+    // Fail closed on an unowned record, but only where writes are signed.
+    //
+    // A handful of open-namespace files predate authorship persistence and
+    // carry no attester, so there is no key to compare a caller against.
+    // Letting them through "because there is nothing to enforce" leaves
+    // exactly the hole this function exists to close: any key could edit
+    // them, and some hold third-party content. Frozen-and-unowned is the safe
+    // end of that trade, and an owner who wants one back can copy it into
+    // their own namespace where ownership is bound into the path.
+    //
+    // Where the operator has NOT gated the open namespace, unattested writes
+    // are legitimate, ownership is not a concept there, and refusing would
+    // only stop the caller editing a file anyone could recreate anyway. So
+    // the freeze follows the write policy rather than asserting itself over
+    // a deployment that opted out of signing.
+    if !open_namespace_requires_attester(verb) && meta.attester_pubkey_b32.is_none() {
+        return Ok(());
+    }
     let Some(owner) = meta.attester_pubkey_b32.as_deref() else {
-        return Ok(()); // pre-authorship record, no owner to enforce
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_namespace_violation: `{path}` predates authorship persistence and has no \
+                     recorded owner, so no key can prove it owns this path and `{verb}` is refused \
+                     for everyone. Copy the content to `/memories/by_attester/<your-pubkey8>/` and \
+                     work there, where ownership is bound into the path."
+                ),
+                details: Some(json!({
+                    "code": "memory_namespace_violation",
+                    "reason": "open_namespace_unowned_record",
+                    "path": path,
+                    "why": "no attester_pubkey_b32 was persisted with this record, so ownership cannot be established either way",
+                    "remedy": "write under /memories/by_attester/<your-pubkey8>/",
+                })),
+            },
+        ));
     };
     let caller = attester.map(|a| a.pubkey_b32.as_str()).unwrap_or("");
     if caller.eq_ignore_ascii_case(owner) {
@@ -29319,6 +29360,14 @@ struct MemoryViewReq {
     /// with `/`, only entries with this kind are returned.
     #[serde(default)]
     kind: Option<String>,
+    /// Directory listings only: skip this many entries before returning.
+    /// A truncated listing reports where to resume as
+    /// `_emem_truncation.omitted_fields[].stub._next_offset`; passing that
+    /// value here returns the next page. Advertising a cursor that does not
+    /// advance is worse than no cursor, so this is the parameter that makes
+    /// the advertised one real.
+    #[serde(default)]
+    offset: Option<usize>,
     /// Optional Vault capability (v0.0.8): an ed25519 signature
     /// (base32-nopad-lc) over `blake3("emem.vault_open|" || path ||
     /// "|" || nonce_bytes)`, verifiable under the responder pubkey that
@@ -29416,6 +29465,7 @@ async fn get_memory_markdown(
             path: full.clone(),
             view_range: None,
             kind: None,
+            offset: None,
             vault_capability: None,
         },
     )
@@ -29537,12 +29587,16 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                 .then_with(|| trailing_date(nb).cmp(&trailing_date(na)))
                 .then_with(|| a.1.cmp(&b.1))
         });
-        let entries: Vec<JsonValue> = typed.into_iter().map(|(_, _, v)| v).collect();
+        let total = typed.len();
+        let offset = req.offset.unwrap_or(0).min(total);
+        let entries: Vec<JsonValue> = typed.into_iter().skip(offset).map(|(_, _, v)| v).collect();
         return Ok(json!({
             "kind": "directory",
             "path": path,
             "entries": entries,
             "count": entries.len(),
+            "total": total,
+            "offset": offset,
             "filter_kind": kind_filter.map(|k| k.as_str()),
             "order": "core-first, then procedural, semantic, episodic, resource; newest-dated first within kind, then alphabetical. A truncated listing keeps the head, so the newest survive.",
         }));
@@ -29908,6 +29962,13 @@ async fn memory_str_replace_inner(
     req: MemoryStrReplaceReq,
 ) -> Result<JsonValue, ApiError> {
     let path = validate_memory_path(&req.path, false)?;
+    // Ownership BEFORE content. Placed after the body checks, this gate
+    // never ran on a failed match: a stranger probing someone else's file
+    // got `old_str not found` instead of a 403, which both skipped the
+    // check and leaked whether the string was present. Authorisation is
+    // the first question, so it is asked first.
+    enforce_open_namespace_owner(s, "str_replace", &path, req.attester.as_ref())?;
+
     reject_if_vault(s, &path, "str_replace")?;
     if req.old_str.is_empty() {
         return Err(ApiError(
@@ -29968,7 +30029,6 @@ async fn memory_str_replace_inner(
     let body = updated.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("str_replace", &path, &bh, req.attester.as_ref())?;
-    enforce_open_namespace_owner(s, "str_replace", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     // Default str_replace to the kind already in the file if not
@@ -30015,6 +30075,13 @@ async fn memory_str_replace_inner(
 
 async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonValue, ApiError> {
     let path = validate_memory_path(&req.path, false)?;
+    // Ownership BEFORE content. Placed after the body checks, this gate
+    // never ran on a failed match: a stranger probing someone else's file
+    // got `old_str not found` instead of a 403, which both skipped the
+    // check and leaked whether the string was present. Authorisation is
+    // the first question, so it is asked first.
+    enforce_open_namespace_owner(s, "insert", &path, req.attester.as_ref())?;
+
     reject_if_vault(s, &path, "insert")?;
     let (bytes, prev_meta) = read_memory_file(s, &path)?.ok_or_else(|| {
         ApiError(
@@ -30079,7 +30146,6 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
     let body = out.as_bytes();
     let bh = emem_primitives::body_hash(body);
     validate_attester_binding("insert", &path, &bh, req.attester.as_ref())?;
-    enforce_open_namespace_owner(s, "insert", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let kind = req
@@ -62143,6 +62209,7 @@ mod tests {
             &s,
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
+                offset: None,
                 view_range: None,
                 kind: None,
                 vault_capability: None,
@@ -62181,6 +62248,7 @@ mod tests {
             &s,
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
+                offset: None,
                 view_range: None,
                 kind: None,
                 vault_capability: None,
@@ -62212,6 +62280,7 @@ mod tests {
             &s,
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
+                offset: None,
                 view_range: None,
                 kind: None,
                 vault_capability: None,
@@ -62245,6 +62314,7 @@ mod tests {
             &s,
             MemoryViewReq {
                 path: "/memories/notes.md".into(),
+                offset: None,
                 view_range: None,
                 kind: None,
                 vault_capability: None,
@@ -62421,6 +62491,7 @@ mod tests {
                 &s,
                 MemoryViewReq {
                     path: p.clone(),
+                    offset: None,
                     view_range: None,
                     kind: None,
                     vault_capability: None,
@@ -62490,6 +62561,7 @@ mod tests {
             &s,
             MemoryViewReq {
                 path: path.into(),
+                offset: None,
                 view_range: None,
                 kind: None,
                 vault_capability: None,
@@ -62525,6 +62597,7 @@ mod tests {
             &s,
             MemoryViewReq {
                 path: path.into(),
+                offset: None,
                 view_range: None,
                 kind: None,
                 vault_capability: Some(cap),
@@ -62720,6 +62793,7 @@ mod tests {
             &s,
             MemoryViewReq {
                 path: path.clone(),
+                offset: None,
                 view_range: None,
                 kind: None,
                 vault_capability: None,
@@ -67455,5 +67529,54 @@ mod open_namespace_isolation_tests {
         .await
         .expect_err("a different key must not delete");
         assert_eq!(err.0, StatusCode::FORBIDDEN);
+    }
+}
+
+#[cfg(test)]
+mod ownership_gate_order_tests {
+    use super::tests::{sign_attester, test_app_state, test_attester_signer};
+    use super::*;
+
+    /// Authorisation must be decided before content is inspected. When the
+    /// ownership gate sat after the body checks, a stranger probing another
+    /// caller's file received `old_str not found` rather than a 403: the gate
+    /// never ran, and the response disclosed whether the string was present.
+    #[tokio::test]
+    async fn a_stranger_gets_403_not_a_content_answer() {
+        let s = test_app_state();
+        let (sk_a, _) = test_attester_signer();
+        let (sk_b, _) = test_attester_signer();
+        let path = "/memories/gate-order-probe.md";
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: "secret marker".into(),
+                kind: None,
+                attester: Some(sign_attester(&sk_a, "create", path, b"secret marker")),
+            },
+        )
+        .await
+        .expect("owner may create");
+
+        let body = b"whatever";
+        let err = memory_str_replace_inner(
+            &s,
+            MemoryStrReplaceReq {
+                path: path.into(),
+                old_str: "__cannot_possibly_exist__".into(),
+                new_str: "x".into(),
+                kind: None,
+                attester: Some(sign_attester(&sk_b, "str_replace", path, body)),
+            },
+        )
+        .await
+        .expect_err("a stranger must be refused");
+        assert_eq!(err.0, StatusCode::FORBIDDEN, "got: {}", err.1.message);
+        assert!(
+            !err.1.message.contains("old_str"),
+            "the refusal leaked a content answer: {}",
+            err.1.message
+        );
     }
 }

@@ -1,6 +1,6 @@
 # emem Terms of Service
 
-_Last updated: 2026-05-14_
+_Last updated: 2026-07-31_
 
 These terms govern your use of the canonical emem responder operated by
 **Vortx AI Private Limited** (India) at `https://emem.dev` (and mirrored
@@ -63,10 +63,13 @@ The memory verbs (`memory_create`, `memory_str_replace`, `memory_insert`,
 `memory_rename`, `memory_delete`) write to a shared, public store. When you
 write to it:
 
-- **What you write is published.** The file text is stored indefinitely and
-  is readable by any caller with no key and no account. There is no
-  per-caller read isolation. Do not write anything you are not willing to
-  publish, and do not write personal data about third parties.
+- **What you write is published by default.** The file text is stored
+  indefinitely and, for an ordinary entry, is readable by any caller with no
+  key and no account. Writing with `kind: "vault"` seals the entry so it
+  returns ciphertext to callers without a capability signature and is never
+  indexed by search; sealing changes who can read it, not that it persists.
+  Do not write anything you are not willing to publish, and do not write
+  personal data about third parties.
 - **You warrant that you have the right to publish it**, and that doing so
   breaches no confidence, licence, or data-protection duty you owe to
   someone else.
