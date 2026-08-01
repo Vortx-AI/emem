@@ -381,7 +381,7 @@ Independently measured by a consumer agent that built its own harness, published
 
 ## Honest limits
 
-Version 1.3.0, under the stability promise 1.0.0 made: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. The device gate admits no real hardware yet, and every benchmark is marked SAMPLE with no independent replication. Several of our own headline claims were refuted by our own re-scoring, and the table above says so. The staged path to federation and the open research live in [docs/roadmap.md](docs/roadmap.md).
+Version 1.3.1, under the stability promise 1.0.0 made: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. The device gate admits no real hardware yet, and every benchmark is marked SAMPLE with no independent replication. Several of our own headline claims were refuted by our own re-scoring, and the table above says so. The staged path to federation and the open research live in [docs/roadmap.md](docs/roadmap.md).
 
 ## Where to go next
 

@@ -195,7 +195,7 @@ resources + 8 URI templates, 163 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
 connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
-Version 1.3.0, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
+Version 1.3.1, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
 
@@ -222,7 +222,7 @@ Four discovery URLs for agent onboarding:
 | Source schemes | 46 declared (several not yet wired) |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
-| Version | 1.3.0 |
+| Version | 1.3.1 |
 
 ---
 

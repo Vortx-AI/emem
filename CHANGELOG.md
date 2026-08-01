@@ -7,6 +7,8 @@ to verify.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-31
+
 ### Added
 - Stage 2 of the device substrate: enrollment can carry platform-attestation
   evidence and the gate verifies it (`POST /v1/enroll_attested`,
@@ -31,11 +33,77 @@ to verify.
   `/v1/inbox` (the read-side mailbox), so a question on the channel does
   not need to wait for a peer.
 
+### Security
+- **Open-namespace writes are isolated.** Ownership was bound only under
+  `/memories/by_attester/<pubkey8>/`. Everywhere else under `/memories/`
+  any valid signature was accepted as an advisory binding, so a second key
+  could overwrite, edit, rename or delete a file a first key had written.
+  The first attester to create a path now owns it and later mutations must
+  present the same key (403 `memory_namespace_violation`). **This is a
+  behaviour change:** a caller that was writing to a path another key
+  created will now be refused.
+- **Authorisation is checked before content.** The ownership gate sat after
+  the body checks in `str_replace` and `insert`, so a stranger probing
+  another caller's file received `old_str not found` rather than a refusal.
+  The gate never ran and the response disclosed whether the string was
+  present.
+- **Records with no recorded author are frozen.** A few open-namespace
+  files predate authorship persistence and carry no attester, so ownership
+  cannot be established either way. Where the write policy requires
+  attestation (the release default) every mutation of them is refused,
+  including the operator's. They stay readable.
+
 ### Fixed
 - Recalling `protected.is_protected_area` or `overture.places_count`
   (the advertised spellings) now returns the stored fact instead of
   re-materializing into an empty response on every read: requested
   spellings canonicalize to the band name facts persist under.
+- A trailing clause no longer becomes part of a place name. "how green is
+  the area around Nashik right now, and what does the number mean?"
+  resolved to an artwork in Georgia, because the prepositional-anchor
+  window ran past the place and the geocoder matched the whole clause. The
+  window stops at a clause boundary; `LOCATE_RESOLVER_VERSION` 2 -> 3
+  invalidates rows cached under the old spans.
+- MCP truncation degrades instead of dropping. An over-budget array was
+  replaced wholesale with a stub, so `memory_view` on an attester with 135
+  notes returned three entries and a caller could not tell that from "this
+  agent wrote three notes". It now keeps as many leading elements as fit,
+  reports `_kept` / `_len` / `_next_offset`, and leaves the field an array.
+- `memory_view` accepts `offset` on directory listings, which is what the
+  advertised `_next_offset` cursor needs to mean anything; the response
+  echoes `offset` and `total`.
+- Directory listings are newest-dated first within kind, so a truncated
+  listing keeps the entries a conversation is actually about.
+- The truncation escape hatch no longer names the wrong verb. It hardcoded
+  `POST` for every tool, so an agent told to re-fetch a GET-only endpoint
+  got a 405.
+- `emem_reason` has a shape (`prose`) and a group, both carrying the
+  `model_output` warning, and the reasoning loop's tool menu no longer
+  loses `emem_ask` and `emem_recall` when their `readOnlyHint` is correct.
+
+### Added
+- `GET /memories/*path` serves a memory's body at its own canonical path:
+  `text/markdown` by default, the full signed envelope on
+  `Accept: application/json`. The path printed in every note header and
+  citation was previously not fetchable over HTTP at all.
+
+### Changed
+- Data handling is disclosed where it is asked about. `PRIVACY.md` gains a
+  collection-table row and an "Agent-written memory" section (what
+  persists, that reads are public, that deletion unpublishes rather than
+  erases, how to enumerate your own files, how to request operator
+  erasure); `TERMS.md` gains 4a; the agent card and `/.well-known/mcp.json`
+  carry the machine-readable form. `no_pii_in_canonical_channel: true` is
+  replaced by `no_pii_emitted_by_responder` plus
+  `pii_possible_in_agent_written_memory`, because agents write arbitrary
+  text about people into a shared store.
+- The vault's scope is stated rather than implied: its AEAD key derives
+  from the responder's own ed25519 secret, so the operator can read vault
+  plaintext. A vault seals bytes against other callers and against anyone
+  who obtains the database file, not against the operator.
+- All seven `memory_*` tool descriptions state the signing and namespace
+  requirements, and `emem_memory_search` states that it reads every
+  caller's files and excludes vault entries.
 
 ## [1.3.0] - 2026-07-26
 
