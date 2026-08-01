@@ -9,7 +9,7 @@ name = "ememdev"
 # without a framework. 1.0.1 first superseded the empty 1.0.0 on PyPI (it
 # shipped dist-info and no modules, so `import emem` raised ModuleNotFoundError;
 # PyPI versions are immutable, so the only fix was to supersede it).
-version = "1.3.1"
+version = "1.4.0"
 description = "Python client for emem.dev, the agent-native Earth memory protocol"
 readme = "README.md"
 requires-python = ">=3.9"

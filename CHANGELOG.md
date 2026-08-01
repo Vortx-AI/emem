@@ -7,7 +7,15 @@ to verify.
 
 ## [Unreleased]
 
-## [1.3.1] - 2026-07-31
+## [1.4.0] - 2026-07-31
+
+Minor rather than patch, deliberately. This release adds REST surface
+(`/v1/enroll_attested`, `/v1/enroll_verify`, `/v1/trace_resolve`,
+`/v1/trace_encodings`, `/v1/device_platforms`, `GET /memories/*path`) and
+changes a write rule: a caller that was writing to an open-namespace path
+another key created is now refused. Nothing in the 1.0.0 stability promise
+moves, because the wire format, receipt preimage and address space are
+untouched and every fact signed under 1.3.x still verifies.
 
 ### Added
 - Stage 2 of the device substrate: enrollment can carry platform-attestation
