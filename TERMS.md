@@ -67,7 +67,10 @@ write to it:
   indefinitely and, for an ordinary entry, is readable by any caller with no
   key and no account. Writing with `kind: "vault"` seals the entry so it
   returns ciphertext to callers without a capability signature and is never
-  indexed by search; sealing changes who can read it, not that it persists.
+  indexed by search. Sealing changes who can read it, not that it persists,
+  and it does not seal against us: the key derives from the responder's own
+  identity, so the operator can read vault plaintext. Encrypt client-side if
+  you need storage the operator cannot read.
   Do not write anything you are not willing to publish, and do not write
   personal data about third parties.
 - **You warrant that you have the right to publish it**, and that doing so
@@ -84,7 +87,8 @@ write to it:
   already resolved.
 - **Namespaces are first-come.** `/memories/by_attester/<pubkey8>/…` is
   reserved to the matching key. Elsewhere, the first attester to create a
-  path owns it. We do not adjudicate namespace disputes.
+  path owns it. Older records with no recorded author are frozen against
+  every key, ours included. We do not adjudicate namespace disputes.
 - The operator may remove content that is unlawful, is personal data
   published without a lawful basis, or breaches §2, without notice.
 

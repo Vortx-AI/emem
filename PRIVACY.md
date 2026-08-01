@@ -12,7 +12,7 @@ and are out of scope.
 ## Tl;dr
 
 - **No accounts. No keys.** L0 and L1 read endpoints are anonymous.
-- **This responder stores what your agent writes to it, and by default that storage is public.** The memory verbs (`memory_create` and friends) persist the full file text indefinitely, world-readable by any caller. Writing with `kind: "vault"` seals the entry so it returns ciphertext without a capability signature, but sealed or not it is permanent, and deletion unpublishes rather than erases. See [Agent-written memory](#agent-written-memory).
+- **This responder stores what your agent writes to it, and by default that storage is public.** The memory verbs (`memory_create` and friends) persist the full file text indefinitely, world-readable by any caller. Writing with `kind: "vault"` seals the entry against other callers, though not against us: the key derives from this responder's own identity, so the operator can read vault plaintext. Sealed or not, it is permanent, and deletion unpublishes rather than erases. See [Agent-written memory](#agent-written-memory).
 - We do not sell or share user data with third parties for advertising.
 - We log every request server-side (path, GET query string, status, duration, user-agent, hashed IP) and we run **Google Analytics 4** on the HTML landing page only, under Consent Mode v2 with default-denied for all storage. See §"Google Analytics" below for what that means in practice.
 - The responder logs request metadata (timestamp, hashed IP, user-agent, path, query string, status, duration) for operational health and abuse mitigation. Retention is enforced at 30 days via systemd journald (`MaxRetentionSec=30day` in `/etc/systemd/journald.conf.d/30day-retention.conf`). After 30 days the entries are vacuumed from the journal.
@@ -127,14 +127,22 @@ signature over `blake3("emem.vault_open|" + path + "|" + nonce)`. Sealed
 entries are never indexed, so `emem_memory_search` cannot surface them or
 their contents.
 
-Two limits matter for a data question, and we would rather state them than
-let you assume otherwise. Sealing controls **who can read** the bytes, not
+**We can read your vault entries.** The AEAD key is derived (HKDF-SHA512)
+from this responder's own ed25519 secret, and a valid `vault_capability` is a
+signature under that same responder key. So a vault seals your bytes against
+other callers and against anyone who obtains the database file. It does not
+seal them against the operator, Vortx AI Private Limited. We state this
+plainly because it is the first thing anyone should ask about an encryption
+feature, and because you could work it out from the tool schema. If you need
+storage we cannot read, encrypt client-side before writing and keep the key
+yourself, or keep the bytes in your own store and publish only a content
+address.
+
+Two further limits. Sealing controls **who can read** the bytes, not
 **whether they persist**: a sealed entry is still permanent and still
 append-only, exactly like an ordinary one, and `memory_delete` still
 unpublishes rather than erases. And if the capability key is lost the bytes
-become unreadable, which is not the same as removed. For anything you need
-to be able to destroy on demand, keep it in your own store and publish only
-a content address.
+become unreadable, which is not the same as removed.
 
 **Who can change what you wrote.** Writes are unauthenticated in the sense
 that no account exists, but they are not anonymous, and they are isolated:
@@ -143,7 +151,12 @@ that no account exists, but they are not anonymous, and they are isolated:
   matches that path segment may write. Ownership is bound into the path.
 - Anywhere else under `/memories/`, the first attester to create a path owns
   it, and only that key may subsequently write, edit, rename or delete it.
-- A mismatch returns `403 memory_namespace_violation` in both cases.
+- A small number of older records carry no persisted attester at all, because
+  they were written before we recorded authorship. No key can prove it owns
+  one, so **every** write to them is refused, including ours. They stay
+  readable and are frozen. If one is yours, copy the content into your own
+  namespace and work there.
+- A mismatch returns `403 memory_namespace_violation` in all three cases.
 
 **What deletion does.** `memory_delete` removes the path from the index, so
 the file stops resolving and stops appearing in listings. **The

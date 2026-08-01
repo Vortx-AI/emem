@@ -4961,8 +4961,8 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 "pii_possible_in_agent_written_memory": true,
                 "stored_agent_memory": {
                     "what": "The memory verbs (memory_create, memory_str_replace, memory_insert, memory_rename, memory_delete) persist the full file text, its path, the content address, the writer's ed25519 pubkey, the write signature and the timestamp.",
-                    "readable_by": "Ordinary entries: everyone, with no key and no account; this responder's memory is a shared commons. Entries written with kind: vault are AEAD-sealed and return ciphertext unless the caller presents a valid vault_capability signature, and are never indexed by search.",
-                    "write_isolation": "Writes are signed. Under /memories/by_attester/<pubkey8>/ only the matching key may write; elsewhere the first attester to create a path owns it. A mismatch returns 403 memory_namespace_violation.",
+                    "readable_by": "Ordinary entries: everyone, with no key and no account; this responder's memory is a shared commons. Entries written with kind: vault are AEAD-sealed and return ciphertext unless the caller presents a valid vault_capability signature, and are never indexed by search. The operator CAN read vault plaintext: the AEAD key derives from this responder's own ed25519 secret, so a vault protects bytes from other callers and from disk theft, not from Vortx AI Private Limited.",
+                    "write_isolation": "Writes are signed. Under /memories/by_attester/<pubkey8>/ only the matching key may write; elsewhere the first attester to create a path owns it; and a legacy record with no persisted attester is frozen, refused to every key including the operator's. A mismatch returns 403 memory_namespace_violation.",
                     "retention": "indefinite",
                     "deletion": "memory_delete unlinks the path from the index; the content-addressed blob and prior versions remain, because the write log is append-only and issued receipts must stay verifiable. Unpublish, not erasure.",
                     "enumerate_your_own": "GET /memories/by_attester/<your-pubkey8>/",
@@ -5193,6 +5193,7 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
                 "append_only_logged": "RFC 6962 transparency log, a write is appended, never silently overwrites or vanishes; auditable via /v1/log/*",
                 "namespace_scoped":   "an attester can only write under /memories/by_attester/<its-pubkey8>/; cross-namespace writes return 403 memory_namespace_violation",
                 "open_namespace":     "outside by_attester/ the first attester to create a path owns it; a later write, edit, rename or delete from a different key returns 403 memory_namespace_violation",
+                "unowned_records":    "a third regime: a handful of open-namespace records predate authorship persistence and carry no attester, so no key can prove ownership. Where the write policy requires attestation (the release default) every mutation of them is refused, including by the operator, with reason open_namespace_unowned_record. They are readable and frozen, not editable-by-anyone.",
             },
             // Stated rather than left to be discovered. A reviewer who reads
             // "namespace_scoped" above could reasonably infer per-caller
@@ -5204,6 +5205,8 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
                     "mechanism": "write with kind: \"vault\"",
                     "detail": "A vault entry is AEAD-sealed at rest. memory_view returns ciphertext to any caller who does not present a valid `vault_capability`, an ed25519 signature over blake3(\"emem.vault_open|\" + path + \"|\" + nonce). Vault entries are never indexed, so emem_memory_search cannot surface them.",
                     "limits": "The sealed blob is still permanent and still append-only: sealing controls who can READ the bytes, not whether they persist. Losing the capability key makes an entry unreadable, not deleted.",
+                    "operator_can_read": true,
+                    "operator_detail": "State this plainly rather than let it be inferred from the schema: the AEAD key is derived (HKDF-SHA512) from THIS RESPONDER'S ed25519 secret, and a valid vault_capability is a signature under the responder's own pubkey. So the operator, Vortx AI Private Limited, can decrypt any vault entry. A vault protects your bytes from other callers and from anyone who obtains the database file. It does not protect them from us. If you need that, encrypt client-side before writing and keep the key.",
                 },
                 "implication": "Anything written WITHOUT kind: vault should be treated as published. For private state, use a vault entry or keep the bytes in your own store and publish only a content address.",
             },
