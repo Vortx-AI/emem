@@ -81,6 +81,37 @@ The aggregator at `https://github.com/mcp` ingests the official
 registry on its own cadence; a new publish surfaces there within
 minutes to hours, not seconds.
 
+## Glama build spec: pin the MCP Python SDK below 2.0
+
+Glama builds a container that runs `emem-server` and bridges it to stdio with
+the Python `mcp-proxy`. That build began failing on 2026-08-04 with:
+
+```
+File "/opt/pybridge/mcp_proxy/proxy_server.py", line 11, in <module>
+    from mcp.server.lowlevel.server import request_ctx
+ImportError: cannot import name 'request_ctx' from 'mcp.server.lowlevel.server'
+```
+
+Nothing in emem is involved: the proxy dies at import time, before our binary
+is contacted. `mcp-proxy` declares `mcp>=1.17.0` with no upper bound, `mcp`
+2.0.0 shipped, and `request_ctx` was removed in it. Verified by installing
+both and grepping the module: 1.29.0 contains the symbol four times, 2.0.0
+does not contain it at all.
+
+The build step needs an upper bound:
+
+```
+pip3 install --break-system-packages --target /opt/pybridge mcp-proxy "mcp<2"
+```
+
+Confirmed to resolve `mcp 1.29.0` with `mcp-proxy 0.12.0`, and to import
+`mcp_proxy.__main__`, the module the container actually runs.
+
+The build spec lives in the Glama dashboard rather than in `glama.json`, which
+carries only the schema reference and the maintainer list, so this is applied
+there. Recorded here because the next person to see the failure will otherwise
+start by looking for it in this repository, where it is not.
+
 ## Claude connector directory: submission playbook (2026-07-28)
 
 An enterprise integrator audited `/mcp` and reported every tool missing `title`,

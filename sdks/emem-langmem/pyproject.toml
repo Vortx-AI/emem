@@ -37,12 +37,12 @@ classifiers = [
 ]
 dependencies = [
     "langchain-core>=0.3,<1.0",
-    "httpx>=0.27",
+    "httpx>=0.27,<1.0",
     # Attester signing on every memory write: blake3 builds the preimage,
     # cryptography holds the ed25519 key. Both mirror what the responder
     # verifies (crates/emem-primitives/src/memory_acl.rs).
-    "blake3>=0.3",
-    "cryptography>=41",
+    "blake3>=0.3,<2.0",
+    "cryptography>=41,<51",
 ]
 
 [project.urls]
