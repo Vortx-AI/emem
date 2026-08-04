@@ -158,7 +158,7 @@ empty-cell check reached MCP with the P0-1 helper.
 
 ## P0-4 · `valid: true` on a receipt whose Merkle proof fails
 
-**Status: OPEN**
+**Status: FIXED for a failing proof, OPEN for a stripped one**
 
 The receipt signature does not cover `merkle_proof`.
 
@@ -191,10 +191,28 @@ The core ed25519 crypto is sound, which is worth stating: `served_at`, `cells`,
 `fact_cids`, `primitive` and single-byte signature flips all correctly fail. It
 is only the log binding that is unauthenticated.
 
-**Fix direction.** Bind `merkle_proof` into the signed preimage, and make
-`valid` a conjunction over everything actually checked rather than the signature
-alone. Note this is a preimage change: it needs a `preimage_version` bump and
-old receipts must keep verifying under the old rule.
+**Fixed: `valid` is now a conjunction.** It was `signature_valid` alone, with
+`merkle_proof_valid` reported beside it as separate advice, so a receipt whose
+proof demonstrably failed still came back `valid: true` and a receiver checking
+the field named `valid` accepted it. Measured after:
+
+| receipt | `valid` | `merkle_proof_valid` | `reason` |
+|---|---|---|---|
+| untouched | `true` | `true` | none |
+| proof swapped from another receipt | **`false`** | `false` | `merkle_proof_invalid` |
+| proof removed | `true` | `null` | none |
+
+**Still open: a stripped proof.** Row three is unchanged and cannot be fixed
+this way. The signature does not cover `merkle_proof`, so a proof removed in
+transport leaves `merkle_proof_valid: null`, which is indistinguishable from a
+receipt that legitimately never carried one (facts predating the proof tree).
+
+Closing it means binding the proof into the signed preimage, which is a
+`receipt_preimage_v2` and a `preimage_version` bump: the proof must be computed
+before signing rather than attached after, and every receipt already issued
+under v1 has to keep verifying under the v1 rule forever. That is a protocol
+change with a migration, on the one guarantee the rest of the system rests on,
+and it is the next piece of work rather than something to append to a patch.
 
 ---
 

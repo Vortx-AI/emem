@@ -16167,8 +16167,20 @@ async fn post_verify_receipt(
             }
         }
     }
-    // `valid` reflects ONLY the receipt's cryptographic validity, authoritative.
-    let valid = signature_valid;
+    // `valid` is a conjunction over everything this endpoint actually
+    // checked, not the signature alone. It used to be `signature_valid`, and
+    // `merkle_proof_valid` was reported beside it as separate advice, so a
+    // receipt carrying a proof that demonstrably FAILED still came back
+    // `valid: true`. A receiver checking the one field named `valid` accepted
+    // it. Swapping a proof between two real receipts reproduced that exactly.
+    //
+    // The conjunction is completed below, once the proof has been walked.
+    // What it still cannot catch, stated rather than implied: the signature
+    // does not cover `merkle_proof`, so a proof REMOVED in transport leaves
+    // `merkle_proof_valid: null` and is indistinguishable from a receipt that
+    // never had one. Detecting that needs the proof bound into the signed
+    // preimage, which is a preimage_version bump and a migration, tracked in
+    // docs/audit-repro-2026-08-02.md under P0-4.
     let reason: Option<&str> = if !signature_valid {
         Some("signature_invalid")
     } else {
@@ -16269,6 +16281,14 @@ async fn post_verify_receipt(
             ),
         });
 
+    // A proof that was walked and failed makes the receipt invalid, not
+    // merely annotated.
+    let valid = signature_valid && merkle_proof_valid != Some(false);
+    let reason: Option<&str> = match (signature_valid, merkle_proof_valid) {
+        (false, _) => Some("signature_invalid"),
+        (true, Some(false)) => Some("merkle_proof_invalid"),
+        _ => reason,
+    };
     Ok(Json(json!({
         "valid": valid,
         "reason": reason,

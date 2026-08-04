@@ -219,10 +219,21 @@ jobs:
       # restricted, and a restricted publish to a free account fails
       # outright. package.json also carries publishConfig.access=public, so
       # this flag is belt and braces rather than the only thing holding it.
+      # A `release` event carries no inputs, so this is the path a release
+      # takes by default. It fails when trusted publishing has not been
+      # registered for the package on npmjs.com, and npm's own error does not
+      # say that, so say it here: an earlier successful publish does NOT imply
+      # a trusted publisher exists, because those may have been token
+      # publishes. Registration is a manual step in the package settings.
       - name: publish (oidc trusted publisher)
         if: ${{ !inputs.dry_run && (inputs.auth || 'oidc') == 'oidc' && steps.npm_state.outputs.exists != 'true' }}
         working-directory: sdks/emem-ts
-        run: npm publish --access public
+        run: |
+          if npm publish --access public; then
+            exit 0
+          fi
+          echo "::error::OIDC publish failed. Trusted publishing must be registered for this package on npmjs.com (package Settings -> Publishing access -> add this repository and workflow) before the OIDC path can work. A prior successful publish does not imply it is registered. Until it is, re-run this workflow via workflow_dispatch with auth=token and an NPM_TOKEN secret set."
+          exit 1
 
       - name: publish (token bootstrap, first publish only)
         if: ${{ !inputs.dry_run && inputs.auth == 'token' && steps.npm_state.outputs.exists != 'true' }}
