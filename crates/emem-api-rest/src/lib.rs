@@ -17619,6 +17619,16 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
                     continue;
                 }
             }
+            // The DESCRIPTION of what was dropped goes in the truncation
+            // note. The field itself becomes null.
+            //
+            // It used to become the description: {"_omitted": true, ...}.
+            // That object is TRUTHY, so `if result["statement_of_compliance"]`
+            // passed on a stub and a caller could report an EUDR plot
+            // compliant when no verdict had been computed. An omitted field
+            // must not read as a present one, and null is falsy in every
+            // client language while keeping the key so shape checks still
+            // find it. `_emem_truncation.omitted_fields` says what it was.
             let stub = match v {
                 JsonValue::Array(a) => {
                     json!({ "_omitted": true, "_kind": "array", "_len": a.len() })
@@ -17628,8 +17638,8 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
                 }
                 _ => json!({ "_omitted": true }),
             };
-            dropped.push(json!({ "field": k, "stub": stub.clone() }));
-            map.insert(k.clone(), stub);
+            dropped.push(json!({ "field": k, "stub": stub }));
+            map.insert(k.clone(), JsonValue::Null);
         }
     }
 
@@ -67690,5 +67700,39 @@ mod recall_flag_parity_tests {
         .unwrap();
         let err = recall_req_with_provenance(api).expect_err("must refuse");
         assert_eq!(err.0, StatusCode::BAD_REQUEST);
+    }
+}
+
+#[cfg(test)]
+mod truncation_falsy_tests {
+    use super::*;
+
+    /// An omitted field must not read as a present one.
+    ///
+    /// The slimmer used to put `{"_omitted": true, "_kind": "object"}` in the
+    /// field's place. That object is truthy, so a caller writing the obvious
+    /// `if result["statement_of_compliance"]` passed the check on a stub and
+    /// could report an EUDR plot compliant when no verdict had been computed.
+    /// Silent, plausible and legally consequential is the worst failure shape
+    /// available, so the value is null and the description moved to the note.
+    #[test]
+    fn an_omitted_field_is_falsy_and_its_description_moves_to_the_note() {
+        let big: String = "x".repeat(40_000);
+        let inner = json!({
+            "schema": "emem.eudr_dds.v1",
+            "statement_of_compliance": { "verdict": "compliant", "padding": big },
+        });
+        let (slim, note) = mcp_slim_inner_to_budget(inner, 24_000);
+        let v = slim
+            .get("statement_of_compliance")
+            .expect("the key stays so shape checks still find it");
+        assert!(v.is_null(), "an omitted field must be falsy, got {v}");
+        let dropped = note["omitted_fields"].as_array().unwrap();
+        let entry = dropped
+            .iter()
+            .find(|d| d["field"] == "statement_of_compliance")
+            .expect("the note must say what was dropped");
+        assert_eq!(entry["stub"]["_omitted"], json!(true));
+        assert_eq!(entry["stub"]["_kind"], json!("object"));
     }
 }
