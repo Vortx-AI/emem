@@ -98,7 +98,7 @@ all. See P1-6.
 
 ## P0-3 · `cell` accepts any string, geocodes it, and mints a permanent fact
 
-**Status: OPEN**
+**Status: FIXED for ambiguous input, PARTIAL for confident-but-wrong** · test `ambiguous_place_gate_tests`
 
 ```bash
 for bad in "not-a-cell" "DROP TABLE facts" "../../etc/passwd"; do
@@ -121,9 +121,34 @@ Three consequences, in severity order:
    the read side.
 3. It contradicts the README's "20 of 20 refusals name the missing field".
 
-**Fix direction.** Validate the cell64 shape and refuse a non-conforming string
-with a typed error. If geocoding on recall is wanted, make it an explicit
-`place` parameter and echo `resolved_from` in the response.
+**Fixed.** `resolve_cell_field` computed the geocoder's confidence triple and
+then discarded it. It now refuses when the geocoder itself reports the match is
+not high-confidence, naming the reason, the best candidate and the remedy. The
+gate is the geocoder's own verdict, not a heuristic added here.
+
+Measured live, after:
+
+| input | before | after |
+|---|---|---|
+| `not-a-cell` | 2 facts, "Buvette club de Football Pont-a-Celles" | refused, `ambiguous_top_two_candidates` |
+| `../../etc/passwd` | 1 fact, "Passadumkeag, Maine" | refused, `ambiguous_top_two_candidates` |
+| `Springfield` | 1 fact, silently "Springfield, MO US" | refused, candidates offered |
+| `Nashik` | resolved | resolved, `admin3_region_match` |
+| `Bengaluru` | resolved | resolved, `embedded_gazetteer_hit` |
+| `Mount Everest` | resolved | resolved, `well_known_poi_match` |
+
+Refusing `Springfield` is the correct behaviour rather than a regression:
+`emem_locate` already flagged it `disambiguation_required`, and the read path
+was ignoring that.
+
+**Still open, and stated rather than hidden.** `DROP TABLE facts` resolves
+`is_high_confidence: true` (`geocoder_high_importance`) to "La Table Ronde",
+because a substring is a real high-importance toponym. Confidence cannot
+separate that from a genuine query; only the field contract can. The remaining
+fix is to make `cell` mean cell64 and move place names to the existing `place`
+parameter, which is a breaking change to the most-called tool on the surface
+and belongs in its own release with a deprecation window. `resolved_from`
+discloses the substitution in the meantime.
 
 **Already fixed in passing:** `emem_recall {}` now returns
 `tool error (-24) no location provided: pass 'cell' ...` rather than a 200. The

@@ -31742,6 +31742,50 @@ fn is_dotted_cell_junk(s: &str) -> bool {
         .all(|p| !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_alphanumeric()))
 }
 
+/// Whether a geocode result is too ambiguous to answer on, and the refusal
+/// to return when it is.
+///
+/// Split out from `resolve_cell_field` so the decision is testable without a
+/// geocoder database: the I/O and the judgement are different concerns, and
+/// only the judgement needs pinning against regressions.
+///
+/// The verdict is the geocoder's own `is_high_confidence`, not a heuristic
+/// invented here. What it deliberately does NOT catch: a string containing a
+/// high-importance toponym token resolves confidently and is answered, with
+/// `resolved_from` in the response disclosing what happened.
+fn ambiguous_place_refusal(
+    input: &str,
+    is_high_confidence: bool,
+    confidence_reason: &str,
+    label: Option<&str>,
+    alternatives_count: usize,
+) -> Option<ApiError> {
+    if is_high_confidence {
+        return None;
+    }
+    Some(ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::NoGeocoderMatch,
+            message: format!(
+                "'{input}' did not resolve to one place confidently ({confidence_reason}). The \
+                 best candidate was {}, but there were others scoring comparably, so answering \
+                 would mean guessing which place you meant and signing the guess. Pass a cell64, \
+                 pass lat+lng, or call locate to see the candidates and choose.",
+                label.unwrap_or("unnamed")
+            ),
+            details: Some(json!({
+                "code": "ambiguous_place",
+                "input": input,
+                "confidence_reason": confidence_reason,
+                "best_candidate": label,
+                "alternatives_count": alternatives_count,
+                "remedy": "pass a cell64 or lat+lng, or call locate/emem_locate for the candidate list",
+            })),
+        },
+    ))
+}
+
 pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef), ApiError> {
     if emem_codec::is_cell64_shape(s) {
         return Ok((s.to_string(), ResolvedRef::Cell));
@@ -31849,6 +31893,20 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
         .and_then(|v| v.as_array())
         .map(|a| a.len())
         .unwrap_or(0);
+    // Refuse an ambiguous resolution instead of silently picking one.
+    // `emem_locate` already sets `disambiguation_required` for this case, so
+    // the machinery existed and the read path ignored it. Refusing costs a
+    // round trip; guessing costs a confident wrong answer with a receipt on
+    // it, which is the failure this protocol exists to prevent.
+    if let Some(err) = ambiguous_place_refusal(
+        s,
+        is_high_confidence,
+        &confidence_reason,
+        label.as_deref(),
+        alternatives_count,
+    ) {
+        return Err(err);
+    }
     Ok((
         cell,
         ResolvedRef::Place {
@@ -67734,5 +67792,70 @@ mod truncation_falsy_tests {
             .expect("the note must say what was dropped");
         assert_eq!(entry["stub"]["_omitted"], json!(true));
         assert_eq!(entry["stub"]["_kind"], json!("object"));
+    }
+}
+
+#[cfg(test)]
+mod ambiguous_place_gate_tests {
+    use super::*;
+
+    /// An ambiguous place must be refused, not guessed.
+    ///
+    /// `resolve_cell_field` computed the geocoder's confidence triple and
+    /// then discarded it, so "not-a-cell" returned signed facts about a
+    /// football club in France and "Springfield" silently picked one of many.
+    /// The gate is the geocoder's own verdict rather than a heuristic here.
+    #[test]
+    fn an_ambiguous_result_is_refused_with_the_reason_and_a_remedy() {
+        let err = ambiguous_place_refusal(
+            "not-a-cell",
+            false,
+            "ambiguous_top_two_candidates",
+            Some("Buvette club de Football Pont-a-Celles"),
+            2,
+        )
+        .expect("an ambiguous result must be refused");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let d = format!("{:?}", err.1.details);
+        assert!(d.contains("ambiguous_place"), "{d}");
+        assert!(d.contains("ambiguous_top_two_candidates"), "{d}");
+        assert!(
+            d.contains("remedy"),
+            "the refusal must say what to do instead: {d}"
+        );
+        assert!(
+            err.1.message.contains("Pass a cell64"),
+            "the message must be actionable: {}",
+            err.1.message
+        );
+    }
+
+    /// A confident result is answered. Measured against the live geocoder:
+    /// Nashik resolves `admin3_region_match`, Bengaluru
+    /// `embedded_gazetteer_hit`, Mount Everest `well_known_poi_match`, all
+    /// high-confidence. The gate must not touch them.
+    #[test]
+    fn a_confident_result_is_not_refused() {
+        for reason in [
+            "admin3_region_match",
+            "embedded_gazetteer_hit",
+            "well_known_poi_match",
+        ] {
+            assert!(
+                ambiguous_place_refusal("Nashik", true, reason, Some("Nashik, 16.516 IN"), 0)
+                    .is_none(),
+                "a high-confidence {reason} must resolve"
+            );
+        }
+    }
+
+    /// A valid cell64 never reaches the geocoder, so the gate cannot affect
+    /// the deterministic path.
+    #[tokio::test]
+    async fn a_cell64_passes_through_untouched() {
+        let cell = emem_codec::to_cell64(emem_core::Cell::from_raw(0x1234_5678_9abc_def0));
+        let (out, kind) = resolve_cell_field(&cell).await.expect("cell64 resolves");
+        assert_eq!(out, cell);
+        assert!(matches!(kind, ResolvedRef::Cell));
     }
 }
