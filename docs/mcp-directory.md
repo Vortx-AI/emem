@@ -98,14 +98,38 @@ is contacted. `mcp-proxy` declares `mcp>=1.17.0` with no upper bound, `mcp`
 both and grepping the module: 1.29.0 contains the symbol four times, 2.0.0
 does not contain it at all.
 
-The build step needs an upper bound:
+The build step needs the version constrained. Use exact pins, not a range:
 
 ```
-pip3 install --break-system-packages --target /opt/pybridge mcp-proxy "mcp<2"
+pip3 install --break-system-packages --target /opt/pybridge mcp-proxy==0.12.0 mcp==1.29.0
 ```
 
-Confirmed to resolve `mcp 1.29.0` with `mcp-proxy 0.12.0`, and to import
-`mcp_proxy.__main__`, the module the container actually runs.
+Confirmed to install those versions and to import `mcp_proxy.__main__`, the
+module the container actually runs.
+
+**Do not write `"mcp<2"` here.** The obvious fix is a range, and it fails in a
+way that looks unrelated. The build spec's steps are concatenated into a
+`RUN /bin/sh -c ...` line, quotes are not preserved, and a bare `mcp<2` is then
+a shell redirection: `sh` tries to open a file named `2` as stdin and the step
+dies with
+
+```
+/bin/sh: 1: cannot open 2: No such file
+```
+
+which names neither pip nor mcp. An exact pin has no shell metacharacter in it
+and survives being pasted into any field that strips quoting. It is also the
+more honest thing to run in a build that is meant to be reproducible.
+
+A second line appears in the same log and is NOT fatal:
+
+```
+Error: unsafe tar path "."
+```
+
+That is `crane export` skipping a `.` entry while extracting the image. The
+chain is `&&`-joined and reached the pip step, so `install -Dm755` found the
+binary and the extraction did its job.
 
 The build spec lives in the Glama dashboard rather than in `glama.json`, which
 carries only the schema reference and the maintainer list, so this is applied
