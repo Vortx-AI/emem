@@ -37,8 +37,13 @@ docker run -d \
   -v emem_data:/var/emem \
   -e EMEM_BIND=0.0.0.0:5051 \
   -e EMEM_DATA=/var/emem \
-  ghcr.io/vortx-ai/emem:0.0
+  ghcr.io/vortx-ai/emem:v1.4.0
 ```
+
+Published tags are `:latest`, `:main`, `:<short-sha>` and `:v<semver>`.
+The semver form carries the leading `v`; a bare `:1.4.0` does not exist.
+For anything long-lived, pin the digest rather than the tag, as the
+HuggingFace Space does.
 
 The image runs as UID 65532 on `debian:trixie-slim` (glibc 2.41 —
 required by `ort-sys`). It pre-applies
@@ -392,7 +397,7 @@ hit rate.
 | WorldPop 2-4 s/cell upstream latency | accepted; cap on `/v1/query_region` keeps blast radius small | pre-bake the global 1 km² raster to COG in S3 (deferred, infra decisions outstanding) |
 | Terraclimate NCSS single endpoint | NCAR RDA fallback registered (2026-05-08); receipt records which mirror served | watch SLA on both |
 | DMSP-OLS frozen at 2013 | `/v1/data_availability` reports `history_available_to_unix=2013-12-31` honestly | dataset is genuinely complete; no fix needed |
-| HF Space dependency on `:latest` | now pinned to `ghcr.io/vortx-ai/emem:0.0` (2026-05-08) | bump tag deliberately on each release |
+| HF Space dependency on `:latest` | pinned to an immutable digest in `huggingface-space/Dockerfile` (the `:0.0` tag this row once named no longer exists) | bump the digest deliberately on each release |
 | sled lock contention | `emem-purge-fnkey` requires server stopped; documented | none planned |
 | Sidecar OOM | 503 on `/v1/jepa_predict_v2`; no silent CPU fallback | accept; tune `EMEM_SIDECAR_VRAM_BUDGET_GB` |
 | Topic router cold load >90 s | server starts anyway; keyword backend handles `/v1/ask` until ort thread returns | pre-warm with `scripts/install-topic-model.sh` |

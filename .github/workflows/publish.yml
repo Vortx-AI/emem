@@ -6,9 +6,14 @@ name: publish
 #
 # Image tags:
 #   ghcr.io/vortx-ai/emem:latest        — head of main
+#   ghcr.io/vortx-ai/emem:main          — head of the default branch, by name
 #   ghcr.io/vortx-ai/emem:<short-sha>   — every push to main
-#   ghcr.io/vortx-ai/emem:<semver>      — every git tag matching v*
+#   ghcr.io/vortx-ai/emem:v<semver>     — every git tag matching v*
 #   docker.io/vortxai/emem:<same>       — only when secrets are present
+#
+# The tag form carries the leading v, because `type=ref,event=tag` below
+# stamps the git ref name verbatim: the v1.4.0 tag yields :v1.4.0, and a
+# bare :1.4.0 does not exist. Pin with the v, or by digest.
 #
 # The image runs the same emem-server binary served at https://emem.dev,
 # bound to :5051 by default.
