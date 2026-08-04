@@ -26287,6 +26287,17 @@ fn cbor_scalar_f64(v: &ciborium::Value) -> Option<f64> {
             Some(n as f64)
         }
         ciborium::Value::Float(f) => Some(*f),
+        // A tagged number is still a number. Returning None here did not
+        // read as "unparseable", it read as "not verified": the caller of
+        // this function computes `ulp_gap` from two Options, and a None on
+        // either side both nulls the gap AND falls through to
+        // `recomputed == claimed`, where `None == Some(x)` is false. So a
+        // derivation whose submitted value was bit-identical to the
+        // responder's own recomputation still came back
+        // `verified: false, ulp_gap: null`, which is indistinguishable from
+        // an honest mismatch. Unwrap the tag rather than silently failing
+        // the comparison.
+        ciborium::Value::Tag(_, inner) => cbor_scalar_f64(inner),
         _ => None,
     }
 }
@@ -67877,5 +67888,48 @@ mod ambiguous_place_gate_tests {
         let (out, kind) = resolve_cell_field(&cell).await.expect("cell64 resolves");
         assert_eq!(out, cell);
         assert!(matches!(kind, ResolvedRef::Cell));
+    }
+}
+
+#[cfg(test)]
+mod cbor_scalar_tests {
+    use super::*;
+
+    /// A None from this function does not read as "unparseable" downstream,
+    /// it reads as "not verified": the caller builds `ulp_gap` from two
+    /// Options, so a None both nulls the gap and falls through to
+    /// `recomputed == claimed`, where `None == Some(x)` is false. A
+    /// derivation whose value was bit-identical to the responder's own
+    /// recomputation therefore returned `verified: false, ulp_gap: null`,
+    /// indistinguishable from an honest mismatch.
+    #[test]
+    fn a_tagged_number_still_reads_as_a_number() {
+        let bare = ciborium::Value::Float(3.306_272_752_039_060_7);
+        let tagged = ciborium::Value::Tag(4, Box::new(bare.clone()));
+        assert_eq!(cbor_scalar_f64(&bare), cbor_scalar_f64(&tagged));
+        assert_eq!(cbor_scalar_f64(&tagged), Some(3.306_272_752_039_060_7));
+    }
+
+    #[test]
+    fn integers_and_floats_both_parse() {
+        assert_eq!(
+            cbor_scalar_f64(&ciborium::Value::Integer(7.into())),
+            Some(7.0)
+        );
+        assert_eq!(cbor_scalar_f64(&ciborium::Value::Float(0.5)), Some(0.5));
+    }
+
+    /// A genuinely non-numeric value must still fail, so the tag unwrap does
+    /// not become a way to smuggle text past the comparison.
+    #[test]
+    fn non_numeric_values_still_return_none() {
+        assert_eq!(cbor_scalar_f64(&ciborium::Value::Text("3.3".into())), None);
+        assert_eq!(
+            cbor_scalar_f64(&ciborium::Value::Tag(
+                4,
+                Box::new(ciborium::Value::Text("3.3".into()))
+            )),
+            None
+        );
     }
 }
