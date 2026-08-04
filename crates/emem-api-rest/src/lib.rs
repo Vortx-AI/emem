@@ -9110,32 +9110,21 @@ mod provenance_filter_tests {
     }
 }
 
-async fn post_recall(
-    State(s): State<AppState>,
-    headers: HeaderMap,
-    EmemJson(api_req): EmemJson<RecallApiReq>,
-) -> Result<Response, ApiError> {
-    metrics_inc(&RECALL_TOTAL);
-    // Range-check explicit coordinates before they resolve to a cell (same
-    // guard /v1/locate applies, no silent clamping).
-    if let (Some(la), Some(lo)) = (api_req.lat, api_req.lng) {
-        if !la.is_finite()
-            || !lo.is_finite()
-            || !(-90.0..=90.0).contains(&la)
-            || !(-180.0..=180.0).contains(&lo)
-        {
-            return Err(ApiError(
-                StatusCode::BAD_REQUEST,
-                ErrorBody {
-                    code: ErrorCode::InvalidArgument,
-                    message: format!(
-                        "coordinates out of range: lat must be in [-90,90] and lng in [-180,180], got lat={la}, lng={lo}"
-                    ),
-                    details: None,
-                },
-            ));
-        }
-    }
+/// Turn a wire `RecallApiReq` into a `RecallReq` with the provenance filter
+/// resolved and applied.
+///
+/// This lived inline in `post_recall`, and the MCP `emem_recall` arm called
+/// `api_req.into()` directly instead. `From<RecallApiReq> for RecallReq`
+/// deliberately leaves `provenance: None` because the REST handler set it
+/// afterwards, so on MCP the filter was silently dropped: `deterministic:
+/// true` returned model_output facts and the caller believed it had filtered.
+/// That is the worst shape of bug this codebase can have, an unenforced
+/// guarantee that still reports success, and it existed because one code path
+/// re-implemented what the other did inline.
+///
+/// Both paths now call this. A flag added here reaches MCP and REST together
+/// or neither.
+fn recall_req_with_provenance(api_req: RecallApiReq) -> Result<RecallReq, ApiError> {
     // Validate the provenance filter BEFORE the request is consumed, so a
     // bad class name fails fast with the accepted vocabulary.
     let prov_filter =
@@ -9201,6 +9190,38 @@ async fn post_recall(
         }
         req.provenance = prov_filter.clone();
     }
+    Ok(req)
+}
+
+async fn post_recall(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    EmemJson(api_req): EmemJson<RecallApiReq>,
+) -> Result<Response, ApiError> {
+    metrics_inc(&RECALL_TOTAL);
+    // Range-check explicit coordinates before they resolve to a cell (same
+    // guard /v1/locate applies, no silent clamping).
+    if let (Some(la), Some(lo)) = (api_req.lat, api_req.lng) {
+        if !la.is_finite()
+            || !lo.is_finite()
+            || !(-90.0..=90.0).contains(&la)
+            || !(-180.0..=180.0).contains(&lo)
+        {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "coordinates out of range: lat must be in [-90,90] and lng in [-180,180], got lat={la}, lng={lo}"
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
+    let mut req: RecallReq = recall_req_with_provenance(api_req)?;
+    // Kept for the advisory echo below; the helper already applied it.
+    let prov_filter = req.provenance.clone();
     // Accept place names: `recall {"cell":"Mount Everest"}` is just
     // `locate` + `recall` from the agent's POV, no reason to make
     // them do two round-trips.
@@ -20785,11 +20806,21 @@ async fn mcp_tool_call(
             // cached weather fact instead of materialising Tessera 2020).
             let api_req: RecallApiReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            let req: RecallReq = api_req.into();
+            // Through the SAME helper REST uses. Calling `.into()` here was
+            // the bug: `From<RecallApiReq>` leaves provenance unset because
+            // REST applied it afterwards, so `deterministic: true` over MCP
+            // returned model_output facts while reporting success.
+            let req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+            let prov_filter = req.provenance.clone();
             let (resp, materialize_notes) = recall_with_auto_materialize(&req, s)
                 .await
                 .map_err(mcp_err)?;
             let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
+            // Echo the applied filter, as REST does, so an agent can confirm
+            // which classes shaped the result rather than assume.
+            if let (Some(map), Some(allowed)) = (v.as_object_mut(), prov_filter.as_ref()) {
+                map.insert("provenance_filter".into(), json!(allowed));
+            }
             // Put the citation ON the fact, as REST does.
             //
             // Without this an MCP caller gets facts with no `fact_cid` and no
@@ -67591,5 +67622,73 @@ mod ownership_gate_order_tests {
             "the refusal leaked a content answer: {}",
             err.1.message
         );
+    }
+}
+
+#[cfg(test)]
+mod recall_flag_parity_tests {
+    use super::*;
+
+    /// REST and MCP must build the same request from the same arguments.
+    ///
+    /// They did not. `post_recall` resolved the provenance filter inline and
+    /// assigned it after `.into()`; the MCP arm called `.into()` and went
+    /// straight to the primitive, so `deterministic: true` over MCP returned
+    /// model_output facts and told the caller it had filtered. Both paths now
+    /// call `recall_req_with_provenance`, and this asserts what that helper
+    /// guarantees.
+    #[test]
+    fn deterministic_true_narrows_provenance() {
+        let api: RecallApiReq = serde_json::from_value(json!({
+            "cell": "defi.zb493.xuqA.zcb5f",
+            "deterministic": true,
+        }))
+        .unwrap();
+        let req = recall_req_with_provenance(api).expect("valid request");
+        let classes = req
+            .provenance
+            .expect("deterministic:true must set a filter");
+        assert!(classes.iter().any(|c| c == "direct_sensor"), "{classes:?}");
+        assert!(
+            classes.iter().any(|c| c == "deterministic_index"),
+            "{classes:?}"
+        );
+        assert!(
+            !classes.iter().any(|c| c == "model_output"),
+            "model_output survived a deterministic filter: {classes:?}"
+        );
+    }
+
+    #[test]
+    fn an_explicit_provenance_list_is_carried_through() {
+        let api: RecallApiReq = serde_json::from_value(json!({
+            "cell": "defi.zb493.xuqA.zcb5f",
+            "provenance": ["direct_sensor"],
+        }))
+        .unwrap();
+        let req = recall_req_with_provenance(api).unwrap();
+        assert_eq!(req.provenance, Some(vec!["direct_sensor".to_string()]));
+    }
+
+    /// No filter asked for, none applied: the unfiltered recall must not
+    /// start silently dropping facts.
+    #[test]
+    fn absent_flags_leave_the_recall_unfiltered() {
+        let api: RecallApiReq =
+            serde_json::from_value(json!({ "cell": "defi.zb493.xuqA.zcb5f" })).unwrap();
+        let req = recall_req_with_provenance(api).unwrap();
+        assert_eq!(req.provenance, None);
+    }
+
+    /// A bad class name fails fast with the vocabulary, on both paths.
+    #[test]
+    fn an_unknown_provenance_class_is_refused() {
+        let api: RecallApiReq = serde_json::from_value(json!({
+            "cell": "defi.zb493.xuqA.zcb5f",
+            "provenance": ["not_a_class"],
+        }))
+        .unwrap();
+        let err = recall_req_with_provenance(api).expect_err("must refuse");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
     }
 }

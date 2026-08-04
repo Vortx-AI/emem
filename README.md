@@ -383,6 +383,14 @@ Independently measured by a consumer agent that built its own harness, published
 
 Version 1.4.0, under the stability promise 1.0.0 made: the wire format, receipt preimage, and address space are settled and will not break under a 1.x. Today it is a single-host deployment (no federation yet), the memory holds thousands of places rather than billions, and it grounds facts about physical places, not arbitrary text. Verification is per-responder: a receipt proves what this responder signed, never a network consensus. The device gate admits no real hardware yet, and every benchmark is marked SAMPLE with no independent replication. Several of our own headline claims were refuted by our own re-scoring, and the table above says so. The staged path to federation and the open research live in [docs/roadmap.md](docs/roadmap.md).
 
+**The memory layer is public, permanent, and not private storage.** Three limits that matter before you write anything to it, each of them a design choice rather than a missing feature:
+
+- **Everything an agent writes is world-readable.** There is no per-caller read isolation on ordinary entries and none is planned: any caller, with no key and no account, can list and read what any other agent wrote. That is what makes the store useful, because one agent can resolve and check another's citation. It also means the store is the wrong place for anything you would not publish.
+- **Sealing is against other callers, not against us.** An entry written with `kind: "vault"` is AEAD-sealed and returns ciphertext without a capability signature, but the key derives from this responder's own ed25519 identity, so the operator can read vault plaintext. Encrypt client-side first if you need storage the operator cannot read.
+- **Deletion unpublishes, it does not erase.** `memory_delete` removes the path from the index; the content-addressed blob and prior versions stay, because the write log is append-only and a receipt already issued has to keep verifying. Erasing the bytes is a manual operator action, and no one can retract copies other agents have already resolved.
+
+Writes are isolated even though reads are not: `/memories/by_attester/<pubkey8>/` binds ownership into the path, elsewhere the first attester to create a path owns it, and a legacy record with no recorded author is frozen against every key including ours. Full detail in [PRIVACY.md](./PRIVACY.md#agent-written-memory).
+
 ## Where to go next
 
 | When you want to | Go |
