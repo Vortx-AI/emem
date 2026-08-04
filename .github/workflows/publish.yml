@@ -8,12 +8,15 @@ name: publish
 #   ghcr.io/vortx-ai/emem:latest        — head of main
 #   ghcr.io/vortx-ai/emem:main          — head of the default branch, by name
 #   ghcr.io/vortx-ai/emem:<short-sha>   — every push to main
-#   ghcr.io/vortx-ai/emem:v<semver>     — every git tag matching v*
+#   ghcr.io/vortx-ai/emem:v<semver>     — every git tag matching v* (ref name)
+#   ghcr.io/vortx-ai/emem:<semver>      — same tag, v stripped (1.4.0)
+#   ghcr.io/vortx-ai/emem:<major>.<minor> — moves within a minor (1.4)
 #   docker.io/vortxai/emem:<same>       — only when secrets are present
 #
-# The tag form carries the leading v, because `type=ref,event=tag` below
-# stamps the git ref name verbatim: the v1.4.0 tag yields :v1.4.0, and a
-# bare :1.4.0 does not exist. Pin with the v, or by digest.
+# Tags at or before v1.4.0 exist only in the v-prefixed form, because the
+# bare semver lines were added after that release shipped. Re-running this
+# workflow against an old tag backfills them. For anything long-lived,
+# pin the digest: it is the only form that cannot move or be deleted.
 #
 # The image runs the same emem-server binary served at https://emem.dev,
 # bound to :5051 by default.
@@ -166,9 +169,18 @@ jobs:
           images: |
             ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}
             ${{ vars.PUBLISH_DOCKERHUB == 'true' && format('{0}/{1}', env.REGISTRY_DH, env.DH_IMAGE_NAME) || '' }}
+          # type=ref,event=tag keeps the v-prefixed ref name (:v1.4.0); the
+          # two semver lines add the bare forms (:1.4.0, :1.4) a registry
+          # consumer reaches for first, and fire on tag pushes only.
+          # Deliberately no {{major}}: a :1 tag would silently roll across
+          # minor releases, which is the moving-target property we pin to
+          # avoid. Kept out of the block scalar below on purpose — a # line
+          # indented under `tags: |` is string content, not a YAML comment.
           tags: |
             type=ref,event=branch
             type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |

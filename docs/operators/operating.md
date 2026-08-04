@@ -40,10 +40,14 @@ docker run -d \
   ghcr.io/vortx-ai/emem:v1.4.0
 ```
 
-Published tags are `:latest`, `:main`, `:<short-sha>` and `:v<semver>`.
-The semver form carries the leading `v`; a bare `:1.4.0` does not exist.
-For anything long-lived, pin the digest rather than the tag, as the
-HuggingFace Space does.
+Published tags are `:latest`, `:main`, `:<short-sha>`, and three release
+forms: `:v1.4.0` (the git ref name), `:1.4.0` (bare) and `:1.4` (moves
+within the minor). The bare forms were added after v1.4.0 shipped, so
+that release exists only as `:v1.4.0` until the workflow is re-run
+against its tag; every release after it carries all three.
+
+For anything long-lived, pin the digest rather than any tag, as the
+HuggingFace Space does. A tag can be moved or deleted; a digest cannot.
 
 The image runs as UID 65532 on `debian:trixie-slim` (glibc 2.41 —
 required by `ort-sys`). It pre-applies
