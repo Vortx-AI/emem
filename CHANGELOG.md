@@ -7,6 +7,85 @@ to verify.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-05
+
+**Major, and the reason is one line in our own README.** It promised "the
+wire format, receipt preimage, and address space are settled and will not
+break under a 1.x". This release changes the receipt preimage. A verifier
+hardcoded to v1 rejects every receipt signed from here on, so shipping it
+as a minor would have made that promise false rather than kept it. The
+security fix had to ship; the honest way to ship it is a major.
+
+### BREAKING: receipt preimage v2
+
+Receipts now sign under `preimage_version: 2`, which binds the inclusion
+proof into the signature.
+
+**If you wrote a verifier, read this.** Select the rule from the receipt's
+own `preimage_version` and rebuild under THAT rule. Hardcoding either
+version rejects half the valid receipts in existence. Every v0 and v1
+receipt still verifies byte-for-byte under its original rule; nothing
+already signed was invalidated. The full v2 segment layout, the merkle
+sub-preimage in both its forms, and the dispatch requirement are published
+at `/v1/verifier_spec`.
+
+Why: under v1 the signature covered a receipt's fields but not its proof,
+so an intermediary could delete `merkle_proof` wholesale and the receipt
+still verified, reporting `valid: true` with `merkle_proof_valid: null`. A
+downgrade with no trace. The proof was attached AFTER signing, which is how
+it came to be unauthenticated. Absence is now hashed as an explicit marker
+rather than by omitting the segment, because omission would make a stripped
+proof hash identically to a receipt that never carried one.
+
+### BREAKING: other wire changes
+
+- `cost.source_freshness_s` is nullable, and is now a measurement. It was
+  the literal `0`, so a Copernicus tile captured in April 2021 was served
+  as 0 seconds old under a field documented as the age of the stalest
+  source. `null` means undatable; it never means fresh.
+- `annotations` on `tools/list` carries exactly the MCP hint set.
+  `when_to_use` was verbatim inside `description` on 105 of 105 tools
+  (44,983 bytes, 15.9% of the catalog); `category`, `level` and `tier` moved
+  to `_meta`, where server-defined keys belong.
+- `polygon_bbox` accepts the object form only. The array form was read
+  positionally, so `[12.96, 77.58, 12.99, 77.61]` bound `max_lat = 77.58`:
+  a box spanning 64 degrees of latitude. Small mis-orderings returned
+  confident facts about the wrong region; large ones sized a 433 GiB window
+  and aborted the process.
+- `readOnlyHint` is `false` on ten tools that mint, sign or persist.
+  `emem_backfill` claimed read-only under a description opening "Materialize
+  and sign every per-tslot fact".
+- A geocode that accounts for less than half a query's substantive tokens is
+  no longer high confidence, so `"DROP TABLE facts"` is refused instead of
+  resolving to La Table Ronde, France.
+
+### Added
+
+- `_content_is_data_not_instructions` on every read of agent-authored
+  memory. The store is a world-writable commons, which makes `content`
+  untrusted third-party text inside a trusted channel.
+- `fact_order` and `current_by_band` on recall: the ordering contract was
+  real but unstated, and nothing named the current reading.
+- `/memories/.well-known/` reserved to the operator, closed to every key.
+  Open-root names are first-writer-owns and therefore squattable.
+- A cold-materialization ceiling (`EMEM_MATERIALIZE_PER_MIN`, default 600).
+  Warm reads are unaffected; the cold half returns a typed deferral.
+- `resources/read` obeys the tool wire budget. `whitepaper.md` was 93,945
+  bytes against 24,000, through a transport that truncates silently.
+- The A2A surface and six missing `requestBody` schemas in `openapi.json`.
+
+### Fixed
+
+- Polygon aggregates were order-dependent: `JoinSet` yields in completion
+  order, so the same query signed a slightly different mean each call, and
+  an unstable mean means an unstable `fact_cid`.
+- Three MCP resource templates were advertised and then refused every read.
+- `emem://band/{band_key}` refused the qualified spelling every tool uses.
+- A past `as_of_signed_at` triggered materialization it could never satisfy,
+  growing an append-only log on behalf of a query it could not answer.
+- `/verify` showed a green pass for a CID whose signature was never checked,
+  and its CDN fallback asked the signer to vouch for itself.
+
 ## [1.4.0] - 2026-07-31
 
 Minor rather than patch, deliberately. This release adds REST surface

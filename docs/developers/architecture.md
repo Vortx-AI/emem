@@ -277,16 +277,27 @@ again.
 
 The signer (`emem-storage/src/server.rs (sign_receipt_v1_inner)`) and
 every verifier call the same function,
-`emem_attest::receipt_preimage_v1` (`emem-attest/src/lib.rs`), so the
-two cannot drift. It builds a v1 tagged, length-prefixed preimage:
+`emem_attest::receipt_preimage_v2` (`emem-attest/src/lib.rs`), so the
+two cannot drift. It builds a tagged, length-prefixed preimage:
 `blake3` over the domain prefix `emem.preimage.v1\x00 ||
 u32-LE(len("receipt")) || "receipt"`, then one segment per field. A
 scalar segment is `tag:u8 || u32-LE len || bytes`; a list segment is
 `tag:u8 || u32-LE count || (u32-LE len || bytes)*`. Segments in tag
 order: `0x01` request_id, `0x02` served_at, optional `0x03` scope_hex /
 `0x04` as_of_hex / `0x05` edges_hex / `0x06` manifest_hex (each omitted
-when absent), `0x07` primitive, `0x08` cells, `0x09` fact_cids. Receipts
-carry `preimage_version: 1`.
+when absent), `0x07` primitive, `0x08` cells, `0x09` fact_cids, optional
+`0x0a` field_hex, and `0x0b` merkle_hex. Receipts carry
+`preimage_version: 2`.
+
+`0x0b` is what makes proof stripping detectable, and it is never
+optional: it holds `blake3` over a `"merkle"` sub-preimage binding
+(root, leaf_index, path, rule_version), or an explicit ABSENT marker
+when the receipt carries no proof. Encoding absence as a marker rather
+than by omitting the segment is the point. Omission would make a proof
+deleted in transit hash identically to a receipt that never had one,
+which is the v1 behaviour this replaces. Receipts signed under v1 and v0
+remain valid and verify under their own rule: select it from the
+receipt's `preimage_version`, never from the current one.
 
 The 32-byte digest is signed with the responder's
 `ed25519_dalek::SigningKey`; verification is

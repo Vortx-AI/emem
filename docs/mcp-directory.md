@@ -7,7 +7,7 @@
 **MCP endpoint:** https://emem.dev/mcp
 **MCP Registry:** io.github.Vortx-AI/emem
 **Container:** ghcr.io/vortx-ai/emem:latest
-**Version:** 1.4.0
+**Version:** 2.0.0
 
 ## Description
 
@@ -140,7 +140,7 @@ start by looking for it in this repository, where it is not.
 
 An enterprise integrator audited `/mcp` and reported every tool missing `title`,
 `readOnlyHint`, and `destructiveHint`, the portal's hard gate. That audit hit the
-pre-1.3.0 deploy. As of 1.3.0 (live 2026-07-28) every one of the 105 tools serializes
+pre-1.3.0 deploy. Since 1.3.0 (live 2026-07-28) every one of the 105 tools serializes
 `title` (top-level and in `annotations`) plus all four hints, and a unit test
 (`every_serialized_tool_carries_the_directory_gate_fields`) guards the wire shape so a
 serializer regression cannot ship. Auditors should re-fetch before re-auditing.

@@ -22,13 +22,13 @@ The app is read-only. It does not modify user data or take external write action
 - Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
 - Smithery: https://smithery.ai/servers/vortxai/emem
 - HuggingFace Space: https://huggingface.co/spaces/vortx-ai/emem
-- GHCR: ghcr.io/vortx-ai/emem:v1.4.0 (also `:latest`)
+- GHCR: ghcr.io/vortx-ai/emem:v2.0.0 (also `:latest`)
 
 ## Technical
 
 - Transport: Streamable HTTP (MCP 2025-03-26)
 - Authentication: None (anonymous reads)
-- 50 MCP tools available, 4 exposed in this app
+- 105 MCP tools available, 4 exposed in this app
 - Pure Rust server, Apache-2.0 licensed
 
 ## Status

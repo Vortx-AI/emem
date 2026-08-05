@@ -37,14 +37,14 @@ docker run -d \
   -v emem_data:/var/emem \
   -e EMEM_BIND=0.0.0.0:5051 \
   -e EMEM_DATA=/var/emem \
-  ghcr.io/vortx-ai/emem:v1.4.0
+  ghcr.io/vortx-ai/emem:v2.0.0
 ```
 
 Published tags are `:latest`, `:main`, `:<short-sha>`, and three release
-forms: `:v1.4.0` (the git ref name), `:1.4.0` (bare) and `:1.4` (moves
+forms: `:v2.0.0` (the git ref name), `:2.0.0` (bare) and `:2.0` (moves
 within the minor). The bare forms were added after v1.4.0 shipped, so
-that release exists only as `:v1.4.0` until the workflow is re-run
-against its tag; every release after it carries all three.
+v1.4.0 exists only as `:v1.4.0`; every release from v2.0.0 on carries
+all three.
 
 For anything long-lived, pin the digest rather than any tag, as the
 HuggingFace Space does. A tag can be moved or deleted; a digest cannot.

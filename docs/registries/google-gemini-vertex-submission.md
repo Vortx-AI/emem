@@ -19,7 +19,7 @@ There are **four distinct integration paths**, pursue them in priority order.
 **Verify the extension manifest is live before starting:**
 ```bash
 curl -s https://emem.dev/gemini-extension.json | jq '{name, version, transport: .mcpServers.emem.transport}'
-# Expected: { name: "emem", version: "1.1.0", transport: "streamable-http" }
+# Expected: { name: "emem", version: "2.0.0", transport: "streamable-http" }
 ```
 
 ---

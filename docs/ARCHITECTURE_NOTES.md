@@ -67,7 +67,8 @@ version; never change the encoding of an existing kind.
   `sign_receipt_with_as_of`, `sign_receipt_full`, `sign_receipt_with_edges`)
   funnel into the one private `sign_receipt_v1_inner` in
   `crates/emem-storage/src/server.rs:236-348`.
-- Preimage: `receipt_preimage_v1` in `crates/emem-attest/src/lib.rs:228`.
+- Preimage: `receipt_preimage_v2` (v1 kept verbatim for receipts signed
+  under it) in `crates/emem-attest/src/lib.rs`.
   `PreimageV1::new(domain)` hashes `"emem.preimage.v1\x00" || u32-LE(len) ||
   domain`, then each segment is `tag || u32-LE(len) || bytes`
   (`lib.rs:157-226`). Receipt tags 0x01..0x09: REQUEST_ID, SERVED_AT, SCOPE,

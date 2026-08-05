@@ -1,71 +1,117 @@
-# emem MCP installation for Cline
+# emem MCP installation
 
-emem is a public remote MCP server that gives AI agents signed geospatial facts about real places.
+emem is a public remote MCP server: shared, verifiable memory for AI agents.
+Every place has one permanent address, every observation is one signed fact,
+and any agent can check any answer offline with no key, no account, and no
+trust in the operator required.
+
+This file is the Cline install convention, and works for any MCP client.
 
 ## Remote MCP endpoint
-
-Use the hosted MCP endpoint:
 
 ```text
 https://emem.dev/mcp
 ```
 
+No API key, signup, or local shell command. Reads are anonymous.
+
+Two endpoints, one server:
+
+- `https://emem.dev/mcp` advertises a 15-tool core loop, so a client
+  connecting cold spends about 40 KB of context instead of a quarter of a
+  megabyte.
+- `https://emem.dev/mcp/full` advertises all 105.
+
+The split is listing-only. Every one of the 105 tools is callable by name at
+either endpoint, so a tool missing from your list is not missing from the
+server. Call `emem_tools` to search the rest or fetch one tool's schema.
+
 ## Cline setup
 
-In Cline:
-
 1. Open MCP Servers.
-2. Choose Add Server / Remote Server.
-3. Use:
-   - Server name: `emem`
-   - Server URL: `https://emem.dev/mcp`
-   - Transport: Streamable HTTP
-
-No API key, signup, or local shell command is required for the hosted endpoint.
+2. Choose Add Server, then Remote Server.
+3. Server name `emem`, Server URL `https://emem.dev/mcp`, Transport
+   Streamable HTTP.
 
 ## Manual config
 
-If editing the MCP JSON config directly:
+Works in Cline, Claude Code, Claude Desktop, Cursor, and any Streamable HTTP
+MCP client:
 
 ```json
 {
   "mcpServers": {
     "emem": {
+      "type": "http",
       "url": "https://emem.dev/mcp"
     }
   }
 }
 ```
 
-## When Cline should use emem
+## Client libraries (optional)
 
-Use emem when a user asks about:
+The endpoints above need no library. If you want typed clients:
 
-- A real-world place
-- Coordinates
-- Address or site context
-- Flood signals
-- Elevation
-- Surface water
-- Vegetation
-- Built-up context
-- Land use
-- Physical-world evidence
-- Signed/cite-able geospatial facts
+```bash
+pip install ememdev          # Python
+npm i @vortxai/emem          # TypeScript
+```
+
+Both names are deliberate and neither is guessable: on PyPI the bare name
+`emem` belongs to an unrelated project, and npm refuses `ememdev` as too
+close to an existing package, so the JS client is scoped.
+
+## When to reach for emem
+
+When the answer should be checkable rather than plausible:
+
+- A question about a real place: elevation, surface water, vegetation,
+  built-up context, land cover, weather, air quality.
+- A claim that has to survive context compaction. Keep the `emem:fact:`
+  token; it resolves to the same bytes in the next session or the next model.
+- A hand-off between agents. Both resolve one token to byte-identical
+  content instead of exchanging paraphrases.
+- Anything needing an audit trail: every read carries an ed25519 receipt,
+  verifiable offline against the responder's published key.
+
+Do not reach for it as a private scratchpad. Everything an agent writes to
+the shared store is world-readable, and the log is append-only: deletion
+unpublishes rather than erases.
+
+## The loop
+
+1. `emem_locate` grounds a place to its permanent address (cell64).
+2. `emem_recall` reads the signed facts there.
+3. `emem_memory_token` mints a citation you can hand to another agent.
+4. `emem_verify_receipt` checks any answer, including one you did not fetch.
 
 ## Test prompts
 
-After adding emem, try:
+- Ask emem for the elevation at Bengaluru, and quote the fact CID.
+- Use emem to check whether Helsinki Airport has surface-water signals
+  relevant to flood risk.
+- Verify the receipt from the previous answer, and say what the signature
+  actually proves.
 
-- Ask emem what signed geospatial facts are available for South Mumbai.
-- Use emem to check whether Helsinki Airport has elevation or surface-water signals relevant to flood risk.
-- Use emem to answer what evidence supports a place-based answer, and include any fact CIDs or receipts.
+## Verify before you trust
+
+Receipts carry `preimage_version`. Select the verification rule from that
+field rather than assuming one: v2 (current) binds the inclusion proof into
+the signature, v1 and v0 remain valid and verify under their own rules. The
+exact byte layout is published at
+[`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec), generated from the
+running code so it cannot drift from what the server signs.
 
 ## Links
 
 - Homepage: https://emem.dev
+- Agent guide: https://emem.dev/agents.md
+- Machine summary: https://emem.dev/llms.txt
 - GitHub: https://github.com/Vortx-AI/emem
 - MCP endpoint: https://emem.dev/mcp
-- MCP Registry: io.github.Vortx-AI/emem
-- Smithery: https://smithery.ai/servers/vortxai/emem
+- GitHub MCP Registry: https://github.com/mcp/Vortx-AI/emem
+- Official MCP Registry: `io.github.Vortx-AI/emem`
 - Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
+- Smithery: https://smithery.ai/servers/vortxai/emem
+- Container: `ghcr.io/vortx-ai/emem:latest`

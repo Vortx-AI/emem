@@ -775,7 +775,9 @@ struct Cost {
     credits: u64,
     latency_p50_ms: u32,
     latency_p99_ms: u32,
-    source_freshness_s: u32,
+    // Age of the STALEST source cited, seconds. `None` when nothing in
+    // the response carries a dated source; never 0 as a stand-in.
+    source_freshness_s: Option<u32>,
     was_cached: bool,
 }
 ```

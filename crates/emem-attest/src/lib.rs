@@ -277,6 +277,16 @@ pub mod merkle_tag {
     pub const ABSENT: u8 = 0x05;
 }
 
+/// The parts of an inclusion proof a v2 receipt binds: `(root, leaf_index,
+/// path, rule_version)`.
+///
+/// Named rather than left as a bare tuple because every caller has to get
+/// the order right and a four-element tuple of two 32-byte arrays, a u32 and
+/// a u8 gives the compiler nothing to catch a transposition with. The alias
+/// puts the field order in one place that the signer, the REST verifier, the
+/// storage test helper and the /verify JS mirror can all be read against.
+pub type MerkleBinding<'a> = (&'a [u8; 32], u32, &'a [[u8; 32]], u8);
+
 /// The inclusion-proof digest a v2 receipt carries in its MERKLE segment.
 ///
 /// `None` is NOT the same as skipping the segment: it hashes an explicit
@@ -286,7 +296,7 @@ pub mod merkle_tag {
 /// invisible — which is exactly the v1 behaviour being fixed. Under v2 a
 /// receipt says, under signature, either "here is my proof" or "I have
 /// none", and an intermediary cannot rewrite one into the other.
-pub fn merkle_binding_v2(proof: Option<(&[u8; 32], u32, &[[u8; 32]], u8)>) -> [u8; 32] {
+pub fn merkle_binding_v2(proof: Option<MerkleBinding<'_>>) -> [u8; 32] {
     let mut p = PreimageV1::new("merkle");
     match proof {
         None => {

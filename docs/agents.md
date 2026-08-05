@@ -195,7 +195,7 @@ resources + 8 URI templates, 163 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
 connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
-Version 1.4.0, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
+Version 2.0.0, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
 
@@ -222,7 +222,7 @@ Four discovery URLs for agent onboarding:
 | Source schemes | 46 declared (several not yet wired) |
 | Data connectors | 16 data + 13 utility modules |
 | Topics (declared / live) | 27 / 11 |
-| Version | 1.4.0 |
+| Version | 2.0.0 |
 
 ---
 
@@ -1001,11 +1001,17 @@ concatenation rule (`request_id || "|" || served_at || "|" || primitive ||
 The pubkey is loaded from `responder_pubkey_b32` (base32-nopad) or the
 byte array; both encode the same 32-byte Ed25519 verifying key.
 
-Self-contained Python verification of a live v1 receipt (this exact
-script was run against the production responder and printed `VALID`):
+Self-contained Python verification of a live receipt (this exact script
+was run against the production responder and printed `VALID`):
 
 ```python
-"""Verify an emem receipt offline (preimage v1). Reproduces /v1/verify_receipt locally."""
+"""Verify an emem receipt offline. Reproduces /v1/verify_receipt locally.
+
+Handles preimage v1 and v2. Select the rule from the receipt's own
+`preimage_version`: a verifier that hardcodes either one rejects half the
+valid receipts in existence. v2 (current) binds the inclusion proof into
+the signature; v1 receipts are still valid and still verify under v1.
+"""
 import base64
 import requests
 import blake3
@@ -1025,7 +1031,8 @@ resp = requests.post(f"{EMEM}/v1/recall",
                            "bands": ["copdem30m.elevation_mean"]},
                      timeout=30).json()
 r = resp["receipt"]
-assert r.get("preimage_version") == 1, "this sample implements the v1 rule"
+pv = r.get("preimage_version", 0)
+assert pv in (1, 2), f"this sample implements preimage v1 and v2, got v{pv}"
 
 h = blake3.blake3()
 h.update(b"emem.preimage.v1\x00")
@@ -1056,6 +1063,30 @@ if r.get("source_versions"):
 seg(0x07, r["primitive"].encode())
 seg_list(0x08, r["cells"])
 seg_list(0x09, r["fact_cids"])
+
+# v2 only: bind the inclusion proof, or its declared absence. The ABSENT
+# marker is hashed rather than the segment omitted, so a proof stripped in
+# transit cannot hash like a receipt that never carried one.
+if pv >= 2:
+    m = blake3.blake3()
+    m.update(b"emem.preimage.v1\x00")
+    m.update(len(b"merkle").to_bytes(4, "little")); m.update(b"merkle")
+
+    def mseg(tag: int, data: bytes):
+        m.update(bytes([tag]))
+        m.update(len(data).to_bytes(4, "little"))
+        m.update(data)
+
+    proof = r.get("merkle_proof")
+    if proof:
+        mseg(0x01, bytes(proof["root"]))
+        mseg(0x02, int(proof["leaf_index"]).to_bytes(4, "little"))
+        mseg(0x03, b"".join(bytes(x) for x in proof.get("path", [])))
+        mseg(0x04, bytes([int(proof.get("version", 0))]))
+    else:
+        mseg(0x05, b"")
+    seg(0x0b, m.hexdigest().encode())
+
 preimage_digest = h.digest()
 
 pk_bytes  = b32_nopad_decode_lower(r["responder_pubkey_b32"])
@@ -1076,9 +1107,9 @@ the same procedure with `@noble/curves` and `@noble/hashes`.
 
    ### What the receipt does NOT bind
 
-The signed preimage above lists exactly five fields: `request_id`,
-`served_at`, `primitive`, `cells`, `fact_cids`. **No other field of the
-original request enters the signature.** Specifically:
+The signed preimage above lists `request_id`, `served_at`, `primitive`,
+`cells`, `fact_cids`, and, under v2, the inclusion-proof binding. **No
+other field of the original request enters the signature.** Specifically:
 
 - **The user's `place` / `q` string is not signed.** A wrong-place
   geocode (e.g. `q="Mount Kilimanjaro"` resolving to "Mount Kilimanjaro
