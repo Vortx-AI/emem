@@ -121,9 +121,20 @@ h2{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);pa
 </details>
 
 <details class="tool" id="emem_intent">
-  <summary><code>emem_intent</code><span class="tt">Intent-routed planner</span><span class="tw">Call when the user asks something like &#x27;where is X&#x27; or &#x27;is A like B&#x27; and you don&#x27;t want to pick a primitive yourself, the planner maps Intent variants to the right tool call.</span></summary>
-  <p>Submit a typed Intent; receive a plan or executed result.</p>
-  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_intent&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;type&quot;: &quot;what_is_here&quot;}}}&#x27;</code></pre>
+  <summary><code>emem_intent</code><span class="tt">Intent-routed planner</span><span class="tw">Call when the user&#x27;s question maps cleanly onto one of the seven rows above and you would rather state the goal than pick a primitive.</span></summary>
+  <p>Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.
+
+type             | needs                        | optional            | answers
+where_is         | description                  |                     | cell64 for a named place
+what_is_here     | cell OR place                | description         | what is attested at a location
+is_like          | a, b                         |                     | cosine similarity of two cells
+did_change       | cell, band, window           |                     | delta for one band over [start,end] tslots
+find_like        | key                          | k, filter           | nearest cells by embedding
+confirm          | claim, cell                  |                     | verdict plus the signed facts behind it
+ask              | description                  | place/cell/lat+lng  | free-text question, packaged answer
+
+An unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_intent&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;type&quot;: &quot;did_change&quot;, &quot;window&quot;: [20245, 20620]}}}&#x27;</code></pre>
 </details>
 <h2>Read the world (58)</h2>
 

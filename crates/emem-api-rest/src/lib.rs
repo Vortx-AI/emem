@@ -9596,7 +9596,7 @@ async fn post_recall(
 // sub-cell silent dedupe at the boring API surface.
 // =============================================================
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct LatLngQ {
     /// Optional so the query can fall back to `place` (free-text place
     /// name resolved through the standard locate path). When `place` is
@@ -9613,6 +9613,19 @@ struct LatLngQ {
     /// the resulting lat/lng, same provenance string is surfaced.
     #[serde(default, alias = "q", alias = "query", alias = "name")]
     place: Option<String>,
+    /// A cell64 address, the protocol's own canonical identifier.
+    ///
+    /// Absent until 2026-08-05, which made `emem_locate` mint an address
+    /// that eight tools then refused: locate returns
+    /// `defi.zb493.xuqA.zcb5f`, and passing it here answered "supply (lat,
+    /// lon|lng) or place". The loop the protocol advertises, ground a place
+    /// then read it, did not close for this family.
+    ///
+    /// Preferred over `place` when you have it: it decodes to coordinates
+    /// locally, so it costs no geocoder call and cannot resolve to a
+    /// different place than the one you already grounded.
+    #[serde(default, alias = "cell64")]
+    cell: Option<String>,
     #[serde(default)]
     band: Option<String>,
     #[serde(default)]
@@ -9780,12 +9793,84 @@ impl LatLngQ {
                 threshold: self.threshold,
             });
         }
+        // A cell64 is an address, not a query: decode it here rather than
+        // sending its text to a geocoder, which is both cheaper and safer.
+        // Round-tripping an address through free-text resolution is how a
+        // grounded call comes back about somewhere else.
+        if let Some(c) = self
+            .cell
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+        {
+            if !emem_codec::is_cell64_shape(c) {
+                return Err(ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidCell,
+                        message: format!(
+                            "`cell` must be a cell64 address, e.g. defi.zb493.xuqA.zcb5f; got {c:?}. \
+                             Pass a place name as `place` instead, or lat+lng."
+                        ),
+                        details: None,
+                    },
+                ));
+            }
+            let ll = emem_codec::latlng_from_cell64(c).map_err(|e| {
+                ApiError(
+                    StatusCode::BAD_REQUEST,
+                    ErrorBody {
+                        code: ErrorCode::InvalidCell,
+                        message: format!("`cell` {c:?} is not a decodable cell64: {e}"),
+                        details: None,
+                    },
+                )
+            })?;
+            // Honour the same area knobs the lat/lng branch does, so a
+            // grounded cell reads identically to the coordinates it decodes
+            // to. Anything else would make `cell` a second-class input.
+            let want_area = self.radius_m.is_some() || self.n_cells.is_some_and(|n| n > 1);
+            let polygon = if want_area {
+                Some(point_area_polygon(
+                    ll.lat_deg,
+                    ll.lng_deg,
+                    self.radius_m,
+                    self.n_cells,
+                ))
+            } else {
+                None
+            };
+            let area_km2 = polygon.as_ref().map(|p| {
+                let mid = (p.bbox.0 + p.bbox.1) / 2.0;
+                let lat_km = (p.bbox.1 - p.bbox.0) * 111.0;
+                let lng_km = (p.bbox.3 - p.bbox.2) * 111.0 * mid.to_radians().cos().abs();
+                (lat_km * lng_km).max(0.0)
+            });
+            return Ok(ResolvedTarget {
+                lat: ll.lat_deg,
+                lng: ll.lng_deg,
+                via: if want_area {
+                    "input_cell64_area".to_string()
+                } else {
+                    "input_cell64".to_string()
+                },
+                polygon,
+                // An address is not a guess. It decoded, so there is nothing
+                // ambiguous left to be unsure about.
+                is_high_confidence: true,
+                confidence_reason: "direct_cell64".to_string(),
+                area_km2,
+                input_place_query: None,
+                threshold: self.threshold,
+            });
+        }
         let p = self.place.as_deref().ok_or_else(|| {
             ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
-                    message: "supply (lat, lon|lng) or place".into(),
+                    message: "supply `cell` (a cell64 from emem_locate), `place`, or lat+lng"
+                        .into(),
                     details: None,
                 },
             )
@@ -10756,6 +10841,7 @@ async fn get_places_scene_overlay_svg(
 ) -> Result<axum::response::Response, ApiError> {
     let n_cells = q.n_cells.map(|n| n.clamp(1, 64)).unwrap_or(16);
     let lq = LatLngQ {
+        cell: None,
         lat: None,
         lng: None,
         lon: None,
@@ -32776,6 +32862,7 @@ async fn post_elevation_coherent(
     EmemJson(req): EmemJson<ElevationReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let q = LatLngQ {
+        cell: None,
         lat: req.lat,
         lon: None,
         lng: req.lng,
@@ -61043,6 +61130,56 @@ mod tests {
         assert_eq!(out2, small, "an in-budget resource must not be rewritten");
     }
 
+    /// The address this protocol mints must be accepted by the tools that
+    /// read a place.
+    ///
+    /// `emem_locate` exists to turn a place into a cell64, and eight tools
+    /// (`ndvi`, `at`, `air`, `lst`, `soil`, `water`, `forest`, `weather`)
+    /// took only `place` or `lat`+`lng`. Handing them the address locate had
+    /// just returned answered "supply (lat, lon|lng) or place", so the loop
+    /// the protocol advertises did not close for that family.
+    ///
+    /// Asserted on the resolver rather than over HTTP because that is where
+    /// the refusal lived; a live call would also pass now, but this fails on
+    /// the day someone removes the branch.
+    #[tokio::test]
+    async fn a_cell64_from_locate_is_accepted_where_a_place_is() {
+        // The cell64 emem_locate returns for Bengaluru.
+        let cell = "defi.zb493.xuqA.zcb5f";
+        let q = LatLngQ {
+            cell: Some(cell.to_string()),
+            ..Default::default()
+        };
+        let t = q
+            .resolve_target(1)
+            .await
+            .expect("a cell64 from locate must resolve, not be refused");
+        assert_eq!(t.via, "input_cell64");
+        assert_eq!(t.confidence_reason, "direct_cell64");
+        assert!(t.is_high_confidence, "a decoded address is not a guess");
+
+        // It must land on the cell asked for, not near it.
+        let round_trip = emem_codec::to_cell64(emem_codec::cell_from_latlng(t.lat, t.lng));
+        assert_eq!(round_trip, cell, "decoding must return the same cell");
+
+        // Garbage in `cell` is still refused, and names the field.
+        for bad in ["not-a-cell", "DROP TABLE facts", "../../etc/passwd"] {
+            let q = LatLngQ {
+                cell: Some(bad.to_string()),
+                ..Default::default()
+            };
+            // ResolvedTarget has no Debug, so match rather than expect_err.
+            match q.resolve_target(1).await {
+                Ok(_) => panic!("{bad:?} must not resolve through the cell field"),
+                Err(e) => assert!(
+                    e.1.message.contains("cell64"),
+                    "the refusal must name what was wrong: {}",
+                    e.1.message
+                ),
+            }
+        }
+    }
+
     /// A bbox array is refused, not read positionally.
     ///
     /// The derive bound `[12.96, 77.58, 12.99, 77.61]` to fields in
@@ -61646,6 +61783,7 @@ mod tests {
     #[test]
     fn latlng_query_accepts_both_lon_and_lng_spellings() {
         let q1 = LatLngQ {
+            cell: None,
             lat: Some(30.5),
             lon: Some(75.85),
             lng: None,
@@ -61659,6 +61797,7 @@ mod tests {
             include: None,
         };
         let q2 = LatLngQ {
+            cell: None,
             lat: Some(30.5),
             lon: None,
             lng: Some(75.85),
@@ -61674,6 +61813,7 @@ mod tests {
         assert!(q1.longitude().ok() == Some(75.85));
         assert!(q2.longitude().ok() == Some(75.85));
         let q_missing = LatLngQ {
+            cell: None,
             lat: Some(30.5),
             lon: None,
             lng: None,

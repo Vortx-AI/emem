@@ -153,6 +153,46 @@ cover.
 
 ---
 
+## X-1 · `emem_locate` minted an address eight tools refused
+
+**Status: FIXED** · test `a_cell64_from_locate_is_accepted_where_a_place_is`
+
+Reported externally and reproduced here before fixing. Not from the original
+three rounds; filed alongside them because it is the same class, a claim the
+surface makes and does not keep.
+
+```bash
+CELL=$(curl -s -X POST https://emem.dev/v1/locate -H 'content-type: application/json' \
+  -d '{"place":"Bengaluru"}' | python3 -c "import json,sys;print(json.load(sys.stdin)['cell64'])")
+# defi.zb493.xuqA.zcb5f
+
+curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{
+       \"name\":\"emem_ndvi\",\"arguments\":{\"cell\":\"$CELL\"}}}"
+```
+
+Before: `tool error (-24): supply (lat, lon|lng) or place`.
+
+`emem_locate` exists to turn a place into a cell64, and eight tools took only
+`place` or `lat`+`lng`: `emem_ndvi`, `emem_at`, `emem_air`, `emem_lst`,
+`emem_soil`, `emem_water`, `emem_forest`, `emem_weather`. Handing them the
+address locate had just returned was refused, so the loop the protocol
+advertises did not close for that family. A caller who did the grounded thing
+was worse off than one who passed free text.
+
+After: all eight accept it, verified end to end from a live `emem_locate`
+call. The cell is decoded locally rather than round-tripped through the
+geocoder, which costs no upstream call and cannot resolve somewhere else than
+the place already grounded. `via` reports `input_cell64`, confidence is
+`direct_cell64`, and the area knobs (`radius_m`, `n_cells`) behave as they do
+for lat/lng so a cell is not a second-class input.
+
+A non-cell64 string in `cell` is refused by shape rather than geocoded, so
+this does not reopen P0-3 through a new door: `"not-a-cell"` and
+`"DROP TABLE facts"` both return a typed error naming the field.
+
+---
+
 ## P0-3 · `cell` accepts any string, geocodes it, and mints a permanent fact
 
 **Status: FIXED** (was PARTIAL) · tests `ambiguous_place_gate_tests`, `query_label_overlap_catches_confident_mismatch`, `confidence_floor_only_demotes_and_only_on_fuzzy_tiers` · commit `ff7ac83`

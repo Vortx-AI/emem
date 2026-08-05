@@ -884,7 +884,8 @@ const SCHEMA_JEPA_PREDICT_V2: &str = r#"{"type":"object","required":["cell"],"pr
 // `lat`+`lng` for a direct point. `n_cells` overrides the default
 // polygon fan-out (1 for /v1/at, 16 for the rest).
 const SCHEMA_BORING_LATLNG: &str = r#"{"type":"object","properties":{
-"place":{"type":"string","description":"Free-text place name. Resolved through the standard /v1/locate cascade (wide-bbox → embedded → GeoNames → cache → Photon → Nominatim). Provide this OR `lat`+`lng`."},
+"cell":{"type":"string","description":"cell64 address, e.g. \"defi.zb493.xuqA.zcb5f\" — exactly what emem_locate returns. PREFER this when you have it: it decodes locally, costs no geocoder call, and cannot resolve to a different place than the one you already grounded. One of cell / place / lat+lng."},
+"place":{"type":"string","description":"Free-text place name, when you do not have a cell64 yet. Resolved through the standard /v1/locate cascade (wide-bbox → embedded → GeoNames → cache → Photon → Nominatim)."},
 "lat":{"type":"number","description":"WGS-84 latitude. Paired with `lng`. Use when you already have coordinates."},
 "lng":{"type":"number","description":"WGS-84 longitude. Paired with `lat`."},
 "band":{"type":"string","description":"Optional single band override, replaces the endpoint's default band set with this one."},
