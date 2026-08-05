@@ -1,0 +1,206 @@
+name: publish-smithery
+
+# Republish the Smithery listing on every release, and check the other
+# directories still agree with us.
+#
+# Why this exists: every other registry we are on was automated and this one
+# never was. The MCP registry has mcp-publish.yml, npm and PyPI publish on
+# `release: published`, containers publish on tag. Smithery has to be PUSHED
+# to as well, and nothing pushed, so the listing sat at a May 1 snapshot
+# carrying 51 tools against our 105 and a description from before the
+# repositioning. The gap was the automation, not the content.
+#
+# It publishes an EXTERNAL release, pointing Smithery at the server we
+# already run, rather than letting them build and host a copy. A hosted copy
+# is a fork that drifts the moment we deploy; an external URL is right by
+# construction on every future release, which is the same reason the MCP
+# registry entry stays correct.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and print the payload, then stop without publishing.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-smithery-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smithery:
+    name: republish the Smithery listing
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # server.json is the single source of truth for what we publish
+      # anywhere. Reading the URL and version from it means this workflow
+      # cannot drift from the MCP registry entry, which is generated from the
+      # same file.
+      - name: read server.json
+        id: src
+        run: |
+          set -euo pipefail
+          URL=$(python3 -c "import json;print(json.load(open('server.json'))['remotes'][0]['url'])")
+          VERSION=$(python3 -c "import json;print(json.load(open('server.json'))['version'])")
+          DESC=$(python3 -c "import json;print(json.load(open('server.json'))['description'])")
+          echo "url=$URL"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "desc=$DESC"       >> "$GITHUB_OUTPUT"
+          echo "publishing $VERSION -> $URL"
+
+      # The endpoint the live server answers on has to be reachable before we
+      # point a directory at it. Publishing a URL we have not just verified is
+      # how a listing comes to advertise something broken.
+      - name: the endpoint actually answers
+        run: |
+          set -euo pipefail
+          URL='${{ steps.src.outputs.url }}'
+          N=$(curl -sf --max-time 60 -X POST "$URL" \
+                -H 'content-type: application/json' \
+                -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+              | python3 -c "import json,sys;print(len(json.load(sys.stdin)['result']['tools']))")
+          echo "$URL advertises $N tools"
+          test "$N" -gt 0
+
+      - name: is a Smithery key configured?
+        id: key
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+        run: |
+          if [ -n "${SMITHERY_API_KEY:-}" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SMITHERY_API_KEY is not set, so the listing was not republished and will keep serving whatever it last cached. Create a key at https://smithery.ai (dashboard -> API keys) and add it as a repository secret. Skipped rather than failed: a missing optional key should not redden a release that otherwise published everywhere else."
+          fi
+
+      - name: publish the external release
+        if: ${{ steps.key.outputs.have == 'true' && !inputs.dry_run }}
+        env:
+          SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
+          URL: ${{ steps.src.outputs.url }}
+          VERSION: ${{ steps.src.outputs.version }}
+          DESC: ${{ steps.src.outputs.desc }}
+        run: |
+          set -uo pipefail
+          PAYLOAD=$(python3 -c "
+          import json, os
+          print(json.dumps({
+              'type': 'external',
+              'deploymentUrl': os.environ['URL'],
+              'version': os.environ['VERSION'],
+              'description': os.environ['DESC'],
+          }))")
+          echo "payload: $PAYLOAD"
+          CODE=$(curl -sS -o /tmp/smithery.out -w '%{http_code}' \
+            -X PUT "https://registry.smithery.ai/servers/vortxai/emem/releases" \
+            -H "Authorization: Bearer $SMITHERY_API_KEY" \
+            -F "payload=$PAYLOAD" --max-time 120 || echo 000)
+          echo "HTTP $CODE"
+          cat /tmp/smithery.out || true
+          echo
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "::error::Smithery rejected the release (HTTP $CODE). Their DeployPayload schema is not published, so the field names above are inferred; the response body printed just above names what it actually wanted. Correct the payload in this workflow and re-run. Do NOT paper over it by widening the payload blindly."
+            exit 1
+          fi
+
+      # The verdict comes from reading the listing back, not from the publish
+      # step's exit code. The same rule the npm workflow now follows: a 2xx on
+      # a publish call is a claim, and the registry is the fact.
+      - name: the listing actually points at us
+        if: ${{ steps.key.outputs.have == 'true' && !inputs.dry_run }}
+        run: |
+          set -uo pipefail
+          WANT='${{ steps.src.outputs.url }}'
+          for attempt in 1 2 3 4 5 6; do
+            BODY=$(curl -s --max-time 45 "https://registry.smithery.ai/servers/vortxai/emem" || true)
+            GOT=$(printf '%s' "$BODY" | python3 -c "
+          import json,sys
+          try:
+              d=json.load(sys.stdin)
+          except Exception:
+              print(''); raise SystemExit
+          urls=[d.get('deploymentUrl') or '']
+          urls += [c.get('deploymentUrl') or '' for c in (d.get('connections') or [])]
+          print(next((u for u in urls if u), ''))" 2>/dev/null || true)
+            echo "attempt $attempt: listing points at '${GOT:-<none>}'"
+            case "$GOT" in
+              "$WANT"*) echo "listing now points at our live endpoint"; exit 0 ;;
+            esac
+            sleep 15
+          done
+          echo "::error::The listing still does not point at $WANT. It was previously a Smithery-HOSTED copy at emem--vortxai.run.tools, which is a fork that cannot track our deploys. If the publish returned 2xx but the target did not change, the release type is probably still being treated as hosted rather than external."
+          exit 1
+
+  # No secrets, no publishing: just checks that the data every OTHER directory
+  # reads from us is correct at the source. Glama scans GitHub, PulseMCP reads
+  # server.json through the MCP registry, and both self-correct on their own
+  # schedule as long as what they read is right. This catches the case where
+  # it is not.
+  directories-agree:
+    name: what the directories read from us is correct
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: the MCP registry entry matches this release
+        run: |
+          set -euo pipefail
+          WANT=$(python3 -c "import json;print(json.load(open('server.json'))['version'])")
+          WANT_URL=$(python3 -c "import json;print(json.load(open('server.json'))['remotes'][0]['url'])")
+          python3 - "$WANT" "$WANT_URL" <<'PY'
+          import json, sys, time, urllib.request
+          want, want_url = sys.argv[1], sys.argv[2]
+          for attempt in range(6):
+              d = json.load(urllib.request.urlopen(
+                  "https://registry.modelcontextprotocol.io/v0/servers?search=emem&limit=100", timeout=45))
+              latest = [x["server"] for x in d["servers"]
+                        if x["server"]["name"] == "io.github.Vortx-AI/emem"
+                        and x["_meta"]["io.modelcontextprotocol.registry/official"].get("isLatest")]
+              if latest:
+                  s = latest[0]
+                  remotes = [r.get("url") for r in (s.get("remotes") or [])]
+                  print(f"registry latest={s.get('version')} remotes={remotes}")
+                  if s.get("version") == want and want_url in remotes:
+                      raise SystemExit(0)
+              time.sleep(20)
+          print(f"::error::The MCP registry does not yet show {want} with {want_url}. "
+                "PulseMCP and other directories read this entry, so anything stale here "
+                "propagates to them. Check the mcp-publish workflow for this tag.")
+          raise SystemExit(1)
+          PY
+
+      # The one that bit us: server.json is what the MCP registry publishes,
+      # so a dead link in it is a dead link advertised to every consumer. It
+      # pointed at /docs/whitepaper.html, which 404s, until 2026-08-05.
+      - name: every URL in server.json resolves
+        run: |
+          set -uo pipefail
+          FAIL=0
+          # Stop at whitespace and the punctuation that ends a sentence, or
+          # a URL mentioned mid-prose swallows the rest of the line and the
+          # shell then word-splits it into nonsense "URLs".
+          for u in $(python3 -c "
+          import json, re
+          urls = re.findall(r'https://[^\s\"\\\\<>)\]]+', json.dumps(json.load(open('server.json'))))
+          print('\n'.join(sorted({u.rstrip('.,;:') for u in urls})))"); do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 45 "$u" || echo 000)
+            case "$CODE" in
+              2*|3*|401|403|405) printf '  ok   %-3s %s\n' "$CODE" "$u" ;;
+              *) printf '  DEAD %-3s %s\n' "$CODE" "$u"; FAIL=1 ;;
+            esac
+          done
+          if [ "$FAIL" -ne 0 ]; then
+            echo "::error::server.json advertises a URL that does not resolve. This file is what the official MCP registry publishes, so a dead link here is served to every directory that reads it."
+            exit 1
+          fi
