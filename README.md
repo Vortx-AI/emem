@@ -4,6 +4,8 @@
 
 # emem
 
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
+
 **emem is the shared memory layer for multi-agent systems.**
 
 *Two agents that share no model, no vendor, and no trust can cite the same signed fact and each verify it alone. Satellites fill the memory today; any machine that watches the world joins by proving how it ran.*
