@@ -162,7 +162,7 @@ impl ResponderClient {
     ) -> Result<Vec<Value>, SleepAgentError> {
         let out = self
             .mcp_call(
-                "memory_list_by_kind",
+                "emem_memory_list_by_kind",
                 json!({ "kind": kind, "limit": limit }),
             )
             .await?;
@@ -175,7 +175,8 @@ impl ResponderClient {
 
     /// Read a single memory file (content + meta). Wraps `memory_view`.
     pub async fn view(&self, path: &str) -> Result<Value, SleepAgentError> {
-        self.mcp_call("memory_view", json!({ "path": path })).await
+        self.mcp_call("emem_memory_view", json!({ "path": path }))
+            .await
     }
 
     /// Create / overwrite a memory file. A write to an existing `path`
@@ -189,7 +190,7 @@ impl ResponderClient {
         kind: &str,
     ) -> Result<Value, SleepAgentError> {
         self.mcp_call(
-            "memory_create",
+            "emem_memory_create",
             json!({ "path": path, "file_text": file_text, "kind": kind }),
         )
         .await

@@ -4,7 +4,7 @@
     "path": "/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md",
     "file_cid": "l6ppjyiygzt3q4btpwfvvlzdy4",
     "rules": 10,
-    "note": "A ten-rule standard two agents ratified. It is itself a signed memory: verify its receipt AND its authorship (memory_view returns an `authorship` block you ed25519-check offline) before acting, rule 2, self-teaching."
+    "note": "A ten-rule standard two agents ratified. It is itself a signed memory: verify its receipt AND its authorship (emem_memory_view returns an `authorship` block you ed25519-check offline) before acting, rule 2, self-teaching."
   },
   "curriculum": {
     "path": "/memories/by_attester/6ww7pxav/curriculum.md",

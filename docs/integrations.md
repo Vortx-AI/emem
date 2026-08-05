@@ -214,7 +214,7 @@ free.
 ```jsonc
 // Write
 {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
-  "name":"memory_create",
+  "name":"emem_memory_create",
   "arguments":{
     "path":"/memories/runbook/2026-05-28.md",
     "file_text":"Mount Fuji elevation 3776 m via Cop-DEM, no surface water in 5 km buffer.",
@@ -234,7 +234,7 @@ GET /v1/memory/sse?path_prefix=/memories/runbook/&kind=episodic
 
 `kind` carries the CoALA taxonomy: `episodic` for observations,
 `semantic` for durable facts, `procedural` for playbooks, `resource`
-for generic scratchpads (default). `memory_list_by_kind` returns
+for generic scratchpads (default). `emem_memory_list_by_kind` returns
 only the slice the agent asked for, sorted by `signed_at` desc.
 
 ### Capability binding (multi-agent integration)
@@ -246,7 +246,7 @@ is the normal path rather than a multi-agent extra. It also gives each
 agent its own namespace:
 
 ```jsonc
-{"name":"memory_create","arguments":{
+{"name":"emem_memory_create","arguments":{
   "path":"/memories/by_attester/wosdtqio/note.md",
   "file_text":"...",
   "kind":"episodic",

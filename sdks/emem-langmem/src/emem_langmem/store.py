@@ -231,7 +231,7 @@ class EmemStore(BaseStore[_K, _V]):
         for k in keys:
             path = self._path(k)
             try:
-                resp = self._mcp_call("memory_view", {"path": path})
+                resp = self._mcp_call("emem_memory_view", {"path": path})
             except EmemStoreError as e:
                 if "not_found" in str(e).lower():
                     out.append(None)
@@ -248,7 +248,7 @@ class EmemStore(BaseStore[_K, _V]):
             # when the wrong field is sent.
             file_text = _encode_value(v)
             self._mcp_call(
-                "memory_create",
+                "emem_memory_create",
                 self._write_args(
                     "create",
                     self._path(k),
@@ -264,12 +264,12 @@ class EmemStore(BaseStore[_K, _V]):
         for k in keys:
             # delete carries no body: the responder hashes b"".
             self._mcp_call(
-                "memory_delete", self._write_args("delete", self._path(k), b"", {})
+                "emem_memory_delete", self._write_args("delete", self._path(k), b"", {})
             )
 
     def yield_keys(self, *, prefix: Optional[str] = None) -> Iterator[_K]:
         path = self._path(prefix) if prefix else self.root
-        resp = self._mcp_call("memory_view", {"path": path})
+        resp = self._mcp_call("emem_memory_view", {"path": path})
         for entry in _walk_view(resp):
             yield entry
 
@@ -280,7 +280,7 @@ class EmemStore(BaseStore[_K, _V]):
         for k in keys:
             path = self._path(k)
             try:
-                resp = await self._mcp_call_async("memory_view", {"path": path})
+                resp = await self._mcp_call_async("emem_memory_view", {"path": path})
             except EmemStoreError as e:
                 if "not_found" in str(e).lower():
                     out.append(None)
@@ -295,7 +295,7 @@ class EmemStore(BaseStore[_K, _V]):
             # covers the encoded string the responder hashes.
             file_text = _encode_value(v)
             await self._mcp_call_async(
-                "memory_create",
+                "emem_memory_create",
                 self._write_args(
                     "create",
                     self._path(k),
@@ -307,12 +307,12 @@ class EmemStore(BaseStore[_K, _V]):
     async def amdelete(self, keys: Sequence[_K]) -> None:
         for k in keys:
             await self._mcp_call_async(
-                "memory_delete", self._write_args("delete", self._path(k), b"", {})
+                "emem_memory_delete", self._write_args("delete", self._path(k), b"", {})
             )
 
     async def ayield_keys(self, *, prefix: Optional[str] = None) -> AsyncIterator[_K]:
         path = self._path(prefix) if prefix else self.root
-        resp = await self._mcp_call_async("memory_view", {"path": path})
+        resp = await self._mcp_call_async("emem_memory_view", {"path": path})
         for entry in _walk_view(resp):
             yield entry
 

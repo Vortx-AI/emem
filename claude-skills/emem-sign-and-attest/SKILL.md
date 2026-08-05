@@ -56,7 +56,7 @@ Hex is display only. This is the single most common signing mistake.
 
 ## Two things worth writing
 
-**A signed note or finding.** `memory_create` puts a markdown file in your
+**A signed note or finding.** `emem_memory_create` puts a markdown file in your
 namespace. Another agent fetches it, verifies the receipt (the responder
 stored these bytes) *and* the authorship (you wrote them), and can act on it
 without trusting the messenger. Namespace writes are refused with

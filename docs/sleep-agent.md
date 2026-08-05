@@ -21,13 +21,13 @@ responder over the same public REST + MCP surface any external agent uses.
             ┌─────────────────────────── emem-sleep-agentd ───────────────────────────┐
             │                                                                          │
   POST /v1/memory_contradictions ─┐                                                    │
-  POST /mcp memory_list_by_kind ──┼─► select_candidates ─► cluster near-dups ─► top-N  │
-  POST /mcp memory_view ──────────┘                              │                     │
+  POST /mcp emem_memory_list_by_kind ──┼─► select_candidates ─► cluster near-dups ─► top-N  │
+  POST /mcp emem_memory_view ──────────┘                              │                     │
             │                                                    ▼                     │
             │                       LlmTransport.propose_merge(cluster)  (REAL call)   │
             │                                                    │                     │
             │                                                    ▼                     │
-            │              POST /mcp memory_create(canonical_path, merged_text)        │
+            │              POST /mcp emem_memory_create(canonical_path, merged_text)        │
             │              → new file_cid shadows old via bi-temporal supersession     │
             └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -40,7 +40,7 @@ Each pass:
      severity in `[0,1]`. Anything above `EMEM_SLEEP_AGENT_MIN_SEVERITY`
      (default 0.3) is a candidate; severity scores its urgency.
    - **Churn**: memory files of the configured kinds are enumerated
-     (`memory_list_by_kind`) and clustered by a normalized path stem
+     (`emem_memory_list_by_kind`) and clustered by a normalized path stem
      (`notes/site-1`, `notes/site-2`, `notes/site.md` → `notes/site`).
      A cluster with ≥2 members, or a single path rewritten past the churn
      threshold, is a candidate.
@@ -53,7 +53,7 @@ Each pass:
    explicitly rather than silently picking one.
 
 3. **Write-back** (`merge.rs`): the merged text (plus a provenance trailer
-   naming each source `path@file_cid`) is written via `memory_create` to the
+   naming each source `path@file_cid`) is written via `emem_memory_create` to the
    cluster's canonical path.
 
 A `PassSummary` is printed per pass: mode, candidate counts by source,
@@ -106,9 +106,9 @@ next pass with a logged note.
 
 ## Non-destructive supersession guarantee
 
-`memory_create` to an existing `path`:
+`emem_memory_create` to an existing `path`:
 
-- updates `memory_files[path] → new_cid`, so `memory_view` and any
+- updates `memory_files[path] → new_cid`, so `emem_memory_view` and any
   `as_of:now` read return the merged text, and
 - appends `new_cid` to the append-only `memory_file_history[path]`, so the
   prior versions are still resolvable by CID and replayable.

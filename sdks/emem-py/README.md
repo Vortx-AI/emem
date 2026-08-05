@@ -107,7 +107,7 @@ signer = load_or_create_signer()             # persistent identity
 path = f"{signer.namespace_root}/note.md"
 body = b"a durable, signed, citeable note"
 attester = signer.attester_block("create", path, body)
-# POST {path, file_text, kind, attester} to /mcp memory_create.
+# POST {path, file_text, kind, attester} to /mcp emem_memory_create.
 ```
 
 `str_replace` and `insert` sign the whole file *after* the edit, and `rename`

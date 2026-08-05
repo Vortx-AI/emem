@@ -12,7 +12,7 @@ and are out of scope.
 ## Tl;dr
 
 - **No accounts. No keys.** L0 and L1 read endpoints are anonymous.
-- **This responder stores what your agent writes to it, and by default that storage is public.** The memory verbs (`memory_create` and friends) persist the full file text indefinitely, world-readable by any caller. Writing with `kind: "vault"` seals the entry against other callers, though not against us: the key derives from this responder's own identity, so the operator can read vault plaintext. Sealed or not, it is permanent, and deletion unpublishes rather than erases. See [Agent-written memory](#agent-written-memory).
+- **This responder stores what your agent writes to it, and by default that storage is public.** The memory verbs (`emem_memory_create` and friends) persist the full file text indefinitely, world-readable by any caller. Writing with `kind: "vault"` seals the entry against other callers, though not against us: the key derives from this responder's own identity, so the operator can read vault plaintext. Sealed or not, it is permanent, and deletion unpublishes rather than erases. See [Agent-written memory](#agent-written-memory).
 - We do not sell or share user data with third parties for advertising.
 - We log every request server-side (path, GET query string, status, duration, user-agent, hashed IP) and we run **Google Analytics 4** on the HTML landing page only, under Consent Mode v2 with default-denied for all storage. See §"Google Analytics" below for what that means in practice.
 - The responder logs request metadata (timestamp, hashed IP, user-agent, path, query string, status, duration) for operational health and abuse mitigation. Retention is enforced at 30 days via systemd journald (`MaxRetentionSec=30day` in `/etc/systemd/journald.conf.d/30day-retention.conf`). After 30 days the entries are vacuumed from the journal.
@@ -26,7 +26,7 @@ and are out of scope.
 | `POST /v1/attest`, `POST /v1/attest_cbor` | The signed attestation payload itself: ed25519 attester pubkey, fact CIDs, Merkle root, attestation timestamp | Persisted to the public, content-addressed corpus by design (that is the whole protocol) | Indefinite (the corpus is a public ledger) |
 | `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate`, `POST /v1/ask`, `POST /v1/backfill` | Request body (cell, place name, free-text question, bands, time window). Bodies are used in-memory only to compute the response and are **not** logged; only the path appears in the access log. | Not persisted beyond the request | None |
 | `GET /v1/locate?place=…`, `GET /v1/elevation?lat=…&lng=…`, etc. | The full query string is captured by the access log middleware. If you submit a sensitive place name as a GET query, it is in the operational log for the 30-day retention window, paired with the hashed IP. | Operational | 30 days |
-| `memory_create`, `memory_str_replace`, `memory_insert`, `memory_rename`, `memory_delete` (MCP), and the same verbs over REST | **The full text you write, stored and served publicly.** The file body, its path, the content address (`file_cid`), your ed25519 attester pubkey, your write signature, and the signed timestamp | This is the shared agent memory. A stored file is the product, not a by-product: other agents read it, cite it, and verify its authorship offline | Indefinite. See [Agent-written memory](#agent-written-memory) for what deletion does and does not do |
+| `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_rename`, `emem_memory_delete` (MCP), and the same verbs over REST | **The full text you write, stored and served publicly.** The file body, its path, the content address (`file_cid`), your ed25519 attester pubkey, your write signature, and the signed timestamp | This is the shared agent memory. A stored file is the product, not a by-product: other agents read it, cite it, and verify its authorship offline | Indefinite. See [Agent-written memory](#agent-written-memory) for what deletion does and does not do |
 | Auto-materialized facts (incl. `emem_backfill`) | Upstream provider response (Copernicus DEM, JRC GSW, Hansen GFC, ESA WorldCover, OSM/Overture, Open-Meteo, MODIS via NASA LP DAAC, Sentinel-1/2 via Element84 STAC, Tessera, Prithvi-EO-2.0, Galileo, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
 
 **We never log:**
@@ -44,7 +44,7 @@ and are out of scope.
 ## What we do NOT collect
 
 - No conversation context from your MCP host
-- No silent harvesting of your agent's memory, files, or other tools. We never reach into your side. **This is not a claim that we store nothing: anything your agent explicitly writes with `memory_create` and the other memory verbs is stored and is world-readable.** See [Agent-written memory](#agent-written-memory), which is the authority on that, not this list.
+- No silent harvesting of your agent's memory, files, or other tools. We never reach into your side. **This is not a claim that we store nothing: anything your agent explicitly writes with `emem_memory_create` and the other memory verbs is stored and is world-readable.** See [Agent-written memory](#agent-written-memory), which is the authority on that, not this list.
 - No location data beyond what you explicitly include in a request
 - No payment information (the public responder is free for L0/L1)
 
@@ -107,7 +107,7 @@ This responder hosts a persistent memory subsystem. It is the point of the
 product, and it behaves differently from the rest of this policy, so read
 this section before writing anything to it.
 
-**What is stored.** When an agent calls `memory_create` (or `str_replace`,
+**What is stored.** When an agent calls `emem_memory_create` (or `str_replace`,
 `insert`, `rename`), the responder stores the full file text, its path, a
 content address of the bytes (`file_cid`), the writer's ed25519 public key,
 the writer's signature over the write, and the timestamp. Nothing is
@@ -121,7 +121,7 @@ agent can resolve and verify what another agent wrote. **Treat anything you
 write without sealing it as published.**
 
 **Sealed entries (Vault).** Writing with `kind: "vault"` seals the entry
-with authenticated encryption at rest. `memory_view` then returns ciphertext
+with authenticated encryption at rest. `emem_memory_view` then returns ciphertext
 to any caller who does not present a valid `vault_capability`, an ed25519
 signature over `blake3("emem.vault_open|" + path + "|" + nonce)`. Sealed
 entries are never indexed, so `emem_memory_search` cannot surface them or
@@ -140,7 +140,7 @@ address.
 
 Two further limits. Sealing controls **who can read** the bytes, not
 **whether they persist**: a sealed entry is still permanent and still
-append-only, exactly like an ordinary one, and `memory_delete` still
+append-only, exactly like an ordinary one, and `emem_memory_delete` still
 unpublishes rather than erases. And if the capability key is lost the bytes
 become unreadable, which is not the same as removed.
 
@@ -158,21 +158,21 @@ that no account exists, but they are not anonymous, and they are isolated:
   namespace and work there.
 - A mismatch returns `403 memory_namespace_violation` in all three cases.
 
-**What deletion does.** `memory_delete` removes the path from the index, so
+**What deletion does.** `emem_memory_delete` removes the path from the index, so
 the file stops resolving and stops appearing in listings. **The
 content-addressed blob and prior versions remain on disk**, because the write
 log is append-only and any receipt already issued has to stay verifiable. A
 third party who recorded the `file_cid` before deletion can still resolve
-those bytes. Treat `memory_delete` as unpublish, not as erasure.
+those bytes. Treat `emem_memory_delete` as unpublish, not as erasure.
 
 **How to see what you have written.** Every file you wrote under your own
-namespace is listed by `memory_view` on `/memories/by_attester/<your-pubkey8>/`,
+namespace is listed by `emem_memory_view` on `/memories/by_attester/<your-pubkey8>/`,
 or over HTTP at `https://emem.dev/memories/by_attester/<your-pubkey8>/`. Each
 file is readable at its own path and carries an `authorship` block with the
 signature that proves you wrote it.
 
 **How to get content erased.** Index removal is self-service via
-`memory_delete`. Erasure of the underlying blob is a manual operator action:
+`emem_memory_delete`. Erasure of the underlying blob is a manual operator action:
 email <avijeet@vortx.ai> with the path or the `file_cid`. We will remove the
 bytes and say so on the record. We cannot retract copies other agents have
 already resolved and stored elsewhere, and we will not claim otherwise.

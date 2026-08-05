@@ -1409,9 +1409,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
     // root is `/memories/`; the wrapper rejects any path that escapes
     // it (no `..`, no absolute paths outside the root).
     ToolDescriptor {
-        name: "memory_view",
+        name: "emem_memory_view",
         title: "memory_view, read file or directory listing",
-        description: "Read the contents of a memory file at `/memories/<path>` or list a directory when the path ends with `/`. Optional `view_range: [start, end]` slices a 1-indexed inclusive line range out of the file. Mirrors the `view` verb in Anthropic's context-management-2025-06-27 memory tool spec. Reads are public: no key, no account, and every stored memory on this responder is world-readable, including files other agents wrote. Do not put anything private here.",
+        description: "Read the contents of a memory file at `/memories/<path>` or list a directory when the path ends with `/`. Optional `view_range: [start, end]` slices a 1-indexed inclusive line range out of the file. Mirrors the `view` verb in Anthropic's context-management-2025-06-27 memory tool spec. Reads are public: no key, no account, and every stored memory on this responder is world-readable, including files other agents wrote. Do not put anything private here. Formerly `memory_view`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude's own memory tool. It is removed in 3.0.",
         when_to_use: "Call when the model running with `betas: ['context-management-2025-06-27']` issues a `view` against its memory directory. Use `/memories/` (trailing slash) to enumerate files; `/memories/notes.md` to read one. Returns a 404 with typed code on missing path.",
         input_schema: SCHEMA_MEMORY_VIEW,
         output_schema: None,
@@ -1421,9 +1421,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
-        name: "memory_create",
+        name: "emem_memory_create",
         title: "memory_create, write a memory file (overwrite if exists)",
-        description: "Write a memory file at `/memories/<path>` with the supplied `file_text`. Overwrites if the file exists AND your key owns the path; a write over someone else's file is refused, not merged. Persists to sled, content-addresses the bytes (`file_cid`), and signs the write so the operation carries a verifiable receipt. Mirrors the `create` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage.",
+        description: "Write a memory file at `/memories/<path>` with the supplied `file_text`. Overwrites if the file exists AND your key owns the path; a write over someone else's file is refused, not merged. Persists to sled, content-addresses the bytes (`file_cid`), and signs the write so the operation carries a verifiable receipt. Mirrors the `create` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Formerly `memory_create`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude's own memory tool. It is removed in 3.0.",
         when_to_use: "Call when the LLM issues a `create` against its memory directory (initial scratchpad write, refresh of a notes file, etc.). The response carries the new `file_cid` and a signed receipt the agent can quote in audits.",
         input_schema: SCHEMA_MEMORY_CREATE,
         output_schema: None,
@@ -1433,9 +1433,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
-        name: "memory_str_replace",
+        name: "emem_memory_str_replace",
         title: "memory_str_replace, exact-string replacement in a memory file",
-        description: "Replace `old_str` with `new_str` in the named memory file. Fails (no partial write) when `old_str` is absent or matches more than once. Writes a new content-addressed `file_cid` and signs the receipt. Mirrors the `str_replace` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage.",
+        description: "Replace `old_str` with `new_str` in the named memory file. Fails (no partial write) when `old_str` is absent or matches more than once. Writes a new content-addressed `file_cid` and signs the receipt. Mirrors the `str_replace` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Formerly `memory_str_replace`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude's own memory tool. It is removed in 3.0.",
         when_to_use: "Call when the LLM issues a `str_replace` against its memory file, typical for small targeted edits. The strict single-match contract is the contract Claude expects: an LLM that sees a single-match diff knows the change applied where it intended.",
         input_schema: SCHEMA_MEMORY_STR_REPLACE,
         output_schema: None,
@@ -1445,9 +1445,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
-        name: "memory_insert",
+        name: "emem_memory_insert",
         title: "memory_insert, insert at a given line",
-        description: "Insert `new_str` after the given 1-indexed line in the named memory file. `insert_line: 0` inserts at the top. Writes a new `file_cid` and signs the receipt. Mirrors the `insert` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage.",
+        description: "Insert `new_str` after the given 1-indexed line in the named memory file. `insert_line: 0` inserts at the top. Writes a new `file_cid` and signs the receipt. Mirrors the `insert` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Formerly `memory_insert`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude's own memory tool. It is removed in 3.0.",
         when_to_use: "Call when the LLM wants to append a new line to a memory file without rewriting it. For top-of-file inserts, pass `insert_line: 0`; for end-of-file, pass the current line count (the responder rejects out-of-range with a typed error).",
         input_schema: SCHEMA_MEMORY_INSERT,
         output_schema: None,
@@ -1457,9 +1457,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
-        name: "memory_delete",
+        name: "emem_memory_delete",
         title: "memory_delete, remove a memory file or directory",
-        description: "Delete a memory file at `/memories/<path>`. When the path ends with `/`, every file beneath the directory is removed. Updates the path index but leaves prior content-addressed blobs in place (the audit history is append-only). Mirrors the `delete` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Deletion removes the path from the index; the content-addressed blob and its prior versions remain, because the write history is append-only and a receipt already issued must stay verifiable. Treat this as unpublish, not erasure. Operator erasure is a separate request (see PRIVACY.md).",
+        description: "Delete a memory file at `/memories/<path>`. When the path ends with `/`, every file beneath the directory is removed. Updates the path index but leaves prior content-addressed blobs in place (the audit history is append-only). Mirrors the `delete` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Deletion removes the path from the index; the content-addressed blob and its prior versions remain, because the write history is append-only and a receipt already issued must stay verifiable. Treat this as unpublish, not erasure. Operator erasure is a separate request (see PRIVACY.md). Formerly `memory_delete`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude's own memory tool. It is removed in 3.0.",
         when_to_use: "Call when the LLM issues a `delete` against a memory file or subdirectory it no longer needs. Existing receipts citing the old file_cid stay verifiable, the blob is content-addressed, only the path → file_cid index forgets.",
         input_schema: SCHEMA_MEMORY_DELETE,
         output_schema: None,
@@ -1469,9 +1469,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
-        name: "memory_rename",
+        name: "emem_memory_rename",
         title: "memory_rename, move a memory file",
-        description: "Move (rename) a memory file from `old_path` to `new_path`. Both paths must stay under `/memories/`; `new_path` must not already exist. The file_cid is preserved (no re-sign) so the prior receipt still binds the bytes. Mirrors the `rename` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage.",
+        description: "Move (rename) a memory file from `old_path` to `new_path`. Both paths must stay under `/memories/`; `new_path` must not already exist. The file_cid is preserved (no re-sign) so the prior receipt still binds the bytes. Mirrors the `rename` verb in Anthropic's context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(\"emem.memory_write|<verb>|<path>|<body_hash>\"); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Formerly `memory_rename`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude's own memory tool. It is removed in 3.0.",
         when_to_use: "Call when the LLM wants to rename or move a memory file. Failure modes: source missing, destination already exists, path escapes `/memories/`.",
         input_schema: SCHEMA_MEMORY_RENAME,
         output_schema: None,
@@ -1481,9 +1481,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
-        name: "memory_list_by_kind",
+        name: "emem_memory_list_by_kind",
         title: "memory_list_by_kind, typed enumeration of memory files",
-        description: "List memory files by their typed `kind` (episodic | semantic | procedural | resource). Optional path prefix narrows the scan; results are sorted by signed_at descending. The kind taxonomy follows the CoALA / LangMem / MIRIX agent-memory ontology: `episodic` = observations of events, `semantic` = durable learned facts, `procedural` = playbooks, `resource` = generic durable scratchpad (default for back-compat). Reads are public: no key, no account, and every stored memory on this responder is world-readable, including files other agents wrote. Do not put anything private here.",
+        description: "List memory files by their typed `kind` (episodic | semantic | procedural | resource). Optional path prefix narrows the scan; results are sorted by signed_at descending. The kind taxonomy follows the CoALA / LangMem / MIRIX agent-memory ontology: `episodic` = observations of events, `semantic` = durable learned facts, `procedural` = playbooks, `resource` = generic durable scratchpad (default for back-compat). Reads are public: no key, no account, and every stored memory on this responder is world-readable, including files other agents wrote. Do not put anything private here. Formerly `memory_list_by_kind`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude's own memory tool. It is removed in 3.0.",
         when_to_use: "Call when an agent wants only one slice of its memory (e.g. surface every semantic fact it has learned about a topic) without scanning the full directory tree. Pair with memory_view for read-back of a specific entry.",
         input_schema: SCHEMA_MEMORY_LIST_BY_KIND,
         output_schema: None,
@@ -2487,13 +2487,13 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
         "agent_memory_files",
         "Durable agent notes, addressed by path and cited like any other fact. Writes must be signed: see the attester block.",
         &[
-            "memory_create",
-            "memory_view",
-            "memory_str_replace",
-            "memory_insert",
-            "memory_delete",
-            "memory_rename",
-            "memory_list_by_kind",
+            "emem_memory_create",
+            "emem_memory_view",
+            "emem_memory_str_replace",
+            "emem_memory_insert",
+            "emem_memory_delete",
+            "emem_memory_rename",
+            "emem_memory_list_by_kind",
             "emem_memory_search",
         ],
     ),
@@ -2674,8 +2674,8 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         "file",
         "Durable agent notes, addressed by path and cited like any other fact.",
         &[
-            "memory_create", "memory_view", "memory_str_replace", "memory_insert",
-            "memory_delete", "memory_rename", "memory_list_by_kind", "emem_memory_search",
+            "emem_memory_create", "emem_memory_view", "emem_memory_str_replace", "emem_memory_insert",
+            "emem_memory_delete", "emem_memory_rename", "emem_memory_list_by_kind", "emem_memory_search",
         ],
     ),
     (
@@ -2739,8 +2739,8 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
         "long_horizon",
         "Work that outlives one context window. Park state as durable notes, cite what you found so a later run resolves the identical bytes, walk what changed since, and detect when the world moved under a conclusion you already drew. Register a conclusion you derived and a later run resolves it with its lineage intact, instead of recomputing it and hoping the two agree. Runnable proof: examples/agent-handoff/ in the repo parks a checkpoint and a second identity resumes from it, verified.",
         &[
-            "memory_create", "memory_view", "memory_str_replace", "memory_insert",
-            "memory_list_by_kind", "emem_memory_search", "emem_edges_recall",
+            "emem_memory_create", "emem_memory_view", "emem_memory_str_replace", "emem_memory_insert",
+            "emem_memory_list_by_kind", "emem_memory_search", "emem_edges_recall",
             "emem_trajectory", "emem_temporal_route", "emem_compare_same_doy", "emem_state_diff",
             "emem_memory_contradictions", "emem_backfill", "emem_derive",
             "emem_derive_list",
@@ -3202,13 +3202,13 @@ mod tests {
         for t in &[
             "emem_memory_bundle",
             "emem_memory_bundle_resolve",
-            "memory_view",
-            "memory_create",
-            "memory_str_replace",
-            "memory_insert",
-            "memory_delete",
-            "memory_rename",
-            "memory_list_by_kind",
+            "emem_memory_view",
+            "emem_memory_create",
+            "emem_memory_str_replace",
+            "emem_memory_insert",
+            "emem_memory_delete",
+            "emem_memory_rename",
+            "emem_memory_list_by_kind",
         ] {
             assert!(lookup(t).is_some(), "missing substrate tool: {t}");
         }
@@ -3399,6 +3399,60 @@ mod tests {
         }
         assert!(declared > 0, "no tool declares an outputSchema");
         println!("{declared} tools declare an outputSchema");
+    }
+
+    /// Every tool carries the service prefix.
+    ///
+    /// Seven memory verbs did not, and three of them are destructive while
+    /// sharing a name with Claude's own memory tool, so a host with both
+    /// loaded had two different `memory_delete` and no way to tell which one
+    /// a model meant. The bare spellings still dispatch for callers that
+    /// already use them; what changed is what we ADVERTISE.
+    #[test]
+    fn every_advertised_tool_carries_the_service_prefix() {
+        let bare: Vec<&str> = TOOLS
+            .iter()
+            .map(|t| t.name)
+            .filter(|n| !n.starts_with("emem_"))
+            .collect();
+        assert!(
+            bare.is_empty(),
+            "these tools are advertised without the emem_ prefix: {bare:?}"
+        );
+    }
+
+    /// The renamed verbs kept their old spelling as a callable alias.
+    ///
+    /// This pins the deprecation CONTRACT, not the implementation: the
+    /// aliases live in the dispatch match in emem-api-rest, so this asserts
+    /// the canonical names exist and are shaped as the alias arms expect.
+    /// A rename that forgot one would leave `memory_<verb>` dispatching to
+    /// nothing and break callers mid-flight, which is the whole thing the
+    /// alias exists to prevent.
+    #[test]
+    fn the_renamed_memory_verbs_all_exist_under_the_prefix() {
+        for verb in [
+            "view",
+            "create",
+            "str_replace",
+            "insert",
+            "delete",
+            "rename",
+            "list_by_kind",
+        ] {
+            let name = format!("emem_memory_{verb}");
+            let t = TOOLS.iter().find(|t| t.name == name).unwrap_or_else(|| {
+                panic!("{name} is missing; the bare alias would dispatch nowhere")
+            });
+            assert!(
+                t.description.contains(&format!("Formerly `memory_{verb}`")),
+                "{name} must tell a caller the old spelling still works and when it stops"
+            );
+            assert!(
+                t.description.contains("removed in 3.0"),
+                "{name} must name the version the alias goes away in, or the deprecation never ends"
+            );
+        }
     }
 
     /// The allowlist above must not rot into a way of silencing the check.

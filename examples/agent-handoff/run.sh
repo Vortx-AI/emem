@@ -57,7 +57,7 @@ echo "    $CHECKPOINT_PATH  cid $FILE_CID"
 echo "==> run 2: a DIFFERENT identity resumes, trusting nobody"
 curl -s -X POST "$BASE/mcp" -H 'content-type: application/json' -d "{
   \"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",
-  \"params\":{\"name\":\"memory_view\",\"arguments\":{\"path\":\"$CHECKPOINT_PATH\"}}}" \
+  \"params\":{\"name\":\"emem_memory_view\",\"arguments\":{\"path\":\"$CHECKPOINT_PATH\"}}}" \
   >"$WORK/resume.json"
 python3 - "$WORK" "$FILE_CID" <<'PY'
 import json, sys

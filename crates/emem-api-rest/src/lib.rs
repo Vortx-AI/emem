@@ -21459,37 +21459,44 @@ async fn mcp_tool_call(
             }
         }
         // Anthropic memory tool (context-management-2025-06-27).
-        "memory_view" => {
+        //
+        // Both spellings dispatch here. `emem_memory_*` is canonical: 98 of
+        // 105 tools carry the service prefix and these seven did not, and
+        // three of them are DESTRUCTIVE while sharing a name with Claude's
+        // own memory tool, so a host with both loaded had two different
+        // `memory_delete`. The bare names stay callable so nothing breaks
+        // mid-flight; they are no longer advertised, and go away in 3.0.
+        "emem_memory_view" | "memory_view" => {
             let req: MemoryViewReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_view_inner(s, req).await.map_err(mcp_err)
         }
-        "memory_create" => {
+        "emem_memory_create" | "memory_create" => {
             let req: MemoryCreateReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_create_inner(s, req).await.map_err(mcp_err)
         }
-        "memory_str_replace" => {
+        "emem_memory_str_replace" | "memory_str_replace" => {
             let req: MemoryStrReplaceReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_str_replace_inner(s, req).await.map_err(mcp_err)
         }
-        "memory_insert" => {
+        "emem_memory_insert" | "memory_insert" => {
             let req: MemoryInsertReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_insert_inner(s, req).await.map_err(mcp_err)
         }
-        "memory_delete" => {
+        "emem_memory_delete" | "memory_delete" => {
             let req: MemoryDeleteReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_delete_inner(s, req).await.map_err(mcp_err)
         }
-        "memory_rename" => {
+        "emem_memory_rename" | "memory_rename" => {
             let req: MemoryRenameReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_rename_inner(s, req).await.map_err(mcp_err)
         }
-        "memory_list_by_kind" => {
+        "emem_memory_list_by_kind" | "memory_list_by_kind" => {
             let req: MemoryListByKindReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_list_by_kind_inner(s, req).await.map_err(mcp_err)
@@ -67410,33 +67417,38 @@ mod tests {
     fn every_advertised_mcp_tool_has_a_dispatch_arm() {
         let src = include_str!("lib.rs");
         // The dispatch match arms, as literal names `"emem_..." =>`.
-        let dispatched: std::collections::BTreeSet<&str> = src
-            .lines()
-            .filter_map(|l| {
-                let t = l.trim();
-                let rest = t.strip_prefix('"')?;
-                let name_end = rest.find('"')?;
-                let name = &rest[..name_end];
-                // A tool name is `[a-z0-9_]+`; the arm is `"name" =>`. The
-                // memory verbs are `memory_view` etc. with no `emem_` prefix,
-                // so keying on that prefix (the first version of this test did)
-                // misses them and false-flags a working dispatch.
+        // Collects EVERY name in an arm, because an arm may carry several:
+        // the memory verbs dispatch as `"emem_memory_x" | "memory_x" =>` so
+        // the bare spelling keeps working while only the prefixed one is
+        // advertised. A parser that reads just the first name would see the
+        // canonical one and miss the alias; one that requires `"name" =>`
+        // immediately would miss BOTH and false-flag a working dispatch.
+        let mut dispatched: std::collections::BTreeSet<&str> = Default::default();
+        for line in src.lines() {
+            let t = line.trim();
+            if !t.contains("=>") || !t.starts_with('"') {
+                continue;
+            }
+            // Everything left of `=>` is the pattern list.
+            let Some(head) = t.split("=>").next() else {
+                continue;
+            };
+            for piece in head.split('|') {
+                let piece = piece.trim();
+                let Some(rest) = piece.strip_prefix('"') else {
+                    continue;
+                };
+                let Some(end) = rest.find('"') else { continue };
+                let name = &rest[..end];
                 let looks_like_tool = !name.is_empty()
                     && name
                         .bytes()
                         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
-                if looks_like_tool
-                    && rest[name_end..]
-                        .trim_start_matches('"')
-                        .trim_start()
-                        .starts_with("=>")
-                {
-                    Some(name)
-                } else {
-                    None
+                if looks_like_tool && rest[end..].trim_start_matches('"').trim().is_empty() {
+                    dispatched.insert(name);
                 }
-            })
-            .collect();
+            }
+        }
         // emem_tools/emem_intent/emem_at and the ask/hunt family are handled by
         // their own earlier branches, not a name-match arm; allow the ones
         // proven callable live so this test flags only true gaps.

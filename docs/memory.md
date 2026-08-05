@@ -25,12 +25,12 @@ puts back.
 | Memory token resolve | `POST /v1/memory_token/resolve` | `{token}` | full signed fact body |
 | Memory bundle | `POST /v1/memory_bundle` | `{triples, purpose?}` | signed envelope + `emem:bundle:<bundle_cid>` |
 | Memory bundle resolve | `GET /v1/memory_bundle/<token>` | path param | same envelope |
-| Memory file write | MCP `memory_create` | `{path, file_text, kind?, attester?}` | `file_cid` + signed receipt |
-| Memory file edit | MCP `memory_str_replace`, `memory_insert` | `{path, old_str, new_str}` etc. | new `file_cid` + receipt |
-| Memory file read | MCP `memory_view` | `{path, view_range?}` | content or directory listing |
-| Memory file rename | MCP `memory_rename` | `{old_path, new_path}` | new path index + receipt |
-| Memory file delete | MCP `memory_delete` | `{path}` | path drop (blob retained, history preserved) |
-| Memory list by kind | MCP `memory_list_by_kind` | `{kind, prefix?, limit?}` | typed listing sorted by signed_at desc |
+| Memory file write | MCP `emem_memory_create` | `{path, file_text, kind?, attester?}` | `file_cid` + signed receipt |
+| Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str}` etc. | new `file_cid` + receipt |
+| Memory file read | MCP `emem_memory_view` | `{path, view_range?}` | content or directory listing |
+| Memory file rename | MCP `emem_memory_rename` | `{old_path, new_path}` | new path index + receipt |
+| Memory file delete | MCP `emem_memory_delete` | `{path}` | path drop (blob retained, history preserved) |
+| Memory list by kind | MCP `emem_memory_list_by_kind` | `{kind, prefix?, limit?}` | typed listing sorted by signed_at desc |
 | Memory file semantic search | `POST /v1/memory/search` | `{q, k?, kind?, path_prefix?, attester_pubkey_b32?}` | ranked hits + snippets |
 | Memory event stream | `GET /v1/memory/sse?path_prefix=&kind=&attester=` | query string | `text/event-stream` of writes |
 | Multi-attester contradictions | `POST /v1/memory_contradictions` | `{cell_prefix?, band?, window_unix_s?, min_severity?, limit?}` | severity-scored disagreements |
@@ -284,7 +284,7 @@ Sled trees backing the substrate:
 | `emem.memory_bundles` | `bundle_cid` | CBOR `BundleResp` |
 | `emem.multi_attester_index` | `cell\0band\0tslot_be8` | CBOR `Vec<FactCid>` |
 
-Blobs are never deleted. `memory_delete` drops the path index but
+Blobs are never deleted. `emem_memory_delete` drops the path index but
 `memory_file_blobs` keeps the bytes addressable by `file_cid`. The
 audit replay walks `memory_file_history` in order to reconstruct what
 was written when.

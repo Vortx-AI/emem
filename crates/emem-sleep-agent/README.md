@@ -13,7 +13,7 @@ OFF**) drives a running emem responder over its public REST + MCP API:
 2. **Rewrite + merge** — for each candidate cluster, ask an
    operator-configured LLM to propose one reconciled memory.
 3. **Write back non-destructively** — the merged text is written as a NEW
-   signed memory via `memory_create`. emem's bi-temporal model means the
+   signed memory via `emem_memory_create`. emem's bi-temporal model means the
    new write *shadows* the old (latest `signed_at` wins under `as_of:now`)
    while every prior version stays in the append-only
    `memory_file_history` and is still resolvable by CID.
@@ -67,7 +67,7 @@ call that would breach it.
 
 ## Non-destructive supersession guarantee
 
-`memory_create` on an existing `path` is last-write-wins on the path **and**
+`emem_memory_create` on an existing `path` is last-write-wins on the path **and**
 append-only on history. Writing the merged text:
 
 - updates `memory_files[path] → new_cid` (so `as_of:now` returns the merge),

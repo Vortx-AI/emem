@@ -25,7 +25,7 @@ deletes everything on exit. Roughly thirty seconds end to end.
    ed25519 key, and the responder returns a `file_cid` (the blake3 of
    the content) plus a signed receipt. What run 1 leaves behind is one
    line: the path and the cid.
-2. **Run 2 resumes.** A different identity calls `memory_view` on
+2. **Run 2 resumes.** A different identity calls `emem_memory_view` on
    that path, checks the returned `file_cid` against the one run 1
    published (byte drift is impossible to miss: the cid is the
    content), and sends the receipt to `/v1/verify_receipt`, which

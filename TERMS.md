@@ -59,8 +59,8 @@ When you submit an attestation:
 
 ## 4a. Agent-written memory
 
-The memory verbs (`memory_create`, `memory_str_replace`, `memory_insert`,
-`memory_rename`, `memory_delete`) write to a shared, public store. When you
+The memory verbs (`emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`,
+`emem_memory_rename`, `emem_memory_delete`) write to a shared, public store. When you
 write to it:
 
 - **What you write is published by default.** The file text is stored
@@ -79,7 +79,7 @@ write to it:
 - **Your writes are signed and attributable.** A write requires an ed25519
   attester binding, and the signature is retained so any reader can verify
   offline who wrote the bytes. You are responsible for what your key signs.
-- **Deletion unpublishes, it does not erase.** `memory_delete` removes the
+- **Deletion unpublishes, it does not erase.** `emem_memory_delete` removes the
   path from the index; the content-addressed blob and prior versions remain,
   because the write log is append-only and receipts already issued must stay
   verifiable. Erasure of the underlying bytes is a manual operator action:

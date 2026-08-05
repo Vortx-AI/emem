@@ -7,6 +7,30 @@ to verify.
 
 ## [Unreleased]
 
+### Changed
+
+- **The seven memory verbs carry the service prefix**: `emem_memory_view`,
+  `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`,
+  `emem_memory_delete`, `emem_memory_rename`, `emem_memory_list_by_kind`.
+  98 of 105 tools already did; these did not, and three of them are
+  DESTRUCTIVE while sharing a name with Claude's own memory tool, so a host
+  with both loaded had two different `memory_delete` and no way to tell which
+  one a model meant.
+
+  **Nothing breaks today.** The bare spellings still dispatch; they are only
+  no longer advertised. They are removed in 3.0. Signatures are unaffected:
+  the attester preimage binds a bare verb (`create`, `delete`), never the
+  tool name, so no receipt or stored write is touched.
+
+### Added
+
+- **`outputSchema` on eight tools**, declared only where the promise can be
+  kept. The MCP spec binds it to returning conforming `structuredContent` on
+  every call, and this responder drops that mirror when the two-copy envelope
+  would breach the wire budget. Tools that can exceed it stay undeclared;
+  tools that declare one now keep their mirror (slimming both copies rather
+  than dropping it), so the descriptor cannot come to lie.
+
 ## [2.0.0] - 2026-08-05
 
 **Major, and the reason is one line in our own README.** It promised "the

@@ -183,7 +183,7 @@ mod tests {
 
     fn mcp_inner(name: &str, args: &Value, created: &CreatedLog) -> Value {
         match name {
-            "memory_list_by_kind" => {
+            "emem_memory_list_by_kind" => {
                 let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("");
                 if kind == "semantic" {
                     json!({ "kind": "semantic", "files": [
@@ -194,7 +194,7 @@ mod tests {
                     json!({ "kind": kind, "files": [] })
                 }
             }
-            "memory_view" => {
+            "emem_memory_view" => {
                 let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
                 let (cid, content) = match path {
                     "notes/borneo-1" => ("cidA", "NDVI dropped 0.2 in March 2026."),
@@ -207,7 +207,7 @@ mod tests {
                     "superseded_by": Value::Null,
                 })
             }
-            "memory_create" => {
+            "emem_memory_create" => {
                 let path = args
                     .get("path")
                     .and_then(|v| v.as_str())

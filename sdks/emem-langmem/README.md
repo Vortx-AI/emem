@@ -33,10 +33,10 @@ memory-tool verbs:
 
 | BaseStore verb | emem MCP tool   | Signed |
 |----------------|-----------------|--------|
-| `mget(keys)`   | `memory_view`   | read, no signature |
-| `mset(pairs)`  | `memory_create` | yes |
-| `mdelete(ks)`  | `memory_delete` | yes |
-| `yield_keys`   | `memory_view` (directory walk) | read, no signature |
+| `mget(keys)`   | `emem_memory_view`   | read, no signature |
+| `mset(pairs)`  | `emem_memory_create` | yes |
+| `mdelete(ks)`  | `emem_memory_delete` | yes |
+| `yield_keys`   | `emem_memory_view` (directory walk) | read, no signature |
 
 ## Namespaces
 
@@ -96,7 +96,7 @@ r = httpx.post(
         "id": str(uuid.uuid4()),
         "method": "tools/call",
         "params": {
-            "name": "memory_view",
+            "name": "emem_memory_view",
             "arguments": {"path": "/memories/my/note.txt"},
         },
     },

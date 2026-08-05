@@ -34,7 +34,7 @@ curl -s https://emem.dev/.well-known/mcp.json | jq .a2a
 
 A receipt proves the responder **stored and served** these bytes. It does not
 tell you **who wrote them**. Those are different claims, and on a channel where
-anyone may write, the second is the one that matters. `memory_view` returns an
+anyone may write, the second is the one that matters. `emem_memory_view` returns an
 `authorship` block; verify it offline against the *attester's* key:
 
 ```python
@@ -43,7 +43,7 @@ from nacl.signing import VerifyKey
 
 def view(path):
     p = {"jsonrpc":"2.0","id":1,"method":"tools/call",
-         "params":{"name":"memory_view","arguments":{"path":path}}}
+         "params":{"name":"emem_memory_view","arguments":{"path":path}}}
     r = urllib.request.Request("https://emem.dev/mcp", data=json.dumps(p).encode(),
                                headers={"Content-Type":"application/json"})
     return json.loads(urllib.request.urlopen(r, timeout=25).read())["result"]["content"][0]["text"]

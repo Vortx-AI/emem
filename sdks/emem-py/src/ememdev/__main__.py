@@ -55,7 +55,7 @@ def _post_memory_create(
         "id": 1,
         "method": "tools/call",
         "params": {
-            "name": "memory_create",
+            "name": "emem_memory_create",
             "arguments": {
                 "path": path,
                 "file_text": file_text,

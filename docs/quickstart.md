@@ -197,7 +197,7 @@ curl -sX POST https://emem.dev/mcp \
     -H 'content-type: application/json' \
     -d '{
       "jsonrpc":"2.0","id":1,"method":"tools/call",
-      "params":{"name":"memory_create","arguments":{
+      "params":{"name":"emem_memory_create","arguments":{
         "path":"/memories/runbook/2026-05-28.md",
         "file_text":"Mount Fuji elevation 3776 m via Cop-DEM, no surface water in 5 km buffer.",
         "kind":"episodic"
