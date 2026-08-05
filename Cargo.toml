@@ -71,7 +71,7 @@ async-trait = "0.1"
 tokio       = { version = "1", features = ["full"] }
 axum        = "0.7"
 tower       = "0.5"
-tower-http  = { version = "0.6", features = ["limit", "timeout", "trace", "set-header", "request-id", "compression-gzip"] }
+tower-http  = { version = "0.6", features = ["limit", "timeout", "trace", "set-header", "request-id", "compression-gzip", "catch-panic"] }
 utoipa      = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = "8"
 reqwest     = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "http2"] }

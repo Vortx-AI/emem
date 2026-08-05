@@ -1453,6 +1453,19 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(metrics))
         // Shared layers wrap everything (heavy routes + liveness).
         // Order: outermost wraps innermost.
+        //
+        // Outermost of all: a panicking handler becomes a typed 500 for that
+        // one caller instead of a dropped connection and a poisoned worker.
+        // Scoped to what it actually buys, because it is easy to over-trust:
+        // it catches unwinds only. An allocation the allocator cannot serve
+        // calls `handle_alloc_error` -> `abort()`, which is not an unwind and
+        // is not catchable here — that class has to be bounded at the point
+        // of allocation, as `cog::MAX_WINDOW_PX` now does. This layer is for
+        // the ordinary index-out-of-range / unwrap-on-None class across the
+        // 105-tool surface, where the alternative is a killed worker task.
+        .layer(tower_http::catch_panic::CatchPanicLayer::custom(
+            panic_to_typed_500,
+        ))
         .layer(axum::middleware::from_fn(security_headers_layer))
         .layer(axum::middleware::from_fn(rate_limit_layer))
         .layer(axum::middleware::from_fn(cors_layer))
@@ -2733,6 +2746,127 @@ pub(crate) fn json_rejection_error(path: &str, detail: String) -> ApiError {
 ///
 /// Used on every POST handler so malformed/missing-field requests match
 /// the failure contract documented in `docs/errors.md`.
+/// Render a caught panic as the same `emem.error.v1` envelope every other
+/// failure uses, so a client parses one error shape rather than two.
+///
+/// The panic message is logged, not returned: it carries file/line and
+/// whatever was interpolated into the `unwrap` path, which is internal
+/// detail a caller cannot act on and an attacker can mine. What the caller
+/// gets is the request-scoped fact that the call failed and will keep
+/// failing on the same input.
+fn panic_to_typed_500(err: Box<dyn std::any::Any + Send + 'static>) -> Response {
+    let detail = err
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| err.downcast_ref::<&'static str>().copied())
+        .unwrap_or("non-string panic payload");
+    tracing::error!(panic = %detail, "handler panicked; returning typed 500");
+
+    let body = serde_json::json!({
+        "schema": "emem.error.v1",
+        "code": "internal",
+        "message": "the responder panicked handling this request; the request was not served. \
+                    This is a bug in the responder, not in your request shape — retrying the \
+                    identical input will reproduce it. Please report it with the request body \
+                    at https://github.com/Vortx-AI/emem/issues",
+        "details": { "schema": "emem.error.v1" }
+    });
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
+}
+
+/// The four named corners of a bounding box, after validation.
+pub(crate) struct NamedBbox {
+    pub min_lat: f64,
+    pub max_lat: f64,
+    pub min_lng: f64,
+    pub max_lng: f64,
+}
+
+/// Deserialise a bbox from its object form only, refusing the array form.
+///
+/// `#[derive(Deserialize)]` on a struct accepts a JSON array and binds it to
+/// the fields in *declaration order*. Three bbox types in this crate had that
+/// derive, and two of them declare their fields in different orders
+/// (`RecallPolygonBbox`/`BboxSpec` are lat,lat,lng,lng; `CellsBBox` is
+/// lat,lng,lat,lng), so one array meant two different regions on two endpoints
+/// that share the `polygon_bbox` spelling.
+///
+/// Concretely, `[12.96, 77.58, 12.99, 77.61]` — a caller writing the ordinary
+/// `[min_lat, min_lng, max_lat, max_lng]` — bound `max_lat = 77.58` on
+/// `/v1/recall_polygon`: a box spanning 64° of latitude rather than 0.03°.
+/// Where the mangled box stayed small it returned confident facts about a
+/// region nobody asked about; where it did not, it sized a 433 GiB raster
+/// window, and an allocation that size aborts the process through
+/// `handle_alloc_error`, which is not a panic and cannot be caught.
+///
+/// Refused rather than reordered, because the array conventions genuinely
+/// disagree — GeoJSON/OGC write `[west, south, east, north]`, Nominatim
+/// answers `[south, north, west, east]` — so any guess reads somewhere the
+/// caller did not name, which is the failure this refusal exists to prevent.
+/// The object form is unambiguous, and is what every `inputSchema` on these
+/// tools already declared while the deserialiser quietly accepted more.
+pub(crate) fn deserialize_named_bbox<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<NamedBbox, D::Error> {
+    use serde::de::Error as _;
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Named {
+        min_lat: f64,
+        max_lat: f64,
+        min_lng: f64,
+        max_lng: f64,
+    }
+
+    let v = JsonValue::deserialize(d)?;
+    let named: Named = match &v {
+        JsonValue::Object(_) => serde_json::from_value(v).map_err(D::Error::custom)?,
+        JsonValue::Array(a) => {
+            return Err(D::Error::custom(format!(
+                "bbox must be an object \
+                 {{\"min_lat\":…,\"max_lat\":…,\"min_lng\":…,\"max_lng\":…}}; \
+                 got an array of {} values. Array bbox orders disagree between \
+                 conventions ([west,south,east,north] in GeoJSON/OGC, \
+                 [south,north,west,east] from Nominatim), so the order is not \
+                 inferred: naming the corners is the only form that cannot \
+                 resolve to a different region than you meant",
+                a.len()
+            )))
+        }
+        _ => {
+            return Err(D::Error::custom(
+                "bbox must be an object \
+                 {\"min_lat\":…,\"max_lat\":…,\"min_lng\":…,\"max_lng\":…}",
+            ))
+        }
+    };
+
+    // Range-check every corner. Finiteness alone is not enough: the sampler
+    // normalises inverted corners and clips reads to the image, so an
+    // out-of-range corner fails nowhere downstream — it silently widens the
+    // region that gets read.
+    for (name, val, limit) in [
+        ("min_lat", named.min_lat, 90.0_f64),
+        ("max_lat", named.max_lat, 90.0),
+        ("min_lng", named.min_lng, 180.0),
+        ("max_lng", named.max_lng, 180.0),
+    ] {
+        if !val.is_finite() || val.abs() > limit {
+            return Err(D::Error::custom(format!(
+                "bbox.{name} = {val} is outside [-{limit}, {limit}]"
+            )));
+        }
+    }
+
+    Ok(NamedBbox {
+        min_lat: named.min_lat,
+        max_lat: named.max_lat,
+        min_lng: named.min_lng,
+        max_lng: named.max_lng,
+    })
+}
+
 pub(crate) struct EmemJson<T>(pub T);
 
 #[async_trait::async_trait]
@@ -13079,12 +13213,24 @@ struct RecallPolygonReq {
     include: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 struct RecallPolygonBbox {
     min_lat: f64,
     max_lat: f64,
     min_lng: f64,
     max_lng: f64,
+}
+
+impl<'de> Deserialize<'de> for RecallPolygonBbox {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let b = deserialize_named_bbox(d)?;
+        Ok(RecallPolygonBbox {
+            min_lat: b.min_lat,
+            max_lat: b.max_lat,
+            min_lng: b.min_lng,
+            max_lng: b.max_lng,
+        })
+    }
 }
 
 /// Request body for `POST /v1/field_boundaries`.  Returns per-field
@@ -32069,12 +32215,27 @@ async fn grid_info() -> Json<JsonValue> {
     }))
 }
 
-#[derive(Deserialize)]
 struct CellsBBox {
     min_lat: f64,
     min_lng: f64,
     max_lat: f64,
     max_lng: f64,
+}
+
+// Object form only. Note the field order here is lat,lng,lat,lng while
+// `RecallPolygonBbox` is lat,lat,lng,lng: under the derive, one array
+// literal addressed two different regions across two endpoints that accept
+// the same `polygon_bbox` key. See `deserialize_named_bbox`.
+impl<'de> Deserialize<'de> for CellsBBox {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let b = deserialize_named_bbox(d)?;
+        Ok(CellsBBox {
+            min_lat: b.min_lat,
+            min_lng: b.min_lng,
+            max_lat: b.max_lat,
+            max_lng: b.max_lng,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -50301,6 +50462,13 @@ fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Opti
 /// Tile fetch failures do not break the per-cell path; they only mean
 /// the cache stays cold for that band and the per-cell materializer
 /// pays the network cost it would have paid anyway.
+/// Largest window this best-effort prewarm will ask for. 2048x2048 at the
+/// 30 m DEM native grain is a ~61 km square, comfortably past the polygon
+/// sizes the per-cell fan-out is sampled over (`max_cells` defaults to 64,
+/// hard max 1024), and a quarter of `cog::MAX_WINDOW_PX` so a prewarm can
+/// never be the read that approaches the sampler's own ceiling.
+const PREWARM_MAX_WINDOW_PX: u64 = 2048 * 2048;
+
 async fn prewarm_polygon_static_cog_bands(
     bands: &[String],
     bbox: (f64, f64, f64, f64), // (min_lat, max_lat, min_lng, max_lng)
@@ -50332,6 +50500,18 @@ async fn prewarm_polygon_static_cog_bands(
             let (pix_max_col, pix_max_row) = profile.world_to_pixel(max_lng, min_lat);
             let win_w = ((pix_max_col - pix_min_col).abs() + 3).max(3) as u32;
             let win_h = ((pix_max_row - pix_min_row).abs() + 3).max(3) as u32;
+            // This prewarm is an optimisation: it warms the tile cache the
+            // per-cell fan-out is about to read. A polygon wider than one
+            // window cannot be warmed in one read anyway, and asking for it
+            // sizes a buffer from the bbox span with no upper bound. Skip
+            // rather than clamp, because a clamped window would warm tiles
+            // at the centroid while the fan-out reads the edges, paying the
+            // full cost to prime the wrong cache entries. `sample_window`
+            // enforces its own ceiling; this keeps the pointless fetch off
+            // the wire in the first place.
+            if (win_w as u64) * (win_h as u64) > PREWARM_MAX_WINDOW_PX {
+                return;
+            }
             // Same 30 s ceiling the EUDR window uses, keeps a slow
             // upstream from holding the per-cell fan-out hostage.
             let _ = tokio::time::timeout(
@@ -59952,6 +60132,62 @@ mod tests {
     }
 
     /// A malformed / order-inverted / non-finite bbox from an upstream
+    /// A bbox array is refused, not read positionally.
+    ///
+    /// The derive bound `[12.96, 77.58, 12.99, 77.61]` to fields in
+    /// declaration order, making `max_lat = 77.58`: a 64°-tall box that
+    /// sized a 433 GiB COG window and aborted the process. The refusal has
+    /// to name the object form, because a caller who reached for an array
+    /// needs to know which spelling works, not just that theirs did not.
+    #[test]
+    fn bbox_array_form_is_refused_with_the_object_form_named() {
+        let err = serde_json::from_str::<RecallPolygonBbox>("[12.96,77.58,12.99,77.61]")
+            .expect_err("an array must not deserialize into a named bbox");
+        let msg = err.to_string();
+        assert!(msg.contains("must be an object"), "names the fix: {msg}");
+        assert!(msg.contains("min_lat"), "names the fields: {msg}");
+
+        // The sibling types share the refusal, including the one whose field
+        // order differs — that divergence is why no array order is inferred.
+        assert!(serde_json::from_str::<CellsBBox>("[12.96,77.58,12.99,77.61]").is_err());
+        assert!(
+            serde_json::from_str::<crate::embedding_analytics::BboxSpec>(
+                "[12.96,77.58,12.99,77.61]"
+            )
+            .is_err()
+        );
+    }
+
+    /// The object form still works, and still binds each corner by name.
+    #[test]
+    fn bbox_object_form_round_trips_by_name() {
+        let b: RecallPolygonBbox = serde_json::from_str(
+            r#"{"min_lat":12.96,"max_lat":12.99,"min_lng":77.58,"max_lng":77.61}"#,
+        )
+        .expect("the object form is the supported spelling");
+        assert_eq!(b.min_lat, 12.96);
+        assert_eq!(b.max_lat, 12.99);
+        assert_eq!(b.min_lng, 77.58);
+        assert_eq!(b.max_lng, 77.61);
+    }
+
+    /// Out-of-range corners are refused at the boundary. Downstream they
+    /// fail nowhere: the sampler normalises inverted corners and clips to
+    /// the image, so a bad corner silently widens the region read instead.
+    #[test]
+    fn bbox_corners_outside_the_earth_are_refused() {
+        for bad in [
+            r#"{"min_lat":-91,"max_lat":12.99,"min_lng":77.58,"max_lng":77.61}"#,
+            r#"{"min_lat":12.96,"max_lat":12.99,"min_lng":-181,"max_lng":77.61}"#,
+            r#"{"min_lat":12.96,"max_lat":1e400,"min_lng":77.58,"max_lng":77.61}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<RecallPolygonBbox>(bad).is_err(),
+                "must refuse {bad}"
+            );
+        }
+    }
+
     /// geocoder must never yield zero sample cells (the Indiranagar
     /// defect): a finite bbox always produces ≥1 cell, an inverted bbox is
     /// normalised to the same cells as its correct ordering, and a

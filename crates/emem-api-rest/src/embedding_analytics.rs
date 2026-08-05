@@ -205,12 +205,27 @@ pub struct RegionSpec {
     pub cells: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct BboxSpec {
     pub min_lat: f64,
     pub max_lat: f64,
     pub min_lng: f64,
     pub max_lng: f64,
+}
+
+// Object form only; the derive would have bound a JSON array positionally.
+// See `crate::deserialize_named_bbox` for why the array form is refused
+// rather than assigned a convention.
+impl<'de> Deserialize<'de> for BboxSpec {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let b = crate::deserialize_named_bbox(d)?;
+        Ok(BboxSpec {
+            min_lat: b.min_lat,
+            max_lat: b.max_lat,
+            min_lng: b.min_lng,
+            max_lng: b.max_lng,
+        })
+    }
 }
 
 /// Resolve a region spec to a bounded list of cell64s + how the region was

@@ -35,6 +35,20 @@ use flate2::read::ZlibDecoder;
 use reqwest::Client;
 use tokio::sync::{Mutex, OnceCell};
 
+/// Hard ceiling on the pixel count of a single [`sample_window`] read.
+///
+/// Sized from the largest legitimate caller rather than picked round: the
+/// global 0.25° climatology grid reads 1440x720 = 1_036_800 px, and the
+/// tiled raster paths cap themselves at 512x512 = 262_144 px per side via
+/// `band_raster::MAX_SIDE_PX`. 4096x4096 leaves 16x headroom over the
+/// largest of those while bounding one window at 128 MiB of `f64`.
+///
+/// The bound exists because the window is allocated from caller-supplied
+/// dimensions: a polygon spanning 64° of latitude asked for a 232_635 px
+/// square (433 GiB), and the allocator responds to that by aborting the
+/// process, which no unwind guard can intercept.
+const MAX_WINDOW_PX: u64 = 4096 * 4096;
+
 /// Errors specific to the COG sampler. Bubbled up through `FetchError::Transport`
 /// at the dispatcher boundary so callers don't have to thread two error types.
 #[derive(Debug, thiserror::Error)]
@@ -1366,6 +1380,25 @@ pub async fn sample_window(
     w: u32,
     h: u32,
 ) -> Result<Vec<f64>, CogError> {
+    // The output buffer is sized from the CALLER's requested window, before
+    // any clipping to the image, so an oversized `w`/`h` is an allocation
+    // request, not a read. Refuse it here rather than at each call site:
+    // an allocation this large aborts the process via `handle_alloc_error`,
+    // which is NOT a panic and so cannot be caught by any unwind guard or
+    // middleware. Every caller therefore has to be bounded, and the only
+    // place that is true by construction is here.
+    //
+    // A caller-visible refusal is also strictly more useful than a clamp:
+    // silently shrinking the window would answer a different question than
+    // the one asked, over a region the caller never named.
+    let requested_px = (w as u64) * (h as u64);
+    if requested_px > MAX_WINDOW_PX {
+        return Err(CogError::Unsupported(format!(
+            "window {w}x{h} = {requested_px} px exceeds the {MAX_WINDOW_PX} px cap \
+             ({} MiB as f64); narrow the bbox or page the read",
+            (requested_px * 8) / (1024 * 1024)
+        )));
+    }
     if profile.compression != 8 && profile.compression != 5 {
         return Err(CogError::Unsupported(format!(
             "compression={} (Deflate (8) and LZW (5) supported)",
@@ -2243,5 +2276,33 @@ mod tests {
         let start = usize::MAX - 10;
         let _end = start.saturating_add(usize::MAX);
         // The result is usize::MAX; no overflow panic.
+    }
+
+    /// The window ceiling admits every real caller and rejects the shape
+    /// that aborted the process.
+    ///
+    /// Asserted as arithmetic rather than through `sample_window` because
+    /// the failure mode being guarded is an allocation abort: a test that
+    /// actually reached the unguarded `vec![0.0; w*h]` would take the test
+    /// runner down with it rather than fail.
+    #[test]
+    fn window_cap_admits_real_callers_and_rejects_the_dos_window() {
+        // Largest legitimate windows in the tree.
+        let global_climatology = 1440u64 * 720; // lib.rs global 0.25° grid
+        let tiled_raster = 512u64 * 512; // band_raster::MAX_SIDE_PX
+        assert!(global_climatology <= MAX_WINDOW_PX);
+        assert!(tiled_raster <= MAX_WINDOW_PX);
+
+        // The observed DoS: a polygon_bbox whose latitude span was read as
+        // 64.62° asked for a 232_635 px square, 433 GiB of f64.
+        let dos_side = 232_635u64;
+        assert!(dos_side * dos_side > MAX_WINDOW_PX);
+        assert!(
+            (dos_side * dos_side * 8) / (1024 * 1024 * 1024) > 400,
+            "the rejected request really was hundreds of GiB"
+        );
+
+        // The cap itself stays a bounded cost per window.
+        assert_eq!((MAX_WINDOW_PX * 8) / (1024 * 1024), 128, "128 MiB ceiling");
     }
 }
