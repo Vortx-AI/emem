@@ -173,10 +173,46 @@ pub struct Cost {
     pub latency_p50_ms: u32,
     /// Observed p99 latency, ms.
     pub latency_p99_ms: u32,
-    /// Age of the stalest source in the response, seconds.
-    pub source_freshness_s: u32,
+    /// Age of the stalest source in the response, in seconds: `now` minus the
+    /// earliest `captured_at` across the sources the response cites.
+    ///
+    /// `None` when nothing in the response carries a dated source, which is
+    /// the honest answer for a primitive that reads no observation. It was a
+    /// hardcoded `0` until 2026-08-05, so a Copernicus DEM tile captured in
+    /// April 2021 was served with `source_freshness_s: 0` under a doc comment
+    /// promising the age of the stalest source. The key is kept and nulled
+    /// rather than omitted, so shape checks still find it and no client reads
+    /// a missing value as zero.
+    #[serde(default)]
+    pub source_freshness_s: Option<u32>,
     /// Whether the response was served from cache.
     pub was_cached: bool,
+}
+
+impl Cost {
+    /// Fill `source_freshness_s` from the `captured_at` timestamps of the
+    /// sources a response actually cites.
+    ///
+    /// Takes the STALEST (earliest) capture, because the field answers "how
+    /// old is the oldest thing this answer rests on" — a response is only as
+    /// fresh as its weakest input, and reporting the freshest would flatter
+    /// a mixed-age answer.
+    ///
+    /// Sources with no parseable `captured_at` are skipped rather than
+    /// treated as now: an undated source is unknown age, and counting it as
+    /// zero is how the original defect read. If nothing is datable the field
+    /// stays `None`.
+    ///
+    /// A capture in the future (clock skew upstream) clamps to 0 rather than
+    /// wrapping through `u32`.
+    pub fn set_source_freshness(
+        &mut self,
+        now_unix_s: i64,
+        captured_at: impl Iterator<Item = i64>,
+    ) {
+        let oldest = captured_at.filter(|t| *t > 0).min();
+        self.source_freshness_s = oldest.map(|t| now_unix_s.saturating_sub(t).max(0) as u32);
+    }
 }
 
 /// Merkle inclusion proof for a fact within an attestation batch root.

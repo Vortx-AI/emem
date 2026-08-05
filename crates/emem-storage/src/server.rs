@@ -380,7 +380,14 @@ impl Server {
                 credits: 0,
                 latency_p50_ms,
                 latency_p99_ms,
-                source_freshness_s: 0,
+                // Left unmeasured here on purpose: `sign_receipt` sees
+                // fact CIDs, not facts, so it has no `captured_at` to
+                // measure against. The recall path fills it in from the
+                // facts it is about to return (`Cost::with_source_freshness`).
+                // Reporting 0 from here was the bug: a constant standing in
+                // for a measurement, under a field documented as the age of
+                // the stalest source.
+                source_freshness_s: None,
                 was_cached,
             },
             as_of,

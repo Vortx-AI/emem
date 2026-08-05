@@ -372,7 +372,7 @@ low. Same root cause as P0-3: greedy geocoding with no gate.
 | P1-4 | `signer` and `signature` returned as raw integer arrays where base32 is used elsewhere | any recall receipt | OPEN |
 | P1-5 | Provenance class absent from the fact object even with `include:["provenance"]` | `emem_recall` and inspect a fact | OPEN |
 | P1-6 | EUDR truncation is not priority-ordered; a partial DDS is emitted rather than refused | `emem_eudr_dds` over MCP vs REST | OPEN |
-| P1-7 | Stale values carry no freshness signal: a 2026-05-23 temperature served today with `source_freshness_s: 0` | recall `weather.temperature_2m` | OPEN |
+| P1-7 | Stale values carry no freshness signal: a 2026-05-23 temperature served today with `source_freshness_s: 0` | recall `weather.temperature_2m` | **FIXED**: the field was a hardcoded `0` in the signer under a doc comment promising "age of the stalest source". Now measured from the returned facts' `captured_at`, and `null` (never 0) when undatable. A 2021 DEM tile reports 166,192,340 s (5.27 y); weather reports 1,955 s. Both read 0 before |
 | P1-8 | Multi-fact returns have no ordering contract; 10 NDVI facts 0.326 to 0.855, no current marker | recall `indices.ndvi` at a warm cell | OPEN |
 | P1-9 | A past `as_of_signed_at` triggers materialization that cannot satisfy it, then returns nothing | bound at `1999-01-01` | **FIXED** `ff7ac83`: skipped with a typed note; a fact fetched now is signed now, so the write could never answer the query that caused it |
 | P1-10 | Six POST endpoints have no `requestBody` schema in `openapi.json`, including `/v1/recall_polygon` | grep the spec | **FIXED** `ff7ac83`: all six declared; the one POST still without a body is `/cancel`, which takes none, and says so |

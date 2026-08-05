@@ -499,7 +499,7 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     // sign_receipt_with_edges collapses to sign_receipt_full when
     // edge_cids is empty, so the no-include path is byte-identical to
     // pre-v0.0.9 receipts.
-    let receipt = srv.sign_receipt_with_edges(
+    let mut receipt = srv.sign_receipt_with_edges(
         "emem.recall",
         vec![req.cell.clone()],
         cids,
@@ -510,6 +510,16 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         &bound,
         &edge_cids,
     );
+    // Measure freshness from the facts we are actually returning. The signer
+    // cannot: it is handed CIDs, not bodies, so it has no `captured_at` to
+    // read. Filled here, where the observations are in hand, rather than
+    // reported as a constant 0 from a layer that never saw them.
+    //
+    // `cost` sits outside the signed preimage, so writing it after signing
+    // changes no digest and invalidates no receipt.
+    receipt
+        .cost
+        .set_source_freshness(now_unix_s(), facts.iter().flat_map(source_capture_times));
     Ok(RecallResp {
         facts,
         receipt,
@@ -1167,4 +1177,128 @@ mod include_edges_tests {
             wrong_org.facts
         );
     }
+}
+
+#[cfg(test)]
+mod freshness_tests {
+    use super::rfc3339_to_unix_s;
+
+    /// The civil-date arithmetic must be right, not merely plausible.
+    /// Checked against values computable independently rather than against
+    /// the implementation's own output.
+    #[test]
+    fn rfc3339_parses_to_correct_unix_seconds() {
+        assert_eq!(rfc3339_to_unix_s("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(rfc3339_to_unix_s("2000-01-01T00:00:00Z"), Some(946_684_800));
+        assert_eq!(
+            rfc3339_to_unix_s("2021-04-30T00:00:00Z"),
+            Some(1_619_740_800)
+        );
+        // A leap day, the case an off-by-one in the era arithmetic breaks.
+        assert_eq!(
+            rfc3339_to_unix_s("2024-02-29T12:00:00Z"),
+            Some(1_709_208_000)
+        );
+        // Pre-epoch dates go negative rather than wrapping.
+        assert_eq!(rfc3339_to_unix_s("1969-12-31T23:59:59Z"), Some(-1));
+    }
+
+    /// An unrecognised shape is UNDATED, never "now" and never the epoch.
+    /// Treating an unparseable timestamp as 0 is how a five-year-old tile
+    /// came to be reported with `source_freshness_s: 0`.
+    #[test]
+    fn unparseable_timestamps_are_undated_not_zero() {
+        for bad in [
+            "",
+            "not-a-date",
+            "2021-04-30",
+            "20210430T000000Z",
+            "2021/04/30T00:00:00Z",
+        ] {
+            assert_eq!(rfc3339_to_unix_s(bad), None, "{bad:?} must be undated");
+        }
+        // Structurally shaped but semantically impossible.
+        assert_eq!(rfc3339_to_unix_s("2021-13-30T00:00:00Z"), None);
+        assert_eq!(rfc3339_to_unix_s("2021-04-32T00:00:00Z"), None);
+    }
+
+    /// Freshness reports the STALEST source, and clamps a future capture to
+    /// zero rather than wrapping through u32.
+    #[test]
+    fn freshness_takes_the_oldest_and_clamps_the_future() {
+        let mut c = emem_fact::Cost {
+            credits: 0,
+            latency_p50_ms: 0,
+            latency_p99_ms: 0,
+            source_freshness_s: None,
+            was_cached: false,
+        };
+        let now = 1_700_000_000_i64;
+
+        // Mixed ages: the answer is only as fresh as its weakest input.
+        c.set_source_freshness(now, [now - 10, now - 5_000, now - 100].into_iter());
+        assert_eq!(c.source_freshness_s, Some(5_000));
+
+        // Nothing datable stays None, not 0.
+        c.set_source_freshness(now, std::iter::empty());
+        assert_eq!(c.source_freshness_s, None);
+
+        // Upstream clock skew must not underflow into a huge age.
+        c.set_source_freshness(now, [now + 3_600].into_iter());
+        assert_eq!(c.source_freshness_s, Some(0));
+    }
+}
+
+/// Unix seconds for every parseable `captured_at` on a fact's sources.
+///
+/// Undated sources yield nothing rather than a zero: "no date recorded" and
+/// "captured at the epoch" are different claims, and conflating them is what
+/// made the freshness field read as fresh.
+fn source_capture_times(f: &emem_fact::Fact) -> Vec<i64> {
+    let sources = match f {
+        emem_fact::Fact::Primary(p) => &p.sources,
+        _ => return Vec::new(),
+    };
+    sources
+        .iter()
+        .filter_map(|s| {
+            let c = s.captured_at.as_deref()?;
+            if c.is_empty() {
+                return None;
+            }
+            rfc3339_to_unix_s(c)
+        })
+        .collect()
+}
+
+/// Parse the canonical `YYYY-MM-DDTHH:MM:SSZ` form to unix seconds.
+/// Deliberately strict: a shape we do not recognise is undated, not now.
+fn rfc3339_to_unix_s(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    if b.len() < 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
+        return None;
+    }
+    let num = |a: usize, z: usize| -> Option<i64> { s.get(a..z)?.parse::<i64>().ok() };
+    let (y, mo, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (h, mi, sec) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
+        return None;
+    }
+    // Days from civil (Howard Hinnant's algorithm), valid for the proleptic
+    // Gregorian calendar and therefore for every satellite epoch we carry.
+    let y2 = if mo <= 2 { y - 1 } else { y };
+    let era = if y2 >= 0 { y2 } else { y2 - 399 } / 400;
+    let yoe = y2 - era * 400;
+    let mp = (mo + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + h * 3_600 + mi * 60 + sec)
+}
+
+fn now_unix_s() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
