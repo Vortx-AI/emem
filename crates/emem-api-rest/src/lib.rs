@@ -17732,6 +17732,82 @@ fn mcp_spawn_task(
     Ok(json!({ "task": task_json }))
 }
 
+/// Hold a `resources/read` payload to the same wire budget tool results obey.
+///
+/// Tools have been budgeted since the Claude frontend was found to truncate
+/// an oversized result silently, mid-token, with no error. Resources went
+/// through the same transport to the same hosts with no guard at all:
+/// `emem://docs/whitepaper.md` is 93,945 bytes against a 24,000-byte budget,
+/// so a host asking for it got the identical silent corruption the tool path
+/// was fixed for.
+///
+/// Truncates the `text` field only, on a line boundary, and says so in-band:
+/// `_emem_truncation` names the original size and the URL that serves the
+/// whole document. A caller that reads the marker knows the document is
+/// partial; a caller that ignores it still gets valid JSON and a coherent
+/// prefix, which is strictly better than valid-looking JSON cut mid-token.
+fn budget_resource_content(mut c: JsonValue) -> JsonValue {
+    let budget = mcp_response_budget_bytes();
+    let full_len = match c.get("text").and_then(|t| t.as_str()) {
+        Some(t) => t.len(),
+        None => return c,
+    };
+    // Leave room for the surrounding fields and the truncation note itself,
+    // measured rather than guessed: the envelope is what the host sees.
+    let envelope = serde_json::to_string(&c)
+        .map(|s| s.len())
+        .unwrap_or(full_len);
+    let overhead = envelope.saturating_sub(full_len);
+    let allowance = budget.saturating_sub(overhead + TRUNCATION_NOTE_RESERVE_BYTES);
+    if full_len <= allowance {
+        return c;
+    }
+    // Own the text before mutating the object it came from.
+    let text = c["text"].as_str().unwrap_or_default().to_string();
+    // Cut on a line boundary so the prefix stays readable prose rather than
+    // a sentence severed mid-word.
+    let mut cut = text.len().min(allowance);
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let cut = text[..cut].rfind('\n').map(|i| i + 1).unwrap_or(cut);
+    let uri = c
+        .get("uri")
+        .and_then(|u| u.as_str())
+        .unwrap_or("")
+        .to_string();
+    if let Some(m) = c.as_object_mut() {
+        m.insert("text".into(), json!(&text[..cut]));
+        m.insert(
+            "_emem_truncation".into(),
+            json!({
+                "truncated": true,
+                "returned_bytes": cut,
+                "full_bytes": full_len,
+                "budget_bytes": budget,
+                "why": "resources/read obeys the same wire budget as tool results, because \
+                        the host truncates an oversized payload silently and mid-token.",
+                "full_document": resource_http_mirror(&uri),
+            }),
+        );
+    }
+    c
+}
+
+/// Reserve for the `_emem_truncation` block a truncated resource carries.
+/// Sized from the block itself rather than picked round.
+const TRUNCATION_NOTE_RESERVE_BYTES: usize = 512;
+
+/// The plain-HTTP URL that serves a resource whole, for the truncation note.
+fn resource_http_mirror(uri: &str) -> JsonValue {
+    match uri.strip_prefix("emem://docs/") {
+        Some(doc) => json!(format!("https://emem.dev/{doc}")),
+        None => json!(format!(
+            "re-read {uri} over REST, or raise EMEM_MCP_RESPONSE_BUDGET_BYTES on a self-hosted responder"
+        )),
+    }
+}
+
 /// MCP wire-response budget in bytes (env `EMEM_MCP_RESPONSE_BUDGET_BYTES`,
 /// default 24_000). The Claude.ai / Claude Desktop MCP frontend silently
 /// truncates a tool result that exceeds ~25 KB on the wire, no 413, no
@@ -19196,16 +19272,18 @@ fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
         // host MAY run them as background tasks; "forbidden" (default)
         // everywhere else.
         "execution": { "taskSupport": emem_mcp::tool_task_support(t.name) },
+        // Exactly the spec's hint set. `when_to_use` used to be repeated
+        // here verbatim from the description built above, which cost 44,983
+        // bytes across 105 tools, 15.9% of the catalog, to say a thing the
+        // same payload already said. `category`, `level` and `tier` were
+        // server-defined keys in a field the spec reserves; they moved to
+        // `_meta` below, where nothing is lost and the shape is correct.
         "annotations": {
             "title":           t.title,
             "readOnlyHint":    t.read_only_hint,
             "destructiveHint": t.destructive_hint,
             "idempotentHint":  t.idempotent_hint,
             "openWorldHint":   t.open_world_hint,
-            "when_to_use":     t.when_to_use,
-            "category":        t.category,
-            "level":           t.level,
-            "tier":            t.tier,
         },
         // `_meta` is the MCP-standard slot for server-defined
         // metadata, namespaced by reverse-DNS. Shape answers "what
@@ -19217,6 +19295,12 @@ fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
         "_meta": {
             "dev.emem/shape":   emem_mcp::shape_of(t.name),
             "dev.emem/bundles": emem_mcp::bundles_of(t.name),
+            // Moved out of `annotations`, which the spec reserves for the
+            // hint set. Same values, correct slot, still one fetch away for
+            // any client that was reading them.
+            "dev.emem/category": t.category,
+            "dev.emem/level":    t.level,
+            "dev.emem/tier":     t.tier,
             // What this call has actually cost on this responder, so an
             // agent can budget before it calls rather than discovering the
             // cost by timing out. Absent until measured; never a guess.
@@ -19759,7 +19843,7 @@ async fn mcp_jsonrpc_inner(
             let p = req.params.unwrap_or(JsonValue::Null);
             match p.get("uri").and_then(|v| v.as_str()) {
                 Some(uri) => match mcp_read_resource_dynamic(uri, &s).await {
-                    Ok(c) => Ok(json!({ "contents": [c] })),
+                    Ok(c) => Ok(json!({ "contents": [budget_resource_content(c)] })),
                     Err(e) => Err(e),
                 },
                 None => Err((-32602, "missing `uri`".to_string())),
@@ -44355,6 +44439,58 @@ async fn visual_materialize_permit() -> tokio::sync::OwnedSemaphorePermit {
 /// Try to materialize each requested band on the given cell. Returns
 /// per-band outcomes so the recall handler can surface why a band was
 /// skipped (ocean cell, upstream down, no materializer registered).
+/// Cold materializations allowed per minute across the responder.
+///
+/// Sized from what the corpus actually grows by in normal use rather than
+/// picked round: a wide `recall_polygon` samples at most 1024 cells and a
+/// caller naming 12 bands is unusual, so a few hundred per minute leaves
+/// every legitimate shape working while capping how fast an anonymous
+/// caller can grow an unprunable log. Tunable for operators running a
+/// private responder with their own upstream quota.
+fn materialize_budget_per_min() -> u32 {
+    std::env::var("EMEM_MATERIALIZE_PER_MIN")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(600)
+        .clamp(1, 100_000)
+}
+
+/// Take `n` from the current minute's materialization budget.
+///
+/// Responder-wide, not per-IP, on purpose: the resource being protected is
+/// the upstream provider's goodwill and the size of the shared log, and both
+/// are consumed identically no matter who asks. A per-IP budget would also
+/// be trivially defeated by the address rotation the request limiter already
+/// documents as a known limit.
+fn materialize_budget_take(n: usize) -> bool {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    // Packed as (minute << 32 | spent) so the window roll and the spend are
+    // one atomic operation and two threads cannot straddle a reset.
+    static WINDOW: AtomicU64 = AtomicU64::new(0);
+    let now_min = (now_unix_s() / 60).max(0) as u64;
+    let cap = materialize_budget_per_min() as u64;
+    let n = n.max(1) as u64;
+    loop {
+        let cur = WINDOW.load(Ordering::Relaxed);
+        let (min, spent) = (cur >> 32, cur & 0xffff_ffff);
+        let (min, spent) = if min == now_min {
+            (min, spent)
+        } else {
+            (now_min, 0)
+        };
+        if spent + n > cap {
+            return false;
+        }
+        let next = (min << 32) | (spent + n);
+        if WINDOW
+            .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            return true;
+        }
+    }
+}
+
 async fn try_materialize_bands(
     cell64: &str,
     bands: &[String],
@@ -44363,6 +44499,38 @@ async fn try_materialize_bands(
 ) -> Vec<MaterializeOutcome> {
     if !auto_materialize_enabled() {
         return Vec::new();
+    }
+    // Backstop on the amplification a read can drive.
+    //
+    // The per-IP limiter admits a 1200-request burst before it throttles,
+    // which is right for reads: a warm recall is a cache lookup and an agent
+    // fanning out over a region legitimately makes many. But a COLD read is
+    // not cheap. It costs an upstream fetch, sometimes GPU time, and it
+    // appends a signed fact to a log that by design cannot be pruned. So an
+    // unauthenticated caller could turn a read burst into 1200 permanent
+    // writes and an equal number of third-party fetches issued in our name.
+    //
+    // Bounded here rather than in the request limiter because the request
+    // count is the wrong unit: the expensive thing is the materialization,
+    // and only this layer knows one is about to happen. Exceeding the cap
+    // does NOT fail the read; the caller still gets every warm fact, plus a
+    // typed note saying the cold half was deferred. Degrading to "you get
+    // what is already here" keeps a legitimate wide scan working while
+    // taking the amplification away.
+    if !materialize_budget_take(bands.len()) {
+        return bands
+            .iter()
+            .map(|b| MaterializeOutcome {
+                band: b.clone(),
+                fact_cid: None,
+                skip_reason: Some(format!(
+                    "materialization deferred: this responder is at its cold-fetch ceiling of \
+                     {} per minute. The warm facts in this response are unaffected. Retry for \
+                     the cold bands, or narrow the band list.",
+                    materialize_budget_per_min()
+                )),
+            })
+            .collect();
     }
     // Bounded-concurrency fan-out over the requested bands. Each band's
     // match arm below produces exactly one `MaterializeOutcome` (one Ok
@@ -60754,6 +60922,77 @@ mod tests {
             !a.contains("unattributed"),
             "attributed-to-several is not unattributed"
         );
+    }
+
+    /// The materialization budget bounds amplification without failing reads.
+    ///
+    /// A warm recall is a cache lookup; a cold one costs an upstream fetch
+    /// and appends to a log that cannot be pruned. The per-IP request limiter
+    /// admits a 1200-request burst, which is right for reads and wrong for
+    /// writes, so the ceiling belongs where the expensive thing happens.
+    #[test]
+    fn materialize_budget_bounds_the_minute_then_refills() {
+        let cap = materialize_budget_per_min() as usize;
+        assert!(
+            cap >= 1,
+            "a zero budget would disable materialization entirely"
+        );
+
+        // Draining the window must eventually refuse rather than admit
+        // unbounded cold fetches.
+        let mut admitted = 0usize;
+        for _ in 0..(cap + 8) {
+            if materialize_budget_take(1) {
+                admitted += 1;
+            }
+        }
+        assert!(
+            admitted <= cap,
+            "admitted {admitted} cold fetches against a cap of {cap}"
+        );
+        assert!(
+            admitted > 0,
+            "the budget must admit real work, not just refuse"
+        );
+
+        // A request larger than the whole budget is refused rather than
+        // wrapping or partially admitted.
+        assert!(!materialize_budget_take(cap + 1));
+    }
+
+    /// An oversized resource is truncated on a line boundary and says so.
+    ///
+    /// `resources/read` went to the same hosts over the same transport as
+    /// tool results, which are budgeted because the frontend truncates an
+    /// oversized payload silently and mid-token. The whitepaper resource is
+    /// 93,945 bytes against a 24,000-byte budget.
+    #[test]
+    fn oversized_resource_is_truncated_honestly() {
+        let big = "a line of prose that is long enough to matter\n".repeat(4_000);
+        let full = big.len();
+        let out = budget_resource_content(json!({
+            "uri": "emem://docs/whitepaper.md",
+            "mimeType": "text/markdown",
+            "text": big,
+        }));
+        let text = out["text"].as_str().expect("text survives");
+        assert!(text.len() < full, "must actually shrink");
+        assert!(
+            text.is_empty() || text.ends_with('\n'),
+            "cut on a line boundary, not mid-sentence"
+        );
+        let note = &out["_emem_truncation"];
+        assert_eq!(note["truncated"], json!(true));
+        assert_eq!(note["full_bytes"], json!(full));
+        assert!(
+            note["full_document"].as_str().unwrap().contains("emem.dev"),
+            "must name where the whole document lives"
+        );
+
+        // A resource that fits is returned untouched, marker and all absent.
+        let small = json!({"uri": "emem://docs/llms.txt", "text": "short"});
+        let out2 = budget_resource_content(small.clone());
+        assert_eq!(out2, small, "an in-budget resource must not be rewritten");
     }
 
     /// A bbox array is refused, not read positionally.

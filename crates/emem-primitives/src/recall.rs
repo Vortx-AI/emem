@@ -215,7 +215,31 @@ pub struct RecallResp {
     /// receipt preimage (see [`ContestedNote`]). (v0.0.9 refinement loop.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contested: Option<Vec<ContestedNote>>,
+    /// The ordering contract for `facts`, stated rather than implied.
+    ///
+    /// Facts came back tslot-ascending already, but nothing said so, so an
+    /// agent handed fourteen NDVI readings between 0.326 and 0.855 had no
+    /// declared way to tell which one is now. Guessing from position is
+    /// exactly the kind of undocumented dependency that breaks silently the
+    /// first time the order changes.
+    pub fact_order: &'static str,
+    /// Per band, the `fact_cid` of the fact with the highest `tslot`: the
+    /// answer to "what is the current reading here".
+    ///
+    /// Facts with `tslot: 0` are excluded from this pick. A zero tslot means
+    /// unslotted, not oldest, and it sorts to the front of an ascending list
+    /// where it reads as the earliest observation. Treating it as a
+    /// candidate for "current" would let an undated fact win a band that has
+    /// real dated ones.
+    ///
+    /// Empty when no returned fact carries a tslot.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub current_by_band: std::collections::BTreeMap<String, String>,
 }
+
+/// Wire value of [`RecallResp::fact_order`]. A constant so the contract and
+/// the sort that implements it cannot drift apart.
+pub const FACT_ORDER: &str = "tslot_ascending";
 
 /// Recall facts at a cell, optionally filtered by band and tslot.
 ///
@@ -520,6 +544,29 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
     receipt
         .cost
         .set_source_freshness(now_unix_s(), facts.iter().flat_map(source_capture_times));
+    // Highest-tslot fact per band, skipping unslotted (tslot 0) facts.
+    let mut current_by_band: std::collections::BTreeMap<String, (u64, String)> =
+        std::collections::BTreeMap::new();
+    for (f, cid) in facts.iter().zip(receipt.fact_cids.iter()) {
+        let (band, tslot) = match f {
+            Fact::Primary(p) => (p.band.clone(), p.tslot),
+            _ => continue,
+        };
+        if tslot == 0 {
+            continue;
+        }
+        match current_by_band.get(&band) {
+            Some((seen, _)) if *seen >= tslot => {}
+            _ => {
+                current_by_band.insert(band, (tslot, cid.as_str().to_string()));
+            }
+        }
+    }
+    let current_by_band = current_by_band
+        .into_iter()
+        .map(|(b, (_, cid))| (b, cid))
+        .collect();
+
     Ok(RecallResp {
         facts,
         receipt,
@@ -527,6 +574,8 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
         temporal_advice,
         edges: edges_out,
         contested,
+        fact_order: FACT_ORDER,
+        current_by_band,
     })
 }
 
