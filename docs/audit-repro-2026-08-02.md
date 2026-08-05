@@ -381,8 +381,8 @@ low. Same root cause as P0-3: greedy geocoding with no gate.
 | P1-13 | A2A surface absent from `openapi.json` | grep for `/v1/a2a` | **FIXED** `ff7ac83`: six paths added; the front door the .well-known descriptor advertises was undiscoverable from the machine contract |
 | P1-14 | Resources have no size guard while tools budget 24 KB | read `whitepaper.md` as a resource | OPEN |
 | P1-15 | No read-path rate limiting | 12 rapid `/v1/recall` calls | OPEN |
-| P1-16 | One log witness, last cosignature at tree_size 476131 while the tree is past 763000 | `GET /v1/log/witnesses` | OPEN |
-| P1-17 | `llms.txt` carries no install line, and bare `emem` on PyPI is another vendor's memory library | read `llms.txt` | OPEN |
+| P1-16 | One log witness, last cosignature at tree_size 476131 while the tree is past 763000 | `GET /v1/log/witnesses` | **PARTIAL** `ff7ac83`: the surface no longer implies freshness (`head_is_witnessed`, `entries_behind_current` per witness). The staleness itself needs an independent party to co-sign; manufacturing one would defeat the purpose |
+| P1-17 | `llms.txt` carries no install line, and bare `emem` on PyPI is another vendor's memory library | read `llms.txt` | **FIXED** `51d8f8e`: `pip install ememdev` / `npm i @vortxai/emem` with why both names are unguessable; `/llms-full.txt` concatenates it |
 | P1-18 | `resources/list` returns templates as well; templates belong in `resources/templates/list` | `resources/list` | OPEN |
 | P1-19 | `emem_backfill` is `readOnlyHint: true` but materializes and signs | inspect its annotations | OPEN |
 | P1-20 | Undeclared parameters are accepted silently across tools | pass `{"fetch": 1}` to any tool | OPEN |
