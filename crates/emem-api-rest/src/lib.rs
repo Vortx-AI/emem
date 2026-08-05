@@ -9502,6 +9502,20 @@ async fn post_recall(
         {
             attach_recall_freshness(&mut v);
         }
+        // Opt-in provenance class (include:["provenance"]). The class is what
+        // `deterministic` and the `provenance` filter select ON, and a caller
+        // could filter by it without ever being told which class a returned
+        // fact belongs to. Post-receipt like freshness, so the signed preimage
+        // is byte-identical to a recall without the flag; the class itself is
+        // already attested through bands_cid, which the preimage does cover.
+        if req
+            .include
+            .as_ref()
+            .map(|i| i.iter().any(|x| x == "provenance"))
+            .unwrap_or(false)
+        {
+            attach_recall_provenance(&mut v);
+        }
         if let Some(map) = v.as_object_mut() {
             if !materialize_notes.is_empty() {
                 map.insert(
@@ -19959,9 +19973,12 @@ async fn mcp_jsonrpc_inner(
         // a separate tool call. URIs use the `emem://` scheme and are
         // dereferenced server-side from compile-time `include_str!`
         // constants, no I/O, no network round-trip.
+        // Concrete resources only. Templates have their own method below,
+        // and returning them from both made a host that reads either one see
+        // the same entries twice: a URI template is not a resource you can
+        // read, so listing it here invites exactly that mistake.
         "resources/list" => Ok(json!({
             "resources": mcp_full_resources(),
-            "resourceTemplates": mcp_full_resource_templates(),
         })),
         "resources/templates/list" => Ok(json!({
             "resourceTemplates": mcp_full_resource_templates(),
@@ -48375,6 +48392,40 @@ fn pubkey_to_b32(bytes: &[u8; 32]) -> String {
 /// schema already declares). This helper closes the gap without
 /// changing the signed CBOR (the fact body still hashes to the same
 /// cid; we just attach a sibling field for client convenience).
+/// Attach the tamper-provenance class to each returned fact.
+///
+/// `deterministic: true` and the `provenance: [...]` filter both select on
+/// this class, and until now a caller could filter by it and still not be
+/// told which class each surviving fact belonged to. The class is declared
+/// in the bands manifest and pinned into every receipt through `bands_cid`,
+/// so this is surfacing something already attested rather than asserting
+/// something new.
+fn attach_recall_provenance(v: &mut JsonValue) {
+    let reg = &*emem_core::bands::DEFAULT;
+    let Some(facts) = v.get_mut("facts").and_then(|f| f.as_array_mut()) else {
+        return;
+    };
+    for f in facts.iter_mut() {
+        let Some(band) = f.get("band").and_then(|b| b.as_str()).map(str::to_string) else {
+            continue;
+        };
+        let pc = reg.provenance_class_for(&band);
+        if let Some(m) = f.as_object_mut() {
+            let mut prov = serde_json::Map::new();
+            prov.insert("class".into(), json!(pc.as_str()));
+            prov.insert("deterministic".into(), json!(pc.is_deterministic()));
+            prov.insert("tamper_evidence".into(), json!(pc.tamper_evidence()));
+            prov.insert("trust_rank".into(), json!(pc.trust_rank()));
+            // The caveat rides with the number rather than in a doc, so an
+            // agent weighing a model output sees why it should weigh it.
+            if let Some(c) = pc.caution() {
+                prov.insert("caution".into(), json!(c));
+            }
+            m.insert("provenance_class".into(), JsonValue::Object(prov));
+        }
+    }
+}
+
 fn enrich_facts_with_cid(v: &mut JsonValue) {
     let cids: Vec<String> = v
         .get("receipt")
