@@ -88,7 +88,7 @@ def test_mget_round_trip():
 
 
 @respx.mock
-def test_mset_dispatches_memory_create():
+def test_mset_dispatches_emem_memory_create():
     captured = {}
 
     def _capture(request: httpx.Request):
@@ -103,14 +103,16 @@ def test_mset_dispatches_memory_create():
     store.mset([("my-note", b"hello")])
 
     assert captured["body"]["method"] == "tools/call"
-    assert captured["body"]["params"]["name"] == "memory_create"
+    # Canonical name. The bare `memory_create` still dispatches server-side
+    # until 3.0, but this SDK should send the name that outlives the alias.
+    assert captured["body"]["params"]["name"] == "emem_memory_create"
     assert captured["body"]["params"]["arguments"]["path"] == "/memories/my-note"
     assert captured["body"]["params"]["arguments"]["file_text"] == "hello"
     assert captured["body"]["params"]["arguments"]["kind"] == "resource"
 
 
 @respx.mock
-def test_mdelete_dispatches_memory_delete():
+def test_mdelete_dispatches_emem_memory_delete():
     captured = {}
 
     def _capture(request: httpx.Request):
@@ -124,7 +126,7 @@ def test_mdelete_dispatches_memory_delete():
     store = EmemStore(base_url="https://emem.dev")
     store.mdelete(["my-note"])
 
-    assert captured["body"]["params"]["name"] == "memory_delete"
+    assert captured["body"]["params"]["name"] == "emem_memory_delete"
     assert captured["body"]["params"]["arguments"]["path"] == "/memories/my-note"
 
 
