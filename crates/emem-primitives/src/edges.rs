@@ -504,7 +504,11 @@ mod tests {
         assert!(!r.edge_cids.is_empty(), "edge_cids must be present");
 
         // Rebuild the v1 preimage exactly as an offline verifier does.
-        assert_eq!(r.preimage_version, emem_attest::PREIMAGE_V1);
+        // Dispatch on the receipt's OWN version, which is what an offline
+        // verifier does. Pinning v1 here made a deliberate preimage bump
+        // look like a signing regression, while testing nothing about
+        // whether the signature is correct.
+        assert!(r.preimage_version >= emem_attest::PREIMAGE_V1);
         let edges_hex = emem_storage::Server::edges_blake3_hex(&r.edge_cids);
         let manifest_hex_opt = if r.source_versions.is_empty() {
             None
@@ -513,18 +517,42 @@ mod tests {
             let _ = ciborium::into_writer(&r.source_versions, &mut buf);
             Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
         };
-        let msg = emem_attest::receipt_preimage_v1(
-            &r.request_id,
-            &r.served_at,
-            None,
-            None,
-            edges_hex.as_deref(),
-            manifest_hex_opt.as_deref(),
-            None,
-            &r.primitive,
-            r.cells.iter().map(|s| s.as_str()),
-            r.fact_cids.iter().map(|c| c.as_str()),
-        );
+        let msg = if r.preimage_version >= emem_attest::PREIMAGE_V2 {
+            // v2 binds the inclusion proof (or its declared absence) into
+            // the signature, so the rebuild has to include it or the
+            // digest will not match what was signed.
+            let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
+                r.merkle_proof
+                    .as_ref()
+                    .map(|p| (&p.root, p.leaf_index, p.path.as_slice(), p.version)),
+            ));
+            emem_attest::receipt_preimage_v2(
+                &r.request_id,
+                &r.served_at,
+                None,
+                None,
+                edges_hex.as_deref(),
+                manifest_hex_opt.as_deref(),
+                None,
+                &r.primitive,
+                r.cells.iter().map(|s| s.as_str()),
+                r.fact_cids.iter().map(|c| c.as_str()),
+                &merkle_hex,
+            )
+        } else {
+            emem_attest::receipt_preimage_v1(
+                &r.request_id,
+                &r.served_at,
+                None,
+                None,
+                edges_hex.as_deref(),
+                manifest_hex_opt.as_deref(),
+                None,
+                &r.primitive,
+                r.cells.iter().map(|s| s.as_str()),
+                r.fact_cids.iter().map(|c| c.as_str()),
+            )
+        };
         let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).expect("pubkey");
         let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
         pk.verify_strict(&msg, &sig)

@@ -320,7 +320,31 @@ impl Server {
         let source_versions = self.manifest_versions_snapshot();
         let manifest_hex = Self::manifest_versions_blake3_hex(&source_versions);
 
-        let msg = emem_attest::receipt_preimage_v1(
+        // Resolve the inclusion proof BEFORE signing, because v2 binds it.
+        //
+        // This used to happen after the signature, which was the whole bug:
+        // the signature could not cover a value that did not exist yet, so
+        // `merkle_proof` was an unauthenticated field. Anyone relaying a
+        // receipt could delete it and the signature still verified, leaving
+        // `valid: true` with `merkle_proof_valid: null` — a downgrade with
+        // no trace. Reordering is what makes the binding possible at all.
+        //
+        // A receipt carries one proof (the schema's `merkle_proof` is
+        // `Option<MerkleProof>`) for the first cited fact; a verifier with
+        // the responder pubkey re-derives every other CID from the signed
+        // payload, so one inclusion anchor is sufficient. `None` when the
+        // cited facts pre-date the proof tree (ephemeral runs, older
+        // attestations) — and under v2 that None is itself signed.
+        let merkle_proof = fact_cids
+            .first()
+            .and_then(|c| self.storage.proof_for_cid(c));
+        let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
+            merkle_proof
+                .as_ref()
+                .map(|p| (&p.root, p.leaf_index, p.path.as_slice(), p.version)),
+        ));
+
+        let msg = emem_attest::receipt_preimage_v2(
             &request_id,
             &served_at,
             scope_hex.as_deref(),
@@ -331,24 +355,12 @@ impl Server {
             primitive,
             cells.iter().map(|s| s.as_str()),
             fact_cids.iter().map(|c| c.as_str()),
+            &merkle_hex,
         );
 
         let dalek_sig = self.identity.signing.sign(&msg);
         let mut sig_bytes = [0u8; 64];
         sig_bytes.copy_from_slice(&dalek_sig.to_bytes());
-
-        // Surface a merkle inclusion proof for the first cited fact when
-        // one was persisted at attestation time. A receipt with multiple
-        // fact_cids carries one proof (the schema's `merkle_proof` is
-        // `Option<MerkleProof>`); a verifier with the responder pubkey
-        // can already re-derive every other CID from the signed receipt
-        // payload, so a single inclusion anchor is sufficient. None when
-        // the cited facts pre-date the proof tree (ephemeral runs,
-        // older attestations) — the receipt's signature still binds the
-        // CIDs end-to-end.
-        let merkle_proof = fact_cids
-            .first()
-            .and_then(|c| self.storage.proof_for_cid(c));
 
         Receipt {
             request_id,
@@ -375,7 +387,7 @@ impl Server {
             field,
             scope,
             edge_cids: edges.to_vec(),
-            preimage_version: emem_attest::PREIMAGE_V1,
+            preimage_version: emem_attest::PREIMAGE_V2,
         }
     }
 
@@ -625,27 +637,51 @@ mod tests {
             .map(|a| a.blake3_hex());
         let edges_hex = Server::edges_blake3_hex(&r.edge_cids);
         let field_hex = r.field.as_ref().map(|f| f.blake3_hex());
-        emem_attest::receipt_preimage_v1(
-            &r.request_id,
-            &r.served_at,
-            scope_hex.as_deref(),
-            as_of_hex.as_deref(),
-            edges_hex.as_deref(),
-            manifest_hex.as_deref(),
-            field_hex.as_deref(),
-            &r.primitive,
-            r.cells.iter().map(|s| s.as_str()),
-            r.fact_cids.iter().map(|c| c.as_str()),
-        )
+        if r.preimage_version >= emem_attest::PREIMAGE_V2 {
+            let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
+                r.merkle_proof
+                    .as_ref()
+                    .map(|p| (&p.root, p.leaf_index, p.path.as_slice(), p.version)),
+            ));
+            emem_attest::receipt_preimage_v2(
+                &r.request_id,
+                &r.served_at,
+                scope_hex.as_deref(),
+                as_of_hex.as_deref(),
+                edges_hex.as_deref(),
+                manifest_hex.as_deref(),
+                field_hex.as_deref(),
+                &r.primitive,
+                r.cells.iter().map(|s| s.as_str()),
+                r.fact_cids.iter().map(|c| c.as_str()),
+                &merkle_hex,
+            )
+        } else {
+            emem_attest::receipt_preimage_v1(
+                &r.request_id,
+                &r.served_at,
+                scope_hex.as_deref(),
+                as_of_hex.as_deref(),
+                edges_hex.as_deref(),
+                manifest_hex.as_deref(),
+                field_hex.as_deref(),
+                &r.primitive,
+                r.cells.iter().map(|s| s.as_str()),
+                r.fact_cids.iter().map(|c| c.as_str()),
+            )
+        }
     }
 
+    /// Verify a receipt the way an offline verifier does: rebuild the
+    /// preimage the receipt's OWN `preimage_version` selects, then check
+    /// ed25519. Named without a version because picking the rule from the
+    /// receipt is the contract, not an implementation detail.
     fn verify_receipt_v1(r: &Receipt) {
-        assert_eq!(r.preimage_version, emem_attest::PREIMAGE_V1);
         let msg = rebuild_v1_preimage(r);
         let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
         let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
         pk.verify_strict(&msg, &sig)
-            .expect("receipt must verify under the rebuilt v1 preimage");
+            .expect("receipt must verify under the rebuilt preimage");
     }
 
     /// A plain recall receipt (no scope/as_of/edges) is signed under v1
@@ -688,6 +724,91 @@ mod tests {
         );
         assert_eq!(r.edge_cids.len(), 2);
         verify_receipt_v1(&r);
+    }
+
+    /// Stripping the inclusion proof must invalidate the signature.
+    ///
+    /// This is the v1 defect the v2 binding exists to close: the proof was
+    /// attached AFTER signing, so it was an unauthenticated field. Any
+    /// intermediary could delete `merkle_proof` and the receipt still
+    /// verified, reporting `valid: true` with `merkle_proof_valid: null`
+    /// — a downgrade that left no trace. Under v2 the receipt states,
+    /// under signature, either "here is my proof" or "I have none", and
+    /// rewriting one into the other breaks it.
+    #[test]
+    fn v2_detects_a_stripped_merkle_proof() {
+        let srv = test_server();
+        let r = srv.sign_receipt(
+            "emem.recall",
+            vec!["cellX".into()],
+            vec![FactCid::new("fc-1")],
+            true,
+            Instant::now(),
+            None,
+        );
+        assert_eq!(r.preimage_version, emem_attest::PREIMAGE_V2);
+        verify_receipt_v1(&r);
+
+        // The receipt under test must actually carry a proof, or this
+        // asserts nothing at all.
+        let mut stripped = r.clone();
+        if stripped.merkle_proof.is_none() {
+            // No tree in this fixture: assert the complementary direction
+            // instead — FORGING a proof onto a no-proof receipt must fail,
+            // which is the same binding read the other way.
+            stripped.merkle_proof = Some(emem_fact::MerkleProof {
+                leaf_index: 0,
+                path: vec![[7u8; 32]],
+                root: [9u8; 32],
+                version: 1,
+            });
+            let msg = rebuild_v1_preimage(&stripped);
+            let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
+            let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
+            assert!(
+                pk.verify_strict(&msg, &sig).is_err(),
+                "a proof forged onto a receipt signed without one must not verify"
+            );
+            return;
+        }
+
+        stripped.merkle_proof = None;
+        let msg = rebuild_v1_preimage(&stripped);
+        let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
+        assert!(
+            pk.verify_strict(&msg, &sig).is_err(),
+            "a stripped merkle_proof must invalidate the signature under v2"
+        );
+    }
+
+    /// Claiming v1 on a v2-signed receipt must not rescue a stripped proof.
+    ///
+    /// The obvious attack on a versioned rule is to downgrade the version
+    /// field. It needs no separate defence, and this pins that: the v1
+    /// rebuild omits the MERKLE segment entirely, so it produces a digest
+    /// the responder never signed.
+    #[test]
+    fn v2_receipt_downgraded_to_v1_does_not_verify() {
+        let srv = test_server();
+        let r = srv.sign_receipt(
+            "emem.recall",
+            vec!["cellX".into()],
+            vec![FactCid::new("fc-1")],
+            true,
+            Instant::now(),
+            None,
+        );
+        let mut downgraded = r.clone();
+        downgraded.preimage_version = emem_attest::PREIMAGE_V1;
+        downgraded.merkle_proof = None;
+        let msg = rebuild_v1_preimage(&downgraded);
+        let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();
+        let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
+        assert!(
+            pk.verify_strict(&msg, &sig).is_err(),
+            "downgrading preimage_version must not make a v2 receipt verify under v1"
+        );
     }
 
     /// A v1 receipt must NOT verify if a verifier mistakenly tries the

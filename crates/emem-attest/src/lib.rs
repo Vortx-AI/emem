@@ -230,6 +230,16 @@ pub mod receipt_tag {
     /// receipt signed before this tag existed. Append-only, like all of
     /// these.
     pub const FIELD: u8 = 0x0a;
+    /// Inclusion-proof binding (v2 only): the digest of the receipt's
+    /// `merkle_proof`, or the explicit absence marker when it carries
+    /// none. See [`merkle_binding_v2`] and [`receipt_preimage_v2`].
+    ///
+    /// This tag is what makes proof STRIPPING detectable. Under v1 the
+    /// signature covered the receipt's fields but not its proof, so an
+    /// intermediary could delete `merkle_proof` wholesale and the
+    /// signature still verified — the receipt reported `valid: true`
+    /// with `merkle_proof_valid: null`, i.e. downgrade by removal.
+    pub const MERKLE: u8 = 0x0b;
 }
 
 /// Segment tags for the field-binding sub-preimage, hashed into the
@@ -247,6 +257,110 @@ pub fn field_binding_v1(aoi_cid: &str, derivation_cid: &str) -> [u8; 32] {
     let mut p = PreimageV1::new("field");
     p.seg(field_tag::AOI_CID, aoi_cid.as_bytes());
     p.seg(field_tag::DERIVATION_CID, derivation_cid.as_bytes());
+    p.finalize()
+}
+
+/// Wire value of `preimage_version` for the v2 rules: v1 plus a binding
+/// over the receipt's inclusion proof.
+pub const PREIMAGE_V2: u8 = 2;
+
+/// Segment tags for the merkle-binding sub-preimage hashed into a v2
+/// receipt's [`receipt_tag::MERKLE`] segment.
+pub mod merkle_tag {
+    pub const ROOT: u8 = 0x01;
+    pub const LEAF_INDEX: u8 = 0x02;
+    pub const PATH: u8 = 0x03;
+    pub const RULE_VERSION: u8 = 0x04;
+    /// Written instead of the three above when the receipt legitimately
+    /// carries no proof, so "no proof" is a signed statement rather than
+    /// the absence of one.
+    pub const ABSENT: u8 = 0x05;
+}
+
+/// The inclusion-proof digest a v2 receipt carries in its MERKLE segment.
+///
+/// `None` is NOT the same as skipping the segment: it hashes an explicit
+/// absence marker. That asymmetry is the whole point. If absence were
+/// encoded by omitting the segment, a stripped proof would produce the
+/// same digest as a receipt that never had one, and stripping would stay
+/// invisible — which is exactly the v1 behaviour being fixed. Under v2 a
+/// receipt says, under signature, either "here is my proof" or "I have
+/// none", and an intermediary cannot rewrite one into the other.
+pub fn merkle_binding_v2(proof: Option<(&[u8; 32], u32, &[[u8; 32]], u8)>) -> [u8; 32] {
+    let mut p = PreimageV1::new("merkle");
+    match proof {
+        None => {
+            p.seg(merkle_tag::ABSENT, &[]);
+        }
+        Some((root, leaf_index, path, rule_version)) => {
+            p.seg(merkle_tag::ROOT, root);
+            p.seg(merkle_tag::LEAF_INDEX, &leaf_index.to_le_bytes());
+            // The path is length-prefixed as a unit and each element is
+            // fixed width, so a truncated or extended path cannot collide
+            // with the original.
+            let mut body = Vec::with_capacity(path.len() * 32);
+            for h in path {
+                body.extend_from_slice(h);
+            }
+            p.seg(merkle_tag::PATH, &body);
+            p.seg(merkle_tag::RULE_VERSION, &[rule_version]);
+        }
+    }
+    p.finalize()
+}
+
+/// Canonical v2 receipt preimage digest: every v1 segment, plus a
+/// trailing MERKLE segment binding the inclusion proof (or its declared
+/// absence).
+///
+/// Kept as a separate function rather than a flag on v1 because every
+/// receipt signed before the cutover has to keep verifying byte-for-byte
+/// under its original rule. A verifier picks the function from the
+/// receipt's own `preimage_version`, and must refuse to verify a v2
+/// receipt under v1 rules — otherwise an attacker downgrades the version
+/// field and strips the proof exactly as before.
+#[allow(clippy::too_many_arguments)]
+pub fn receipt_preimage_v2<'a, C, F>(
+    request_id: &str,
+    served_at: &str,
+    scope_hex: Option<&str>,
+    as_of_hex: Option<&str>,
+    edges_hex: Option<&str>,
+    manifest_hex: Option<&str>,
+    field_hex: Option<&str>,
+    primitive: &str,
+    cells: C,
+    fact_cids: F,
+    merkle_hex: &str,
+) -> [u8; 32]
+where
+    C: IntoIterator<Item = &'a str>,
+    F: IntoIterator<Item = &'a str>,
+{
+    let mut p = PreimageV1::new("receipt");
+    p.seg(receipt_tag::REQUEST_ID, request_id.as_bytes());
+    p.seg(receipt_tag::SERVED_AT, served_at.as_bytes());
+    if let Some(s) = scope_hex {
+        p.seg(receipt_tag::SCOPE, s.as_bytes());
+    }
+    if let Some(a) = as_of_hex {
+        p.seg(receipt_tag::AS_OF, a.as_bytes());
+    }
+    if let Some(e) = edges_hex {
+        p.seg(receipt_tag::EDGES, e.as_bytes());
+    }
+    if let Some(m) = manifest_hex {
+        p.seg(receipt_tag::MANIFEST, m.as_bytes());
+    }
+    p.seg(receipt_tag::PRIMITIVE, primitive.as_bytes());
+    p.seg_list(receipt_tag::CELLS, cells);
+    p.seg_list(receipt_tag::FACT_CIDS, fact_cids);
+    if let Some(f) = field_hex {
+        p.seg(receipt_tag::FIELD, f.as_bytes());
+    }
+    // Always written, never conditional: an absent proof is signed as
+    // absent. See `merkle_binding_v2`.
+    p.seg(receipt_tag::MERKLE, merkle_hex.as_bytes());
     p.finalize()
 }
 
@@ -978,6 +1092,54 @@ mod v1_wire_anchor {
         assert_eq!(
             digest, expect,
             "raw stream must hash to receipt_preimage_v1"
+        );
+    }
+
+    /// Frozen vectors for the v2 merkle binding, so the in-browser JS
+    /// mirror can be checked against the signer rather than assumed to
+    /// match. A drift here is the "verifier drift" state on /verify.
+    fn hexlo(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn v2_merkle_binding_vectors() {
+        let absent = merkle_binding_v2(None);
+        let root = [0xAAu8; 32];
+        let path = [[0x11u8; 32], [0x22u8; 32]];
+        let present = merkle_binding_v2(Some((&root, 5u32, &path[..], 1u8)));
+        assert_ne!(absent, present, "absence must not hash like a proof");
+        let full = receipt_preimage_v2(
+            "RID",
+            "2026-06-12T00:00:00Z",
+            None,
+            None,
+            None,
+            None,
+            None,
+            "emem.recall",
+            ["cellA", "cellB"],
+            ["fc1"],
+            &hexlo(&present),
+        );
+        // Frozen. The /verify page reimplements these bytes in JS, and a
+        // silent divergence there is precisely the "verifier drift" state
+        // that page now reports: the browser recomputes a different digest,
+        // the server says the signature is fine, and the page can no longer
+        // verify anything independently. Pinning the vectors turns that
+        // into a failing build instead. Verified byte-for-byte against an
+        // independent reimplementation of the JS before freezing.
+        assert_eq!(
+            hexlo(&absent),
+            "734fa6cf403c2b204f3d86a43cc51873b4d6477326e9c712c5eb51bb303aeab2"
+        );
+        assert_eq!(
+            hexlo(&present),
+            "361c2db6e05ce0f66fcee3d2c16d4ae86b348073ef9c0b45ce88300f5593558a"
+        );
+        assert_eq!(
+            hexlo(&full),
+            "ce4ab6af99f35f02f5228db976c5ed31b66895474f9f18a7ddad241b6a0606be"
         );
     }
 }

@@ -8940,6 +8940,41 @@ async fn recall_with_auto_materialize_capped(
     // is deliberately never mapped to a scene date.
     let bound_tslot: Option<u64> = req.tslot.or(req.as_of_tslot);
 
+    // A past transaction-time bound cannot be satisfied by materializing.
+    //
+    // `as_of_signed_at` asks "what did this responder KNOW as of date X",
+    // and the filter keeps facts whose `signed_at <= X`. Anything fetched
+    // now is signed now, so for any X in the past the new fact is excluded
+    // from the very answer that triggered the fetch. The caller got
+    // `facts: []` either way — but the write happened, permanently, on an
+    // append-only log, and it could be driven by anyone with no key.
+    //
+    // Comparison is lexicographic on purpose: both sides are ISO-8601 UTC
+    // in the canonical `YYYY-MM-DDTHH:MM:SSZ` form, where byte order and
+    // chronological order coincide, so this needs no date parsing and
+    // cannot fail on a malformed bound. A bound that does not parse as
+    // that shape simply will not compare less than `now` and falls through
+    // to the normal path, which is the safe direction.
+    if let Some(bound) = req.as_of_signed_at.as_deref() {
+        let now = iso8601_utc(now_unix_s() as u64);
+        if bound < now.as_str() && !candidates.is_empty() {
+            materialize_notes.push(json!({
+                "status": "skipped",
+                "reason": "as_of_signed_at_in_the_past",
+                "as_of_signed_at": bound,
+                "responder_now": now,
+                "bands": candidates,
+                "note": "Materializing was skipped rather than performed and discarded. \
+                         A fact fetched now is signed now, so it could never fall inside a \
+                         transaction-time bound that already passed; the write would have \
+                         grown an append-only log without ever being able to answer this \
+                         query. Drop as_of_signed_at to fetch current data, or use \
+                         as_of_tslot to bound the observation's valid time instead.",
+            }));
+            return Ok((resp, materialize_notes));
+        }
+    }
+
     if !candidates.is_empty() {
         let outcomes = try_materialize_bands(&req.cell, &candidates, bound_tslot, s).await;
         let materialized_any = outcomes.iter().any(|o| o.fact_cid.is_some());
@@ -16226,7 +16261,39 @@ async fn post_verify_receipt(
     };
 
     let field_hex = r.field.as_ref().map(|f| f.blake3_hex());
-    let msg: [u8; 32] = if r.preimage_version >= emem_attest::PREIMAGE_V1 {
+    let msg: [u8; 32] = if r.preimage_version >= emem_attest::PREIMAGE_V2 {
+        // v2 binds the inclusion proof into the signature, which is what
+        // makes STRIPPING detectable. Rebuild the binding from whatever
+        // proof the receipt now carries: if an intermediary deleted it,
+        // this hashes the ABSENT marker instead of the proof digest, the
+        // preimage differs, and the signature fails. Under v1 the same
+        // deletion changed nothing the signature covered.
+        //
+        // A downgrade needs no separate defence. An attacker who rewrites
+        // preimage_version to 1 and strips the proof sends the verifier
+        // down the v1 branch, which rebuilds WITHOUT the MERKLE segment —
+        // a different digest from the v2 stream the responder actually
+        // signed. The signature fails there too, so the version field is
+        // not a lever.
+        let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
+            r.merkle_proof
+                .as_ref()
+                .map(|p| (&p.root, p.leaf_index, p.path.as_slice(), p.version)),
+        ));
+        emem_attest::receipt_preimage_v2(
+            &r.request_id,
+            &r.served_at,
+            scope_hex.as_deref(),
+            as_of_hex.as_deref(),
+            edges_hex.as_deref(),
+            manifest_hex_opt.as_deref(),
+            field_hex.as_deref(),
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+            &merkle_hex,
+        )
+    } else if r.preimage_version >= emem_attest::PREIMAGE_V1 {
         emem_attest::receipt_preimage_v1(
             &r.request_id,
             &r.served_at,
@@ -17009,12 +17076,31 @@ async fn get_log_witnesses(
         }
         let pk_b32 = b32_lower(&k[8..40]);
         let body: JsonValue = serde_json::from_slice(&v).unwrap_or(json!({}));
+        // How far behind the live tree this co-signature is.
+        //
+        // Without it the surface reads as "this log is witnessed" when what
+        // it means is "this log WAS witnessed, at a size it has long since
+        // grown past". A co-signature is evidence about the prefix it
+        // covers and about nothing after it, so the gap is part of the
+        // answer, not a footnote. Reported rather than hidden because we
+        // cannot manufacture a fresh witness — an independent party has to
+        // choose to co-sign, and pretending otherwise would defeat the one
+        // thing a witness is for.
+        let entries_behind = (current as u64).saturating_sub(ts);
         out.push(json!({
             "tree_size": ts,
             "witness_pubkey_b32": pk_b32,
             "root_b32": body.get("root_b32"),
             "signature_b32": body.get("signature_b32"),
             "cosigned_at": body.get("cosigned_at"),
+            "entries_behind_current": entries_behind,
+            "covers_current_head": entries_behind == 0,
+            "attests": format!(
+                "the first {ts} entries only; {entries_behind} entries have been appended since, \
+                 which this signature says nothing about. Call \
+                 /v1/log/consistency?first={ts}&second={current} to check the rest is an \
+                 append-only extension of what this witness saw."
+            ),
         }));
     }
     // Deterministic order: by tree_size then witness pubkey.
@@ -17028,11 +17114,21 @@ async fn get_log_witnesses(
                 .cmp(b["witness_pubkey_b32"].as_str().unwrap_or(""))
         })
     });
+    let freshest_gap = out
+        .iter()
+        .filter_map(|w| w["entries_behind_current"].as_u64())
+        .min();
     Ok(Json(json!({
         "current_tree_size": current,
         "count": out.len(),
+        // The headline a reader needs before reading `count`. `count: 1`
+        // alongside a live tree implies current independent oversight; if
+        // the only co-signature is hundreds of thousands of entries back,
+        // that impression is wrong and the surface should say so itself.
+        "head_is_witnessed": freshest_gap == Some(0),
+        "freshest_witness_entries_behind": freshest_gap,
         "witnesses": out,
-        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see.",
+        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Consistency proofs remain checkable by anyone regardless — split-view detection is what needs a second pair of eyes, and that is what a stale witness cannot give you.",
         "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
         "preimage": "PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}"
     })))
@@ -19942,6 +20038,37 @@ fn mcp_read_resource(uri: &str) -> Result<JsonValue, (i64, String)> {
                 "text":     json,
             }));
         }
+        // Accept the QUALIFIED spelling every tool and doc uses.
+        //
+        // The registry is keyed by family (`indices`), while callers hold
+        // the dotted band name (`indices.ndvi`) because that is what
+        // `emem_recall` takes and what the catalog prints. So the one
+        // spelling an agent actually has in hand was the one spelling this
+        // template refused — it advertised a resource nobody could open.
+        // Resolve aliases first, then fall back to the family prefix, and
+        // report which band inside the family was asked for.
+        let resolved = resolve_band_name(key);
+        let family = resolved.split('.').next().unwrap_or(&resolved);
+        if let Some(b) = reg.bands.iter().find(|b| b.key == family) {
+            let mut v = serde_json::to_value(b).unwrap_or_else(|_| json!({}));
+            if let Some(m) = v.as_object_mut() {
+                m.insert("requested_band".into(), json!(key));
+                m.insert("resolved_band".into(), json!(resolved));
+                m.insert("family".into(), json!(family));
+                m.insert(
+                    "_note".into(),
+                    json!(
+                        "The registry describes a band FAMILY; `requested_band` names the \
+                         member you asked for. Recall takes the qualified name."
+                    ),
+                );
+            }
+            return Ok(json!({
+                "uri":      uri,
+                "mimeType": "application/json",
+                "text":     serde_json::to_string(&v).unwrap_or_else(|_| "{}".to_string()),
+            }));
+        }
         return Err((
             -32602,
             format!("unknown band '{key}': call /v1/bands or resources/read on emem://docs/llms.txt for the catalog"),
@@ -20022,12 +20149,50 @@ fn mcp_full_resource_templates() -> Vec<JsonValue> {
 /// - `memory://emem/fact/<cid>`        → signed fact body
 /// - `memory://emem/bundle/<token>`    → signed memory-bundle envelope
 async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue, (i64, String)> {
-    // Legacy / static `emem://...` URIs first (preserved verbatim).
-    if uri.starts_with("emem://") {
-        return mcp_read_resource(uri);
+    // Two `emem://` templates need storage, so they are answered here
+    // rather than falling through to the stateless reader below.
+    //
+    // Both were advertised by `resources/templates/list` and then refused
+    // every read with "resources/read would require AppState" — a pointer
+    // to a tool or a REST URL instead of the resource itself. The state
+    // was always available one frame up; the URIs were simply routed to a
+    // function that did not take it. Advertising a resource that cannot be
+    // opened is worse than not listing it, because a host's resource
+    // picker shows it as available.
+    //
+    // The `memory://emem/{fact,cell}/...` forms already resolved through
+    // this same storage, so these are aliases of a working path, not new
+    // capability.
+    // Rewritten rather than recursed into: an `async fn` that calls itself
+    // needs a boxed future, and the alias is a pure spelling change, so
+    // rewriting the URI and continuing keeps one code path for both forms.
+    // `alias_of` remembers the spelling the caller used so the response
+    // echoes what they asked for, not what we rewrote it to.
+    // `uri` stays the caller's spelling so every response echoes what was
+    // asked for; `lookup` is what the handlers below match on.
+    let rewritten: String;
+    let lookup: &str = if let Some(cid) = uri.strip_prefix("emem://fact/") {
+        rewritten = format!("memory://emem/fact/{cid}");
+        &rewritten
+    } else if let Some(rest) = uri.strip_prefix("emem://cell/") {
+        // `emem://cell/{cell64}/geojson` and `/scene.png` name a rendering
+        // of the cell. The cell resource carries the geometry, so both
+        // suffixes resolve to it instead of erroring; the payload names the
+        // tool that returns the actual bytes.
+        let cell = rest.split('/').next().unwrap_or(rest);
+        rewritten = format!("memory://emem/cell/{cell}");
+        &rewritten
+    } else {
+        uri
+    };
+
+    // Legacy / static `emem://...` URIs (preserved verbatim). Reached only
+    // for the spellings that genuinely need no storage.
+    if lookup.starts_with("emem://") {
+        return mcp_read_resource(lookup);
     }
 
-    if let Some(rest) = uri.strip_prefix("memory://emem/") {
+    if let Some(rest) = lookup.strip_prefix("memory://emem/") {
         // Static registry manifests.
         if let Some(name) = rest.strip_prefix("registry/") {
             let body: Option<JsonValue> = match name {
@@ -22049,7 +22214,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
             "/v1/quickstart":        {"get":{"summary":"6-step playbook","operationId":"emem_quickstart","responses":{"200":json_ok}}},
             "/v1/manifests":         {"get":{"summary":"active manifest CIDs","operationId":"emem_manifests","responses":{"200":json_ok}}},
-            "/v1/capabilities":      {"get":{"summary":"cached upstream capability snapshot (extensions[], cuda_available, models_loaded, endpoints[].trained/experimental). 30 s background poll; agents read this to filter algorithms whose inference.required_extension is missing instead of hitting /health per request.","operationId":"emem_capabilities","responses":{"200":json_ok}},"post":{"summary":"identical idempotent capability snapshot (accepts POST so callers that POST every /v1/* endpoint don't 405)","operationId":"emem_capabilities_post","responses":{"200":json_ok}}},
+            "/v1/capabilities":      {"get":{"summary":"cached upstream capability snapshot (extensions[], cuda_available, models_loaded, endpoints[].trained/experimental). 30 s background poll; agents read this to filter algorithms whose inference.required_extension is missing instead of hitting /health per request.","operationId":"emem_capabilities","responses":{"200":json_ok}},"post":{"summary":"identical idempotent capability snapshot (accepts POST so callers that POST every /v1/* endpoint don't 405)","operationId":"emem_capabilities_post","requestBody":{"required":false,"description":"No parameters. POST is accepted only so callers that POST every /v1/* endpoint do not 405; the body is ignored and the answer is identical to GET.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok}}},
             "/v1/bands":             {"get":{"summary":"band ontology","operationId":"emem_bands","responses":{"200":json_ok}}},
             "/v1/materializers":     {"get":{"summary":"per-band auto-fetch registry (which bands the responder will materialize on a recall miss)","operationId":"emem_materializers","responses":{"200":json_ok}}},
             "/v1/data_availability": {"get":{"summary":"per-band temporal coverage catalog (window + tempo + kind + upstream wire path)","operationId":"emem_data_availability","responses":{"200":json_ok}}},
@@ -22118,8 +22283,19 @@ fn openapi_spec() -> JsonValue {
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature":{"type":"string","description":"base32-nopad-lc ed25519 signature over blake3(batch_root||registry_cid||schema_cid)"},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
-            "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","responses":{"200":json_ok}}},
-            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0","operationId":"mcp_jsonrpc","responses":{"200":json_ok}}},
+            "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            // A2A surface. Absent from this spec until 2026-08-05, which
+            // meant the agent-to-agent front door the .well-known descriptor
+            // advertises could not be discovered by anything reading the
+            // machine contract — an agent generating a client from the spec
+            // got a protocol with no way to reach another agent.
+            "/a2a/tasks":            {"post":{"summary":"execute one skill synchronously. Accepts A2A JSON-RPC (method message/send) or the plain {skill, args} form. Every MCP tool is published as a skill.","operationId":"emem_a2a_tasks_sync","requestBody":{"required":true,"content":{"application/json":{"schema":{"oneOf":[{"type":"object","required":["skill"],"properties":{"skill":{"type":"string","description":"skill id, e.g. emem_recall"},"args":{"type":"object"}}},{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{},"method":{"type":"string","enum":["message/send"]},"params":{"type":"object"}}}]}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/a2a/tasks":         {"post":{"summary":"submit a task asynchronously; returns a task id to poll. The registry is in-memory and clears on restart, which the error text states rather than implying durability.","operationId":"emem_a2a_tasks_async","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["skill"],"properties":{"skill":{"type":"string"},"args":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/a2a/tasks/{id}":    {"get":{"summary":"poll an async task","operationId":"emem_a2a_task_get","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok,"404":json_not_found}}},
+            "/v1/a2a/tasks/{id}/cancel": {"post":{"summary":"cancel an async task","operationId":"emem_a2a_task_cancel","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"required":false,"description":"No body. The task is named by the path parameter; declared explicitly so the spec states the emptiness rather than omitting the field.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok,"404":json_not_found}}},
+            "/v1/a2a/skills":        {"get":{"summary":"find a skill in one call","operationId":"emem_a2a_skills","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"free-text query over skill ids and descriptions"}],"responses":{"200":json_ok}}},
+            "/v1/inbox":             {"post":{"summary":"read-side mailbox: the notes addressed to an attester, newest first. Read-only; it does not accept mail, it reports what was written to the shared memory naming you.","operationId":"emem_inbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["to"],"properties":{"to":{"type":"string","description":"attester pubkey or its 8-char shortcode"},"limit":{"type":"integer","minimum":1,"description":"default 20"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0 (Streamable HTTP). tools/list here returns the 15-tool core surface; /mcp/full returns all 105. tools/call dispatches any of the 105 by name at either endpoint.","operationId":"mcp_jsonrpc","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{"description":"request id; omit for a notification"},"method":{"type":"string","description":"initialize | tools/list | tools/call | resources/list | resources/read | prompts/list"},"params":{"type":"object","description":"method-specific; for tools/call it is {name, arguments}"}}}}}},"responses":{"200":json_ok}}},
             // High-traffic endpoints that were previously discoverable
             // only via /v1/discover or the agent_card. OpenAI Custom GPT
             // and ChatGPT plugin pickers ignore endpoints not in
@@ -22138,8 +22314,8 @@ fn openapi_spec() -> JsonValue {
                 "post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
             },
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
-            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","responses":{"200":json_ok}}},
-            "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","responses":{"200":json_ok}}},
+            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"description":"default 64"},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
             "/v1/cells_in_bbox":     {"post":{"summary":"enumerate the cell64s in a bounding box, paged (row-major, north row first). Pure geometry: reads no facts and signs no receipt, because the answer is a deterministic function of the bbox and the active grid. Returns `cells`, `total`, and `next_cursor` (null when exhausted). This is the paging loop as emem's job rather than every client reimplementing a lattice; feed a page's cells to /v1/recall_many with a budget_ms to read them under the partial-results contract. page_size defaults 1024, caps at 4096.","operationId":"emem_cells_in_bbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"page_size":{"type":"integer","minimum":1,"maximum":4096,"default":1024},"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; use the previous response's next_cursor"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
@@ -22171,7 +22347,7 @@ fn openapi_spec() -> JsonValue {
                 {"name":"datetime","in":"query","required":false,"description":"Explicit STAC datetime window `A/B`; takes precedence over `at`.","schema":{"type":"string"}}
             ],"responses":{"200":{"description":"raw rgb8 plane (w*h*3 bytes)","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}}}}},
             "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property, paste straight into Mapbox/Leaflet/Deck.gl","operationId":"emem_cell_recall_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":json_ok}}},
-            "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent (algebra: valid; cite_now vs fetch_for_intent)","operationId":"emem_temporal_route_post","responses":{"200":json_ok}}},
+            "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent (algebra: valid; cite_now vs fetch_for_intent)","operationId":"emem_temporal_route_post","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell":{"type":"string","description":"cell64 or place name"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"query_time":{"type":"string","description":"RFC 3339 instant the answer must be valid at"},"intent":{"type":"string","description":"cite_now | fetch_for_intent"},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/elevation":         {
                 "get":{"summary":"GET /v1/elevation?lat=&lon=, boring lat/lng lookup, returns Cop-DEM elevation (signed). Also accepts ?place=…","operationId":"emem_elevation_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
                 "post":{"summary":"POST /v1/elevation {place|lat,lng|cell64} → Cop-DEM elevation read-through","operationId":"emem_elevation","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
@@ -53856,6 +54032,33 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                         .and_then(|v| v.as_str())
                         .unwrap_or_default()
                         .to_string();
+                    // Honour the geocoder's own confidence verdict.
+                    //
+                    // This loop used to accept any candidate that produced a
+                    // well-shaped cell64, which is a check on syntax, not on
+                    // whether the right place was found. `/v1/recall` already
+                    // refuses a low-confidence resolution; ask did not, so the
+                    // same input was refused on one surface and answered
+                    // confidently on the other — and ask is the surface a
+                    // human reads. "elevation of Bengaluru; also DROP TABLE
+                    // facts" answered about La Table Ronde, France, with no
+                    // caveat, because the extractor picked the wrong span and
+                    // nothing downstream questioned it.
+                    //
+                    // Skipping rather than failing: a question can carry
+                    // several candidate spans, and one bad span should not
+                    // sink a query whose next candidate resolves cleanly. If
+                    // none of them clear the bar, the loop falls through to
+                    // the no-place path, which already answers honestly.
+                    let resolved_confidently = body
+                        .0
+                        .get("selected")
+                        .and_then(|s| s.get("is_high_confidence"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+                    if !resolved_confidently {
+                        continue;
+                    }
                     if emem_codec::is_cell64_shape(&cell_str) {
                         let label = body
                             .0
@@ -56034,12 +56237,19 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         .unwrap_or(QueryFeatureClass::Unknown);
     let class_mismatch = query_class != QueryFeatureClass::Unknown
         && !query_class.matches_osm(&sel_class, &sel_type);
-    let (is_high_conf, confidence_reason) = locate_confidence(
+    let sel_label = alternatives
+        .first()
+        .and_then(|a| a.get("label"))
+        .and_then(|l| l.as_str())
+        .unwrap_or("");
+    let (is_high_conf, confidence_reason) = locate_confidence_checked(
         via,
         sel_imp,
         class_mismatch,
         disambiguation_required,
         alternatives.len(),
+        req.place.as_deref(),
+        sel_label,
     );
     // Record it onto the cached row while the evidence still exists. This is
     // the only point where the candidate list has been walked, so it is the
@@ -56376,6 +56586,70 @@ fn label_text_class_mismatch(query_class: QueryFeatureClass, label: &str) -> boo
     }
 }
 
+/// Fraction of the query's substantive tokens that appear in the label a
+/// geocoder returned, in `[0, 1]`. `None` when the query carries no
+/// substantive token to judge on (all stopwords, all punctuation, empty).
+///
+/// This measures a different thing from the geocoders' `importance`, and
+/// the difference is the whole reason it exists. Nominatim's importance
+/// scores how prominent the MATCHED FEATURE is, not how well it answers
+/// the question: `"DROP TABLE facts"` matched `"La Table Ronde"` on the
+/// single word `table` and scored 0.6, because that quarter of
+/// Bourg-lès-Valence is a real and reasonably notable place. Prominence
+/// of the answer says nothing about fit to the query, so a floor on
+/// importance alone can never catch a confident mismatch.
+///
+/// Tokens are compared as prefixes rather than equality so ordinary
+/// inflection and the geocoders' own abbreviations still count
+/// (`bengaluru` vs `bengaluru`, `mount` vs `mt`), and short tokens are
+/// dropped because two- and three-letter fragments match almost anything.
+fn query_label_overlap(query: &str, label: &str) -> Option<f64> {
+    /// Words that carry no place-identifying signal, so counting them
+    /// would drag the ratio toward whatever the label happens to contain.
+    const STOPWORDS: &[&str] = &[
+        "the", "and", "for", "near", "around", "about", "with", "from", "into", "over", "what",
+        "where", "which", "that", "this", "there", "here", "please", "show", "give", "tell",
+    ];
+    /// Below this length a token matches too much to be evidence.
+    const MIN_TOKEN_LEN: usize = 4;
+
+    let norm = |s: &str| -> Vec<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| t.len() >= MIN_TOKEN_LEN && !STOPWORDS.contains(t))
+            .map(|t| t.to_string())
+            .collect()
+    };
+    let q = norm(query);
+    if q.is_empty() {
+        return None;
+    }
+    let l = norm(label);
+    let hit = q
+        .iter()
+        .filter(|qt| {
+            l.iter()
+                .any(|lt| lt.starts_with(qt.as_str()) || qt.starts_with(lt.as_str()))
+        })
+        .count();
+    Some(hit as f64 / q.len() as f64)
+}
+
+/// Minimum share of a query's substantive tokens that must appear in the
+/// returned label before a fuzzy geocoder hit counts as high confidence.
+///
+/// Set so that one matching token out of three is not enough (`0.33`,
+/// the `DROP TABLE facts` shape) while a query whose head noun matches
+/// still passes (`"Mount Kilimanjaro"` → `"Kilimanjaro, Tanzania"`,
+/// `0.5`). It gates only the fuzzy tiers; the gazetteer, country and
+/// admin tiers match structurally and are unaffected.
+///
+/// A false refusal costs the caller one extra call and names the remedy.
+/// A false acceptance signs a wrong place into an append-only log that
+/// cannot be pruned. The floor sits where it does because those two costs
+/// are not symmetric.
+const QUERY_LABEL_OVERLAP_FLOOR: f64 = 0.5;
+
 /// Build the (is_high_confidence, confidence_reason) pair surfaced on
 /// `selected`. Thresholds match the existing `disambiguation_required`
 /// heuristics so the two flags stay consistent.
@@ -56421,6 +56695,51 @@ fn locate_confidence(
             }
         }
         _ => (true, "default"),
+    }
+}
+
+/// [`locate_confidence`], plus a floor on how much of the query the
+/// returned label actually accounts for.
+///
+/// Split from the base function rather than folded into it because the
+/// two answer different questions and only one of them needs the query
+/// text: `locate_confidence` judges the tier and the candidate spread,
+/// this judges fit. Keeping them separate also means the tier logic stays
+/// testable without inventing a query string for every case.
+///
+/// Only demotes, never promotes. A hit the tier logic already rejected
+/// stays rejected, and the floor cannot talk a low-importance result into
+/// looking good.
+fn locate_confidence_checked(
+    via: &str,
+    importance: f64,
+    class_mismatch: bool,
+    disambiguation_required: bool,
+    n_alternatives: usize,
+    query: Option<&str>,
+    label: &str,
+) -> (bool, &'static str) {
+    let (high, reason) = locate_confidence(
+        via,
+        importance,
+        class_mismatch,
+        disambiguation_required,
+        n_alternatives,
+    );
+    if !high {
+        return (high, reason);
+    }
+    // Structural tiers matched on an identifier, not on fuzzy text, so
+    // there is no query/label fit to measure: an ISO-3166 country hit or
+    // a gazetteer entry is right by construction. Applying the floor to
+    // them would refuse `"Москва"` resolving to a label transliterated as
+    // `"Moscow"`, which is a correct answer with zero token overlap.
+    if !matches!(via, "photon" | "nominatim") {
+        return (high, reason);
+    }
+    match query.and_then(|q| query_label_overlap(q, label)) {
+        Some(o) if o < QUERY_LABEL_OVERLAP_FLOOR => (false, "query_label_overlap_below_floor"),
+        _ => (high, reason),
     }
 }
 
@@ -56920,7 +57239,13 @@ struct CachedPlace {
 ///    clause boundary, so a trailing question no longer becomes part of the
 ///    place string. Cached rows keyed on the old over-long spans (e.g.
 ///    "Nashik right now, and what") must not be served.
-const LOCATE_RESOLVER_VERSION: u32 = 3;
+/// 4: `locate_confidence_checked` adds the query/label overlap floor, so a
+///    fuzzy hit that accounts for less than half the query's substantive
+///    tokens is no longer high confidence. `"DROP TABLE facts"` resolved to
+///    "La Table Ronde" with importance 0.6 and a stored verdict of
+///    high-confidence; without this bump that verdict replays from cache
+///    for the full 30 d TTL and the fix looks like it never deployed.
+const LOCATE_RESOLVER_VERSION: u32 = 4;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -60227,6 +60552,95 @@ mod tests {
         }
     }
 
+    /// The confidence floor must catch a confident mismatch without
+    /// refusing legitimate queries.
+    ///
+    /// `importance` measures how prominent the MATCHED FEATURE is, not how
+    /// well it answers the question, so it cannot catch this on its own:
+    /// "DROP TABLE facts" matched "La Table Ronde" on the single word
+    /// `table` and scored 0.6, because that quarter really is a notable
+    /// place. The overlap ratio is the missing signal.
+    #[test]
+    fn query_label_overlap_catches_confident_mismatch() {
+        let drop_table = query_label_overlap(
+            "DROP TABLE facts",
+            "La Table Ronde - est (quarter), Bourg-lès-Valence, Auvergne-Rhône-Alpes, France",
+        )
+        .expect("query has substantive tokens");
+        assert!(
+            drop_table < QUERY_LABEL_OVERLAP_FLOOR,
+            "one matching token out of three must fall below the floor, got {drop_table}"
+        );
+
+        // Legitimate queries that must NOT be refused.
+        for (q, label) in [
+            ("Bengaluru", "Bengaluru, Karnataka, India"),
+            ("Mount Kilimanjaro", "Kilimanjaro, Tanzania"),
+            (
+                "Yellowstone National Park",
+                "Yellowstone National Park, Wyoming",
+            ),
+            ("Lake Erie", "Lake Erie, Ontario, Canada"),
+        ] {
+            let o = query_label_overlap(q, label).expect("substantive tokens");
+            assert!(
+                o >= QUERY_LABEL_OVERLAP_FLOOR,
+                "{q:?} -> {label:?} must clear the floor, got {o}"
+            );
+        }
+
+        // Nothing to judge on: no substantive tokens means no verdict, and
+        // the caller must fall through rather than treat it as a failure.
+        assert!(query_label_overlap("the and", "anywhere").is_none());
+        assert!(query_label_overlap("", "anywhere").is_none());
+    }
+
+    /// The floor only demotes, only on the fuzzy tiers, and never rescues.
+    #[test]
+    fn confidence_floor_only_demotes_and_only_on_fuzzy_tiers() {
+        // The failing case: fuzzy tier, high importance, poor fit.
+        let (high, why) = locate_confidence_checked(
+            "nominatim",
+            0.6,
+            false,
+            false,
+            1,
+            Some("DROP TABLE facts"),
+            "La Table Ronde - est (quarter), Bourg-lès-Valence, France",
+        );
+        assert!(!high, "a confident mismatch must be demoted");
+        assert_eq!(why, "query_label_overlap_below_floor");
+
+        // Structural tiers match on an identifier, not fuzzy text. Applying
+        // the floor there would refuse a correct transliterated answer.
+        let (high_gaz, _) = locate_confidence_checked(
+            "embedded",
+            0.0,
+            false,
+            false,
+            1,
+            Some("Москва"),
+            "Moscow, Russia",
+        );
+        assert!(high_gaz, "gazetteer hits are not judged on token overlap");
+
+        // Never promotes: a result the tier logic already rejected stays
+        // rejected even with a perfect label match.
+        let (still_low, _) = locate_confidence_checked(
+            "nominatim",
+            0.1,
+            false,
+            false,
+            1,
+            Some("Bengaluru"),
+            "Bengaluru, India",
+        );
+        assert!(
+            !still_low,
+            "the floor must not talk a weak hit into passing"
+        );
+    }
+
     /// A bbox array is refused, not read positionally.
     ///
     /// The derive bound `[12.96, 77.58, 12.99, 77.61]` to fields in
@@ -62370,13 +62784,16 @@ mod tests {
         })
     }
 
-    /// End-to-end through the REAL `/v1/verify_receipt` handler: a v1
-    /// receipt signed by `Server::sign_receipt` must verify `valid:true`
-    /// and report `preimage_version:1`; flipping a cell must drop it to
+    /// End-to-end through the REAL `/v1/verify_receipt` handler: a freshly
+    /// signed receipt must verify `valid:true` and report the version the
+    /// signer actually emits; flipping a cell must drop it to
     /// `valid:false`. Guards the signer↔verifier contract across the
-    /// preimage-v1 cutover.
+    /// preimage cutovers — the version is read from the receipt rather
+    /// than asserted as a literal, because pinning a literal here is what
+    /// turns a deliberate version bump into a test failure that says
+    /// nothing about correctness.
     #[tokio::test]
-    async fn verify_receipt_v1_roundtrip_and_tamper() {
+    async fn verify_receipt_roundtrip_and_tamper() {
         use std::time::Instant;
         let s = test_app_state();
         let receipt = s.sign_receipt(
@@ -62387,7 +62804,11 @@ mod tests {
             Instant::now(),
             None,
         );
-        assert_eq!(receipt.preimage_version, emem_attest::PREIMAGE_V1);
+        assert_eq!(
+            receipt.preimage_version,
+            emem_attest::PREIMAGE_V2,
+            "the signer emits v2; v1 receipts remain verifiable but are no longer minted"
+        );
 
         // Genuine receipt → valid:true.
         let req = VerifyReceiptReq {
@@ -62404,7 +62825,11 @@ mod tests {
             serde_json::json!(true),
             "genuine v1 receipt must verify: {body}"
         );
-        assert_eq!(body["preimage_version"], serde_json::json!(1));
+        assert_eq!(
+            body["preimage_version"],
+            serde_json::json!(receipt.preimage_version),
+            "the verifier must report the receipt's own version, not a constant"
+        );
 
         // Tampered receipt (cell swapped after signing) → valid:false.
         let mut tampered = receipt;
@@ -62422,6 +62847,63 @@ mod tests {
             body2["valid"],
             serde_json::json!(false),
             "tampered receipt must NOT verify"
+        );
+    }
+
+    /// Stripping the inclusion proof must be detected by the REAL handler.
+    ///
+    /// This is the audit's downgrade-by-removal finding, end to end. Under
+    /// v1 the signature did not cover `merkle_proof`, so deleting it left
+    /// `valid: true` with `merkle_proof_valid: null` and no trace. The v2
+    /// binding signs "here is my proof" or "I have none", so rewriting one
+    /// into the other breaks the signature.
+    #[tokio::test]
+    async fn verify_receipt_detects_stripped_or_forged_proof() {
+        use std::time::Instant;
+        let s = test_app_state();
+        let receipt = s.sign_receipt(
+            "emem.recall",
+            vec!["damO.zb000.xUti.zde78".into()],
+            vec![emem_fact::FactCid::new("fc-1")],
+            true,
+            Instant::now(),
+            None,
+        );
+
+        // Rewrite the proof field in whichever direction this fixture
+        // allows: strip it if present, forge one if absent. Both are the
+        // same binding read from opposite sides, and asserting only the
+        // strip case would silently pass on a fixture with no tree.
+        let mut rewritten = receipt.clone();
+        rewritten.merkle_proof = match receipt.merkle_proof.clone() {
+            Some(_) => None,
+            None => Some(emem_fact::MerkleProof {
+                leaf_index: 0,
+                path: vec![[7u8; 32]],
+                root: [9u8; 32],
+                version: 1,
+            }),
+        };
+
+        let req = VerifyReceiptReq {
+            receipt: rewritten,
+            pubkey_b32: None,
+            current_responder_epoch: None,
+            facts: None,
+        };
+        let Json(body) = post_verify_receipt(State(s), Ok(Json(req)))
+            .await
+            .expect("verify call ok");
+        assert_eq!(
+            body["valid"],
+            serde_json::json!(false),
+            "rewriting merkle_proof under v2 must invalidate the receipt: {body}"
+        );
+        assert_eq!(
+            body["signature_valid"],
+            serde_json::json!(false),
+            "the SIGNATURE must fail, not merely the proof walk — that is what \
+             makes stripping detectable rather than just reportable"
         );
     }
 

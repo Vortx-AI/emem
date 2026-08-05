@@ -749,7 +749,10 @@ function asOfHex(receipt){
 //   || seg* ), where each fixed segment is  tag(1) || u32le(len) || bytes  and
 //   each list segment is  tag(1) || u32le(count) || (u32le(len)||bytes)* .
 // Mirrors emem-attest::receipt_preimage_v1 byte-for-byte.
-const RT = { REQUEST_ID:1, SERVED_AT:2, SCOPE:3, AS_OF:4, EDGES:5, MANIFEST:6, PRIMITIVE:7, CELLS:8, FACT_CIDS:9 };
+const RT = { REQUEST_ID:1, SERVED_AT:2, SCOPE:3, AS_OF:4, EDGES:5, MANIFEST:6, PRIMITIVE:7, CELLS:8, FACT_CIDS:9,
+             FIELD:10, MERKLE:11 };
+// Sub-preimage tags for the v2 merkle binding (emem-attest::merkle_tag).
+const MT = { ROOT:1, LEAF_INDEX:2, PATH:3, RULE_VERSION:4, ABSENT:5 };
 function u32le(n, out){ out.push(n&0xff,(n>>>8)&0xff,(n>>>16)&0xff,(n>>>24)&0xff); }
 function v1Seg(tag, str, out){
   const b = _enc.encode(str); out.push(tag); u32le(b.length, out);
@@ -759,6 +762,69 @@ function v1SegList(tag, arr, out){
   out.push(tag); u32le(arr.length, out);
   for (const s of arr){ const b=_enc.encode(s); u32le(b.length,out); for (let i=0;i<b.length;i++) out.push(b[i]); }
 }
+// Raw-byte segment (the merkle sub-preimage binds hashes, not strings).
+function v1SegBytes(tag, bytes, out){
+  out.push(tag); u32le(bytes.length, out);
+  for (let i=0;i<bytes.length;i++) out.push(bytes[i]);
+}
+
+// Accept the three shapes a 32-byte hash arrives in over the wire: a JSON
+// array of octets (serde's default for [u8;32]), lowercase hex, or base32.
+function _bytesOf(v){
+  if (Array.isArray(v)) return new Uint8Array(v);
+  if (typeof v === 'string') {
+    if (/^[0-9a-fA-F]+$/.test(v) && v.length % 2 === 0) {
+      const o = new Uint8Array(v.length/2);
+      for (let i=0;i<o.length;i++) o[i] = parseInt(v.substr(i*2,2),16);
+      return o;
+    }
+    try { return b32decode(v); } catch(_) {}
+  }
+  return new Uint8Array(0);
+}
+
+// blake3 hex of the field binding — emem-attest::field_binding_v1. A tagged
+// sub-preimage over (aoi_cid, derivation_cid), not CBOR like scope/as_of.
+// Absent on ordinary receipts; present on field responses.
+function fieldHex(receipt){
+  const f = receipt.field; if (!f) return null;
+  const out = [];
+  const dom = _enc.encode('emem.preimage.v1\x00');
+  for (let i=0;i<dom.length;i++) out.push(dom[i]);
+  const d = _enc.encode('field'); u32le(d.length, out); for (let i=0;i<d.length;i++) out.push(d[i]);
+  v1Seg(1, f.aoi_cid || '', out);
+  v1Seg(2, f.derivation_cid || '', out);
+  return hex(nobleBlake3(u8(out)));
+}
+
+// Mirrors emem-attest::merkle_binding_v2. Returns the lowercase-hex digest
+// that the receipt's MERKLE segment carries.
+//
+// A receipt with no proof hashes an explicit ABSENT marker rather than
+// skipping the segment. That asymmetry is the entire mechanism: if absence
+// were encoded by omission, a proof deleted in transit would hash the same
+// as a receipt that never had one, and stripping would stay invisible —
+// which is the v1 behaviour this replaces.
+function merkleBindingV2Hex(receipt){
+  const out = [];
+  const dom = _enc.encode('emem.preimage.v1\x00');
+  for (let i=0;i<dom.length;i++) out.push(dom[i]);
+  const d = _enc.encode('merkle'); u32le(d.length, out); for (let i=0;i<d.length;i++) out.push(d[i]);
+  const p = receipt.merkle_proof;
+  if (!p) {
+    v1SegBytes(MT.ABSENT, [], out);
+  } else {
+    v1SegBytes(MT.ROOT, _bytesOf(p.root), out);
+    const li = []; u32le(Number(p.leaf_index) || 0, li);
+    v1SegBytes(MT.LEAF_INDEX, li, out);
+    const path = [];
+    for (const h of (p.path || [])) { const b = _bytesOf(h); for (let i=0;i<b.length;i++) path.push(b[i]); }
+    v1SegBytes(MT.PATH, path, out);
+    v1SegBytes(MT.RULE_VERSION, [Number(p.version) || 0], out);
+  }
+  return hex(nobleBlake3(u8(out)));
+}
+
 function buildPreimageV1Bytes(receipt){
   const out = [];
   const dom = _enc.encode('emem.preimage.v1\x00'); // 17 bytes incl NUL
@@ -773,6 +839,13 @@ function buildPreimageV1Bytes(receipt){
   v1Seg(RT.PRIMITIVE, receipt.primitive || '', out);
   v1SegList(RT.CELLS, receipt.cells || [], out);
   v1SegList(RT.FACT_CIDS, receipt.fact_cids || [], out);
+  // FIELD then MERKLE, in that order — both are appended after FACT_CIDS
+  // so a receipt lacking them hashes identically to one signed before the
+  // tags existed. Order is load-bearing, not cosmetic.
+  const fh = fieldHex(receipt);    if (fh)  v1Seg(RT.FIELD, fh, out);
+  if (Number(receipt.preimage_version) >= 2) {
+    v1Seg(RT.MERKLE, merkleBindingV2Hex(receipt), out);
+  }
   return u8(out);
 }
 
@@ -1212,7 +1285,10 @@ async function verifyAndRender(receiptIn){
     }
   }
   renderReceipt(receipt, result);
-  const vtag = Number(receipt.preimage_version) >= 1 ? ' · preimage v1' : '';
+  const pv = Number(receipt.preimage_version) || 0;
+  const vtag = pv >= 2 ? ' · preimage v2 (inclusion proof bound)'
+             : pv >= 1 ? ' · preimage v1'
+             : '';
   if (result.verifierDrift) {
     // Deliberately not 'ok'. The signature may well be fine, but the only
     // thing that established it is the party being verified, which is the
