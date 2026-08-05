@@ -225,18 +225,38 @@ jobs:
       # say that, so say it here: an earlier successful publish does NOT imply
       # a trusted publisher exists, because those may have been token
       # publishes. Registration is a manual step in the package settings.
-      - name: publish (oidc trusted publisher)
-        if: ${{ !inputs.dry_run && (inputs.auth || 'oidc') == 'oidc' && steps.npm_state.outputs.exists != 'true' }}
-        working-directory: sdks/emem-ts
+      # Is a token available to fall back on? Secrets cannot be read in an
+      # `if:` expression, so the availability is turned into an output here.
+      # The token itself is never printed.
+      - name: token available?
+        id: npm_token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if npm publish --access public; then
-            exit 0
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "::error::OIDC publish failed. Trusted publishing must be registered for this package on npmjs.com (package Settings -> Publishing access -> add this repository and workflow) before the OIDC path can work. A prior successful publish does not imply it is registered. Until it is, re-run this workflow via workflow_dispatch with auth=token and an NPM_TOKEN secret set."
-          exit 1
 
-      - name: publish (token bootstrap, first publish only)
-        if: ${{ !inputs.dry_run && inputs.auth == 'token' && steps.npm_state.outputs.exists != 'true' }}
+      - name: publish (oidc trusted publisher)
+        id: oidc_publish
+        if: ${{ !inputs.dry_run && (inputs.auth || 'oidc') == 'oidc' && steps.npm_state.outputs.exists != 'true' }}
+        # Not fatal on its own: the token step below is the fallback, and the
+        # final gate decides whether the release actually published. Before
+        # this, a `release` event could only ever try OIDC, because the token
+        # step required an input a release event cannot carry — so v1.4.0 and
+        # v2.0.0 both failed here and were each rescued by a hand-run
+        # workflow_dispatch. A release should not need a human to finish it.
+        continue-on-error: true
+        working-directory: sdks/emem-ts
+        run: npm publish --access public
+
+      - name: publish (token)
+        if: >-
+          ${{ !inputs.dry_run && steps.npm_state.outputs.exists != 'true'
+              && (inputs.auth == 'token'
+                  || (steps.oidc_publish.outcome == 'failure' && steps.npm_token.outputs.have == 'true')) }}
         working-directory: sdks/emem-ts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -246,3 +266,25 @@ jobs:
             exit 1
           fi
           npm publish --access public
+
+      # The gate that decides the job, and it asks the registry rather than
+      # trusting a step's exit code. A publish that half-succeeded, or an
+      # OIDC failure with no token to fall back on, both land here as a red
+      # build with the reason named.
+      - name: the version is actually on npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: sdks/emem-ts
+        run: |
+          set -uo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          for attempt in 1 2 3 4 5; do
+            if PUBLISHED=$(npm view "$NAME@$VERSION" version 2>/dev/null) && [ -n "$PUBLISHED" ]; then
+              echo "$NAME@$VERSION is on npm"
+              exit 0
+            fi
+            echo "not visible yet (attempt $attempt); the registry is eventually consistent"
+            sleep 10
+          done
+          echo "::error::$NAME@$VERSION is not on npm after both publish paths. If the OIDC step failed and no NPM_TOKEN secret is set, that is the cause: trusted publishing must be registered for this package on npmjs.com (package Settings -> Publishing access -> add this repository and workflow), or an NPM_TOKEN secret must exist for the fallback. A prior successful publish does NOT imply a trusted publisher is registered."
+          exit 1
