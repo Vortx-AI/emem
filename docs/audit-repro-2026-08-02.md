@@ -155,7 +155,29 @@ cover.
 
 ## P0-3 · `cell` accepts any string, geocodes it, and mints a permanent fact
 
-**Status: FIXED for ambiguous input, PARTIAL for confident-but-wrong** · test `ambiguous_place_gate_tests`
+**Status: FIXED** (was PARTIAL) · tests `ambiguous_place_gate_tests`, `query_label_overlap_catches_confident_mismatch`, `confidence_floor_only_demotes_and_only_on_fuzzy_tiers` · commit `ff7ac83`
+
+The remaining half — a string that resolved to ONE *confident* wrong place —
+is closed. `"DROP TABLE facts"` matched "La Table Ronde" with importance 0.6,
+and no floor on importance could ever have caught it: importance scores how
+prominent the MATCHED FEATURE is, not how well it answers the question, and
+that quarter of Bourg-lès-Valence genuinely is notable. The missing signal was
+how much of the query the returned label accounts for. Below half the
+substantive tokens, a fuzzy hit is no longer high confidence.
+
+`/v1/ask` was separately checking that the resolved cell64 was well-SHAPED,
+which says nothing about whether the right place was found — so one input was
+refused by recall and answered confidently by ask, the surface a human reads.
+Both now refuse.
+
+```
+recall {"cell":"DROP TABLE facts"}  ->  no_geocoder_match (query_label_overlap_below_floor)
+ask "elevation of Bengaluru; also DROP TABLE facts"  ->  "could not extract a location"
+ask "what is the elevation of Bengaluru"  ->  918 m, unaffected
+```
+
+LOCATE_RESOLVER_VERSION 3 → 4, or the stored verdict replays from cache for the
+full 30 d TTL and the fix looks like it never deployed.
 
 ```bash
 for bad in "not-a-cell" "DROP TABLE facts" "../../etc/passwd"; do
@@ -214,6 +236,46 @@ empty-cell check reached MCP with the P0-1 helper.
 ---
 
 ## P0-4 · `valid: true` on a receipt whose Merkle proof fails
+
+**Status: FIXED** (was OPEN, held for a migration) · tests
+`v2_detects_a_stripped_merkle_proof`, `v2_receipt_downgraded_to_v1_does_not_verify`,
+`verify_receipt_detects_stripped_or_forged_proof`, `v2_merkle_binding_vectors` ·
+commit `ff7ac83`
+
+The foreign-proof case already failed. The one still open was STRIPPING: delete
+`merkle_proof` and the receipt reported `valid: true`, `merkle_proof_valid: null`
+— downgrade by removal, no trace.
+
+The proof was attached AFTER signing, so the signature could not cover it. That
+ordering is the bug; reversing it is what makes binding possible.
+
+`preimage_version` 2 adds a MERKLE segment over (root, leaf_index, path,
+rule_version). **Absence hashes an explicit ABSENT marker rather than skipping
+the segment.** If absence were encoded by omission, a deleted proof would hash
+identically to a receipt that never had one and stripping would stay invisible —
+the v1 behaviour being replaced. A v2 receipt states, under signature, either
+"here is my proof" or "I have none".
+
+Downgrade needs no separate defence: relabelling a v2 receipt as v1 sends the
+verifier down a rebuild that omits the MERKLE segment, producing a digest the
+responder never signed.
+
+Observed against production after deploy:
+
+```
+genuine v2 receipt          valid=True  signature_valid=True
+merkle_proof deleted        valid=False signature_valid=False  reason=signature_invalid
+deleted + version downgraded valid=False signature_valid=False  reason=signature_invalid
+```
+
+v1 receipts keep verifying byte-for-byte under v1 rules. The `/verify` page's JS
+mirror learns v2 too, and its cross-language vectors are frozen in `emem-attest`
+after checking them against an independent reimplementation — a silent
+divergence there is exactly what the new "verifier drift" state reports.
+
+---
+
+## P0-4 (original filing) · `valid: true` on a receipt whose Merkle proof fails
 
 **Status: FIXED for a failing proof, OPEN for a stripped one**
 
@@ -312,11 +374,11 @@ low. Same root cause as P0-3: greedy geocoding with no gate.
 | P1-6 | EUDR truncation is not priority-ordered; a partial DDS is emitted rather than refused | `emem_eudr_dds` over MCP vs REST | OPEN |
 | P1-7 | Stale values carry no freshness signal: a 2026-05-23 temperature served today with `source_freshness_s: 0` | recall `weather.temperature_2m` | OPEN |
 | P1-8 | Multi-fact returns have no ordering contract; 10 NDVI facts 0.326 to 0.855, no current marker | recall `indices.ndvi` at a warm cell | OPEN |
-| P1-9 | A past `as_of_signed_at` triggers materialization that cannot satisfy it, then returns nothing | bound at `1999-01-01` | OPEN |
-| P1-10 | Six POST endpoints have no `requestBody` schema in `openapi.json`, including `/v1/recall_polygon` | grep the spec | OPEN |
-| P1-11 | Three of eight resource templates never resolve | `resources/templates/list` then read each | OPEN |
-| P1-12 | `emem://band/{band_key}` rejects the qualified form (`indices.ndvi`) that tools and docs use | read that template | OPEN |
-| P1-13 | A2A surface absent from `openapi.json` | grep for `/v1/a2a` | OPEN |
+| P1-9 | A past `as_of_signed_at` triggers materialization that cannot satisfy it, then returns nothing | bound at `1999-01-01` | **FIXED** `ff7ac83` — skipped with a typed note; a fact fetched now is signed now, so the write could never answer the query that caused it |
+| P1-10 | Six POST endpoints have no `requestBody` schema in `openapi.json`, including `/v1/recall_polygon` | grep the spec | **FIXED** `ff7ac83` — all six declared; the one POST still without a body is `/cancel`, which takes none, and says so |
+| P1-11 | Three of eight resource templates never resolve | `resources/templates/list` then read each | **FIXED** `ff7ac83` — the state was available one frame up; the URIs were routed to a function that did not take it |
+| P1-12 | `emem://band/{band_key}` rejects the qualified form (`indices.ndvi`) that tools and docs use | read that template | **FIXED** `ff7ac83` — the registry is keyed by family, so the one spelling a caller holds was the one refused |
+| P1-13 | A2A surface absent from `openapi.json` | grep for `/v1/a2a` | **FIXED** `ff7ac83` — six paths added; the front door the .well-known descriptor advertises was undiscoverable from the machine contract |
 | P1-14 | Resources have no size guard while tools budget 24 KB | read `whitepaper.md` as a resource | OPEN |
 | P1-15 | No read-path rate limiting | 12 rapid `/v1/recall` calls | OPEN |
 | P1-16 | One log witness, last cosignature at tree_size 476131 while the tree is past 763000 | `GET /v1/log/witnesses` | OPEN |
