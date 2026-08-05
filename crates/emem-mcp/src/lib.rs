@@ -196,18 +196,28 @@ impl ToolCategory {
     /// content-addressed, so re-deriving one yields the same `fact_cid`.
     /// Write authors state a caller handed us.
     ///
-    /// They are NOT side-effect free, and this hint overstates that. A
-    /// Read against a cold cell auto-materializes: it fetches upstream,
-    /// signs a fact, and persists it, which spends GPU time and grows the
-    /// corpus. `emem_triple_consensus` goes further, materializing a prior
-    /// vintage through `two_vintages`. Under a strict reading of the MCP
-    /// spec ("the tool does not modify its environment") those are not
-    /// read-only, and a client auto-approving on this hint will write
-    /// without asking. Narrowing it is a live decision, not an oversight:
-    /// 59 of the 66 categorised tools are Read, so flipping the hint would
-    /// make every client prompt on `emem_recall`, which is the protocol's
-    /// primary loop. Recorded here so the trade-off is explicit rather
-    /// than assumed.
+    /// This is the DEFAULT for a category. Every descriptor carries its own
+    /// `read_only_hint` literal and overrides it where the tool authors
+    /// state, which several Read-categorised tools do.
+    ///
+    /// The rationale that used to sit here argued against accuracy: flipping
+    /// the hint "would make every client prompt on `emem_recall`, the
+    /// protocol's primary loop". That objection expired. `emem_recall` and
+    /// `emem_ask` already declare `read_only_hint: false`, so the primary
+    /// loop pays that cost today, and leaving `emem_backfill` — a tool whose
+    /// own description begins "Materialize and sign every per-tslot fact" —
+    /// claiming read-only bought nothing except a false statement in a
+    /// machine-readable field a host uses to decide what is safe to run
+    /// unattended.
+    ///
+    /// `destructiveHint: false` and `idempotentHint: true` are what carry
+    /// "safe to auto-approve" for these tools, and both are true: writes are
+    /// additive to an append-only log, and facts are content-addressed, so
+    /// re-deriving one yields the same `fact_cid`. That is the annotation
+    /// vocabulary doing its job, instead of one field being overloaded to
+    /// mean something it does not say.
+    ///
+    /// Enforced by `no_tool_claims_read_only_while_authoring_state`.
     pub const fn read_only_hint(self) -> bool {
         matches!(
             self,
@@ -890,7 +900,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_HUNT,
         example_args: r#"{"event":"algal_bloom","region":"Lake Erie"}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -968,7 +978,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_TRIPLE_CONSENSUS,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","consensus_threshold":0.15}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -979,7 +989,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_CHANGE_ATTRIBUTION,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -990,7 +1000,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_BAND_RASTER,
         example_args: r#"{"bbox":{"min_lat":12.95,"min_lng":77.55,"max_lat":12.97,"max_lng":77.57},"band":"s2.B04"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1012,7 +1022,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_BAND_CUBE,
         example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B08","observed_on":["2026-05-01","2026-06-01","2026-07-01"]}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1023,7 +1033,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_BAND_COMPOSITE,
         example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B04","start_date":"2026-05-01","end_date":"2026-07-31"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1045,7 +1055,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_RASTER_BUNDLE,
         example_args: r#"{"tokens":["emem:raster:<aoi>:s2.B04:20509:<dcid1>","emem:raster:<aoi>:s2.B03:20509:<dcid2>","emem:raster:<aoi>:s2.B02:20509:<dcid3>"],"purpose":"world_soubre RGB ground"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1156,7 +1166,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_MEMORY_TOKEN,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
     },
     ToolDescriptor {
@@ -1250,7 +1260,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_ENTITY_RESOLVE,
         example_args: r#"{"text":"the golden gate bridge","near":"San Francisco"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
     },
     ToolDescriptor {
@@ -1532,7 +1542,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_BACKFILL,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"modis.ndvi_mean","start_unix":1640995200,"end_unix":1735689600,"max_facts":24}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
 
@@ -2833,34 +2843,64 @@ mod tests {
 
     #[test]
     fn category_annotation_hints_are_consistent() {
-        // Read/Introspect/Plan/Verify must be read-only; only Write may be
-        // destructive. This invariant is what we expose to MCP clients via
-        // annotations.{readOnlyHint,destructiveHint}.
+        // Asserts the values the descriptors actually EMIT, not the category
+        // defaults. The previous version compared `t.category.read_only_hint()`
+        // against itself — a pure function of the enum, true by construction —
+        // so it read as a guard on what clients receive while testing nothing
+        // about it. Every hint below is `t.<field>`, the emitted literal.
+        //
+        // Read-family tools MAY override `read_only_hint` to false: several
+        // author state despite reading, and saying so is the point. What they
+        // may never do is claim to be destructive, because that is reserved
+        // for tools that author state a CALLER handed us.
         for t in TOOLS {
             match t.category {
                 ToolCategory::Read
                 | ToolCategory::Introspect
                 | ToolCategory::Plan
                 | ToolCategory::Verify => {
-                    assert!(t.category.read_only_hint(), "{} must be read-only", t.name);
                     assert!(
-                        !t.category.destructive_hint(),
-                        "{} must not be destructive",
-                        t.name
+                        !t.destructive_hint,
+                        "{} is {:?}, so it must not declare destructiveHint",
+                        t.name, t.category
                     );
                 }
                 ToolCategory::Write => {
                     assert!(
-                        !t.category.read_only_hint(),
-                        "{} must not be read-only",
+                        !t.read_only_hint,
+                        "{} is a Write tool and must not declare readOnlyHint",
                         t.name
                     );
-                    assert!(
-                        t.category.destructive_hint(),
-                        "{} must be destructive",
-                        t.name
-                    );
+                    // Deliberately NOT asserting the converse. Writing is not
+                    // destroying: `emem_derive` appends a derivation and is
+                    // idempotent per (key, body), so re-registering returns
+                    // the same token rather than a twin, and nothing it does
+                    // can overwrite or remove anything. `memory_create` earns
+                    // the flag because it can overwrite a path its key owns.
+                    // Requiring every Write to be destructive would force a
+                    // false alarm onto clients for the additive case, which is
+                    // the same overstatement in the opposite direction.
                 }
+            }
+        }
+
+        // The category defaults must still be internally coherent, since they
+        // are what a descriptor inherits when it does not override.
+        assert!(ToolCategory::Read.read_only_hint());
+        assert!(!ToolCategory::Read.destructive_hint());
+        assert!(!ToolCategory::Write.read_only_hint());
+        assert!(ToolCategory::Write.destructive_hint());
+
+        // The one direction that must hold on emitted values: only a Write
+        // tool may claim to be destructive.
+        for t in TOOLS {
+            if t.destructive_hint {
+                assert!(
+                    matches!(t.category, ToolCategory::Write),
+                    "{} declares destructiveHint but is categorised {:?}",
+                    t.name,
+                    t.category
+                );
             }
         }
     }
@@ -2983,6 +3023,90 @@ mod tests {
             "memory://emem/bundle/{bundle_token}",
         ] {
             assert!(t_uris.contains(must), "RESOURCE_TEMPLATES missing {must}");
+        }
+    }
+
+    /// A tool must not claim `readOnlyHint` while its own description says
+    /// it authors state.
+    ///
+    /// This is a self-contradiction inside a single payload: the prose tells
+    /// an agent the call mints and signs, the annotation tells its host the
+    /// call is safe to run unattended. A host trusting the annotation to
+    /// decide what needs approval is being told the wrong thing by the same
+    /// object that told it the right thing.
+    ///
+    /// The allowlist is for tools that legitimately DESCRIBE materialization
+    /// without performing it: catalogs of what the responder would fetch on a
+    /// miss, and one tool whose description says it explicitly does NOT
+    /// trigger materialization. Being on this list is a claim about the tool,
+    /// so adding to it should require the same scrutiny as flipping a hint.
+    #[test]
+    fn no_tool_claims_read_only_while_authoring_state() {
+        // Phrases that mean "this call can author state", not "this call can
+        // tell you about state authoring".
+        const AUTHORS: &[&str] = &[
+            "Materialize and sign",
+            "MATERIALIZES a missing",
+            "attested entry in the shared memory",
+            "Signs and persists",
+            "The ledger persists",
+            "A persisted derivation record",
+            "Mint an ",
+            "Mint a ",
+            "mint only if nothing matches",
+        ];
+        // Catalogs and disclaimers: they name materialization as a subject.
+        const DESCRIBES_ONLY: &[&str] = &[
+            "emem_materializers",
+            "emem_data_availability",
+            "emem_coverage_matrix",
+            "emem_fleet",
+            "emem_capabilities",
+            "emem_trajectory",
+            "emem_query_region",
+            "emem_fetch",
+            "emem_log_witnesses",
+            "emem_substrates",
+            "emem_locate",
+            "emem_jepa_predict_v2",
+        ];
+        let mut offenders: Vec<String> = Vec::new();
+        for t in TOOLS.iter() {
+            if !t.read_only_hint || DESCRIBES_ONLY.contains(&t.name) {
+                continue;
+            }
+            if let Some(p) = AUTHORS.iter().find(|p| t.description.contains(**p)) {
+                offenders.push(format!("{} (says {p:?})", t.name));
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these tools claim readOnlyHint while their description says they author state: {offenders:#?}"
+        );
+    }
+
+    /// The allowlist above must not rot into a way of silencing the check.
+    /// Every entry has to name a tool that actually exists.
+    #[test]
+    fn read_only_allowlist_names_only_real_tools() {
+        for name in [
+            "emem_materializers",
+            "emem_data_availability",
+            "emem_coverage_matrix",
+            "emem_fleet",
+            "emem_capabilities",
+            "emem_trajectory",
+            "emem_query_region",
+            "emem_fetch",
+            "emem_log_witnesses",
+            "emem_substrates",
+            "emem_locate",
+            "emem_jepa_predict_v2",
+        ] {
+            assert!(
+                TOOLS.iter().any(|t| t.name == name),
+                "allowlisted tool {name} no longer exists; drop it rather than leaving a dead exemption"
+            );
         }
     }
 }

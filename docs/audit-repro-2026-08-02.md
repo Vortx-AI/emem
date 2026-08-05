@@ -384,9 +384,9 @@ low. Same root cause as P0-3: greedy geocoding with no gate.
 | P1-16 | One log witness, last cosignature at tree_size 476131 while the tree is past 763000 | `GET /v1/log/witnesses` | **PARTIAL** `ff7ac83`: the surface no longer implies freshness (`head_is_witnessed`, `entries_behind_current` per witness). The staleness itself needs an independent party to co-sign; manufacturing one would defeat the purpose |
 | P1-17 | `llms.txt` carries no install line, and bare `emem` on PyPI is another vendor's memory library | read `llms.txt` | **FIXED** `51d8f8e`: `pip install ememdev` / `npm i @vortxai/emem` with why both names are unguessable; `/llms-full.txt` concatenates it |
 | P1-18 | `resources/list` returns templates as well; templates belong in `resources/templates/list` | `resources/list` | OPEN |
-| P1-19 | `emem_backfill` is `readOnlyHint: true` but materializes and signs | inspect its annotations | OPEN |
+| P1-19 | `emem_backfill` is `readOnlyHint: true` but materializes and signs | inspect its annotations | **FIXED**: 10 tools whose own descriptions say they mint, sign or persist now declare `readOnlyHint: false`. `destructiveHint: false` + `idempotentHint: true` carry "safe to auto-approve", which is what that vocabulary is for. Enforced by `no_tool_claims_read_only_while_authoring_state` |
 | P1-20 | Undeclared parameters are accepted silently across tools | pass `{"fetch": 1}` to any tool | OPEN |
-| P1-21 | Reads of unpinned-attester content carry no data-not-instructions marker | `memory_view` any note | OPEN |
+| P1-21 | Reads of unpinned-attester content carry no data-not-instructions marker | `memory_view` any note | **FIXED**: `_content_is_data_not_instructions` on `memory_view` and `memory_search`, emitted before `content`. Marked on ALL agent-authored content, since a marker that appears only sometimes teaches readers to treat its absence as endorsement |
 
 ---
 
