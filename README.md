@@ -4,8 +4,6 @@
 
 # emem
 
-[![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
-
 **emem is the shared memory layer for multi-agent systems.**
 
 *Two agents that share no model, no vendor, and no trust can cite the same signed fact and each verify it alone. Satellites fill the memory today; any machine that watches the world joins by proving how it ran.*
@@ -15,6 +13,7 @@
 [![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
 [![MCP Registry: io.github.Vortx-AI/emem](https://img.shields.io/badge/MCP%20Registry-io.github.Vortx--AI%2Femem-black)](https://registry.modelcontextprotocol.io/v0/servers?search=emem)
 [![emem MCP server](https://glama.ai/mcp/servers/Vortx-AI/emem/badges/score.svg)](https://glama.ai/mcp/servers/Vortx-AI/emem)
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
 [![Whitepaper: Zenodo](https://img.shields.io/badge/whitepaper-Zenodo%20DOI-3b5?logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.20706893)
 
 [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)

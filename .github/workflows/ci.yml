@@ -14,7 +14,20 @@ permissions:
 # after it has been superseded.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on branches and PRs, never on main.
+  #
+  # On a branch this saves an hour of runners when you push three times
+  # while iterating, and the only signal lost is about a commit nobody
+  # will look at again. On main it destroys the signal itself: the badge
+  # reports the newest CONCLUSIVE run, and a cancelled run is not one, so
+  # a stretch of quick pushes leaves the badge pinned to whatever the last
+  # completed run said. On 2026-08-05 that meant main read "failing" for
+  # seven hours and eight commits after the failure had been fixed, because
+  # every run that would have proved it green was killed by the next push.
+  #
+  # Correctness of the badge is worth more than the runner minutes: a red
+  # badge nobody trusts is the same as no badge.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
