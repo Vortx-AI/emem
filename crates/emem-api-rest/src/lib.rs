@@ -16001,9 +16001,21 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
         },
         "receipt": {
             "domain": "receipt",
-            "preimage_version": emem_attest::PREIMAGE_V1,
+            "preimage_version": emem_attest::PREIMAGE_V2,
+            "current_emitted_version": emem_attest::PREIMAGE_V2,
             "canonical": true,
-            "source_of_truth": "emem_attest::receipt_preimage_v1, the one function both the signer (emem-storage) and the verifier (POST /v1/verify_receipt, the /verify page's JS) call.",
+            "source_of_truth": "emem_attest::receipt_preimage_v2 for v2, receipt_preimage_v1 for v1. One function per version, called by the signer (emem-storage), the verifier (POST /v1/verify_receipt) and the /verify page's JS alike.",
+            "select_the_rule_from_the_receipt": "Read the receipt's own `preimage_version` and rebuild under THAT rule. Do not assume the current one. A verifier that hardcodes v1 will reject every receipt signed after 2026-08-05; a verifier that hardcodes v2 will reject every receipt signed before it. Both are still valid and both must verify.",
+            "v2_adds": {
+                "segment": seg(rt::MERKLE, "merkle_hex", "scalar", false, "ALWAYS present in v2, never optional: hex of blake3(domain(\"merkle\") || …), which binds the receipt's inclusion proof, or an explicit ABSENT marker when it carries none"),
+                "sub_preimage": {
+                    "domain": "merkle",
+                    "with_proof": "tagged(0x01 root:32 raw bytes) || tagged(0x02 leaf_index:u32-LE) || tagged(0x03 path: concatenated 32-byte siblings) || tagged(0x04 rule_version:u8)",
+                    "without_proof": "tagged(0x05 ABSENT, zero-length)",
+                },
+                "why": "Under v1 the signature covered the receipt's fields but not its proof, so an intermediary could delete `merkle_proof` wholesale and the receipt still verified: valid:true with merkle_proof_valid:null, a downgrade with no trace. Absence is hashed as an explicit marker rather than by omitting the segment, because omission would make a stripped proof hash identically to a receipt that never had one, which is the v1 behaviour being replaced.",
+                "downgrade": "Rewriting preimage_version from 2 to 1 does not help an attacker: the v1 rebuild omits the MERKLE segment entirely and yields a digest the responder never signed.",
+            },
             "segments": [
                 seg(rt::REQUEST_ID, "request_id", "scalar", false, ""),
                 seg(rt::SERVED_AT, "served_at", "scalar", false, ""),
@@ -16016,6 +16028,7 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 seg(rt::FACT_CIDS, "fact_cids", "list", false, ""),
                 seg(rt::FIELD, "field_hex", "scalar", true, "field responses only (docs/plans/field-tokens.md): hex of blake3(domain(\"field\") || tagged(aoi_cid) || tagged(derivation_cid)); appended last so receipts without a field binding hash byte-identically to pre-FIELD receipts"),
             ],
+            "legacy_v1": "receipts with preimage_version 1 use the segment list above WITHOUT the trailing MERKLE segment. Still emitted until 2026-08-05, still verified, still valid; their inclusion proof is unauthenticated, which is what v2 fixes.",
             "legacy_v0": "receipts with preimage_version absent or 0 use the pre-cutover untagged pipe rule blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*). POST /v1/verify_receipt still verifies those; no responder emits v0 anymore.",
             "verify": {
                 "online": "POST /v1/verify_receipt",
