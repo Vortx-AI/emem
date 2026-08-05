@@ -259,7 +259,7 @@ const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties"
 
 const SCHEMA_QUERY_REGION: &str = r#"{"type":"object","required":["geometry"],"properties":{
 "geometry":{"type":"string","description":"cell64 string, or 'cells:c1,c2,c3'"},
-"bands":{"type":"array","items":{"type":"string"}},
+"bands":{"type":"array","items":{"type":"string"},"description":"Bands to aggregate over the region. Omit for every band attested across the cells."},
 "agg":{"type":"string","enum":["mean","median","p90","vector_centroid"],"description":"optional per-band aggregation"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound, applied per cell across the region. See emem_recall for semantics."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
@@ -282,7 +282,7 @@ const SCHEMA_COMPARE_BANDS: &str = r#"{"type":"object","required":["cell","a","b
 
 const SCHEMA_FIND_SIMILAR: &str = r#"{"type":"object","required":["key"],"properties":{
 "key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},
-"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},
+"k":{"type":"integer","minimum":1,"maximum":1000,"default":10,"description":"How many neighbours to return."},
 "band":{"type":"string","default":"geotessera","description":"vector band to scan (default: 128-D Tessera foundation embedding). For mode=hamming/hamming_then_rerank you can pass either the cosine band (e.g. 'geotessera') or its binary sibling ('geotessera.bin128'), the responder picks the right one."},
 "mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. cosine = fp32 over full vector (precise, ~256 B/cell scan). hamming = sign-bit popcount over the binary sibling band (~16 B/cell, ~1000× faster, ~65% recall@10). hamming_then_rerank = triage with Hamming on 4·k candidates then re-rank by cosine, matches cosine precision at ~16× less work."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Applied to candidate cells BEFORE cosine scoring, a cell with no fact whose tslot ≤ as_of_tslot under the scoring band is dropped from the candidate pool (undecidable→drop). When set, the Lance ANN fast-path is bypassed (the index has no signed_at column); brute-force k-NN runs instead so as_of is honoured truthfully."},
@@ -290,52 +290,62 @@ const SCHEMA_FIND_SIMILAR: &str = r#"{"type":"object","required":["key"],"proper
 }}"#;
 
 const SCHEMA_DIFF: &str = r#"{"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{
-"cell":{"type":"string"},
-"band":{"type":"string"},
-"tslot_a":{"type":"integer"},
-"tslot_b":{"type":"integer"}
+"cell":{"type":"string","description":"cell64 or free-text place name."},
+"band":{"type":"string","description":"One band, e.g. \"indices.ndvi\". A diff is per band; call once per band you want."},
+"tslot_a":{"type":"integer","description":"Earlier tslot. Band-tempo-relative integer from the emem epoch, NOT unix seconds or a date. List the tslots that exist at this cell with emem_trajectory first."},
+"tslot_b":{"type":"integer","description":"Later tslot, same units. The result is b minus a; passing them reversed gives the negated delta rather than an error."}
 }}"#;
 
 const SCHEMA_COMPARE_SAME_DOY: &str = r#"{"type":"object","required":["band","doy","years"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name"},
-"place":{"type":"string"},
-"lat":{"type":"number"},
-"lng":{"type":"number"},
-"band":{"type":"string"},
+"place":{"type":"string","description":"Free-text place, when you have a name rather than a cell64. One of cell/place/lat+lng."},
+"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude, paired with lng."},
+"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude, paired with lat."},
+"band":{"type":"string","description":"Seasonal band to compare, e.g. \"indices.ndvi\". Comparing a seasonal band across DIFFERENT days-of-year mixes phenology with real change, which is what this tool exists to avoid."},
 "doy":{"type":"integer","minimum":1,"maximum":366,"description":"target day-of-year"},
 "years":{"type":"array","items":{"type":"integer"},"description":"years to compare at that day-of-year"}
 }}"#;
 
 const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["cell","band","window"],"properties":{
-"cell":{"type":"string"},
-"band":{"type":"string"},
+"cell":{"type":"string","description":"cell64 or free-text place name."},
+"band":{"type":"string","description":"One band to trace, e.g. \"indices.ndvi\". Returns only what is already attested; it does NOT materialise, so an empty series means nothing has been fetched here yet, not that nothing happened."},
 "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot] inclusive"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Skips points with tslot > as_of_tslot, effectively clips the window's upper edge."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Restricts the series to facts signed at or before this instant."}
 }}"#;
 
 const SCHEMA_VERIFY: &str = r#"{"type":"object","required":["claim","cell"],"properties":{
-"cell":{"type":"string"},
-"mode":{"type":"string","enum":["fast","resolve"],"default":"fast"},
-"claim":{"type":"object","required":["band","op","value"],"properties":{
-  "band":{"type":"string"},
-  "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"]},
-  "value":{},
-  "tslot":{"type":"integer"},
-  "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},
-  "agg":{"type":"string","enum":["any","all","mean","min","max"]}
+"cell":{"type":"string","description":"cell64 or free-text place name where the claim is tested."},
+"mode":{"type":"string","enum":["fast","resolve"],"default":"fast","description":"fast answers from what is already attested. resolve materialises the band first when the cell is cold, which is slower but avoids an `absent` verdict that only means \"not fetched yet\"."},
+"claim":{"type":"object","required":["band","op","value"],"description":"The proposition to test. The verdict names the signed facts it rests on, so a false is as citeable as a true.","properties":{
+  "band":{"type":"string","description":"Band to test, e.g. \"indices.ndvi\"."},
+  "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison. in/ni take an array `value` (member / not member). exists and absent ignore `value` and ask only whether the band is attested here."},
+  "value":{"description":"Right-hand side. A number for the ordering ops, an array for in/ni, omitted for exists/absent."},
+  "tslot":{"type":"integer","description":"Test at one tslot. Omit for the latest. Mutually exclusive with `window`."},
+  "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Test across [start, end] tslots instead of one. Requires `agg` to say how the values across the window collapse to a verdict."},
+  "agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"How a `window` reduces: any/all quantify over the facts in it; mean/min/max compare the reduced value against `value`."}
 }}
 }}"#;
 
-const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],"properties":{
-"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},
-"description":{"type":"string"},
-"cell":{"type":"string"},
-"a":{"type":"string"},"b":{"type":"string"},
-"band":{"type":"string"},
-"window":{"type":"array","items":{"type":"integer"}},
-"key":{"type":"string"},"k":{"type":"integer"},
-"claim":{"type":"object"}
+const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
+"description":"A tagged union: `type` selects the intent and decides which OTHER fields are read. Fields belonging to a different intent are ignored, so send only the ones its row needs.",
+"properties":{
+"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"],
+  "description":"Which question you are asking, and therefore which other fields apply. where_is: name a place, get its cell64 (needs `description`). what_is_here: summarise a location (needs `cell`, OR `place`/`description` to resolve it first). is_like: pairwise similarity (needs `a` and `b`). did_change: did one band move over a time window (needs `cell`, `band`, `window`). find_like: nearest neighbours to a known cell (needs `key`; optional `k`, `filter`). confirm: is a claim true at a cell (needs `claim` and `cell`). ask: free-text question about a place, runs locate + topic-route + recall server-side (needs `description`; optional `place`/`cell`/`lat`+`lng` to pin the location)."},
+"description":{"type":"string","description":"where_is: the place to resolve, e.g. \"Mount Everest\". ask: the user's question, forwarded verbatim. what_is_here: optional free text used as the question and, if `place` is absent, as the place. Ignored by the other intents."},
+"cell":{"type":"string","description":"cell64 address, e.g. \"damO.zb000.xUti.zde78\". Required by did_change and confirm. Optional for what_is_here and ask: supply it to skip geocoding, omit it and give `place` instead."},
+"place":{"type":"string","description":"Free-text place name for what_is_here and ask when you have a name but no cell64, e.g. \"Ashok Nagar, Ranchi\". The responder geocodes it. Ignored when `cell` is present."},
+"lat":{"type":"number","minimum":-90,"maximum":90,"description":"ask only: latitude, paired with `lng`, when you want to pin the location by coordinate rather than by name or cell64."},
+"lng":{"type":"number","minimum":-180,"maximum":180,"description":"ask only: longitude, paired with `lat`."},
+"a":{"type":"string","description":"is_like only: cell64 of the first place in the pair."},
+"b":{"type":"string","description":"is_like only: cell64 of the second place. The answer is a cosine similarity in [-1,1] over the two cells' embeddings."},
+"band":{"type":"string","description":"did_change only: which band to test, e.g. \"indices.ndvi\". One band per call; the answer is a delta over `window`, not a whole-cell diff."},
+"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,
+  "description":"did_change only: exactly two tslots, [start, end], band-tempo-relative integers from the emem epoch (NOT unix seconds or a date string). Get valid tslots for a cell from emem_trajectory."},
+"key":{"type":"string","description":"find_like only: cell64 to search from. Neighbours are ranked by embedding cosine against this cell."},
+"k":{"type":"integer","minimum":1,"description":"find_like only: how many neighbours to return. Defaults to the primitive's own default when omitted."},
+"filter":{"type":"object","description":"find_like only: optional claim constraining which cells may be returned, same shape as `claim`."},
+"claim":{"type":"object","description":"confirm only: the claim to test at `cell`, e.g. {\"band\":\"indices.ndvi\",\"op\":\"gt\",\"value\":0.4}. The answer is a verdict plus the signed facts it rests on."}
 }}"#;
 
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
@@ -353,15 +363,15 @@ const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"propert
 }}"#;
 
 const SCHEMA_STATE_MULTI: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string"},
+"cell":{"type":"string","description":"cell64 or free-text place name."},
 "encoders":{"type":"array","items":{"type":"string","enum":["geotessera","clay_v1","prithvi_eo2","galileo"]},"description":"Optional explicit list; defaults to all wired foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`)."},
-"tslot":{"type":"integer"},
+"tslot":{"type":"integer","description":"Valid-time slot to read at, band-tempo-relative from the emem epoch (not unix seconds). Omit for the latest."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound, forwarded to every per-encoder recall."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
 }}"#;
 
 const SCHEMA_STATE_DIFF: &str = r#"{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{
-"cell":{"type":"string"},
+"cell":{"type":"string","description":"cell64 or free-text place name."},
 "encoder":{"type":"string","description":"Default `geotessera`."},
 "tslot_a":{"type":"integer","description":"First tslot."},
 "tslot_b":{"type":"integer","description":"Second tslot; must differ from `tslot_a`."}
@@ -411,7 +421,7 @@ const SCHEMA_DERIVE_LIST: &str = r#"{"type":"object","required":["attester_pubke
 "attester_pubkey_b32":{"type":"string","description":"The base32 pubkey whose derivations to list. Required: there is no query that returns every caller's derivations, because derivations are attester-scoped by design."},
 "cell":{"type":"string","description":"Optional cell64 filter."},
 "band":{"type":"string","description":"Optional band filter. Only narrows when `cell` is also set (the index is keyed cell-before-band)."},
-"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}
+"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Maximum derivations to return, newest first."}
 }}"#;
 
 // Multi-fact memory-bundle composer. N (cell, band, tslot?) triples in,
@@ -453,7 +463,7 @@ const SCHEMA_ENTITY: &str = r#"{"type":"object","required":["label"],"properties
 "kind":{"type":"string","description":"Object class: bridge, river, farm_plot, building, admin_division, place, custom, ... Defaults to \"place\"."},
 "place":{"type":"string","description":"Free-text place to anchor the object (geocoded). Provide place OR cell OR lat+lng."},
 "cell":{"type":"string","description":"cell64 to anchor the object directly (no geocode)."},
-"lat":{"type":"number"},"lng":{"type":"number"},
+"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude anchoring the object to a place, paired with lng. The identity is hashed from this anchor, so two agents anchoring the same object differently mint different entities."},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude, paired with lat."},
 "external_ids":{"type":"object","description":"Stable ids that drive convergence. Caller-supplied values win over geocoder-derived ones.","properties":{"gers":{"type":"string","description":"Overture GERS division id (strongest anchor)."},"osm":{"type":"string","description":"OpenStreetMap object as <type>/<id>, e.g. way/717919508."},"wikidata":{"type":"string","description":"Wikidata QID."}}},
 "parent":{"type":"string","description":"Optional parent entity_cid (containment)."}
 }}"#;
@@ -606,7 +616,7 @@ const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properti
 "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date in ISO 8601. The regulation's value is 2020-12-31; only loss after this date counts as failure."},
 "forest_baseline_override":{"type":"string","description":"Optional baseline override. Default 'jrc_gfc2020_v3' is the EU Commission's expected (non-binding) baseline. Acceptable: 'jrc_gfc2020_v3', 'hansen_only', 'both'."},
 "legality_module":{"type":"string","description":"Operator-chosen legality provider. Default null surfaces the explicit Article 9(1)(b) out-of-EO-scope disclaimer."},
-"operator":{"type":"object","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
+"operator":{"type":"object","description":"Operator identity written into the due-diligence statement. Echoed verbatim; this responder does not validate it against any registry, so an EORI here is a claim by the caller, not a verified one.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
 "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot. Omit to auto-derive from polygon area (~110 cells/ha, clamped to 51,200) so the whole plot is evaluated; EUDR plots are typically large, so do not set a small value unless you have a tight latency budget. POINT plots evaluate at 1 cell."}
 }}"#;
 
@@ -722,7 +732,7 @@ const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
   "min_lng":{"type":"number"},"max_lng":{"type":"number"}
 }, "description":"Explicit polygon bbox; alternative to `place` when caller already has coordinates. REQUIRED unless `place` is provided."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Bands to recall at each fan-out cell."},
-"tslot":{"type":"integer"},
+"tslot":{"type":"integer","description":"Uniform valid-time slot applied to every cell in the fan-out. Omit for the latest at each."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound, forwarded to every per-cell recall in the fan-out."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},
 "max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon (hard max 1024, raised May 2026; default 64). With projection:compact a full page of that many cells fits the MCP wire budget."},
@@ -1166,7 +1176,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_MEMORY_TOKEN,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
     },
     ToolDescriptor {
@@ -1260,7 +1270,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_ENTITY_RESOLVE,
         example_args: r#"{"text":"the golden gate bridge","near":"San Francisco"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
     },
     ToolDescriptor {
@@ -1990,10 +2000,10 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_intent",
         title: "Intent-routed planner",
-        description: "Submit a typed Intent; receive a plan or executed result.",
-        when_to_use: "Call when the user asks something like 'where is X' or 'is A like B' and you don't want to pick a primitive yourself, the planner maps Intent variants to the right tool call.",
+        description: "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.\n\ntype             | needs                        | optional            | answers\nwhere_is         | description                  |                     | cell64 for a named place\nwhat_is_here     | cell OR place                | description         | what is attested at a location\nis_like          | a, b                         |                     | cosine similarity of two cells\ndid_change       | cell, band, window           |                     | delta for one band over [start,end] tslots\nfind_like        | key                          | k, filter           | nearest cells by embedding\nconfirm          | claim, cell                  |                     | verdict plus the signed facts behind it\nask              | description                  | place/cell/lat+lng  | free-text question, packaged answer\n\nAn unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.",
+        when_to_use: "Call when the user's question maps cleanly onto one of the seven rows above and you would rather state the goal than pick a primitive. Reach past it for anything else: a specific band at a cell is emem_recall, a region is emem_recall_polygon, and a free-text place question with no obvious primitive is emem_ask directly (type:\"ask\" here just forwards to it). `window` takes tslots, not dates: get valid ones from emem_trajectory first.",
         input_schema: SCHEMA_INTENT,
-        example_args: r#"{"type":"what_is_here","cell":"damO.zb000.xUti.zde78"}"#,
+        example_args: r#"{"type":"did_change","cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[20245,20620]}"#,
         level: "L0", category: ToolCategory::Plan,
     read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
@@ -3069,6 +3079,14 @@ mod tests {
             "emem_substrates",
             "emem_locate",
             "emem_jepa_predict_v2",
+            // "mint only if nothing matches" instructs the CALLER to reach
+            // for emem_entity next. This tool searches the index or
+            // dereferences a token, and says "Read-only" in its description.
+            "emem_entity_resolve",
+            // "Mint a citation handle" is string formatting:
+            // post_memory_token takes no AppState, so there is nothing for
+            // it to write to.
+            "emem_memory_token",
         ];
         let mut offenders: Vec<String> = Vec::new();
         for t in TOOLS.iter() {
@@ -3082,6 +3100,39 @@ mod tests {
         assert!(
             offenders.is_empty(),
             "these tools claim readOnlyHint while their description says they author state: {offenders:#?}"
+        );
+    }
+
+    /// A description must not claim read-only while the annotation says
+    /// otherwise.
+    ///
+    /// The sibling test above catches the annotation overstating safety.
+    /// This catches the opposite, and that gap was not hypothetical: a
+    /// regex sweep flipped `emem_entity_resolve` to `readOnlyHint: false`
+    /// on the phrase "mint only if nothing matches", which tells the CALLER
+    /// what to do next with a different tool. Its description still read
+    /// "Read-only", so the payload contradicted itself in the direction the
+    /// one-way check could not see.
+    ///
+    /// Either direction is the same defect: an agent reads the prose, a
+    /// host reads the annotation, and they are told different things.
+    #[test]
+    fn no_tool_says_read_only_while_its_annotation_disagrees() {
+        let mut offenders: Vec<&str> = Vec::new();
+        for t in TOOLS.iter() {
+            if t.read_only_hint {
+                continue;
+            }
+            let says_read_only = t.description.contains("Read-only")
+                || t.description.contains("read-only")
+                || t.description.contains("Read only");
+            if says_read_only {
+                offenders.push(t.name);
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "these tools describe themselves as read-only while declaring readOnlyHint: false: {offenders:?}"
         );
     }
 
@@ -3102,6 +3153,8 @@ mod tests {
             "emem_substrates",
             "emem_locate",
             "emem_jepa_predict_v2",
+            "emem_entity_resolve",
+            "emem_memory_token",
         ] {
             assert!(
                 TOOLS.iter().any(|t| t.name == name),
