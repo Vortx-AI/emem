@@ -6,6 +6,7 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 
 ## Connect
 
+- **Packages**: `pip install ememdev` and `npm i @vortxai/emem`. Both names are deliberate and neither is guessable: on PyPI the bare name `emem` belongs to an unrelated project, so installing it gets you someone else's code, and npm refuses `ememdev` as too close to an existing package, so the JS client is scoped under `@vortxai`. Neither package is required to use the server — the MCP and REST endpoints below need no client library, no key and no account.
 - [MCP endpoint](https://emem.dev/mcp): JSON-RPC 2.0 over Streamable HTTP; tools/list returns the 15 core tools by default, tier "all" or the /mcp/full endpoint returns all 105. Every tool is callable by name from either endpoint, so narrowing discovery removes no capability; call emem_tools for the map or one tool's schema. Each tool declares one shape in MCP-standard _meta as dev.emem/shape (the form of the answer: scalar, timeseries, raster, geometry, vector, identity, token, proof, plan, file, catalog) and any number of overlapping dev.emem/bundles (the job: tokenisation, verification, agent_to_agent, long_horizon, robotics, satellites, agriculture, forestry, climate_risk); filter emem_tools by either, and tools/list itself by bundle. Point a client here, no key.
 - [Tool explorer](https://emem.dev/tools): every MCP tool, what question it answers, and the exact call, generated from the registry.
 - [OpenAPI 3.1](https://emem.dev/openapi.json): full machine contract for the /v1 REST surface.

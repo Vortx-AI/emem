@@ -152,6 +152,14 @@ header.top .navlinks a:hover{color:var(--accent)}
   animation:pulse 1.4s ease-in-out infinite}
 .status.idle{border-style:dashed;color:var(--fg-3)}
 .status.idle .glyph{background:var(--bg-2);color:var(--fg-mute)}
+/* "unverified" is deliberately NOT a variant of ok. Nothing was checked,
+   so it must not read as a pass at a glance: dashed border, muted glyph,
+   no accent colour. The distinction this page exists to make is between
+   "verified" and "the server said so", and the styling has to carry it
+   as clearly as the words do. */
+.status.unverified{border-color:var(--pending);border-style:dashed;background:var(--bg-1)}
+.status.unverified .glyph{background:var(--bg-2);color:var(--pending)}
+.status.unverified .text{color:var(--fg-2)}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
 
 /* cards */
@@ -622,7 +630,12 @@ function setStatus(kind, text, sub){
   const el = $('statusBanner');
   el.className = 'status ' + (kind || 'idle');
   const glyph = el.querySelector('.glyph');
-  glyph.textContent = kind === 'ok' ? '✓' : kind === 'fail' ? '✗' : kind === 'pending' ? '◌' : '◌';
+  // The check mark is reserved for a signature this browser actually
+  // verified. An unverified load gets a neutral glyph, because a ✓ is the
+  // single most-read element on the page and it must never appear for a
+  // state where no cryptography ran.
+  glyph.textContent = kind === 'ok' ? '✓' : kind === 'fail' ? '✗'
+                    : kind === 'unverified' ? '–' : '◌';
   $('statusText').textContent = text;
   $('statusSub').innerHTML = sub || '';
 }
@@ -1060,6 +1073,11 @@ document.querySelectorAll('.recipes .copy').forEach(btn => {
 
 // ── flows: fetch fact, verify receipt ───────────────────────────────────────
 let _lastReceipt = null, _lastCid = null;
+// True only while rendering a receipt this page fetched itself by re-reading
+// a fact's cell+band, as opposed to one the caller pasted. It changes what
+// the success message is allowed to claim, so it is scoped tightly around
+// that one call and cleared immediately after.
+let _reattested = false;
 
 async function fetchAndShowFact(cid){
   if (!cid || cid.length < 8) { setStatus('fail', 'invalid CID', 'expected ~32 base32 characters'); return; }
@@ -1076,13 +1094,19 @@ async function fetchAndShowFact(cid){
     const fact = await r.json();
     _lastCid = cid;
     renderFact(fact, cid);
-    // Try a recall on the fact's cell+band to also pull a fresh receipt
-    // — the responder's signed-now receipt is the strongest verifiable
-    // surface, far stronger than recomputing the content-hash alone.
+    // Pull a receipt by re-reading the fact's cell+band.
+    //
+    // Be precise about what this proves, because it is easy to overclaim.
+    // The receipt below is signed over a NEW recall performed just now. It
+    // is NOT the receipt originally issued with the pasted CID — we do not
+    // yet serve stored receipts by fact_cid — so verifying it demonstrates
+    // that this responder will re-attest the same cell+band today, not that
+    // the historical fact you named was signed. Those are different claims
+    // and the status text below keeps them apart.
     const inner = fact.Primary || fact.Absence || fact;
     if (inner.cell && inner.band) {
       setStatus('pending',
-        'fact loaded; fetching a fresh receipt from this responder…',
+        'fact loaded; re-attesting this cell+band to obtain a receipt…',
         '<code>POST /v1/recall {cell:"' + escapeHtml(inner.cell) + '", bands:["' + escapeHtml(inner.band) + '"]}</code>');
       try {
         const rec = await fetch('/v1/recall', {
@@ -1095,16 +1119,32 @@ async function fetchAndShowFact(cid){
           if (recData.receipt) {
             _lastReceipt = recData.receipt;
             refreshRecipes(_lastReceipt);
-            await verifyAndRender(_lastReceipt);
+            // finally, not a trailing assignment: this call sits inside a
+            // catch-all below, so an exception here would otherwise leave the
+            // flag set and mislabel the next receipt the user pastes as a
+            // live re-attestation.
+            _reattested = true;
+            try {
+              await verifyAndRender(_lastReceipt);
+            } finally {
+              _reattested = false;
+            }
             return;
           }
         }
       } catch(_) {}
     }
-    // No fresh receipt available — leave the status as "fact loaded".
-    setStatus('ok',
-      'fact loaded · CID matches this responder\'s storage',
-      'paste a receipt JSON above to verify the signature, or share <a href="/verify/' + encodeURIComponent(cid) + '">/verify/' + escapeHtml(cid.slice(0,10) + '…') + '</a>');
+    // Nothing was verified: the CID resolved to bytes this responder holds,
+    // and that is all. Reporting it as "ok" was the page's own worst bug —
+    // its headline input showing a green pass for a fact whose signature was
+    // never checked, on the one page whose entire claim is that you do not
+    // have to trust us.
+    setStatus('unverified',
+      'fact loaded · NOT verified — no signature was checked',
+      'the CID resolves to bytes this responder holds, which is a storage lookup, not proof. '
+      + 'No receipt was available for this fact, so nothing was verified cryptographically. '
+      + 'Paste a receipt JSON above to verify a signature, or share '
+      + '<a href="/verify/' + encodeURIComponent(cid) + '">/verify/' + escapeHtml(cid.slice(0,10) + '…') + '</a>');
   } catch (e) {
     setStatus('fail', 'fetch failed', escapeHtml(String(e)));
   }
@@ -1128,9 +1168,29 @@ async function verifyAndRender(receiptIn){
     '<code>digest = blake3(preimage); ed25519.verify(sig, digest, pubkey)</code>');
   let result = await verifyReceiptInBrowser(receipt);
   if (result.via === 'fallback') {
-    setStatus('pending', 'noble libs unavailable · falling back to /v1/verify_receipt',
-              'the in-browser path failed to load; using the responder\'s verify endpoint as a backup');
-    result = await verifyReceiptViaServer(receipt);
+    // The crypto libraries did not load, so this browser verified nothing.
+    //
+    // The previous behaviour here was to ask /v1/verify_receipt instead and
+    // report the answer as a result — i.e. when the trust-minimised path
+    // broke, the page asked the party being verified whether its own
+    // signature was good. That is the one dependency a verifier must not
+    // have, and it failed silently, in exactly the situation (blocked or
+    // unreachable CDN) where a reader is most entitled to a real answer.
+    //
+    // The server is still consulted, because "the responder says yes" is
+    // genuinely informative, but it is reported as what it is: hearsay from
+    // the signer, under an unverified status, never a pass.
+    const server = await verifyReceiptViaServer(receipt);
+    renderReceipt(receipt, { ...server, via: 'server-only' });
+    setStatus('unverified',
+      'NOT verified here · the in-browser crypto libraries did not load',
+      'this page could not recompute anything, so nothing was verified independently. '
+      + 'The responder\'s own endpoint reports the signature as <strong>'
+      + (server.ok === true ? 'valid' : server.ok === false ? 'INVALID' : 'unknown')
+      + '</strong>, but that is the signer vouching for itself and is not proof. '
+      + 'The libraries load from esm.sh; if it is blocked here, retry on a network that allows it, '
+      + 'or verify offline with the recipe below, which depends on nothing this page serves.');
+    return;
   } else if (result.via === 'browser' && result.ok !== true) {
     // The browser computed a non-match. Before declaring tamper, cross-check
     // the server: this guards against an in-browser encoder edge case
@@ -1140,23 +1200,53 @@ async function verifyAndRender(receiptIn){
               'confirming against the responder\'s verifier before reporting a result');
     const server = await verifyReceiptViaServer(receipt);
     if (server.ok === true) {
-      // Server says valid → the browser path mis-recomputed; trust the server
-      // but be honest that the offline recomputation was inconclusive.
-      result = { ...server, browserInconclusive: true };
+      // Browser says no, server says yes. These disagree, and the reason
+      // matters: it is not tamper (a tampered receipt fails BOTH), it is
+      // this page's preimage encoder disagreeing with the responder's —
+      // a verifier-version drift, i.e. a bug in the verifier you are
+      // reading. Reporting it as a plain pass would let the server's yes
+      // paper over a broken client. It is surfaced as its own state.
+      result = { ...server, browserInconclusive: true, verifierDrift: true };
     } else {
       result = { ...result, serverConfirmed: server.ok === false };
     }
   }
   renderReceipt(receipt, result);
   const vtag = Number(receipt.preimage_version) >= 1 ? ' · preimage v1' : '';
-  if (result.ok === true) {
+  if (result.verifierDrift) {
+    // Deliberately not 'ok'. The signature may well be fine, but the only
+    // thing that established it is the party being verified, which is the
+    // one authority this page exists to do without.
+    setStatus('unverified',
+      'verifier drift · this page could not confirm the signature itself',
+      'your browser recomputed a different preimage than the responder did, and the responder '
+      + 'reports the signature as valid. A TAMPERED receipt fails both checks, so this is not '
+      + 'tamper — it means this page\'s encoder disagrees with the responder\'s, which is a bug '
+      + 'in the verifier you are reading. Treat this as UNVERIFIED: the only thing vouching for '
+      + 'the signature right now is the server that produced it. Please report it at '
+      + '<a href="https://github.com/Vortx-AI/emem/issues">github.com/Vortx-AI/emem/issues</a>.'
+      + vtag);
+  } else if (result.ok === true) {
     const how = result.via === 'browser'
       ? ' · verified offline by your browser'
       : (result.browserInconclusive
           ? ' · verified via /v1/verify_receipt (offline recomputation was inconclusive)'
           : ' · verified via /v1/verify_receipt');
+    // A receipt obtained by re-reading the cell (rather than pasted by the
+    // caller) is a signature over a NEW read, not over the CID that was
+    // typed in. It verifies, and saying so is fair, but calling it the same
+    // thing as verifying the pasted object would be the overclaim.
+    const covers = _reattested
+      ? 'this receipt was signed just now over a FRESH read of the same cell+band — '
+        + 'it is not the receipt originally issued with the CID you pasted. '
+        + 'It proves this responder re-attests that reading today; it does not '
+        + 'prove the historical fact was signed. '
+      : '';
     setStatus('ok',
-      'receipt verified · ed25519 signature is valid',
+      _reattested
+        ? 'live re-attestation verified · ed25519 signature is valid'
+        : 'receipt verified · ed25519 signature is valid',
+      covers +
       'the signer is <code>' + escapeHtml((receipt.responder_pubkey_b32 || '').slice(0, 16)) + '…</code> over ' +
       ((receipt.fact_cids || []).length) + ' fact CID' + ((receipt.fact_cids || []).length === 1 ? '' : 's') +
       how + vtag);
