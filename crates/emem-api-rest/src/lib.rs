@@ -17628,7 +17628,7 @@ fn mcp_spawn_task(
         let result = match mcp_tool_call(&name_owned, args, &state).await {
             Ok(inner) => {
                 raw_result = Some(inner.clone());
-                mcp_wrap_call_tool_result(inner)
+                mcp_wrap_call_tool_result_for(inner, &name_owned)
             }
             Err((code, msg)) => {
                 if code == -32601 {
@@ -18163,7 +18163,18 @@ fn schema_to_rest_path(schema: &str) -> Option<String> {
 /// copy is over budget we generically slim the inner JSON and attach an
 /// honest `_emem_truncation` marker, so the agent never silently receives a
 /// payload cut mid-token.
-fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
+/// As [`mcp_wrap_call_tool_result`], but aware of which tool produced the
+/// result, so a tool that DECLARED an `outputSchema` keeps the
+/// `structuredContent` its descriptor promised.
+///
+/// The trade-off differs by tool, which is why the name has to reach here.
+/// For an ordinary tool the text block is the load-bearing copy every host
+/// renders and the mirror is a convenience, so an over-budget result drops
+/// the mirror and keeps the answer whole. For a tool that promised a schema,
+/// dropping the mirror would make the descriptor lie, so the payload is
+/// slimmed once and both copies carry the slimmed form with an honest
+/// truncation marker.
+fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
     let raw_content = inner
         .get("_mcp_content")
         .and_then(|v| v.as_array())
@@ -18199,6 +18210,18 @@ fn mcp_wrap_call_tool_result(inner: JsonValue) -> JsonValue {
     // One copy fits. Does the standard two-copy envelope also fit? The
     // mirror roughly doubles the inner bytes; +96 covers the envelope keys.
     if text.len().saturating_mul(2).saturating_add(96) > budget {
+        // A tool that declared an outputSchema owes conforming
+        // structuredContent on EVERY call, so the mirror cannot be the thing
+        // that gives way. Slim once, send both, and say what was dropped.
+        if emem_mcp::declares_output_schema(tool) {
+            let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget / 2);
+            let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+            return json!({
+                "content": [{"type": "text", "text": slim_text}],
+                "structuredContent": slimmed,
+                "isError": false,
+            });
+        }
         json!({
             "content": [{"type": "text", "text": text}],
             "isError": false,
@@ -19280,6 +19303,11 @@ fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
             t.description, t.when_to_use, t.example_args
         ),
         "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
+        // Declared only where the tool can keep the promise: the spec binds
+        // outputSchema to returning conforming structuredContent on every
+        // call, and the wrapper protects the mirror for exactly these tools.
+        "outputSchema": t.output_schema
+            .and_then(|s| serde_json::from_str::<JsonValue>(s).ok()),
         // Spec 2025-11-25 `Tool.execution.taskSupport`. "optional" on
         // the documented slow tools (emem_eudr_dds, emem_hunt) so a
         // host MAY run them as background tasks; "forbidden" (default)
@@ -19730,7 +19758,7 @@ async fn mcp_jsonrpc_inner(
                         // the structured-content sibling. This keeps the
                         // dispatch signature uniform while letting
                         // `emem_coverage_map` ship a real EmbeddedResource.
-                        Ok(mcp_wrap_call_tool_result(inner))
+                        Ok(mcp_wrap_call_tool_result_for(inner, name))
                     }
                     Ok(Err((code, msg))) => {
                         // Unknown-method (-32601) is a protocol error, propagate
@@ -60663,7 +60691,7 @@ mod tests {
 
         // 1) Small payload: both copies fit → structuredContent present.
         let small = json!({"schema": "emem.x.v1", "answer": "hi", "n": 3});
-        let wrapped = mcp_wrap_call_tool_result(small.clone());
+        let wrapped = mcp_wrap_call_tool_result_for(small.clone(), "");
         assert!(
             wrapped.get("structuredContent").is_some(),
             "small result keeps the structuredContent mirror"
@@ -60674,7 +60702,7 @@ mod tests {
         //    dropped, single text copy retained, still valid JSON.
         let mid_blob = "x".repeat(budget * 3 / 4);
         let mid = json!({"schema": "emem.x.v1", "blob": mid_blob});
-        let wrapped = mcp_wrap_call_tool_result(mid);
+        let wrapped = mcp_wrap_call_tool_result_for(mid, "");
         assert!(
             wrapped.get("structuredContent").is_none(),
             "mid result drops the doubling structuredContent mirror"
@@ -60695,7 +60723,7 @@ mod tests {
             "cell": "defi.zb592.nemu.zEvE",
             "facts": huge,
         });
-        let wrapped = mcp_wrap_call_tool_result(big);
+        let wrapped = mcp_wrap_call_tool_result_for(big, "");
         let text = wrapped["content"][0]["text"].as_str().unwrap();
         assert!(
             text.len() <= budget,
@@ -65830,7 +65858,7 @@ mod tests {
         let sync_inner = mcp_tool_call("emem_grid_info", json!({}), &s)
             .await
             .expect("sync grid_info ok");
-        let sync_result = mcp_wrap_call_tool_result(sync_inner);
+        let sync_result = mcp_wrap_call_tool_result_for(sync_inner, "");
 
         // Async path: spawn → CreateTaskResult with a running task.
         let create = mcp_spawn_task("emem_grid_info", json!({}), mcp_task_default_ttl_ms(), &s)
