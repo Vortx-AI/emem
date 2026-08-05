@@ -29,6 +29,28 @@ use serde::{Deserialize, Serialize};
 /// Path prefix that triggers attester ownership enforcement.
 pub const BY_ATTESTER_PREFIX: &str = "/memories/by_attester/";
 
+/// Path prefix reserved to the operator, closed to every key including the
+/// responder's own, over the memory write API.
+///
+/// The open root is first-writer-owns, which is a coherent rule but makes any
+/// *well-known* name a land-grab target: one call claims `/memories/standard.md`
+/// and only that key may ever write it again, on a log that by design cannot be
+/// pruned. Names under the open root are therefore unreserved, and nothing
+/// should build a protocol dependency on one.
+///
+/// This prefix is the squat-proof home for the names that do need to be
+/// resolvable — documentation, discovery, anything an agent is told to read at
+/// a fixed path. Refused unconditionally rather than gated on the responder key
+/// so there is no signing path to abuse at all: content here is placed by the
+/// operator out of band. Chosen to match RFC 8615's meaning, so the prefix
+/// announces its own semantics to anyone who has met `.well-known` elsewhere.
+pub const RESERVED_PREFIX: &str = "/memories/.well-known/";
+
+/// Whether `path` is reserved to the operator and closed to API writes.
+pub fn namespace_is_reserved(path: &str) -> bool {
+    path.starts_with(RESERVED_PREFIX)
+}
+
 /// Length of the pubkey shortcode used in `/memories/by_attester/<short>/...`.
 pub const PUBKEY_SHORT_LEN: usize = 8;
 
@@ -388,5 +410,32 @@ mod tests {
             verify_attester("delete", path, &bh, &attester),
             AttestationVerdict::BadSignature
         );
+    }
+
+    /// The reserved prefix is closed to every key, and closed for every verb.
+    ///
+    /// It exists because the open root is first-writer-owns: one call claims
+    /// `/memories/standard.md` and only that key may write it again, forever,
+    /// on a log that cannot be pruned. Anything an agent is told to read at a
+    /// fixed path therefore needs a home no caller can claim.
+    #[test]
+    fn reserved_prefix_is_closed_and_distinct_from_the_open_root() {
+        assert!(namespace_is_reserved("/memories/.well-known/standard.md"));
+        assert!(namespace_is_reserved("/memories/.well-known/nested/a.md"));
+
+        // The squattable shapes the reservation is contrasted with.
+        assert!(!namespace_is_reserved("/memories/standard.md"));
+        assert!(!namespace_is_reserved(
+            "/memories/by_attester/k572x7go/notes.md"
+        ));
+
+        // A near-miss must not be treated as reserved: the guard is a prefix
+        // test, so a sibling directory that merely starts similarly is open.
+        assert!(!namespace_is_reserved("/memories/.well-knownish/a.md"));
+        assert!(!namespace_is_reserved("/memories/well-known/a.md"));
+
+        // Reserved and owner-enforced are different questions, and the
+        // reserved check must not depend on the by_attester rule.
+        assert!(!namespace_requires_attester(RESERVED_PREFIX));
     }
 }

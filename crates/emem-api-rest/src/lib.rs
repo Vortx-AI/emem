@@ -11595,6 +11595,24 @@ async fn boring_recall_aggregated(
         fact_cid: Option<String>,
         signed_at: String,
     }
+    // Order the fan-out results by cell before they reach the aggregator.
+    //
+    // Both phases above collect through `JoinSet::join_next`, which yields in
+    // COMPLETION order: whichever cell's recall returned first, which depends
+    // on cache state and upstream latency and so differs between two identical
+    // requests. That order reaches the weighted sum in `aggregate_band`, and
+    // floating-point addition is not associative, so the same query returned
+    // a mean that differed in its last two digits call to call
+    // (0.3947849013550874 vs 0.39478490135508754, reported by sgozfgkr).
+    //
+    // In a content-addressed system that is not cosmetic: the aggregate is
+    // signed, so an unstable sum means an unstable `fact_cid` for a query
+    // whose inputs never changed, and two agents citing "the same" answer
+    // hold different tokens. Sorting by cell64 makes the reduction a pure
+    // function of the cell SET rather than of the network, which is what
+    // "reproducible" has to mean here.
+    per_cell.sort_by(|(a, _), (b, _)| a.cmp(b));
+
     let mut by_band: BTreeMap<String, Vec<PerCellFact>> = BTreeMap::new();
     let mut latest_served_at = String::new();
     for (cell, resp) in &per_cell {
@@ -29126,6 +29144,32 @@ fn enforce_open_namespace_owner(
     path: &str,
     attester: Option<&MemoryAttester>,
 ) -> Result<(), ApiError> {
+    // Reserved before anything else, including the by_attester shortcut: this
+    // prefix is closed to every key, so there is nothing for ownership to
+    // decide. Checked first so no verb can reach it by any route.
+    if emem_primitives::namespace_is_reserved(path) {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "memory_namespace_violation: `{path}` is reserved to the operator and closed \
+                     to `{verb}` for every key, including the responder's own. The prefix exists \
+                     so that names agents are told to read at a fixed path cannot be claimed by \
+                     whoever calls first. Write under `/memories/by_attester/<your-pubkey8>/` \
+                     instead, where the path names its owner."
+                ),
+                details: Some(json!({
+                    "code": "memory_namespace_violation",
+                    "reason": "reserved_namespace",
+                    "path": path,
+                    "reserved_prefix": emem_primitives::RESERVED_PREFIX,
+                    "why": "open-root names are first-writer-owns and therefore squattable; this prefix is the one place a well-known name cannot be claimed",
+                    "remedy": "write under /memories/by_attester/<your-pubkey8>/",
+                })),
+            },
+        ));
+    }
     if emem_primitives::namespace_requires_attester(path) {
         return Ok(()); // the path itself carries the owner
     }
@@ -32792,6 +32836,16 @@ async fn elevation_coherent_polygon(
     } else {
         "mixed"
     };
+    // Sum in a fixed order. These vectors are filled from `join_next`, which
+    // yields in completion order, and float addition is not associative — so
+    // without this the same polygon returns a mean differing in its last
+    // digits between calls. Sorting the samples themselves (rather than the
+    // cells) is enough here because only the mean is derived from them, and
+    // it makes the reduction independent of both fan-out timing and cell
+    // order. Ascending order also sums small magnitudes first, which is the
+    // better-conditioned direction for a mean over mixed terrain.
+    land_elevs.sort_by(f64::total_cmp);
+    ocean_depths.sort_by(f64::total_cmp);
     let mean_land_elev = if land_elevs.is_empty() {
         JsonValue::Null
     } else {
@@ -60132,6 +60186,47 @@ mod tests {
     }
 
     /// A malformed / order-inverted / non-finite bbox from an upstream
+    /// A weighted mean must not depend on the order its samples arrived in.
+    ///
+    /// The polygon fan-outs collect through `JoinSet::join_next`, which yields
+    /// in completion order, so the same query summed its cells in a different
+    /// order each call and the mean moved in its last two digits. In a
+    /// content-addressed system that changes the `fact_cid` of an answer whose
+    /// inputs did not change. This asserts the property the fix relies on:
+    /// once the samples are in a canonical order, the reduction is stable, and
+    /// it is NOT stable without one.
+    #[test]
+    fn aggregate_is_stable_under_arrival_order() {
+        // Values chosen so the summation order genuinely matters: one large
+        // magnitude against many small ones is the classic cancellation case.
+        let base = [1e16_f64, 1.0, 1.0, 1.0, -1e16, 0.5, 0.25, 0.125];
+
+        let mut ascending = base;
+        ascending.sort_by(f64::total_cmp);
+        let canonical: f64 = ascending.iter().sum();
+
+        // Any arrival order, once canonicalised, reduces to the same value.
+        for rotation in 1..base.len() {
+            let mut arrived: Vec<f64> = base.to_vec();
+            arrived.rotate_left(rotation);
+            let unsorted: f64 = arrived.iter().sum();
+            arrived.sort_by(f64::total_cmp);
+            let sorted: f64 = arrived.iter().sum();
+            assert_eq!(
+                sorted, canonical,
+                "canonical order must reduce identically from any arrival order"
+            );
+            // Guard the guard: if this ever stops differing, the fixture no
+            // longer exercises non-associativity and the test proves nothing.
+            if rotation == 1 {
+                assert_ne!(
+                    unsorted, canonical,
+                    "fixture must actually be order-sensitive, or it tests nothing"
+                );
+            }
+        }
+    }
+
     /// A bbox array is refused, not read positionally.
     ///
     /// The derive bound `[12.96, 77.58, 12.99, 77.61]` to fields in

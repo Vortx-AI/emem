@@ -96,6 +96,63 @@ all. See P1-6.
 
 ---
 
+## P0-0 · a `polygon_bbox` array was read positionally, sizing a 433 GiB window
+
+**Status: FIXED** · tests `bbox_array_form_is_refused_with_the_object_form_named`,
+`bbox_corners_outside_the_earth_are_refused`,
+`window_cap_admits_real_callers_and_rejects_the_dos_window` · commit `6e9bfb4`
+
+The one finding that outranked everything else: unauthenticated, one request,
+whole node down until restart. Withheld from the public channel while it was
+live, and reproduced here in an isolated instance rather than a third time
+against production.
+
+```bash
+curl -s -X POST https://emem.dev/v1/recall_polygon -H 'content-type: application/json' \
+  -d '{"polygon_bbox":[12.96,77.58,12.99,77.61],"bands":["copdem30m.elevation_mean"]}'
+```
+
+Before: connection dropped, `memory allocation of 432952345800 bytes failed`,
+process aborted, every read dark until restart.
+
+After: `HTTP 400` on REST, `-32602` on MCP, both naming the object form. The
+process serves the next request.
+
+**The cause was not the one assumed, and this matters for the fix.**
+`#[derive(Deserialize)]` on a struct accepts a JSON array and binds it to the
+fields in *declaration order*. So `[12.96, 77.58, 12.99, 77.61]` — a caller
+writing the ordinary `[min_lat, min_lng, max_lat, max_lng]` — bound
+`max_lat = 77.58`: a box spanning 64.62° of latitude instead of 0.03°. The
+polygon prewarm then sized a COG window from that span with no ceiling and
+asked for 232 635 × 232 635 px.
+
+An allocation that size is refused by the allocator, which calls
+`handle_alloc_error` → `abort()`. **That is not a panic.** `catch_unwind`
+cannot intercept it and neither can any middleware, so the panic-catch layer
+proposed as the fix would have left this exactly as it was. The class has to
+be bounded where it is allocated. `cog::sample_window` now refuses a window
+over `MAX_WINDOW_PX` (4096², 128 MiB of `f64`) before allocating, which is
+what makes the other 104 tools safe rather than just this endpoint.
+
+**The quiet half is worse than the crash.** Where the mangled box stayed small
+enough to survive, the request returned signed, confident facts about a region
+the caller never named, and said nothing. Our own two bbox types disagreed on
+field order — `CellsBBox` is lat,lng,lat,lng against `RecallPolygonBbox`'s
+lat,lat,lng,lng — so one array literal addressed two different regions across
+two endpoints that accept the same `polygon_bbox` key.
+
+The array form is therefore refused rather than reordered. GeoJSON/OGC write
+`[west,south,east,north]`; Nominatim answers `[south,north,west,east]`. Any
+convention picked here would silently read somewhere the caller did not mean.
+Every `inputSchema` already declared `"type":"object"`; the deserializer was
+the thing accepting more than we documented.
+
+`CatchPanicLayer` was added anyway, for the ordinary unwrap-on-`None` class
+across the tool surface, and documented at the call site for what it does not
+cover.
+
+---
+
 ## P0-3 · `cell` accepts any string, geocodes it, and mints a permanent fact
 
 **Status: FIXED for ambiguous input, PARTIAL for confident-but-wrong** · test `ambiguous_place_gate_tests`
