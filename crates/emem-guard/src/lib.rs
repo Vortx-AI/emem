@@ -6,41 +6,62 @@
 //!
 //! # Why this exists
 //!
-//! Anthropic's Inference hooks hold every governed prompt for an allow/deny
-//! verdict from an org-chosen server before inference runs. The named
-//! destinations are DLP incumbents, and every one of them evaluates
-//! CONTENT: does this text contain a card number, a secret, a classified
-//! marking. None of them can evaluate whether a claim about the world is
-//! still true, because none of them hold signed observations of it.
+//! Agents assert things about the physical world constantly, and almost
+//! nothing in the stack can tell a measured claim from a fluent one. Every
+//! guardrail that ships today evaluates CONTENT: does this text contain a card
+//! number, a secret, a classified marking, a jailbreak. None of them can
+//! evaluate whether a claim about the world is still true, because none of
+//! them hold signed observations of it. That is not a gap in their engineering;
+//! it is a gap in what they have to check against.
 //!
-//! The seam is exact: their verdict shape (allow/deny plus a reason plus a
-//! join id) is our receipt shape. Requests to a security server are signed
-//! on the way in, but verdicts come back as unsigned JSON into a mutable
-//! audit database, so nobody can later PROVE what was allowed, denied, or
-//! why. That is the half we already built.
+//! A **checkpoint** is any place a system pauses before doing something and
+//! asks whether to proceed. There are many, they belong to different people,
+//! and more arrive every month:
+//!
+//!   - a model gateway holding a prompt before inference,
+//!   - an MCP host about to dispatch a tool call, or about to admit a tool
+//!     result into the context,
+//!   - a policy decision point in front of an action,
+//!   - an eventing mesh routing an agent's output,
+//!   - a client-side hook inside a coding agent.
+//!
+//! The question is the same at every one of them and it has nothing to do with
+//! who asked: does this cited observation still verify. So this crate answers
+//! it once and adapts outward. [`checkpoint`] holds the two vendor-shaped
+//! adapters, [`open`] holds the shape we designed for anyone, and [`interop`]
+//! holds the standards-based ones. The engine in [`policy`] has never heard of
+//! any of them.
 //!
 //! # What this crate is, and is not
 //!
-//! It is the checkpoint-agnostic core plus a thin adapter per provider.
-//! Anthropic is the first adapter because it is the first checkpoint that
-//! exists; nothing above [`webhook`] or [`tokens`] assumes it.
+//! It is the checkpoint-agnostic core plus one thin adapter per wire shape. No
+//! vendor is privileged: a test asserts the same evidence yields the same
+//! outcome and the same reason text through every adapter, because a guard
+//! that answered differently by host would be discriminating between agents on
+//! the basis of whose product they happened to be running inside.
 //!
 //! It is NOT a DLP engine. Detection accuracy is a race against vendors with
 //! hundreds of engineers maintaining thousands of patterns, and winning it
 //! would grow nothing that matters here: a credit-card regex adds no token
 //! adoption, no log age, no witnesses. The grounding sub-verdict is the part
-//! nobody else can build.
+//! nobody else can build, and everyone else's detection should plug in beside
+//! it rather than be reimplemented here.
 //!
 //! # The one asymmetry to hold on to
 //!
-//! A webhook failure is **not** a deny. Anything other than HTTP 200 with a
-//! parseable verdict hands the decision to the org's failure policy, which
-//! under fail-open means the prompt reaches the model uninspected. So this
-//! crate answers 200 with a verdict in every reachable case, including ones
-//! it does not understand: an unrecognised event type allows, a malformed
-//! frame allows, an internal error allows. Refusing to answer does not block
-//! anything; it just removes us from the path and, if sustained, trips the
-//! circuit breaker that stops enforcement entirely.
+//! **A transport failure is not a deny.** Every checkpoint contract this crate
+//! has been written against agrees on that and none of them make it obvious.
+//! Anything other than a success status with a parseable verdict hands the
+//! decision to the caller's failure policy, which under fail-open means the
+//! request proceeds uninspected; sustained failures trip a breaker that stops
+//! enforcement entirely. Claude Code inverts the usual HTTP intuition the same
+//! way: you block by returning 2xx with a deny in the BODY, and a 500 enforces
+//! nothing at all.
+//!
+//! So this crate answers success with a verdict in every reachable case,
+//! including ones it does not understand: an unrecognised event type allows, a
+//! malformed body allows, an internal fault allows. Refusing to answer does not
+//! block anything; it removes us from the path.
 //!
 //! Denial is reserved for the case where we positively established that a
 //! cited claim does not hold.

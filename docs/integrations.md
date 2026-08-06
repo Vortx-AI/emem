@@ -310,9 +310,101 @@ trail to a regulator who never trusted the operator).
 | Agno                     | MCP tool          | none | [`examples/agno/`](../examples/agno) |
 | stdio bridge             | `mcp-remote`      | none | (any runtime without native Streamable HTTP)  |
 | Plain REST               | `POST /v1/*`      | none | [`docs/agents.md`](agents.md) Quick reference |
+| Guardrail, any runtime   | `POST /v1/guard/verdict` | none | § Physical-world guardrails below |
 
 Reads are idempotent. Retry on 5xx; treat 4xx as permanent. Materialiser
 timeout is 30 s per upstream, gateway timeout 180 s.
+
+## Physical-world guardrails, in whatever you already run
+
+Every runtime above can ground a claim. Fewer can tell you when one of its own
+claims stopped being true. That is a separate call, and it is deliberately not
+tied to any vendor's product.
+
+Two ways to use it, and the difference is who is in the request path.
+
+**Consult it.** `POST https://emem.dev/v1/guard/verdict` answers what a guard
+would say, over emem's own corpus. It is advisory: nothing is blocked, and this
+responder sits in nobody's path. MCP tool `emem_guard_verdict`, core tier.
+
+**Enforce it.** Run `emem-guard` yourself. No account here, no key from us: it
+generates its own signing key and appends every verdict to a log anyone can
+audit offline. `curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill`, or
+the MCP tool `emem_guard_selfhost`.
+
+### The same question, from five different clients
+
+`?shape=` exists so you never reshape a payload to ask. Post the body your
+framework already produced.
+
+```bash
+# Anything that can make an HTTP request.
+curl -sS -X POST https://emem.dev/v1/guard/verdict \
+  -H 'content-type: application/json' \
+  -d '{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05."]}'
+```
+
+```python
+# Any OpenAI-compatible client, including local runtimes and gateways.
+# Note the path: it is deliberately NOT /v1/moderations, because this
+# checks grounding and detects no content-safety category at all.
+import httpx
+r = httpx.post("https://emem.dev/v1/guard/verdict?shape=openai",
+               json={"input": draft_text}).json()
+if r["results"][0]["flagged"]:
+    print(r["results"][0]["emem"]["reason"])
+```
+
+```python
+# LangChain / LangGraph / LlamaIndex / CrewAI / AutoGen: they all hand you a
+# message list eventually. Send it as it is.
+httpx.post("https://emem.dev/v1/guard/verdict",
+           json={"messages": [m.dict() for m in state["messages"]]})
+```
+
+```javascript
+// An MCP proxy, gating a tool call before it runs. On a deny the response
+// carries `result`, already shaped as a CallToolResult with isError set:
+// substitute it and the model reads the denial where it reads errors.
+const v = await fetch("https://emem.dev/v1/guard/verdict?shape=mcp", {
+  method: "POST", headers: {"content-type": "application/json"},
+  body: JSON.stringify(jsonRpcRequest),
+}).then(r => r.json());
+if (!v.allow) return v.result;
+```
+
+```bash
+# An OPA-compatible policy client, or Envoy external authorisation.
+curl -sS -X POST 'https://emem.dev/v1/guard/verdict?shape=policy' \
+  -H 'content-type: application/json' \
+  -d '{"input":{"prompt":"...","tool":"publish"}}'
+# -> {"result":{"allow":true,"deny":[]}}
+```
+
+CloudEvents 1.0 works the same way with `?shape=cloudevent`, so a Knative,
+Dapr or Argo Events mesh routes an agent's output through the check with no
+adapter written on your side.
+
+### Reading the answer
+
+```
+EMEM-GUARD DENY PROV_BYTES token=emem:fact:<cell>:<cid> fix=remove_reference leaf=-
+```
+
+Branch on `fix`, not on the prose. `refresh_token` means re-resolve and retry.
+`remove_reference` means the citation cannot be made to verify. `contact_admin`
+means a person restricted it, not the evidence. `cite_observation` means
+resolve the observation through emem and cite the token it returns.
+
+A citation the node does not hold is an **allow**. It is indistinguishable from
+one minted by another responder, so denying on it would punish an agent for
+citing across nodes.
+
+Add `?claim_gating=true` to also be told which measurable claims about a place
+carry no citation at all, and which emem band would answer them. That rule
+reports on absence rather than on a failed check, so it is opt-in everywhere
+and off by default on a node you run until you have measured it on your own
+traffic with `--shadow` and `--report`.
 
 ## The minimal MCP config
 

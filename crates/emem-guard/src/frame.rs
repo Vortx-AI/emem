@@ -171,7 +171,10 @@ pub struct Message {
     pub content: Vec<ContentBlock>,
 }
 
-/// The request body Anthropic POSTs.
+/// The request body an Anthropic Inference hook POSTs.
+///
+/// One adapter's wire shape. Nothing above [`crate::checkpoint`] parses it,
+/// and the open routes never see it.
 ///
 /// Deliberately NOT `deny_unknown_fields`: the spec requires unknown
 /// top-level fields to be ignored, and it warns that requests "currently also

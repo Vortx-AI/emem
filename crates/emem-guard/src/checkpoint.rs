@@ -1,10 +1,17 @@
 //! Checkpoints: the places a verdict can be asked for.
 //!
 //! A checkpoint is any system that pauses before doing something and asks an
-//! external server whether to proceed. Anthropic's Inference hooks are one.
-//! Claude Code's client-side hooks are another, reaching API and Bedrock
-//! users that Inference hooks cannot. Neither is the protocol; both are
-//! transports for the same question.
+//! external server whether to proceed. This module holds the two whose wire
+//! shapes belong to a vendor, because that vendor published a spec and shipped
+//! a product. **They are not the protocol and they are not the default.** The
+//! shapes anyone can call live in [`crate::open`] and [`crate::interop`], and
+//! they outnumber these two more than three to one.
+//!
+//! They are here for a specific reason: they reach agents the open routes do
+//! not, and reach is the whole argument for a guardrail. An org that governs
+//! its models centrally will never call a route it has to write code for, and
+//! an agent inside a coding tool is gated by that tool's hook or not at all.
+//! Serving them costs one adapter each and no privilege anywhere else.
 //!
 //! # Why this is a trait and not an if-statement
 //!

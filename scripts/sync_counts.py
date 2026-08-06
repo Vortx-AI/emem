@@ -53,8 +53,8 @@ CANON = {
     # catalog tool is core because /mcp advertises the loop rather than
     # the full surface, so one visible tool must describe the rest.
     "mcp_tools": 107,
-    "mcp_core": 15,
-    "mcp_extended": 92,
+    "mcp_core": 16,
+    "mcp_extended": 91,
     "algorithms": 168,
     "rest_paths_v1": 138,            # documented /v1/* paths in OpenAPI
     "rest_paths_openapi_total": 144,  # all paths in OpenAPI

@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "protocol": "emem-earth-memory",
   "tagline": "Shared, verifiable memory for AI agents, robots, and sensing platforms. One canonical, citeable identity per place, fact, and object, so different models reason from the same world, not different descriptions. Grounded in signed Earth observation.",
-  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns: six Anthropic memory-tool verbs (emem_memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (emem:bundle:<bundle_cid>) and object identities (emem:entity:<entity_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 107 MCP tools (15 core, 92 extended), 18 static MCP resources + 8 URI templates, 168 algorithms in a content-addressed registry, 129 materializer-wired band names across 43 cube slots, 46 source schemes, 4 foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo), three GPU-pinned and Tessera streamed from Cloud-Optimized GeoTIFF on CPU, behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
+  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns: six Anthropic memory-tool verbs (emem_memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (emem:bundle:<bundle_cid>) and object identities (emem:entity:<entity_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 107 MCP tools (16 core, 91 extended), 18 static MCP resources + 8 URI templates, 168 algorithms in a content-addressed registry, 129 materializer-wired band names across 43 cube slots, 46 source schemes, 4 foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo), three GPU-pinned and Tessera streamed from Cloud-Optimized GeoTIFF on CPU, behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",
@@ -320,8 +320,8 @@
     "every_algorithm_has_formula_and_citation": true
   },
   "mcp_tools": {
-    "core": 15,
-    "extended": 92,
+    "core": 16,
+    "extended": 91,
     "total": 107
   },
   "mcp_resources": {

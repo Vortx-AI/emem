@@ -2099,7 +2099,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}"#,
         level: "L1", category: ToolCategory::Verify,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
-        tier: "extended",
+        // Core, and the last step of the loop. A physical-world guardrail that
+        // an agent has to go looking for is one that does not run.
+        tier: "core",
     },
     ToolDescriptor {
         name: "emem_guard_selfhost",
@@ -2404,6 +2406,11 @@ pub const CORE_LOOP: &[(u8, &str, &str)] = &[
         7,
         "emem_memory_contradictions",
         "Detect drift: surface where signed sources disagree at the same address.",
+    ),
+    (
+        8,
+        "emem_guard_verdict",
+        "Gate it. Before you assert something or hand it on, check that every citation in your draft still resolves and that nothing measurable is asserted without one. Returns allow or deny with a machine-readable `fix`. This is the loop closing: the earlier steps make a claim citeable, this one catches the claim that was not.",
     ),
 ];
 

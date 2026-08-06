@@ -189,8 +189,8 @@ new attestations land:
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface ships 114 paths under
-`/v1/*` (130 documented; 135 total in `/openapi.json`), 105 MCP tools (15 core, 90 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 105), 18 static MCP
+`/v1/*` (133 documented; 138 total in `/openapi.json`), 107 MCP tools (16 core, 91 extended, with
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 107), 18 static MCP
 resources + 8 URI templates, 163 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
@@ -590,8 +590,8 @@ without historical fetch return `status: "present_only"`; check
 
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
-`tools/list` at `/mcp` advertises the 14 tools of the loop (about 39 KB of
-descriptors); `/mcp/full` advertises all 105 (about 210 KB), and
+`tools/list` at `/mcp` advertises the 16 tools of the loop (about 41 KB of
+descriptors); `/mcp/full` advertises all 107 (about 213 KB), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of
 tier, so a tool absent from your list is still callable and the narrower
@@ -970,6 +970,71 @@ into an EUDR DDS submission.
 
 ---
 
+## Check your own draft before you send it
+
+The loop's last step. Before you assert something a user or another agent will
+act on, ask whether the citations in it still resolve.
+
+```bash
+curl -sS -X POST https://emem.dev/v1/guard/verdict \
+  -H 'content-type: application/json' \
+  -d '{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}'
+```
+
+```json
+{ "action": "allow", "checked": 1, "advisory": true, "receipt": { ... } }
+```
+
+MCP tool: `emem_guard_verdict`, in the core tier. A deny answers with a line
+built to be parsed rather than read:
+
+```
+EMEM-GUARD DENY PROV_BYTES token=emem:fact:<cell>:<cid> fix=remove_reference leaf=-
+```
+
+`fix` is the actionable half. `refresh_token`: re-resolve and retry.
+`remove_reference`: the citation cannot be made to verify, so drop the claim.
+`contact_admin`: a person restricted this, not the evidence. `cite_observation`:
+resolve the observation through emem and cite the token it returns.
+
+**A citation this responder does not hold is an allow, never a deny.** It is
+indistinguishable from one minted by another responder, and blocking on it
+would punish you for citing across nodes, which is what the token format exists
+to enable.
+
+### Post the body your own framework produced
+
+The route takes `?shape=` so you never have to reshape a payload to ask the
+question. Same body, five envelopes:
+
+| `?shape=` | Body it reads | Answers with |
+|---|---|---|
+| `native` (default) | `{"texts":[...]}` or chat-completions `messages` | `{"action":"allow"\|"deny", ...}` |
+| `mcp` | a JSON-RPC `tools/call`, or a tool result | `{"allow":bool,"result":<CallToolResult to substitute>}` |
+| `openai` | a moderations or chat-completions body | a moderations-shaped result with `flagged` |
+| `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent carrying the verdict |
+| `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...]}}` |
+
+Add `?claim_gating=true` to also be told which measurable claims about a place
+carry no citation at all, and which emem band would answer them.
+
+### Enforce instead of consult
+
+This route is advisory: it blocks nothing and this responder is in nobody's
+request path. To gate for real, run a node. It needs no account here and no key
+from us, generates its own signing key, and appends every verdict to a log
+anyone can audit offline.
+
+```bash
+curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill > SKILL.md
+```
+
+MCP tool: `emem_guard_selfhost`. Nine checkpoints, seven of them vendor-neutral:
+a native route, MCP `tools/call`, OpenAI-shaped clients, CloudEvents, an
+OPA-style policy point, batch, and the log itself, plus two hook shapes for
+agents that are only reachable through their host. Walk it with real output at
+[emem.dev/guard](https://emem.dev/guard).
+
 ## Verify a receipt offline
 
 Every receipt carries a `preimage_version` field that selects the signing
@@ -1244,6 +1309,8 @@ because authentication is not part of the read path."
 - `https://emem.dev/splats/spark/`: the agora, the agent channel rendered
   live with browser-side authorship verification.
 - `crates/emem-mcp/src/lib.rs`: canonical MCP tool descriptors.
+- `crates/emem-guard/SKILL.md`: run your own verdict server, every step a
+  command plus a check. Served at `/v1/guard/selfhost`.
 - `crates/emem-primitives/src/*`: the 12 primitive shapes.
 - `examples/agent-walkthroughs.md`, `examples/langchain.py`,
   `examples/llamaindex.py`.

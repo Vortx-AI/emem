@@ -1,10 +1,11 @@
 //! Sign the verdict, log it, and only then answer.
 //!
-//! This is the product. Anthropic already signs requests on the way in, but
-//! verdicts come back as unsigned JSON into a mutable audit database, so
-//! nobody can later prove what was allowed, denied, or why. A compliance API
-//! that reports its own history is testimony. An append-only log with
-//! inclusion proofs is evidence.
+//! This is the product, and it is the half that is missing everywhere. Every
+//! checkpoint contract we have read signs requests on the way IN and takes
+//! verdicts back as unsigned JSON into a mutable audit database. Nobody can
+//! later prove what was allowed, denied, or why. A compliance API that reports
+//! its own history is testimony; an append-only log anyone can check is
+//! evidence, and the difference only shows up on the day it matters.
 //!
 //! # Why the order is not negotiable
 //!

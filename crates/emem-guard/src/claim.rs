@@ -979,7 +979,7 @@ mod tests {
     fn units_no_band_reports_never_fire() {
         for s in [
             "The verdict path in Frankfurt took 800 ms on 2026-08-05.",
-            "The transcript limit at Anthropic is 10 MB as of 2026.",
+            "The transcript limit in Frankfurt is 10 MB as of 2026.",
             "We shipped 4.2 GB of tiles across Europe in 2026.",
             "Latency in Mumbai was 1200 microseconds on 2026-08-05.",
             "Revenue in Bengaluru was 4.2 million in 2026.",

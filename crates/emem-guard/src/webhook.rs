@@ -1,14 +1,21 @@
-//! Standard Webhooks signature verification for inbound inference-hook
-//! requests.
+//! Standard Webhooks signature verification.
 //!
-//! This is the only thing standing between "Anthropic asked us for a verdict"
-//! and "anyone on the internet asked us for a verdict", so it is written to
-//! the spec's letter and tested against its own stated failure modes rather
-//! than against our own output.
+//! [Standard Webhooks](https://www.standardwebhooks.com) is an open
+//! specification, not a vendor's scheme, which is exactly why this module
+//! implements that rather than anyone's dialect of it. HMAC-SHA256 over
+//! `{id}.{timestamp}.{body}`, a `whsec_`-prefixed base64 secret, a signature
+//! header carrying one or more space-separated candidates. Many senders speak
+//! it, so anything that does gets authenticated here for free.
 //!
-//! The spec (platform.claude.com/docs/en/manage-claude/inference-hooks-endpoint)
-//! names two details that "cause most verification bugs", and both are
-//! encoded here as behaviour plus a test:
+//! This is the only thing standing between "the checkpoint I configured asked
+//! us for a verdict" and "anyone on the internet asked us for a verdict", so it
+//! is written to the spec's letter and tested against its own stated failure
+//! modes rather than against our own output. A verifier tested only against
+//! the signer sitting next to it will agree with that signer and with nobody
+//! else.
+//!
+//! Two details cause most verification bugs in the wild, and both are encoded
+//! here as behaviour plus a test that fails if either is reintroduced:
 //!
 //!   1. The HMAC covers the body EXACTLY as received. Parsing JSON and
 //!      re-encoding it changes bytes (key order, whitespace, unicode escapes)
@@ -16,8 +23,14 @@
 //!      value: it takes `&[u8]`.
 //!   2. The secret is STANDARD base64, not URL-safe. A URL-safe decoder
 //!      derives the wrong key whenever the secret contains `+` or `/`, which
-//!      is most of the time, and the failure looks like "Anthropic sent a bad
+//!      is most of the time, and the failure presents as "the sender sent a bad
 //!      signature" rather than "we decoded the key wrong".
+//!
+//! A node with no secret configured accepts unsigned requests, which is a real
+//! state rather than a lapse: several checkpoints send their first connection
+//! test BEFORE an administrator has saved a secret, and refusing it fails the
+//! very check that tells them the endpoint works. `--require-signature` closes
+//! it once the secret exists.
 
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
@@ -31,7 +44,7 @@ use subtle::ConstantTimeEq;
 /// a replay.
 pub const TOLERANCE_SECONDS: i64 = 300;
 
-/// Why a request was not accepted as signed by Anthropic.
+/// Why a request was not accepted as signed by a configured sender.
 ///
 /// Distinct variants rather than a bool because the operator response differs:
 /// a missing header is an unsigned caller, a stale timestamp is a replay or a
@@ -40,7 +53,7 @@ pub const TOLERANCE_SECONDS: i64 = 300;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyError {
     /// One of the three `webhook-*` headers is absent. Per the spec this is
-    /// simply not a request from Anthropic.
+    /// simply not a signed request.
     Unsigned,
     /// `webhook-timestamp` is not a decimal integer.
     MalformedTimestamp,
@@ -96,10 +109,10 @@ pub struct SignatureHeaders<'a> {
 impl<'a> SignatureHeaders<'a> {
     /// Pull the three headers out of anything that can look one up.
     ///
-    /// Case-insensitive because the spec says Anthropic sends them lowercase
-    /// "and proxies are free to re-case them". A server that matches exactly
-    /// works until it is put behind a proxy that title-cases headers, and
-    /// then rejects every request as unsigned.
+    /// Case-insensitive because the spec says senders emit them lowercase and
+    /// proxies are free to re-case them. A server that matches exactly works
+    /// until it is put behind a proxy that title-cases headers, and then
+    /// rejects every request as unsigned.
     pub fn from_lookup(get: impl Fn(&str) -> Option<&'a str>) -> Option<Self> {
         Some(Self {
             id: get("webhook-id")?,
@@ -147,13 +160,13 @@ fn expected_signature(
 
 /// Verify an inbound request against one or more accepted secrets.
 ///
-/// `secrets` is a slice because secret rotation is an immediate cutover on
-/// Anthropic's side, and the spec warns that requests signed with the
-/// PREVIOUS secret keep arriving "for about a minute afterwards, plus
-/// anything already in flight". A server that holds one secret drops those
-/// on the floor, and a dropped request is a webhook failure, which under
-/// fail-open policy means an uninspected prompt reaches the model. Accepting
-/// both during the switchover is what makes rotation a non-event.
+/// `secrets` is a slice because rotation is an immediate cutover on the
+/// SENDER's side, while requests signed with the previous secret keep arriving
+/// for roughly a minute afterwards plus anything already in flight. A server
+/// holding one secret drops those on the floor, and a dropped request is a
+/// transport failure, which under fail-open means an uninspected request
+/// proceeds. Accepting both during the switchover is what makes rotation a
+/// non-event.
 ///
 /// `now_unix_s` is a parameter rather than read from the clock so the
 /// tolerance window is testable without sleeping or mocking time.
@@ -210,7 +223,7 @@ mod tests {
     ///
     /// This is the case the docs single out, because a URL-safe decoder
     /// derives different key bytes and every signature then fails to match.
-    /// The bug presents as "Anthropic is sending bad signatures", so it is
+    /// The bug presents as "the sender is emitting bad signatures", so it is
     /// pinned rather than left to review.
     const SECRET_WITH_URLSAFE_CHARS: &str =
         "whsec_YWJjK2RlZi9naGlqa2xtbm9wcXJzdHV2d3h5ejAxMjM0NTY3ODk=";

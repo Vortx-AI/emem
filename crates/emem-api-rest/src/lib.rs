@@ -5273,6 +5273,49 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             "device_platforms":     format!("{origin}/v1/device_platforms"),
             "trace_encodings":      format!("{origin}/v1/trace_encodings"),
         },
+        // The physical-world guardrail. Advertised here rather than only in
+        // prose because an agent deciding whether to adopt emem reads this
+        // document, not the README, and a guardrail nobody discovers is a
+        // guardrail nobody runs.
+        "guard": {
+            "what": "Allow or deny on claims about the physical world. Checks whether the emem: citations in a draft still resolve, and optionally whether measurable claims about a place carry a citation at all. Not a content classifier: it evaluates grounding, which is the one thing a DLP engine structurally cannot.",
+            "vendor_neutral": true,
+            "consult": {
+                "route":    format!("{origin}/v1/guard/verdict"),
+                "advisory": true,
+                "blocks_nothing": true,
+                "shapes":   ["native", "mcp", "openai", "cloudevent", "policy"],
+                "shape_param": "?shape=<name>, so the body stays exactly what your framework produced",
+                "claim_gating": "?claim_gating=true to also flag measurable claims that cite nothing",
+                "mcp_tool": "emem_guard_verdict",
+            },
+            "enforce": {
+                "what":     "A node you run. No account here, no key from us: it generates its own signing key and keeps its own append-only verdict log.",
+                "skill":    format!("{origin}/v1/guard/selfhost"),
+                "mcp_tool": "emem_guard_selfhost",
+                "build":    "cargo build --release -p emem-guard",
+                "checkpoints": {
+                    "open": [
+                        "POST /verdict",
+                        "POST /verdict/mcp",
+                        "POST /verdict/openai",
+                        "POST /verdict/cloudevent",
+                        "POST /verdict/policy",
+                        "POST /verdict/batch",
+                        "GET /log/entry/{leaf}",
+                    ],
+                    "vendor": [
+                        "POST /verdict/anthropic-hook",
+                        "POST /verdict/claude-code",
+                    ],
+                },
+                "descriptor": "GET /.well-known/emem-guard.json on your own node publishes every route, deny code, remedy and the reason grammar",
+            },
+            "capabilities":   format!("{origin}/v1/guard/capabilities"),
+            "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
+            "never_denies_on": "a citation this node does not hold, which is indistinguishable from one minted by another responder",
+            "walkthrough":    format!("{origin}/guard"),
+        },
         // The front door for agent-to-agent collaboration. A live multi-agent
         // collaboration runs on this responder's signed memory ledger; any
         // agent that can fetch a URL can find it, verify it, learn the
@@ -7727,25 +7770,116 @@ async fn guard_resolve_token(s: &AppState, t: &emem_guard::FoundToken) -> emem_g
     TokenStatus::Verified
 }
 
+/// Which envelope the caller speaks.
+///
+/// A self-hosted node serves nine routes; this responder serves one. Without
+/// this parameter that difference would be a dialect: an agent that developed
+/// against `/verdict/mcp` locally could not point the same client here, and
+/// "run your own node" would quietly become a prerequisite rather than an
+/// upgrade. The shape rides in the QUERY so the body stays exactly what the
+/// caller's own framework produced, byte for byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum GuardShape {
+    #[default]
+    Native,
+    Mcp,
+    Openai,
+    Cloudevent,
+    Policy,
+}
+
+impl GuardShape {
+    fn parse(v: Option<&str>) -> Self {
+        match v.unwrap_or("native") {
+            "mcp" => Self::Mcp,
+            "openai" => Self::Openai,
+            "cloudevent" | "cloudevents" => Self::Cloudevent,
+            "policy" | "opa" => Self::Policy,
+            // An unrecognised shape reads the body as native rather than
+            // erroring. A caller who mistyped still gets a verdict, which is
+            // the same posture the verdict path takes everywhere else.
+            _ => Self::Native,
+        }
+    }
+}
+
+/// The readable text in `body`, under `shape`.
+///
+/// Every branch delegates to the SAME adapter a self-hosted node uses, so a
+/// shape that works there works here and neither can drift from the other.
+fn guard_texts_for(shape: GuardShape, body: &JsonValue) -> Vec<String> {
+    use emem_guard::Adapter;
+    fn own(v: Vec<&str>) -> Vec<String> {
+        v.into_iter().map(str::to_string).collect()
+    }
+    let from = |t: Option<emem_guard::Transcript<'_>>| t.map(|t| own(t.texts)).unwrap_or_default();
+    match shape {
+        GuardShape::Native => serde_json::from_value::<emem_guard::NativeRequest>(body.clone())
+            .map(|r| own(r.all_texts()))
+            .unwrap_or_default(),
+        GuardShape::Mcp => serde_json::from_value::<emem_guard::interop::McpCall>(body.clone())
+            .map(|r| from(emem_guard::McpGate.transcript(&r)))
+            .unwrap_or_default(),
+        GuardShape::Openai => {
+            serde_json::from_value::<emem_guard::interop::OpenAiRequest>(body.clone())
+                .map(|r| from(emem_guard::OpenAiGate.transcript(&r)))
+                .unwrap_or_default()
+        }
+        GuardShape::Cloudevent => {
+            serde_json::from_value::<emem_guard::interop::CloudEvent>(body.clone())
+                .map(|r| from(emem_guard::CloudEventGate.transcript(&r)))
+                .unwrap_or_default()
+        }
+        GuardShape::Policy => {
+            serde_json::from_value::<emem_guard::interop::PolicyPointRequest>(body.clone())
+                .map(|r| from(emem_guard::PolicyPointGate.transcript(&r)))
+                .unwrap_or_default()
+        }
+    }
+}
+
+/// Render a decision in `shape`'s own envelope.
+fn guard_render(shape: GuardShape, d: &emem_guard::Decision) -> JsonValue {
+    use emem_guard::Adapter;
+    let v = |x: Result<JsonValue, _>| x.unwrap_or(JsonValue::Null);
+    match shape {
+        GuardShape::Native => v(serde_json::to_value(emem_guard::NativeHook.render(d))),
+        GuardShape::Mcp => v(serde_json::to_value(emem_guard::McpGate.render(d))),
+        GuardShape::Openai => v(serde_json::to_value(emem_guard::OpenAiGate.render(d))),
+        GuardShape::Cloudevent => v(serde_json::to_value(emem_guard::CloudEventGate.render(d))),
+        GuardShape::Policy => v(serde_json::to_value(emem_guard::PolicyPointGate.render(d))),
+    }
+}
+
 /// Run the guard's policy pipeline over a transcript, against local state.
 async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
-    use emem_guard::{policy, Adapter};
+    guard_verdict_shaped(s, req, GuardShape::Native, None).await
+}
+
+/// The full form: any envelope, claim gating either way.
+async fn guard_verdict_shaped(
+    s: &AppState,
+    req: &JsonValue,
+    shape: GuardShape,
+    claim_gating_q: Option<bool>,
+) -> JsonValue {
+    use emem_guard::policy;
     let started = std::time::Instant::now();
 
-    // The open native shape, so the body an agent posts here is byte-identical
-    // to the body it would post to a node it self-hosts. Learning one shape
-    // has to be enough.
-    let native: emem_guard::NativeRequest = serde_json::from_value(req.clone()).unwrap_or_default();
-    let owned: Vec<String> = native.all_texts().into_iter().map(str::to_string).collect();
+    let owned = guard_texts_for(shape, req);
     let texts: Vec<&str> = owned.iter().map(String::as_str).collect();
 
     // Claim gating is per-call here rather than per-node. On a self-hosted
     // guard it is an operator's standing decision; on an advisory endpoint
-    // the caller is the only person it affects, so the caller chooses.
-    let claim_gating = req
-        .get("claim_gating")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    // the caller is the only person it affects, so the caller chooses. The
+    // query wins over the body, because a non-native envelope has no business
+    // carrying our field names.
+    let claim_gating = claim_gating_q.unwrap_or_else(|| {
+        req.get("claim_gating")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    });
     let cfg = policy::Config {
         claim_gating,
         ..Default::default()
@@ -7789,9 +7923,8 @@ async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
         },
     };
     let decision = policy::evaluate(&cfg, &evidence);
-    let verdict = emem_guard::NativeHook.render(&decision);
 
-    let mut out = serde_json::to_value(&verdict).unwrap_or(json!({}));
+    let mut out = guard_render(shape, &decision);
     if let Some(o) = out.as_object_mut() {
         o.insert("schema".into(), json!("emem.guard.verdict.v1"));
         o.insert("checked".into(), json!(checked));
@@ -7839,9 +7972,17 @@ async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
     out
 }
 
-/// POST /v1/guard/verdict
-async fn post_guard_verdict(State(s): State<AppState>, Json(req): Json<JsonValue>) -> Response {
-    let body = guard_verdict_json(&s, &req).await;
+/// POST /v1/guard/verdict?shape=&claim_gating=
+async fn post_guard_verdict(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    Json(req): Json<JsonValue>,
+) -> Response {
+    let shape = GuardShape::parse(q.get("shape").map(String::as_str));
+    let claim_gating = q
+        .get("claim_gating")
+        .map(|v| v != "false" && v != "0" && !v.is_empty());
+    let body = guard_verdict_shaped(&s, &req, shape, claim_gating).await;
     // A read, so it carries the same receipt every other read does and
     // verifies at /verify with nothing new to implement.
     (StatusCode::OK, Json(body)).into_response()
@@ -19847,7 +19988,7 @@ fn mcp_instructions(default_tier: &str) -> String {
     for (step, tool, why) in emem_mcp::CORE_LOOP {
         s.push_str(&format!("{step}. {tool}, {why}\n"));
     }
-    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create. Reading is only half of this: emem_derive registers a value YOU computed over parent facts, under your own ed25519 key, and hands back an emem:fact: token for it. Your derivation cites its parents, so a third party can walk the lineage back to signed measurements; it stays out of everyone else's default reads until you hand them the token. Send it unsigned first and the 401 returns the exact digest to sign.\n\nYou are also not alone here: this responder hosts a live agent-to-agent layer. The a2a block of /.well-known/mcp.json is its front door (a signed ten-rule standard, a curriculum, pinned contacts); POST /v1/inbox is your mailbox once you have a key, GET /v1/agents is the roster, and POST /v1/ask answers a plain-language question with a signed, fact-cited envelope when no peer is reading. The A2A protocol card at /.well-known/agent-card.json runs every tool as a skill, sync or async.\n\n");
+    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create. Reading is only half of this: emem_derive registers a value YOU computed over parent facts, under your own ed25519 key, and hands back an emem:fact: token for it. Your derivation cites its parents, so a third party can walk the lineage back to signed measurements; it stays out of everyone else's default reads until you hand them the token. Send it unsigned first and the 401 returns the exact digest to sign.\n\nStep 8 is the one you can act on entirely by yourself, and it is vendor-neutral by construction: emem_guard_verdict runs the same engine over whatever you are about to say. It is ADVISORY here, blocking nothing, and a citation this responder does not hold is an allow rather than a deny, because that is indistinguishable from one minted elsewhere. Branch on the `fix` field, not on the prose: refresh_token, remove_reference, contact_admin, cite_observation. To ENFORCE rather than consult, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure written to be run unattended; the node it builds serves checkpoints for MCP tool calls, OpenAI-shaped clients, CloudEvents, OPA-style policy clients and two vendor hook shapes, signs every verdict, and appends it to a log anyone can audit offline.\n\nYou are also not alone here: this responder hosts a live agent-to-agent layer. The a2a block of /.well-known/mcp.json is its front door (a signed ten-rule standard, a curriculum, pinned contacts); POST /v1/inbox is your mailbox once you have a key, GET /v1/agents is the roster, and POST /v1/ask answers a plain-language question with a signed, fact-cited envelope when no peer is reading. The A2A protocol card at /.well-known/agent-card.json runs every tool as a skill, sync or async.\n\n");
 
     let total = emem_mcp::TOOLS.len();
     let core = emem_mcp::tools_at_tier("core").len();
@@ -22921,7 +23062,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/a2a/tasks/{id}/cancel": {"post":{"summary":"cancel an async task","operationId":"emem_a2a_task_cancel","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"required":false,"description":"No body. The task is named by the path parameter; declared explicitly so the spec states the emptiness rather than omitting the field.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/a2a/skills":        {"get":{"summary":"find a skill in one call","operationId":"emem_a2a_skills","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"free-text query over skill ids and descriptions"}],"responses":{"200":json_ok}}},
             "/v1/inbox":             {"post":{"summary":"read-side mailbox: the notes addressed to an attester, newest first. Read-only; it does not accept mail, it reports what was written to the shared memory naming you.","operationId":"emem_inbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["to"],"properties":{"to":{"type":"string","description":"attester pubkey or its 8-char shortcode"},"limit":{"type":"integer","minimum":1,"description":"default 20"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
-            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0 (Streamable HTTP). tools/list here returns the 15-tool core surface; /mcp/full returns all 105. tools/call dispatches any of the 105 by name at either endpoint.","operationId":"mcp_jsonrpc","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{"description":"request id; omit for a notification"},"method":{"type":"string","description":"initialize | tools/list | tools/call | resources/list | resources/read | prompts/list"},"params":{"type":"object","description":"method-specific; for tools/call it is {name, arguments}"}}}}}},"responses":{"200":json_ok}}},
+            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0 (Streamable HTTP). tools/list here returns the 16-tool core surface; /mcp/full returns all 107. tools/call dispatches any of the 107 by name at either endpoint.","operationId":"mcp_jsonrpc","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{"description":"request id; omit for a notification"},"method":{"type":"string","description":"initialize | tools/list | tools/call | resources/list | resources/read | prompts/list"},"params":{"type":"object","description":"method-specific; for tools/call it is {name, arguments}"}}}}}},"responses":{"200":json_ok}}},
             // High-traffic endpoints that were previously discoverable
             // only via /v1/discover or the agent_card. OpenAI Custom GPT
             // and ChatGPT plugin pickers ignore endpoints not in
@@ -23030,7 +23171,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
             "/.well-known/emem-verifier.json": {"get":{"summary":"Alias of GET /v1/verifier_spec: the code-generated signing/verification specification, at a well-known path so an offline verifier can discover it without reading the OpenAPI document.","operationId":"emem_verifier_spec_well_known","tags":["verify"],"responses":{"200":json_ok}}},
-            "/v1/guard/verdict":     {"post":{"summary":"Run emem-guard's policy pipeline over a transcript against this responder's corpus. Finds every emem: citation, resolves each against local storage, and answers allow or deny with the machine-readable reason `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes: PROV_SIG, PROV_BYTES, PROV_DRIFT, CLAIM_UNGROUNDED. ADVISORY: nothing is blocked, this responder is not in anybody's request path, and a citation it does not hold is never a denial because it is indistinguishable from one minted elsewhere. Set `claim_gating` to also be told which measurable physical-world claims carry no citation and which band would answer them. The request body is the same shape a self-hosted node accepts at POST /verdict, so learning one is enough. To ENFORCE rather than consult, run your own node: GET /v1/guard/selfhost.","operationId":"emem_guard_verdict","tags":["verify"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"texts":{"type":"array","items":{"type":"string"},"description":"Free text to check: a draft answer, a tool result, a whole turn."},"messages":{"type":"array","description":"A chat-completions-shaped transcript, read for its text only.","items":{"type":"object"}},"claim_gating":{"type":"boolean","default":false,"description":"Also flag measurable physical-world claims that carry no citation."},"agent":{"type":"string","description":"Free-text label for the caller. Advisory, never a trust boundary."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/guard/verdict":     {"post":{"summary":"Run emem-guard's policy pipeline over a transcript against this responder's corpus. Finds every emem: citation, resolves each against local storage, and answers allow or deny with the machine-readable reason `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes: PROV_SIG, PROV_BYTES, PROV_DRIFT, CLAIM_UNGROUNDED. ADVISORY: nothing is blocked, this responder is not in anybody's request path, and a citation it does not hold is never a denial because it is indistinguishable from one minted elsewhere. Set `claim_gating` to also be told which measurable physical-world claims carry no citation and which band would answer them. The request body is the same shape a self-hosted node accepts at POST /verdict, so learning one is enough. To ENFORCE rather than consult, run your own node: GET /v1/guard/selfhost.","operationId":"emem_guard_verdict","tags":["verify"],"parameters":[{"name":"shape","in":"query","required":false,"schema":{"type":"string","enum":["native","mcp","openai","cloudevent","policy"],"default":"native"},"description":"Which envelope the body is in, and which envelope to answer in. Exists so you never reshape a payload to ask the question: post the body your own framework produced. `mcp` reads a JSON-RPC tools/call or a tool result and answers with the CallToolResult to substitute on a deny; `openai` reads a moderations or chat-completions body; `cloudevent` reads a CloudEvents 1.0 structured event; `policy` reads {input} and answers {result:{allow,deny}}. An unrecognised value falls back to native rather than erroring."},{"name":"claim_gating","in":"query","required":false,"schema":{"type":"boolean","default":false},"description":"Also flag measurable physical-world claims that carry NO citation. Reports on absence rather than on a failed check, so it is off unless asked for."}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"texts":{"type":"array","items":{"type":"string"},"description":"Free text to check: a draft answer, a tool result, a whole turn."},"messages":{"type":"array","description":"A chat-completions-shaped transcript, read for its text only.","items":{"type":"object"}},"claim_gating":{"type":"boolean","default":false,"description":"Also flag measurable physical-world claims that carry no citation."},"agent":{"type":"string","description":"Free-text label for the caller. Advisory, never a trust boundary."}}}}}},"responses":{"200":json_ok}}},
             "/v1/guard/capabilities": {"get":{"summary":"The emem-guard contract, machine-readable: every deny code and what it means, every remedy and what to do about it, the reason grammar, what the hosted route will and will not do, and how to stand up a node that enforces. Mirrors the /.well-known/emem-guard.json a self-hosted node serves, so an agent that learned one learned both.","operationId":"emem_guard_capabilities","tags":["verify","introspect"],"responses":{"200":json_ok}}},
             "/v1/guard/selfhost":    {"get":{"summary":"The full self-host procedure for emem-guard as markdown, plus the exact build, test and run commands. Every step is a command and a check, written to be run unattended by an agent. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It serves checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor.","operationId":"emem_guard_selfhost","tags":["introspect"],"responses":{"200":json_ok}}},
             "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations, and `members`/`resolved` so partial coverage is visible without walking them. The memory algebra's `merge`: one handle that cites many facts. CAP: at most 256 triples per call. A bundle token is O(1) in size for any N, but covering N facts costs ceil(N/256) calls, so budget round trips accordingly rather than discovering the limit at 257.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["triples"],"properties":{"triples":{"type":"array","maxItems":256,"description":"At most 256 per call; 257 is a typed 400. Chunk larger sets into ceil(N/256) bundles.","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
@@ -63949,6 +64090,106 @@ mod tests {
             "claim_gating": true
         });
         assert_eq!(guard_verdict_json(&s, &cited).await["action"], "allow");
+    }
+
+    /// A self-hosted node serves nine routes and this responder serves one.
+    /// Without `?shape=` that difference would be a dialect: an agent that
+    /// developed against `/verdict/mcp` locally could not point the same
+    /// client here, and "run your own node" would be a prerequisite rather
+    /// than an upgrade.
+    #[tokio::test]
+    async fn the_hosted_route_speaks_every_envelope_a_self_hosted_node_does() {
+        let s = test_app_state();
+        let cases: [(GuardShape, JsonValue, &str); 5] = [
+            (
+                GuardShape::Native,
+                json!({"texts":["emem:fact:a:b"]}),
+                "action",
+            ),
+            (
+                GuardShape::Mcp,
+                json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+                       "params":{"name":"t","arguments":{"q":"emem:fact:a:b"}}}),
+                "allow",
+            ),
+            (
+                GuardShape::Openai,
+                json!({"input":"emem:fact:a:b"}),
+                "results",
+            ),
+            (
+                GuardShape::Cloudevent,
+                json!({"specversion":"1.0","id":"e1","type":"t","source":"/a",
+                       "data":{"t":"emem:fact:a:b"}}),
+                "type",
+            ),
+            (
+                GuardShape::Policy,
+                json!({"input":{"prompt":"emem:fact:a:b"}}),
+                "result",
+            ),
+        ];
+        for (shape, body, key) in cases {
+            let v = guard_verdict_shaped(&s, &body, shape, None).await;
+            assert!(
+                v.get(key).is_some(),
+                "{shape:?} did not answer in its own envelope: {v}"
+            );
+            // Whatever the envelope, the responder's own additions ride along
+            // so a caller always knows what it is talking to.
+            assert_eq!(v["advisory"], true, "{shape:?}");
+            assert_eq!(v["schema"], "emem.guard.verdict.v1", "{shape:?}");
+            assert!(
+                v["receipt"]["primitive"] == "emem.guard.verdict",
+                "{shape:?}"
+            );
+        }
+    }
+
+    /// Each shape has to actually READ its own body, not merely answer in its
+    /// envelope. A shape that rendered correctly and scanned nothing would
+    /// allow everything while looking like it worked.
+    #[tokio::test]
+    async fn every_shape_finds_the_citation_buried_in_its_own_body() {
+        let s = test_app_state();
+        let cid = "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q";
+        let tok = format!("emem:fact:damO.zb000.xUti.zde78:{cid}");
+        let cases: [(GuardShape, JsonValue); 5] = [
+            (GuardShape::Native, json!({ "texts": [tok] })),
+            (
+                GuardShape::Mcp,
+                json!({"params":{"name":"t","result":{"content":[{"type":"text","text":tok}]}}}),
+            ),
+            (GuardShape::Openai, json!({ "input": [tok] })),
+            (
+                GuardShape::Cloudevent,
+                json!({"specversion":"1.0","id":"e1","data":{"deep":{"nested":[tok]}}}),
+            ),
+            (GuardShape::Policy, json!({"input":{"turn":{"text":tok}}})),
+        ];
+        for (shape, body) in cases {
+            let v = guard_verdict_shaped(&s, &body, shape, None).await;
+            assert_eq!(
+                v["citations_found"], 1,
+                "{shape:?} did not read its own body: {v}"
+            );
+            assert_eq!(v["checked"], 1, "{shape:?}");
+        }
+    }
+
+    /// An unrecognised shape reads the body as native rather than erroring,
+    /// which is the same posture the verdict path takes everywhere else: a
+    /// caller who mistyped still gets an answer.
+    #[test]
+    fn an_unknown_shape_falls_back_rather_than_failing() {
+        assert_eq!(GuardShape::parse(None), GuardShape::Native);
+        assert_eq!(GuardShape::parse(Some("banana")), GuardShape::Native);
+        // The aliases people will actually type.
+        assert_eq!(
+            GuardShape::parse(Some("cloudevents")),
+            GuardShape::Cloudevent
+        );
+        assert_eq!(GuardShape::parse(Some("opa")), GuardShape::Policy);
     }
 
     /// The body an agent posts here has to be the body it would post to a node

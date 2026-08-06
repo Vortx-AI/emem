@@ -774,6 +774,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <a href="#proof" class="nav-sec">proof</a>
     <a href="/tools" class="nav-sec">tools</a>
     <a href="/splats/spark/" class="nav-sec">worlds</a>
+    <a href="/guard" class="nav-sec">guard</a>
     <a href="#build" class="nav-sec">build</a>
     <span class="spacer"></span>
     <a href="/channel" class="nav-sec">channel</a>
@@ -1392,9 +1393,15 @@ html,body{overflow-x:clip}
   "provenance": { "class": "model_output", "source": "met.no nowcast" },
   "receipt": { "signature": "ed25519, verifies offline at /verify" } }</code></pre></div>
     <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">self-host</span><span class="spacer"></span><button class="copy" data-copy-target="#docker-snippet">copy</button></div>
-      <pre id="docker-snippet"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code></pre></div></div>
+      <pre id="docker-snippet"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code></pre></div>
+    <p style="margin:1.4rem 0 .5rem;font-size:var(--t-sm);color:var(--mute)">And a guardrail for the other direction. Before an agent asserts something, ask whether the citations in it still resolve. Advisory here, blocking nothing; <a href="/guard">run your own node</a> to enforce. Post the body your framework already produced: <code>?shape=</code> accepts native, MCP <code>tools/call</code>, OpenAI-shaped, CloudEvents and OPA-style.</p>
+    <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">emem-guard &mdash; check a claim, any runtime</span><span class="spacer"></span><button class="copy" data-copy-target="#guard-snippet">copy</button></div>
+      <pre id="guard-snippet"><code>curl -s -X POST https://emem.dev/v1/guard/verdict \
+  -H 'content-type: application/json' \
+  -d '{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbo..."]}'</code></pre></div></div>
     <div class="hero-cta" style="margin-top:1.6rem">
       <a class="btn" href="/reference">Connect an agent &rarr;</a>
+      <a class="btn ghost" href="/guard">Run a guardrail &rarr;</a>
       <a class="btn ghost" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub &rarr;</a>
     </div>
     <p class="closer" style="margin-top:2.4rem;font-size:var(--t-lg);color:var(--ink)">Open source, no keys to read. <span class="accent">Point an agent at it, or run your own node.</span></p>

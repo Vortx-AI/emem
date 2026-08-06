@@ -18,7 +18,7 @@
 //! claim true.
 //!
 //! It also matters for the shape of the verdict. A vendor's checkpoint decides
-//! what it is willing to be told: Anthropic accepts allow or deny and ignores
+//! what it is willing to be told: an inference hook accepts allow or deny and ignores
 //! unknown fields, and Claude Code accepts a permission decision. Neither can
 //! carry a signature. The native shape can, so an agent calling the open route
 //! gets the evidence rather than a verdict it has to take on faith.

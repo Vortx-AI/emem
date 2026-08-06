@@ -1,24 +1,36 @@
-//! The HTTPS surface a checkpoint calls.
+//! The HTTP surface a checkpoint calls.
 //!
-//! Every operational rule in this module is one the platform documents, and
-//! getting any of them wrong produces a server that appears to enforce and
-//! does not:
+//! Nine routes, seven of which belong to no vendor. Every one of them lands in
+//! the same engine, and a test asserts they reach the same verdict on the same
+//! evidence, because a guard that answered differently by door would be
+//! discriminating between agents on the basis of the client they happened to
+//! hold.
 //!
-//!   - **Always 200 with a parseable verdict.** A non-200, a redirect, an
-//!     unparseable body or a timeout is a webhook failure, which hands the
-//!     decision to the org's failure policy and, under fail-open, sends the
-//!     prompt to the model uninspected. Sustained failures trip a circuit
-//!     breaker that stops enforcement entirely. So there is no error path
-//!     here: malformed bodies, unknown events and internal faults all answer
-//!     200 with an allow.
-//!   - **10 MB bodies.** Transcripts are sent untruncated. A rejected body
-//!     counts as a failure, and common defaults (nginx 1 MB, Express 100 kB)
-//!     are far below the ceiling.
-//!   - **Answer inside the budget.** The org sets 1..10000 ms, default 5000,
-//!     covering the whole exchange. A slow verdict is an unreachable server.
-//!   - **Deduplicate on the request id.** A connection-failure retry reuses
-//!     it, and re-evaluating could return a different answer than the one
-//!     already acted on.
+//! # The operational rules, and where they come from
+//!
+//! Each rule below is set to satisfy the STRICTEST checkpoint contract this
+//! crate has been implemented against, so it also satisfies the looser ones.
+//! That is deliberate: a server tuned to the median contract fails silently at
+//! the demanding one, and the failure mode is always the same, a server that
+//! appears to enforce and does not.
+//!
+//!   - **Always a success status with a parseable verdict.** A non-200, a
+//!     redirect, an unparseable body or a timeout is a transport failure, not
+//!     a deny: it hands the decision to the caller's failure policy and, under
+//!     fail-open, lets the request through uninspected. Sustained failures
+//!     trip a breaker that stops enforcement entirely. So there is no error
+//!     path here: malformed bodies, unknown events and internal faults all
+//!     answer 200 with an allow. Claude Code makes the same point from the
+//!     other side, where blocking IS a 2xx carrying a deny in the body.
+//!   - **10 MB bodies.** Transcripts arrive untruncated. A rejected body counts
+//!     as a failure, and common proxy defaults (nginx 1 MB, Express 100 kB) sit
+//!     far below the ceiling, so this is a thing you have to go and fix in
+//!     front of the server as well as in it.
+//!   - **Answer inside the budget.** The tightest floor we have seen an
+//!     operator able to configure is 1000 ms for the whole exchange, so
+//!     [`SELF_BUDGET`] is 800 ms and everything inside it is bounded.
+//!   - **Deduplicate on the request id.** Retries reuse it, and re-evaluating
+//!     could return a different answer than the one already acted on.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
