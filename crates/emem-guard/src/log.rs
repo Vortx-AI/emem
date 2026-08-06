@@ -45,7 +45,11 @@ pub struct VerdictRecord {
     /// The checkpoint's own request id, which is also the idempotency key.
     pub request_id: String,
     /// allow / deny.
-    pub outcome: &'static str,
+    ///
+    /// Owned rather than `&'static str`: a record read back from the log is
+    /// data from disk, and a borrowed lifetime cannot survive that. The audit
+    /// path reconstructs records from a file, which is the whole point.
+    pub outcome: String,
     /// The deny code, absent on allow.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<DenyCode>,
@@ -75,8 +79,8 @@ impl VerdictRecord {
             checkpoint: checkpoint.to_string(),
             request_id: request_id.to_string(),
             outcome: match decision.outcome {
-                Outcome::Proceed => "allow",
-                Outcome::Block => "deny",
+                Outcome::Proceed => "allow".to_string(),
+                Outcome::Block => "deny".to_string(),
             },
             code: decision.code,
             token: decision.token.clone(),
@@ -296,7 +300,7 @@ mod tests {
         assert_ne!(m.preimage(), p, "request_id");
 
         let mut m = base.clone();
-        m.outcome = "allow";
+        m.outcome = "allow".to_string();
         assert_ne!(m.preimage(), p, "outcome");
 
         let mut m = base.clone();

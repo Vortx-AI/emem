@@ -2633,12 +2633,20 @@ dependencies = [
 name = "emem-guard"
 version = "2.0.0"
 dependencies = [
+ "axum",
  "base64 0.22.1",
+ "blake3",
+ "data-encoding",
+ "ed25519-dalek",
  "hmac",
  "serde",
  "serde_json",
  "sha2",
  "subtle",
+ "tokio",
+ "tower",
+ "tower-http",
+ "ulid",
 ]
 
 [[package]]

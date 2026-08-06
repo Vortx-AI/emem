@@ -13,5 +13,17 @@ hmac = "0.12"
 sha2 = "0.10"
 base64 = "0.22"
 subtle = "2.6"
+blake3 = { workspace = true }
+ed25519-dalek = { workspace = true }
+data-encoding = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+ulid = { workspace = true }
+
+[[bin]]
+name = "emem-guard"
+path = "src/bin/emem-guard.rs"
 
 [dev-dependencies]
+tower = { workspace = true }
