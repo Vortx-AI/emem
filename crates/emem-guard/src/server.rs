@@ -499,9 +499,15 @@ async fn anthropic(
     let adapter = AnthropicHook;
 
     if let Err(why) = signature_ok(&g, &headers, &body) {
-        eprintln!("emem-guard: {why}");
-        // Allow: see the module docs. We are not the only control, and a
-        // refusal here blocks nothing while counting against the breaker.
+        // A DISTINCT, greppable level. This is the one line that means "we
+        // answered allow without having authenticated the asker", and an
+        // operator has to be able to alert on it without parsing every allow
+        // out of the verdict log. Sustained UNVERIFIED_ALLOW is either a
+        // misconfigured secret or somebody else talking to your endpoint, and
+        // both deserve a page rather than a grep.
+        eprintln!("emem-guard: UNVERIFIED_ALLOW inbound signature not verified: {why}");
+        // Allow anyway: see the module docs. We are not the only control, and
+        // a refusal here blocks nothing while counting against the breaker.
         return (StatusCode::OK, Json(adapter.render(&Decision::proceed()))).into_response();
     }
 

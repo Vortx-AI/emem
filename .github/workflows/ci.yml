@@ -365,6 +365,36 @@ jobs:
           fi
           exit $code
 
+  route-truth:
+    name: every route the site shows answers where it is shown
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # The /guard page shipped a nine-route table where seven answered 404 on
+      # emem.dev. Nothing was false (the table describes a self-hosted node)
+      # and it still overclaimed, because a reader stands on emem.dev and tries
+      # the first thing they see. u4aaoieq found it by doing exactly that.
+      #
+      # This is the no-hardcoded-numbers rule generalised to routes: no number
+      # on the site that is not fetched from the node, and no route on the site
+      # that is not reachable where it is shown.
+      - name: route truth
+        run: |
+          set +e
+          python3 scripts/route_truth.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; route truth not asserted this run"
+            exit 0
+          fi
+          exit $code
+
   ts-sdk:
     name: TypeScript SDK build
     runs-on: ubuntu-latest

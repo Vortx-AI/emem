@@ -454,6 +454,23 @@ the chain breaks at the seam and `intact` goes false with a non-zero exit.
 
 ## Step 12: the vendor checkpoints, if you want them
 
+### Alerting on unverified allows
+
+A request whose signature does not verify still gets a 200 with an allow, for
+the reason in step 6: refusing would be a transport failure, which blocks
+nothing and counts against the breaker. That is right, and it is also the one
+condition where the guard answers without knowing who asked.
+
+It is logged at a distinct, greppable marker so you can alert on it without
+parsing every allow off disk:
+
+```
+emem-guard: UNVERIFIED_ALLOW inbound signature not verified: <why>
+```
+
+Sustained `UNVERIFIED_ALLOW` is either a misconfigured secret or somebody else
+talking to your endpoint. Both deserve a page.
+
 For Claude Enterprise Inference hooks, an administrator sets your HTTPS URL in
 the organisation configuration and presses Test connection. The test sends a
 synthetic prompt with `source.application` of `config-test` and reports the

@@ -1389,6 +1389,40 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/guard/verdict", post(post_guard_verdict))
         .route("/v1/guard/capabilities", get(get_guard_capabilities))
         .route("/v1/guard/selfhost", get(get_guard_selfhost))
+        // The same route names a self-hosted emem-guard node serves, hosted
+        // here over the same engine.
+        //
+        // Without these, the nine-route table we publish is true of a node the
+        // reader has not built yet and false where they are standing: seven of
+        // the nine answered 404 on this origin while the docs listed them. A
+        // client developed against `/verdict/mcp` locally could not be pointed
+        // here, which quietly made "run your own node" a prerequisite rather
+        // than an upgrade.
+        //
+        // These change the ENVELOPE, never the decision. Each one is
+        // `guard_verdict_shaped` with a fixed shape, and a test asserts every
+        // alias reaches the same verdict as /v1/guard/verdict on the same
+        // input. They stay advisory: nothing here blocks anything.
+        .route("/verdict", post(hosted_verdict_native))
+        .route("/verdict/native", post(hosted_verdict_native))
+        .route("/verdict/mcp", post(hosted_verdict_mcp))
+        .route("/verdict/openai", post(hosted_verdict_openai))
+        .route("/verdict/cloudevent", post(hosted_verdict_cloudevent))
+        .route("/verdict/policy", post(hosted_verdict_policy))
+        .route("/verdict/batch", post(hosted_verdict_batch))
+        // The discovery document a cold agent is told to read. It described a
+        // node's contract while 404ing on the origin that advertised it.
+        .route("/.well-known/emem-guard.json", get(hosted_guard_descriptor))
+        // Routes a node that ENFORCES serves and this one does not. They
+        // answer a typed refusal naming why rather than a bare 404, because
+        // "not here" and "nowhere" are different answers and an agent that
+        // cannot tell them apart gives up on both.
+        .route("/verdict/anthropic-hook", post(hosted_needs_own_node))
+        .route("/verdict/claude-code", post(hosted_needs_own_node))
+        .route("/log/head", get(hosted_no_verdict_log))
+        .route("/log/entries", get(hosted_no_verdict_log))
+        .route("/log/entry/:leaf", get(hosted_no_verdict_log))
+        .route("/modules", get(hosted_no_modules))
         .route("/v1/facts/:cid", get(get_fact))
         .route("/v1/fetch", post(post_fetch))
         .route("/v1/demos", get(list_demos))
@@ -8075,6 +8109,212 @@ async fn get_guard_selfhost() -> Json<JsonValue> {
         "note": "A node you run needs no account here and no key from us. It \
              verifies what it holds, cites what it does not, and signs every \
              verdict with a key you generated.",
+    }))
+}
+
+// ── the hosted aliases ───────────────────────────────────────────────────
+//
+// One helper per shape rather than one handler reading a path, so a route
+// cannot silently fall through to the wrong shape if the table is edited.
+
+async fn hosted_shaped(
+    s: AppState,
+    shape: GuardShape,
+    q: &std::collections::HashMap<String, String>,
+    body: JsonValue,
+) -> Response {
+    let claim_gating = q
+        .get("claim_gating")
+        .map(|v| v != "false" && v != "0" && !v.is_empty());
+    (
+        StatusCode::OK,
+        Json(guard_verdict_shaped(&s, &body, shape, claim_gating).await),
+    )
+        .into_response()
+}
+
+async fn hosted_verdict_native(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    Json(b): Json<JsonValue>,
+) -> Response {
+    hosted_shaped(s, GuardShape::Native, &q, b).await
+}
+
+async fn hosted_verdict_mcp(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    Json(b): Json<JsonValue>,
+) -> Response {
+    hosted_shaped(s, GuardShape::Mcp, &q, b).await
+}
+
+async fn hosted_verdict_openai(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    Json(b): Json<JsonValue>,
+) -> Response {
+    hosted_shaped(s, GuardShape::Openai, &q, b).await
+}
+
+async fn hosted_verdict_cloudevent(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    Json(b): Json<JsonValue>,
+) -> Response {
+    hosted_shaped(s, GuardShape::Cloudevent, &q, b).await
+}
+
+async fn hosted_verdict_policy(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    Json(b): Json<JsonValue>,
+) -> Response {
+    hosted_shaped(s, GuardShape::Policy, &q, b).await
+}
+
+/// Many transcripts, one request. Capped, and the drop is stated.
+async fn hosted_verdict_batch(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    Json(body): Json<JsonValue>,
+) -> Response {
+    let claim_gating = q
+        .get("claim_gating")
+        .map(|v| v != "false" && v != "0" && !v.is_empty());
+    let items: Vec<JsonValue> = body
+        .get("items")
+        .and_then(|i| i.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let total = items.len();
+    let mut verdicts = Vec::new();
+    for item in items.into_iter().take(emem_guard::interop::MAX_BATCH) {
+        verdicts.push(guard_verdict_shaped(&s, &item, GuardShape::Native, claim_gating).await);
+    }
+    let dropped = total.saturating_sub(verdicts.len());
+    (
+        StatusCode::OK,
+        Json(json!({
+            "schema":   "emem.guard.batch.v1",
+            // Said out loud rather than silently truncated: a caller who sent
+            // 200 and got 64 answers must not read that as 200 clean ones.
+            "dropped":  dropped,
+            "max_items": emem_guard::interop::MAX_BATCH,
+            "verdicts": verdicts,
+            "advisory": true,
+        })),
+    )
+        .into_response()
+}
+
+/// The two vendor hooks, which genuinely cannot run hosted.
+///
+/// Each needs an organisation's own signing secret and sits in that
+/// organisation's request path. A typed refusal naming why, rather than a bare
+/// 404: an agent that cannot tell "not here" from "nowhere" gives up on both.
+async fn hosted_needs_own_node() -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "schema":  "emem.error.v1",
+            "code":    "requires_your_own_node",
+            "message": "This checkpoint needs your organisation's own signing secret and has to                         sit in your request path, so it cannot run on a shared responder. Build a                         node: GET /v1/guard/selfhost returns the procedure. The vendor-neutral                         routes DO run here: POST /verdict, /verdict/mcp, /verdict/openai,                         /verdict/cloudevent, /verdict/policy, /verdict/batch.",
+            "selfhost": "/v1/guard/selfhost",
+        })),
+    )
+        .into_response()
+}
+
+/// The log reads, which only a node that enforces can answer.
+///
+/// This responder is advisory and keeps NO verdict log, so there is no leaf to
+/// fetch. Wiring these to anything would be inventing an audit trail, which is
+/// the one thing this product must never do. Each hosted verdict carries a
+/// receipt instead, and that receipt verifies at /verify.
+async fn hosted_no_verdict_log() -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "schema":  "emem.error.v1",
+            "code":    "no_verdict_log_here",
+            "message": "This responder answers grounding questions advisorily and keeps no                         verdict log, so there is no leaf to fetch and nothing here will pretend                         otherwise. A node you run keeps one, and its /log/head, /log/entries and                         /log/entry/{leaf} are the audit trail. Every hosted verdict instead                         carries an ed25519 receipt over the fact cids it read, which verifies at                         POST /v1/verify_receipt.",
+            "selfhost": "/v1/guard/selfhost",
+            "receipt_verifier": "/v1/verify_receipt",
+        })),
+    )
+        .into_response()
+}
+
+/// Modules, which only a node that loads them has.
+async fn hosted_no_modules() -> Response {
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(json!({
+            "schema":  "emem.error.v1",
+            "code":    "no_modules_here",
+            "message": "This responder loads no detection modules and will not: running somebody                         else's classifier over other people's transcripts is a different product                         with a different trust story. A node you run loads them and serves                         /modules. GET /v1/guard/selfhost returns the procedure.",
+            "selfhost": "/v1/guard/selfhost",
+        })),
+    )
+        .into_response()
+}
+
+/// GET /.well-known/emem-guard.json on THIS origin.
+///
+/// The same discovery document a self-hosted node serves, describing what is
+/// true here rather than what is true in general. A cold agent was being told
+/// to read this path and getting a 404 from the origin that advertised it.
+async fn hosted_guard_descriptor(State(s): State<AppState>) -> Json<JsonValue> {
+    let codes: Vec<JsonValue> = emem_guard::interop::deny_codes()
+        .into_iter()
+        .map(|(code, means)| json!({"code": code, "means": means}))
+        .collect();
+    let fixes: Vec<JsonValue> = emem_guard::interop::fixes()
+        .into_iter()
+        .map(|(fix, action)| json!({"fix": fix, "action": action}))
+        .collect();
+    Json(json!({
+        "service": "emem-guard",
+        "deployment": "hosted",
+        "advisory": true,
+        "blocks_nothing": true,
+        "what_it_checks": "whether cited observations verify, and whether measurable claims about             the physical world carry a citation",
+        "what_it_does_not_check": "content safety, personal data, secrets. Load a module on a node             you run.",
+        "signer_b32": data_encoding::BASE32_NOPAD
+            .encode(&s.identity.pubkey.0)
+            .to_lowercase(),
+        "resolver": "this responder's own corpus, read directly",
+        "verifies_citations": true,
+        "checkpoints": [
+            {"route": "/verdict", "shape": "emem native", "open": true, "hosted": true},
+            {"route": "/verdict/native", "shape": "emem native", "open": true, "hosted": true},
+            {"route": "/verdict/mcp", "shape": "MCP tools/call", "open": true, "hosted": true},
+            {"route": "/verdict/openai", "shape": "OpenAI-compatible", "open": true, "hosted": true},
+            {"route": "/verdict/cloudevent", "shape": "CloudEvents 1.0", "open": true, "hosted": true},
+            {"route": "/verdict/policy", "shape": "OPA-style input/result", "open": true, "hosted": true},
+            {"route": "/verdict/batch", "shape": "array of emem native", "open": true, "hosted": true,
+             "max_items": emem_guard::interop::MAX_BATCH},
+            {"route": "/verdict/anthropic-hook", "shape": "Anthropic Inference hooks", "open": false,
+             "hosted": false, "why": "needs your organisation's signing secret and your request path"},
+            {"route": "/verdict/claude-code", "shape": "Claude Code hook input", "open": false,
+             "hosted": false, "why": "runs client-side inside your own agent"}
+        ],
+        "not_served_here": {
+            "/log/head": "this responder keeps no verdict log; a node you run does",
+            "/log/entries": "this responder keeps no verdict log; a node you run does",
+            "/log/entry/{leaf}": "this responder keeps no verdict log; a node you run does",
+            "/modules": "this responder loads no detection modules and will not"
+        },
+        "evidence_here": {
+            "receipt": "every hosted verdict carries an ed25519 receipt over the fact cids it read",
+            "verify": "/v1/verify_receipt"
+        },
+        "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
+        "deny_codes": codes,
+        "fixes": fixes,
+        "never_denies_on": "a citation this node does not hold. It is indistinguishable from one             minted by another responder.",
+        "self_host": "/v1/guard/selfhost",
     }))
 }
 
@@ -64250,6 +64490,106 @@ mod tests {
             "claim_gating": true
         });
         assert_eq!(guard_verdict_json(&s, &cited).await["action"], "allow");
+    }
+
+    /// The gap a reader actually stood in: we published a nine-route table
+    /// and seven of them answered 404 on this origin.
+    ///
+    /// Each hosted alias must reach the SAME verdict as the canonical route on
+    /// the same input. They re-wrap the one engine and change the envelope,
+    /// never the decision; an alias that diverged would be a second
+    /// implementation nobody meant to write.
+    #[tokio::test]
+    async fn every_hosted_alias_agrees_with_the_canonical_route() {
+        let s = test_app_state();
+        let text = "Elevation there is 918 m per emem:fact:damO.zb000.xUti.zde78:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q";
+        let canonical = guard_verdict_json(&s, &json!({ "texts": [text] })).await;
+
+        let bodies: [(GuardShape, JsonValue); 5] = [
+            (GuardShape::Native, json!({ "texts": [text] })),
+            (
+                GuardShape::Mcp,
+                json!({"method":"tools/call","params":{"name":"t","arguments":{"q":text}}}),
+            ),
+            (GuardShape::Openai, json!({ "input": text })),
+            (
+                GuardShape::Cloudevent,
+                json!({"specversion":"1.0","id":"e1","data":{"t":text}}),
+            ),
+            (GuardShape::Policy, json!({"input":{"prompt":text}})),
+        ];
+        for (shape, body) in bodies {
+            let v = guard_verdict_shaped(&s, &body, shape, None).await;
+            // The decision, the count and what was found are the verdict. The
+            // envelope around them is allowed to differ; that is the point.
+            assert_eq!(v["checked"], canonical["checked"], "{shape:?}");
+            assert_eq!(
+                v["citations_found"], canonical["citations_found"],
+                "{shape:?}"
+            );
+            assert_eq!(v["advisory"], true, "{shape:?} must stay advisory");
+        }
+    }
+
+    /// The routes this responder cannot honestly serve must say WHY, not 404.
+    /// An agent that cannot tell "not here" from "nowhere" gives up on both.
+    #[tokio::test]
+    async fn the_routes_a_shared_responder_cannot_serve_name_the_reason() {
+        for (label, resp) in [
+            ("vendor hook", hosted_needs_own_node().await),
+            ("verdict log", hosted_no_verdict_log().await),
+            ("modules", hosted_no_modules().await),
+        ] {
+            let status = resp.status();
+            let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let v: JsonValue = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{label}");
+            assert_eq!(v["schema"], "emem.error.v1", "{label}");
+            // Every one points at the thing that CAN answer it.
+            assert_eq!(v["selfhost"], "/v1/guard/selfhost", "{label}");
+            assert!(
+                v["message"].as_str().unwrap().len() > 80,
+                "{label}: a refusal that does not explain is a 404 with extra steps"
+            );
+        }
+    }
+
+    /// The descriptor must describe THIS deployment, not a node in general.
+    /// A hosted document claiming routes it does not serve is the same
+    /// overclaim in a machine-readable form.
+    #[tokio::test]
+    async fn the_hosted_descriptor_only_claims_what_is_hosted() {
+        let s = test_app_state();
+        let Json(d) = hosted_guard_descriptor(State(s)).await;
+        assert_eq!(d["deployment"], "hosted");
+        assert_eq!(d["advisory"], true);
+        assert_eq!(d["blocks_nothing"], true);
+
+        let cps = d["checkpoints"].as_array().unwrap();
+        let hosted: Vec<&str> = cps
+            .iter()
+            .filter(|c| c["hosted"] == true)
+            .map(|c| c["route"].as_str().unwrap())
+            .collect();
+        assert_eq!(hosted.len(), 7, "seven routes run here: {hosted:?}");
+        // The two that cannot run hosted say so AND say why.
+        for c in cps.iter().filter(|c| c["hosted"] == false) {
+            assert!(
+                c["why"].as_str().is_some_and(|w| w.len() > 20),
+                "{} claims not-hosted without a reason",
+                c["route"]
+            );
+        }
+        // And what is absent is named as absent rather than omitted.
+        for k in ["/log/head", "/log/entries", "/modules"] {
+            assert!(
+                d["not_served_here"][k].is_string(),
+                "{k} is silently missing rather than explained"
+            );
+        }
+        assert_eq!(d["evidence_here"]["verify"], "/v1/verify_receipt");
     }
 
     /// A self-hosted node serves nine routes and this responder serves one.

@@ -300,12 +300,12 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
     <h3>Step 2 &mdash; run the tests before you trust it</h3>
     <p>Not smoke tests. They include the two signature-verification mistakes the platform documentation singles out as most common: hashing a re-encoded body, and decoding the secret with a URL-safe alphabet. Both fail loudly if reintroduced.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ cargo test --release -p emem-guard
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ cargo test --release -p emem-guard
 test result: ok. 136 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out</code></pre></div>
 
     <h3>Step 3 &mdash; start it, and read what it admits</h3>
     <p>The banner tells you the one thing that matters most. A node with no corpus attached <strong>verifies nothing</strong>, and it says so rather than implying otherwise.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --data ./var/guard
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --data ./var/guard
 emem-guard listening on 127.0.0.1:8080
   signer   zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa
   log      ./var/guard/verdicts.jsonl (0 verdicts)
@@ -315,7 +315,7 @@ emem-guard listening on 127.0.0.1:8080
   mode     enforce
   verify   emem-guard --audit --data ./var/guard</code></pre></div>
     <p>That is still half the product: the signed, append-only record of every decision. Point it at a responder and it verifies too. <code>/health</code> answers the same question in one field, so a load balancer and an auditor read the same fact.</p>
-    <div class="code"><div class="code-head"><span class="tab">GET /health</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
+    <div class="code"><div class="code-head"><span class="tab">GET /health &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
   "ok": true,
   "signer_b32": "zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa",
   "resolver": "null",
@@ -328,7 +328,7 @@ emem-guard listening on 127.0.0.1:8080
 
     <h3>Step 5 &mdash; ask it something</h3>
     <p>The native route. No vendor envelope, no account, no installed client.</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -X POST localhost:8080/verdict \
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -X POST localhost:8080/verdict \
     -H 'content-type: application/json' \
     -d '{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:abc123"]}'
 
@@ -337,7 +337,7 @@ emem-guard listening on 127.0.0.1:8080
 
     <h3>Step 6 &mdash; the failure semantics most integrations get wrong</h3>
     <p>A webhook failure is <strong>not</strong> a deny. A non-200, a timeout or an unparseable body hands the decision to the organisation's failure policy, and under fail-open the prompt reaches the model uninspected. Sustained failures trip a circuit breaker that stops enforcement for everyone.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -w "\nHTTP %{http_code}\n" -X POST localhost:8080/verdict/anthropic-hook \
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -w "\nHTTP %{http_code}\n" -X POST localhost:8080/verdict/anthropic-hook \
     -H 'content-type: application/json' \
     -d '{"type":"some_event_type_that_does_not_exist_yet","request_id":"probe"}'
 
@@ -360,13 +360,13 @@ HTTP 200</code></pre></div>
     <h2><span class="num">03</span>The rule that fires on absence</h2>
     <p class="lede">Every other rule denies on a check that failed. <code>claim_gating</code> denies on a check that was never offered: a sentence asserting a measurable quantity about a place or a time, in a transcript that cites nothing at all. That is a much stronger thing to say about someone's prompt.</p>
     <p>So it ships off, and it ships with the instrument that makes turning it on a decision rather than a guess. <strong>Shadow mode</strong> runs every rule, signs and logs what it would have done, and blocks nobody.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --claim-gating --shadow --data ./var/guard
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --claim-gating --shadow --data ./var/guard
   mode     shadow: every rule runs and is logged, nothing is blocked.
            read it back with emem-guard --report --data ./var/guard
   claims   on: a measurable claim with no citation is denied.</code></pre></div>
 
     <p>Send it a draft that cites nothing:</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05."]}
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05."]}
 
 {
   "action": "allow",
@@ -386,13 +386,13 @@ HTTP 200</code></pre></div>
     <p><code>action: allow</code>, because nobody is being blocked. <code>shadowed: true</code>, because the rule fired. And <code>source_band: "dem"</code>, which is the actionable part: it names where a citable observation would come from, so the remedy is <em>resolve elevation there and cite it</em> rather than <em>cite something</em>.</p>
 
     <p>Add the citation and the rule declines:</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
            per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala."]}
 
 { "action": "allow", "leaf": "leaf_3", "checked": 1 }</code></pre></div>
 
     <p>And ordinary engineering prose never reaches it at all:</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["The verdict path took 800 ms and the transcript limit is 10 MB."]}
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["The verdict path took 800 ms and the transcript limit is 10 MB."]}
 
 { "action": "allow", "leaf": "leaf_4", "checked": 0 }</code></pre></div>
 
@@ -403,7 +403,7 @@ HTTP 200</code></pre></div>
     <p>The corpus found two real defects on the way, both now fixed and pinned by tests: a citation key (<code>Reiche-2018</code>) and a model name (<code>gpt-4o-2024</code>) each read as a year.</p>
 
     <h3>Then read your own number off disk</h3>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --report --data ./var/guard
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --report --data ./var/guard
 verdicts           5
 blocked            0
 would have blocked 1
@@ -435,22 +435,23 @@ by checkpoint
     <h2><span class="num">04</span>Nine checkpoints, seven of which belong to nobody</h2>
     <p class="lede">A checkpoint is any system that pauses before doing something and asks an external server whether to proceed. A gate reachable only through one company's product is a gate for that company's customers, so most of these are standards with more than one implementation behind them and no owner who can revoke them.</p>
     <div class="scroll-x"><table class="endpoints">
-      <tr><th>Route</th><th>Reaches</th><th>Open</th></tr>
-      <tr><td><code>POST /verdict</code></td><td>any agent, on any model, through any framework. The native shape.</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/mcp</code></td><td>any MCP host or proxy, gating a tool call <em>or a tool result</em></td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/openai</code></td><td>anything holding an OpenAI-shaped client</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/cloudevent</code></td><td>CloudEvents 1.0 producers: Knative, Dapr, Argo Events</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/policy</code></td><td>OPA-compatible clients, Envoy external authorisation</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/batch</code></td><td>many transcripts at once, for scanning an archive offline</td><td>yes</td></tr>
-      <tr><td><code>GET /log/entry/{leaf}</code></td><td>anyone checking a verdict without trusting the node that issued it</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/anthropic-hook</code></td><td>claude.ai, Cowork and Claude Code inside a Claude Enterprise org</td><td>no</td></tr>
-      <tr><td><code>POST /verdict/claude-code</code></td><td>agents on the Platform API, Bedrock and Vertex, which Inference hooks cannot see</td><td>no</td></tr>
+      <tr><th>Route</th><th>Reaches</th><th>Open</th><th>Runs on emem.dev</th></tr>
+      <tr><td><code>POST /verdict</code></td><td>any agent, on any model, through any framework. The native shape.</td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/mcp</code></td><td>any MCP host or proxy, gating a tool call <em>or a tool result</em></td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/openai</code></td><td>anything holding an OpenAI-shaped client</td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/cloudevent</code></td><td>CloudEvents 1.0 producers: Knative, Dapr, Argo Events</td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/policy</code></td><td>OPA-compatible clients, Envoy external authorisation</td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/batch</code></td><td>many transcripts at once, for scanning an archive offline</td><td>yes</td><td>yes</td></tr>
+      <tr><td><code>GET /log/entry/{leaf}</code></td><td>anyone checking a verdict without trusting the node that issued it</td><td>yes</td><td><strong>no</strong>: emem.dev keeps no verdict log</td></tr>
+      <tr><td><code>POST /verdict/anthropic-hook</code></td><td>claude.ai, Cowork and Claude Code inside a Claude Enterprise org</td><td>no</td><td><strong>no</strong>: needs your org secret</td></tr>
+      <tr><td><code>POST /verdict/claude-code</code></td><td>agents on the Platform API, Bedrock and Vertex, which Inference hooks cannot see</td><td>no</td><td><strong>no</strong>: runs inside your agent</td></tr>
     </table></div>
     <p>A test asserts every route the node advertises actually answers, and that the open ones outnumber the vendor ones. That is a commitment the build checks, not a posture in a README.</p>
+    <p><strong>Six of them also run right here.</strong> <code>emem.dev</code> hosts the vendor-neutral verdict routes over the same engine, advisory and blocking nothing, so a client you developed against a local node can be pointed at this origin without changing anything but the host. The three it cannot serve say why rather than 404: the two vendor hooks need your organisation's own secret and your own request path, and <code>/log/entry</code> needs a verdict log, which an advisory responder does not keep and will not pretend to. <a href="/.well-known/emem-guard.json">/.well-known/emem-guard.json</a> lists exactly which is which.</p>
 
     <h3>The MCP one is the most portable</h3>
     <p>MCP is an open protocol with many independent hosts. Put a proxy between a host and its servers and ask before dispatching.</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict/mcp</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"jsonrpc":"2.0","id":7,"method":"tools/call",
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict/mcp &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"jsonrpc":"2.0","id":7,"method":"tools/call",
  "params":{"name":"read_file","arguments":{"path":"notes.md"}}}
 
 { "allow": true, "id": 7,
@@ -472,7 +473,7 @@ by checkpoint
   <div class="section-body">
     <h2><span class="num">05</span>Every denial names a leaf you can fetch</h2>
     <p class="lede">A reason line ending in <code>leaf=leaf_2</code> is a promise. Here is the mechanism behind it.</p>
-    <div class="code"><div class="code-head"><span class="tab">GET /log/entry/leaf_0</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
+    <div class="code"><div class="code-head"><span class="tab">GET /log/entry/leaf_0 &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
   "seq": 0,
   "record": {
     "checkpoint": "emem.native.v1",
@@ -490,7 +491,7 @@ by checkpoint
     <p>The record, the signature over its preimage, the key that signed, and the link to the entry before. Verifying it involves nothing from the node that served it. <code>outcome</code> and <code>evaluated</code> are both in the preimage, which is what makes a shadow report evidence: an operator who could relabel one as the other afterwards could claim enforcement they never ran.</p>
 
     <h3>Signatures prove each verdict. The chain proves none were removed.</h3>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
 entries        5
 bad signature  []
 broken chain   []
@@ -499,7 +500,7 @@ intact         true
 $ echo $?
 0</code></pre></div>
     <p>Now flip one logged verdict from allow to deny, exactly as someone hiding a decision would:</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
 entries        5
 bad signature  [0]
 broken chain   [0]
@@ -525,7 +526,7 @@ $ echo $?
     <h2><span class="num">06</span>Check some text against this responder</h2>
     <p class="lede">The same engine, hosted here and <strong>advisory</strong>: this responder is not in anybody's request path and nothing below blocks anything. It answers what a guard would say, so you can see the thing before you build anything.</p>
     <div class="code">
-      <div class="code-head"><span class="tab">POST /v1/guard/verdict</span><span class="lang">live</span><span class="spacer"></span></div>
+      <div class="code-head"><span class="tab">POST /v1/guard/verdict &mdash; live, this origin</span><span class="lang">live</span><span class="spacer"></span></div>
       <div style="padding:1rem 1.2rem">
         <textarea id="gtext" rows="4" style="width:100%;font-family:var(--mono);font-size:var(--t-sm);background:var(--paper);color:var(--ink);border:1px solid var(--rule);padding:.6rem;line-height:1.5">Canopy height in Sumatra reached 31 m on 2026-08-05.</textarea>
         <div style="display:flex;gap:.6rem;align-items:center;margin-top:.7rem;flex-wrap:wrap">
@@ -538,9 +539,28 @@ $ echo $?
     </div>
     <p style="font-size:var(--t-xs);color:var(--mute)">Paste a token that does not resolve here and you get <code>allow</code>, not <code>deny</code>. That is the design: a citation this responder has not cached is indistinguishable from one minted by another responder, and denying on it would punish an agent for citing across nodes, which is the behaviour the token format exists to enable.</p>
 
+    <h3>The same routes, against this origin</h3>
+    <p>Every vendor-neutral verdict route above also runs here. Nothing below is a mock or a self-hosted transcript: paste it and it answers.</p>
+    <div class="code"><div class="code-head"><span class="tab">runs against emem.dev as printed</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>curl -sS -X POST https://emem.dev/verdict \
+  -H 'content-type: application/json' \
+  -d '{"texts":["Elevation there is 918 m."]}'
+
+# an MCP tools/call, gated
+curl -sS -X POST https://emem.dev/verdict/mcp \
+  -H 'content-type: application/json' \
+  -d '{"method":"tools/call","params":{"name":"read","arguments":{"q":"emem:fact:a:b"}}}'
+
+# an OpenAI-shaped body, and an OPA-style policy input
+curl -sS -X POST https://emem.dev/verdict/openai  -d '{"input":"..."}'  -H 'content-type: application/json'
+curl -sS -X POST https://emem.dev/verdict/policy  -d '{"input":{"prompt":"..."}}' -H 'content-type: application/json'
+
+# what this origin does and does not serve
+curl -sS https://emem.dev/.well-known/emem-guard.json</code></pre></div>
+    <p style="font-size:var(--t-xs);color:var(--mute)">Advisory here: this origin is in nobody's request path and blocks nothing. It keeps no verdict log either, so <code>/log/entry</code> answers a typed refusal naming why rather than a 404, and each hosted verdict carries an ed25519 receipt instead, verifiable at <a href="/verify">/verify</a>.</p>
+
     <h3>Then run your own</h3>
     <p>A node you run needs no account here and no key from us. It generates its own signing key, keeps its own log, verifies what it holds, and cites what it does not. Ask it for the procedure and it hands you one written to be executed unattended.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill > SKILL.md
+    <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill > SKILL.md
 $ git clone https://github.com/Vortx-AI/emem &amp;&amp; cd emem
 $ cargo build --release -p emem-guard
 $ ./target/release/emem-guard --responder https://emem.dev</code></pre></div>
