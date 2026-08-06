@@ -251,7 +251,11 @@ impl ClaudeCodeInput {
 }
 
 /// Every string leaf in a JSON value, in document order.
-fn collect_strings<'a>(v: &'a serde_json::Value, out: &mut Vec<&'a str>) {
+///
+/// Shared with the interop adapters: an MCP tool call, a CloudEvent and an OPA
+/// input are all arbitrary JSON whose citations live at unknown depth, and
+/// each one having its own walker would be three chances to miss a nesting.
+pub(crate) fn collect_strings<'a>(v: &'a serde_json::Value, out: &mut Vec<&'a str>) {
     match v {
         serde_json::Value::String(s) => out.push(s.as_str()),
         serde_json::Value::Array(a) => a.iter().for_each(|x| collect_strings(x, out)),

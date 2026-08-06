@@ -33,6 +33,10 @@ use axum::{
 
 use crate::checkpoint::{Adapter, AnthropicHook, ClaudeCodeHook, ClaudeCodeInput, ClaudeCodeStyle};
 use crate::frame::PromptFrame;
+use crate::interop::{
+    BatchRequest, BatchResponse, CloudEvent, CloudEventGate, McpCall, McpGate, OpenAiGate,
+    OpenAiRequest, PolicyPointGate, MAX_BATCH,
+};
 use crate::log::{seal, LogFailurePolicy};
 use crate::policy::{self, Config, Decision, Evidence};
 use crate::store::{signer, FileLog};
@@ -50,8 +54,29 @@ pub const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 pub const SELF_BUDGET: Duration = Duration::from_millis(800);
 
 /// Everything a request needs.
+/// The share of the self-budget citations may consume.
+///
+/// Half, so signing and the log append always have room. A verdict that
+/// resolved every token and then missed its deadline helps nobody: the
+/// platform records a timeout, which is a webhook failure, which is worse
+/// than an allow that checked less than it wanted to.
+pub const RESOLVE_BUDGET: Duration = Duration::from_millis(400);
+
+/// How many citations one transcript may have resolved.
+///
+/// A ceiling rather than a guess: a transcript can carry thousands of tokens,
+/// and an unbounded loop over them is a denial-of-service against ourselves
+/// that any caller could trigger. Beyond this the rest are unresolved, which
+/// is not a denial, so the cap costs coverage and never correctness.
+pub const MAX_RESOLVED_TOKENS: usize = 64;
+
 pub struct Guard {
     pub config: Config,
+    /// How citations are checked. A bare node uses [`NullResolver`] and
+    /// allows everything; a node pointed at a responder verifies.
+    pub resolver: Box<dyn crate::resolve::Resolver>,
+    /// cell64 addresses the operator restricted. Exact match only.
+    pub restricted_cells: std::collections::HashSet<String>,
     pub log: FileLog,
     pub signing: ed25519_dalek::SigningKey,
     /// Secrets accepted right now. More than one during a rotation.
@@ -84,18 +109,56 @@ impl Guard {
     fn gather(&self, texts: &[&str]) -> Evidence {
         let found = tokens::scan_all(texts.iter().copied());
         let need = policy::needs_resolution(&found);
+
+        // Claims are scanned whenever the rule is configured at all, including
+        // in shadow, because an org that cannot see the count has no basis on
+        // which to decide whether to enforce. Scanning is pure string work
+        // over text already in memory, so it costs nothing a resolver does not
+        // already dwarf.
+        let claims = if self.config.claim_gating {
+            crate::claim::scan_claims(texts.iter().copied())
+        } else {
+            Vec::new()
+        };
+
+        // The budget is shared across every citation, not granted per token.
+        // A transcript carrying forty of them must not take forty times as
+        // long as one: the deadline belongs to the exchange, and a caller who
+        // cites heavily should not be the one who trips the breaker.
+        let per_token = if need.is_empty() {
+            Duration::ZERO
+        } else {
+            RESOLVE_BUDGET / need.len().min(MAX_RESOLVED_TOKENS) as u32
+        };
+
+        let mut tokens = Vec::with_capacity(need.len());
+        let deadline = Instant::now() + RESOLVE_BUDGET;
+        for t in need {
+            // Past the deadline everything remaining is unresolved rather
+            // than unchecked-and-silent. The count still reaches the log, so
+            // a shadow report can show how often the budget ran out.
+            let status = if Instant::now() >= deadline || tokens.len() >= MAX_RESOLVED_TOKENS {
+                policy::TokenStatus::Unresolved
+            } else {
+                self.resolver.resolve(t, per_token)
+            };
+            tokens.push((t.clone(), status));
+        }
+
         Evidence {
-            tokens: need
-                .into_iter()
-                .map(|t| {
-                    // A bare node holds no corpus, so every citation is cold.
-                    // Wiring this to the responder's warm cache is what turns
-                    // a logging guard into a verifying one, and it is the
-                    // only line that has to change.
-                    (t.clone(), policy::TokenStatus::Unresolved)
-                })
+            tokens,
+            // A cell64 reference is restricted when the operator listed it.
+            // Exact match against a configured set, never a geocode: fuzzy
+            // resolution on the verdict path is how a guard confidently
+            // blocks innocent work, and a wrong deny is the worst failure
+            // this system has.
+            restricted_cells: found
+                .iter()
+                .filter_map(|t| cell_of(&t.token))
+                .filter(|c| self.restricted_cells.contains(*c))
+                .map(str::to_string)
                 .collect(),
-            restricted_cells: Vec::new(),
+            claims,
         }
     }
 
@@ -103,7 +166,7 @@ impl Guard {
     fn decide(&self, checkpoint: &str, request_id: &str, texts: &[&str]) -> Decision {
         // A replay must get the answer already recorded, not a fresh one.
         if let Some(prior) = self.log.find_by_request_id(request_id) {
-            let mut d = if prior.record.outcome == "deny" {
+            let mut d = if prior.record.code.is_some() {
                 Decision::block(
                     prior.record.code.unwrap_or(policy::DenyCode::ProvSig),
                     prior.record.token.clone(),
@@ -115,11 +178,20 @@ impl Guard {
             d = d
                 .with_checked(prior.record.checked)
                 .with_leaf(format!("leaf_{}", prior.seq));
-            return d;
+            // Replay the MODE the original was decided under, not the current
+            // one. A node switched from shadow to enforcing between a request
+            // and its retry must not turn a verdict the caller was already
+            // told to allow into a block.
+            return d.under(prior.record.mode);
         }
 
         let evidence = self.gather(texts);
         let decision = policy::evaluate(&self.config, &evidence);
+        // Shadow is applied BEFORE sealing, so the record holds the answer the
+        // caller actually received in `outcome` and the answer the rules
+        // reached in `evaluated`. Sealing the enforcing decision and
+        // downgrading afterwards would log a block that never happened.
+        let returned = decision.under(self.config.mode);
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -127,8 +199,9 @@ impl Guard {
         let (sealed, log_err) = seal(
             checkpoint,
             request_id,
-            decision,
+            returned,
             now,
+            self.config.mode,
             signer(&self.signing),
             &self.log,
             self.log_failure_policy,
@@ -140,14 +213,88 @@ impl Guard {
         }
         sealed
     }
+
+    /// Run one adapter end to end: parse, evaluate, render.
+    ///
+    /// Every route is this function with a different adapter. Written once so
+    /// a new checkpoint cannot accidentally skip the signature check, the
+    /// idempotency lookup or the log, which are the three things that make a
+    /// verdict worth anything and the three easiest to leave out of a
+    /// hand-written handler.
+    fn run<A: Adapter>(&self, adapter: &A, body: &[u8]) -> A::Response
+    where
+        A::Request: serde::de::DeserializeOwned,
+    {
+        let Ok(req) = serde_json::from_slice::<A::Request>(body) else {
+            // Unparseable is never a failure of the exchange. See the module
+            // docs: a non-verdict is worse than a permissive one.
+            return adapter.render(&Decision::proceed());
+        };
+        let decision = match adapter.transcript(&req) {
+            None => Decision::proceed(),
+            Some(t) => {
+                // A caller with no id still gets an answer; it simply cannot
+                // claim to be a replay of an earlier one, which is the honest
+                // behaviour when nothing identifies the earlier one.
+                let id = t
+                    .request_id
+                    .map(str::to_string)
+                    .unwrap_or_else(|| ulid::Ulid::new().to_string());
+                self.decide(adapter.checkpoint_id(), &id, &t.texts)
+            }
+        };
+        adapter.render(&decision)
+    }
+}
+
+/// The cell64 a token names, for the restricted-zone check.
+///
+/// Only the address form. The spoken form carries coordinates, and turning
+/// those into an address would be a geocode, which the verdict path forbids.
+fn cell_of(token: &str) -> Option<&str> {
+    let rest = token
+        .strip_prefix("emem:fact:")
+        .or_else(|| token.strip_prefix("emem:cell:"))?;
+    let cell = rest.split(':').next()?;
+    (cell.contains('.') && !cell.contains(',') && !cell.contains('@')).then_some(cell)
 }
 
 /// Build the router.
+///
+/// The route table is the interoperability commitment made concrete. Two
+/// vendor checkpoints, one native, four standards-based, and a batch shape,
+/// all landing in the same engine. Nothing about the decision changes with the
+/// door it came through, which is asserted rather than assumed in
+/// [`tests::every_route_reaches_the_same_verdict_on_the_same_evidence`].
 pub fn router(guard: Arc<Guard>) -> Router {
     Router::new()
         .route("/health", get(health))
+        // Self-description, so an agent learns the whole contract from one GET
+        // rather than from documentation it has to be told to read.
+        .route("/.well-known/emem-guard.json", get(descriptor))
+        // ── vendor checkpoints ──
         .route("/verdict/anthropic-hook", post(anthropic))
         .route("/verdict/claude-code", post(claude_code))
+        // ── the open route ──
+        // No vendor, no account, no installed client: any agent on any model
+        // can ask the same question and get the same answer, with the log leaf
+        // attached so it need not take our word.
+        .route("/verdict", post(native))
+        .route("/verdict/native", post(native))
+        // ── standards-based checkpoints ──
+        .route("/verdict/mcp", post(mcp))
+        .route("/verdict/openai", post(openai))
+        .route("/verdict/cloudevent", post(cloudevent))
+        .route("/verdict/policy", post(policy_point))
+        .route("/verdict/batch", post(batch))
+        // ── the evidence half ──
+        // A denial names a leaf. Without these it would be naming something
+        // nobody could fetch, which is a promise of verifiability rather than
+        // verifiability.
+        .route("/log/head", get(log_head))
+        .route("/log/entry/:leaf", get(log_entry))
+        .route("/log/entries", get(log_entries))
+        .route("/log/report", get(log_report))
         // The platform sends up to 10 MB and a rejected body is a webhook
         // failure, so the limit is the ceiling rather than a comfortable
         // default.
@@ -158,17 +305,95 @@ pub fn router(guard: Arc<Guard>) -> Router {
 }
 
 async fn health(State(g): State<Arc<Guard>>) -> impl IntoResponse {
+    let (seq, chain) = g.log.head();
     Json(serde_json::json!({
         "ok": true,
         "signer_b32": g.log.signer_b32(),
-        "verdicts_logged": g.log.len(),
+        "verdicts_logged": seq,
+        "log_head": chain,
         "require_signature": g.require_signature,
+        "mode": g.config.mode.as_str(),
+        // Which resolver is attached, because a bare node's allow and a
+        // corpus-backed node's allow are different claims and an operator
+        // should never have to guess which one they are running.
+        "resolver": g.resolver.describe(),
+        "verifies_citations": g.resolver.describe() != "null",
         "rules": {
             "provenance": g.config.provenance,
             "freshness": g.config.freshness,
             "geo_restriction": g.config.geo_restriction,
             "claim_gating": g.config.claim_gating,
         },
+    }))
+}
+
+/// Everything an agent needs to use this node, in one document.
+///
+/// The alternative is an agent that has to be handed a README by a person,
+/// which is the coupling this whole crate exists to remove. A cold agent can
+/// GET this, learn every route, every deny code, every remedy and the exact
+/// reason grammar, and integrate without reading a word of prose.
+async fn descriptor(State(g): State<Arc<Guard>>) -> impl IntoResponse {
+    let codes: Vec<_> = crate::interop::deny_codes()
+        .into_iter()
+        .map(|(code, means)| serde_json::json!({"code": code, "means": means}))
+        .collect();
+    let fixes: Vec<_> = crate::interop::fixes()
+        .into_iter()
+        .map(|(fix, action)| serde_json::json!({"fix": fix, "action": action}))
+        .collect();
+    Json(serde_json::json!({
+        "service": "emem-guard",
+        "version": env!("CARGO_PKG_VERSION"),
+        "what_it_checks": "whether cited observations verify, and whether \
+            measurable claims about the physical world carry a citation",
+        "what_it_does_not_check": "content safety, personal data, secrets. \
+            emem-guard is a chassis for those, not an implementation of them.",
+        "signer_b32": g.log.signer_b32(),
+        "mode": g.config.mode.as_str(),
+        "resolver": g.resolver.describe(),
+        "verifies_citations": g.resolver.describe() != "null",
+        "checkpoints": [
+            {"route": "/verdict", "shape": "emem native", "checkpoint_id": "emem.native.v1",
+             "open": true},
+            {"route": "/verdict/native", "shape": "emem native", "checkpoint_id": "emem.native.v1",
+             "open": true},
+            {"route": "/verdict/mcp", "shape": "MCP tools/call", "checkpoint_id": "mcp.tools_call.v1",
+             "open": true},
+            {"route": "/verdict/openai", "shape": "OpenAI-compatible chat or moderations",
+             "checkpoint_id": "openai.compatible.v1", "open": true},
+            {"route": "/verdict/cloudevent", "shape": "CloudEvents 1.0",
+             "checkpoint_id": "cloudevents.v1", "open": true},
+            {"route": "/verdict/policy", "shape": "OPA-style input/result",
+             "checkpoint_id": "policy_point.v1", "open": true},
+            {"route": "/verdict/batch", "shape": "array of emem native",
+             "checkpoint_id": "emem.native.v1", "open": true,
+             "max_items": MAX_BATCH},
+            {"route": "/verdict/anthropic-hook", "shape": "Anthropic Inference hooks",
+             "checkpoint_id": "anthropic.inference_hook.v1", "open": false},
+            {"route": "/verdict/claude-code", "shape": "Claude Code hook input",
+             "checkpoint_id": "anthropic.claude_code_hook.v1", "open": false}
+        ],
+        "evidence": {
+            "head": "/log/head",
+            "entry": "/log/entry/{leaf}",
+            "entries": "/log/entries?start=0&count=50",
+            "report": "/log/report",
+            "preimage_domain": "emem.guard.verdict.v2",
+            "signature": "ed25519 over the record preimage, base32-nopad-lowercase"
+        },
+        "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
+        "deny_codes": codes,
+        "fixes": fixes,
+        "rules": {
+            "provenance": g.config.provenance,
+            "freshness": g.config.freshness,
+            "geo_restriction": g.config.geo_restriction,
+            "claim_gating": g.config.claim_gating,
+        },
+        "never_denies_on": "a citation this node does not hold. It is \
+            indistinguishable from one minted by another responder.",
+        "self_host": "https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/SKILL.md",
     }))
 }
 
@@ -285,6 +510,233 @@ async fn claude_code(
     (StatusCode::OK, Json(adapter.render(&decision))).into_response()
 }
 
+/// The open, vendor-neutral verdict route.
+async fn native(State(g): State<Arc<Guard>>, body: axum::body::Bytes) -> impl IntoResponse {
+    (StatusCode::OK, Json(g.run(&crate::open::NativeHook, &body)))
+}
+
+/// Gate an MCP tool call, or a tool result on its way back in.
+async fn mcp(State(g): State<Arc<Guard>>, body: axum::body::Bytes) -> impl IntoResponse {
+    let mut out = g.run(&McpGate, &body);
+    // Echo the JSON-RPC id so a proxy can correlate without re-parsing the
+    // request it just sent.
+    out.id = serde_json::from_slice::<McpCall>(&body)
+        .ok()
+        .and_then(|c| c.id);
+    (StatusCode::OK, Json(out))
+}
+
+/// The OpenAI-shaped route. Reach, not endorsement: see [`OpenAiGate`].
+async fn openai(State(g): State<Arc<Guard>>, body: axum::body::Bytes) -> impl IntoResponse {
+    let mut out = g.run(&OpenAiGate, &body);
+    // Echo the caller's model name where the shape expects one, so a client
+    // that logs the field sees what it asked for rather than our name for
+    // ourselves.
+    if let Some(m) = serde_json::from_slice::<OpenAiRequest>(&body)
+        .ok()
+        .and_then(|r| r.model)
+    {
+        out.model = m;
+    }
+    (StatusCode::OK, Json(out))
+}
+
+/// A CloudEvent in, a CloudEvent out.
+///
+/// Binary mode too: the spec puts the attributes in `ce-*` headers and the
+/// data in the body, so a body that is not a structured event is read as the
+/// data with the id taken from the header. Both modes reach the same engine.
+async fn cloudevent(
+    State(g): State<Arc<Guard>>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    let header = |name: &str| -> Option<String> {
+        headers
+            .iter()
+            .find(|(k, _)| k.as_str().eq_ignore_ascii_case(name))
+            .and_then(|(_, v)| v.to_str().ok())
+            .map(str::to_string)
+    };
+    let structured = serde_json::from_slice::<CloudEvent>(&body)
+        .ok()
+        .filter(|e| e.specversion.is_some());
+    let event = match structured {
+        Some(e) => e,
+        None => CloudEvent {
+            specversion: header("ce-specversion"),
+            id: header("ce-id"),
+            event_type: header("ce-type"),
+            source: header("ce-source"),
+            data: serde_json::from_slice(&body).ok(),
+        },
+    };
+    let subject = event.id.clone();
+    // Not `Guard::run`: the event was assembled here from two possible
+    // sources, so there is no single body left to parse. Everything after the
+    // parse is the same path every other route takes.
+    let decision = match CloudEventGate.transcript(&event) {
+        None => Decision::proceed(),
+        Some(t) => {
+            let id = t
+                .request_id
+                .map(str::to_string)
+                .unwrap_or_else(|| ulid::Ulid::new().to_string());
+            g.decide(CloudEventGate.checkpoint_id(), &id, &t.texts)
+        }
+    };
+    let mut out = CloudEventGate.render(&decision);
+    out.subject = subject;
+    (StatusCode::OK, Json(out))
+}
+
+/// The OPA-style policy decision point.
+async fn policy_point(State(g): State<Arc<Guard>>, body: axum::body::Bytes) -> impl IntoResponse {
+    (StatusCode::OK, Json(g.run(&PolicyPointGate, &body)))
+}
+
+/// Many transcripts, one request. The offline shape.
+async fn batch(State(g): State<Arc<Guard>>, body: axum::body::Bytes) -> impl IntoResponse {
+    let req = serde_json::from_slice::<BatchRequest>(&body).unwrap_or_default();
+    let total = req.items.len();
+    let adapter = crate::open::NativeHook;
+    let verdicts: Vec<_> = req
+        .items
+        .iter()
+        .take(MAX_BATCH)
+        .map(|item| {
+            let decision = match adapter.transcript(item) {
+                None => Decision::proceed(),
+                Some(t) => {
+                    let id = t
+                        .request_id
+                        .map(str::to_string)
+                        .unwrap_or_else(|| ulid::Ulid::new().to_string());
+                    g.decide(adapter.checkpoint_id(), &id, &t.texts)
+                }
+            };
+            adapter.render(&decision)
+        })
+        .collect();
+    (
+        StatusCode::OK,
+        Json(BatchResponse {
+            dropped: total.saturating_sub(verdicts.len()),
+            verdicts,
+        }),
+    )
+}
+
+// ── the evidence half ────────────────────────────────────────────────────
+
+/// The chain head: what a witness or a mirror pins.
+async fn log_head(State(g): State<Arc<Guard>>) -> impl IntoResponse {
+    let (seq, chain) = g.log.head();
+    Json(serde_json::json!({
+        "entries": seq,
+        "head": chain,
+        "signer_b32": g.log.signer_b32(),
+        "preimage_domain": "emem.guard.verdict.v2",
+    }))
+}
+
+/// One entry, by the leaf id a denial named.
+///
+/// Accepts `leaf_7` and `7`, because the reason line carries the first form
+/// and a person reading a report has the second.
+async fn log_entry(
+    State(g): State<Arc<Guard>>,
+    axum::extract::Path(leaf): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    let Some(seq) = leaf
+        .strip_prefix("leaf_")
+        .unwrap_or(&leaf)
+        .parse::<u64>()
+        .ok()
+    else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "leaf must be leaf_<n> or <n>"})),
+        )
+            .into_response();
+    };
+    match g.log.entry(seq) {
+        Some(v) => (StatusCode::OK, Json(serde_json::json!(v))).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no such leaf", "leaf": leaf})),
+        )
+            .into_response(),
+    }
+}
+
+/// A window of entries, so a mirror can pull the log without the node's help.
+#[derive(serde::Deserialize)]
+pub struct EntriesQuery {
+    #[serde(default)]
+    start: u64,
+    #[serde(default = "default_count")]
+    count: usize,
+}
+
+fn default_count() -> usize {
+    50
+}
+
+/// The largest window one request may pull.
+///
+/// A cap rather than a page size: an unbounded range over a long-lived log
+/// would let any caller make the node read its whole history into memory.
+pub const MAX_ENTRIES_PER_REQUEST: usize = 500;
+
+async fn log_entries(
+    State(g): State<Arc<Guard>>,
+    axum::extract::Query(q): axum::extract::Query<EntriesQuery>,
+) -> impl IntoResponse {
+    let entries = g.log.range(q.start, q.count, MAX_ENTRIES_PER_REQUEST);
+    let next = entries.last().map(|e| e.seq + 1);
+    Json(serde_json::json!({
+        "start": q.start,
+        "returned": entries.len(),
+        "next_start": next,
+        "max_per_request": MAX_ENTRIES_PER_REQUEST,
+        "entries": entries,
+    }))
+}
+
+/// What this node has actually done, counted from the log.
+///
+/// The number an organisation decides on before enforcing a rule, and it comes
+/// from the same file an auditor would read rather than from a counter in
+/// process memory that resets on restart and nobody else can check.
+async fn log_report(State(g): State<Arc<Guard>>) -> impl IntoResponse {
+    match crate::store::ShadowReport::read(g.log.path()) {
+        Ok(r) => Json(serde_json::json!({
+            "entries": r.entries,
+            "enforced_denies": r.enforced_denies,
+            "observed_denies": r.observed_denies,
+            "fired_rate": r.fired_rate(),
+            "citations_checked": r.citations_checked,
+            "by_code": r.by_code,
+            "by_checkpoint": r.by_checkpoint,
+            "first_unix_s": r.first_unix_s,
+            "last_unix_s": r.last_unix_s,
+            "mode": g.config.mode.as_str(),
+        }))
+        .into_response(),
+        // An empty log is not an error, it is a node that has answered
+        // nothing yet, and saying so is more useful than a 500.
+        Err(_) => Json(serde_json::json!({
+            "entries": 0,
+            "enforced_denies": 0,
+            "observed_denies": 0,
+            "fired_rate": 0.0,
+            "mode": g.config.mode.as_str(),
+        }))
+        .into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,6 +751,8 @@ mod tests {
         let key = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
         Arc::new(Guard {
             config: Config::default(),
+            resolver: Box::new(crate::resolve::NullResolver),
+            restricted_cells: Default::default(),
             log: FileLog::open(&p, key.verifying_key()).unwrap(),
             signing: key,
             secrets: Vec::new(),
@@ -411,6 +865,328 @@ mod tests {
         let (s2, v2) = post(router(g2), "/verdict/anthropic-hook", body).await;
         assert_eq!(s2, StatusCode::OK, "refusing would be a webhook failure");
         assert_eq!(v2["action"], "allow");
+    }
+
+    /// The interoperability commitment, asserted at the level that matters:
+    /// not that the adapters agree in a unit test, but that the SERVER answers
+    /// the same way through every door.
+    ///
+    /// A guard that denied through one route and allowed through another would
+    /// be discriminating between agents on the basis of the client they
+    /// happened to hold.
+    #[tokio::test]
+    async fn every_route_reaches_the_same_verdict_on_the_same_evidence() {
+        // A bare node resolves nothing, so this asserts the allow path across
+        // every shape. What matters is that all of them answer, in their own
+        // envelope, with a verdict that reads as allow.
+        /// A route, a body to send it, and how to read an allow out of its
+        /// own envelope.
+        type RouteCase<'a> = (&'a str, &'a str, &'a dyn Fn(&serde_json::Value) -> bool);
+        let cases: [RouteCase; 7] = [
+            (
+                "/verdict",
+                r#"{"texts":["per emem:fact:a:b it is 918 m"]}"#,
+                &|v| v["action"] == "allow",
+            ),
+            (
+                "/verdict/native",
+                r#"{"messages":[{"role":"user","content":"emem:fact:a:b"}]}"#,
+                &|v| v["action"] == "allow",
+            ),
+            (
+                "/verdict/mcp",
+                r#"{"method":"tools/call","params":{"name":"t","arguments":{"q":"emem:fact:a:b"}}}"#,
+                &|v| v["allow"] == true && v["verdict"]["action"] == "allow",
+            ),
+            ("/verdict/openai", r#"{"input":"emem:fact:a:b"}"#, &|v| {
+                v["results"][0]["flagged"] == false
+            }),
+            (
+                "/verdict/cloudevent",
+                r#"{"specversion":"1.0","id":"e1","type":"t","source":"/a","data":{"t":"emem:fact:a:b"}}"#,
+                &|v| v["type"] == "dev.emem.guard.verdict.allow",
+            ),
+            (
+                "/verdict/policy",
+                r#"{"input":{"prompt":"emem:fact:a:b"}}"#,
+                &|v| {
+                    v["result"]["allow"] == true
+                        && v["result"]["deny"].as_array().unwrap().is_empty()
+                },
+            ),
+            (
+                "/verdict/batch",
+                r#"{"items":[{"texts":["emem:fact:a:b"]},{"texts":["nothing"]}]}"#,
+                &|v| v["verdicts"].as_array().unwrap().len() == 2 && v["dropped"] == 0,
+            ),
+        ];
+        for (path, body, ok) in cases {
+            let (status, v) = post(router(guard("routes")), path, body).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert!(ok(&v), "{path} answered {v}");
+        }
+    }
+
+    /// No route may produce a webhook failure, whatever arrives. The rule was
+    /// written for the Anthropic checkpoint and it holds for all of them,
+    /// because an unparseable body is our lag far more often than an attack.
+    #[tokio::test]
+    async fn no_route_fails_on_a_body_it_cannot_read() {
+        for path in [
+            "/verdict",
+            "/verdict/mcp",
+            "/verdict/openai",
+            "/verdict/cloudevent",
+            "/verdict/policy",
+            "/verdict/batch",
+            "/verdict/anthropic-hook",
+            "/verdict/claude-code",
+        ] {
+            for body in [
+                "}{ not json",
+                "",
+                "[1,2,3]",
+                r#"{"unexpected":{"deep":[1]}}"#,
+            ] {
+                let (status, v) = post(router(guard("robust")), path, body).await;
+                assert_eq!(status, StatusCode::OK, "{path} on {body:?}");
+                assert!(!v.is_null(), "{path} on {body:?} returned no verdict");
+            }
+        }
+    }
+
+    /// A batch cannot be used to make one request do unbounded work, and the
+    /// truncation is stated rather than silent: a caller who sent more than the
+    /// cap must not read the short answer as a clean run.
+    #[tokio::test]
+    async fn an_oversized_batch_says_what_it_dropped() {
+        let items: Vec<String> = (0..MAX_BATCH + 10)
+            .map(|i| format!(r#"{{"texts":["item {i}"]}}"#))
+            .collect();
+        let body = format!(r#"{{"items":[{}]}}"#, items.join(","));
+        let (status, v) = post(router(guard("batchcap")), "/verdict/batch", &body).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["verdicts"].as_array().unwrap().len(), MAX_BATCH);
+        assert_eq!(v["dropped"], 10);
+    }
+
+    /// A denial names a leaf. Without a route to fetch it, that name is a
+    /// promise of verifiability rather than verifiability.
+    #[tokio::test]
+    async fn the_leaf_a_denial_names_can_actually_be_fetched_and_checked() {
+        let g = guard("leaf");
+        // Any verdict writes a leaf; an allow is enough to test the retrieval
+        // path, and the signature check below is the part that matters.
+        let (_, v) = post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["hello"],"request_id":"r-leaf"}"#,
+        )
+        .await;
+        let leaf = v["leaf"].as_str().expect("every verdict is logged");
+
+        let app = router(g.clone());
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/log/entry/{leaf}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let entry: crate::store::LoggedVerdict = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(entry.record.request_id, "r-leaf");
+
+        // And the fetched entry verifies against the key it names, with
+        // nothing taken from the node that served it.
+        use ed25519_dalek::Verifier as _;
+        let pk: [u8; 32] = data_encoding::BASE32_NOPAD
+            .decode(entry.signer_b32.to_uppercase().as_bytes())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let sig: [u8; 64] = data_encoding::BASE32_NOPAD
+            .decode(entry.signature_b32.to_uppercase().as_bytes())
+            .unwrap()
+            .try_into()
+            .unwrap();
+        ed25519_dalek::VerifyingKey::from_bytes(&pk)
+            .unwrap()
+            .verify(
+                &entry.record.preimage(),
+                &ed25519_dalek::Signature::from_bytes(&sig),
+            )
+            .expect("the leaf a denial names must verify offline");
+
+        // A leaf that does not exist is a 404, not a fabricated entry.
+        let app = router(g);
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/log/entry/leaf_9999")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// The descriptor is how a cold agent integrates without being handed a
+    /// README by a person. Every route it advertises has to exist.
+    #[tokio::test]
+    async fn the_descriptor_advertises_only_routes_that_answer() {
+        let g = guard("descriptor");
+        let app = router(g.clone());
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/.well-known/emem-guard.json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let d: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        let checkpoints = d["checkpoints"].as_array().unwrap();
+        assert!(checkpoints.len() >= 9, "{} advertised", checkpoints.len());
+        for cp in checkpoints {
+            let route = cp["route"].as_str().unwrap();
+            let (status, _) = post(router(g.clone()), route, "{}").await;
+            assert_eq!(
+                status,
+                StatusCode::OK,
+                "{route} is advertised but does not answer"
+            );
+        }
+        // At least as many open routes as vendor ones, which is the posture
+        // this crate is committing to rather than merely describing.
+        let open = checkpoints.iter().filter(|c| c["open"] == true).count();
+        assert!(
+            open > checkpoints.len() - open,
+            "{open} open of {} total",
+            checkpoints.len()
+        );
+        // The grammar an agent parses is published, not folklore.
+        assert!(d["reason_grammar"]
+            .as_str()
+            .unwrap()
+            .starts_with("EMEM-GUARD DENY"));
+        assert_eq!(d["deny_codes"].as_array().unwrap().len(), 5);
+        assert_eq!(d["fixes"].as_array().unwrap().len(), 4);
+    }
+
+    /// Shadow: every rule runs, every verdict is signed and logged with what
+    /// it would have done, and nobody is blocked. The report reads it back.
+    #[tokio::test]
+    async fn a_shadow_node_records_what_it_would_have_blocked_and_blocks_nothing() {
+        let mut g = guard("shadow");
+        {
+            let m = Arc::get_mut(&mut g).unwrap();
+            m.config.claim_gating = true;
+            m.config.mode = policy::Mode::Shadow;
+        }
+
+        let (status, v) = post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["Elevation in Leh is 3500 m."],"request_id":"r-shadow"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["action"], "allow", "shadow blocks nobody");
+        assert_eq!(v["shadowed"], true, "and says it would have");
+        assert_eq!(v["code"], "CLAIM_UNGROUNDED");
+        assert_eq!(v["fix"], "cite_observation");
+        assert_eq!(
+            v["claim"]["source_band"], "dem",
+            "and names where to get a citation"
+        );
+
+        // The count comes off disk, from the same file an auditor reads.
+        let r = crate::store::ShadowReport::read(g.log.path()).unwrap();
+        assert_eq!(r.entries, 1);
+        assert_eq!(r.enforced_denies, 0, "nothing was blocked");
+        assert_eq!(r.observed_denies, 1, "and one would have been");
+        assert_eq!(r.by_code["CLAIM_UNGROUNDED"], (0, 1));
+    }
+
+    /// The same node with the same rule, enforcing. Same evidence, same code,
+    /// different answer, which is the only difference shadow is allowed to
+    /// make.
+    #[tokio::test]
+    async fn the_same_transcript_is_denied_once_the_node_enforces() {
+        let mut g = guard("enforce");
+        Arc::get_mut(&mut g).unwrap().config.claim_gating = true;
+        let (status, v) = post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["Elevation in Leh is 3500 m."],"request_id":"r-enf"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "a deny is still a 200");
+        assert_eq!(v["action"], "deny");
+        assert!(v["shadowed"].is_null(), "not shadowed: it was acted on");
+        let reason = v["reason"].as_str().unwrap();
+        assert!(
+            reason.starts_with("EMEM-GUARD DENY CLAIM_UNGROUNDED"),
+            "{reason}"
+        );
+        assert!(reason.contains("fix=cite_observation"), "{reason}");
+
+        let r = crate::store::ShadowReport::read(g.log.path()).unwrap();
+        assert_eq!((r.enforced_denies, r.observed_denies), (1, 0));
+    }
+
+    /// A retry must get the answer already acted on, even across a mode
+    /// change. A node switched from shadow to enforcing between a request and
+    /// its retry must not turn an allow the caller already received into a
+    /// block.
+    #[tokio::test]
+    async fn a_replay_gets_the_mode_it_was_originally_decided_under() {
+        let mut g = guard("replaymode");
+        {
+            let m = Arc::get_mut(&mut g).unwrap();
+            m.config.claim_gating = true;
+            m.config.mode = policy::Mode::Shadow;
+        }
+        let body = r#"{"texts":["Elevation in Leh is 3500 m."],"request_id":"r-mode"}"#;
+        let (_, first) = post(router(g.clone()), "/verdict", body).await;
+        assert_eq!(first["action"], "allow");
+
+        // Flip to enforcing and replay the same id.
+        Arc::get_mut(&mut g).unwrap().config.mode = policy::Mode::Enforce;
+        let (_, again) = post(router(g.clone()), "/verdict", body).await;
+        assert_eq!(
+            again["action"], "allow",
+            "the recorded verdict wins over the current config"
+        );
+        assert_eq!(again["leaf"], first["leaf"], "and it is the same entry");
+    }
+
+    /// The claim gate must be off unless an operator turned it on, because it
+    /// is the one rule that denies on absence.
+    #[tokio::test]
+    async fn a_default_node_never_denies_an_uncited_claim() {
+        let (status, v) = post(
+            router(guard("claimoff")),
+            "/verdict",
+            r#"{"texts":["Elevation in Leh is 3500 m."]}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["action"], "allow");
+        assert!(v["code"].is_null(), "no rule fired at all");
     }
 
     /// Health is what an operator and a load balancer read.

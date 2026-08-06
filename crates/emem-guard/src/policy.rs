@@ -74,6 +74,14 @@ pub enum Fix {
     RemoveReference,
     /// A human decision: the org restricted this, not the evidence.
     ContactAdmin,
+    /// Ground the claim: resolve the observation through emem and cite the
+    /// token it returns.
+    ///
+    /// The only fix that asks for something to be ADDED rather than changed or
+    /// dropped, and the one the whole gate exists to produce. An agent that
+    /// reads this and acts starts carrying citations, which is worth more than
+    /// the single request it was denied.
+    CiteObservation,
 }
 
 impl Fix {
@@ -82,6 +90,7 @@ impl Fix {
             Self::RefreshToken => "refresh_token",
             Self::RemoveReference => "remove_reference",
             Self::ContactAdmin => "contact_admin",
+            Self::CiteObservation => "cite_observation",
         }
     }
 }
@@ -102,6 +111,13 @@ pub struct Decision {
     pub leaf: Option<String>,
     /// How many citations were checked, for the shadow report.
     pub checked: usize,
+    /// The claim that triggered a `CLAIM_UNGROUNDED` denial.
+    ///
+    /// Never reaches the fixed reason line, which is a published grammar with
+    /// no field for it. It reaches the open route, whose schema nobody else
+    /// owns, so an agent calling that route learns which sentence and which
+    /// band rather than only that something was ungrounded.
+    pub claim: Option<crate::claim::Claim>,
 }
 
 /// The maximum length of the generated reason, before the org's own suffix.
@@ -121,6 +137,7 @@ impl Decision {
             fix: None,
             leaf: None,
             checked: 0,
+            claim: None,
         }
     }
 
@@ -133,7 +150,14 @@ impl Decision {
             fix: Some(fix),
             leaf: None,
             checked: 0,
+            claim: None,
         }
+    }
+
+    /// Attach the ungrounded claim behind a `CLAIM_UNGROUNDED` denial.
+    pub fn with_claim(mut self, claim: crate::claim::Claim) -> Self {
+        self.claim = Some(claim);
+        self
     }
 
     /// Attach the log leaf this verdict was written to.
@@ -146,6 +170,33 @@ impl Decision {
     pub fn with_checked(mut self, n: usize) -> Self {
         self.checked = n;
         self
+    }
+
+    /// What the caller is told, under `mode`.
+    ///
+    /// The decision itself is not re-derived. In shadow the same evaluation
+    /// runs, the same record is signed and logged, and only the outcome
+    /// returned to the checkpoint changes. The code, the fix and the claim
+    /// survive on the allow, which is what lets the open route answer "this
+    /// would have been denied, and here is why" without blocking anyone.
+    pub fn under(self, mode: Mode) -> Self {
+        match (mode, self.outcome) {
+            (Mode::Shadow, Outcome::Block) => Self {
+                outcome: Outcome::Proceed,
+                ..self
+            },
+            _ => self,
+        }
+    }
+
+    /// Whether a rule fired, whatever the caller was told.
+    pub fn would_block(&self) -> bool {
+        self.outcome == Outcome::Block || self.code.is_some()
+    }
+
+    /// Whether a denial was recorded but not acted on.
+    pub fn is_shadowed(&self) -> bool {
+        self.outcome == Outcome::Proceed && self.code.is_some()
     }
 
     /// The machine-first reason line.
@@ -243,6 +294,12 @@ pub struct Evidence {
     /// wrong place produces a confident block of innocent work, and a wrong
     /// deny here is the worst failure this system has.
     pub restricted_cells: Vec<String>,
+    /// Measurable, anchored, assertive claims found in the transcript.
+    ///
+    /// Gathered unconditionally so a shadow report can count them whether or
+    /// not the rule is enforcing. The rule itself needs the pair of this and
+    /// `tokens`: a claim is only ungrounded when the transcript cited nothing.
+    pub claims: Vec<crate::claim::Claim>,
 }
 
 /// Which rules are on.
@@ -266,7 +323,43 @@ pub struct Config {
     /// Off. This is the only rule that denies on absence rather than on a
     /// failed check, so it will block legitimate conversation until an org
     /// has seen its own shadow numbers and chosen the trade deliberately.
+    /// [`Mode::Shadow`] is how you see those numbers without blocking anyone.
     pub claim_gating: bool,
+    /// Whether a denial is acted on or only recorded.
+    pub mode: Mode,
+}
+
+/// Whether the guard enforces or observes.
+///
+/// The rule that makes claim gating shippable at all. An org turns the rule on
+/// in [`Mode::Shadow`], runs its own traffic through it for as long as it
+/// likes, reads the counts back out of the log with `emem-guard --report`, and
+/// only then decides whether the trade is one it wants. Nothing about the
+/// evaluation changes between the two: the same decision is reached and signed,
+/// and shadow differs only in what is returned to the caller.
+///
+/// That symmetry is deliberate. A shadow report produced by a different code
+/// path than the enforcing one measures the wrong thing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// A deny is returned to the checkpoint and blocks the request.
+    #[default]
+    Enforce,
+    /// A deny is signed and logged, and an allow is returned.
+    ///
+    /// The log entry records what WOULD have happened, so the report is
+    /// evidence rather than an estimate.
+    Shadow,
+}
+
+impl Mode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Enforce => "enforce",
+            Self::Shadow => "shadow",
+        }
+    }
 }
 
 impl Default for Config {
@@ -276,6 +369,7 @@ impl Default for Config {
             freshness: true,
             geo_restriction: false,
             claim_gating: false,
+            mode: Mode::Enforce,
         }
     }
 }
@@ -344,13 +438,24 @@ pub fn evaluate(cfg: &Config, ev: &Evidence) -> Decision {
         }
     }
 
-    // claim_gating deliberately has no implementation here yet. Denying on
-    // the absence of a citation requires classifying which sentences are
-    // quantitative physical-world claims, and a classifier that is wrong in
-    // the deny direction blocks ordinary conversation. It ships when a
-    // shadow report has measured the false-positive rate on real traffic,
-    // not before, and the flag exists so the config shape does not change
-    // when it does.
+    if cfg.claim_gating {
+        // The transcript-level condition, and the reason this rule is safe
+        // enough to exist. A transcript that cited ANYTHING is the work of an
+        // agent that knows how to ground itself, and gating its individual
+        // sentences would need attribution this engine cannot do: which claim
+        // does which citation support. Rather than guess, the rule declines to
+        // fire the moment a single token is present.
+        //
+        // The cost is an agent that cites once and asserts ten times. That is
+        // a real gap and it is the conservative side of it.
+        if ev.tokens.is_empty() {
+            if let Some(c) = ev.claims.first() {
+                return Decision::block(DenyCode::ClaimUngrounded, None, Fix::CiteObservation)
+                    .with_claim(c.clone())
+                    .with_checked(checked);
+            }
+        }
+    }
 
     Decision::proceed().with_checked(checked)
 }
@@ -513,6 +618,98 @@ mod tests {
         assert_eq!(d.code, Some(DenyCode::GeoZone));
         // The org restricted it, so the remedy is a person, not a retry.
         assert_eq!(d.fix, Some(Fix::ContactAdmin));
+    }
+
+    /// The transcript-level condition, and the whole reason this rule is safe
+    /// enough to exist. An agent that cited anything is one that knows how to
+    /// ground itself, and attributing individual sentences to individual
+    /// citations is a problem this engine declines to guess at.
+    #[test]
+    fn a_single_citation_anywhere_disarms_the_claim_gate() {
+        let cfg = Config {
+            claim_gating: true,
+            ..Default::default()
+        };
+        let claim = crate::claim::scan_claims(["Elevation in Leh is 3500 m."])
+            .pop()
+            .expect("the fixture must be a claim");
+
+        // Nothing cited: the rule fires.
+        let bare = Evidence {
+            claims: vec![claim.clone()],
+            ..Default::default()
+        };
+        let d = evaluate(&cfg, &bare);
+        assert_eq!(d.code, Some(DenyCode::ClaimUngrounded));
+        // The remedy is to ADD a citation, which is the only fix in the set
+        // that grows adoption rather than removing a reference.
+        assert_eq!(d.fix, Some(Fix::CiteObservation));
+        // And the denial carries what to go and cite.
+        assert_eq!(d.claim.as_ref().unwrap().source_band, "dem");
+
+        // One citation, even an unresolved one from another responder, and the
+        // rule declines.
+        let cited = Evidence {
+            claims: vec![claim],
+            tokens: vec![(
+                tok("emem:entity:abc", TokenKind::Entity),
+                TokenStatus::Unresolved,
+            )],
+            ..Default::default()
+        };
+        assert_eq!(evaluate(&cfg, &cited).outcome, Outcome::Proceed);
+    }
+
+    /// Claim gating is the lowest-severity rule: a failed check is a stronger
+    /// statement than a missing one, and an agent gets one reason per denial.
+    #[test]
+    fn an_established_failure_outranks_a_missing_citation() {
+        let cfg = Config {
+            claim_gating: true,
+            ..Default::default()
+        };
+        let ev = Evidence {
+            claims: crate::claim::scan_claims(["Elevation in Leh is 3500 m."]),
+            tokens: vec![(
+                tok("emem:fact:a:b", TokenKind::Fact),
+                TokenStatus::SignatureFailed,
+            )],
+            ..Default::default()
+        };
+        assert_eq!(evaluate(&cfg, &ev).code, Some(DenyCode::ProvSig));
+    }
+
+    /// Shadow changes what the caller is told and nothing else. The same
+    /// evaluation runs, so a report measured in shadow describes the code that
+    /// will run in enforcement.
+    #[test]
+    fn shadow_changes_the_answer_and_not_the_evaluation() {
+        let ev = Evidence {
+            tokens: vec![(
+                tok("emem:fact:a:b", TokenKind::Fact),
+                TokenStatus::SignatureFailed,
+            )],
+            ..Default::default()
+        };
+        let enforced = evaluate(&Config::default(), &ev);
+        let shadowed = evaluate(
+            &Config {
+                mode: Mode::Shadow,
+                ..Default::default()
+            },
+            &ev,
+        )
+        .under(Mode::Shadow);
+
+        assert_eq!(enforced.outcome, Outcome::Block);
+        assert_eq!(shadowed.outcome, Outcome::Proceed, "nobody is blocked");
+        // Everything an auditor or an agent would want survives the downgrade.
+        assert_eq!(shadowed.code, enforced.code);
+        assert_eq!(shadowed.fix, enforced.fix);
+        assert_eq!(shadowed.token, enforced.token);
+        assert!(shadowed.would_block(), "the rule still fired");
+        assert!(shadowed.is_shadowed());
+        assert!(!enforced.is_shadowed());
     }
 
     /// The grammar is a wire contract: agents parse it to self-correct.

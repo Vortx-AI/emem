@@ -22,15 +22,21 @@
 //! # What is signed
 //!
 //! The preimage binds every input that could change the verdict: which
-//! checkpoint asked, the request id, the decision, the code, the token, and
-//! the count of citations examined. Anything omitted is something an operator
-//! could later alter without breaking the signature, so the rule is that a
-//! field either enters the preimage or does not exist.
+//! checkpoint asked, the request id, the decision, the code, the token, the
+//! count of citations examined, whether the node was enforcing, and what the
+//! rules concluded regardless. Anything omitted is something an operator could
+//! later alter without breaking the signature, so the rule is that a field
+//! either enters the preimage or does not exist.
+//!
+//! The last two are why the domain says `v2`. A shadow report is a claim about
+//! how often a rule WOULD have fired, and a claim like that is only worth
+//! anything if the operator making it could not have edited the answer
+//! afterwards.
 
 use serde::{Deserialize, Serialize};
 
 use crate::checkpoint::Outcome;
-use crate::policy::{Decision, DenyCode, Fix};
+use crate::policy::{Decision, DenyCode, Fix, Mode};
 
 /// A verdict as it is written to the log.
 ///
@@ -65,28 +71,58 @@ pub struct VerdictRecord {
     pub checked: usize,
     /// When we decided, unix seconds.
     pub decided_at_unix_s: i64,
+    /// Whether this verdict was acted on or only observed.
+    ///
+    /// In the preimage because the difference between "we blocked this" and
+    /// "we would have blocked this" is the entire content of a shadow report.
+    /// An operator who could relabel one as the other after the fact could
+    /// claim enforcement they never ran, or disown a block they did.
+    #[serde(default)]
+    pub mode: Mode,
+    /// What the rules concluded, whatever `outcome` says.
+    ///
+    /// Equal to `outcome` under [`Mode::Enforce`]. Under [`Mode::Shadow`] this
+    /// is `deny` on an entry whose `outcome` is `allow`, and that pair is the
+    /// measurement: how often the rule would have fired, on this org's own
+    /// traffic, signed at the moment it was observed rather than counted later
+    /// from a mutable table.
+    #[serde(default)]
+    pub evaluated: String,
 }
 
 impl VerdictRecord {
     /// Build the record for a decision.
+    ///
+    /// `decision` is the decision as it will be RETURNED. The rule outcome is
+    /// recovered from the code, which survives a shadow downgrade, so a
+    /// shadowed deny records `outcome: allow` and `evaluated: deny` and both
+    /// are signed.
     pub fn new(
         checkpoint: &str,
         request_id: &str,
         decision: &Decision,
         decided_at_unix_s: i64,
+        mode: Mode,
     ) -> Self {
+        let word = |o: Outcome| match o {
+            Outcome::Proceed => "allow".to_string(),
+            Outcome::Block => "deny".to_string(),
+        };
         Self {
             checkpoint: checkpoint.to_string(),
             request_id: request_id.to_string(),
-            outcome: match decision.outcome {
-                Outcome::Proceed => "allow".to_string(),
-                Outcome::Block => "deny".to_string(),
-            },
+            outcome: word(decision.outcome),
             code: decision.code,
             token: decision.token.clone(),
             fix: decision.fix,
             checked: decision.checked,
             decided_at_unix_s,
+            mode,
+            evaluated: if decision.would_block() {
+                "deny".to_string()
+            } else {
+                "allow".to_string()
+            },
         }
     }
 
@@ -111,7 +147,12 @@ impl VerdictRecord {
             out.extend_from_slice(bytes);
         };
         // Domain, so a verdict preimage can never be confused with a receipt.
-        seg(0x00, b"emem.guard.verdict.v1");
+        //
+        // v2 adds the mode and the evaluated outcome. The version is IN the
+        // domain rather than beside it, so a v1 verifier cannot be handed a v2
+        // record and told the extra segments were always there: the domain
+        // string itself differs, so the signature simply does not verify.
+        seg(0x00, b"emem.guard.verdict.v2");
         seg(0x01, self.checkpoint.as_bytes());
         seg(0x02, self.request_id.as_bytes());
         seg(0x03, self.outcome.as_bytes());
@@ -123,6 +164,8 @@ impl VerdictRecord {
         seg(0x06, self.fix.map(Fix::as_str).unwrap_or("").as_bytes());
         seg(0x07, &(self.checked as u64).to_le_bytes());
         seg(0x08, &self.decided_at_unix_s.to_le_bytes());
+        seg(0x09, self.mode.as_str().as_bytes());
+        seg(0x0a, self.evaluated.as_bytes());
         out
     }
 }
@@ -191,16 +234,18 @@ pub enum LogFailurePolicy {
 /// `policy`, and in both cases the caller still answers with a well-formed
 /// verdict: refusing to answer would be a webhook failure, which blocks
 /// nothing and counts toward the circuit breaker.
+#[allow(clippy::too_many_arguments)]
 pub fn seal(
     checkpoint: &str,
     request_id: &str,
     decision: Decision,
     decided_at_unix_s: i64,
+    mode: Mode,
     sign: impl Fn(&[u8]) -> Vec<u8>,
     log: &dyn VerdictLog,
     policy: LogFailurePolicy,
 ) -> (Decision, Option<LogError>) {
-    let record = VerdictRecord::new(checkpoint, request_id, &decision, decided_at_unix_s);
+    let record = VerdictRecord::new(checkpoint, request_id, &decision, decided_at_unix_s, mode);
     let signature = sign(&record.preimage());
     match log.append(&record, &signature) {
         Ok(leaf) => (decision.with_leaf(leaf), None),
@@ -270,6 +315,7 @@ mod tests {
             "req_1",
             deny(),
             1_700_000_000,
+            Mode::Enforce,
             |p| p.to_vec(),
             &log,
             LogFailurePolicy::default(),
@@ -288,7 +334,7 @@ mod tests {
     /// to prevent.
     #[test]
     fn every_field_that_could_change_the_verdict_is_signed() {
-        let base = VerdictRecord::new("cp", "req_1", &deny(), 1_700_000_000);
+        let base = VerdictRecord::new("cp", "req_1", &deny(), 1_700_000_000, Mode::Enforce);
         let p = base.preimage();
 
         let mut m = base.clone();
@@ -322,14 +368,70 @@ mod tests {
         let mut m = base.clone();
         m.decided_at_unix_s += 1;
         assert_ne!(m.preimage(), p, "decided_at");
+
+        let mut m = base.clone();
+        m.mode = Mode::Shadow;
+        assert_ne!(m.preimage(), p, "mode");
+
+        let mut m = base.clone();
+        m.evaluated = "allow".to_string();
+        assert_ne!(m.preimage(), p, "evaluated");
+    }
+
+    /// Shadow logs the decision it reached and returns the one it was allowed
+    /// to act on. Both are signed, and the pair is the measurement an org uses
+    /// to decide whether to enforce.
+    #[test]
+    fn a_shadowed_deny_is_recorded_as_a_deny_that_was_not_acted_on() {
+        let log = Recording::ok();
+        let returned = deny().under(Mode::Shadow);
+        assert_eq!(
+            returned.outcome,
+            Outcome::Proceed,
+            "the caller is not blocked"
+        );
+        let (_d, err) = seal(
+            "cp",
+            "req_shadow",
+            returned,
+            0,
+            Mode::Shadow,
+            |p| p.to_vec(),
+            &log,
+            LogFailurePolicy::default(),
+        );
+        assert!(err.is_none());
+        let (rec, _) = log.appended.borrow()[0].clone();
+        assert_eq!(rec.outcome, "allow", "what the checkpoint was told");
+        assert_eq!(rec.evaluated, "deny", "what the rules concluded");
+        assert_eq!(rec.mode, Mode::Shadow);
+        assert_eq!(
+            rec.code,
+            Some(DenyCode::ProvSig),
+            "the reason survives, or the report cannot say which rule fired"
+        );
+    }
+
+    /// Enforcing is the default, and there the two agree. A report that could
+    /// not tell an enforced deny from an observed one would be worthless.
+    #[test]
+    fn under_enforcement_the_two_outcomes_agree() {
+        assert_eq!(Mode::default(), Mode::Enforce);
+        let r = VerdictRecord::new("cp", "r", &deny(), 0, Mode::Enforce);
+        assert_eq!((r.outcome.as_str(), r.evaluated.as_str()), ("deny", "deny"));
+        let a = VerdictRecord::new("cp", "r", &Decision::proceed(), 0, Mode::Enforce);
+        assert_eq!(
+            (a.outcome.as_str(), a.evaluated.as_str()),
+            ("allow", "allow")
+        );
     }
 
     /// Length prefixes, so adjacent fields cannot be re-partitioned into a
     /// different record with the same bytes.
     #[test]
     fn field_boundaries_cannot_be_shifted() {
-        let a = VerdictRecord::new("ab", "c", &Decision::proceed(), 0);
-        let b = VerdictRecord::new("a", "bc", &Decision::proceed(), 0);
+        let a = VerdictRecord::new("ab", "c", &Decision::proceed(), 0, Mode::Enforce);
+        let b = VerdictRecord::new("a", "bc", &Decision::proceed(), 0, Mode::Enforce);
         assert_ne!(a.preimage(), b.preimage());
     }
 
@@ -337,7 +439,7 @@ mod tests {
     /// receipt preimage learned this when a stripped Merkle proof verified.
     #[test]
     fn absence_is_signed_rather_than_implied() {
-        let allow = VerdictRecord::new("cp", "req_1", &Decision::proceed(), 0);
+        let allow = VerdictRecord::new("cp", "req_1", &Decision::proceed(), 0, Mode::Enforce);
         let p = allow.preimage();
         // The tag for `token` is present even though the value is empty.
         assert!(p.contains(&0x05u8));
@@ -359,6 +461,7 @@ mod tests {
             "req_1",
             deny(),
             0,
+            Mode::Enforce,
             |p| p.to_vec(),
             &log,
             LogFailurePolicy::default(),
@@ -384,6 +487,7 @@ mod tests {
             "req_1",
             deny(),
             0,
+            Mode::Enforce,
             |p| p.to_vec(),
             &log,
             LogFailurePolicy::DowngradeDeny,

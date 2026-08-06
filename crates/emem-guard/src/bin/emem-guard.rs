@@ -23,13 +23,40 @@ OPTIONS:
     --require-signature    refuse unsigned requests (set once the org has saved
                            its secret; the platform's FIRST connection test
                            arrives unsigned, so this starts off)
+    --responder URL        an emem responder holding the corpus, e.g.
+                           http://127.0.0.1:5051. Without one the guard signs
+                           and logs every verdict but verifies no citation.
+    --restrict-cell CELL   a cell64 to refuse references to; repeat for more.
+                           Exact match only, never a geocode.
+    --claim-gating         deny measurable physical claims that cite nothing.
+                           Off by default. Run it with --shadow first and read
+                           --report before you enforce it.
+    --shadow               evaluate and log every rule, return allow always.
+                           The way to measure what enforcing would cost on your
+                           own traffic before it costs it.
     --audit                verify the existing log and exit
+    --report               count what this node has done, from the log, and exit
     -h, --help             this text
 
-ENDPOINTS:
+ENDPOINTS, OPEN:
+    POST /verdict                  any agent, any model, any framework
+    POST /verdict/mcp              MCP tools/call, gating a call or a result
+    POST /verdict/openai           OpenAI-shaped chat or moderations body
+    POST /verdict/cloudevent       CloudEvents 1.0, structured or binary
+    POST /verdict/policy           OPA-style {input} -> {result}
+    POST /verdict/batch            many transcripts, one request
+
+ENDPOINTS, VENDOR:
     POST /verdict/anthropic-hook   Anthropic Inference hooks
     POST /verdict/claude-code      Claude Code client-side hooks
+
+ENDPOINTS, EVIDENCE:
     GET  /health                   signer, verdict count, active rules
+    GET  /.well-known/emem-guard.json   the whole contract, machine-readable
+    GET  /log/head                 chain head, for a witness or a mirror
+    GET  /log/entry/leaf_7         the signed record a denial named
+    GET  /log/entries?start=0      a window, so anyone can mirror the log
+    GET  /log/report               what this node has done, counted from disk
 
 Put it behind TLS on a publicly routable host: the platform refuses private
 and loopback ranges and does not follow redirects.
@@ -41,6 +68,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut secrets: Vec<String> = Vec::new();
     let mut require_signature = false;
     let mut audit_only = false;
+    let mut report_only = false;
+    let mut claim_gating = false;
+    let mut shadow = false;
+    let mut responder: Option<String> = None;
+    let mut restricted: std::collections::HashSet<String> = Default::default();
 
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -59,7 +91,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "--require-signature" => require_signature = true,
+            "--responder" => responder = args.next(),
+            "--restrict-cell" => {
+                if let Some(c) = args.next() {
+                    restricted.insert(c);
+                }
+            }
+            "--claim-gating" => claim_gating = true,
+            "--shadow" => shadow = true,
             "--audit" => audit_only = true,
+            "--report" => report_only = true,
             other => {
                 eprintln!("emem-guard: unknown argument {other:?}\n\n{USAGE}");
                 std::process::exit(2);
@@ -79,6 +120,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // A non-zero exit so a scheduled audit fails a pipeline rather than
         // printing a problem nobody reads.
         std::process::exit(if report.is_intact() { 0 } else { 1 });
+    }
+
+    if report_only {
+        // Counted from the log rather than from memory, so the numbers an
+        // operator quotes and the numbers an outsider can verify are the same
+        // numbers. Anyone with a copy of the file reproduces this exactly.
+        let r = emem_guard::ShadowReport::read(&log_path)?;
+        println!("verdicts           {}", r.entries);
+        println!("blocked            {}", r.enforced_denies);
+        println!("would have blocked {}", r.observed_denies);
+        println!("fired rate         {:.4}", r.fired_rate());
+        println!("citations checked  {}", r.citations_checked);
+        if let (Some(a), Some(b)) = (r.first_unix_s, r.last_unix_s) {
+            println!("window             {a} .. {b} unix seconds");
+        }
+        println!("\nby code            enforced / observed");
+        for (code, (e, o)) in &r.by_code {
+            println!("  {code:<18} {e:>8} / {o}");
+        }
+        println!("\nby checkpoint");
+        for (cp, n) in &r.by_checkpoint {
+            println!("  {cp:<34} {n}");
+        }
+        if r.entries == 0 {
+            println!("\nNothing logged yet. Point a checkpoint at this node first.");
+        }
+        return Ok(());
     }
 
     // The node key. Generated on first run and reused after, because a key
@@ -103,8 +171,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // Without a responder the node signs and logs but verifies nothing, and
+    // says so on /health rather than implying otherwise.
+    let resolver: Box<dyn emem_guard::Resolver> = match responder.as_deref() {
+        Some(base) => Box::new(emem_guard::ResponderResolver::new(
+            base,
+            emem_guard::server::RESOLVE_BUDGET,
+        )?),
+        None => Box::new(emem_guard::NullResolver),
+    };
+    let resolver_name = resolver.describe();
+
+    // A restricted list is the only thing that makes the geo rule meaningful,
+    // so it turns itself on when one is supplied and stays off otherwise.
+    let config = Config {
+        geo_restriction: !restricted.is_empty(),
+        claim_gating,
+        mode: if shadow {
+            emem_guard::Mode::Shadow
+        } else {
+            emem_guard::Mode::Enforce
+        },
+        ..Config::default()
+    };
+
     let guard = Arc::new(Guard {
-        config: Config::default(),
+        config,
+        resolver,
+        restricted_cells: restricted,
         log,
         signing,
         secrets,
@@ -115,7 +209,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("emem-guard listening on {bind}");
     println!("  signer   {signer_b32}");
     println!("  log      {} ({logged} verdicts)", log_path.display());
-    println!("  rules    provenance=on freshness=on geo=off claim_gating=off");
+    println!("  resolve  {resolver_name}");
+    if resolver_name == "null" {
+        println!("           no responder configured: citations are not verified, only logged.");
+        println!("           point one with --responder http://127.0.0.1:5051 to check them.");
+    }
+    if shadow {
+        println!("  mode     shadow: every rule runs and is logged, nothing is blocked.");
+        println!(
+            "           read it back with emem-guard --report --data {}",
+            data.display()
+        );
+    } else {
+        println!("  mode     enforce");
+    }
+    if claim_gating {
+        println!("  claims   on: a measurable claim with no citation is denied.");
+        if !shadow {
+            println!("           this rule denies on ABSENCE. Measure it with --shadow first.");
+        }
+    }
     println!("  verify   emem-guard --audit --data {}", data.display());
 
     let rt = tokio::runtime::Runtime::new()?;
