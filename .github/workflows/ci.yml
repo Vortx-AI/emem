@@ -370,6 +370,41 @@ jobs:
           fi
           exit $code
 
+  spec-verifier:
+    name: the spec's own verifier verifies a real receipt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install blake3 pynacl
+      # docs/protocol.md 7.4 publishes a self-contained verifier and calls it
+      # "the entire trust-rebinding path". It is the listing third parties
+      # copy. 5ci64hps rebuilt it from the segment tables and found it
+      # rejected every current receipt: the stream stopped at tag 0x09 and
+      # never emitted the v2 MERKLE segment, so it computed the SAME digest as
+      # the downgrade attack the spec describes two sections earlier. The
+      # published verifier and the attacker agreed with each other and
+      # disagreed with the signer.
+      #
+      # /v1/verifier_spec was right the whole time because it is generated
+      # from the signer's constants. Only the prose drifted, in the one
+      # document nobody runs. So run it.
+      - name: run the published listing against a live receipt
+        run: |
+          set +e
+          python3 scripts/spec_verifier_check.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; the spec verifier was not exercised"
+            exit 0
+          fi
+          exit $code
+
   route-truth:
     name: every route the site shows answers where it is shown
     runs-on: ubuntu-latest

@@ -280,6 +280,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <p class="lede">A checkpoint holds a request and asks an external server whether to proceed. The named destinations for that question all evaluate <strong>content</strong>: does this text contain a card number, a secret, a classified marking. None of them can evaluate whether a claim about the world is still true, because none of them hold signed observations of it.</p>
     <p>emem-guard evaluates the other thing. It finds the <code>emem:</code> citations in a transcript, resolves each one, and answers on the evidence. A cited observation whose signature fails is a denial. A cited observation this node has never seen is not, because that is indistinguishable from one minted by another responder.</p>
     <p>The verdict is signed and appended to a hash-chained log <em>before</em> it is returned. Requests to a security server are already signed on the way in; verdicts come back as unsigned JSON into a mutable database, so nobody can later prove what was allowed, denied, or why. A compliance API that reports its own history is testimony. An append-only log with a chain is evidence.</p>
+    <figure style="margin:2rem 0"><a href="/docs/diagrams/42-guard-dlp-chassis.svg"><img src="/docs/diagrams/42-guard-dlp-chassis.svg" alt="The chassis your DLP runs on: detection arrives in-process, over a webhook, or as a closed engine on a unix socket; the verdict is signed into an append-only chain rather than a mutable table" style="width:100%;height:auto;border:1px solid var(--rule)" loading="lazy" decoding="async"/></a><figcaption style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">Detection arrives three ways and none of them link against us. What it gets back is the half no engine ships. <a href="/docs/diagrams">full gallery</a></figcaption></figure>
+
     <h3>It is not a DLP scanner</h3>
     <p>Detection accuracy is a race against vendors with hundreds of engineers maintaining thousands of patterns, and winning it would grow nothing that matters here. emem-guard is the chassis those engines run on: physical-world verification native, everyone else's detection pluggable, every verdict provable.</p>
   </div>
@@ -447,6 +449,8 @@ by checkpoint
       <tr><td><code>POST /verdict/claude-code</code></td><td>agents on the Platform API, Bedrock and Vertex, which Inference hooks cannot see</td><td>no</td><td><strong>no</strong>: runs inside your agent</td></tr>
     </table></div>
     <p>A test asserts every route the node advertises actually answers, and that the open ones outnumber the vendor ones. That is a commitment the build checks, not a posture in a README.</p>
+<figure style="margin:2rem 0"><a href="/docs/diagrams/40-guard-checkpoints.svg"><img src="/docs/diagrams/40-guard-checkpoints.svg" alt="Nine checkpoints converging on one engine; seven belong to no vendor" style="width:100%;height:auto;border:1px solid var(--rule)" loading="lazy" decoding="async"/></a></figure>
+
     <p><strong>Six of them also run right here.</strong> <code>emem.dev</code> hosts the vendor-neutral verdict routes over the same engine, advisory and blocking nothing, so a client you developed against a local node can be pointed at this origin without changing anything but the host. The three it cannot serve say why rather than 404: the two vendor hooks need your organisation's own secret and your own request path, and <code>/log/entry</code> needs a verdict log, which an advisory responder does not keep and will not pretend to. <a href="/.well-known/emem-guard.json">/.well-known/emem-guard.json</a> lists exactly which is which.</p>
 
     <h3>The MCP one is the most portable</h3>
@@ -489,6 +493,8 @@ by checkpoint
   "chain": "7a99eac5a05dac1a8b0e16ee9867d1daa03ac3aa55ff72ab77d10086abfd816f"
 }</code></pre></div>
     <p>The record, the signature over its preimage, the key that signed, and the link to the entry before. Verifying it involves nothing from the node that served it. <code>outcome</code> and <code>evaluated</code> are both in the preimage, which is what makes a shadow report evidence: an operator who could relabel one as the other afterwards could claim enforcement they never ran.</p>
+
+    <figure style="margin:2rem 0"><a href="/docs/diagrams/41-guard-verdict-path.svg"><img src="/docs/diagrams/41-guard-verdict-path.svg" alt="One verdict in order: scan, resolve, modules, evaluate, sign, append, then answer, inside an 800 ms budget" style="width:100%;height:auto;border:1px solid var(--rule)" loading="lazy" decoding="async"/></a><figcaption style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">The log is written before the caller is answered. Returning first would produce a verdict that was acted on and never recorded.</figcaption></figure>
 
     <h3>Signatures prove each verdict. The chain proves none were removed.</h3>
     <div class="code"><div class="code-head"><span class="tab">terminal &mdash; your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
@@ -538,6 +544,8 @@ $ echo $?
       <pre id="gout" style="border-top:1px solid var(--rule);margin:0;padding:1rem 1.2rem;white-space:pre-wrap;word-break:break-word;color:var(--ink-2)">Press the button. The response is generated by this node, not by this page.</pre>
     </div>
     <p style="font-size:var(--t-xs);color:var(--mute)">Paste a token that does not resolve here and you get <code>allow</code>, not <code>deny</code>. That is the design: a citation this responder has not cached is indistinguishable from one minted by another responder, and denying on it would punish an agent for citing across nodes, which is the behaviour the token format exists to enable.</p>
+
+    <figure style="margin:2rem 0"><a href="/docs/diagrams/43-guard-deployments.svg"><img src="/docs/diagrams/43-guard-deployments.svg" alt="Three deployments: hosted and advisory, self-hosted and enforcing, and a relay where transcript text never crosses the boundary" style="width:100%;height:auto;border:1px solid var(--rule)" loading="lazy" decoding="async"/></a><figcaption style="font-size:var(--t-xs);color:var(--mute);margin-top:.5rem">Who is in the request path decides what a verdict is allowed to do. Confusing these is what made a nine-route table read as an overclaim.</figcaption></figure>
 
     <h3>The same routes, against this origin</h3>
     <p>Every vendor-neutral verdict route above also runs here. Nothing below is a mock or a self-hosted transcript: paste it and it answers.</p>

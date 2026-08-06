@@ -12,6 +12,13 @@ this file: report it rather than improvising around it.
 
 ## What you are building
 
+Four diagrams, if the shape helps before the commands do:
+[nine doors, one decision](https://emem.dev/docs/diagrams/40-guard-checkpoints.svg),
+[one verdict, in order](https://emem.dev/docs/diagrams/41-guard-verdict-path.svg),
+[the chassis your DLP runs on](https://emem.dev/docs/diagrams/42-guard-dlp-chassis.svg),
+[three deployments](https://emem.dev/docs/diagrams/43-guard-deployments.svg).
+
+
 A server that answers one question: should this prompt proceed, given the
 claims it makes about the physical world. It returns allow or deny, signs the
 verdict, and appends it to a log before answering, so the decision can be

@@ -62,6 +62,8 @@ Detection is pluggable and grounding is native. A node loads modules that bring 
 
 `emem-guard --conformance <url>` runs twelve checks against a running deployment over the wire, and exits non-zero on any failure. Unit tests prove the handlers; this proves the server. Do not point a checkpoint at a node that has not passed it.
 
+Four diagrams, if a picture helps: /docs/diagrams/40-guard-checkpoints.svg (nine doors, one engine), 41-guard-verdict-path.svg (assemble, sign, append, then answer), 42-guard-dlp-chassis.svg (where an existing DLP engine plugs in), 43-guard-deployments.svg (hosted-advisory vs self-hosted-enforcing vs split relay).
+
 Consult it without running anything: `POST /v1/guard/verdict` on this responder answers with the same engine over the shared corpus, advisory and blocking nothing. MCP tool: `emem_guard_verdict`.
 
 Self-host it: `GET /v1/guard/selfhost` returns the whole procedure as markdown, written for an agent to run unattended with every step a command plus a check. MCP tool: `emem_guard_selfhost`. Source: [crates/emem-guard/SKILL.md](https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/SKILL.md). Walk it with real output at [emem.dev/guard](https://emem.dev/guard). The engine and server run and are tested; they have not yet been pointed at a live organisation, and the platform conformance suite is next.

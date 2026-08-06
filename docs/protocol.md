@@ -784,11 +784,19 @@ struct Cost {
 
 ### 7.1 Signature preimage
 
-The exact preimage construction is `emem_attest::receipt_preimage_v1`
-(`crates/emem-attest/src/lib.rs (receipt_preimage_v1)`), the single
-function both the signer (`crates/emem-storage/src/server.rs
-(sign_receipt_v1_inner)`) and the verifier (`POST /v1/verify_receipt`)
-call. Every current receipt carries `preimage_version: 1`.
+The exact preimage construction is one function per version in
+`crates/emem-attest/src/lib.rs`: `receipt_preimage_v1`, and
+`receipt_preimage_v2` for everything signed after 2026-08-05. The signer
+(`crates/emem-storage/src/server.rs`) and the verifier (`POST
+/v1/verify_receipt`) call the same function you would.
+
+**Current receipts carry `preimage_version: 2`.** Read the version off
+the receipt and rebuild under THAT rule; do not assume the current one.
+A verifier that hardcodes v1 rejects every receipt signed after the
+cutover, and one that hardcodes v2 rejects every receipt signed before
+it. Both remain valid and both must verify. `GET /v1/verifier_spec` is
+generated from the same constants the signer uses and is the source of
+truth if this prose ever disagrees with it.
 
 The signed digest is `blake3` over a domain-separated, tagged,
 length-prefixed segment stream:
@@ -946,18 +954,22 @@ byte-for-byte. The segment table it encodes is the one served at
 `GET /v1/verifier_spec`.
 
 ```python
-import json, urllib.request
+import json
 from blake3 import blake3
 from nacl.signing import VerifyKey
 
 receipt = json.load(open("receipt.json"))
-well_known = json.load(urllib.request.urlopen(
-    "https://your.emem.host/.well-known/emem.json"))
-pk_bytes = bytes(well_known["responder"])          # [u8; 32]
+
+# The signing key travels ON the receipt, so verifying needs no second call.
+# (`responder` under /.well-known/emem.json is an object describing the
+# encoding, not the key itself; `responder_pubkey_b32` there is the key.)
+pk_bytes = bytes(receipt["responder"])             # [u8; 32]
 
 def le32(n): return n.to_bytes(4, "little")
 def seg(tag, s):
-    b = s.encode(); return bytes([tag]) + le32(len(b)) + b
+    # str for the text segments, bytes for the merkle sub-preimage below.
+    b = s.encode() if isinstance(s, str) else bytes(s)
+    return bytes([tag]) + le32(len(b)) + b
 def seg_list(tag, items):
     out = bytes([tag]) + le32(len(items))
     for s in items:
@@ -1001,7 +1013,34 @@ def as_of_hex(r):
     if n == 0: return None
     return b3hex(cbor_head(5, n) + body)
 
-# Reconstruct the v1 preimage. Optional segments appear only when present.
+def merkle_hex(r):
+    """v2 sub-preimage over the inclusion proof, or an explicit ABSENT marker.
+
+    Absence is HASHED rather than expressed by omitting the segment. If it
+    were omitted, a receipt whose proof was stripped in transit would hash
+    identically to one that never had a proof, which is exactly the v1
+    behaviour v2 replaces.
+    """
+    inner = b"emem.preimage.v1\x00" + le32(len("merkle")) + b"merkle"
+    p = r.get("merkle_proof")
+    if not p:
+        return b3hex(inner + seg(0x05, b""))        # ABSENT
+    path = b"".join(bytes(h) for h in p["path"])
+    inner += seg(0x01, bytes(p["root"]))
+    inner += seg(0x02, int(p["leaf_index"]).to_bytes(4, "little"))
+    inner += seg(0x03, path)
+    # `version` is omitted from the wire when 0 (legacy unprefixed hashing),
+    # so the default here has to be 0. Defaulting to 1 rebuilds a digest the
+    # responder never signed.
+    inner += seg(0x04, bytes([p.get("version", 0)]))
+    return b3hex(inner)
+
+# Rebuild under the receipt's OWN version. A verifier that hardcodes either
+# version is wrong: v1 receipts are still valid and v2 receipts are current.
+version = receipt.get("preimage_version", 0)
+if version not in (1, 2):
+    raise SystemExit(f"v{version} receipts use the legacy pipe rule, see 7.1")
+
 stream  = b"emem.preimage.v1\x00" + le32(len("receipt")) + b"receipt"
 stream += seg(0x01, receipt["request_id"])
 stream += seg(0x02, receipt["served_at"])
@@ -1011,6 +1050,12 @@ for tag, h in ((0x03, scope_hex(receipt)), (0x04, as_of_hex(receipt)),
 stream += seg(0x07, receipt["primitive"])
 stream += seg_list(0x08, receipt.get("cells") or [])
 stream += seg_list(0x09, [str(c) for c in (receipt.get("fact_cids") or [])])
+if receipt.get("field") is not None:
+    stream += seg(0x0a, receipt["field"])
+if version >= 2:
+    # ALWAYS written in v2, never conditional. Omitting it here is what makes
+    # a broken verifier compute the same digest a downgrade attacker does.
+    stream += seg(0x0b, merkle_hex(receipt))
 
 digest = blake3(stream).digest()                   # 32 bytes; NOT the raw stream
 VerifyKey(pk_bytes).verify(digest, bytes(receipt["signature"]))
