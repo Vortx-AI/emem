@@ -366,6 +366,44 @@ docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest   # or: cargo run --release
 
 The signing key is your node's identity: mount a volume for `EMEM_DATA` before you hand out receipts you care about. Full guide: [docs/self-host.md](docs/self-host.md). Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks.md)): warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node, cold materialize 0.5 to 1.6 s depending on the upstream.
 
+## emem-guard: a yes/no gate for claims about the world
+
+Anthropic's [Inference hooks](https://platform.claude.com/docs/en/manage-claude/inference-hooks) hold every governed prompt for an allow or deny verdict from a server your organisation runs, before the model sees it. The named destinations are DLP vendors, and they all evaluate content: does this text carry a card number, a secret, a classified marking. None of them can evaluate whether a claim about the physical world still holds, because none of them hold signed observations of it.
+
+`emem-guard` is that server. Input: a transcript. Output: allow or deny, signed, logged, with a reason an agent can act on.
+
+```bash
+cargo build --release -p emem-guard
+./target/release/emem-guard          # generates a key, opens a log, serves
+```
+
+It answers two checkpoints from one engine, and the same evidence gives the same verdict through both:
+
+| Checkpoint | Reaches | Route |
+|---|---|---|
+| Anthropic Inference hooks | claude.ai, Cowork, Claude Code in a Claude Enterprise org | `POST /verdict/anthropic-hook` |
+| Claude Code client hooks | agents on the Platform API, Bedrock and Vertex, which Inference hooks cannot see | `POST /verdict/claude-code` |
+
+A denial is machine-first, because the reader who can fix it is the agent:
+
+```text
+EMEM-GUARD DENY PROV_SIG token=emem:fact:cell:cid fix=refresh_token leaf=leaf_41
+```
+
+`fix` is the actionable part: `refresh_token` means re-resolve and retry, `remove_reference` means the citation cannot be made to verify, `contact_admin` means a person restricted this rather than the evidence. `leaf` is the log entry, which anyone can verify without asking the server that issued it.
+
+**Every verdict is signed and logged before it is returned**, and each entry chains to the one before it. Signatures alone would prove each verdict genuine; the chain is what proves none were removed. Check any log, including ours, with the binary itself:
+
+```bash
+emem-guard --audit --data ./var/guard    # exits non-zero if a verdict was altered or deleted
+```
+
+**What it will not do.** It is not a DLP scanner and does not classify content. A citation this node has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would deny honest agents. Geo restriction and claim gating ship off, because both need your own configuration or your own measured false-positive rate before they can be safe.
+
+Self-host guide written for an agent to run unattended: [crates/emem-guard/SKILL.md](crates/emem-guard/SKILL.md).
+
+**Status: the engine and the server run and are tested; they have not yet been pointed at a live organisation.** The conformance suite against the platform's own failure table is next, and no design partner is invited before it is green.
+
 ## What has been measured, and held
 
 Independently measured by a consumer agent that built its own harness, published its own scorer bugs, and voided its own invalid runs. Every row resolves to a signed note on [the channel](https://emem.dev/channel).

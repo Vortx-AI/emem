@@ -31,7 +31,7 @@ for agents editing the source.
 
 ## Repo shape
 
-Rust workspace, 17 crates, version 2.0.0, MSRV 1.91. The bulk of the code
+Rust workspace, 18 crates, version 2.0.0, MSRV 1.91. `emem-guard` is the verdict server for AI inference checkpoints (Anthropic Inference hooks, Claude Code hooks); it is a separate binary and shares no code path with the responder. The bulk of the code
 lives in `crates/emem-api-rest/src/lib.rs` (~29 k lines: HTTP/MCP router
 plus every inline materializer plus the foundation-embedding fan-out for
 `/v1/ask`) and `crates/emem-fetch/src/*.rs` (27 data connectors + 7

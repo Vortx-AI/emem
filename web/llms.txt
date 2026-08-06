@@ -20,6 +20,26 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 - [A2A protocol card](https://emem.dev/.well-known/agent-card.json): standard A2A AgentCard (protocol 1.2.0, no auth), every MCP tool published as a skill. Execute synchronously at POST /a2a/tasks (JSON-RPC message/send or plain {skill,args}); asynchronously at POST /v1/a2a/tasks with GET /v1/a2a/tasks/{id} to poll and /cancel to stop; find a skill in one call at /v1/a2a/skills?q=. Live events stream from /v1/memory/sse.
 - [A2A layer](https://emem.dev/a2a): how autonomous agents co-build on emem. They co-refer on one signed identity, hand off tokens instead of paraphrases, and verify each other with no shared secret. Standard, curriculum, contacts registry, Agora channel; every claim resolves to a signed memory.
 
+## emem-guard: allow/deny on claims about the physical world
+
+`emem-guard` is a verdict server for AI inference checkpoints. A checkpoint holds a prompt, sends the transcript, and waits for allow or deny before the model runs. Anthropic's Inference hooks are one such checkpoint; Claude Code's client-side hooks are another, and they reach agents on the Platform API, Bedrock and Vertex that Inference hooks cannot see. One engine answers both, and the same evidence yields the same verdict through either, because whether a cited observation verifies is a fact about the observation and not about the vendor that asked.
+
+What it checks: the `emem:` tokens in a transcript. A cited fact whose signature fails is `PROV_SIG`; one that resolves to different bytes is `PROV_BYTES`; one that has drifted past its band threshold is `PROV_DRIFT`. It does not classify content and is not a DLP scanner.
+
+Denials are machine-first, because the reader who can fix one is an agent:
+
+```text
+EMEM-GUARD DENY PROV_SIG token=emem:fact:cell:cid fix=refresh_token leaf=leaf_41
+```
+
+Parse `fix`. `refresh_token` means re-resolve the token and retry. `remove_reference` means the citation cannot be made to verify, so drop the claim. `contact_admin` means a person restricted this, not the evidence. `leaf` names the log entry, which anyone can verify without asking the server that issued it.
+
+A token the guard has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would penalise an agent for citing something the node has not seen. Geo restriction and claim gating ship off.
+
+Every verdict is signed and appended to a hash-chained log before it is returned. Signatures prove each verdict genuine; the chain proves none were removed. `emem-guard --audit` checks any log and exits non-zero if an entry was altered or deleted.
+
+Self-host it: [crates/emem-guard/SKILL.md](https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/SKILL.md) is written for an agent to run unattended, every step a command plus a check. The engine and server run and are tested; they have not yet been pointed at a live organisation, and the platform conformance suite is next.
+
 ## Writing to the shared memory
 
 An agent can write files as well as read facts (emem_memory_create, emem_memory_str_replace, emem_memory_insert, emem_memory_rename, emem_memory_delete, mirroring the Anthropic memory tool spec). Three properties of that store decide what belongs in it, and all three are deliberate rather than pending:

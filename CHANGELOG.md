@@ -7,6 +7,34 @@ to verify.
 
 ## [Unreleased]
 
+### Added
+
+- **`emem-guard`**: a signed allow/deny server for AI inference checkpoints.
+  Anthropic's Inference hooks hold every governed prompt for a verdict before
+  the model runs, and the named destinations all evaluate CONTENT. None can
+  evaluate whether a claim about the physical world still holds. This does.
+
+  Two checkpoints from one engine, and the same evidence yields the same
+  verdict through both: Anthropic Inference hooks (`POST
+  /verdict/anthropic-hook`) and Claude Code client hooks (`POST
+  /verdict/claude-code`), the latter reaching Platform API, Bedrock and Vertex
+  agents that Inference hooks cannot see.
+
+  Every verdict is signed and appended to a hash-chained log BEFORE it is
+  returned. Signatures prove each verdict genuine; the chain proves none were
+  removed. `emem-guard --audit` verifies any log and exits non-zero on a
+  tampered or missing entry.
+
+  Denials are machine-first so an agent can self-correct:
+  `EMEM-GUARD DENY <CODE> token=<token> fix=<fix> leaf=<leaf>`.
+
+  A token the guard has not cached is never a denial. Geo restriction and
+  claim gating ship off. Self-host guide at `crates/emem-guard/SKILL.md`,
+  written for an agent to run unattended.
+
+  Not yet pointed at a live organisation: the platform conformance suite is
+  the next gate, and no design partner is invited before it is green.
+
 ### Changed
 
 - **The seven memory verbs carry the service prefix**: `emem_memory_view`,
