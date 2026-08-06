@@ -7730,6 +7730,7 @@ async fn guard_resolve_token(s: &AppState, t: &emem_guard::FoundToken) -> emem_g
 /// Run the guard's policy pipeline over a transcript, against local state.
 async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
     use emem_guard::{policy, Adapter};
+    let started = std::time::Instant::now();
 
     // The open native shape, so the body an agent posts here is byte-identical
     // to the body it would post to a node it self-hosts. Learning one shape
@@ -7753,6 +7754,7 @@ async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
     let found = emem_guard::scan_all(texts.iter().copied());
     let need = policy::needs_resolution(&found);
     let mut resolved = Vec::with_capacity(need.len());
+    let mut read_cids: Vec<emem_fact::FactCid> = Vec::new();
     // The same ceiling the standalone server applies. A transcript can carry
     // thousands of tokens and an unbounded loop over them is a way for any
     // caller to make this responder do unbounded work.
@@ -7761,6 +7763,17 @@ async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
         .take(emem_guard::server::MAX_RESOLVED_TOKENS)
     {
         let st = guard_resolve_token(s, t).await;
+        // Which cids this responder actually read to reach the verdict. They
+        // go into the receipt, which is what turns "we checked" into something
+        // a third party can confirm we checked.
+        if matches!(
+            st,
+            emem_guard::TokenStatus::Verified | emem_guard::TokenStatus::ByteMismatch
+        ) {
+            if let Some(cid) = t.token.rsplit(':').next().filter(|c| looks_like_cid(c)) {
+                read_cids.push(emem_fact::FactCid::new(cid.to_string()));
+            }
+        }
         resolved.push((t.clone(), st));
     }
     let checked = resolved.len();
@@ -7804,6 +7817,24 @@ async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
             )),
         );
         o.insert("selfhost".into(), json!("/v1/guard/selfhost"));
+        // The verdict itself carries no leaf, because this responder keeps no
+        // verdict log: it is advisory and not in anybody's request path, and
+        // inventing a leaf id for an entry that does not exist would be worse
+        // than admitting the absence. What it CAN prove is what it read to
+        // decide, so the standard read receipt is attached over exactly the
+        // fact cids that were resolved. Verify it at /verify like any other.
+        let receipt = s.sign_receipt(
+            "emem.guard.verdict",
+            Vec::new(),
+            read_cids,
+            true,
+            started,
+            None,
+        );
+        o.insert(
+            "receipt".into(),
+            serde_json::to_value(&receipt).unwrap_or(JsonValue::Null),
+        );
     }
     out
 }
@@ -63872,6 +63903,20 @@ mod tests {
         // And it says out loud that it is not in anybody's request path.
         assert_eq!(v["advisory"], true);
         assert_eq!(v["schema"], "emem.guard.verdict.v1");
+        // No leaf, because this responder keeps no verdict log. What it can
+        // prove is what it read to decide, and the receipt is that: it names
+        // nothing here, since the fact was not held.
+        assert!(v["leaf"].is_null(), "an advisory verdict has no log entry");
+        assert!(
+            v["receipt"]["signature"].is_array() || v["receipt"]["sig_b32"].is_string(),
+            "a verdict must still carry a signed statement of what was read"
+        );
+        assert_eq!(v["receipt"]["primitive"], "emem.guard.verdict");
+        assert_eq!(
+            v["receipt"]["fact_cids"].as_array().unwrap().len(),
+            0,
+            "nothing was resolvable, so the receipt claims nothing was read"
+        );
     }
 
     /// Claim gating is per-call here rather than per-node, because the caller
