@@ -73,10 +73,53 @@ to verify.
   MCP tools `emem_guard_verdict` and `emem_guard_selfhost`. Walk the procedure
   with real output at `/guard`.
 
-  Not yet pointed at a live organisation: the platform conformance suite is
-  the next gate, and no design partner is invited before it is green.
+  **The plugin chassis (WS-H).** A `PolicyModule` trait, so everyone else's
+  detection runs here and gets the half none of them ship. Two declarations
+  decide where a module may run and neither is taken on trust: a module
+  declaring `slow` never runs on the enforcing path, a module declaring `fast`
+  that exceeds 50 ms three times is demoted by the registry and stops being
+  able to block, and a module declaring `digests_only` is handed a different
+  slice so it cannot read text rather than being asked not to.
+  `--modules-no-text` withholds text from every module for a relay where it
+  may not cross a boundary. The log records module id, version and an evidence
+  digest, never the matched content, and `ModuleVerdict::deny` hashes the
+  evidence at the constructor so an author cannot leak it by accident. The
+  loaded set's digest enters the verdict preimage, which moves to
+  `emem.guard.verdict.v3`: without it an operator could change detectors and
+  the same signed record would describe two different evaluations. `GET
+  /modules` publishes what is loaded and what it has actually cost.
+
+  Two reference modules, neither of them a detection engine.
+  `secret-patterns` is in-process and narrow: every shape is a fixed prefix
+  plus an exact length, so a match is not a judgement call. A test fixture
+  caught that Slack and Stripe key lengths are not fixed, so the rule could
+  never have matched them; both are dropped with the reason recorded rather
+  than relaxed into an entropy heuristic. `webhook:<url>` wraps any classifier
+  and abstains on timeout, because turning a sidecar's outage into a blocked
+  request makes an operator less reliable for having added a control.
+
+  **The conformance suite (WS-E).** `emem-guard --conformance <url>` runs
+  twelve checks against a running deployment over the wire, exits non-zero on
+  any failure, and prints what breaks in production rather than restating
+  itself. It found one on its first run, in this server: a 9 MB body returned
+  413, because axum's `DefaultBodyLimit` of 2 MB wins over the tower-http
+  layer set to 10 MB. The docs, the comment and the layer all said 10 MB and
+  the socket said 413. No unit test could have caught it; they drive the
+  router directly and never send a body that large.
+
+  Not yet pointed at a live organisation.
 
 ### Changed
+
+- **CI gates a running system, not just the source.** Two new jobs.
+  `guard-conformance` builds the guard, starts it, runs the twelve-check suite
+  against a real socket and audits the log it wrote. `parity` runs the MCP/REST
+  matrix `sgozfgkr` built and handed back three rounds ago: twelve cases
+  comparing facts at (band, value) rather than envelopes, with an identical
+  refusal on both paths counted as a pass. 12 of 12 have parity against
+  production. Building it surfaced a third harness bug of our own: an MCP tool
+  error is a SUCCESSFUL JSON-RPC envelope carrying `isError` and a prose body,
+  so parsing before checking the flag reads a refusal as an answer.
 
 - **The seven memory verbs carry the service prefix**: `emem_memory_view`,
   `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`,

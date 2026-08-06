@@ -415,7 +415,18 @@ emem-guard --claim-gating --shadow    # every rule runs and is signed; nobody is
 emem-guard --report                   # "would have blocked", counted off disk
 ```
 
-**What it will not do.** It is not a DLP scanner and does not classify content. A citation this node has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would deny honest agents.
+**Bring your own detection.** emem-guard is deliberately bad at content classification and will stay that way. What it has that no detection engine ships is the half after the verdict, so a module plugs in and its findings get signed and logged like a native one:
+
+```bash
+emem-guard --module secret-patterns --module webhook:https://your-classifier
+curl -s localhost:8080/modules      # what is loaded, and what it actually cost
+```
+
+Two declarations decide where a module may run, and neither is taken on trust. A module declaring `slow` never runs on the enforcing path. A module declaring `fast` that exceeds 50 ms three times is demoted and stops being able to block. A module declaring `digests_only` is handed an empty transcript rather than asked not to read it. The log records module id, version and an evidence digest, never what matched, and the loaded set's digest enters the verdict preimage so a verdict names the exact pipeline that produced it.
+
+**Check the deployment, not just the code.** `emem-guard --conformance <url>` runs twelve checks over the wire, because unit tests prove the handlers and prove nothing about the server you stood up. Its first run against this project's own node found a 9 MB body returning 413.
+
+**What it will not do.** It is not a DLP scanner and does not classify content itself. A citation this node has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would deny honest agents.
 
 Walk it: [emem.dev/guard](https://emem.dev/guard) is the self-host skill run end to end with the real output of each step. Self-host guide written for an agent to run unattended: [crates/emem-guard/SKILL.md](crates/emem-guard/SKILL.md), also served at `GET /v1/guard/selfhost` and as the MCP tool `emem_guard_selfhost`.
 

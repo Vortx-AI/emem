@@ -58,6 +58,10 @@ Claim gating (`CLAIM_UNGROUNDED`) is the one rule that fires on absence: a trans
 
 Every verdict is signed and appended to a hash-chained log before it is returned. Signatures prove each verdict genuine; the chain proves none were removed. `emem-guard --audit` checks any log and exits non-zero if an entry was altered or deleted.
 
+Detection is pluggable and grounding is native. A node loads modules that bring their own detection (`--module secret-patterns`, `--module webhook:<your classifier>`) and every module verdict is signed and logged like a native one. A module declaring `slow` never runs on the enforcing path; one declaring `fast` that exceeds 50 ms three times is demoted and stops being able to block; one declaring `digests_only` is handed an empty transcript rather than asked not to read it. The log carries module id, version and an evidence digest, never the matched content, and the loaded set's digest enters the verdict preimage so a verdict names the pipeline that produced it. `GET /modules` on your node.
+
+`emem-guard --conformance <url>` runs twelve checks against a running deployment over the wire, and exits non-zero on any failure. Unit tests prove the handlers; this proves the server. Do not point a checkpoint at a node that has not passed it.
+
 Consult it without running anything: `POST /v1/guard/verdict` on this responder answers with the same engine over the shared corpus, advisory and blocking nothing. MCP tool: `emem_guard_verdict`.
 
 Self-host it: `GET /v1/guard/selfhost` returns the whole procedure as markdown, written for an agent to run unattended with every step a command plus a check. MCP tool: `emem_guard_selfhost`. Source: [crates/emem-guard/SKILL.md](https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/SKILL.md). Walk it with real output at [emem.dev/guard](https://emem.dev/guard). The engine and server run and are tested; they have not yet been pointed at a live organisation, and the platform conformance suite is next.

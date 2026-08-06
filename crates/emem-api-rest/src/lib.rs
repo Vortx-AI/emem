@@ -7921,6 +7921,12 @@ async fn guard_verdict_shaped(
         } else {
             Vec::new()
         },
+        // This responder loads no detection modules and will not: the hosted
+        // route is advisory and answers grounding only. Running somebody
+        // else's classifier over other people's transcripts is a different
+        // product with a different trust story, and it belongs on a node the
+        // operator controls.
+        modules: Vec::new(),
     };
     let decision = policy::evaluate(&cfg, &evidence);
 
@@ -8017,6 +8023,21 @@ fn guard_capabilities_json(s: &AppState) -> JsonValue {
             "run": "./target/release/emem-guard --responder https://emem.dev",
             "why": "a node you run can enforce, can hold a corpus this one does \
                     not, and signs with a key you control",
+        },
+        "modules": {
+            "what": "Detection is pluggable; grounding is native. A node you run loads modules that bring their own detection, and every module verdict is signed and logged exactly like a native one.",
+            "route_on_your_node": "/modules",
+            "declares": ["latency_class: fast|slow", "data_class: needs_text|digests_only"],
+            "enforced_not_trusted": "a slow module never runs on the enforcing path; a fast one that exceeds its budget is demoted and stops being able to block",
+            "logged": "module id, version and an evidence digest. Never the matched content.",
+            "reference": ["secret-patterns (in-process, fixed-prefix credential shapes)", "webhook:<url> (your own classifier, abstains on timeout)"],
+            "load": "emem-guard --module secret-patterns --module webhook:https://your-classifier",
+            "this_responder": "runs none: the hosted route is advisory and answers grounding only",
+        },
+        "conformance": {
+            "what": "Twelve checks against a running deployment, over the wire, because unit tests prove the handlers and not the server an operator stood up.",
+            "run": "emem-guard --conformance https://your-node",
+            "gate": "non-zero exit on any failure. Do not point a checkpoint at a node that has not passed it.",
         },
         "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
         "deny_codes": codes,

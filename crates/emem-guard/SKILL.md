@@ -238,7 +238,117 @@ For reference, the detector fires on 1 sentence in 7160 across this
 repository's own documentation. That is one input, not a licence: your traffic
 is not our changelog, which is exactly why you measure it where it will run.
 
-## Step 9: raise the body limit
+## Step 9: plug in your own detection
+
+emem-guard checks grounding and will never be good at content detection. That
+race is thousands of patterns maintained by hundreds of engineers, and winning
+it would add nothing here. What this node has that no detection engine ships is
+the half after the verdict: a signed, hash-chained, offline-checkable record.
+
+So bring your own. A module's verdicts get signed and logged exactly like a
+native one.
+
+```bash
+./target/release/emem-guard \
+  --module secret-patterns \
+  --module webhook:https://your-classifier.internal/scan
+```
+
+```bash
+curl -s localhost:8080/modules | jq '.modules[] | {id, latency_class, can_block, observed}'
+```
+
+Two declarations decide where a module is allowed to run, and **neither is
+taken on trust**.
+
+**Latency.** A module declaring `slow` never runs on the enforcing path at all.
+It is evaluated, signed and logged, and cannot block. A module declaring `fast`
+that exceeds 50 ms three times is demoted to shadow by the registry and stays
+there, which shows up as `"demoted": true` at `/modules`. That is measured, not
+promised: a module that misses the deadline is not slow, it is a transport
+failure, and a transport failure hands the decision to your failure policy and
+trips the breaker that stops enforcement for everything.
+
+**Data.** A module declaring `digests_only` is handed an empty transcript. Not
+asked politely: given a different slice, so it cannot read text. Add
+`--modules-no-text` and every module gets an empty transcript regardless of what
+it declared, for a relay where text may not cross a boundary.
+
+### Writing one
+
+```rust
+use emem_guard::{
+    DataClass, LatencyClass, ModuleContext, ModuleManifest, ModuleVerdict,
+    PolicyModule, DenyCode, Fix,
+};
+
+pub struct MyModule { manifest: ModuleManifest }
+
+impl MyModule {
+    pub fn new() -> Self {
+        Self {
+            manifest: ModuleManifest {
+                id: "my-module".into(),           // lowercase, appears in the log
+                version: "0.1.0".into(),
+                build_hash: String::new(),        // filled by .sealed()
+                latency_class: LatencyClass::Fast,
+                data_class: DataClass::NeedsText,
+                deny_code: DenyCode::PolicyModule,
+                fix: Fix::RedactAndRetry,
+                description: "what it detects, in your words".into(),
+            }
+            .sealed(),
+        }
+    }
+}
+
+impl PolicyModule for MyModule {
+    fn manifest(&self) -> &ModuleManifest { &self.manifest }
+
+    fn evaluate(&self, ctx: &ModuleContext<'_>) -> ModuleVerdict {
+        for text in ctx.texts {
+            if let Some(matched) = self.find(text) {
+                // The evidence is HASHED here, not stored. Nothing in this
+                // crate ever sees what you matched.
+                return ModuleVerdict::deny("what you found", matched.as_bytes(), 0.99);
+            }
+        }
+        ModuleVerdict::allow()
+    }
+}
+```
+
+Three rules, and the first two are enforced by the type rather than by review:
+
+- **An abstain is never a block.** If your sidecar is down or you could not
+  decide, return `ModuleVerdict::abstain`. Turning your outage into a denied
+  request would make every operator running you strictly less reliable for
+  having added a control.
+- **The log never carries what you matched.** `ModuleVerdict::deny` hashes the
+  evidence at the constructor, so you cannot leak it by accident. Keep it out of
+  your `reason` string too; that goes to the operator log.
+- **Declare honestly, because it is measured.** Declaring `fast` and being slow
+  gets you demoted, not trusted.
+
+`ModuleManifest::sealed()` fills `build_hash` from the declaration it covers.
+The registry refuses a manifest whose hash does not match, so a module cannot be
+edited after review to claim a different latency class than the one it was
+reviewed under. Publish that manifest as a signed fact and the signature binds
+the publisher on top.
+
+### What this does to your verdicts
+
+The registry's config digest enters the verdict preimage, so every signed record
+names the exact module set that produced it. Change which modules are loaded, or
+just their order, and the digest moves. Without that, an operator could swap
+detectors and the same signed record would describe two different evaluations.
+
+A module denial carries the code `POLICY_MODULE` and your declared `fix`. The
+reason line does not grow a field for the module id, because that grammar is
+fixed and agents parse it; the id, the version and the evidence digest reach the
+caller through the native route and the log.
+
+## Step 10: raise the body limit
 
 Transcripts are sent untruncated, up to 10 MB. Several common defaults are far
 smaller: nginx `client_max_body_size` is 1 MB, and Express `express.json()` is
@@ -253,7 +363,7 @@ client_max_body_size 10m;
 
 Check: post a 9 MB body and confirm you still get a verdict rather than a 413.
 
-## Step 10: prove a verdict to someone who does not trust you
+## Step 11: prove a verdict to someone who does not trust you
 
 Every verdict names a log leaf. Fetch it and check it yourself:
 
@@ -287,7 +397,7 @@ the chain breaks at the seam and `intact` goes false with a non-zero exit.
 `GET /log/head` publishes the head so a witness or a mirror can pin it, and
 `GET /log/entries?start=0` lets anyone mirror the log without your help.
 
-## Step 11: the vendor checkpoints, if you want them
+## Step 12: the vendor checkpoints, if you want them
 
 For Claude Enterprise Inference hooks, an administrator sets your HTTPS URL in
 the organisation configuration and presses Test connection. The test sends a
@@ -302,13 +412,45 @@ For Claude Code, the client posts hook input and you block by returning **2xx
 with a deny decision in the body**. A non-2xx is non-blocking. This is the
 inverse of the usual HTTP intuition.
 
-## Step 12: rotation
+## Step 13: rotation
 
 Secret rotation is an immediate cutover on the platform side, but requests
 signed with the previous secret keep arriving for about a minute, plus anything
 already in flight. Pass `--secret` twice during the switchover. A server
 holding one secret drops those stragglers, and a dropped request is a webhook
 failure.
+
+## Step 14: run the conformance suite before you point anything at it
+
+Every step above checks one thing you just did. This checks the DEPLOYMENT, over
+the wire, exactly as a checkpoint would reach it.
+
+```bash
+./target/release/emem-guard --conformance https://your-node
+```
+
+```
+  pass  reachable                                   0 ms  GET /health answered
+  pass  large_body_is_accepted                     72 ms  9 MB body: 200 OK with a verdict
+  pass  leaf_is_fetchable_and_verifies              1 ms  leaf_9 fetched and its signature verifies offline
+  pass  holds_up_under_concurrency                 69 ms  96 requests at 16 concurrent: worst 20 ms, no failures
+
+12 of 12 checks passed. This deployment can be relied on by a checkpoint.
+```
+
+Twelve checks, non-zero exit on any failure, and each failure prints what
+breaks in production rather than restating itself. It runs against a URL
+because everything it looks for lives between the code and the deployment: a
+proxy that rejects a 9 MB body, a terminator that adds 400 ms, a node that
+answers 502 while its own tests are green.
+
+It is not decoration. Its first run against this project's own server found a
+9 MB body returning 413, because axum applies a 2 MB default that wins over the
+10 MB layer that was configured. The docs said 10 MB, the comment said 10 MB,
+the layer said 10 MB, and the socket said 413. Under a fail-open policy that
+turns every oversized transcript into an uninspected request.
+
+Do not point a checkpoint at a node that has not passed this.
 
 ## What "done" looks like
 
@@ -322,6 +464,7 @@ failure.
 - The leaf that denial names fetches from `/log/entry/<leaf>` and its signature
   verifies against the key in the entry.
 - `emem-guard --audit` exits 0.
+- `emem-guard --conformance <your-url>` exits 0.
 
 ## The reason grammar, for agents
 
