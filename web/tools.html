@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All 105 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 15-tool core loop first. Every one callable with no key.">
+<meta name=description content="All 107 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 15-tool core loop first. Every one callable with no key.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -32,7 +32,7 @@ h2{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);pa
 <div class="wrap">
 <p class="crumb"><a href="/">emem</a> / tools</p>
 <h1>Every tool, generated from the registry</h1>
-<p class="lede">All 105 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
+<p class="lede">All 107 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
 <h2>The core loop (15 tools)</h2>
 <p class="sub">What /mcp advertises by default: enough to name, ground, read, cite, and verify.</p>
 
@@ -522,7 +522,13 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
   <p>Replace `old_str` with `new_str` in the named memory file. Fails (no partial write) when `old_str` is absent or matches more than once. Writes a new content-addressed `file_cid` and signs the receipt. Mirrors the `str_replace` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(&quot;emem.memory_write|&lt;verb&gt;|&lt;path&gt;|&lt;body_hash&gt;&quot;); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/&lt;pubkey8&gt;/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Formerly `memory_str_replace`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude&#x27;s own memory tool. It is removed in 3.0.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_str_replace&quot;, &quot;arguments&quot;: {&quot;new_str&quot;: &quot;finished the brief&quot;, &quot;old_str&quot;: &quot;read the brief&quot;, &quot;path&quot;: &quot;/memories/by_attester/&lt;your-pubkey8&gt;/notes.md&quot;}}}&#x27;</code></pre>
 </details>
-<h2>Verify and prove (6)</h2>
+<h2>Verify and prove (7)</h2>
+
+<details class="tool" id="emem_guard_verdict">
+  <summary><code>emem_guard_verdict</code><span class="tt">Check whether the citations in a draft actually verify</span><span class="tw">Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it.</span></summary>
+  <p>Run emem-guard&#x27;s policy pipeline over text you are about to send, against this responder&#x27;s corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY &lt;CODE&gt; token=&lt;token|-&gt; fix=&lt;fix&gt; leaf=&lt;leaf|-&gt;`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Algebra: verify.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_guard_verdict&quot;, &quot;arguments&quot;: {&quot;texts&quot;: [&quot;Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala&quot;]}}}&#x27;</code></pre>
+</details>
 
 <details class="tool" id="emem_log_consistency">
   <summary><code>emem_log_consistency</code><span class="tt">Transparency log consistency proof</span><span class="tw">Call with `first` = the tree_size of an STH you pinned earlier.</span></summary>
@@ -559,7 +565,7 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
   <p>Verify a structured claim against a cell&#x27;s facts. Returns verdict + evidence CIDs + signed receipt.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_verify&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;claim&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;op&quot;: &quot;gt&quot;, &quot;tslot&quot;: 0, &quot;value&quot;: 0.5}}}}&#x27;</code></pre>
 </details>
-<h2>Introspect the surface (18)</h2>
+<h2>Introspect the surface (19)</h2>
 
 <details class="tool" id="emem_algorithms">
   <summary><code>emem_algorithms</code><span class="tt">Composition recipes (algorithms)</span><span class="tw">Call when the user&#x27;s question is COMPOSITE (flood risk, urban density, water consensus, change-since-2020) rather than a single band readout.</span></summary>
@@ -631,6 +637,12 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
   <summary><code>emem_grid_info</code><span class="tt">Active grid encoding</span><span class="tw">Call once at session start (or when the user asks about cell resolution / &#x27;how big is a cell&#x27;).</span></summary>
   <p>Active grid encoding: cell64 ground resolution, lat/lng axis sizes, DGGS lineage.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_grid_info&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_guard_selfhost">
+  <summary><code>emem_guard_selfhost</code><span class="tt">The procedure for running your own verdict server</span><span class="tw">Call when you want to ENFORCE grounding rather than consult it, when you need a verdict over a corpus this responder does not hold, or when a signed, offline-verifiable record of every allow and deny has to live on infrastructure you control.</span></summary>
+  <p>Returns the full emem-guard self-host skill as markdown, plus the exact build, test and run commands. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It exposes checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor. Algebra: introspect.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_guard_selfhost&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
 </details>
 
 <details class="tool" id="emem_manifests">
