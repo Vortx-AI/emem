@@ -70,9 +70,12 @@
 
 pub mod checkpoint;
 pub mod claim;
+pub mod conformance;
 pub mod frame;
 pub mod interop;
 pub mod log;
+pub mod module;
+pub mod modules;
 pub mod open;
 pub mod policy;
 pub mod resolve;
@@ -86,8 +89,15 @@ pub use claim::{scan_claims, Anchor, Claim, Quantity};
 pub use frame::{Action, ContentBlock, EventType, Message, PromptFrame, Verdict};
 pub use interop::{CloudEventGate, McpGate, OpenAiGate, PolicyPointGate};
 pub use log::{seal, LogError, LogFailurePolicy, VerdictLog, VerdictRecord};
+pub use module::{
+    DataClass, LatencyClass, ModuleContext, ModuleError, ModuleManifest, ModuleOutcome,
+    ModuleRegistry, ModuleVerdict, PolicyModule,
+};
+pub use modules::{OrgWebhook, SecretPatterns};
 pub use open::{ClaimDetail, NativeHook, NativeRequest, NativeVerdict};
-pub use policy::{evaluate, Config, Decision, DenyCode, Evidence, Fix, Mode, TokenStatus};
+pub use policy::{
+    evaluate, Config, Decision, DenyCode, Evidence, Fix, Mode, ModuleAttribution, TokenStatus,
+};
 pub use resolve::{NullResolver, Resolver, ResponderResolver};
 pub use store::{AuditReport, FileLog, ShadowReport};
 pub use tokens::{scan, scan_all, FoundToken, TokenKind};

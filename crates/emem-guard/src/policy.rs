@@ -45,6 +45,14 @@ pub enum DenyCode {
     GeoZone,
     /// An unverifiable quantitative claim about physical-world state.
     ClaimUngrounded,
+    /// A loaded policy module denied.
+    ///
+    /// One code for every module rather than one per module, because the
+    /// reason line is a fixed grammar with no field for a module id and
+    /// growing it would break every agent already parsing it. Which module
+    /// fired reaches the caller through the native route's `module` block and
+    /// the log record, where the schema is ours to extend.
+    PolicyModule,
 }
 
 impl DenyCode {
@@ -56,6 +64,7 @@ impl DenyCode {
             Self::ProvDrift => "PROV_DRIFT",
             Self::GeoZone => "GEO_ZONE",
             Self::ClaimUngrounded => "CLAIM_UNGROUNDED",
+            Self::PolicyModule => "POLICY_MODULE",
         }
     }
 }
@@ -74,6 +83,12 @@ pub enum Fix {
     RemoveReference,
     /// A human decision: the org restricted this, not the evidence.
     ContactAdmin,
+    /// Remove the offending content and retry.
+    ///
+    /// The remedy a detection module offers: the request itself is fine, one
+    /// span of it is not. Distinct from `remove_reference`, which is about a
+    /// citation that cannot be made to verify.
+    RedactAndRetry,
     /// Ground the claim: resolve the observation through emem and cite the
     /// token it returns.
     ///
@@ -90,6 +105,7 @@ impl Fix {
             Self::RefreshToken => "refresh_token",
             Self::RemoveReference => "remove_reference",
             Self::ContactAdmin => "contact_admin",
+            Self::RedactAndRetry => "redact_and_retry",
             Self::CiteObservation => "cite_observation",
         }
     }
@@ -118,6 +134,21 @@ pub struct Decision {
     /// owns, so an agent calling that route learns which sentence and which
     /// band rather than only that something was ungrounded.
     pub claim: Option<crate::claim::Claim>,
+    /// Which module denied, when one did.
+    ///
+    /// Not in the reason line: that grammar is fixed and has no field for it.
+    /// It reaches the caller through the native route and the log record,
+    /// where the schema is ours to extend.
+    pub module: Option<ModuleAttribution>,
+}
+
+/// Which module produced a `POLICY_MODULE` denial, and what it found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleAttribution {
+    pub id: String,
+    pub version: String,
+    /// A digest of what matched. Never the content.
+    pub evidence_digest: Option<String>,
 }
 
 /// The maximum length of the generated reason, before the org's own suffix.
@@ -138,6 +169,7 @@ impl Decision {
             leaf: None,
             checked: 0,
             claim: None,
+            module: None,
         }
     }
 
@@ -151,12 +183,19 @@ impl Decision {
             leaf: None,
             checked: 0,
             claim: None,
+            module: None,
         }
     }
 
     /// Attach the ungrounded claim behind a `CLAIM_UNGROUNDED` denial.
     pub fn with_claim(mut self, claim: crate::claim::Claim) -> Self {
         self.claim = Some(claim);
+        self
+    }
+
+    /// Attach the module that produced this denial.
+    pub fn with_module(mut self, m: ModuleAttribution) -> Self {
+        self.module = Some(m);
         self
     }
 
@@ -300,6 +339,12 @@ pub struct Evidence {
     /// not the rule is enforcing. The rule itself needs the pair of this and
     /// `tokens`: a claim is only ungrounded when the transcript cited nothing.
     pub claims: Vec<crate::claim::Claim>,
+    /// What each loaded policy module concluded, in load order.
+    ///
+    /// Modules do IO, so they run in the caller alongside the resolver and
+    /// arrive here already answered. That is what keeps this module pure and
+    /// what stops a third party's plugin from reaching upstream mid-verdict.
+    pub modules: Vec<(crate::module::ModuleManifest, crate::module::ModuleVerdict)>,
 }
 
 /// Which rules are on.
@@ -408,6 +453,26 @@ pub fn evaluate(cfg: &Config, ev: &Evidence) -> Decision {
                 )
                 .with_checked(checked);
             }
+        }
+    }
+
+    // Module verdicts enter the pipeline as rules, positioned by how much
+    // they establish rather than by how alarming they sound. A broken
+    // signature is a cryptographic fact and outranks everything. A module
+    // finding is a positive match, so it outranks drift, which is a threshold
+    // judgement about a measurement that did verify.
+    //
+    // An abstain is never a block: see ModuleOutcome::Abstain. A module whose
+    // sidecar is down has not told us to deny.
+    for (man, v) in &ev.modules {
+        if v.outcome == crate::module::ModuleOutcome::Deny {
+            return Decision::block(man.deny_code, None, man.fix)
+                .with_module(ModuleAttribution {
+                    id: man.id.clone(),
+                    version: man.version.clone(),
+                    evidence_digest: v.evidence_digest.clone(),
+                })
+                .with_checked(checked);
         }
     }
 

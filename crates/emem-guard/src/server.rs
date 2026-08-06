@@ -89,6 +89,15 @@ pub struct Guard {
     pub resolver: Box<dyn crate::resolve::Resolver>,
     /// cell64 addresses the operator restricted. Exact match only.
     pub restricted_cells: std::collections::HashSet<String>,
+    /// Loaded detection modules. Empty is the default and the common case.
+    pub modules: crate::module::ModuleRegistry,
+    /// Whether transcript text may be shown to modules at all.
+    ///
+    /// False in a split-verdict deployment where text does not cross the
+    /// boundary. Every module then sees an empty transcript regardless of its
+    /// declared data class, so a text-hungry module loaded here is inert
+    /// rather than a leak.
+    pub modules_may_read_text: bool,
     pub log: FileLog,
     pub signing: ed25519_dalek::SigningKey,
     /// Secrets accepted right now. More than one during a rotation.
@@ -157,6 +166,29 @@ impl Guard {
             tokens.push((t.clone(), status));
         }
 
+        // Modules run over the evidence gathered so far, on the same thread and
+        // inside the same budget. `enforcing` is what keeps a slow module off
+        // the blocking path; the registry, not this call site, decides.
+        let joined = texts.join("\n");
+        let text_digest = blake3::hash(joined.as_bytes()).to_hex().to_string();
+        let no_text: [&str; 0] = [];
+        let module_ctx = crate::module::ModuleContext {
+            texts: if self.modules_may_read_text {
+                texts
+            } else {
+                &no_text
+            },
+            tokens: &tokens,
+            claims: &claims,
+            text_digest: &text_digest,
+        };
+        let modules = if self.modules.is_empty() {
+            Vec::new()
+        } else {
+            self.modules
+                .run(&module_ctx, self.config.mode == policy::Mode::Enforce)
+        };
+
         Evidence {
             tokens,
             // A cell64 reference is restricted when the operator listed it.
@@ -171,6 +203,7 @@ impl Guard {
                 .map(str::to_string)
                 .collect(),
             claims,
+            modules,
         }
     }
 
@@ -214,6 +247,7 @@ impl Guard {
             returned,
             now,
             self.config.mode,
+            &self.modules.config_digest(),
             signer(&self.signing),
             &self.log,
             self.log_failure_policy,
@@ -307,9 +341,22 @@ pub fn router(guard: Arc<Guard>) -> Router {
         .route("/log/entry/:leaf", get(log_entry))
         .route("/log/entries", get(log_entries))
         .route("/log/report", get(log_report))
-        // The platform sends up to 10 MB and a rejected body is a webhook
-        // failure, so the limit is the ceiling rather than a comfortable
-        // default.
+        // What detection is loaded, what class it declared, and what it has
+        // actually cost. An operator who cannot see the second and third has
+        // only the first, which is a promise.
+        .route("/modules", get(modules))
+        // Transcripts arrive untruncated up to 10 MB and a rejected body is a
+        // transport failure, so the limit is the ceiling rather than a
+        // comfortable default.
+        //
+        // BOTH layers are required and neither is redundant. Axum applies its
+        // own DefaultBodyLimit of 2 MB to every extractor, and it wins
+        // regardless of what tower-http is configured with: this server
+        // documented 10 MB, carried the tower-http layer, and still answered
+        // 413 on anything past 2 MB. Nothing caught it, because a unit test
+        // that drives the router directly never sends a body that large. The
+        // conformance suite found it on the first run against a real socket.
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             MAX_BODY_BYTES,
         ))
@@ -386,12 +433,18 @@ async fn descriptor(State(g): State<Arc<Guard>>) -> impl IntoResponse {
             {"route": "/verdict/claude-code", "shape": "Claude Code hook input",
              "checkpoint_id": "anthropic.claude_code_hook.v1", "open": false}
         ],
+        "modules": {
+            "route": "/modules",
+            "loaded": g.modules.len(),
+            "config_digest": g.modules.config_digest(),
+            "note": "detection is pluggable; grounding is native. A module's verdict is signed and logged like any other, and the log records its id and an evidence digest, never what it matched.",
+        },
         "evidence": {
             "head": "/log/head",
             "entry": "/log/entry/{leaf}",
             "entries": "/log/entries?start=0&count=50",
             "report": "/log/report",
-            "preimage_domain": "emem.guard.verdict.v2",
+            "preimage_domain": "emem.guard.verdict.v3",
             "signature": "ed25519 over the record preimage, base32-nopad-lowercase"
         },
         "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
@@ -641,6 +694,55 @@ async fn batch(State(g): State<Arc<Guard>>, body: axum::body::Bytes) -> impl Int
 
 // ── the evidence half ────────────────────────────────────────────────────
 
+/// The loaded module set, as declared and as measured.
+async fn modules(State(g): State<Arc<Guard>>) -> impl IntoResponse {
+    let loaded: Vec<_> = g
+        .modules
+        .manifests()
+        .into_iter()
+        .map(|m| {
+            let h = g.modules.health(&m.id);
+            serde_json::json!({
+                "id": m.id,
+                "version": m.version,
+                "build_hash": m.build_hash,
+                "latency_class": m.latency_class,
+                "data_class": m.data_class,
+                "deny_code": m.deny_code.as_str(),
+                "fix": m.fix.as_str(),
+                "description": m.description,
+                // Measured, not declared. This is the half an operator cannot
+                // get from a README.
+                "observed": {
+                    "calls": h.calls,
+                    "last_ms": h.last_ms,
+                    "max_ms": h.max_ms,
+                    "budget_overruns": h.overruns,
+                    "demoted": h.demoted,
+                },
+                "can_block": m.latency_class == crate::module::LatencyClass::Fast && !h.demoted,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({
+        "config_digest": g.modules.config_digest(),
+        "count": loaded.len(),
+        "text_visible_to_modules": g.modules_may_read_text,
+        "fast_budget_ms": crate::module::FAST_BUDGET.as_millis(),
+        "modules": loaded,
+        "rules": {
+            "slow_never_blocks": "a module declaring latency_class slow is evaluated in shadow only and can never deny",
+            "fast_is_measured": format!(
+                "a module declaring fast that exceeds {} ms {} times is demoted to shadow and stops being able to block",
+                crate::module::FAST_BUDGET.as_millis(),
+                crate::module::FAST_STRIKES
+            ),
+            "abstain_never_blocks": "a module that timed out or could not decide has not told us to deny",
+            "no_content_logged": "the log records module id, version and an evidence digest, never what matched",
+        },
+    }))
+}
+
 /// The chain head: what a witness or a mirror pins.
 async fn log_head(State(g): State<Arc<Guard>>) -> impl IntoResponse {
     let (seq, chain) = g.log.head();
@@ -765,6 +867,8 @@ mod tests {
             config: Config::default(),
             resolver: Box::new(crate::resolve::NullResolver),
             restricted_cells: Default::default(),
+            modules: crate::module::ModuleRegistry::new(),
+            modules_may_read_text: true,
             log: FileLog::open(&p, key.verifying_key()).unwrap(),
             signing: key,
             secrets: Vec::new(),
@@ -1199,6 +1303,167 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["action"], "allow");
         assert!(v["code"].is_null(), "no rule fired at all");
+    }
+
+    /// The chassis working end to end: a loaded module denies, the verdict
+    /// carries POLICY_MODULE and the module's declared fix, and the log
+    /// records who found it without recording what they found.
+    #[tokio::test]
+    async fn a_loaded_module_denies_and_the_log_names_it_without_the_content() {
+        let mut g = guard("modrun");
+        {
+            let m = Arc::get_mut(&mut g).unwrap();
+            m.modules
+                .load(Box::new(crate::modules::SecretPatterns::new()))
+                .unwrap();
+        }
+        let secret = "AKIAIOSFODNN7EXAMPLE";
+        let body = format!(r#"{{"texts":["deploy with {secret} please"],"request_id":"r-mod"}}"#);
+        let (status, v) = post(router(g.clone()), "/verdict", &body).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["action"], "deny");
+        assert_eq!(v["code"], "POLICY_MODULE");
+        assert_eq!(v["fix"], "redact_and_retry", "the module's declared remedy");
+
+        // The reason line is the same fixed grammar every other denial uses:
+        // no new field was grown for modules.
+        let reason = v["reason"].as_str().unwrap();
+        assert!(
+            reason.starts_with("EMEM-GUARD DENY POLICY_MODULE token=-"),
+            "{reason}"
+        );
+
+        // The log names the module and hashes the finding.
+        let entry = g.log.entry(0).expect("the verdict was logged");
+        assert_eq!(
+            entry
+                .record
+                .module
+                .as_deref()
+                .map(|m| m.split('@').next().unwrap()),
+            Some("secret-patterns")
+        );
+        assert_eq!(entry.record.evidence_digest.as_ref().unwrap().len(), 64);
+        let whole = serde_json::to_string(&entry).unwrap();
+        assert!(
+            !whole.contains(secret) && !whole.contains("AKIA"),
+            "the credential reached the log: {whole}"
+        );
+        // And the verdict names the module set that produced it, or it would
+        // not be reproducible.
+        assert_eq!(entry.record.config_digest, g.modules.config_digest());
+        assert!(!entry.record.config_digest.is_empty());
+    }
+
+    /// A cryptographic failure is a stronger statement than a pattern match,
+    /// so it is the one reported when both fire.
+    #[tokio::test]
+    async fn an_established_provenance_failure_outranks_a_module_finding() {
+        let ev = Evidence {
+            tokens: vec![(
+                crate::tokens::FoundToken {
+                    token: "emem:fact:a:b".into(),
+                    kind: crate::tokens::TokenKind::Fact,
+                },
+                policy::TokenStatus::SignatureFailed,
+            )],
+            modules: vec![(
+                crate::module::PolicyModule::manifest(&crate::modules::SecretPatterns::new())
+                    .clone(),
+                crate::module::ModuleVerdict::deny("x", b"y", 1.0),
+            )],
+            ..Default::default()
+        };
+        assert_eq!(
+            policy::evaluate(&Config::default(), &ev).code,
+            Some(policy::DenyCode::ProvSig)
+        );
+    }
+
+    /// The descriptor and /modules have to agree with what is loaded, or an
+    /// operator is reading a promise rather than a state.
+    #[tokio::test]
+    async fn the_modules_route_reports_what_is_loaded_and_what_it_cost() {
+        let mut g = guard("modlist");
+        Arc::get_mut(&mut g)
+            .unwrap()
+            .modules
+            .load(Box::new(crate::modules::SecretPatterns::new()))
+            .unwrap();
+        // One call, so there is something measured to report.
+        post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["nothing here"]}"#,
+        )
+        .await;
+
+        let app = router(g.clone());
+        let res = app
+            .oneshot(
+                Request::builder()
+                    .uri("/modules")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["count"], 1);
+        assert_eq!(v["config_digest"], g.modules.config_digest());
+        let m = &v["modules"][0];
+        assert_eq!(m["id"], "secret-patterns");
+        assert_eq!(m["latency_class"], "fast");
+        assert_eq!(m["can_block"], true);
+        assert_eq!(m["observed"]["calls"], 1, "measured, not declared");
+        assert_eq!(m["observed"]["demoted"], false);
+    }
+
+    /// A node with no modules is the default, and it must still produce a
+    /// config digest: "nothing loaded" has to be a signed statement rather
+    /// than an absence somebody could introduce later.
+    #[tokio::test]
+    async fn a_node_with_no_modules_still_binds_its_empty_pipeline() {
+        let g = guard("nomod");
+        post(
+            router(g.clone()),
+            "/verdict",
+            r#"{"texts":["hi"],"request_id":"r-none"}"#,
+        )
+        .await;
+        let entry = g.log.entry(0).unwrap();
+        assert!(!entry.record.config_digest.is_empty());
+        assert_eq!(entry.record.config_digest, g.modules.config_digest());
+        assert!(entry.record.module.is_none());
+    }
+
+    /// The regression the conformance suite found: this server documented
+    /// 10 MB, carried a tower-http limit layer set to it, and still answered
+    /// 413 on anything past 2 MB, because axum's own DefaultBodyLimit wins.
+    ///
+    /// Under a fail-open policy that turns every oversized transcript into an
+    /// uninspected request, which is the exact failure the whole crate exists
+    /// to avoid, produced by a default nobody set.
+    #[tokio::test]
+    async fn a_body_up_to_the_documented_ceiling_is_accepted() {
+        // Just under the ceiling, and far past every default that would
+        // silently truncate it.
+        let filler = "x".repeat(9 * 1024 * 1024);
+        let body = format!(r#"{{"texts":["{filler}"]}}"#);
+        assert!(body.len() > 9_000_000 && body.len() < MAX_BODY_BYTES);
+        let (status, v) = post(router(guard("bigbody")), "/verdict", &body).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "a {} byte body was rejected under a {} byte ceiling",
+            body.len(),
+            MAX_BODY_BYTES
+        );
+        assert_eq!(v["action"], "allow");
     }
 
     /// Health is what an operator and a load balancer read.

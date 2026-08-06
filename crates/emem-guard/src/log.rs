@@ -29,10 +29,20 @@
 //! later alter without breaking the signature, so the rule is that a field
 //! either enters the preimage or does not exist.
 //!
-//! The last two are why the domain says `v2`. A shadow report is a claim about
-//! how often a rule WOULD have fired, and a claim like that is only worth
-//! anything if the operator making it could not have edited the answer
-//! afterwards.
+//! `mode` and `evaluated` are why the domain moved to v2: a shadow report is a
+//! claim about how often a rule WOULD have fired, and a claim like that is
+//! only worth anything if the operator making it could not have edited the
+//! answer afterwards.
+//!
+//! `config_digest`, `module` and `evidence_digest` are why it is now v3. A
+//! verdict has to be reproducible, and it is not reproducible unless it names
+//! the exact detector set that produced it. The version lives IN the domain
+//! string, so an older verifier handed a newer record does not silently accept
+//! it: the signature simply does not verify.
+//!
+//! The preimage is pre-1.0 and will move again if something load-bearing is
+//! found to be unbound. It freezes at the first conformance-green release, and
+//! after that a change is a new version served alongside the old one.
 
 use serde::{Deserialize, Serialize};
 
@@ -89,6 +99,21 @@ pub struct VerdictRecord {
     /// from a mutable table.
     #[serde(default)]
     pub evaluated: String,
+    /// Digest over the loaded module set, in order.
+    ///
+    /// What makes a verdict REPRODUCIBLE rather than merely genuine. Without
+    /// it, an operator could change which detectors are loaded and the same
+    /// signed record would describe two different evaluations, which is the
+    /// exact substitution an audit trail exists to prevent.
+    #[serde(default)]
+    pub config_digest: String,
+    /// Which module denied, when one did. `id@version`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
+    /// A digest of what that module matched. **Never the content.** A log that
+    /// recorded what a secret scanner found would be a catalogue of secrets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_digest: Option<String>,
 }
 
 impl VerdictRecord {
@@ -104,6 +129,7 @@ impl VerdictRecord {
         decision: &Decision,
         decided_at_unix_s: i64,
         mode: Mode,
+        config_digest: &str,
     ) -> Self {
         let word = |o: Outcome| match o {
             Outcome::Proceed => "allow".to_string(),
@@ -124,6 +150,15 @@ impl VerdictRecord {
             } else {
                 "allow".to_string()
             },
+            config_digest: config_digest.to_string(),
+            module: decision
+                .module
+                .as_ref()
+                .map(|m| format!("{}@{}", m.id, m.version)),
+            evidence_digest: decision
+                .module
+                .as_ref()
+                .and_then(|m| m.evidence_digest.clone()),
         }
     }
 
@@ -153,7 +188,7 @@ impl VerdictRecord {
         // domain rather than beside it, so a v1 verifier cannot be handed a v2
         // record and told the extra segments were always there: the domain
         // string itself differs, so the signature simply does not verify.
-        seg(0x00, b"emem.guard.verdict.v2");
+        seg(0x00, b"emem.guard.verdict.v3");
         seg(0x01, self.checkpoint.as_bytes());
         seg(0x02, self.request_id.as_bytes());
         seg(0x03, self.outcome.as_bytes());
@@ -167,6 +202,12 @@ impl VerdictRecord {
         seg(0x08, &self.decided_at_unix_s.to_le_bytes());
         seg(0x09, self.mode.as_str().as_bytes());
         seg(0x0a, self.evaluated.as_bytes());
+        seg(0x0b, self.config_digest.as_bytes());
+        seg(0x0c, self.module.as_deref().unwrap_or("").as_bytes());
+        seg(
+            0x0d,
+            self.evidence_digest.as_deref().unwrap_or("").as_bytes(),
+        );
         out
     }
 }
@@ -242,11 +283,19 @@ pub fn seal(
     decision: Decision,
     decided_at_unix_s: i64,
     mode: Mode,
+    config_digest: &str,
     sign: impl Fn(&[u8]) -> Vec<u8>,
     log: &dyn VerdictLog,
     policy: LogFailurePolicy,
 ) -> (Decision, Option<LogError>) {
-    let record = VerdictRecord::new(checkpoint, request_id, &decision, decided_at_unix_s, mode);
+    let record = VerdictRecord::new(
+        checkpoint,
+        request_id,
+        &decision,
+        decided_at_unix_s,
+        mode,
+        config_digest,
+    );
     let signature = sign(&record.preimage());
     match log.append(&record, &signature) {
         Ok(leaf) => (decision.with_leaf(leaf), None),
@@ -317,6 +366,7 @@ mod tests {
             deny(),
             1_700_000_000,
             Mode::Enforce,
+            "cfg-test",
             |p| p.to_vec(),
             &log,
             LogFailurePolicy::default(),
@@ -335,7 +385,14 @@ mod tests {
     /// to prevent.
     #[test]
     fn every_field_that_could_change_the_verdict_is_signed() {
-        let base = VerdictRecord::new("cp", "req_1", &deny(), 1_700_000_000, Mode::Enforce);
+        let base = VerdictRecord::new(
+            "cp",
+            "req_1",
+            &deny(),
+            1_700_000_000,
+            Mode::Enforce,
+            "cfg-test",
+        );
         let p = base.preimage();
 
         let mut m = base.clone();
@@ -397,6 +454,7 @@ mod tests {
             returned,
             0,
             Mode::Shadow,
+            "cfg-test",
             |p| p.to_vec(),
             &log,
             LogFailurePolicy::default(),
@@ -418,9 +476,16 @@ mod tests {
     #[test]
     fn under_enforcement_the_two_outcomes_agree() {
         assert_eq!(Mode::default(), Mode::Enforce);
-        let r = VerdictRecord::new("cp", "r", &deny(), 0, Mode::Enforce);
+        let r = VerdictRecord::new("cp", "r", &deny(), 0, Mode::Enforce, "cfg-test");
         assert_eq!((r.outcome.as_str(), r.evaluated.as_str()), ("deny", "deny"));
-        let a = VerdictRecord::new("cp", "r", &Decision::proceed(), 0, Mode::Enforce);
+        let a = VerdictRecord::new(
+            "cp",
+            "r",
+            &Decision::proceed(),
+            0,
+            Mode::Enforce,
+            "cfg-test",
+        );
         assert_eq!(
             (a.outcome.as_str(), a.evaluated.as_str()),
             ("allow", "allow")
@@ -431,8 +496,22 @@ mod tests {
     /// different record with the same bytes.
     #[test]
     fn field_boundaries_cannot_be_shifted() {
-        let a = VerdictRecord::new("ab", "c", &Decision::proceed(), 0, Mode::Enforce);
-        let b = VerdictRecord::new("a", "bc", &Decision::proceed(), 0, Mode::Enforce);
+        let a = VerdictRecord::new(
+            "ab",
+            "c",
+            &Decision::proceed(),
+            0,
+            Mode::Enforce,
+            "cfg-test",
+        );
+        let b = VerdictRecord::new(
+            "a",
+            "bc",
+            &Decision::proceed(),
+            0,
+            Mode::Enforce,
+            "cfg-test",
+        );
         assert_ne!(a.preimage(), b.preimage());
     }
 
@@ -440,7 +519,14 @@ mod tests {
     /// receipt preimage learned this when a stripped Merkle proof verified.
     #[test]
     fn absence_is_signed_rather_than_implied() {
-        let allow = VerdictRecord::new("cp", "req_1", &Decision::proceed(), 0, Mode::Enforce);
+        let allow = VerdictRecord::new(
+            "cp",
+            "req_1",
+            &Decision::proceed(),
+            0,
+            Mode::Enforce,
+            "cfg-test",
+        );
         let p = allow.preimage();
         // The tag for `token` is present even though the value is empty.
         assert!(p.contains(&0x05u8));
@@ -463,6 +549,7 @@ mod tests {
             deny(),
             0,
             Mode::Enforce,
+            "cfg-test",
             |p| p.to_vec(),
             &log,
             LogFailurePolicy::default(),
@@ -489,6 +576,7 @@ mod tests {
             deny(),
             0,
             Mode::Enforce,
+            "cfg-test",
             |p| p.to_vec(),
             &log,
             LogFailurePolicy::DowngradeDeny,

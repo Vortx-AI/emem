@@ -28,12 +28,21 @@ OPTIONS:
                            and logs every verdict but verifies no citation.
     --restrict-cell CELL   a cell64 to refuse references to; repeat for more.
                            Exact match only, never a geocode.
+    --module NAME          load a detection module. Repeat for more; order is
+                           the pipeline order and is bound into every verdict.
+                           `secret-patterns` is built in. `webhook:URL` calls
+                           your own classifier, abstaining on timeout.
+    --modules-no-text      never show transcript text to any module, whatever
+                           it declared. For a relay where text may not cross.
     --claim-gating         deny measurable physical claims that cite nothing.
                            Off by default. Run it with --shadow first and read
                            --report before you enforce it.
     --shadow               evaluate and log every rule, return allow always.
                            The way to measure what enforcing would cost on your
                            own traffic before it costs it.
+    --conformance URL      run the deployment conformance suite against a
+                           running node and exit non-zero on any failure.
+                           This is the gate before pointing a checkpoint at it.
     --audit                verify the existing log and exit
     --report               count what this node has done, from the log, and exit
     -h, --help             this text
@@ -57,6 +66,7 @@ ENDPOINTS, EVIDENCE:
     GET  /log/entry/leaf_7         the signed record a denial named
     GET  /log/entries?start=0      a window, so anyone can mirror the log
     GET  /log/report               what this node has done, counted from disk
+    GET  /modules                  the loaded detection modules and their health
 
 Put it behind TLS on a publicly routable host: the platform refuses private
 and loopback ranges and does not follow redirects.
@@ -69,8 +79,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut require_signature = false;
     let mut audit_only = false;
     let mut report_only = false;
+    let mut conformance: Option<String> = None;
     let mut claim_gating = false;
     let mut shadow = false;
+    let mut module_specs: Vec<String> = Vec::new();
+    let mut modules_may_read_text = true;
     let mut responder: Option<String> = None;
     let mut restricted: std::collections::HashSet<String> = Default::default();
 
@@ -97,8 +110,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     restricted.insert(c);
                 }
             }
+            "--module" => {
+                if let Some(m) = args.next() {
+                    module_specs.push(m);
+                }
+            }
+            "--modules-no-text" => modules_may_read_text = false,
             "--claim-gating" => claim_gating = true,
             "--shadow" => shadow = true,
+            "--conformance" => conformance = args.next(),
             "--audit" => audit_only = true,
             "--report" => report_only = true,
             other => {
@@ -106,6 +126,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(2);
             }
         }
+    }
+
+    if let Some(url) = conformance {
+        // Against a URL over the wire, exactly as a checkpoint would reach it.
+        // Everything this catches lives between the code and the deployment.
+        let outcomes = emem_guard::conformance::run(&url);
+        std::process::exit(emem_guard::conformance::report(&outcomes));
     }
 
     let log_path = data.join("verdicts.jsonl");
@@ -184,6 +211,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // A restricted list is the only thing that makes the geo rule meaningful,
     // so it turns itself on when one is supplied and stays off otherwise.
+    let mut modules = emem_guard::ModuleRegistry::new();
+    for spec in &module_specs {
+        let loaded: Result<Box<dyn emem_guard::PolicyModule>, String> = match spec.as_str() {
+            "secret-patterns" => Ok(Box::new(emem_guard::SecretPatterns::new())),
+            other => match other.strip_prefix("webhook:") {
+                Some(url) => emem_guard::OrgWebhook::new(
+                    "org-webhook",
+                    url,
+                    std::time::Duration::from_millis(200),
+                    // Declared slow, so it cannot block until an operator has
+                    // measured their own classifier and said otherwise. A
+                    // network call on the enforcing path is a decision, not a
+                    // default.
+                    emem_guard::LatencyClass::Slow,
+                    emem_guard::DataClass::NeedsText,
+                )
+                .map(|m| Box::new(m.at(url)) as Box<dyn emem_guard::PolicyModule>)
+                .map_err(|e| e.to_string()),
+                None => Err(format!(
+                    "unknown module {other:?}; known: secret-patterns, webhook:<url>"
+                )),
+            },
+        };
+        match loaded {
+            Ok(m) => {
+                if let Err(e) = modules.load(m) {
+                    eprintln!("emem-guard: refusing to load {spec}: {e}");
+                    std::process::exit(2);
+                }
+            }
+            Err(e) => {
+                eprintln!("emem-guard: {e}");
+                std::process::exit(2);
+            }
+        }
+    }
+
     let config = Config {
         geo_restriction: !restricted.is_empty(),
         claim_gating,
@@ -197,6 +261,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let guard = Arc::new(Guard {
         config,
+        modules,
+        modules_may_read_text,
         resolver,
         restricted_cells: restricted,
         log,
@@ -228,6 +294,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !shadow {
             println!("           this rule denies on ABSENCE. Measure it with --shadow first.");
         }
+    }
+    if !module_specs.is_empty() {
+        println!(
+            "  modules  {} loaded: {}",
+            module_specs.len(),
+            module_specs.join(", ")
+        );
+        if !modules_may_read_text {
+            println!("           text is withheld from every module (--modules-no-text)");
+        }
+        println!("           a slow module never blocks; a fast one that misses its");
+        println!("           budget is demoted. GET /modules for the current state.");
     }
     println!("  verify   emem-guard --audit --data {}", data.display());
 
