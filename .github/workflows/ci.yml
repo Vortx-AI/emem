@@ -272,6 +272,77 @@ jobs:
       - name: doc lint
         run: python3 scripts/doc_lint.py
 
+  # Two gates that check a RUNNING system rather than the source. Both are
+  # here because the failures they catch are invisible to every other job:
+  # the code is correct, the tests are green, and the thing an agent talks
+  # to still misbehaves.
+  guard-conformance:
+    name: guard deployment conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: build the guard
+        run: cargo build --release -p emem-guard
+      # Against a real socket, because that is where the failures live. The
+      # first run of this suite found that a 9 MB body returned 413: axum's
+      # DefaultBodyLimit of 2 MB wins over the tower-http layer set to 10 MB,
+      # so a server that documented 10 MB, carried the layer, and passed every
+      # unit test still refused. Unit tests drive the router directly and
+      # never send a body that large, so only this could have caught it.
+      - name: start a node
+        run: |
+          ./target/release/emem-guard --data ./var/ci-guard --bind 127.0.0.1:8099 \
+            --module secret-patterns &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8099/health >/dev/null && exit 0
+            sleep 1
+          done
+          echo "the node never came up"; exit 1
+      - name: conformance
+        run: ./target/release/emem-guard --conformance http://127.0.0.1:8099
+      # The log the node just wrote has to audit clean, or the evidence half
+      # of the product is broken in exactly the way nobody would notice.
+      - name: the log it wrote audits clean
+        run: ./target/release/emem-guard --audit --data ./var/ci-guard
+
+  parity:
+    name: MCP and REST answer the same
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # A live check against production, so it cannot gate a pull request from
+    # a fork and must not fail the build when the network is the problem. It
+    # runs on push to main and on a schedule; `continue-on-error` is
+    # deliberately ABSENT, because a real divergence should stop the line.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # emem answers on two surfaces from one set of handlers. Two audit
+      # rounds found flags that meant different things on each: an agent's
+      # answer depended on which door it used. sgozfgkr built the first cut
+      # of this harness and specified what it must assert; this is the CI
+      # integration that was owed back.
+      #
+      # Exit 2 is "could not run" (responder unreachable) and is tolerated:
+      # a deploy window is not a divergence. Exit 1 is a real divergence and
+      # fails the build.
+      - name: parity matrix against production
+        run: |
+          set +e
+          python3 scripts/parity.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; parity not asserted this run"
+            exit 0
+          fi
+          exit $code
+
   ts-sdk:
     name: TypeScript SDK build
     runs-on: ubuntu-latest
