@@ -292,21 +292,34 @@ jobs:
       # so a server that documented 10 MB, carried the layer, and passed every
       # unit test still refused. Unit tests drive the router directly and
       # never send a body that large, so only this could have caught it.
-      - name: start a node
+      # Start, check and audit in ONE step. Splitting them across steps would
+      # rely on a backgrounded process surviving between shells, which is
+      # true on this runner today and is not a thing to depend on: the
+      # failure mode is a green build that never started a server.
+      - name: start a node, conform, and audit its log
         run: |
+          set -euo pipefail
           ./target/release/emem-guard --data ./var/ci-guard --bind 127.0.0.1:8099 \
             --module secret-patterns &
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8099/health >/dev/null && exit 0
+          node=$!
+          # Kill it however this step ends, so a failure cannot leave a
+          # process holding the port for whatever runs next.
+          trap 'kill "$node" 2>/dev/null || true' EXIT
+          up=""
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8099/health >/dev/null; then up=1; break; fi
             sleep 1
           done
-          echo "the node never came up"; exit 1
-      - name: conformance
-        run: ./target/release/emem-guard --conformance http://127.0.0.1:8099
-      # The log the node just wrote has to audit clean, or the evidence half
-      # of the product is broken in exactly the way nobody would notice.
-      - name: the log it wrote audits clean
-        run: ./target/release/emem-guard --audit --data ./var/ci-guard
+          if [ -z "$up" ]; then echo "the node never came up"; exit 1; fi
+          ./target/release/emem-guard --conformance http://127.0.0.1:8099
+          # The log it just wrote has to audit clean, or the evidence half of
+          # the product is broken in exactly the way nobody would notice.
+          ./target/release/emem-guard --audit --data ./var/ci-guard
+          # And a module that was loaded has to actually be loaded, or the
+          # conformance run proved something about a bare node instead.
+          curl -sf http://127.0.0.1:8099/modules \
+            | grep -q '"id":"secret-patterns"' \
+            || { echo "the module was not loaded"; exit 1; }
 
   parity:
     name: MCP and REST answer the same

@@ -590,8 +590,8 @@ without historical fetch return `status: "present_only"`; check
 
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
-`tools/list` at `/mcp` advertises the 16 tools of the loop (about 41 KB of
-descriptors); `/mcp/full` advertises all 107 (about 213 KB), and
+`tools/list` at `/mcp` advertises the 16 tools of the loop (about 51 KB of
+descriptors); `/mcp/full` advertises all 107 (about 266 KB), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of
 tier, so a tool absent from your list is still callable and the narrower

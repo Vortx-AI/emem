@@ -277,7 +277,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 Reads need no key, and four moves cover most sessions.
 
-**Connect to `https://emem.dev/mcp`.** It advertises the 16 tools of the core loop, about 40 KB of context, not the whole catalog. That is deliberate: loading all 107 descriptors costs about a quarter of a megabyte whether or not the session touches Earth observation. `tools/call` still dispatches all 107 by name at either endpoint, so a tool missing from your list is still callable, and `/mcp/full` registers everything up front when you want it. Do not know which tool? Call `emem_tools`, which returns the loop and a menu in about 6 KB, filterable by the shape of the answer you need.
+**Connect to `https://emem.dev/mcp`.** It advertises the 16 tools of the core loop, about 51 KB of context, not the whole catalog. That is deliberate: loading all 107 descriptors costs about 266 KB whether or not the session touches Earth observation. `tools/call` still dispatches all 107 by name at either endpoint, so a tool missing from your list is still callable, and `/mcp/full` registers everything up front when you want it. Do not know which tool? Call `emem_tools`, which returns the loop and a menu in about 6 KB, filterable by the shape of the answer you need.
 
 **Ground a place, then cite it.** `emem_locate` maps a place to its `cell64`, `emem_recall` returns the signed facts there, and `emem_memory_token` composes them into one handle. **Hand it to another agent**, and they call `emem_memory_token_resolve` on that line, get the byte-identical fact, and `emem_verify_receipt` checks the signature without trusting you or the server. That is the whole claim, and the only one worth making.
 
