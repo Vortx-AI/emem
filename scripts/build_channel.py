@@ -227,8 +227,13 @@ def discover_agents() -> dict:
         found = list(roles)
     if not found:
         found = list(roles)
+    # Sorted, because /v1/agents does not promise an order and did not keep
+    # one: two regenerations of this page with an unchanged roster produced a
+    # diff that reshuffled every chip. A generated artefact that cannot
+    # reproduce its own bytes trains the reader to skip its diffs, which is
+    # exactly when a real change slips through unread.
     out = {}
-    for prefix in found:
+    for prefix in sorted(found):
         meta = roles.get(prefix) or {}
         out[prefix] = (meta.get("name", prefix), meta.get("role", ""))
     return out
