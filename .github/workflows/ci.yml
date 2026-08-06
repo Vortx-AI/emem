@@ -99,6 +99,11 @@ jobs:
     # link failure surfaces here loudly rather than being masked.
     strategy:
       fail-fast: false
+      # One platform failing must not cancel the other. A macOS flake took
+      # ubuntu down with it and left every other job reading `cancelled`,
+      # which is exactly the state where you cannot tell what passed. The
+      # point of a matrix is two independent answers.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:

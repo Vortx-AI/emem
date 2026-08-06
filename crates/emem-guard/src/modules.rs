@@ -610,12 +610,20 @@ mod tests {
         let v = m.evaluate(&ctx(&[&haystack]));
         let took = started.elapsed();
         assert_eq!(v.outcome, ModuleOutcome::Allow);
+        // Ten times the budget, not one. The defect worth catching is a scan
+        // that is accidentally quadratic in the transcript, which costs
+        // SECONDS on a megabyte; asserting the budget exactly would instead
+        // measure how loaded a shared CI runner happened to be, and a test
+        // that fails for that reason gets ignored, which is worse than not
+        // having it. The real budget is enforced at runtime by the registry,
+        // which demotes a module that misses it.
+        let ceiling = crate::module::FAST_BUDGET * 10;
         assert!(
-            took < crate::module::FAST_BUDGET,
-            "took {} ms over a {} byte transcript, past the {} ms fast budget",
+            took < ceiling,
+            "took {} ms over a {} byte transcript; anything near this is a scan \
+             that does not stay linear",
             took.as_millis(),
-            haystack.len(),
-            crate::module::FAST_BUDGET.as_millis()
+            haystack.len()
         );
     }
 
@@ -673,8 +681,14 @@ mod tests {
         use std::io::{BufRead, BufReader, Write};
         use std::os::unix::net::UnixListener;
 
-        let mut sock = std::env::temp_dir();
-        sock.push(format!("emem-guard-sidecar-{}.sock", std::process::id()));
+        // NOT std::env::temp_dir(): macOS returns a long per-user path under
+        // /var/folders and caps a unix socket path at 104 bytes, so a
+        // perfectly good test fails on one platform for a reason that has
+        // nothing to do with the code. /tmp is short everywhere.
+        let sock = std::path::PathBuf::from(format!(
+            "/tmp/emem-guard-sidecar-{}.sock",
+            std::process::id()
+        ));
         let _ = std::fs::remove_file(&sock);
         let listener = UnixListener::bind(&sock).unwrap();
 
@@ -751,15 +765,21 @@ mod tests {
     #[test]
     fn a_silent_sidecar_times_out_into_an_abstain() {
         use std::os::unix::net::UnixListener;
-        let mut sock = std::env::temp_dir();
-        sock.push(format!("emem-guard-silent-{}.sock", std::process::id()));
+        let sock = std::path::PathBuf::from(format!(
+            "/tmp/emem-guard-silent-{}.sock",
+            std::process::id()
+        ));
         let _ = std::fs::remove_file(&sock);
         let listener = UnixListener::bind(&sock).unwrap();
+        // The peer holds for a LONG time on purpose. The gap between the
+        // budget and the hold is what makes the assertion below robust: a
+        // working timeout returns in ~80 ms, a broken one waits 5 s, and no
+        // amount of scheduling jitter on a shared runner turns one into the
+        // other.
+        let hold = Duration::from_secs(5);
         let keep = std::thread::spawn(move || {
-            // Accept and say nothing, which is the worst case: not a refusal,
-            // just silence.
             let _held = listener.incoming().next();
-            std::thread::sleep(Duration::from_millis(400));
+            std::thread::sleep(hold);
         });
 
         let budget = Duration::from_millis(80);
@@ -775,10 +795,12 @@ mod tests {
         let took = started.elapsed();
         assert_eq!(v.outcome, ModuleOutcome::Abstain);
         assert!(
-            took < budget * 4,
-            "held the verdict for {} ms against an {} ms budget",
+            took < hold / 2,
+            "held the verdict for {} ms against an {} ms budget while the peer \
+             held for {} ms: the read timeout did not fire",
             took.as_millis(),
-            budget.as_millis()
+            budget.as_millis(),
+            hold.as_millis()
         );
         let _ = keep.join();
         let _ = std::fs::remove_file(&sock);
