@@ -2630,6 +2630,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "emem-guard"
+version = "2.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+]
+
+[[package]]
 name = "emem-intent"
 version = "2.0.0"
 dependencies = [

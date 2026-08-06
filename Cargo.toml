@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/emem-core",
+    "crates/emem-guard",
     "crates/emem-codec",
     "crates/emem-fact",
     "crates/emem-claim",

@@ -1,0 +1,17 @@
+[package]
+name = "emem-guard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Signed verdict server for AI inference hooks: allow/deny on claims about the physical world, with an offline-verifiable log."
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+subtle = "2.6"
+
+[dev-dependencies]
