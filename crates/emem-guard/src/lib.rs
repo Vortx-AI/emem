@@ -47,11 +47,17 @@
 
 #![forbid(unsafe_code)]
 
+pub mod checkpoint;
 pub mod frame;
+pub mod log;
+pub mod policy;
 pub mod tokens;
 pub mod webhook;
 
+pub use checkpoint::{Adapter, AnthropicHook, ClaudeCodeHook, Outcome, Transcript};
 pub use frame::{Action, ContentBlock, EventType, Message, PromptFrame, Verdict};
+pub use log::{seal, LogError, LogFailurePolicy, VerdictLog, VerdictRecord};
+pub use policy::{evaluate, Config, Decision, DenyCode, Evidence, Fix, TokenStatus};
 pub use tokens::{scan, scan_all, FoundToken, TokenKind};
 pub use webhook::{verify, SignatureHeaders, VerifyError};
 
