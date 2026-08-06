@@ -273,15 +273,19 @@ jobs:
       # review; this holds the mechanical floor.
       - name: doc lint
         run: python3 scripts/doc_lint.py
-      # The workflow files, parsed the way GitHub parses them rather than the
-      # way PyYAML does. A duplicate `fail-fast:` slipped past yaml.safe_load,
-      # which keeps the last of two silently, and GitHub refused the whole
-      # file: every run for two hours was created with ZERO jobs, named by
-      # file path, reporting `failure`. Nothing ran, and it looked exactly
-      # like a broken test. A validator more permissive than the consumer is
-      # not a validator.
-      - name: workflow files parse the way GitHub parses them
-        run: python3 scripts/workflow_lint.py
+      # actionlint validates the workflow files against the real Actions
+      # schema. A duplicate `fail-fast:` once slipped past `yaml.safe_load`,
+      # which keeps the last of two silently, and GitHub refused the file:
+      # runs were created with ZERO jobs, named by file path, reporting
+      # `failure`, which reads exactly like a broken test. A validator more
+      # permissive than the consumer is not a validator, so use the one
+      # written against the consumer.
+      - name: actionlint
+        run: |
+          ver=1.7.7
+          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${ver}/actionlint_${ver}_linux_amd64.tar.gz" \
+            | tar xz actionlint
+          ./actionlint -shellcheck= -pyflakes= .github/workflows/*.yml
 
   # Two gates that check a RUNNING system rather than the source. Both are
   # here because the failures they catch are invisible to every other job:
