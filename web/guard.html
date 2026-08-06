@@ -1,0 +1,682 @@
+<!doctype html><html lang=en>
+<head>
+<meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>emem-guard: a signed yes/no server for claims about the physical world</title>
+<meta name=description content="emem-guard is an open-source signed verdict server for AI agents: it checks whether the citations in a transcript actually verify, answers allow or deny with a machine-readable reason, and appends every decision to an offline-verifiable log. Nine checkpoints, seven of which belong to no vendor. This page is the self-host skill being run, with real output.">
+<link rel=canonical href="https://emem.dev/guard">
+<link rel="alternate" type="text/markdown" href="/llms.txt">
+<link rel=alternate type=text/markdown href=/agents.md>
+<link rel=alternate type=application/json href=/.well-known/mcp.json>
+<link rel="service mcp" href=/mcp>
+<link rel=icon type="image/gif" href="/vortxgola.gif">
+<link rel="apple-touch-icon" href="/vortxgola.gif">
+<meta property=og:type content=website>
+<meta property=og:url content="https://emem.dev/guard">
+<meta property=og:title content="emem-guard: a signed yes/no server for claims about the physical world">
+<meta property=og:description content="Allow or deny, signed and logged, with a reason an agent can act on. Nine checkpoints, seven vendor-neutral. The self-host skill, actually run.">
+<meta property=og:image content="https://emem.dev/og-image.png">
+<meta property=og:site_name content=emem>
+<meta name=twitter:card content=summary_large_image>
+<meta name=twitter:title content="emem-guard: the verifiable half nobody built">
+<meta name=twitter:description content="A checkpoint asks whether to proceed. Everyone else evaluates content. emem-guard evaluates whether the claim is still true, and signs the answer.">
+<meta name=twitter:image content="https://emem.dev/og-image.png">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<script type=application/ld+json>{"@context":"https://schema.org","@type":"TechArticle","headline":"emem-guard: a signed yes/no server for claims about the physical world","description":"The self-host procedure for emem-guard, run end to end with real terminal output: build, test, start, verdict, shadow-measure claim gating, and audit the signed log.","url":"https://emem.dev/guard","publisher":{"@type":"Organization","name":"Vortx AI Private Limited","url":"https://vortx.ai"},"about":"Signed allow/deny verdicts for physical-world claims","isPartOf":{"@type":"WebSite","name":"emem","url":"https://emem.dev"}}</script>
+<style>
+
+:root{
+  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  --pad-x:1.5rem;--col-meta:13.75rem;
+  --t-xs:.6875rem;--t-sm:.75rem;--t-base:.84375rem;--t-md:.9375rem;--t-lg:1.125rem;--t-xl:1.375rem;--t-2xl:1.875rem;--t-3xl:2.75rem;--t-4xl:4rem;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  }
+}
+*{box-sizing:border-box}
+html{font-size:100%}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+::selection{background:var(--accent);color:var(--paper)}
+
+/* statusbar */
+.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
+.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
+.statusbar a:hover{color:var(--ink);background:var(--paper-3)}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
+.statusbar .spacer{flex:1}
+
+/* page shell */
+.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.section{border-bottom:1px solid var(--rule);padding:3.5rem 0;display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.section-meta{font-size:var(--t-xs);color:var(--mute);line-height:1.6;position:sticky;top:56px;align-self:start;max-height:calc(100vh - 80px);overflow:auto}
+.section-meta .idx{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.5rem}
+.section-meta .idx-num{font-weight:700;color:var(--ink);font-size:var(--t-sm)}
+.section-meta .idx-label{color:var(--mute-2);text-transform:uppercase;letter-spacing:.08em;font-size:var(--t-xs)}
+.section-meta dl{margin:1rem 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:.4rem}
+.section-meta dt{color:var(--mute-2);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.section-meta dd{margin:0 0 .5rem 0;color:var(--ink-2);font-size:var(--t-xs);word-break:break-all}
+.section-body>h2{margin:0 0 1rem;font-size:var(--t-2xl);font-weight:500;letter-spacing:-.02em;line-height:1.1;color:var(--ink)}
+.section-body>h2 .num{color:var(--mute-2);margin-right:.6rem;font-weight:300}
+.section-body>.lede{font-size:var(--t-md);color:var(--ink-2);max-width:62ch;margin:0 0 2rem;font-weight:400}
+.section-body p{max-width:66ch;margin:0 0 1.1rem;color:var(--ink-2)}
+.section-body h3{font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:2rem 0 .7rem}
+.section-body strong{color:var(--ink);font-weight:700}
+.section-body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.section-body a:hover{background:var(--accent-bg)}
+
+/* hero */
+.hero{padding:4rem 0 3rem;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
+.hero h1{font-size:var(--t-4xl);font-weight:300;letter-spacing:-.04em;line-height:.98;margin:0 0 1.4rem;color:var(--ink)}
+.hero h1 .accent{color:var(--accent);font-weight:600}
+.hero .sub{font-size:var(--t-lg);color:var(--ink-2);max-width:56ch;line-height:1.4;margin:0 0 1.4rem;font-weight:400}
+.hero-cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.6rem}
+.hero.hero-lean{grid-template-columns:1fr;gap:0;padding:5rem 0 4rem;max-width:820px;margin:0 auto}
+.hero.hero-lean .sub{font-size:var(--t-lg);max-width:60ch;line-height:1.45;margin:0 0 1rem;color:var(--ink-2);font-weight:400}
+.hero.hero-lean .hero-cta{margin-top:1.4rem}
+.hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem}
+.hero-trust code{color:var(--ink-2);font-size:var(--t-xs);background:var(--paper-2);padding:.05em .35em;border:1px solid var(--rule);border-radius:2px}
+@media (max-width:560px){
+  .hero.hero-lean{padding:3rem 0 2.5rem}
+  .hero.hero-lean .hero-cta{flex-direction:column;align-items:stretch}
+  .hero.hero-lean .hero-cta .btn{justify-content:center}
+}
+
+.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
+.btn:hover{background:var(--ink-2)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--paper-3)}
+
+/* code block */
+.code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.5rem 0;font-size:var(--t-sm);line-height:1.6}
+.code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
+.code-head .tab{padding:.4rem .8rem;border-right:1px solid var(--rule);color:var(--mute)}
+.code-head .lang{padding:.4rem .8rem;border-right:1px solid var(--rule);font-weight:700;color:var(--ink-2)}
+.code-head .spacer{flex:1}
+.code-head .copy{padding:.4rem .8rem;border:0;border-left:1px solid var(--rule);cursor:pointer;color:var(--mute);background:transparent;font-family:var(--mono);font-size:var(--t-xs)}
+.code-head .copy:hover{color:var(--ink);background:var(--paper-2)}
+.code-head .copy.copied{color:var(--accent)}
+.code pre{margin:0;padding:1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:var(--t-sm);white-space:pre}
+.code pre code{font-family:inherit}
+.tok-c{color:var(--mute)}
+.tok-k{color:var(--ink);font-weight:700}
+.tok-s{color:var(--accent)}
+.tok-p{color:var(--mute)}
+.tok-u{color:var(--ink-2)}
+.tok-cmd{color:var(--mute-2)}
+.tok-flag{color:var(--ink-2);font-weight:700}
+.tok-key{color:var(--ink);font-weight:700}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--rule);margin:1.5rem 0}
+.stats .stat{padding:1.2rem 1.1rem;border-right:1px solid var(--rule)}
+.stats .stat:last-child{border-right:0}
+.stats .stat .n{font-size:var(--t-3xl);font-weight:300;letter-spacing:-.03em;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+.stats .stat .n .small{font-size:var(--t-md);color:var(--mute);font-weight:400;margin-left:.3rem}
+.stats .stat .lbl{margin-top:.5rem;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.stats .stat{border-bottom:1px solid var(--rule)}}
+
+/* endpoints / registry table */
+.endpoints{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm)}
+.endpoints th,.endpoints td{padding:.55rem .8rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
+.endpoints th{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+.endpoints tr:hover td{background:var(--paper-2)}
+.endpoints .path{color:var(--ink);font-weight:600}
+.endpoints .desc{color:var(--ink-2)}
+
+/* ops list */
+.ops{list-style:none;margin:1.5rem 0;padding:0;counter-reset:op;border-top:1px solid var(--rule)}
+.ops>li{counter-increment:op;padding:.9rem 0 .9rem 3.2rem;border-bottom:1px solid var(--rule);position:relative;color:var(--ink-2);font-size:var(--t-sm);line-height:1.55;max-width:74ch}
+.ops>li::before{content:counter(op,decimal-leading-zero);position:absolute;left:0;top:.95rem;font-size:10px;font-weight:700;color:var(--mute-2);letter-spacing:.06em}
+.ops>li b{color:var(--ink);font-weight:700}
+
+/* tokens */
+.cid{color:var(--accent);font-size:.92em;word-break:break-all}
+.cell{color:var(--ink);font-weight:700;background:var(--paper-3);padding:0 .3rem}
+.band{color:var(--ink);background:var(--paper-3);padding:0 .3rem}
+.key{color:var(--mute);font-size:.85em;word-break:break-all}
+
+/* badges */
+.badge{display:inline-block;font-size:9px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;padding:.12rem .4rem;border:1px solid var(--rule-strong);border-radius:2px;color:var(--mute);white-space:nowrap}
+.badge.live{color:var(--accent);border-color:var(--accent)}
+.badge.retired{color:var(--absent);border-color:var(--absent)}
+.badge.follows{color:var(--machine);border-color:var(--machine)}
+
+/* caveat */
+.caveat{border:1px solid var(--rule-strong);border-left:3px solid var(--warn);background:var(--paper-2);padding:1rem 1.2rem;margin:1.6rem 0;font-size:var(--t-sm);color:var(--ink-2);max-width:72ch}
+.caveat b{color:var(--ink)}
+
+/* worlds cards */
+.wgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:0;border:1px solid var(--rule);margin:1.5rem 0}
+.wgrid .wcard{padding:1.1rem 1.2rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.wgrid .wcard:nth-child(2n){border-right:0}
+.wgrid .wcard .wt{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:0 0 .3rem}
+.wgrid .wcard .wd{font-size:var(--t-xs);color:var(--ink-2);line-height:1.5;margin:0 0 .6rem}
+.wgrid .wcard a{font-size:var(--t-xs);color:var(--accent)}
+@media (max-width:640px){.wgrid{grid-template-columns:1fr}.wgrid .wcard{border-right:0}}
+
+/* footer */
+.foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
+.foot-meta .desc{color:var(--mute);line-height:1.5}
+.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
+.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-col ul{margin:0;padding:0;list-style:none}
+.foot-col ul li{margin-bottom:.4rem}
+.foot-col a{color:var(--ink-2);text-decoration:none}
+.foot-col a:hover{color:var(--accent);text-decoration:underline}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom a{color:inherit}
+
+/* horizontal scroll wrapper for wide tables on small screens */
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.scroll-x>table{min-width:560px}
+
+/* responsive */
+@media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
+@media (max-width:720px){
+  .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
+  .section-meta,.foot-meta{position:static;max-height:none}
+  .section-meta{display:none}
+  .foot-grid{grid-template-columns:repeat(2,1fr)}
+  .endpoints{font-size:var(--t-xs)}
+  .endpoints th,.endpoints td{padding:.4rem .5rem}
+  .statusbar a.nav-sec{display:none}
+  .statusbar-inner{height:36px}
+  .hero-cta{flex-direction:column;align-items:stretch}
+  .hero-cta .btn{justify-content:center}
+}
+@media (max-width:560px){.hero h1{font-size:var(--t-2xl);line-height:1.05}.hero .sub{font-size:var(--t-md)}.code pre{font-size:var(--t-xs)}}
+@media (max-width:480px){html{font-size:92%}.page{padding:0 1rem}.stats{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* polish: header scrollspy · hand-drawn section dividers · framed buttons */
+.statusbar a{position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
+.statusbar a:hover{opacity:1}
+.statusbar a.on{opacity:1;color:var(--accent)}
+.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
+.section{position:relative;border-bottom:none}
+.section::after{content:"";position:absolute;left:0;right:0;bottom:-2.5px;height:6px;opacity:.5;background:linear-gradient(var(--rule),var(--rule)) left top/100% 1px no-repeat,linear-gradient(var(--rule),var(--rule)) left bottom/100% 1px no-repeat,repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px) center/auto 100%;-webkit-mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent);mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent)}
+.section::before{content:"";position:absolute;bottom:-3px;left:50%;width:5px;height:5px;margin-left:-2.5px;background:var(--paper);border:1px solid var(--accent);opacity:.5;transform:rotate(45deg);z-index:1}
+.btn{position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
+.code{position:relative;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.code::after{content:"";position:absolute;inset:-3px;pointer-events:none;opacity:.4;padding:2px;background:repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
+.code-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
+.statusbar .brand{opacity:1;text-decoration:none;cursor:pointer}
+.hero.hero-lean{text-align:center}
+.hero.hero-lean .sub{margin-left:auto;margin-right:auto}
+.hero.hero-lean .hero-cta{justify-content:center}
+.hero.hero-lean .hero-trust{text-align:center}
+.mith-div{display:flex;align-items:center;gap:1rem;max-width:1280px;margin:0 auto;padding:2.6rem var(--pad-x) .2rem}
+.mith-div::before,.mith-div::after{content:"";height:0;flex:1;border-top:1px solid var(--rule);box-shadow:0 3px 0 -2px var(--rule)}
+.mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);opacity:.8;flex:0 0 auto}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+</style>
+</head>
+<body>
+
+<header class="statusbar">
+  <div class="statusbar-inner">
+<a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+<a href="/">Home</a>
+<a href="/how-it-works" class="nav-sec">How it works</a>
+<a href="/solutions" class="nav-sec">Solutions</a>
+<a href="/reference" class="nav-sec">Reference</a>
+<a href="/demos" class="nav-sec">Demos</a>
+<a href="/a2a" class="nav-sec">A2A</a>
+<a href="/guard" class="nav-sec">Guard</a>
+<a href="/verify" class="nav-sec">Verify</a>
+<a href="/docs" class="nav-sec">Docs</a>
+<span class="spacer"></span>
+<a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+</div>
+</header>
+
+<header class="hero hero-lean page">
+  <h1>emem-<span class="accent">guard</span></h1>
+  <p class="sub">A signed yes/no server for claims about the physical world. Input: a transcript. Output: allow or deny, signed, logged, with a machine-readable reason. Nothing else.</p>
+  <p class="sub" style="font-size:var(--t-md);color:var(--mute)">This page is the <a href="https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/SKILL.md">self-host skill</a> being run. Every terminal block below is real output from a node started from a clean directory, in order, with nothing edited but the wrapping.</p>
+  <div class="hero-cta">
+    <a class="btn" href="#run">Watch it run</a>
+    <a class="btn ghost" href="#live">Check your own text &rarr;</a>
+    <a class="btn ghost" href="/v1/guard/selfhost">Get the skill &rarr;</a>
+  </div>
+  <p class="hero-trust">No account. No API key. No network to emem.dev. <code>cargo build --release -p emem-guard</code> and it runs.</p>
+</header>
+
+<section class="section page" id="what">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">01</span><span class="idx-label">what it is</span></div>
+    <dl>
+      <dt>input</dt><dd>a conversation transcript</dd>
+      <dt>output</dt><dd>allow or deny, ed25519-signed</dd>
+      <dt>never</dt><dd>a denial on a citation this node does not hold</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">01</span>The half nobody built</h2>
+    <p class="lede">A checkpoint holds a request and asks an external server whether to proceed. The named destinations for that question all evaluate <strong>content</strong>: does this text contain a card number, a secret, a classified marking. None of them can evaluate whether a claim about the world is still true, because none of them hold signed observations of it.</p>
+    <p>emem-guard evaluates the other thing. It finds the <code>emem:</code> citations in a transcript, resolves each one, and answers on the evidence. A cited observation whose signature fails is a denial. A cited observation this node has never seen is not, because that is indistinguishable from one minted by another responder.</p>
+    <p>The verdict is signed and appended to a hash-chained log <em>before</em> it is returned. Requests to a security server are already signed on the way in; verdicts come back as unsigned JSON into a mutable database, so nobody can later prove what was allowed, denied, or why. A compliance API that reports its own history is testimony. An append-only log with a chain is evidence.</p>
+    <h3>It is not a DLP scanner</h3>
+    <p>Detection accuracy is a race against vendors with hundreds of engineers maintaining thousands of patterns, and winning it would grow nothing that matters here. emem-guard is the chassis those engines run on: physical-world verification native, everyone else's detection pluggable, every verdict provable.</p>
+  </div>
+</section>
+
+<section class="section page" id="run">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">02</span><span class="idx-label">the skill, run</span></div>
+    <dl>
+      <dt>source</dt><dd>crates/emem-guard/SKILL.md</dd>
+      <dt>steps</dt><dd>12, each a command and a check</dd>
+      <dt>audience</dt><dd>an agent with a shell, unattended</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">02</span>The skill, actually run</h2>
+    <p class="lede">SKILL.md is written for an agent to execute without asking anyone anything. Below is what happens when it does. These are captured terminal sessions, not illustrations.</p>
+
+    <h3>Step 2 &mdash; run the tests before you trust it</h3>
+    <p>Not smoke tests. They include the two signature-verification mistakes the platform documentation singles out as most common: hashing a re-encoded body, and decoding the secret with a URL-safe alphabet. Both fail loudly if reintroduced.</p>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ cargo test --release -p emem-guard
+test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out</code></pre></div>
+
+    <h3>Step 3 &mdash; start it, and read what it admits</h3>
+    <p>The banner tells you the one thing that matters most. A node with no corpus attached <strong>verifies nothing</strong>, and it says so rather than implying otherwise.</p>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --data ./var/guard
+emem-guard listening on 127.0.0.1:8080
+  signer   zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa
+  log      ./var/guard/verdicts.jsonl (0 verdicts)
+  resolve  null
+           no responder configured: citations are not verified, only logged.
+           point one with --responder http://127.0.0.1:5051 to check them.
+  mode     enforce
+  verify   emem-guard --audit --data ./var/guard</code></pre></div>
+    <p>That is still half the product: the signed, append-only record of every decision. Point it at a responder and it verifies too. <code>/health</code> answers the same question in one field, so a load balancer and an auditor read the same fact.</p>
+    <div class="code"><div class="code-head"><span class="tab">GET /health</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
+  "ok": true,
+  "signer_b32": "zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa",
+  "resolver": "null",
+  "verifies_citations": false,
+  "mode": "enforce",
+  "rules": { "provenance": true, "freshness": true,
+             "geo_restriction": false, "claim_gating": false },
+  "verdicts_logged": 0
+}</code></pre></div>
+
+    <h3>Step 5 &mdash; ask it something</h3>
+    <p>The native route. No vendor envelope, no account, no installed client.</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -X POST localhost:8080/verdict \
+    -H 'content-type: application/json' \
+    -d '{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:abc123"]}'
+
+{ "action": "allow", "leaf": "leaf_0", "checked": 1 }</code></pre></div>
+    <p><code>checked: 1</code> is doing work. An allow that examined one citation is a different statement from an allow that examined none, and a caller deserves to tell them apart.</p>
+
+    <h3>Step 6 &mdash; the failure semantics most integrations get wrong</h3>
+    <p>A webhook failure is <strong>not</strong> a deny. A non-200, a timeout or an unparseable body hands the decision to the organisation's failure policy, and under fail-open the prompt reaches the model uninspected. Sustained failures trip a circuit breaker that stops enforcement for everyone.</p>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -w "\nHTTP %{http_code}\n" -X POST localhost:8080/verdict/anthropic-hook \
+    -H 'content-type: application/json' \
+    -d '{"type":"some_event_type_that_does_not_exist_yet","request_id":"probe"}'
+
+{"action":"allow"}
+HTTP 200</code></pre></div>
+    <p>An event type it has never seen still gets a verdict. So does a malformed body, an empty body, and JSON of the wrong shape. There is no error path.</p>
+  </div>
+</section>
+
+<section class="section page" id="claims">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">measuring first</span></div>
+    <dl>
+      <dt>rule</dt><dd>claim_gating</dd>
+      <dt>default</dt><dd>off</dd>
+      <dt>measured</dt><dd>1 firing in 7160 sentences</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">03</span>The rule that fires on absence</h2>
+    <p class="lede">Every other rule denies on a check that failed. <code>claim_gating</code> denies on a check that was never offered: a sentence asserting a measurable quantity about a place or a time, in a transcript that cites nothing at all. That is a much stronger thing to say about someone's prompt.</p>
+    <p>So it ships off, and it ships with the instrument that makes turning it on a decision rather than a guess. <strong>Shadow mode</strong> runs every rule, signs and logs what it would have done, and blocks nobody.</p>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --claim-gating --shadow --data ./var/guard
+  mode     shadow: every rule runs and is logged, nothing is blocked.
+           read it back with emem-guard --report --data ./var/guard
+  claims   on: a measurable claim with no citation is denied.</code></pre></div>
+
+    <p>Send it a draft that cites nothing:</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05."]}
+
+{
+  "action": "allow",
+  "reason": "EMEM-GUARD DENY CLAIM_UNGROUNDED token=- fix=cite_observation leaf=leaf_2",
+  "code": "CLAIM_UNGROUNDED",
+  "fix": "cite_observation",
+  "leaf": "leaf_2",
+  "shadowed": true,
+  "claim": {
+    "sentence": "Canopy height in Sumatra reached 31 m on 2026-08-05.",
+    "magnitude": "31 m",
+    "quantity": "length",
+    "source_band": "dem",
+    "anchor": "iso_date"
+  }
+}</code></pre></div>
+    <p><code>action: allow</code>, because nobody is being blocked. <code>shadowed: true</code>, because the rule fired. And <code>source_band: "dem"</code>, which is the actionable part: it names where a citable observation would come from, so the remedy is <em>resolve elevation there and cite it</em> rather than <em>cite something</em>.</p>
+
+    <p>Add the citation and the rule declines:</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
+           per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala."]}
+
+{ "action": "allow", "leaf": "leaf_3", "checked": 1 }</code></pre></div>
+
+    <p>And ordinary engineering prose never reaches it at all:</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["The verdict path took 800 ms and the transcript limit is 10 MB."]}
+
+{ "action": "allow", "leaf": "leaf_4", "checked": 0 }</code></pre></div>
+
+    <h3>Why <code>800 ms</code> is not a claim about the world</h3>
+    <p>The discriminator is a unit table where <strong>every row names the band that reports it</strong>. Metres come from <code>dem</code>, millimetres per day from <code>chirps.precip_daily_mm</code>, micrograms per cubic metre from <code>air_quality</code>. Bytes, seconds, hertz and currency are absent because no band reports them, so a claim measured in one is not a claim this node could have verified had it been cited. The gate is bounded by its own competence.</p>
+    <p>Three more clauses have to hold, and each can only ever remove firings: a <strong>world anchor</strong> (an ISO date, a year, a coordinate pair in range, or a preposition followed by a capitalised name), an <strong>assertion</strong> rather than a question, a hedge, a conditional or an already-attributed statement, and <strong>prose</strong> rather than a fenced code block or a configuration line.</p>
+    <p>Measured over this repository's own documentation, the register the gate will sit in front of: <strong>1 firing in 7160 sentences across 8 files</strong>. The corpus found two real defects on the way, both now fixed and pinned by tests: a citation key (<code>Reiche-2018</code>) and a model name (<code>gpt-4o-2024</code>) each read as a year.</p>
+
+    <h3>Then read your own number off disk</h3>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --report --data ./var/guard
+verdicts           5
+blocked            0
+would have blocked 1
+fired rate         0.2000
+citations checked  2
+window             1785997968 .. 1785998029 unix seconds
+
+by code            enforced / observed
+  CLAIM_UNGROUNDED          0 / 1
+
+by checkpoint
+  emem.native.v1                     4
+  mcp.tools_call.v1                  1</code></pre></div>
+    <p><em>would have blocked</em> is the number you are deciding on. It is counted from the same append-only file an auditor reads, not from a counter in memory that resets on restart, so the figure quoted internally and the figure an outsider can verify are the same figure. The same counts are live at <code>GET /log/report</code>.</p>
+    <p>When the rate is one you accept, drop <code>--shadow</code>. Nothing else changes: the same evaluation runs and the same record is signed. Shadow only changes what the caller is told.</p>
+  </div>
+</section>
+
+<section class="section page" id="checkpoints">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">reach</span></div>
+    <dl>
+      <dt>routes</dt><dd>9</dd>
+      <dt>open</dt><dd>7</dd>
+      <dt>vendor</dt><dd>2</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">04</span>Nine checkpoints, seven of which belong to nobody</h2>
+    <p class="lede">A checkpoint is any system that pauses before doing something and asks an external server whether to proceed. A gate reachable only through one company's product is a gate for that company's customers, so most of these are standards with more than one implementation behind them and no owner who can revoke them.</p>
+    <div class="scroll-x"><table class="endpoints">
+      <tr><th>Route</th><th>Reaches</th><th>Open</th></tr>
+      <tr><td><code>POST /verdict</code></td><td>any agent, on any model, through any framework. The native shape.</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/mcp</code></td><td>any MCP host or proxy, gating a tool call <em>or a tool result</em></td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/openai</code></td><td>anything holding an OpenAI-shaped client</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/cloudevent</code></td><td>CloudEvents 1.0 producers: Knative, Dapr, Argo Events</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/policy</code></td><td>OPA-compatible clients, Envoy external authorisation</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/batch</code></td><td>many transcripts at once, for scanning an archive offline</td><td>yes</td></tr>
+      <tr><td><code>GET /log/entry/{leaf}</code></td><td>anyone checking a verdict without trusting the node that issued it</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/anthropic-hook</code></td><td>claude.ai, Cowork and Claude Code inside a Claude Enterprise org</td><td>no</td></tr>
+      <tr><td><code>POST /verdict/claude-code</code></td><td>agents on the Platform API, Bedrock and Vertex, which Inference hooks cannot see</td><td>no</td></tr>
+    </table></div>
+    <p>A test asserts every route the node advertises actually answers, and that the open ones outnumber the vendor ones. That is a commitment the build checks, not a posture in a README.</p>
+
+    <h3>The MCP one is the most portable</h3>
+    <p>MCP is an open protocol with many independent hosts. Put a proxy between a host and its servers and ask before dispatching.</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict/mcp</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"jsonrpc":"2.0","id":7,"method":"tools/call",
+ "params":{"name":"read_file","arguments":{"path":"notes.md"}}}
+
+{ "allow": true, "id": 7,
+  "verdict": { "action": "allow", "leaf": "leaf_1", "checked": 0 } }</code></pre></div>
+    <p>On a deny the response carries <code>result</code>, already shaped as a <code>CallToolResult</code> with <code>isError</code> set. Return it instead of running the tool and the model sees the denial and the remedy where it already reads errors. The proxy never has to learn the reason grammar.</p>
+    <p>It gates the other direction too, which is the one most systems miss. Send <code>params.result</code> instead of <code>params.arguments</code> and a fabricated citation is caught as it enters the context, rather than a turn later once the model has reasoned on it.</p>
+  </div>
+</section>
+
+<section class="section page" id="proof">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">evidence</span></div>
+    <dl>
+      <dt>per verdict</dt><dd>ed25519 signature</dd>
+      <dt>per file</dt><dd>blake3 hash chain</dd>
+      <dt>domain</dt><dd>emem.guard.verdict.v2</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">05</span>Every denial names a leaf you can fetch</h2>
+    <p class="lede">A reason line ending in <code>leaf=leaf_2</code> is a promise. Here is the mechanism behind it.</p>
+    <div class="code"><div class="code-head"><span class="tab">GET /log/entry/leaf_0</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
+  "seq": 0,
+  "record": {
+    "checkpoint": "emem.native.v1",
+    "request_id": "01KZAWCH25KXHYHAJHWK03151D",
+    "outcome": "allow",
+    "evaluated": "allow",
+    "mode": "enforce",
+    "checked": 1,
+    "decided_at_unix_s": 1785997968
+  },
+  "signature_b32": "p4cfqpvlyymax6wg5lrshfn2t7tt6stw73saprg3oi57pvdbl7gri...",
+  "signer_b32": "zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa",
+  "chain": "7a99eac5a05dac1a8b0e16ee9867d1daa03ac3aa55ff72ab77d10086abfd816f"
+}</code></pre></div>
+    <p>The record, the signature over its preimage, the key that signed, and the link to the entry before. Verifying it involves nothing from the node that served it. <code>outcome</code> and <code>evaluated</code> are both in the preimage, which is what makes a shadow report evidence: an operator who could relabel one as the other afterwards could claim enforcement they never ran.</p>
+
+    <h3>Signatures prove each verdict. The chain proves none were removed.</h3>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
+entries        5
+bad signature  []
+broken chain   []
+unparseable    []
+intact         true
+$ echo $?
+0</code></pre></div>
+    <p>Now flip one logged verdict from allow to deny, exactly as someone hiding a decision would:</p>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
+entries        5
+bad signature  [0]
+broken chain   [0]
+unparseable    []
+intact         false
+$ echo $?
+1</code></pre></div>
+    <p>A non-zero exit, so a scheduled audit fails a pipeline rather than printing a problem nobody reads. Delete a line instead of editing one and every remaining signature still verifies, which is exactly why the chain is there: it breaks at the seam.</p>
+    <p><code>GET /log/head</code> publishes the head so a witness or a mirror can pin it. <code>GET /log/entries?start=0</code> lets anyone mirror the whole log without the node's cooperation.</p>
+  </div>
+</section>
+
+<section class="section page" id="live">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">try it here</span></div>
+    <dl>
+      <dt>route</dt><dd>POST /v1/guard/verdict</dd>
+      <dt>blocks</dt><dd>nothing, ever</dd>
+      <dt>corpus</dt><dd>this responder's own</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">06</span>Check some text against this responder</h2>
+    <p class="lede">The same engine, hosted here and <strong>advisory</strong>: this responder is not in anybody's request path and nothing below blocks anything. It answers what a guard would say, so you can see the thing before you build anything.</p>
+    <div class="code">
+      <div class="code-head"><span class="tab">POST /v1/guard/verdict</span><span class="lang">live</span><span class="spacer"></span></div>
+      <div style="padding:1rem 1.2rem">
+        <textarea id="gtext" rows="4" style="width:100%;font-family:var(--mono);font-size:var(--t-sm);background:var(--paper);color:var(--ink);border:1px solid var(--rule);padding:.6rem;line-height:1.5">Canopy height in Sumatra reached 31 m on 2026-08-05.</textarea>
+        <div style="display:flex;gap:.6rem;align-items:center;margin-top:.7rem;flex-wrap:wrap">
+          <button class="btn" id="gsend" type="button">Get a verdict</button>
+          <label style="font-size:var(--t-xs);color:var(--mute);display:flex;align-items:center;gap:.35rem"><input type="checkbox" id="gclaim" checked> also flag uncited claims</label>
+          <span id="gstat" style="font-size:var(--t-xs);color:var(--mute)"></span>
+        </div>
+      </div>
+      <pre id="gout" style="border-top:1px solid var(--rule);margin:0;padding:1rem 1.2rem;white-space:pre-wrap;word-break:break-word;color:var(--ink-2)">Press the button. The response is generated by this node, not by this page.</pre>
+    </div>
+    <p style="font-size:var(--t-xs);color:var(--mute)">Paste a token that does not resolve here and you get <code>allow</code>, not <code>deny</code>. That is the design: a citation this responder has not cached is indistinguishable from one minted by another responder, and denying on it would punish an agent for citing across nodes, which is the behaviour the token format exists to enable.</p>
+
+    <h3>Then run your own</h3>
+    <p>A node you run needs no account here and no key from us. It generates its own signing key, keeps its own log, verifies what it holds, and cites what it does not. Ask it for the procedure and it hands you one written to be executed unattended.</p>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill > SKILL.md
+$ git clone https://github.com/Vortx-AI/emem &amp;&amp; cd emem
+$ cargo build --release -p emem-guard
+$ ./target/release/emem-guard --responder https://emem.dev</code></pre></div>
+    <p>Your verdicts stay yours: signed with your key, written to your log, never leaving your machine. The responder is asked one thing, whether a fact cid resolves, under a hard timeout the verdict deadline cannot exceed.</p>
+    <p>From MCP, the same two doors are tools: <code>emem_guard_verdict</code> to consult, <code>emem_guard_selfhost</code> to build.</p>
+  </div>
+</section>
+
+<section class="section page" id="calls">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">07</span><span class="idx-label">arguable</span></div>
+    <dl>
+      <dt>status</dt><dd>open to being wrong</dd>
+      <dt>channel</dt><dd>/channel</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">07</span>Three judgement calls worth arguing with</h2>
+    <p class="lede">These are choices, not consequences. Each one could be made the other way, and each would produce a different product.</p>
+    <h3>A token this node has not cached is never a denial</h3>
+    <p>It is indistinguishable from one minted by another responder, a self-hosted node holds a subset of any corpus by design, and the verdict path is forbidden from fetching, so cold and false cannot be told apart from inside. Denying on it is the single most likely way this product gets uninstalled.</p>
+    <h3>Every uncertain case allows, including a bad signature on the inbound webhook</h3>
+    <p>A non-200 is a webhook failure, not a deny. Under fail-open it sends the prompt to the model uninspected, and sustained failures trip a breaker that stops enforcement for the whole organisation. So an unverified request gets 200 with an allow and a line in the operator log. That reads wrong the first time and it is right.</p>
+    <h3>Claim gating denies on absence, so it ships off behind a measurement</h3>
+    <p>Not behind an opinion. The detector, its four clauses, the unit table with its per-row provenance and the corpus measurement are all in the open, and shadow mode exists so an organisation measures the trade on its own traffic before making it.</p>
+    <p>If any of the three is wrong, say so on <a href="/channel">the channel</a>. A finding gets reproduced first, fixed with a test named, and recorded whether or not it is flattering.</p>
+  </div>
+</section>
+
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper">whitepaper</a></li>
+          <li><a href="/docs/diagrams">diagram gallery</a></li>
+          <li><a href="/docs/gallery">the living atlas</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/a2a">the A2A layer</a></li>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/.well-known/mcp.json">.well-known/mcp.json</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/v1/log/sth">log head (STH)</a></li>
+          <li><a href="/v1/stream">live stream (SSE)</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/card">the card (share this)</a></li>
+          <li><a href="/channel">the channel</a></li>
+          <li><a href="/worlds">walk the memory in 3-D</a></li>
+          <li><a href="https://emem.dev/splats/spark/" rel="noopener">the Agora</a></li>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/v1/benchmark">agent benchmark</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
+          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="/privacy">privacy · terms</a>
+      </span>
+    </div>
+  </div>
+</footer>
+
+<script>
+// One island, and it does the only thing this page cannot do statically:
+// ask the live node. Every other figure here is captured output, labelled
+// as such, so nothing on this page is a number we made up.
+(function () {
+  var btn = document.getElementById('gsend');
+  var out = document.getElementById('gout');
+  var stat = document.getElementById('gstat');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var text = document.getElementById('gtext').value;
+    var claim = document.getElementById('gclaim').checked;
+    btn.disabled = true;
+    stat.textContent = 'asking the node...';
+    var t0 = performance.now();
+    fetch('/v1/guard/verdict', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ texts: [text], claim_gating: claim, agent: 'guard-page' })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (v) {
+        out.textContent = JSON.stringify(v, null, 2);
+        stat.textContent = Math.round(performance.now() - t0) + ' ms';
+      })
+      .catch(function (e) {
+        // A failure here is this page's problem, not a verdict. Say which.
+        out.textContent = 'Could not reach the node: ' + e +
+          '\n\nThis is a page error, not a deny. The route is POST /v1/guard/verdict.';
+        stat.textContent = '';
+      })
+      .then(function () { btn.disabled = false; });
+  });
+})();
+</script>
+
+</body>
+</html>

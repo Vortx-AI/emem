@@ -16,6 +16,10 @@ emem-storage    = { workspace = true }
 emem-primitives = { workspace = true }
 emem-intent     = { workspace = true }
 emem-mcp        = { workspace = true }
+# The verdict engine. Pure: the responder reuses its policy pipeline and
+# claim detector over local storage, and signs the answer with its own
+# identity rather than standing up a second key and a second log.
+emem-guard      = { workspace = true }
 emem-fetch      = { workspace = true }
 axum            = { workspace = true }
 tower           = { workspace = true, features = ["limit", "load-shed"] }

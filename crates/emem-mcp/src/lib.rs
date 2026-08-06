@@ -929,6 +929,15 @@ const SCHEMA_TRACE_VERIFY: &str = r#"{"type":"object","required":["trace","profi
 "claimed_payload_digest":{"type":"string","description":"Optional payload digest the caller intends to attest; verification additionally checks it is bound among the trace's emitted outputs."}
 }}"#;
 
+const SCHEMA_GUARD_VERDICT: &str = r#"{"type":"object","properties":{
+"texts":{"type":"array","items":{"type":"string"},"description":"Free text to check. Any number of pieces, in any order: a draft answer, a tool result, a whole turn."},
+"messages":{"type":"array","description":"A chat-completions-shaped transcript, read for its text. Accepted so the same body works against a self-hosted emem-guard node and against any OpenAI-shaped client. Each item is {role, content} where content is a string or an array of blocks.","items":{"type":"object","properties":{"role":{"type":"string"},"content":{"description":"A string, or an array of {type,text} blocks."}}}},
+"claim_gating":{"type":"boolean","description":"Also flag measurable physical-world claims that carry NO citation (deny code CLAIM_UNGROUNDED, fix cite_observation). Off by default: it reports on the absence of a citation rather than on a failed check. The verdict names the sentence, the magnitude, and the emem band that would answer it.","default":false},
+"agent":{"type":"string","description":"Optional free-text label for who is asking. Advisory only, never a trust boundary."}
+}}"#;
+
+const SCHEMA_GUARD_SELFHOST: &str = r#"{"type":"object","properties":{}}"#;
+
 const SCHEMA_LOG_STH: &str = r#"{"type":"object","properties":{}}"#;
 
 const SCHEMA_LOG_INCLUSION: &str = r#"{"type":"object","properties":{
@@ -2075,6 +2084,36 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "core",
     },
 
+    // ── emem-guard, hosted and advisory ─────────────────────────────
+    // The verdict engine, reachable without standing up a server. Both
+    // tools are read-only and neither blocks anything: this responder is
+    // not in anybody's request path, and a hosted node that could block
+    // other people's traffic would be a different product.
+    ToolDescriptor {
+        name: "emem_guard_verdict",
+        title: "Check whether the citations in a draft actually verify",
+        description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Algebra: verify.",
+        when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. Set claim_gating:true to also be told which measurable claims carry no citation at all and which emem band would answer them. To ENFORCE this rather than consult it, run your own node: emem_guard_selfhost returns the procedure, and it works across Anthropic Inference hooks, Claude Code hooks, MCP tool calls, OpenAI-shaped clients, CloudEvents and OPA-style policy clients.",
+        input_schema: SCHEMA_GUARD_VERDICT,
+        output_schema: None,
+        example_args: r#"{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}"#,
+        level: "L1", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_guard_selfhost",
+        title: "The procedure for running your own verdict server",
+        description: "Returns the full emem-guard self-host skill as markdown, plus the exact build, test and run commands. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It exposes checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor. Algebra: introspect.",
+        when_to_use: "Call when you want to ENFORCE grounding rather than consult it, when you need a verdict over a corpus this responder does not hold, or when a signed, offline-verifiable record of every allow and deny has to live on infrastructure you control. Every step in the returned document is a command plus a check, written to be run unattended.",
+        input_schema: SCHEMA_GUARD_SELFHOST,
+        output_schema: None,
+        example_args: r#"{}"#,
+        level: "L0", category: ToolCategory::Introspect,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+
     // ── Domain shortcuts (one-shot locate → recall → aggregate) ──────
     // Every shortcut composes the standard locate → cell64 → recall
     // pipeline server-side; agents that don't want to chain emem_locate
@@ -2399,7 +2438,16 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
         // emem_echo_verify is the last-mile member: it checks the value you are
         // about to publish against the fact you cited, which is the step where a
         // correctly-resolved fact still becomes a wrong number.
-        &["emem_verify", "emem_triple_consensus", "emem_echo_verify", "emem_trace_verify"],
+        &[
+            "emem_verify",
+            "emem_triple_consensus",
+            "emem_echo_verify",
+            "emem_trace_verify",
+            // Checks the citations in a draft before it is sent, which is the
+            // one verification step that costs nothing to act on: the answer
+            // has not left yet.
+            "emem_guard_verdict",
+        ],
     ),
     (
         "earth_observation",
@@ -2521,6 +2569,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_corpus_state_stats",
             "emem_fleet",
             "emem_substrates",
+            "emem_guard_selfhost",
         ],
     ),
 ];
@@ -2659,6 +2708,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
             "emem_log_sth", "emem_log_inclusion", "emem_log_consistency", "emem_log_witnesses",
+            "emem_guard_verdict",
             "emem_trace_verify",
             // Checks a value a caller is about to publish against the fact it
             // cites. Evidence about evidence, so `proof` rather than `token`:
@@ -2688,6 +2738,10 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_materializers", "emem_topics", "emem_errors", "emem_grid_info",
             "emem_data_availability", "emem_coverage_matrix", "emem_benchmark",
             "emem_corpus_state_stats", "emem_fleet", "emem_substrates",
+            // Not what this responder knows, but what a node you run would:
+            // the procedure, verbatim, so nothing about adopting the guard
+            // depends on a person handing you a document.
+            "emem_guard_selfhost",
         ],
     ),
 ];

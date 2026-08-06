@@ -22,7 +22,23 @@ Every patch of ground has a 64-bit address (cell64, ~9.55 m at the equator). A f
 
 ## emem-guard: allow/deny on claims about the physical world
 
-`emem-guard` is a verdict server for AI inference checkpoints. A checkpoint holds a prompt, sends the transcript, and waits for allow or deny before the model runs. Anthropic's Inference hooks are one such checkpoint; Claude Code's client-side hooks are another, and they reach agents on the Platform API, Bedrock and Vertex that Inference hooks cannot see. One engine answers both, and the same evidence yields the same verdict through either, because whether a cited observation verifies is a fact about the observation and not about the vendor that asked.
+`emem-guard` is a verdict server for AI checkpoints. A checkpoint is any system that pauses before doing something and asks an external server whether to proceed. It answers nine of them from one engine, and the same evidence yields the same verdict through every one, because whether a cited observation verifies is a fact about the observation and not about the vendor that asked.
+
+Seven of the nine belong to no vendor. A gate reachable only through one company's product is a gate for that company's customers.
+
+| Route | Reaches |
+|---|---|
+| `POST /verdict` | any agent, on any model, through any framework. The native shape. |
+| `POST /verdict/mcp` | any MCP host or proxy, gating a tool call or a tool result |
+| `POST /verdict/openai` | anything holding an OpenAI-compatible client |
+| `POST /verdict/cloudevent` | CloudEvents 1.0 producers: Knative, Dapr, Argo Events |
+| `POST /verdict/policy` | OPA-compatible clients, Envoy external authorisation |
+| `POST /verdict/batch` | many transcripts at once, for scanning an archive offline |
+| `GET /log/entry/{leaf}` | anyone checking a verdict without trusting the node that issued it |
+| `POST /verdict/anthropic-hook` | claude.ai, Cowork and Claude Code inside a Claude Enterprise org |
+| `POST /verdict/claude-code` | agents on the Platform API, Bedrock and Vertex, which Inference hooks cannot see |
+
+`GET /.well-known/emem-guard.json` on any node publishes every route, every deny code, every remedy and the reason grammar, so integrating needs no prose.
 
 What it checks: the `emem:` tokens in a transcript. A cited fact whose signature fails is `PROV_SIG`; one that resolves to different bytes is `PROV_BYTES`; one that has drifted past its band threshold is `PROV_DRIFT`. It does not classify content and is not a DLP scanner.
 
@@ -32,13 +48,17 @@ Denials are machine-first, because the reader who can fix one is an agent:
 EMEM-GUARD DENY PROV_SIG token=emem:fact:cell:cid fix=refresh_token leaf=leaf_41
 ```
 
-Parse `fix`. `refresh_token` means re-resolve the token and retry. `remove_reference` means the citation cannot be made to verify, so drop the claim. `contact_admin` means a person restricted this, not the evidence. `leaf` names the log entry, which anyone can verify without asking the server that issued it.
+Parse `fix`. `refresh_token` means re-resolve the token and retry. `remove_reference` means the citation cannot be made to verify, so drop the claim. `contact_admin` means a person restricted this, not the evidence. `cite_observation` means resolve the observation through emem and cite the token it returns. `leaf` names the log entry, which anyone can verify without asking the server that issued it. The grammar is fixed and will not grow fields; when a denial has more to say, `POST /verdict` returns it structured, including which sentence was ungrounded and which band would have answered it.
 
-A token the guard has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would penalise an agent for citing something the node has not seen. Geo restriction and claim gating ship off.
+A token the guard has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would penalise an agent for citing something the node has not seen.
+
+Claim gating (`CLAIM_UNGROUNDED`) is the one rule that fires on absence: a transcript that cites nothing and still asserts a measurable quantity about a place or a time. It ships off, behind a measurement rather than an opinion. The discriminator is a unit table where every row names the band that reports it, so `800 ms` and `10 MB` never reach it. Measured over emem's own documentation: 1 firing in 7160 sentences. `--shadow` runs every rule, signs and logs what it would have done, and blocks nobody; `--report` and `GET /log/report` read the count back off disk.
 
 Every verdict is signed and appended to a hash-chained log before it is returned. Signatures prove each verdict genuine; the chain proves none were removed. `emem-guard --audit` checks any log and exits non-zero if an entry was altered or deleted.
 
-Self-host it: [crates/emem-guard/SKILL.md](https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/SKILL.md) is written for an agent to run unattended, every step a command plus a check. The engine and server run and are tested; they have not yet been pointed at a live organisation, and the platform conformance suite is next.
+Consult it without running anything: `POST /v1/guard/verdict` on this responder answers with the same engine over the shared corpus, advisory and blocking nothing. MCP tool: `emem_guard_verdict`.
+
+Self-host it: `GET /v1/guard/selfhost` returns the whole procedure as markdown, written for an agent to run unattended with every step a command plus a check. MCP tool: `emem_guard_selfhost`. Source: [crates/emem-guard/SKILL.md](https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/SKILL.md). Walk it with real output at [emem.dev/guard](https://emem.dev/guard). The engine and server run and are tested; they have not yet been pointed at a live organisation, and the platform conformance suite is next.
 
 ## Writing to the shared memory
 

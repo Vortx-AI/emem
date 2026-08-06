@@ -52,12 +52,12 @@ CANON = {
     # reasoning tier (emem_reason) included: the
     # catalog tool is core because /mcp advertises the loop rather than
     # the full surface, so one visible tool must describe the rest.
-    "mcp_tools": 105,
+    "mcp_tools": 107,
     "mcp_core": 15,
-    "mcp_extended": 90,
+    "mcp_extended": 92,
     "algorithms": 168,
-    "rest_paths_v1": 135,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 141,  # all paths in OpenAPI
+    "rest_paths_v1": 138,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 144,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
@@ -65,7 +65,7 @@ CANON = {
     "foundation_encoders": 4,
     "mcp_resources": 18,       # resources/list entries (emem-mcp 7 + emem-api-rest 11)
     "mcp_uri_templates": 8,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
-    "crates": 17,
+    "crates": 18,
     "version": "2.0.0",
 }
 

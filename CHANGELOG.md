@@ -14,11 +14,27 @@ to verify.
   the model runs, and the named destinations all evaluate CONTENT. None can
   evaluate whether a claim about the physical world still holds. This does.
 
-  Two checkpoints from one engine, and the same evidence yields the same
-  verdict through both: Anthropic Inference hooks (`POST
-  /verdict/anthropic-hook`) and Claude Code client hooks (`POST
-  /verdict/claude-code`), the latter reaching Platform API, Bedrock and Vertex
-  agents that Inference hooks cannot see.
+  Nine checkpoints from one engine, and the same evidence yields the same
+  verdict through every one. Seven of the nine belong to no vendor, because a
+  gate reachable only through one company's product is a gate for that
+  company's customers:
+
+  | Route | Reaches |
+  |---|---|
+  | `POST /verdict` | any agent, on any model, through any framework |
+  | `POST /verdict/mcp` | any MCP host or proxy, gating a tool call or a tool result |
+  | `POST /verdict/openai` | anything holding an OpenAI-compatible client |
+  | `POST /verdict/cloudevent` | CloudEvents 1.0 producers |
+  | `POST /verdict/policy` | OPA-compatible clients, Envoy external authorisation |
+  | `POST /verdict/batch` | many transcripts at once, for scanning an archive |
+  | `GET /log/entry/{leaf}` | anyone checking a verdict without trusting the issuer |
+  | `POST /verdict/anthropic-hook` | claude.ai, Cowork, Claude Code in a Claude Enterprise org |
+  | `POST /verdict/claude-code` | Platform API, Bedrock and Vertex agents Inference hooks cannot see |
+
+  `GET /.well-known/emem-guard.json` publishes every route, deny code, remedy
+  and the reason grammar, so a cold agent integrates without prose. A test
+  asserts every advertised route answers and that the open ones outnumber the
+  vendor ones.
 
   Every verdict is signed and appended to a hash-chained log BEFORE it is
   returned. Signatures prove each verdict genuine; the chain proves none were
@@ -26,11 +42,36 @@ to verify.
   tampered or missing entry.
 
   Denials are machine-first so an agent can self-correct:
-  `EMEM-GUARD DENY <CODE> token=<token> fix=<fix> leaf=<leaf>`.
+  `EMEM-GUARD DENY <CODE> token=<token> fix=<fix> leaf=<leaf>`. The grammar is
+  fixed; when a denial has more to say, the native route returns it structured.
 
-  A token the guard has not cached is never a denial. Geo restriction and
-  claim gating ship off. Self-host guide at `crates/emem-guard/SKILL.md`,
-  written for an agent to run unattended.
+  A token the guard has not cached is never a denial. Geo restriction ships
+  off, since it needs an operator's own cell64 list to mean anything.
+
+  **Claim gating is implemented, measured, and still off by default.** It is
+  the one rule that fires on absence: a transcript that cites nothing and still
+  asserts a measurable quantity about a place or a time. Four clauses, each of
+  which can only remove firings. The discriminator is a unit table where every
+  row names the band from `GET /v1/bands` that reports it, so the gate only
+  fires on claims the node could have verified had they been cited, and
+  `800 ms`, `10 MB` and `$4.2bn` never reach it. Measured over this
+  repository's own documentation: 1 firing in 7160 sentences across 8 files.
+  The corpus found two real defects on the way, a citation key and a model name
+  both read as years, and both are now pinned by tests.
+
+  **Shadow mode** is what makes turning it on a decision rather than a guess.
+  `--shadow` runs every rule, signs and logs what it WOULD have done, and
+  blocks nobody; `--report` and `GET /log/report` read the count back off the
+  same append-only file an auditor reads. The verdict preimage domain moves to
+  `emem.guard.verdict.v2` to bind `mode` and `evaluated`, because a report
+  claiming how often a rule would have fired is only worth anything if the
+  operator could not edit the answer afterwards.
+
+  **On the responder**, `POST /v1/guard/verdict` answers with the same engine
+  over the shared corpus, advisory and blocking nothing, and
+  `GET /v1/guard/selfhost` serves the whole self-host procedure as markdown.
+  MCP tools `emem_guard_verdict` and `emem_guard_selfhost`. Walk the procedure
+  with real output at `/guard`.
 
   Not yet pointed at a live organisation: the platform conformance suite is
   the next gate, and no design partner is invited before it is green.

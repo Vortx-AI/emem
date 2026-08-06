@@ -121,6 +121,9 @@ const CARD_HTML: &str = include_str!("../../../web/card.html");
 /// The agent-to-agent layer: how peers co-build on emem without a human in the
 /// loop, and where the signed standard lives.
 const A2A_HTML: &str = include_str!("../../../web/a2a.html");
+/// The emem-guard product page: the self-host skill run end to end, with the
+/// real terminal output of each step, plus one live call against this node.
+const GUARD_HTML: &str = include_str!("../../../web/guard.html");
 /// The agent collaboration transcript, generated from the ledger by
 /// `scripts/build_channel.py`. Baked rather than served from storage so it
 /// renders even while the corpus is contended, and regenerated at deploy so
@@ -798,6 +801,7 @@ pub fn router(state: AppState) -> Router {
         .route("/scoreboard", get(serve_scoreboard_html))
         .route("/card", get(serve_card_html))
         .route("/a2a", get(serve_a2a_html))
+        .route("/guard", get(serve_guard_html))
         .route("/channel", get(serve_channel_html))
         .route("/tools", get(serve_tools_html))
         .route("/data/relay-recording.json", get(serve_relay_recording))
@@ -1379,6 +1383,12 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/verify_receipt", post(post_verify_receipt))
         .route("/v1/verifier_spec", get(verifier_spec))
         .route("/.well-known/emem-verifier.json", get(verifier_spec))
+        // emem-guard, hosted and advisory. Nothing here blocks anything; it
+        // answers what a guard would say, so an agent can check its own
+        // citations without standing up infrastructure first.
+        .route("/v1/guard/verdict", post(post_guard_verdict))
+        .route("/v1/guard/capabilities", get(get_guard_capabilities))
+        .route("/v1/guard/selfhost", get(get_guard_selfhost))
         .route("/v1/facts/:cid", get(get_fact))
         .route("/v1/fetch", post(post_fetch))
         .route("/v1/demos", get(list_demos))
@@ -1962,7 +1972,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         // writes a note must not be cached by guess. /card and /a2a are baked
         // but iterated for the same reason.
         "/" | "/index.html" | "/how-it-works" | "/solutions" | "/reference" | "/channel"
-        | "/collaboration" | "/card" | "/a2a" | "/verify" => Some("no-cache"),
+        | "/collaboration" | "/card" | "/a2a" | "/guard" | "/verify" => Some("no-cache"),
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info"
         | "/v1/agent_card"
@@ -3046,6 +3056,7 @@ fn served_html_pages() -> Vec<&'static str> {
         TOOLS_HTML,
         CARD_HTML,
         A2A_HTML,
+        GUARD_HTML,
         WHITEPAPER_V1_HTML,
     ]
 }
@@ -3691,6 +3702,10 @@ async fn serve_relay_recording() -> Response {
 
 async fn serve_a2a_html() -> Response {
     text_response("text/html; charset=utf-8", A2A_HTML)
+}
+
+async fn serve_guard_html() -> Response {
+    text_response("text/html; charset=utf-8", GUARD_HTML)
 }
 
 /// Router fallback for any path the route table doesn't claim. Returns
@@ -7631,6 +7646,240 @@ async fn trace_encodings_registry() -> Json<JsonValue> {
         "schema": "emem.trace_encodings.v1",
         "manifest_cid": emem_core::manifest_cid(reg).unwrap_or_default(),
         "registry": serde_json::to_value(reg).unwrap_or(JsonValue::Null),
+    }))
+}
+
+// ── emem-guard on the responder ──────────────────────────────────────
+//
+// emem-guard is a server an operator runs. It is also a policy engine, and
+// the engine is pure, so this responder can answer the same question over
+// the corpus it already holds. That closes a real gap: an agent that wants
+// to know whether its own citations verify should not have to stand up
+// infrastructure first.
+//
+// Two things this deliberately is NOT:
+//
+//   * Not a checkpoint. Nothing here blocks anything. The answer is
+//     advisory, and an agent decides what to do with it. A hosted node
+//     that could block other people's traffic is a different product with
+//     a different trust story.
+//   * Not a second log. The verdict is signed with THIS responder's
+//     identity and carries the same receipt every other read returns, so
+//     it verifies at /verify with no new key, no new preimage, and no
+//     second transparency tree to keep honest.
+//
+// The resolver is the strongest one that exists: direct storage reads, no
+// HTTP hop, so a self-hosted guard pointed at a responder is strictly
+// slower than this and never more accurate.
+
+/// The self-host procedure, served so an agent can build its own node.
+///
+/// Baked in rather than fetched, because the whole point is that a node
+/// with no network still hands out a runnable procedure, and a document
+/// that could drift from the binary it describes would be worse than none.
+const GUARD_SKILL_MD: &str = include_str!("../../emem-guard/SKILL.md");
+
+/// Resolve one citation against local storage.
+///
+/// Everything this responder does not hold is `Unresolved`, which is never a
+/// denial: a token minted elsewhere is unresolvable here and completely
+/// legitimate.
+async fn guard_resolve_token(s: &AppState, t: &emem_guard::FoundToken) -> emem_guard::TokenStatus {
+    use emem_guard::{TokenKind, TokenStatus};
+    if !t.kind.resolves_to_bytes() {
+        return TokenStatus::Unresolved;
+    }
+    let Some(cid) = t.token.rsplit(':').next().filter(|c| looks_like_cid(c)) else {
+        return TokenStatus::Unresolved;
+    };
+    let facts = match s
+        .storage
+        .get_facts_many(&[emem_fact::FactCid::new(cid.to_string())])
+        .await
+    {
+        Ok(f) => f,
+        // Storage being unhealthy is not evidence about the claim.
+        Err(_) => return TokenStatus::Unresolved,
+    };
+    let Some(Some(fact)) = facts.into_iter().next() else {
+        return TokenStatus::Unresolved;
+    };
+
+    // The cid IS the hash of the canonical bytes, so returning a fact under
+    // it is already the content-address check. What a transcript can still
+    // get wrong is pairing a real cid with the wrong address, which is the
+    // case worth reporting.
+    if t.kind == TokenKind::Fact {
+        let claimed = t
+            .token
+            .strip_prefix("emem:fact:")
+            .and_then(|rest| rest.split(':').next())
+            .filter(|c| c.contains('.') && !c.contains(',') && !c.contains('@'));
+        let actual = serde_json::to_value(&fact)
+            .ok()
+            .and_then(|v| v.get("cell").and_then(|c| c.as_str()).map(str::to_string));
+        if let (Some(claimed), Some(actual)) = (claimed, actual) {
+            if claimed != actual {
+                return TokenStatus::ByteMismatch;
+            }
+        }
+    }
+    TokenStatus::Verified
+}
+
+/// Run the guard's policy pipeline over a transcript, against local state.
+async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
+    use emem_guard::{policy, Adapter};
+
+    // The open native shape, so the body an agent posts here is byte-identical
+    // to the body it would post to a node it self-hosts. Learning one shape
+    // has to be enough.
+    let native: emem_guard::NativeRequest = serde_json::from_value(req.clone()).unwrap_or_default();
+    let owned: Vec<String> = native.all_texts().into_iter().map(str::to_string).collect();
+    let texts: Vec<&str> = owned.iter().map(String::as_str).collect();
+
+    // Claim gating is per-call here rather than per-node. On a self-hosted
+    // guard it is an operator's standing decision; on an advisory endpoint
+    // the caller is the only person it affects, so the caller chooses.
+    let claim_gating = req
+        .get("claim_gating")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let cfg = policy::Config {
+        claim_gating,
+        ..Default::default()
+    };
+
+    let found = emem_guard::scan_all(texts.iter().copied());
+    let need = policy::needs_resolution(&found);
+    let mut resolved = Vec::with_capacity(need.len());
+    // The same ceiling the standalone server applies. A transcript can carry
+    // thousands of tokens and an unbounded loop over them is a way for any
+    // caller to make this responder do unbounded work.
+    for t in need
+        .into_iter()
+        .take(emem_guard::server::MAX_RESOLVED_TOKENS)
+    {
+        let st = guard_resolve_token(s, t).await;
+        resolved.push((t.clone(), st));
+    }
+    let checked = resolved.len();
+    let evidence = policy::Evidence {
+        tokens: resolved,
+        // A hosted node enforces nobody's zone policy. Geo restriction is an
+        // operator's decision about their own org and has no meaning here.
+        restricted_cells: Vec::new(),
+        claims: if claim_gating {
+            emem_guard::scan_claims(texts.iter().copied())
+        } else {
+            Vec::new()
+        },
+    };
+    let decision = policy::evaluate(&cfg, &evidence);
+    let verdict = emem_guard::NativeHook.render(&decision);
+
+    let mut out = serde_json::to_value(&verdict).unwrap_or(json!({}));
+    if let Some(o) = out.as_object_mut() {
+        o.insert("schema".into(), json!("emem.guard.verdict.v1"));
+        o.insert("checked".into(), json!(checked));
+        o.insert("citations_found".into(), json!(found.len()));
+        // Said plainly, because the difference matters: this endpoint tells an
+        // agent what a guard WOULD say. It is not in anybody's request path.
+        o.insert("advisory".into(), json!(true));
+        o.insert(
+            "advisory_note".into(),
+            json!(
+                "This is an advisory check, not a checkpoint: nothing is blocked. \
+                 Run your own node to enforce, or to check a corpus this responder \
+                 does not hold. GET /v1/guard/selfhost returns the procedure."
+            ),
+        );
+        o.insert(
+            "resolver".into(),
+            json!(format!(
+                "responder:{}",
+                data_encoding::BASE32_NOPAD
+                    .encode(&s.identity.pubkey.0)
+                    .to_lowercase()
+            )),
+        );
+        o.insert("selfhost".into(), json!("/v1/guard/selfhost"));
+    }
+    out
+}
+
+/// POST /v1/guard/verdict
+async fn post_guard_verdict(State(s): State<AppState>, Json(req): Json<JsonValue>) -> Response {
+    let body = guard_verdict_json(&s, &req).await;
+    // A read, so it carries the same receipt every other read does and
+    // verifies at /verify with nothing new to implement.
+    (StatusCode::OK, Json(body)).into_response()
+}
+
+/// The machine-readable contract, matching what a self-hosted node serves at
+/// `/.well-known/emem-guard.json`, so an agent that learned one learned both.
+fn guard_capabilities_json(s: &AppState) -> JsonValue {
+    let codes: Vec<JsonValue> = emem_guard::interop::deny_codes()
+        .into_iter()
+        .map(|(code, means)| json!({"code": code, "means": means}))
+        .collect();
+    let fixes: Vec<JsonValue> = emem_guard::interop::fixes()
+        .into_iter()
+        .map(|(fix, action)| json!({"fix": fix, "action": action}))
+        .collect();
+    json!({
+        "schema": "emem.guard.capabilities.v1",
+        "hosted": {
+            "route": "/v1/guard/verdict",
+            "advisory": true,
+            "blocks_nothing": true,
+            "resolver": "this responder's own corpus, read directly",
+            "responder_pubkey_b32": data_encoding::BASE32_NOPAD
+                .encode(&s.identity.pubkey.0)
+                .to_lowercase(),
+        },
+        "self_hosted": {
+            "skill": "/v1/guard/selfhost",
+            "descriptor": "/.well-known/emem-guard.json (on your node, not this one)",
+            "build": "cargo build --release -p emem-guard",
+            "run": "./target/release/emem-guard --responder https://emem.dev",
+            "why": "a node you run can enforce, can hold a corpus this one does \
+                    not, and signs with a key you control",
+        },
+        "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
+        "deny_codes": codes,
+        "fixes": fixes,
+        "never_denies_on": "a citation this node does not hold. It is \
+            indistinguishable from one minted by another responder.",
+    })
+}
+
+/// GET /v1/guard/capabilities
+async fn get_guard_capabilities(State(s): State<AppState>) -> Json<JsonValue> {
+    Json(guard_capabilities_json(&s))
+}
+
+/// GET /v1/guard/selfhost, the procedure an agent runs to build its own node.
+///
+/// The devspec's rule is that an agent with a markdown file from this server
+/// can build a node for its own data and still cite the shared corpus. This
+/// is that file, served rather than described.
+async fn get_guard_selfhost() -> Json<JsonValue> {
+    Json(json!({
+        "schema": "emem.guard.selfhost.v1",
+        "skill": GUARD_SKILL_MD,
+        "format": "markdown",
+        "repo": "https://github.com/Vortx-AI/emem",
+        "crate_path": "crates/emem-guard",
+        "build": "cargo build --release -p emem-guard",
+        "test": "cargo test --release -p emem-guard",
+        "run_bare": "./target/release/emem-guard",
+        "run_against_this_responder": "./target/release/emem-guard --responder https://emem.dev",
+        "measure_before_enforcing": "./target/release/emem-guard --claim-gating --shadow, \
+             then ./target/release/emem-guard --report",
+        "note": "A node you run needs no account here and no key from us. It \
+             verifies what it holds, cites what it does not, and signs every \
+             verdict with a key you generated.",
     }))
 }
 
@@ -21840,6 +22089,9 @@ async fn mcp_tool_call(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        // ── emem-guard, hosted and advisory ─────────────────────────
+        "emem_guard_verdict" => Ok(guard_verdict_json(s, &args).await),
+        "emem_guard_selfhost" => Ok(get_guard_selfhost().await.0),
         // ── Transparency log (RFC 6962) read tools ──────────────────
         "emem_log_sth" => match get_log_sth(State(s.clone())).await {
             Ok(Json(v)) => Ok(v),
@@ -22747,6 +22999,9 @@ fn openapi_spec() -> JsonValue {
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
             "/.well-known/emem-verifier.json": {"get":{"summary":"Alias of GET /v1/verifier_spec: the code-generated signing/verification specification, at a well-known path so an offline verifier can discover it without reading the OpenAPI document.","operationId":"emem_verifier_spec_well_known","tags":["verify"],"responses":{"200":json_ok}}},
+            "/v1/guard/verdict":     {"post":{"summary":"Run emem-guard's policy pipeline over a transcript against this responder's corpus. Finds every emem: citation, resolves each against local storage, and answers allow or deny with the machine-readable reason `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes: PROV_SIG, PROV_BYTES, PROV_DRIFT, CLAIM_UNGROUNDED. ADVISORY: nothing is blocked, this responder is not in anybody's request path, and a citation it does not hold is never a denial because it is indistinguishable from one minted elsewhere. Set `claim_gating` to also be told which measurable physical-world claims carry no citation and which band would answer them. The request body is the same shape a self-hosted node accepts at POST /verdict, so learning one is enough. To ENFORCE rather than consult, run your own node: GET /v1/guard/selfhost.","operationId":"emem_guard_verdict","tags":["verify"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"texts":{"type":"array","items":{"type":"string"},"description":"Free text to check: a draft answer, a tool result, a whole turn."},"messages":{"type":"array","description":"A chat-completions-shaped transcript, read for its text only.","items":{"type":"object"}},"claim_gating":{"type":"boolean","default":false,"description":"Also flag measurable physical-world claims that carry no citation."},"agent":{"type":"string","description":"Free-text label for the caller. Advisory, never a trust boundary."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/guard/capabilities": {"get":{"summary":"The emem-guard contract, machine-readable: every deny code and what it means, every remedy and what to do about it, the reason grammar, what the hosted route will and will not do, and how to stand up a node that enforces. Mirrors the /.well-known/emem-guard.json a self-hosted node serves, so an agent that learned one learned both.","operationId":"emem_guard_capabilities","tags":["verify","introspect"],"responses":{"200":json_ok}}},
+            "/v1/guard/selfhost":    {"get":{"summary":"The full self-host procedure for emem-guard as markdown, plus the exact build, test and run commands. Every step is a command and a check, written to be run unattended by an agent. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It serves checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor.","operationId":"emem_guard_selfhost","tags":["introspect"],"responses":{"200":json_ok}}},
             "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations, and `members`/`resolved` so partial coverage is visible without walking them. The memory algebra's `merge`: one handle that cites many facts. CAP: at most 256 triples per call. A bundle token is O(1) in size for any N, but covering N facts costs ceil(N/256) calls, so budget round trips accordingly rather than discovering the limit at 257.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["triples"],"properties":{"triples":{"type":"array","maxItems":256,"description":"At most 256 per call; 257 is a typed 400. Chunk larger sets into ceil(N/256) bundles.","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_bundle/{token}": {"get":{"summary":"Dereference a bundle token back to its signed envelope: the citations, the fact_cids, the cells, and the receipt. Accepts emem:bundle:<bundle_cid> (legacy memb: also accepted) or a bare bundle_cid; the response always re-emits the canonical `bundle_token`. 404 when this responder did not compose the bundle (the composer is stateless, the resolver is sled-backed, so paste the token at the responder that minted it or re-compose from the original triples).","operationId":"emem_memory_bundle_resolve","tags":["memory","cite"],"parameters":[{"name":"token","in":"path","required":true,"schema":{"type":"string"},"description":"emem:bundle:<bundle_cid> (legacy memb: or bare cid accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (emem:entity:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
@@ -63594,6 +63849,144 @@ mod tests {
             manifests,
             started_at_unix_s: 0,
         })
+    }
+
+    /// The hosted guard route, through the real handler and real storage.
+    ///
+    /// The property that matters most is the one an agent would get wrong on
+    /// its own: a citation this responder does not hold is an ALLOW. It is
+    /// indistinguishable from one minted by another responder, and denying on
+    /// it would punish an agent for citing across nodes, which is the exact
+    /// behaviour the token format exists to enable.
+    #[tokio::test]
+    async fn the_hosted_guard_allows_a_citation_it_does_not_hold() {
+        let s = test_app_state();
+        let v = guard_verdict_json(
+            &s,
+            &json!({"texts":["per emem:fact:damO.zb000.xUti.zde78:wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q it is 918 m"]}),
+        )
+        .await;
+        assert_eq!(v["action"], "allow");
+        assert_eq!(v["checked"], 1, "it was still examined");
+        assert_eq!(v["citations_found"], 1);
+        // And it says out loud that it is not in anybody's request path.
+        assert_eq!(v["advisory"], true);
+        assert_eq!(v["schema"], "emem.guard.verdict.v1");
+    }
+
+    /// Claim gating is per-call here rather than per-node, because the caller
+    /// is the only person an advisory verdict affects. Off unless asked for.
+    #[tokio::test]
+    async fn the_hosted_guard_gates_claims_only_when_the_caller_asks() {
+        let s = test_app_state();
+        let body = json!({"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05."]});
+
+        let off = guard_verdict_json(&s, &body).await;
+        assert_eq!(off["action"], "allow");
+        assert!(off["code"].is_null(), "no rule fires by default");
+
+        let mut on = body.clone();
+        on["claim_gating"] = json!(true);
+        let v = guard_verdict_json(&s, &on).await;
+        assert_eq!(v["action"], "deny");
+        assert_eq!(v["code"], "CLAIM_UNGROUNDED");
+        assert_eq!(v["fix"], "cite_observation");
+        // The actionable half: which band would answer this, so the remedy is
+        // "resolve elevation there and cite it" rather than "cite something".
+        assert_eq!(v["claim"]["source_band"], "dem");
+        assert_eq!(v["claim"]["magnitude"], "31 m");
+
+        // Cite anything and the rule declines, because attributing individual
+        // sentences to individual citations is a guess this engine will not
+        // make.
+        let cited = json!({
+            "texts":["Canopy height in Sumatra reached 31 m on 2026-08-05, per emem:entity:abc123."],
+            "claim_gating": true
+        });
+        assert_eq!(guard_verdict_json(&s, &cited).await["action"], "allow");
+    }
+
+    /// The body an agent posts here has to be the body it would post to a node
+    /// it self-hosts. Learning one shape has to be enough, or the hosted route
+    /// becomes a dialect.
+    #[tokio::test]
+    async fn the_hosted_route_accepts_the_same_shapes_a_self_hosted_node_does() {
+        let s = test_app_state();
+        for body in [
+            json!({"texts":["hello"]}),
+            json!({"messages":[{"role":"user","content":"hello"}]}),
+            json!({"messages":[{"role":"assistant","content":[{"type":"text","text":"hello"}]}]}),
+            // A framework that decorates must not break it.
+            json!({"texts":["hello"],"framework":"langgraph","trace_id":"t1"}),
+            // And nothing at all is answerable rather than an error.
+            json!({}),
+        ] {
+            let v = guard_verdict_json(&s, &body).await;
+            assert_eq!(v["action"], "allow", "{body}");
+            assert!(v["advisory"].as_bool().unwrap(), "{body}");
+        }
+    }
+
+    /// The self-host document is served, not described. An agent that can
+    /// reach this responder can build its own node without a person handing
+    /// it anything.
+    #[tokio::test]
+    async fn the_selfhost_skill_is_served_whole_and_runnable() {
+        let Json(v) = get_guard_selfhost().await;
+        let skill = v["skill"].as_str().expect("the skill is the payload");
+        assert!(skill.len() > 4000, "truncated: {} bytes", skill.len());
+        assert!(skill.starts_with("---"), "the frontmatter must survive");
+        // Every command the response promises has to appear in the document
+        // it ships, or the two drift and the agent follows the wrong one.
+        for cmd in [
+            "cargo build --release -p emem-guard",
+            "cargo test --release -p emem-guard",
+            "--responder",
+            "--shadow",
+            "--report",
+            "--audit",
+        ] {
+            assert!(skill.contains(cmd), "the skill never mentions {cmd}");
+        }
+        assert!(v["run_bare"].is_string());
+    }
+
+    /// Every deny code and every remedy a verdict can carry is published, or
+    /// an agent reading the contract meets one it was never told about.
+    #[tokio::test]
+    async fn the_guard_contract_covers_every_code_the_engine_can_emit() {
+        let s = test_app_state();
+        let v = guard_capabilities_json(&s);
+        let codes: Vec<&str> = v["deny_codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["code"].as_str().unwrap())
+            .collect();
+        for c in [
+            "PROV_SIG",
+            "PROV_BYTES",
+            "PROV_DRIFT",
+            "GEO_ZONE",
+            "CLAIM_UNGROUNDED",
+        ] {
+            assert!(codes.contains(&c), "{c} undocumented");
+        }
+        let fixes: Vec<&str> = v["fixes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["fix"].as_str().unwrap())
+            .collect();
+        for f in [
+            "refresh_token",
+            "remove_reference",
+            "contact_admin",
+            "cite_observation",
+        ] {
+            assert!(fixes.contains(&f), "{f} undocumented");
+        }
+        assert_eq!(v["hosted"]["blocks_nothing"], true);
     }
 
     /// End-to-end through the REAL `/v1/verify_receipt` handler: a freshly
