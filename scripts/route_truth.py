@@ -131,6 +131,28 @@ def main():
         if not ok:
             fails.append(f"{route} is listed as not served here but answered {code}")
 
+    # Every diagram the pages LINK must answer. A diagram file added to
+    # docs/diagrams and referenced from a page still 404s until it is
+    # registered in the DOCS_DIAGRAMS table in emem-api-rest, which is exactly
+    # the shape of the failure this whole gate exists for: something shown
+    # where it does not resolve. Four guard diagrams shipped that way.
+    linked = set()
+    for page in ("web/guard.html", "docs/diagrams/index.html"):
+        try:
+            body = open(page, encoding="utf-8").read()
+        except OSError:
+            continue
+        linked.update(re.findall(r"/docs/diagrams/([A-Za-z0-9._-]+\.svg)", body))
+    missing = []
+    for svg in sorted(linked):
+        code, _ = fetch(f"{origin}/docs/diagrams/{svg}")
+        if code != 200:
+            missing.append(f"{svg} -> {code}")
+    print(f"\n  {'ok  ' if not missing else 'FAIL'} {len(linked)} diagrams linked from the "
+          f"pages, {len(missing)} do not answer")
+    for m in missing:
+        fails.append(f"linked but not served: {m}")
+
     # And the page itself: no command block without a source marker.
     try:
         page = open(PAGE, encoding="utf-8").read()

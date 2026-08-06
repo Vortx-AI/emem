@@ -483,6 +483,25 @@ const DOCS_DIAGRAMS: &[(&str, &str)] = &[
         "39-orbit-to-ground-trust.svg",
         include_str!("../../../docs/diagrams/39-orbit-to-ground-trust.svg"),
     ),
+    // The guard set. Registered here as well as generated: this table is the
+    // whole reason /docs/diagrams/<name>.svg answers, so a file added to
+    // docs/diagrams and linked from a page 404s until it appears in it.
+    (
+        "40-guard-checkpoints.svg",
+        include_str!("../../../docs/diagrams/40-guard-checkpoints.svg"),
+    ),
+    (
+        "41-guard-verdict-path.svg",
+        include_str!("../../../docs/diagrams/41-guard-verdict-path.svg"),
+    ),
+    (
+        "42-guard-dlp-chassis.svg",
+        include_str!("../../../docs/diagrams/42-guard-dlp-chassis.svg"),
+    ),
+    (
+        "43-guard-deployments.svg",
+        include_str!("../../../docs/diagrams/43-guard-deployments.svg"),
+    ),
 ];
 
 const EXAMPLE_CLAUDE_DESKTOP: &str = include_str!("../../../examples/claude-desktop.json");
