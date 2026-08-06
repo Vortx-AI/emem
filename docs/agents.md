@@ -213,8 +213,8 @@ Four discovery URLs for agent onboarding:
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 118 documented, 114 under `/v1/*` |
-| MCP tools | 96 (14 core / 82 extended) |
+| REST paths (OpenAPI) | 144 documented, 138 under `/v1/*` |
+| MCP tools | 107 (16 core / 91 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
 | MCP resources | 18 static + 8 URI templates |

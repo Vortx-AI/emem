@@ -231,6 +231,67 @@ def verify_band_classes() -> list[str]:
     return drift
 
 
+# Surfaces a DIRECTORY or a cold agent reads. server.json is what the MCP
+# registry serves; ai-plugin.json is the ChatGPT manifest; llms-install.md and
+# skills.md are what an agent is pointed at to install and to learn the loop.
+# A stale tool count in any of them is a directory advertising a surface that
+# no longer exists.
+TOOL_COUNT_SURFACES = [
+    "server.json",
+    "web/ai-plugin.json",
+    "web/skills.md",
+    "llms-install.md",
+    "README.md",
+    "web/llms.txt",
+    "docs/agents.md",
+]
+
+# Every way this repo has ever phrased a tool count. Each pattern captures the
+# number and names which CANON key it must equal.
+_TOOL_CLAIMS = [
+    (r"(\d+)[- ]tool core", "mcp_core"),
+    (r"(\d+) core tools", "mcp_core"),
+    (r"\((\d+) core,", "mcp_core"),
+    (r"(\d+) MCP tools", "mcp_tools"),
+    (r"(\d+) tools in total", "mcp_tools"),
+    (r"all (\d+)\b", "mcp_tools"),
+    (r"any of the (\d+) by name", "mcp_tools"),
+    (r"(\d+) tools is callable", "mcp_tools"),
+    (r"(\d+) extended\)", "mcp_extended"),
+    (r"(\d+) extended,", "mcp_extended"),
+]
+
+
+def verify_tool_counts() -> list[str]:
+    """Assert the CURRENT numbers, rather than listing yesterday's stale ones.
+
+    The burn-down table below (`STALE`) only catches phrases somebody thought
+    to add after they went stale, so it always lags by exactly one change. On
+    2026-08-06 the tool surface moved 105 -> 107 and core 15 -> 16, and four
+    machine surfaces kept the old numbers while `--check` reported no drift:
+    server.json told every directory the server had 15 core tools, and
+    web/skills.md still said 102. This reads the numbers out and compares them
+    to CANON, so a surface cannot drift silently even the first time.
+    """
+    problems: list[str] = []
+    for rel in TOOL_COUNT_SURFACES:
+        f = REPO / rel
+        if not f.exists():
+            problems.append(f"{rel}: missing")
+            continue
+        text = f.read_text(encoding="utf-8")
+        for pattern, key in _TOOL_CLAIMS:
+            for m in re.finditer(pattern, text):
+                got = int(m.group(1))
+                want = CANON[key]
+                if got != want:
+                    line = text[: m.start()].count("\n") + 1
+                    problems.append(
+                        f"{rel}:{line}: says {m.group(0)!r} but {key} is {want}"
+                    )
+    return problems
+
+
 def verify_canon() -> list[str]:
     """Assert CANON matches what the repo (and, if reachable, the responder) say."""
     drift = []
@@ -247,6 +308,9 @@ def verify_canon() -> list[str]:
                 drift.append(f"CANON[{k}]={CANON[k]} but live /v1/agent_card says {v}")
     drift.extend(verify_security_limits(responder))
     drift.extend(verify_band_classes())
+    # The surfaces a directory reads. Checked by reading their numbers out and
+    # comparing to CANON, not by listing phrases that have already gone stale.
+    drift.extend(verify_tool_counts())
     return drift
 
 
