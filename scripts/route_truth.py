@@ -153,6 +153,66 @@ def main():
     for m in missing:
         fails.append(f"linked but not served: {m}")
 
+    # Every emem.dev URL a machine surface advertises must resolve.
+    #
+    # A directory or a cold agent reads these files and follows what it finds.
+    # docs/integrations.md carried a worked `curl` against a bundle token that
+    # had stopped resolving, so the one example an integrator was most likely
+    # to paste returned 404.
+    #
+    # The METHOD comes from the responder's own OpenAPI document rather than
+    # from a guess: half these routes are POST, and probing them with GET
+    # returns 405, which is not drift. That is the same mistake the parity
+    # harness made before it learned to read operationIds.
+    methods = {}
+    try:
+        doc = json.loads(fetch(f"{origin}/openapi.json")[1])
+        for path, ops in (doc.get("paths") or {}).items():
+            for verb in ops:
+                if verb.upper() in ("GET", "POST"):
+                    methods.setdefault(path, verb.upper())
+    except Exception:
+        methods = {}
+
+    surfaces = ["README.md", "AGENTS.md", "llms-install.md", "server.json",
+                "web/llms.txt", "web/skills.md", "web/ai-plugin.json",
+                "docs/agents.md", "docs/integrations.md",
+                "crates/emem-guard/SKILL.md"]
+    advertised = {}
+    for rel in surfaces:
+        try:
+            body = open(rel, encoding="utf-8").read()
+        except OSError:
+            continue
+        for m in re.finditer(r"https://emem\.dev[\w./?=&#:%-]*", body):
+            u = m.group(0).rstrip(".,)`\"'>\\")
+            # A template placeholder (`/v1/facts/{cid}`, `/skills/<name>/...`)
+            # gets cut by the character class above, leaving a bare directory
+            # that was never advertised. Checking that reports the regex, not
+            # the docs, and three such artefacts were the first thing this
+            # sweep "found".
+            nxt = body[m.end():m.end() + 1]
+            if nxt in ("{", "<") or u.endswith("/"):
+                continue
+            advertised.setdefault(u, set()).add(rel)
+
+    dead = []
+    for u in sorted(advertised):
+        path = u[len("https://emem.dev"):].split("?")[0] or "/"
+        verb = methods.get(path, "GET")
+        # A POST route is probed with an empty body: the question is whether
+        # the route EXISTS, not whether these arguments are valid, so anything
+        # that is not 404 or 405 counts as present.
+        # Short timeout: this is a reachability sweep over ~100 URLs, not a
+        # latency test, and a slow route is checked elsewhere.
+        code, _ = fetch(u, verb, {} if verb == "POST" else None, timeout=12)
+        if code == 404 or code == 405 or code == 0:
+            dead.append((u, code, sorted(advertised[u])))
+    print(f"\n  {'ok  ' if not dead else 'FAIL'} {len(advertised)} emem.dev URLs "
+          f"advertised in {len(surfaces)} machine surfaces, {len(dead)} dead")
+    for u, c, where in dead:
+        fails.append(f"advertised but {c}: {u}  (in {', '.join(where)})")
+
     # And the page itself: no command block without a source marker.
     try:
         page = open(PAGE, encoding="utf-8").read()

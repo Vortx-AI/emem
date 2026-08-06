@@ -192,9 +192,9 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
     ],
     "purpose":"flood-risk site assessment 2026-05"
   }' | jq '.bundle_token'
-# "emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq"
+# "emem:bundle:ugubgeza3bcj2mjfpkg6bvgjga"
 
-curl -sX GET https://emem.dev/v1/memory_bundle/emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq | jq .
+curl -sX GET https://emem.dev/v1/memory_bundle/emem:bundle:ugubgeza3bcj2mjfpkg6bvgjga | jq .
 ```
 
 `bundle_cid` is deterministic across responders: the same triples in
