@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All 107 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 15-tool core loop first. Every one callable with no key.">
+<meta name=description content="All 107 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 16-tool core loop first. Every one callable with no key.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -33,7 +33,7 @@ h2{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);pa
 <p class="crumb"><a href="/">emem</a> / tools</p>
 <h1>Every tool, generated from the registry</h1>
 <p class="lede">All 107 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
-<h2>The core loop (15 tools)</h2>
+<h2>The core loop (16 tools)</h2>
 <p class="sub">What /mcp advertises by default: enough to name, ground, read, cite, and verify.</p>
 
 <details class="tool" id="emem_tools">
@@ -118,6 +118,12 @@ h2{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);pa
   <summary><code>emem_verify_receipt</code><span class="tt">Server-side ed25519 receipt verifier</span><span class="tw">Pass a receipt object exactly as returned by any read primitive (signature can be byte[] or sig_b32; pubkey can be byte[] or responder_pubkey_b32, the verifier tolerates both shapes).</span></summary>
   <p>Verify a signed receipt envelope server-side: recomputes the canonical preimage (preimage v1: tagged, length-prefixed segments; receipts without `preimage_version` verify under the legacy `request_id | served_at | primitive | cells, | fact_cids,` concatenation), runs ed25519 over the embedded pubkey + signature, and returns `{valid, reason, pubkey_b32}`. Use when the in-browser /verify path is blocked (CDN offline, agent runtime has no crypto) or when you want a server-side audit of a third-party receipt. Algebra: verify.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_verify_receipt&quot;, &quot;arguments&quot;: {&quot;receipt&quot;: {&quot;cells&quot;: [&quot;damO.zb000.xUti.zde78&quot;], &quot;fact_cids&quot;: [&quot;qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq&quot;], &quot;primitive&quot;: &quot;recall&quot;, &quot;request_id&quot;: &quot;req-1&quot;, &quot;responder_pubkey&quot;: [4, 5, 6], &quot;served_at&quot;: &quot;2026-05-14T12:00:00Z&quot;, &quot;signature&quot;: [1, 2, 3]}}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_guard_verdict">
+  <summary><code>emem_guard_verdict</code><span class="tt">Check whether the citations in a draft actually verify</span><span class="tw">Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it.</span></summary>
+  <p>Run emem-guard&#x27;s policy pipeline over text you are about to send, against this responder&#x27;s corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY &lt;CODE&gt; token=&lt;token|-&gt; fix=&lt;fix&gt; leaf=&lt;leaf|-&gt;`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Algebra: verify.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_guard_verdict&quot;, &quot;arguments&quot;: {&quot;texts&quot;: [&quot;Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala&quot;]}}}&#x27;</code></pre>
 </details>
 
 <details class="tool" id="emem_intent">
@@ -522,13 +528,7 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
   <p>Replace `old_str` with `new_str` in the named memory file. Fails (no partial write) when `old_str` is absent or matches more than once. Writes a new content-addressed `file_cid` and signs the receipt. Mirrors the `str_replace` verb in Anthropic&#x27;s context-management-2025-06-27 memory tool spec. WRITES ARE SIGNED, NOT ANONYMOUS: supply `attester: {pubkey_b32, sig_b32}`, an ed25519 signature over blake3(&quot;emem.memory_write|&lt;verb&gt;|&lt;path&gt;|&lt;body_hash&gt;&quot;); an unattested write is refused with the exact digest to sign. Under `/memories/by_attester/&lt;pubkey8&gt;/...` only the matching key may write. Elsewhere the first attester to create a path owns it and only that key may change it, which makes every name outside your own prefix unreserved: do not build a dependency on a well-known open-root path such as `/memories/standard.md`, because whoever writes it first holds it permanently on a log that cannot be pruned. `/memories/.well-known/` is reserved to the operator and refuses every key, including ours; it is the only prefix where a fixed, agent-readable name cannot be claimed out from under you. Stored content is world-readable by design: this is a shared commons, not private storage. Formerly `memory_str_replace`; that spelling still dispatches and is no longer advertised, because three of these verbs are destructive and shared a name with Claude&#x27;s own memory tool. It is removed in 3.0.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_str_replace&quot;, &quot;arguments&quot;: {&quot;new_str&quot;: &quot;finished the brief&quot;, &quot;old_str&quot;: &quot;read the brief&quot;, &quot;path&quot;: &quot;/memories/by_attester/&lt;your-pubkey8&gt;/notes.md&quot;}}}&#x27;</code></pre>
 </details>
-<h2>Verify and prove (7)</h2>
-
-<details class="tool" id="emem_guard_verdict">
-  <summary><code>emem_guard_verdict</code><span class="tt">Check whether the citations in a draft actually verify</span><span class="tw">Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it.</span></summary>
-  <p>Run emem-guard&#x27;s policy pipeline over text you are about to send, against this responder&#x27;s corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY &lt;CODE&gt; token=&lt;token|-&gt; fix=&lt;fix&gt; leaf=&lt;leaf|-&gt;`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Algebra: verify.</p>
-  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_guard_verdict&quot;, &quot;arguments&quot;: {&quot;texts&quot;: [&quot;Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala&quot;]}}}&#x27;</code></pre>
-</details>
+<h2>Verify and prove (6)</h2>
 
 <details class="tool" id="emem_log_consistency">
   <summary><code>emem_log_consistency</code><span class="tt">Transparency log consistency proof</span><span class="tw">Call with `first` = the tree_size of an STH you pinned earlier.</span></summary>

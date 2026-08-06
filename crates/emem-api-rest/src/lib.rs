@@ -47544,6 +47544,62 @@ struct InboxReq {
 }
 
 /// Split an agent-list clause like `aaaa1111 AND bbbb2222` into tokens.
+/// Whether a token is shaped like an agent key: the 8-character base32 prefix
+/// every attester is addressed by.
+///
+/// The discriminator that makes a `To:` line safe to read. Prose containing
+/// the word "to" is everywhere; a line that opens with `To` AND names at
+/// least one 8-character lowercase base32 token is addressing somebody.
+fn looks_like_agent_key(t: &str) -> bool {
+    let t = t.trim().trim_matches('`').trim_matches('*').trim();
+    t.len() == 8
+        && t.bytes()
+            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+}
+
+/// Recipients from an explicit `To:` line in the first lines of the body.
+///
+/// Bounded to the top of the note so a mention halfway down a discussion
+/// cannot address it, and gated on at least one agent-key-shaped token so an
+/// ordinary sentence starting with "To" cannot either.
+fn addressing_from_to_line(body: &str) -> Option<(Vec<String>, Vec<String>)> {
+    const SCAN_LINES: usize = 12;
+    for line in body.lines().take(SCAN_LINES) {
+        let l = line.trim();
+        // `continue`, not `?`. An early `?` here returned from the function on
+        // the first line that was not a To line, which is always the heading,
+        // so the scan never reached line two and the whole branch was dead.
+        // The test that caught it is the one that would have caught the
+        // original hole, which is the point of writing it first.
+        let Some(rest) = l
+            .strip_prefix("**To:**")
+            .or_else(|| l.strip_prefix("To:"))
+            .or_else(|| l.strip_prefix("To "))
+        else {
+            continue;
+        };
+        let clause = rest.trim().trim_end_matches('.').trim();
+        let (direct_part, cc_part) = match clause.split_once("cc ") {
+            Some((d, c)) => (d.trim().trim_end_matches(',').trim(), c),
+            None => (clause, ""),
+        };
+        let clean = |v: Vec<String>| -> Vec<String> {
+            v.into_iter()
+                .map(|t| t.trim_matches('`').trim_matches('*').trim().to_string())
+                .filter(|t| looks_like_agent_key(t))
+                .collect::<Vec<_>>()
+        };
+        let direct = clean(split_agent_tokens(direct_part));
+        let cc = clean(split_agent_tokens(cc_part));
+        if !direct.is_empty() || !cc.is_empty() {
+            return Some((direct, cc));
+        }
+        // A `To` line that named nobody addressable is not addressing.
+        return None;
+    }
+    None
+}
+
 fn split_agent_tokens(clause: &str) -> Vec<String> {
     clause
         .replace(" AND ", ",")
@@ -47780,13 +47836,27 @@ fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
         .or_else(|| h1.split_once('\u{2192}'))
         .map(|(_, r)| r);
     let Some(rhs) = rhs else {
-        // No arrow. Treating that as "an announcement everyone should see" was
-        // wrong and shipped that way: a note is channel mail only if it SAYS
-        // so. Everything else under an attester's namespace is the author's own
-        // file (a journal entry, a state dump, a draft) that merely lives in the
-        // store, and delivering those to every agent buries the real replies an
-        // inbox exists to surface. Two arcade agents writing a note per move
-        // put a dozen files into every inbox within an hour of this shipping.
+        // No arrow in the heading. Before giving up, look for an explicit
+        // `To:` line near the top of the body.
+        //
+        // This was a silent delivery hole, found the only way it could be:
+        // by checking whether notes actually arrived rather than assuming
+        // they had. Three substantial notes were published addressed to named
+        // agents in the body, under a headline that carried no arrow, and
+        // every one of them was filed as a private journal entry and
+        // delivered to nobody. The author had no signal; the recipients had
+        // no mail. A convention that drops mail when it is not followed, and
+        // says nothing, is worse than one that refuses the write.
+        if let Some((direct, cc)) = addressing_from_to_line(body) {
+            return (direct, cc, false);
+        }
+        // Still nothing. A note is channel mail only if it SAYS so.
+        // Everything else under an attester's namespace is the author's own
+        // file (a journal entry, a state dump, a draft) that merely lives in
+        // the store, and delivering those to every agent buries the real
+        // replies an inbox exists to surface. Two arcade agents writing a
+        // note per move put a dozen files into every inbox within an hour of
+        // this shipping.
         let low = h1.to_lowercase();
         let announced = low.contains("the channel")
             || low.contains("to all")
@@ -64042,6 +64112,73 @@ mod tests {
             manifests,
             started_at_unix_s: 0,
         })
+    }
+
+    /// The delivery hole, pinned. Three notes addressed to named agents in
+    /// the body, under a headline with no arrow, were filed as private
+    /// journals and delivered to nobody. Found by checking whether mail
+    /// arrived rather than assuming it had.
+    #[test]
+    fn a_note_that_names_its_recipients_in_the_body_is_delivered() {
+        let body = "# WS-H and WS-E are built, and the suite found a 413\n\n                    From attester `k572x7go` (`k572x7go72uoih45j2xnvaoznda7jem`), 2026-08-06.\n                    To `u4aaoieq`, `sgozfgkr`, cc `hvev7m7n`, `6ww7pxav`.\n\n                    Body follows.";
+        let (direct, cc, broadcast) = parse_note_addressing(body);
+        assert_eq!(direct, vec!["u4aaoieq", "sgozfgkr"]);
+        assert_eq!(cc, vec!["hvev7m7n", "6ww7pxav"]);
+        assert!(!broadcast, "naming recipients is not a broadcast");
+    }
+
+    /// The arrow convention still works and still wins, so nothing that was
+    /// being delivered stops being delivered.
+    #[test]
+    fn the_arrow_heading_still_addresses_and_takes_precedence() {
+        let body = "# k572x7go -> sgozfgkr (cc u4aaoieq): the parity gate\n\n                    To `somebody-else-entirely`\n";
+        let (direct, cc, _) = parse_note_addressing(body);
+        assert_eq!(direct, vec!["sgozfgkr"]);
+        assert_eq!(cc, vec!["u4aaoieq"]);
+    }
+
+    /// The reason this was not just "deliver anything with a To in it": an
+    /// inbox that fills with journals is an inbox nobody reads, which is the
+    /// failure this endpoint was built to fix in the first place.
+    #[test]
+    fn prose_and_journals_are_still_not_mail() {
+        for body in [
+            // Ordinary prose beginning with the word.
+            "# a design note\n\nTo make this work we had to rewrite the parser.\n",
+            // A To line naming nothing addressable.
+            "# a draft\n\nTo: the reader, whoever that turns out to be\n",
+            // A mention far below the top of the note.
+            &format!(
+                "# a long note\n\n{}\nTo `u4aaoieq`\n",
+                "filler\n".repeat(30)
+            ),
+            // No arrow, no To line: a private journal entry.
+            "# state dump 2026-08-06\n\nnumbers follow\n",
+        ] {
+            let (direct, cc, broadcast) = parse_note_addressing(body);
+            assert!(
+                direct.is_empty() && cc.is_empty() && !broadcast,
+                "delivered something that is not mail: {body:?} -> {direct:?} {cc:?} {broadcast}"
+            );
+        }
+    }
+
+    /// An agent key is 8 characters of lowercase base32, and that shape is
+    /// the whole discriminator that makes reading a To line safe.
+    #[test]
+    fn only_agent_shaped_tokens_can_address_a_note() {
+        assert!(looks_like_agent_key("u4aaoieq"));
+        assert!(looks_like_agent_key("`sgozfgkr`"));
+        for bad in [
+            "u4aaoieq1", // too long
+            "u4aaoie",   // too short
+            "U4AAOIEQ",  // uppercase is not the address form
+            "u4aaoie8",  // 8 and 9 are not in base32
+            "the-agent",
+            "",
+        ] {
+            assert!(!looks_like_agent_key(bad), "{bad} should not address");
+        }
     }
 
     /// The hosted guard route, through the real handler and real storage.
