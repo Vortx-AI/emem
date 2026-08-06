@@ -55,7 +55,9 @@ to verify.
   row names the band from `GET /v1/bands` that reports it, so the gate only
   fires on claims the node could have verified had they been cited, and
   `800 ms`, `10 MB` and `$4.2bn` never reach it. Measured over this
-  repository's own documentation: 1 firing in 7160 sentences across 8 files.
+  repository's own documentation: 3 firings in 8739 sentences across 8 files,
+  a rate of 0.034%, two of them the detector's own positive test fixtures and
+  so the rule working rather than false positives.
   The corpus found two real defects on the way, a citation key and a model name
   both read as years, and both are now pinned by tests.
 

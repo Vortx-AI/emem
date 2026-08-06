@@ -54,7 +54,7 @@ Parse `fix`. `refresh_token` means re-resolve the token and retry. `remove_refer
 
 A token the guard has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would penalise an agent for citing something the node has not seen.
 
-Claim gating (`CLAIM_UNGROUNDED`) is the one rule that fires on absence: a transcript that cites nothing and still asserts a measurable quantity about a place or a time. It ships off, behind a measurement rather than an opinion. The discriminator is a unit table where every row names the band that reports it, so `800 ms` and `10 MB` never reach it. Measured over emem's own documentation: 1 firing in 7160 sentences. `--shadow` runs every rule, signs and logs what it would have done, and blocks nobody; `--report` and `GET /log/report` read the count back off disk.
+Claim gating (`CLAIM_UNGROUNDED`) is the one rule that fires on absence: a transcript that cites nothing and still asserts a measurable quantity about a place or a time. It ships off, behind a measurement rather than an opinion. The discriminator is a unit table where every row names the band that reports it, so `800 ms` and `10 MB` never reach it. Measured over emem's own documentation: 3 firings in 8739 sentences (0.034%), two of them the detector's own positive test fixtures. `--shadow` runs every rule, signs and logs what it would have done, and blocks nobody; `--report` and `GET /log/report` read the count back off disk.
 
 Every verdict is signed and appended to a hash-chained log before it is returned. Signatures prove each verdict genuine; the chain proves none were removed. `emem-guard --audit` checks any log and exits non-zero if an entry was altered or deleted.
 

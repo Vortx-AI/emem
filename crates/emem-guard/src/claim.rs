@@ -41,12 +41,15 @@
 //! which runs the detector over this repository's own documentation: a corpus
 //! of exactly the technical English this gate will sit in front of, dense with
 //! numbers, units and place names, and written years before the detector
-//! existed. Measured on 2026-08-06: **1 firing in 7160 sentences across 8
-//! files**, and the one firing is a sentence in the changelog that genuinely
-//! asserts a rainfall rate on a date and cites nothing. Two earlier firings
-//! were real defects the corpus found, both now fixed and both pinned by
-//! tests: a citation key (`Reiche-2018`) read as a year, and a model name
-//! (`gpt-4o-2024`) read the same way.
+//! existed. Measured on 2026-08-06: **3 firings in 8739 sentences across 8
+//! files**, a rate of 0.034%. Two of the three are this crate's own positive
+//! test fixtures, sentences written to be gateable claims, so they are the
+//! rule working rather than false positives; the third is a changelog line
+//! that genuinely asserts a rainfall rate on a date and cites nothing.
+//!
+//! Two earlier firings were real defects the corpus found, both now fixed and
+//! both pinned by tests: a citation key (`Reiche-2018`) read as a year, and a
+//! model name (`gpt-4o-2024`) read the same way.
 //!
 //! That number is one input, not a licence. Prose in this repository is not
 //! the traffic of an organisation that turns this rule on, which is what
@@ -1171,15 +1174,35 @@ mod tests {
             }
         }
 
+        // Some of the corpus is source, and this crate's own source contains
+        // sentences written to BE gateable claims, because they are the
+        // positive fixtures for this detector. A firing on one of those is
+        // the rule working, not a false positive, so they are counted apart
+        // rather than quietly excluded: hiding them would flatter the number
+        // and hiding the number is how it drifts.
+        let self_fixture = |name: &str| name.starts_with("crates/emem-guard/");
+        let (own, external): (Vec<_>, Vec<_>) = fired.iter().partition(|(n, _)| self_fixture(n));
         println!(
-            "claim gate corpus: {} sentences across {} files, {} fired",
+            "claim gate corpus: {} sentences across {} files, {} fired \
+             ({} in this crate's own test fixtures, {} in prose)",
             total_sentences,
             corpus.len(),
-            fired.len()
+            fired.len(),
+            own.len(),
+            external.len(),
         );
         for (name, c) in &fired {
-            println!("  {name}: [{}] {}", c.magnitude, c.sentence);
+            let tag = if self_fixture(name) {
+                "fixture"
+            } else {
+                "prose  "
+            };
+            println!("  {tag} {name}: [{}] {}", c.magnitude, c.sentence);
         }
+        println!(
+            "  NOTE: these figures are quoted in README.md, web/llms.txt, \
+             web/guard.html and this module's docs. Update them together."
+        );
 
         assert!(
             total_sentences > 1000,

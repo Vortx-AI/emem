@@ -408,7 +408,7 @@ EMEM-GUARD DENY PROV_SIG token=emem:fact:cell:cid fix=refresh_token leaf=leaf_41
 emem-guard --audit --data ./var/guard    # exits non-zero if a verdict was altered or deleted
 ```
 
-**Claim gating denies on absence, so it ships off behind a measurement rather than an opinion.** The rule fires when a transcript cites nothing at all and still asserts a measurable quantity about a place or a time. The discriminator is a unit table where every row names the band that reports it, so `800 ms` and `10 MB` never reach it: no band measures them, and a claim this node could not have verified is not one it will gate. Measured over this repository's own prose, 1 firing in 7160 sentences. Measure it on your own traffic before enforcing:
+**Claim gating denies on absence, so it ships off behind a measurement rather than an opinion.** The rule fires when a transcript cites nothing at all and still asserts a measurable quantity about a place or a time. The discriminator is a unit table where every row names the band that reports it, so `800 ms` and `10 MB` never reach it: no band measures them, and a claim this node could not have verified is not one it will gate. Measured over this repository's own prose, 3 firings in 8739 sentences, two of which are the detector's own positive test fixtures. Measure it on your own traffic before enforcing:
 
 ```bash
 emem-guard --claim-gating --shadow    # every rule runs and is signed; nobody is blocked

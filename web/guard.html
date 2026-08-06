@@ -301,7 +301,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
     <h3>Step 2 &mdash; run the tests before you trust it</h3>
     <p>Not smoke tests. They include the two signature-verification mistakes the platform documentation singles out as most common: hashing a re-encoded body, and decoding the secret with a URL-safe alphabet. Both fail loudly if reintroduced.</p>
     <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ cargo test --release -p emem-guard
-test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out</code></pre></div>
+test result: ok. 136 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out</code></pre></div>
 
     <h3>Step 3 &mdash; start it, and read what it admits</h3>
     <p>The banner tells you the one thing that matters most. A node with no corpus attached <strong>verifies nothing</strong>, and it says so rather than implying otherwise.</p>
@@ -353,7 +353,7 @@ HTTP 200</code></pre></div>
     <dl>
       <dt>rule</dt><dd>claim_gating</dd>
       <dt>default</dt><dd>off</dd>
-      <dt>measured</dt><dd>1 firing in 7160 sentences</dd>
+      <dt>measured</dt><dd>3 in 8739 sentences, 2 of them own fixtures</dd>
     </dl>
   </div>
   <div class="section-body">
@@ -399,7 +399,8 @@ HTTP 200</code></pre></div>
     <h3>Why <code>800 ms</code> is not a claim about the world</h3>
     <p>The discriminator is a unit table where <strong>every row names the band that reports it</strong>. Metres come from <code>dem</code>, millimetres per day from <code>chirps.precip_daily_mm</code>, micrograms per cubic metre from <code>air_quality</code>. Bytes, seconds, hertz and currency are absent because no band reports them, so a claim measured in one is not a claim this node could have verified had it been cited. The gate is bounded by its own competence.</p>
     <p>Three more clauses have to hold, and each can only ever remove firings: a <strong>world anchor</strong> (an ISO date, a year, a coordinate pair in range, or a preposition followed by a capitalised name), an <strong>assertion</strong> rather than a question, a hedge, a conditional or an already-attributed statement, and <strong>prose</strong> rather than a fenced code block or a configuration line.</p>
-    <p>Measured over this repository's own documentation, the register the gate will sit in front of: <strong>1 firing in 7160 sentences across 8 files</strong>. The corpus found two real defects on the way, both now fixed and pinned by tests: a citation key (<code>Reiche-2018</code>) and a model name (<code>gpt-4o-2024</code>) each read as a year.</p>
+    <p>Measured over this repository's own documentation, the register the gate will sit in front of: <strong>3 firings in 8739 sentences across 8 files</strong>, a rate of 0.034%. Two of the three are the detector firing on its own positive test fixtures, sentences written to be gateable claims, so they are the rule working rather than false positives; the third is a changelog line that genuinely asserts a rainfall rate on a date and cites nothing. They are counted apart rather than excluded, because hiding them would flatter the number.</p>
+    <p>The corpus found two real defects on the way, both now fixed and pinned by tests: a citation key (<code>Reiche-2018</code>) and a model name (<code>gpt-4o-2024</code>) each read as a year.</p>
 
     <h3>Then read your own number off disk</h3>
     <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --report --data ./var/guard

@@ -53,7 +53,7 @@ built the wrong package; `-p emem-guard` pulls no inference dependencies.
 cargo test --release -p emem-guard
 ```
 
-Check: every test passes. These are not smoke tests. They include the two
+Check: every test passes; there are 136 of them. These are not smoke tests. They include the two
 signature-verification mistakes the platform documentation singles out as the
 most common (hashing a re-encoded body, and decoding the secret with a
 URL-safe alphabet), and they fail loudly if either is reintroduced.
@@ -234,8 +234,9 @@ The same numbers are served live at `GET /log/report`.
 
 When the rate is one you accept, drop `--shadow`.
 
-For reference, the detector fires on 1 sentence in 7160 across this
-repository's own documentation. That is one input, not a licence: your traffic
+For reference, the detector fires on 3 sentences in 8739 across this
+repository's own documentation, two of which are its own positive test
+fixtures. That is one input, not a licence: your traffic
 is not our changelog, which is exactly why you measure it where it will run.
 
 ## Step 9: plug in your own detection
