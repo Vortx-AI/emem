@@ -333,8 +333,62 @@ Three rules, and the first two are enforced by the type rather than by review:
 `ModuleManifest::sealed()` fills `build_hash` from the declaration it covers.
 The registry refuses a manifest whose hash does not match, so a module cannot be
 edited after review to claim a different latency class than the one it was
-reviewed under. Publish that manifest as a signed fact and the signature binds
-the publisher on top.
+reviewed under.
+
+### Shipping a module nobody here compiled
+
+Publish the manifest signed, and the operator decides whether your key counts.
+
+```json
+{
+  "manifest": { "id": "your-engine", "version": "1.0.0", "build_hash": "...",
+                "latency_class": "slow", "data_class": "needs_text",
+                "deny_code": "PolicyModule", "fix": "RedactAndRetry",
+                "description": "what it detects" },
+  "publisher_b32": "<your ed25519 key, base32-nopad-lowercase>",
+  "signature_b32": "<ed25519 over the preimage below>"
+}
+```
+
+The preimage is domain-separated over the DECLARED hash, not over a
+re-serialisation of the JSON, so you and the verifier cannot disagree about
+field order:
+
+```
+0x00 || len("emem.guard.module_manifest.v1") || "emem.guard.module_manifest.v1"
+0x01 || len(build_hash)                       || build_hash
+```
+
+```bash
+emem-guard --signed-module your-engine.json --trust-publisher <your key>
+```
+
+Three ways it is refused, and each says which: a signature that does not
+verify, a publisher the operator has not listed, and a signed manifest paired
+with a different binary. **Nothing loads without a key the operator typed.** A
+valid signature from a stranger is still a stranger.
+
+### If your engine is closed source
+
+It does not have to link against this binary. Run it listening on a unix
+socket and speak one line of JSON each way:
+
+```bash
+emem-guard --module sidecar:/run/your-engine.sock
+```
+
+Request in, response out, byte-identical to what the webhook module posts, so
+you implement one shape and can be reached over either transport:
+
+```json
+{"text_digest":"<hex>","texts":["..."],"token_count":0,"claim_count":0}
+{"outcome":"deny","reason":"policy 12","confidence":0.8}
+```
+
+A socket rather than a process we spawn, because process lifecycle means
+restart policy, zombie reaping and a crash loop that becomes the operator's
+incident. A missing socket is an abstain. A socket that accepts the write and
+never answers is also an abstain, bounded by your declared budget.
 
 ### What this does to your verdicts
 

@@ -424,6 +424,8 @@ curl -s localhost:8080/modules      # what is loaded, and what it actually cost
 
 Two declarations decide where a module may run, and neither is taken on trust. A module declaring `slow` never runs on the enforcing path. A module declaring `fast` that exceeds 50 ms three times is demoted and stops being able to block. A module declaring `digests_only` is handed an empty transcript rather than asked not to read it. The log records module id, version and an evidence digest, never what matched, and the loaded set's digest enters the verdict preimage so a verdict names the exact pipeline that produced it.
 
+A third party ships a module nobody here compiled by publishing its manifest **signed**, and the operator decides whether that key counts: `--signed-module` plus `--trust-publisher`. A closed-source engine does not have to link against the binary at all, and loads over a unix socket with `--module sidecar:/run/engine.sock`.
+
 **Check the deployment, not just the code.** `emem-guard --conformance <url>` runs twelve checks over the wire, because unit tests prove the handlers and prove nothing about the server you stood up. Its first run against this project's own node found a 9 MB body returning 413.
 
 **What it will not do.** It is not a DLP scanner and does not classify content itself. A citation this node has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would deny honest agents.

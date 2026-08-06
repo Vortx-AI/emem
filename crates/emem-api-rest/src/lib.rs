@@ -8030,8 +8030,10 @@ fn guard_capabilities_json(s: &AppState) -> JsonValue {
             "declares": ["latency_class: fast|slow", "data_class: needs_text|digests_only"],
             "enforced_not_trusted": "a slow module never runs on the enforcing path; a fast one that exceeds its budget is demoted and stops being able to block",
             "logged": "module id, version and an evidence digest. Never the matched content.",
-            "reference": ["secret-patterns (in-process, fixed-prefix credential shapes)", "webhook:<url> (your own classifier, abstains on timeout)"],
+            "reference": ["secret-patterns (in-process, fixed-prefix credential shapes)", "webhook:<url> (your own classifier, abstains on timeout)", "sidecar:<unix-socket> (a closed engine, one line of JSON each way, no linking)"],
             "load": "emem-guard --module secret-patterns --module webhook:https://your-classifier",
+            "third_party": "publish the manifest signed over its declared hash; the operator loads it with --signed-module and decides whether your key counts with --trust-publisher. Nothing loads without a key the operator typed.",
+            "manifest_preimage": "0x00||len(\"emem.guard.module_manifest.v1\")||domain then 0x01||len(build_hash)||build_hash, ed25519, base32-nopad-lowercase",
             "this_responder": "runs none: the hosted route is advisory and answers grounding only",
         },
         "conformance": {
