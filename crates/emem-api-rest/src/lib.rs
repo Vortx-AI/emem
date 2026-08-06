@@ -18274,6 +18274,65 @@ fn schema_to_rest_path(schema: &str) -> Option<String> {
 /// dropping the mirror would make the descriptor lie, so the payload is
 /// slimmed once and both copies carry the slimmed form with an honest
 /// truncation marker.
+/// Argument names the caller sent that the tool's `inputSchema` does not
+/// declare.
+///
+/// Every dispatch arm deserializes with serde, which ignores unknown fields
+/// by default, so `{"celll": "..."}` was accepted, dropped, and the tool ran
+/// as if no cell had been given. The caller sees a plausible answer about
+/// somewhere else and no indication their argument went nowhere.
+///
+/// Empty when the schema declares no properties (a few tools take none and
+/// document that), so a schema-less tool does not flag every argument.
+fn mcp_unknown_arguments(tool: &str, args: &JsonValue) -> Vec<String> {
+    let Some(obj) = args.as_object() else {
+        return Vec::new();
+    };
+    let Some(t) = emem_mcp::TOOLS.iter().find(|t| t.name == tool) else {
+        return Vec::new();
+    };
+    let Ok(schema) = serde_json::from_str::<JsonValue>(t.input_schema) else {
+        return Vec::new();
+    };
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return Vec::new();
+    };
+    if props.is_empty() {
+        return Vec::new();
+    }
+    obj.keys()
+        // `_meta` is the MCP-standard slot a host may attach; it is not ours
+        // to complain about.
+        .filter(|k| !props.contains_key(*k) && !k.starts_with('_'))
+        .cloned()
+        .collect()
+}
+
+/// Attach the unrecognised-argument notice to a tool result.
+///
+/// Advisory, never fatal, and never on the error path: a tool that already
+/// failed has a reason of its own to report, and burying it under a note
+/// about a typo would make the smaller problem the loud one.
+fn attach_unknown_arguments(mut inner: JsonValue, unknown: &[String]) -> JsonValue {
+    if unknown.is_empty() {
+        return inner;
+    }
+    if let Some(m) = inner.as_object_mut() {
+        m.insert(
+            "_unrecognised_arguments".into(),
+            json!({
+                "names": unknown,
+                "effect": "ignored",
+                "why": "This tool does not declare these arguments, so they were dropped \
+                        before it ran. If one was a typo for a real parameter, the tool \
+                        answered without it rather than with what you meant. Check the \
+                        tool's inputSchema.",
+            }),
+        );
+    }
+    inner
+}
+
 fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
     let raw_content = inner
         .get("_mcp_content")
@@ -19829,6 +19888,13 @@ async fn mcp_jsonrpc_inner(
                         .unwrap_or(32)
                         .clamp(5, transport.saturating_sub(5).max(5)),
                 );
+                // Names the caller passed that this tool does not declare.
+                // serde ignores unknown fields, so a typo like `celll` was
+                // dropped in silence and the tool ran on a default as if the
+                // caller had said nothing. Reported rather than refused:
+                // rejecting would break hosts that decorate arguments, and a
+                // silent drop is the part that costs a debugging session.
+                let unknown = mcp_unknown_arguments(name, &args);
                 let started = std::time::Instant::now();
                 let outcome = tokio::time::timeout(mcp_budget, mcp_tool_call(name, args, &s)).await;
                 latency_record(
@@ -19858,7 +19924,10 @@ async fn mcp_jsonrpc_inner(
                         // the structured-content sibling. This keeps the
                         // dispatch signature uniform while letting
                         // `emem_coverage_map` ship a real EmbeddedResource.
-                        Ok(mcp_wrap_call_tool_result_for(inner, name))
+                        Ok(mcp_wrap_call_tool_result_for(
+                            attach_unknown_arguments(inner, &unknown),
+                            name,
+                        ))
                     }
                     Ok(Err((code, msg))) => {
                         // Unknown-method (-32601) is a protocol error, propagate
@@ -61231,6 +61300,75 @@ mod tests {
         }
     }
 
+    /// A misspelled argument is reported, not silently dropped.
+    ///
+    /// serde ignores unknown fields, so `{"celll": ...}` was accepted and
+    /// discarded, and the tool answered from a default as if the caller had
+    /// specified nothing. The answer looks plausible and is about the wrong
+    /// thing, which is the failure mode worth catching.
+    #[test]
+    fn unknown_arguments_are_named_rather_than_dropped() {
+        let unknown = mcp_unknown_arguments("emem_recall", &json!({"celll": "x", "bands": []}));
+        assert_eq!(unknown, vec!["celll".to_string()]);
+
+        // Declared arguments are never flagged.
+        assert!(
+            mcp_unknown_arguments("emem_recall", &json!({"cell": "x", "bands": []})).is_empty()
+        );
+
+        // `_meta` is the MCP-standard slot a host may attach; not ours to
+        // complain about.
+        assert!(
+            mcp_unknown_arguments("emem_recall", &json!({"cell": "x", "_meta": {}})).is_empty()
+        );
+
+        // The notice rides on the result, says it was ignored, and names it.
+        let out = attach_unknown_arguments(json!({"ok": true}), &["celll".to_string()]);
+        let n = &out["_unrecognised_arguments"];
+        assert_eq!(n["effect"], json!("ignored"));
+        assert_eq!(n["names"], json!(["celll"]));
+        assert!(n["why"].as_str().unwrap().contains("typo"));
+
+        // Nothing attached when there is nothing to say.
+        assert_eq!(
+            attach_unknown_arguments(json!({"ok": true}), &[]),
+            json!({"ok": true})
+        );
+    }
+
+    /// The receipt carries the key and signature in the encoding the rest of
+    /// the surface uses, alongside the byte arrays rather than instead of
+    /// them.
+    #[tokio::test]
+    async fn a_receipt_carries_base32_key_and_signature() {
+        use std::time::Instant;
+        let s = test_app_state();
+        let r = s.sign_receipt(
+            "emem.recall",
+            vec!["damO.zb000.xUti.zde78".into()],
+            vec![emem_fact::FactCid::new("fc-1")],
+            true,
+            Instant::now(),
+            None,
+        );
+        // Same bytes, two encodings: the arrays stay because verifiers
+        // already read them, including the JS on /verify.
+        assert_eq!(
+            r.responder_pubkey_b32,
+            data_encoding::BASE32_NOPAD
+                .encode(&r.responder.0)
+                .to_lowercase()
+        );
+        assert_eq!(
+            r.signature_b32,
+            data_encoding::BASE32_NOPAD
+                .encode(&r.signature.0)
+                .to_lowercase()
+        );
+        assert_eq!(r.responder_pubkey_b32.len(), 52, "32 bytes in base32-nopad");
+        assert_eq!(r.signature_b32.len(), 103, "64 bytes in base32-nopad");
+    }
+
     /// A bbox array is refused, not read positionally.
     ///
     /// The derive bound `[12.96, 77.58, 12.99, 77.61]` to fields in
@@ -63539,6 +63677,12 @@ mod tests {
             served_at,
             primitive: primitive.into(),
             intent: None,
+            // Empty on purpose: this fixture hand-builds a LEGACY receipt,
+            // and a legacy payload carried neither field. They skip when
+            // empty, so it round-trips byte-identically to what a v0
+            // verifier saw.
+            responder_pubkey_b32: String::new(),
+            signature_b32: String::new(),
             cells,
             fact_cids,
             schema_cid: emem_fact::SchemaCid::new("sch"),

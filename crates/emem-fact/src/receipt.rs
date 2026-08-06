@@ -28,6 +28,23 @@ pub struct Receipt {
     /// Inclusion proof to the current attestation root, if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub merkle_proof: Option<MerkleProof>,
+    /// Responder pubkey, base32-nopad-lowercase.
+    ///
+    /// The same 32 bytes as `responder`, in the encoding the rest of this
+    /// surface uses. `responder` and `signature` serialize as integer
+    /// arrays (serde has no derive for `[u8; 64]`), which meant the two
+    /// values an offline verifier most needs were the only two it had to
+    /// convert by hand, in a payload where every other key is base32.
+    ///
+    /// Additive on purpose: the arrays stay, because verifiers already read
+    /// them, including the JS on /verify. Skipped when empty so a receipt
+    /// decoded from an older payload round-trips byte-identically.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub responder_pubkey_b32: String,
+    /// ed25519 signature, base32-nopad-lowercase. See
+    /// [`Receipt::responder_pubkey_b32`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub signature_b32: String,
     /// Responder pubkey.
     pub responder: AttesterKey,
     /// Responder key rotation epoch.

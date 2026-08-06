@@ -371,6 +371,15 @@ impl Server {
             fact_cids,
             schema_cid: self.manifests.schema_cid.clone(),
             merkle_proof,
+            // Emitted alongside the byte arrays, not instead of them: the
+            // arrays are what existing verifiers read, and the base32 is what
+            // every other key on this surface looks like.
+            responder_pubkey_b32: data_encoding::BASE32_NOPAD
+                .encode(&self.identity.pubkey.0)
+                .to_lowercase(),
+            signature_b32: data_encoding::BASE32_NOPAD
+                .encode(&sig_bytes)
+                .to_lowercase(),
             responder: self.identity.pubkey,
             responder_key_epoch: self.identity.epoch,
             signature: Signature(sig_bytes),
