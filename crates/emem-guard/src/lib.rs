@@ -91,8 +91,10 @@ pub use interop::{CloudEventGate, McpGate, OpenAiGate, PolicyPointGate};
 pub use log::{seal, LogError, LogFailurePolicy, VerdictLog, VerdictRecord};
 pub use module::{
     DataClass, LatencyClass, ModuleContext, ModuleError, ModuleManifest, ModuleOutcome,
-    ModuleRegistry, ModuleVerdict, PolicyModule,
+    ModuleRegistry, ModuleVerdict, PolicyModule, SignedManifest,
 };
+#[cfg(unix)]
+pub use modules::SidecarModule;
 pub use modules::{OrgWebhook, SecretPatterns};
 pub use open::{ClaimDetail, NativeHook, NativeRequest, NativeVerdict};
 pub use policy::{

@@ -32,6 +32,15 @@ OPTIONS:
                            the pipeline order and is bound into every verdict.
                            `secret-patterns` is built in. `webhook:URL` calls
                            your own classifier, abstaining on timeout.
+                           `sidecar:PATH` speaks one line of JSON over a unix
+                           socket, which is how a closed engine loads without
+                           linking against this binary.
+    --signed-module FILE   load a module whose manifest a publisher signed.
+                           Refused unless the publisher is trusted below.
+    --trust-publisher KEY  accept signed modules from this ed25519 key
+                           (base32). Repeat for more. Nothing loads without
+                           one: a valid signature from a stranger is still a
+                           stranger.
     --modules-no-text      never show transcript text to any module, whatever
                            it declared. For a relay where text may not cross.
     --claim-gating         deny measurable physical claims that cite nothing.
@@ -83,6 +92,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut claim_gating = false;
     let mut shadow = false;
     let mut module_specs: Vec<String> = Vec::new();
+    let mut signed_modules: Vec<String> = Vec::new();
+    let mut trusted_publishers: std::collections::HashSet<String> = Default::default();
     let mut modules_may_read_text = true;
     let mut responder: Option<String> = None;
     let mut restricted: std::collections::HashSet<String> = Default::default();
@@ -113,6 +124,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--module" => {
                 if let Some(m) = args.next() {
                     module_specs.push(m);
+                }
+            }
+            "--signed-module" => {
+                if let Some(f) = args.next() {
+                    signed_modules.push(f);
+                }
+            }
+            "--trust-publisher" => {
+                if let Some(k) = args.next() {
+                    trusted_publishers.insert(k.trim().to_lowercase());
                 }
             }
             "--modules-no-text" => modules_may_read_text = false,
@@ -229,9 +250,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
                 .map(|m| Box::new(m.at(url)) as Box<dyn emem_guard::PolicyModule>)
                 .map_err(|e| e.to_string()),
-                None => Err(format!(
-                    "unknown module {other:?}; known: secret-patterns, webhook:<url>"
-                )),
+                None => match other.strip_prefix("sidecar:") {
+                    #[cfg(unix)]
+                    Some(path) => Ok(Box::new(emem_guard::SidecarModule::new(
+                        "sidecar",
+                        path,
+                        std::time::Duration::from_millis(200),
+                        // Slow by default for the same reason webhook is: a
+                        // hop to somebody else's process is a decision an
+                        // operator makes after measuring, not a default.
+                        emem_guard::LatencyClass::Slow,
+                        emem_guard::DataClass::NeedsText,
+                    )) as Box<dyn emem_guard::PolicyModule>),
+                    #[cfg(not(unix))]
+                    Some(_) => Err("sidecar modules need unix domain sockets".to_string()),
+                    None => Err(format!(
+                        "unknown module {other:?}; known: secret-patterns, \
+                         webhook:<url>, sidecar:<unix-socket-path>"
+                    )),
+                },
             },
         };
         match loaded {
@@ -245,6 +282,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("emem-guard: {e}");
                 std::process::exit(2);
             }
+        }
+    }
+
+    // Signed modules, after the plain ones so load order matches the command
+    // line and therefore the config digest.
+    for file in &signed_modules {
+        let raw = match std::fs::read_to_string(file) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("emem-guard: cannot read {file}: {e}");
+                std::process::exit(2);
+            }
+        };
+        let signed: emem_guard::SignedManifest = match serde_json::from_str(&raw) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("emem-guard: {file} is not a signed manifest: {e}");
+                std::process::exit(2);
+            }
+        };
+        // The manifest says WHAT to load; this node still has to have the
+        // implementation. A manifest naming a module this binary does not
+        // carry is a configuration error, not something to improvise around.
+        let impl_for: Option<Box<dyn emem_guard::PolicyModule>> = match signed.manifest.id.as_str()
+        {
+            "secret-patterns" => Some(Box::new(emem_guard::SecretPatterns::new())),
+            _ => None,
+        };
+        let Some(m) = impl_for else {
+            eprintln!(
+                "emem-guard: {file} declares module {:?}, which this binary does not carry. \
+                 A signed manifest names an implementation; it does not supply one.",
+                signed.manifest.id
+            );
+            std::process::exit(2);
+        };
+        if let Err(e) = modules.load_signed(m, &signed, &trusted_publishers) {
+            eprintln!("emem-guard: refusing {file}: {e}");
+            std::process::exit(2);
         }
     }
 
@@ -306,6 +382,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         println!("           a slow module never blocks; a fast one that misses its");
         println!("           budget is demoted. GET /modules for the current state.");
+    }
+    if !signed_modules.is_empty() {
+        println!(
+            "  signed   {} publisher-signed module(s), {} trusted key(s)",
+            signed_modules.len(),
+            trusted_publishers.len()
+        );
     }
     println!("  verify   emem-guard --audit --data {}", data.display());
 

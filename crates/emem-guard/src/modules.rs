@@ -381,6 +381,142 @@ impl PolicyModule for OrgWebhook {
     }
 }
 
+// ── sidecar: a closed engine over a unix socket ──────────────────────────
+
+/// A detection engine that does not link against us at all.
+///
+/// The OEM path. A vendor with a proprietary engine cannot ship it as a Rust
+/// trait implementation without linking into this binary, which is a licence
+/// conversation and a build conversation before it is a technical one. So the
+/// module boundary is also available as an IPC boundary: they run a process
+/// listening on a unix socket, we connect and speak one line of JSON each way.
+///
+/// # The protocol, in full
+///
+/// Request, one line, newline-terminated:
+///
+/// ```json
+/// {"text_digest":"<hex>","texts":["..."],"token_count":0,"claim_count":0}
+/// ```
+///
+/// Response, one line:
+///
+/// ```json
+/// {"outcome":"allow"|"deny"|"abstain","reason":"...","confidence":0.9}
+/// ```
+///
+/// Byte-identical to the body [`OrgWebhook`] posts, so a vendor implements one
+/// shape and can be reached over either transport. That is deliberate: a
+/// second protocol for the same question is a second thing to keep correct.
+///
+/// # Why a unix socket rather than a spawned process
+///
+/// No process lifecycle to own. A subprocess means restart policy, zombie
+/// reaping, stderr plumbing and a crash loop that becomes our incident; a
+/// socket means the vendor's engine is the vendor's problem to run, and a
+/// missing socket is an abstain rather than a panic. The engine can be
+/// restarted, upgraded and monitored by whatever the operator already uses.
+#[cfg(unix)]
+pub struct SidecarModule {
+    manifest: ModuleManifest,
+    socket: std::path::PathBuf,
+    budget: Duration,
+}
+
+#[cfg(unix)]
+impl SidecarModule {
+    pub fn new(
+        id: &str,
+        socket: impl Into<std::path::PathBuf>,
+        budget: Duration,
+        latency_class: LatencyClass,
+        data_class: DataClass,
+    ) -> Self {
+        let socket = socket.into();
+        Self {
+            manifest: ModuleManifest {
+                id: id.to_string(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                build_hash: String::new(),
+                latency_class,
+                data_class,
+                deny_code: DenyCode::PolicyModule,
+                fix: Fix::RedactAndRetry,
+                // The path, not its contents. A socket path is not a secret
+                // the way a classifier URL's query string can be.
+                description: format!(
+                    "IPC sidecar over {}. One line of JSON each way; abstains if the \
+                     socket is absent, slow, or answers something unrecognised.",
+                    socket.display()
+                ),
+            }
+            .sealed(),
+            socket,
+            budget,
+        }
+    }
+
+    /// One request/response exchange, bounded.
+    ///
+    /// Every failure path returns `None`, which the caller turns into an
+    /// abstain. There is no path here that produces a denial from an error:
+    /// a vendor's engine being down must not block an operator's traffic.
+    fn exchange(&self, body: &str) -> Option<serde_json::Value> {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixStream;
+
+        let stream = UnixStream::connect(&self.socket).ok()?;
+        // Both directions bounded. A sidecar that accepts the write and never
+        // answers would otherwise hold the verdict past its deadline, which is
+        // the failure the latency class exists to prevent.
+        stream.set_read_timeout(Some(self.budget)).ok()?;
+        stream.set_write_timeout(Some(self.budget)).ok()?;
+        let mut w = stream.try_clone().ok()?;
+        w.write_all(body.as_bytes()).ok()?;
+        w.write_all(b"\n").ok()?;
+        w.flush().ok()?;
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).ok()?;
+        serde_json::from_str(line.trim()).ok()
+    }
+}
+
+#[cfg(unix)]
+impl PolicyModule for SidecarModule {
+    fn manifest(&self) -> &ModuleManifest {
+        &self.manifest
+    }
+
+    fn evaluate(&self, ctx: &ModuleContext<'_>) -> ModuleVerdict {
+        let body = serde_json::json!({
+            "text_digest": ctx.text_digest,
+            "texts": ctx.texts,
+            "token_count": ctx.tokens.len(),
+            "claim_count": ctx.claims.len(),
+        })
+        .to_string();
+        let Some(v) = self.exchange(&body) else {
+            return ModuleVerdict::abstain("sidecar unreachable, slow, or unparseable");
+        };
+        let reason = v
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("sidecar denied")
+            .to_string();
+        match v.get("outcome").and_then(|o| o.as_str()) {
+            Some("deny") => {
+                let confidence = v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(1.0) as f32;
+                // The digest covers what the sidecar was SHOWN, not what it
+                // found. What a third party's engine matched is its business
+                // and will not enter our log.
+                ModuleVerdict::deny(reason, ctx.text_digest.as_bytes(), confidence)
+            }
+            Some("allow") => ModuleVerdict::allow(),
+            _ => ModuleVerdict::abstain(reason),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,6 +663,125 @@ mod tests {
         )
         .unwrap();
         assert_eq!(m.evaluate(&ctx(&["x"])).outcome, ModuleOutcome::Abstain);
+    }
+
+    /// The OEM path, against a real socket. A vendor's engine answers one line
+    /// of JSON and its verdict is signed and logged like any other.
+    #[cfg(unix)]
+    #[test]
+    fn a_closed_engine_over_a_socket_is_a_module_like_any_other() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::os::unix::net::UnixListener;
+
+        let mut sock = std::env::temp_dir();
+        sock.push(format!("emem-guard-sidecar-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&sock);
+        let listener = UnixListener::bind(&sock).unwrap();
+
+        let server = std::thread::spawn(move || {
+            for stream in listener.incoming().take(2) {
+                let Ok(stream) = stream else { continue };
+                let mut line = String::new();
+                let mut r = BufReader::new(stream.try_clone().unwrap());
+                if r.read_line(&mut line).is_err() {
+                    continue;
+                }
+                // A real engine would classify here. This one asserts it was
+                // handed the documented request shape, then denies.
+                let req: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+                assert!(req.get("text_digest").is_some(), "protocol: {req}");
+                assert!(req.get("texts").is_some(), "protocol: {req}");
+                let mut w = stream;
+                w.write_all(br#"{"outcome":"deny","reason":"vendor policy 12","confidence":0.8}"#)
+                    .unwrap();
+                w.write_all(b"\n").unwrap();
+                w.flush().unwrap();
+            }
+        });
+
+        let m = SidecarModule::new(
+            "vendor-engine",
+            &sock,
+            Duration::from_secs(2),
+            LatencyClass::Slow,
+            DataClass::NeedsText,
+        );
+        let v = m.evaluate(&ctx(&["some transcript"]));
+        assert_eq!(v.outcome, ModuleOutcome::Deny);
+        assert_eq!(v.reason.as_deref(), Some("vendor policy 12"));
+        // The digest covers what the sidecar was SHOWN, not what it found.
+        assert_eq!(v.evidence_digest.as_ref().unwrap().len(), 64);
+        assert!((v.confidence - 0.8).abs() < 1e-6);
+
+        // And it loads into a registry like a native module.
+        let mut r = crate::module::ModuleRegistry::new();
+        r.load(Box::new(SidecarModule::new(
+            "vendor-engine",
+            &sock,
+            Duration::from_secs(2),
+            LatencyClass::Slow,
+            DataClass::NeedsText,
+        )))
+        .unwrap();
+        assert_eq!(r.len(), 1);
+
+        drop(server);
+        let _ = std::fs::remove_file(&sock);
+    }
+
+    /// A vendor's engine being down must not block an operator's traffic.
+    #[cfg(unix)]
+    #[test]
+    fn a_missing_socket_abstains_rather_than_denying() {
+        let m = SidecarModule::new(
+            "vendor-engine",
+            "/nonexistent/emem-guard-no-such.sock",
+            Duration::from_millis(50),
+            LatencyClass::Slow,
+            DataClass::NeedsText,
+        );
+        let v = m.evaluate(&ctx(&["anything"]));
+        assert_eq!(v.outcome, ModuleOutcome::Abstain);
+        assert!(v.evidence_digest.is_none());
+    }
+
+    /// A sidecar that accepts the write and never answers must not hold the
+    /// verdict past its deadline.
+    #[cfg(unix)]
+    #[test]
+    fn a_silent_sidecar_times_out_into_an_abstain() {
+        use std::os::unix::net::UnixListener;
+        let mut sock = std::env::temp_dir();
+        sock.push(format!("emem-guard-silent-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&sock);
+        let listener = UnixListener::bind(&sock).unwrap();
+        let keep = std::thread::spawn(move || {
+            // Accept and say nothing, which is the worst case: not a refusal,
+            // just silence.
+            let _held = listener.incoming().next();
+            std::thread::sleep(Duration::from_millis(400));
+        });
+
+        let budget = Duration::from_millis(80);
+        let m = SidecarModule::new(
+            "silent",
+            &sock,
+            budget,
+            LatencyClass::Slow,
+            DataClass::NeedsText,
+        );
+        let started = std::time::Instant::now();
+        let v = m.evaluate(&ctx(&["anything"]));
+        let took = started.elapsed();
+        assert_eq!(v.outcome, ModuleOutcome::Abstain);
+        assert!(
+            took < budget * 4,
+            "held the verdict for {} ms against an {} ms budget",
+            took.as_millis(),
+            budget.as_millis()
+        );
+        let _ = keep.join();
+        let _ = std::fs::remove_file(&sock);
     }
 
     /// A classifier URL can carry a key in its query, and the manifest is

@@ -331,10 +331,15 @@ jobs:
       # Exit 2 is "could not run" (responder unreachable) and is tolerated:
       # a deploy window is not a divergence. Exit 1 is a real divergence and
       # fails the build.
+      # --full enumerates every advertised tool, maps it to its REST twin
+      # through the responder's OWN OpenAPI operationIds rather than a naming
+      # convention, and cross-products the boolean flags each tool declares.
+      # 86 cases against 12 hand-picked ones, and the mapping cannot drift
+      # from the routes because it is read from the routes.
       - name: parity matrix against production
         run: |
           set +e
-          python3 scripts/parity.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          python3 scripts/parity.py --full --origin "${EMEM_ORIGIN:-https://emem.dev}"
           code=$?
           set -e
           if [ "$code" = "2" ]; then

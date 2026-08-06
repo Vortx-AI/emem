@@ -240,6 +240,76 @@ pub trait PolicyModule: Send + Sync {
     fn evaluate(&self, ctx: &ModuleContext<'_>) -> ModuleVerdict;
 }
 
+/// A manifest with a publisher's signature over it.
+///
+/// This is how a module ships that nobody here compiled. The `build_hash`
+/// alone proves a manifest is self-consistent; a signature over it proves WHO
+/// declared it, which is the part that matters when the module is a binary
+/// somebody else built.
+///
+/// The operator still decides. A signature from a publisher they have not
+/// listed is refused, so this is not a web of trust and does not become one:
+/// it is a key an operator typed, and nothing loads without one.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SignedManifest {
+    pub manifest: ModuleManifest,
+    /// The publisher's ed25519 key, base32-nopad-lowercase.
+    pub publisher_b32: String,
+    /// ed25519 over [`Self::preimage`], base32-nopad-lowercase.
+    pub signature_b32: String,
+}
+
+impl SignedManifest {
+    /// The bytes a publisher signs.
+    ///
+    /// Domain-separated and over the DECLARED hash rather than over a
+    /// re-serialisation of the struct, so a publisher and a verifier cannot
+    /// disagree about JSON field order. The same construction every other
+    /// signature on this surface uses.
+    pub fn preimage(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(96);
+        let d = b"emem.guard.module_manifest.v1";
+        out.push(0x00);
+        out.extend_from_slice(&(d.len() as u32).to_le_bytes());
+        out.extend_from_slice(d);
+        let h = self.manifest.declared_hash();
+        out.push(0x01);
+        out.extend_from_slice(&(h.len() as u32).to_le_bytes());
+        out.extend_from_slice(h.as_bytes());
+        out
+    }
+
+    /// Whether this manifest was signed by the key it names.
+    ///
+    /// Does NOT decide whether that key should be trusted. Separate on
+    /// purpose: "genuinely signed by X" and "we accept modules from X" are
+    /// different questions, and collapsing them is how a valid signature from
+    /// a stranger becomes an installed module.
+    pub fn signature_verifies(&self) -> bool {
+        (|| {
+            let pk: [u8; 32] = data_encoding::BASE32_NOPAD
+                .decode(self.publisher_b32.to_uppercase().as_bytes())
+                .ok()?
+                .try_into()
+                .ok()?;
+            let sig: [u8; 64] = data_encoding::BASE32_NOPAD
+                .decode(self.signature_b32.to_uppercase().as_bytes())
+                .ok()?
+                .try_into()
+                .ok()?;
+            use ed25519_dalek::Verifier as _;
+            ed25519_dalek::VerifyingKey::from_bytes(&pk)
+                .ok()?
+                .verify(
+                    &self.preimage(),
+                    &ed25519_dalek::Signature::from_bytes(&sig),
+                )
+                .ok()
+        })()
+        .is_some()
+    }
+}
+
 /// Why a module could not be loaded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModuleError {
@@ -249,6 +319,12 @@ pub enum ModuleError {
     DuplicateId(String),
     /// An id that cannot appear in a log line unambiguously.
     MalformedId(String),
+    /// The publisher's signature does not verify over the manifest.
+    BadSignature { id: String },
+    /// Genuinely signed, by somebody this operator has not listed.
+    UntrustedPublisher { id: String, publisher_b32: String },
+    /// The signed manifest describes a different module than the one loaded.
+    ManifestMismatch { declared: String, loaded: String },
 }
 
 impl core::fmt::Display for ModuleError {
@@ -262,6 +338,18 @@ impl core::fmt::Display for ModuleError {
             Self::MalformedId(id) => write!(
                 f,
                 "module id {id:?} must be lowercase a-z, 0-9, - or _, and non-empty"
+            ),
+            Self::BadSignature { id } => {
+                write!(f, "module {id}: the publisher signature does not verify")
+            }
+            Self::UntrustedPublisher { id, publisher_b32 } => write!(
+                f,
+                "module {id} is signed by {publisher_b32}, which is not in this node's \
+                 trusted-publisher list. Add it with --trust-publisher if you mean to."
+            ),
+            Self::ManifestMismatch { declared, loaded } => write!(
+                f,
+                "the signed manifest declares {declared} but the loaded module is {loaded}"
             ),
         }
     }
@@ -319,6 +407,43 @@ impl ModuleRegistry {
         }
         self.modules.push(m);
         Ok(())
+    }
+
+    /// Load a module whose manifest a publisher signed.
+    ///
+    /// Three things must hold and each fails differently, because the operator
+    /// response differs: an unverifiable signature is a corrupt or forged
+    /// manifest, an untrusted publisher is a decision the operator has not
+    /// made, and a mismatch means the signed document describes something else
+    /// entirely.
+    pub fn load_signed(
+        &mut self,
+        m: Box<dyn PolicyModule>,
+        signed: &SignedManifest,
+        trusted: &std::collections::HashSet<String>,
+    ) -> Result<(), ModuleError> {
+        if !signed.signature_verifies() {
+            return Err(ModuleError::BadSignature {
+                id: signed.manifest.id.clone(),
+            });
+        }
+        if !trusted.contains(&signed.publisher_b32) {
+            return Err(ModuleError::UntrustedPublisher {
+                id: signed.manifest.id.clone(),
+                publisher_b32: signed.publisher_b32.clone(),
+            });
+        }
+        // The signature covers the DECLARED hash, so comparing hashes here
+        // catches a signed manifest paired with a different binary: the exact
+        // substitution a signature is supposed to prevent.
+        let loaded = m.manifest();
+        if loaded.declared_hash() != signed.manifest.declared_hash() {
+            return Err(ModuleError::ManifestMismatch {
+                declared: signed.manifest.id.clone(),
+                loaded: loaded.id.clone(),
+            });
+        }
+        self.load(m)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -690,6 +815,102 @@ mod tests {
         a2.load(mk("one")).unwrap();
         a2.load(mk("two")).unwrap();
         assert_eq!(a.config_digest(), a2.config_digest());
+    }
+
+    /// A publisher signs the DECLARED hash, so the same manifest signed once
+    /// cannot be re-pointed at a different module afterwards.
+    #[test]
+    fn a_signed_manifest_loads_only_from_a_publisher_the_operator_listed() {
+        use ed25519_dalek::Signer as _;
+        let key = ed25519_dalek::SigningKey::from_bytes(&[3u8; 32]);
+        let pubk = data_encoding::BASE32_NOPAD
+            .encode(key.verifying_key().as_bytes())
+            .to_lowercase();
+
+        let m = Fixed::new("vendor-engine", LatencyClass::Slow, DataClass::NeedsText);
+        let mut signed = SignedManifest {
+            manifest: m.man.clone(),
+            publisher_b32: pubk.clone(),
+            signature_b32: String::new(),
+        };
+        signed.signature_b32 = data_encoding::BASE32_NOPAD
+            .encode(&key.sign(&signed.preimage()).to_bytes())
+            .to_lowercase();
+        assert!(signed.signature_verifies());
+
+        // Genuinely signed, publisher not listed: refused.
+        let mut r = ModuleRegistry::new();
+        let empty = std::collections::HashSet::new();
+        let err = r
+            .load_signed(
+                Box::new(Fixed::new(
+                    "vendor-engine",
+                    LatencyClass::Slow,
+                    DataClass::NeedsText,
+                )),
+                &signed,
+                &empty,
+            )
+            .unwrap_err();
+        assert!(
+            matches!(err, ModuleError::UntrustedPublisher { .. }),
+            "{err}"
+        );
+        assert_eq!(r.len(), 0);
+
+        // Listed: loads.
+        let trusted: std::collections::HashSet<String> = [pubk].into_iter().collect();
+        r.load_signed(Box::new(m), &signed, &trusted).unwrap();
+        assert_eq!(r.len(), 1);
+    }
+
+    /// The substitution a signature exists to prevent: a manifest signed for
+    /// one module, paired with a different binary.
+    #[test]
+    fn a_signed_manifest_cannot_be_paired_with_a_different_module() {
+        use ed25519_dalek::Signer as _;
+        let key = ed25519_dalek::SigningKey::from_bytes(&[4u8; 32]);
+        let pubk = data_encoding::BASE32_NOPAD
+            .encode(key.verifying_key().as_bytes())
+            .to_lowercase();
+        // Signed as a SLOW module, which is what a reviewer would have
+        // approved.
+        let reviewed = Fixed::new("engine", LatencyClass::Slow, DataClass::DigestsOnly);
+        let mut signed = SignedManifest {
+            manifest: reviewed.man.clone(),
+            publisher_b32: pubk.clone(),
+            signature_b32: String::new(),
+        };
+        signed.signature_b32 = data_encoding::BASE32_NOPAD
+            .encode(&key.sign(&signed.preimage()).to_bytes())
+            .to_lowercase();
+
+        let trusted: std::collections::HashSet<String> = [pubk].into_iter().collect();
+        let mut r = ModuleRegistry::new();
+        // ...but the binary handed over declares FAST and wants text.
+        let swapped = Fixed::new("engine", LatencyClass::Fast, DataClass::NeedsText);
+        let err = r
+            .load_signed(Box::new(swapped), &signed, &trusted)
+            .unwrap_err();
+        assert!(matches!(err, ModuleError::ManifestMismatch { .. }), "{err}");
+        assert_eq!(r.len(), 0, "nothing loaded");
+    }
+
+    /// A forged or corrupt signature is a different failure from an untrusted
+    /// one, because the operator response differs.
+    #[test]
+    fn a_signature_that_does_not_verify_is_named_as_such() {
+        let m = Fixed::new("forged", LatencyClass::Slow, DataClass::DigestsOnly);
+        let signed = SignedManifest {
+            manifest: m.man.clone(),
+            publisher_b32: "a".repeat(52),
+            signature_b32: "b".repeat(103),
+        };
+        assert!(!signed.signature_verifies());
+        let mut r = ModuleRegistry::new();
+        let trusted: std::collections::HashSet<String> = ["a".repeat(52)].into_iter().collect();
+        let err = r.load_signed(Box::new(m), &signed, &trusted).unwrap_err();
+        assert!(matches!(err, ModuleError::BadSignature { .. }), "{err}");
     }
 
     /// Matched content must never reach the log. A denial carries a digest of
