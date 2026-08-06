@@ -98,11 +98,8 @@ jobs:
     # future runner image moves the lib, that step logs "not found" and the
     # link failure surfaces here loudly rather than being masked.
     strategy:
-      fail-fast: false
-      # One platform failing must not cancel the other. A macOS flake took
-      # ubuntu down with it and left every other job reading `cancelled`,
-      # which is exactly the state where you cannot tell what passed. The
-      # point of a matrix is two independent answers.
+      # One platform failing must not cancel the other: the point of a matrix
+      # is two independent answers.
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -276,6 +273,15 @@ jobs:
       # review; this holds the mechanical floor.
       - name: doc lint
         run: python3 scripts/doc_lint.py
+      # The workflow files, parsed the way GitHub parses them rather than the
+      # way PyYAML does. A duplicate `fail-fast:` slipped past yaml.safe_load,
+      # which keeps the last of two silently, and GitHub refused the whole
+      # file: every run for two hours was created with ZERO jobs, named by
+      # file path, reporting `failure`. Nothing ran, and it looked exactly
+      # like a broken test. A validator more permissive than the consumer is
+      # not a validator.
+      - name: workflow files parse the way GitHub parses them
+        run: python3 scripts/workflow_lint.py
 
   # Two gates that check a RUNNING system rather than the source. Both are
   # here because the failures they catch are invisible to every other job:
