@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # macOS only runs on these two. See the `test` job for the arithmetic.
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -102,7 +106,19 @@ jobs:
       # is two independent answers.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS is NOT in the per-push matrix, and the reason is arithmetic
+        # rather than taste. GitHub bills macOS minutes at 10x, and this job
+        # takes about 90 minutes there against ubuntu's 30. That is ~900
+        # billable minutes per push: two pushes exhaust a free-tier month and
+        # three exhaust a Team one. Twenty pushes in an afternoon is not a
+        # thing the quota can survive, and when it runs out GitHub stops
+        # CREATING runs at all, which presents as silence rather than as an
+        # error and is very hard to read as a billing problem.
+        #
+        # So ubuntu gates every push and PR, which is where nearly every
+        # regression shows anyway, and macOS runs weekly and on demand
+        # (`workflow_dispatch`). Platform coverage is kept; the bill is not.
+        os: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && fromJSON('["ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
