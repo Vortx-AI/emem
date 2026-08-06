@@ -58,6 +58,7 @@ silently skipped, and the run says how many of each it did.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import re
 import sys
@@ -78,6 +79,10 @@ PLACE = "Bengaluru"
 # is recorded as a known softness rather than hidden by a loose comparison
 # everywhere. Only the cases marked `tolerance` use it.
 EPSILON = 1e-9
+
+# How many cases to compare at once. Each is two HTTP round trips and no local
+# work, so this is latency hiding rather than parallel computation.
+CONCURRENCY = 6
 
 # Fields that legitimately differ per call. Excluding them is what makes the
 # comparison about the ANSWER rather than about the envelope.
@@ -553,13 +558,22 @@ def main():
         print(f"parity: {origin} is not answering: {e}", file=sys.stderr)
         return 2
 
-    rows = []
-    for c in cases:
+    def run_case(c):
         cat, detail = compare(c, call_mcp(origin, c), call_rest(origin, c))
         if cat in ("ONLY_ERR", "DIVERGE") and c.name in KNOWN_DIVERGENCES:
             cat, detail = "KNOWN", KNOWN_DIVERGENCES[c.name]
-        rows.append({"case": c.name, "tool": c.tool, "path": c.path,
-                     "category": cat, "detail": detail})
+        return {"case": c.name, "tool": c.tool, "path": c.path,
+                "category": cat, "detail": detail}
+
+    # Concurrent, because 86 cases at two round trips each is fifteen minutes
+    # of latency from a CI runner and almost no CPU. That is what timed the
+    # job out on its first real run. Modest width on purpose: this points at
+    # production, and a parity check that reads as a load test is a parity
+    # check somebody turns off. `map` preserves input order, so the report
+    # still reads in the order the table is written.
+    workers = 1 if a.only else CONCURRENCY
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        rows = list(pool.map(run_case, cases))
 
     # Repeat-stability. Cross-transport comparison cannot catch an aggregate
     # that is unstable on BOTH paths, which is exactly what was shipped.

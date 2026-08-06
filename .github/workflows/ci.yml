@@ -324,7 +324,11 @@ jobs:
   parity:
     name: MCP and REST answer the same
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 86 cases at two round trips each, six at a time. Fifteen minutes was not
+    # enough sequentially and the job was killed mid-run, which GitHub reports
+    # as `cancelled` and is indistinguishable at a glance from a job somebody
+    # stopped on purpose.
+    timeout-minutes: 25
     # A live check against production, so it cannot gate a pull request from
     # a fork and must not fail the build when the network is the problem. It
     # runs on push to main and on a schedule; `continue-on-error` is
