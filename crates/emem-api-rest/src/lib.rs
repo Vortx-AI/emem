@@ -18274,6 +18274,18 @@ fn schema_to_rest_path(schema: &str) -> Option<String> {
 /// dropping the mirror would make the descriptor lie, so the payload is
 /// slimmed once and both copies carry the slimmed form with an honest
 /// truncation marker.
+/// Tools whose result is a DOCUMENT rather than an answer, and so must be
+/// served whole or not at all.
+///
+/// Truncation is the right default: an agent asking a question is better off
+/// with most of the answer plus an honest marker than with an error. It is
+/// the wrong default for an artifact someone files or relies on, where a
+/// partial that retains its verdict is more dangerous than no answer, because
+/// it still presents as complete.
+fn mcp_must_not_be_partial(tool: &str) -> bool {
+    matches!(tool, "emem_eudr_dds")
+}
+
 /// Argument names the caller sent that the tool's `inputSchema` does not
 /// declare.
 ///
@@ -18355,6 +18367,33 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
     let text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
 
     if text.len() > budget {
+        // Some results must not be served in part.
+        //
+        // A due-diligence statement is a regulatory artifact: a caller files
+        // it, or relies on it to decide whether they may place a product on
+        // the market. Slimming keeps the verdict (it is on the KEEP list),
+        // and a DDS reduced to its verdict is the dangerous shape, because
+        // it still LOOKS like a statement while the plot list, the evidence
+        // and the caveats that qualify that verdict are gone. Truncation is
+        // right for an answer and wrong for a document.
+        //
+        // So it refuses, and names where the whole thing lives. A caller who
+        // needs the document gets it from REST; a caller who wanted a quick
+        // read was never going to be served by a partial one.
+        if mcp_must_not_be_partial(tool) {
+            return json!({
+                "content": [{"type": "text", "text": format!(
+                    "`{tool}` produced {} bytes against an MCP wire budget of {budget}. \
+                     This result is a document, not an answer, so it is NOT truncated: a \
+                     due-diligence statement missing its plots, evidence and caveats still \
+                     reads like a statement, and filing or relying on that partial is the \
+                     harm. Fetch it whole over REST, where no wire budget applies: \
+                     POST /v1/eudr_dds with the same arguments.",
+                    text.len()
+                )}],
+                "isError": true,
+            });
+        }
         // A single copy already blows the budget, slim the inner so the
         // agent gets valid, useful JSON plus an honest truncation marker.
         // Drop the structuredContent mirror entirely (it would re-breach).
@@ -61367,6 +61406,48 @@ mod tests {
         );
         assert_eq!(r.responder_pubkey_b32.len(), 52, "32 bytes in base32-nopad");
         assert_eq!(r.signature_b32.len(), 103, "64 bytes in base32-nopad");
+    }
+
+    /// A due-diligence statement is served whole or refused, never in part.
+    ///
+    /// Slimming keeps the verdict, and a DDS reduced to its verdict is the
+    /// dangerous shape: it still reads like a statement while the plots,
+    /// evidence and caveats that qualify that verdict are gone. Someone
+    /// files that, or decides on it.
+    #[test]
+    fn an_oversized_due_diligence_statement_is_refused_not_truncated() {
+        let budget = mcp_response_budget_bytes();
+        let big = json!({
+            "schema": "emem.eudr_dds.v1",
+            "verdict": "compliant",
+            "plots": vec![json!({"id": "p", "geo": "x".repeat(400)}); 200],
+        });
+        assert!(serde_json::to_string(&big).unwrap().len() > budget);
+
+        let out = mcp_wrap_call_tool_result_for(big.clone(), "emem_eudr_dds");
+        assert_eq!(
+            out["isError"],
+            json!(true),
+            "a partial DDS must not be emitted"
+        );
+        let txt = out["content"][0]["text"].as_str().unwrap();
+        assert!(
+            txt.contains("/v1/eudr_dds"),
+            "the refusal must name where the whole document lives"
+        );
+        assert!(
+            !txt.contains("\"verdict\""),
+            "it must not leak a verdict shorn of its evidence"
+        );
+
+        // An ordinary answer of the same size still truncates: the point is
+        // that documents differ from answers, not that big is bad.
+        let out2 = mcp_wrap_call_tool_result_for(big, "emem_recall");
+        assert_eq!(
+            out2["isError"],
+            json!(false),
+            "an answer is still served, slimmed"
+        );
     }
 
     /// A bbox array is refused, not read positionally.
