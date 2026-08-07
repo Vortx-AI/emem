@@ -18,9 +18,16 @@ Shape
 -----
 Four groups, named for what a reader wants to do rather than for how the
 project is organised, because the reader does not know how the project is
-organised. Each group is a <details> element: it opens on click and on Enter,
-it is reachable by keyboard, and it works with JavaScript disabled. No script
-runs for the navigation at all.
+organised. Each group is a <details> element with a shared name=, which makes
+them an exclusive group in HTML: opening one closes the rest, no script
+involved. Without name= every <details> is independent and the menus stack on
+top of each other, which is what shipped first.
+
+The whole nav works with JavaScript disabled: it opens on click and on Enter
+and is in the tab order for free. Six lines of progressive enhancement add the
+two things HTML has no answer for, closing on Escape and on a click outside.
+A menu a keyboard user cannot dismiss is not finished, and those six lines
+change nothing if they never run.
 
 Editing
 -------
@@ -84,7 +91,10 @@ def render(current: str) -> str:
            '<a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>']
     for group, items in NAV:
         hit = any(h == current for _, h, _ in items)
-        out.append(f'<details class="navgrp{" on" if hit else ""}">')
+        # name= makes these an exclusive group: opening one closes the rest,
+        # in HTML, with no script. Without it every <details> is independent
+        # and the menus stack on top of each other.
+        out.append(f'<details class="navgrp{" on" if hit else ""}" name="sitenav">')
         out.append(f'<summary>{group}</summary>')
         out.append('<div class="navmenu">')
         for label, href, note in items:
@@ -95,6 +105,16 @@ def render(current: str) -> str:
     out.append('<a class="navplain" href="/mcp">MCP</a>')
     out.append(f'<a class="navplain" href="{GITHUB}" rel="noopener">GitHub</a>')
     out.append('</nav></header>')
+    # Progressive enhancement only. Escape and outside-click are the two
+    # dismissals <details> has no answer for; everything else is HTML.
+    out.append('<script>(function(){'
+               'function shut(){document.querySelectorAll(".navgrp[open]")'
+               '.forEach(function(d){d.open=false;});}'
+               'document.addEventListener("keydown",function(e){'
+               'if(e.key==="Escape")shut();});'
+               'document.addEventListener("click",function(e){'
+               'if(!e.target.closest(".navgrp"))shut();});'
+               '})();</script>')
     out.append(END)
     return "\n".join(out)
 
