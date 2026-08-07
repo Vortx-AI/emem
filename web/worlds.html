@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <title>3-D worlds from signed facts: emem</title>
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Interactive 3-D gaussian splat worlds where every splat is one cell of signed, verifiable Earth facts. Orbit them, click any splat to read its measured values and re-check its signature, drape real satellite imagery underneath, recolour by any signed band.">
 <link rel="canonical" href="https://emem.dev/worlds">
@@ -14,16 +18,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://emem.dev/og-image.png">
 <style>
-:root{
-  --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
-  --ink:oklch(0.94 0.005 85);--ink-2:oklch(0.82 0.005 85);--ink-3:oklch(0.64 0.005 85);
-  --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.46 0.005 85);
-  --rule:oklch(0.30 0.008 85);--rule-strong:oklch(0.42 0.010 85);
-  --accent:oklch(0.80 0.13 145);--accent-bg:oklch(0.26 0.05 145);
-  --warn:oklch(0.72 0.19 25);
-  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
-  --t-xs:.72rem;--t-sm:.8125rem;--t-base:.9375rem;
-}
+:root{ /* tokens come from /tokens.css */ }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%;overflow:hidden}
 body{background:#0b0a08;color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.5;-webkit-font-smoothing:antialiased}
@@ -45,7 +40,7 @@ canvas{position:fixed;inset:0;z-index:0;touch-action:none}
 
 .panel{position:fixed;background:color-mix(in oklch, var(--paper-2) 90%, transparent);border:1px solid var(--rule);border-radius:6px;backdrop-filter:blur(9px);box-shadow:0 6px 24px rgba(0,0,0,.35)}
 #hud{left:16px;top:52px;z-index:12;max-width:min(42ch,calc(100vw - 32px));padding:.7rem .85rem}
-#hud .title{font-size:1rem;font-weight:600;letter-spacing:.01em;color:var(--ink)}
+#hud .title{font-size:var(--t-base);font-weight:600;letter-spacing:.01em;color:var(--ink)}
 #hud .n{color:var(--ink-3);font-size:var(--t-xs);margin-top:.15rem}
 #hud .story{color:var(--ink-2);font-size:var(--t-sm);margin-top:.5rem;line-height:1.5}
 #hud .axis{color:var(--ink-3);font-size:var(--t-xs);margin-top:.5rem;border-top:1px solid var(--rule);padding-top:.5rem}
@@ -56,7 +51,7 @@ canvas{position:fixed;inset:0;z-index:0;touch-action:none}
 .legend .row{display:flex;align-items:center;gap:.5rem;font-size:var(--t-xs);color:var(--ink-2)}
 .legend .sw{width:14px;height:14px;border-radius:3px;flex:0 0 auto;border:1px solid rgba(255,255,255,.15)}
 .legend .ramp{height:10px;border-radius:3px;border:1px solid rgba(255,255,255,.15)}
-.legend .ends{display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3);margin-top:1px}
+.legend .ends{display:flex;justify-content:space-between;font-size:var(--t-3xs);color:var(--ink-3);margin-top:1px}
 
 /* left-bottom: world switcher + lenses */
 #dock{left:16px;bottom:16px;z-index:12;padding:.6rem .7rem;display:flex;flex-direction:column;gap:.55rem;max-width:min(46ch,calc(100vw - 32px))}
@@ -64,14 +59,14 @@ canvas{position:fixed;inset:0;z-index:0;touch-action:none}
 .chip{background:var(--paper-3);border:1px solid var(--rule);border-radius:4px;color:var(--ink-2);padding:.28em .6em;font-size:var(--t-xs);border-bottom:1px solid var(--rule)}
 .chip:hover{border-color:var(--accent);color:var(--ink)}
 .chip.on{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
-.sect{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--mute-2);margin:.1rem 0 -.1rem}
+.sect{font-size:var(--t-3xs);letter-spacing:.09em;text-transform:uppercase;color:var(--mute-2);margin:.1rem 0 -.1rem}
 .links{display:flex;gap:.8rem;flex-wrap:wrap;font-size:var(--t-xs);color:var(--ink-3);border-top:1px solid var(--rule);padding-top:.5rem}
 .links a,.links button{color:var(--ink-2);background:none;border:none;border-bottom:1px dotted var(--rule);padding:0;font-size:var(--t-xs)}
 .links a:hover,.links button:hover{color:var(--accent)}
 
 /* minimize / restore for the info + dock panels, so the render fills the
    viewport when you want it to (default-minimized on narrow screens) */
-.min-btn{position:absolute;top:.28rem;right:.34rem;z-index:3;background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:1rem;line-height:1;padding:.02rem .32rem;border-radius:4px}
+.min-btn{position:absolute;top:.28rem;right:.34rem;z-index:3;background:none;border:none;color:var(--ink-3);cursor:pointer;font-size:var(--t-base);line-height:1;padding:.02rem .32rem;border-radius:4px}
 .min-btn:hover{color:var(--ink);background:var(--paper-3)}
 #hud,#dock{padding-right:1.7rem}
 #hud.min,#dock.min{cursor:pointer}
@@ -100,20 +95,20 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 #integrity .badge{display:inline-block;border:1px solid var(--rule);border-radius:4px;padding:.2em .55em;color:var(--ink-3)}
 #integrity .badge.ok{color:var(--accent);border-color:currentColor}
 #integrity .badge.bad{color:var(--warn);border-color:currentColor}
-#integrity .baked{margin-top:.3rem;color:var(--mute-2);font-size:10px}
+#integrity .baked{margin-top:.3rem;color:var(--mute-2);font-size:var(--t-3xs)}
 
 /* pick popup */
 #pick{position:fixed;z-index:20;max-width:320px;padding:.7rem .8rem;font-size:var(--t-xs);display:none}
 #pick h4{margin:0 0 .35rem;font-size:var(--t-sm);color:var(--ink);font-weight:600}
-#pick .cell{color:var(--ink-3);font-size:10px;word-break:break-all;margin-bottom:.45rem}
+#pick .cell{color:var(--ink-3);font-size:var(--t-3xs);word-break:break-all;margin-bottom:.45rem}
 #pick table{width:100%;border-collapse:collapse}
 #pick td{padding:.12rem 0;vertical-align:top}
 #pick td.b{color:var(--ink-3)}
 #pick td.v{color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
 #pick .cid{display:flex;gap:.5rem;margin-top:.5rem;border-top:1px solid var(--rule);padding-top:.45rem;flex-wrap:wrap}
-#pick .cid a,#pick .cid button{font-size:10px;color:var(--ink-2);background:none;border:none;border-bottom:1px dotted var(--rule);padding:0}
+#pick .cid a,#pick .cid button{font-size:var(--t-3xs);color:var(--ink-2);background:none;border:none;border-bottom:1px dotted var(--rule);padding:0}
 #pick .cid a:hover,#pick .cid button:hover{color:var(--accent)}
-#pick .x{position:absolute;top:.4rem;right:.5rem;color:var(--ink-3);background:none;border:none;font-size:1rem;line-height:1}
+#pick .x{position:absolute;top:.4rem;right:.5rem;color:var(--ink-3);background:none;border:none;font-size:var(--t-base);line-height:1}
 #pick .x:hover{color:var(--ink)}
 
 /* first-run hint + empty */
@@ -233,7 +228,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
   <div class="cid" id="pick-cid"></div>
 </div>
 
-<div id="attrib" style="position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:11;font-size:10px;color:var(--mute);background:color-mix(in oklch,var(--paper) 70%,transparent);padding:.2rem .6rem;border-radius:10px;display:none">satellite: Esri World Imagery · reference only, not signed data</div>
+<div id="attrib" style="position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:11;font-size:var(--t-3xs);color:var(--mute);background:color-mix(in oklch,var(--paper) 70%,transparent);padding:.2rem .6rem;border-radius:10px;display:none">satellite: Esri World Imagery · reference only, not signed data</div>
 <div id="hint">drag to orbit · scroll to zoom · click a splat to read it</div>
 <div id="empty"><div class="box" id="empty-box"></div></div>
 <div class="toast" id="toast"></div>

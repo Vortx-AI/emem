@@ -26,7 +26,8 @@
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css">
 <style>
 /* /verify — the trust-layer surface. Same warm paper/ink palette as the
    rest of emem.dev (/, /how-it-works, /humans, /gallery): light by default,
@@ -46,23 +47,11 @@
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --sans:var(--mono);
 }
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
-    --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
-    --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
-    --fg-3:oklch(0.60 0.005 85);  --fg-mute:oklch(0.45 0.005 85);
-    --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
-    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
-    --accent-dim:oklch(0.66 0.10 145);
-    --warn:oklch(0.72 0.13 35);   --pending:oklch(0.78 0.13 75);
-    --info:oklch(0.78 0.14 270);
-  }
-}
+
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);
-  font-family:var(--sans);font-size:14px;line-height:1.55;
+  font-family:var(--sans);font-size:var(--t-xs);line-height:1.55;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
   font-variant-numeric:tabular-nums;
 }
@@ -72,7 +61,7 @@ a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
 button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
   border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;
-  letter-spacing:.02em;font-size:12px;}
+  letter-spacing:.02em;font-size:var(--t-2xs);}
 button:hover{border-color:var(--accent);color:var(--accent)}
 button.primary{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
 button.primary:hover{background:var(--accent-bg);filter:brightness(.98)}
@@ -97,7 +86,7 @@ hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
 }
 @media(max-width:480px){
   html{font-size:13.5px}
-  .lede{font-size:13px}
+  .lede{font-size:var(--t-xs)}
   .card{padding:.9em 1em}
   .card .grid{font-size:11.5px}
   .recipes pre{font-size:10.5px}
@@ -105,12 +94,12 @@ hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
 }
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
   border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
-header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:16px;color:var(--fg)}
+header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:var(--t-base);color:var(--fg)}
 header.top .brand .slash{color:var(--fg-mute)}
 header.top .brand .verify{color:var(--accent)}
-header.top .tag{font-size:11px;color:var(--fg-3);font-family:var(--mono);letter-spacing:.04em}
+header.top .tag{font-size:var(--t-3xs);color:var(--fg-3);font-family:var(--mono);letter-spacing:.04em}
 header.top .spacer{flex:1}
-header.top .navlinks{display:flex;gap:.6em;font-size:11px;font-family:var(--mono);color:var(--fg-3)}
+header.top .navlinks{display:flex;gap:.6em;font-size:var(--t-3xs);font-family:var(--mono);color:var(--fg-3)}
 header.top .navlinks a{color:var(--fg-3);border-bottom:none}
 header.top .navlinks a:hover{color:var(--accent)}
 @media(max-width:760px){header.top .tag{display:none}}
@@ -127,16 +116,16 @@ header.top .navlinks a:hover{color:var(--accent)}
 .input-card .row{display:flex;gap:.55em;align-items:stretch;flex-wrap:wrap}
 .input-card .row input{flex:1;min-width:200px}
 .input-card .row button{flex-shrink:0}
-.input-card .or{text-align:center;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+.input-card .or{text-align:center;font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.16em;
   color:var(--fg-mute);text-transform:uppercase;margin:.8em 0 .55em}
 .input-card .examples{margin-top:.55em;display:flex;flex-wrap:wrap;gap:.3em;align-items:center}
-.input-card .examples .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;
+.input-card .examples .lbl{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;
   color:var(--fg-mute);text-transform:uppercase;margin-right:.3em}
 .input-card .examples button{font-size:10.5px;padding:.22em .55em;border-radius:99px;background:var(--bg-2)}
 
 /* status banner */
 .status{display:flex;align-items:center;gap:.7em;padding:1em 1.2em;border-radius:4px;
-  margin-bottom:1.3em;font-family:var(--mono);font-size:13px;border:1px solid var(--line)}
+  margin-bottom:1.3em;font-family:var(--mono);font-size:var(--t-xs);border:1px solid var(--line)}
 .status .glyph{font-size:24px;line-height:1;flex-shrink:0;
   width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%}
 .status .text{flex:1}
@@ -165,7 +154,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 /* cards */
 .card{background:var(--bg-1);border:1px solid var(--line);padding:1.1em 1.2em;
   border-radius:4px;margin-bottom:1em}
-.card h3{font-family:var(--mono);font-size:11px;letter-spacing:.18em;
+.card h3{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.18em;
   color:var(--fg-mute);text-transform:uppercase;margin:0 0 .9em;font-weight:500;
   display:flex;align-items:center;gap:.55em}
 .card h3 .pill{font-size:9.5px;letter-spacing:.1em;padding:.1em .55em;border:1px solid var(--line-2);
@@ -177,9 +166,9 @@ header.top .navlinks a:hover{color:var(--accent)}
 @media(min-width:601px){.card .grid .k{text-align:right}}
 .card .grid .v{color:var(--fg);word-break:break-all;line-height:1.55}
 .card .grid .v.dim{color:var(--fg-2)}
-.card .grid .v code{font-family:var(--mono);font-size:12px;color:var(--fg);background:var(--bg-2);
+.card .grid .v code{font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);background:var(--bg-2);
   padding:.05em .4em;border-radius:2px}
-.chip{display:inline-flex;align-items:center;gap:.35em;font-family:var(--mono);font-size:11px;
+.chip{display:inline-flex;align-items:center;gap:.35em;font-family:var(--mono);font-size:var(--t-3xs);
   color:var(--fg-2);background:var(--bg-2);border:1px solid var(--line);padding:.08em .55em;
   border-radius:99px;cursor:copy;letter-spacing:.01em;transition:color .12s,border-color .12s}
 .chip:hover{color:var(--accent);border-color:var(--accent)}
@@ -195,7 +184,7 @@ header.top .navlinks a:hover{color:var(--accent)}
   border-radius:3px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
   white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;margin-top:.2em}
 .actions{display:flex;gap:.4em;margin-top:.85em;flex-wrap:wrap}
-.actions button{font-size:11px;padding:.3em .65em}
+.actions button{font-size:var(--t-3xs);padding:.3em .65em}
 
 /* sources block */
 .source-row{display:flex;align-items:center;gap:.6em;padding:.45em 0;border-bottom:1px dashed var(--line)}
@@ -217,16 +206,16 @@ header.top .navlinks a:hover{color:var(--accent)}
 .recipes[open] summary::before,
 .recipes details[open] summary::before{content:"▾ "}
 .recipes pre{margin:.55em 0 .1em;background:var(--bg);border:1px solid var(--line);
-  padding:.55em .65em;border-radius:3px;font-size:11px;color:var(--fg);
+  padding:.55em .65em;border-radius:3px;font-size:var(--t-3xs);color:var(--fg);
   white-space:pre-wrap;word-break:break-word;overflow-x:auto;line-height:1.5}
-.recipes .copy{margin-left:.6em;font-size:10px;padding:.1em .45em}
+.recipes .copy{margin-left:.6em;font-size:var(--t-3xs);padding:.1em .45em}
 
 /* glossary */
 .gloss{display:flex;flex-wrap:wrap;gap:.35em;margin:1.2em 0 .4em;align-items:center;
   padding:.7em 0;border-top:1px solid var(--line)}
-.gloss .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--fg-mute);
+.gloss .lbl{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;color:var(--fg-mute);
   text-transform:uppercase;margin-right:.3em}
-.gloss .gchip{font-family:var(--mono);font-size:11px;color:var(--fg-3);
+.gloss .gchip{font-family:var(--mono);font-size:var(--t-3xs);color:var(--fg-3);
   background:var(--bg-1);border:1px solid var(--line);padding:.15em .55em;
   border-radius:99px;cursor:help;letter-spacing:.02em}
 .gloss .gchip:hover{color:var(--accent);border-color:var(--accent)}
@@ -239,18 +228,18 @@ header.top .navlinks a:hover{color:var(--accent)}
 /* footer — canonical emem.dev page foot, mapped onto this surface's
    --bg/--fg tokens and constrained to the 920px verify column. */
 .page{max-width:920px;margin:0 auto;padding:0 1.4em}
-.foot{padding:3rem 0 2rem;border-top:1px solid var(--line);display:grid;grid-template-columns:11rem 1fr;gap:2.4rem;color:var(--fg-mute);font-size:11px}
+.foot{padding:3rem 0 2rem;border-top:1px solid var(--line);display:grid;grid-template-columns:11rem 1fr;gap:2.4rem;color:var(--fg-mute);font-size:var(--t-3xs)}
 .foot a{border-bottom:none}
-.foot-meta .name{color:var(--fg);font-weight:700;font-size:13px;margin-bottom:.5rem}
+.foot-meta .name{color:var(--fg);font-weight:700;font-size:var(--t-xs);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--fg-mute);line-height:1.5}
 .foot-meta .desc a{color:var(--fg-2);text-decoration:underline;text-decoration-color:var(--line)}
 .foot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.5rem}
-.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3);margin:0 0 .7rem;font-weight:700}
+.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3);margin:0 0 .7rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.4rem}
 .foot-col a{color:var(--fg-2);text-decoration:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3)}
+.foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3)}
 .foot-bottom a{color:inherit}
 @media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.5rem}.foot-grid{grid-template-columns:repeat(2,1fr)}}
 
@@ -268,13 +257,13 @@ header.top .navlinks a:hover{color:var(--accent)}
 
 /* unified site statusbar, adapted to this surface's --bg/--fg tokens */
 .statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:920px;margin:0 auto;padding:0 1.4em;display:flex;align-items:center;gap:1rem;height:40px;font-size:11px;font-family:var(--mono)}
+.statusbar-inner{max-width:920px;margin:0 auto;padding:0 1.4em;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-3xs);font-family:var(--mono)}
 .statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
 .statusbar a:first-of-type{border-left:1px solid var(--line);margin-left:.5rem}
 .statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2)}
 .statusbar a.on{opacity:1;color:var(--accent)}
 .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
-.statusbar .brand{font-weight:700;font-size:12px;letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand{font-weight:700;font-size:var(--t-2xs);letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.45rem}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 @media(max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
@@ -1087,7 +1076,7 @@ function renderReceipt(receipt, result){
                                                  : bytesToHex(buildPreimageBytes(receipt));
   const preimageLen = result && result.preimage ? result.preimage.length
                                                  : buildPreimageBytes(receipt).length;
-  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:10.5px;margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:11px;display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:10.5px;margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:10.5px;display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
+  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:10.5px;margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:var(--t-3xs);display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:10.5px;margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:10.5px;display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
   if (result && result.digest) {
     rows.push(['blake3(preimage)', `<code style="font-size:11px">${escapeHtml(bytesToHex(result.digest))}</code> <span class=muted>· 32-byte digest, ed25519 verifies this</span>`]);
   }

@@ -19,31 +19,11 @@
 <meta name=twitter:description content="A content-addressed protocol for verifiable agent memory. Version 0.1.0.">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css">
 <style>
-:root{
-  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
-  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
-  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
-  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
-  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
-  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
-  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
-  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
-  --pad-x:1.5rem;
-  --t-xs:.75rem;--t-sm:.8125rem;--t-base:1rem;--t-md:1.0625rem;--t-lg:1.25rem;--t-xl:1.5rem;--t-2xl:2rem;--t-3xl:2.75rem;--t-4xl:4.25rem;
-}
-@media (prefers-color-scheme: dark){
-  :root{
-    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
-    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
-    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
-    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
-    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
-    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
-    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
-  }
-}
+:root{ /* tokens come from /tokens.css */ }
+
 *{box-sizing:border-box}
 html{font-size:100%;scroll-behavior:smooth}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
@@ -100,7 +80,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 /* sticky TOC */
 .toc{position:sticky;top:56px;align-self:start;max-height:calc(100vh - 72px);overflow:auto;font-size:var(--t-xs);border-right:1px solid var(--rule);padding:2rem 1.4rem 2rem 0;margin:0}
-.toc .toc-h{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--mute-2);font-weight:700;margin:0 0 .8rem;display:flex;align-items:center;gap:.5rem}
+.toc .toc-h{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.1em;color:var(--mute-2);font-weight:700;margin:0 0 .8rem;display:flex;align-items:center;gap:.5rem}
 .toc .toc-h .seal{opacity:.7}
 .toc ol{list-style:none;margin:0;padding:0;counter-reset:none}
 .toc li{margin:0}
@@ -153,14 +133,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 /* display formula block (math) */
 .formula{border:1px solid var(--rule-strong);background:var(--paper-3);margin:1.4rem 0;padding:1rem 1.2rem;overflow-x:auto;font-size:var(--t-sm);line-height:1.7;color:var(--ink)}
-.formula .lbl{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.5rem}
+.formula .lbl{display:block;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.5rem}
 .formula pre{margin:0;white-space:pre;font-family:var(--mono);overflow-x:auto}
 
 /* tables */
 .tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:1.4rem 0}
 table.t{width:100%;border-collapse:collapse;font-size:var(--t-sm);border:1px solid var(--rule);min-width:480px}
 table.t th,table.t td{padding:.55rem .8rem;border-bottom:1px solid var(--rule);text-align:left;vertical-align:top}
-table.t thead th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700;border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
+table.t thead th{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:700;border-bottom:1px solid var(--rule-strong);background:var(--paper-2)}
 table.t tbody tr:hover td{background:var(--paper-2)}
 table.t td code,table.t th code{background:var(--paper-3);font-size:.9em}
 table.t td:first-child{color:var(--ink);font-weight:600}
@@ -184,12 +164,12 @@ figure.fig figcaption b{color:var(--ink-2);font-weight:700}
 .foot-meta .desc{color:var(--mute);line-height:1.5}
 .foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
 .foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
-.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.4rem}
 .foot-col a{color:var(--ink-2);text-decoration:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
 .foot-bottom a{color:inherit}
 
 /* responsive */

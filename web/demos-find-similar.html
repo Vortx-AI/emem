@@ -21,7 +21,8 @@
 <link rel="apple-touch-icon" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css">
 <style>
 :root{
   --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
@@ -35,27 +36,17 @@
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --pad-x:1.5rem;--col-meta:13.75rem;
 }
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
-    --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
-    --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
-    --fg-3:oklch(0.60 0.005 85);  --fg-mute:oklch(0.45 0.005 85);
-    --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
-    --accent:oklch(0.78 0.13 145);--accent-dim:oklch(0.66 0.10 145);
-    --accent-bg:oklch(0.26 0.05 145);
-  }
-}
+
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);
-  font-family:var(--mono);font-size:14px;line-height:1.55;
+  font-family:var(--mono);font-size:var(--t-xs);line-height:1.55;
   -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
 a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
 button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
-  border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;font-size:12px}
+  border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;font-size:var(--t-2xs)}
 button.primary{border-color:var(--accent);color:var(--accent);background:color-mix(in oklch, var(--accent) 8%, transparent)}
 button.primary:hover{background:color-mix(in oklch, var(--accent) 16%, transparent)}
 input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
@@ -65,12 +56,12 @@ input:focus,select:focus{border-color:var(--accent)}
 .app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
   border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
-header.top .brand{font-weight:600;letter-spacing:-.01em;font-size:16px}
+header.top .brand{font-weight:600;letter-spacing:-.01em;font-size:var(--t-base)}
 header.top .brand .slash{color:var(--fg-mute)}
 header.top .brand .leaf{color:var(--accent)}
-header.top .tag{font-size:11px;color:var(--fg-3);letter-spacing:.04em}
+header.top .tag{font-size:var(--t-3xs);color:var(--fg-3);letter-spacing:.04em}
 header.top .spacer{flex:1}
-header.top .navlinks{display:flex;gap:.6em;font-size:11px;color:var(--fg-3)}
+header.top .navlinks{display:flex;gap:.6em;font-size:var(--t-3xs);color:var(--fg-3)}
 header.top .navlinks a{color:var(--fg-3);border-bottom:none}
 header.top .navlinks a:hover{color:var(--accent)}
 
@@ -91,19 +82,19 @@ header.top .navlinks a:hover{color:var(--accent)}
 .results{display:grid;gap:.6em;margin-top:1.2em}
 .result{border:1px solid var(--line);background:var(--bg-1);padding:.8em 1em;border-radius:3px;
   display:grid;grid-template-columns:32px 1fr 110px 110px;gap:1em;align-items:center}
-@media(max-width:560px){.result{grid-template-columns:32px 1fr 80px;font-size:12px}.result .dist{display:none}}
-.result .rank{font-weight:600;color:var(--accent);font-size:14px;text-align:right}
+@media(max-width:560px){.result{grid-template-columns:32px 1fr 80px;font-size:var(--t-2xs)}.result .dist{display:none}}
+.result .rank{font-weight:600;color:var(--accent);font-size:var(--t-xs);text-align:right}
 .result .cell{color:var(--fg);font-size:12.5px;word-break:break-all}
 .result .cell .label{display:block;color:var(--fg-3);font-size:10.5px;margin-top:.15em}
-.result .cos{font-size:13px;color:var(--accent-dim);text-align:right}
-.result .dist{font-size:11px;color:var(--fg-3);text-align:right}
+.result .cos{font-size:var(--t-xs);color:var(--accent-dim);text-align:right}
+.result .dist{font-size:var(--t-3xs);color:var(--fg-3);text-align:right}
 
 .bar{height:3px;background:var(--bg-2);position:relative;border-radius:2px;margin-top:.4em;grid-column:2/-1}
 .bar > span{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:2px}
 
 .chips{display:flex;gap:.4em;flex-wrap:wrap;margin:.6em 0}
 .chip{display:inline-flex;align-items:center;gap:.4em;padding:.25em .55em;border-radius:2px;
-  background:var(--bg-2);border:1px solid var(--line);font-size:11px;color:var(--fg-2)}
+  background:var(--bg-2);border:1px solid var(--line);font-size:var(--t-3xs);color:var(--fg-2)}
 .chip .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
 .chip b{font-weight:500;color:var(--fg);margin-right:.2em}
 .chip .muted{color:var(--fg-3)}
@@ -117,13 +108,13 @@ header.top .navlinks a:hover{color:var(--accent)}
 .out pre .n{color:var(--accent)}
 .out pre .b{color:var(--accent)}
 
-.interp{font-size:12px;color:var(--fg-2);line-height:1.6;margin:.9em 0 0;max-width:720px}
+.interp{font-size:var(--t-2xs);color:var(--fg-2);line-height:1.6;margin:.9em 0 0;max-width:720px}
 .interp b{color:var(--fg);font-weight:500}
 .consensus{margin-top:2em;padding-top:1.4em;border-top:1px solid var(--line)}
-.consensus-h{font-size:14px;font-weight:600;margin:0 0 .2em;color:var(--fg)}
+.consensus-h{font-size:var(--t-xs);font-weight:600;margin:0 0 .2em;color:var(--fg)}
 .encoders{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.5em;margin:.5em 0}
 .enc{background:var(--bg-1);border:1px solid var(--line);padding:.6em .8em;border-radius:3px}
-.enc .name{font-size:12px;color:var(--fg);font-weight:500}
+.enc .name{font-size:var(--t-2xs);color:var(--fg);font-weight:500}
 .enc .chg{font-size:18px;color:var(--accent);font-weight:600;margin:.15em 0}
 .enc .sub{font-size:10.5px;color:var(--fg-3)}
 .enc[data-gate=over]{border-color:var(--accent)}
@@ -145,7 +136,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 
 /* statusbar — shared with index.html */
 .statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:.75rem}
+.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-2xs)}
 .statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
 .statusbar a:first-of-type{border-left:1px solid var(--line);margin-left:.5rem}
 .statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2)}
@@ -159,17 +150,17 @@ header.top .navlinks a:hover{color:var(--accent)}
 
 /* footer — shared with index.html */
 .page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
-.foot{position:relative;background:var(--bg);padding:3rem 0;border-top:1px solid var(--line);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--fg-3);font-size:.75rem}
+.foot{position:relative;background:var(--bg);padding:3rem 0;border-top:1px solid var(--line);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--fg-3);font-size:var(--t-2xs)}
 .foot-meta .name{color:var(--fg);font-weight:700;font-size:.8125rem;margin-bottom:.5rem}
 .foot-meta .desc{color:var(--fg-3);line-height:1.5}
 .foot-meta .desc a{color:var(--fg-2);text-decoration:underline;text-decoration-color:var(--line);border-bottom:none}
 .foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
-.foot-col h4{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute);margin:0 0 .7rem;font-weight:700}
+.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute);margin:0 0 .7rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.4rem}
 .foot-col a{color:var(--fg-2);text-decoration:none;border-bottom:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute)}
+.foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute)}
 .foot-bottom a{color:inherit;border-bottom:none}
 .foot-bottom a:hover{color:var(--accent)}
 @media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
@@ -263,7 +254,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <section id=consensus class=consensus aria-label="multi-encoder consensus">
     <h2 class=consensus-h>Multi-encoder consensus at the query cell</h2>
-    <p class=muted style="font-size:12px;margin:.2em 0 .8em;max-width:680px">
+    <p class=muted style="font-size:var(--t-2xs);margin:.2em 0 .8em;max-width:680px">
       Similarity is one encoder's opinion. The headline differentiator is <b>agreement across encoders</b>:
       <code>POST /v1/triple_consensus</code> recalls the query cell through Clay, Prithvi, and Tessera, measures
       each encoder's vintage-to-vintage change as <code>1 - cos(v_now, v_prev)</code>, and reports whether they
@@ -272,11 +263,11 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class=tag-row id=conTag></div>
     <div class=chips id=conChips></div>
     <div class=encoders id=conEncoders></div>
-    <p id=conFormula class=muted style="font-size:11px;margin:.4em 0 0"></p>
+    <p id=conFormula class=muted style="font-size:var(--t-3xs);margin:.4em 0 0"></p>
   </section>
 
   <section class=out aria-label="raw JSON">
-    <p class=muted style="font-size:11px;margin:1.2em 0 .4em;text-transform:uppercase;letter-spacing:.06em">raw response</p>
+    <p class=muted style="font-size:var(--t-3xs);margin:1.2em 0 .4em;text-transform:uppercase;letter-spacing:.06em">raw response</p>
     <pre id=raw class=mono>—</pre>
   </section>
 

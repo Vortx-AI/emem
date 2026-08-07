@@ -4,6 +4,10 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>emem.dev · REST API reference (interactive)</title>
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css">
 <meta name=description content="Interactive console for /v1/locate, /v1/recall, /v1/hunt: execute against the live emem.dev surface, see the ed25519 receipt verified in your browser, then read the full ReDoc reference below.">
 <link rel=canonical href="https://emem.dev/docs/api/">
 <meta name=robots content="index,follow">
@@ -33,20 +37,7 @@
     --info:    oklch(0.55 0.12 230);
     --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper:   oklch(0.16 0.005 85);
-      --paper-2: oklch(0.19 0.005 85);
-      --paper-3: oklch(0.23 0.006 85);
-      --ink:     oklch(0.93 0.005 85);
-      --ink-2:   oklch(0.80 0.005 85);
-      --mute:    oklch(0.60 0.005 85);
-      --rule:    oklch(0.28 0.008 85);
-      --accent:  oklch(0.78 0.13 145);
-      --warn:    oklch(0.74 0.15 25);
-      --info:    oklch(0.78 0.10 230);
-    }
-  }
+  
 
   html, body { margin: 0; background: var(--paper); color: var(--ink); }
   body { font-family: var(--mono); }
@@ -60,10 +51,10 @@
   .topbar-inner {
     max-width: 1400px; margin: 0 auto; padding: 0 1.5rem;
     display: flex; align-items: center; gap: 1rem;
-    height: 40px; font-size: 11px;
+    height: 40px; font-size:var(--t-3xs);
   }
   .topbar .brand {
-    font-weight: 700; font-size: 12px; color: var(--ink);
+    font-weight: 700; font-size:var(--t-2xs); color: var(--ink);
     padding-right: 1rem; border-right: 1px solid var(--rule);
     display: flex; align-items: center; gap: .45rem;
   }
@@ -95,7 +86,7 @@
     margin-bottom: 0.5rem;
   }
   .pg-head h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
-  .pg-head .sub { font-size: 12px; color: var(--mute); }
+  .pg-head .sub { font-size:var(--t-2xs); color: var(--mute); }
   .pg-head a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--rule); }
   .pg-head a:hover { border-bottom-color: var(--accent); }
 
@@ -106,7 +97,7 @@
   .pg-tabs button {
     font: inherit; font-family: var(--mono);
     background: transparent; border: none; cursor: pointer;
-    padding: .55em 1em; font-size: 12px; color: var(--ink-2);
+    padding: .55em 1em; font-size:var(--t-2xs); color: var(--ink-2);
     border-bottom: 2px solid transparent; margin-bottom: -1px;
   }
   .pg-tabs button:hover { color: var(--ink); }
@@ -130,17 +121,17 @@
     border-radius: 4px; padding: 0.9rem 1rem; overflow: hidden;
   }
   .pg-panel h2 {
-    margin: 0 0 .55em; font-size: 11px; font-weight: 600;
+    margin: 0 0 .55em; font-size:var(--t-3xs); font-weight: 600;
     color: var(--mute); text-transform: uppercase; letter-spacing: .05em;
     display: flex; align-items: center; gap: .5em;
   }
   .pg-panel h2 .url {
     color: var(--ink-2); font-weight: 400; text-transform: none;
-    letter-spacing: 0; font-size: 12px;
+    letter-spacing: 0; font-size:var(--t-2xs);
   }
   .pg-panel textarea {
     width: 100%; min-height: 180px; resize: vertical;
-    font: inherit; font-family: var(--mono); font-size: 12px;
+    font: inherit; font-family: var(--mono); font-size:var(--t-2xs);
     background: var(--paper); color: var(--ink);
     border: 1px solid var(--rule); border-radius: 3px;
     padding: .55em .7em; outline: none;
@@ -172,7 +163,7 @@
   }
   .pg-meta {
     display: flex; flex-wrap: wrap; gap: .9em;
-    font-size: 11px; color: var(--mute); margin-top: .5em;
+    font-size:var(--t-3xs); color: var(--mute); margin-top: .5em;
   }
   .pg-meta b { color: var(--ink-2); font-weight: 600; }
   .pg-chip {
@@ -191,7 +182,7 @@
   }
   .pg-receipt-grid {
     display: grid; grid-template-columns: max-content 1fr; gap: .35em .9em;
-    font-size: 11px; line-height: 1.55; margin-top: .5em;
+    font-size:var(--t-3xs); line-height: 1.55; margin-top: .5em;
   }
   .pg-receipt-grid dt { color: var(--mute); }
   .pg-receipt-grid dd {
@@ -209,13 +200,13 @@
   .pg-svg .bbox { fill: none; stroke: var(--rule); stroke-dasharray: 3 3; stroke-width: 1; }
 
   .pg-note {
-    font-size: 11px; color: var(--mute); margin-top: .5em; line-height: 1.55;
+    font-size:var(--t-3xs); color: var(--mute); margin-top: .5em; line-height: 1.55;
   }
 
   /* Separator between playground and reference */
   .pg-divider {
     max-width: 1400px; margin: 0.5rem auto 0;
-    padding: 0 1.5rem; color: var(--mute); font-size: 11px;
+    padding: 0 1.5rem; color: var(--mute); font-size:var(--t-3xs);
     border-top: 1px solid var(--rule);
     padding-top: 1.1rem; margin-top: 0.6rem;
     display: flex; align-items: center; gap: .9em;
@@ -299,14 +290,14 @@
 </section>
 
 <section style="max-width:1100px;margin:0 auto;padding:1.4rem 1.2rem 0">
-  <h2 style="font-size:1.05rem;margin:0 0 .3rem">Read-verb capabilities, at a glance</h2>
-  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:0 0 .9rem">
+  <h2 style="font-size:var(--t-md);margin:0 0 .3rem">Read-verb capabilities, at a glance</h2>
+  <p style="font-size:var(--t-xs);opacity:.8;line-height:1.6;margin:0 0 .9rem">
     The reference below is generated from the live <code>/openapi.json</code>, so it never lies about shapes.
     What it does not tell you is the per-verb behaviour a builder trips over. This does. The 24&nbsp;KB cap is an
     <em>MCP wire budget</em>, not a REST limit: REST is uncapped.
   </p>
   <div style="overflow-x:auto">
-  <table style="border-collapse:collapse;font-size:.8rem;width:100%;min-width:640px">
+  <table style="border-collapse:collapse;font-size:var(--t-xs);width:100%;min-width:640px">
     <thead><tr style="text-align:left;border-bottom:1px solid var(--rule)">
       <th style="padding:.4rem .6rem">verb</th><th style="padding:.4rem .6rem">band-family expansion</th>
       <th style="padding:.4rem .6rem">pagination</th><th style="padding:.4rem .6rem">budget_ms</th>
@@ -321,7 +312,7 @@
     </tbody>
   </table>
   </div>
-  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:.9rem 0 0">
+  <p style="font-size:var(--t-xs);opacity:.8;line-height:1.6;margin:.9rem 0 0">
     Two surfaces cannot drift because they are generated from the compiled constants the server signs against:
     <a href="/v1/verifier_spec"><code>/v1/verifier_spec</code></a> (the exact preimage and canonical-order rules
     to re-check any receipt or authorship yourself) and the <code>a2a</code> block in
@@ -331,14 +322,14 @@
 </section>
 
 <section style="max-width:1100px;margin:0 auto;padding:1.2rem 1.2rem 0">
-  <h2 style="font-size:1.05rem;margin:0 0 .3rem">The whole trust chain, once, with real ids</h2>
-  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:0 0 .9rem">
+  <h2 style="font-size:var(--t-md);margin:0 0 .3rem">The whole trust chain, once, with real ids</h2>
+  <p style="font-size:var(--t-xs);opacity:.8;line-height:1.6;margin:0 0 .9rem">
     The reference below lists endpoints. What it does not show is the chain they form, which is the thing a
     consuming agent actually has to assemble: read a fact, check who signed it, dereference the citation, and
     confirm the value you are about to publish is the value you were given. Every id here is live: paste the
     commands as they are.
   </p>
-  <pre style="font-size:.76rem;line-height:1.55;overflow-x:auto;padding:.8rem;border:1px solid var(--rule);border-radius:4px"># 1. Read a signed fact. No key, no account.
+  <pre style="font-size:var(--t-2xs);line-height:1.55;overflow-x:auto;padding:.8rem;border:1px solid var(--rule);border-radius:4px"># 1. Read a signed fact. No key, no account.
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
   -d '{"cell":"defi.zb572.xoso.zb1ec","bands":["indices.ndvi"]}'
 #    -> facts[].value, facts[].fact_cid, and a signed receipt
@@ -367,7 +358,7 @@ curl -s -X POST https://emem.dev/v1/echo_verify -H 'content-type: application/js
        "claimed_value":"-0.0558"}'
 #    -> {"matches": false, "drift": "rounded", ...}
 #       pass the full value and it answers {"matches": true, "drift": null}</pre>
-  <p style="font-size:.82rem;opacity:.8;line-height:1.6;margin:.9rem 0 0">
+  <p style="font-size:var(--t-xs);opacity:.8;line-height:1.6;margin:.9rem 0 0">
     Steps 1 and 2 are emem proving its own side: these are the bytes, and this key signed them. Steps 3 and 4 are
     the half that used to be unguarded: a citation resolves to the same bytes for anyone, and the number you
     emit is checked against them. A pipeline that runs all four can state that every value it published was
