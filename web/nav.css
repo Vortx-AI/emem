@@ -1,0 +1,131 @@
+/* The site navigation. Generated into every page by scripts/gen_nav.py.
+ *
+ * No JavaScript. Each group is a <details>, so it opens on click and on
+ * Enter, it is in the tab order for free, and it still works with scripting
+ * disabled. The previous bar was seven different hand-edited bars that between
+ * them reached 13 of 142 routes; the point of generating it was to stop that,
+ * and adding a script to drive it would put the behaviour back in each page.
+ *
+ * Everything here reads from /tokens.css. No colour or size is written twice.
+ */
+
+.sitebar {
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper-2);
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  backdrop-filter: blur(6px);
+}
+.sitebar-in {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 var(--pad-x);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+}
+.sitebar-gap { flex: 1 }
+
+.sitebar .brand {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+  padding-right: var(--s-4);
+}
+.sitebar .brand img { width: 20px; height: 20px; object-fit: contain; display: block }
+
+.navplain {
+  display: flex;
+  align-items: center;
+  padding: var(--s-3) var(--s-3);
+  color: var(--ink-2);
+  text-decoration: none;
+  opacity: .62;
+}
+.navplain:hover { opacity: 1; color: var(--ink) }
+
+.navgrp { position: relative }
+.navgrp > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  height: 100%;
+  padding: var(--s-3) var(--s-3);
+  color: var(--ink-2);
+  opacity: .62;
+  white-space: nowrap;
+  user-select: none;
+}
+.navgrp > summary::-webkit-details-marker { display: none }
+.navgrp > summary::after {
+  content: "";
+  width: 0; height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  border-top: 4px solid currentColor;
+  opacity: .5;
+}
+.navgrp > summary:hover { opacity: 1; color: var(--ink) }
+.navgrp[open] > summary { opacity: 1; color: var(--ink); background: var(--paper-3) }
+.navgrp.on > summary { opacity: 1; color: var(--accent) }
+
+/* Keyboard users get the same outline everything else on the site gets. */
+.navgrp > summary:focus-visible,
+.navplain:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px }
+
+.navmenu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 21rem;
+  background: var(--paper);
+  border: 1.6px solid var(--ink);
+  border-top: 0;
+  padding: var(--s-2);
+  display: grid;
+  gap: 1px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / .10);
+}
+.navmenu a {
+  display: block;
+  padding: var(--s-2) var(--s-3);
+  text-decoration: none;
+  color: var(--ink);
+  border: 1px solid transparent;
+}
+.navmenu a:hover,
+.navmenu a:focus-visible {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+  outline: none;
+}
+.navmenu a[aria-current="page"] { border-color: var(--accent); background: var(--accent-bg) }
+.navmenu b { display: block; font-weight: 600; font-size: var(--t-xs) }
+/* The note is the whole reason this is a menu and not a row of words: a
+   reader who does not know what /a2a is should not have to click to find out. */
+.navmenu span {
+  display: block;
+  margin-top: .12rem;
+  color: var(--mute);
+  font-size: var(--t-2xs);
+  line-height: 1.35;
+}
+
+@media (max-width: 860px) {
+  .sitebar-in { flex-wrap: wrap; font-size: var(--t-2xs); padding: 0 var(--s-3) }
+  .sitebar .brand { padding-right: var(--s-3) }
+  .navgrp { position: static }
+  .navmenu { left: 0; right: 0; min-width: 0 }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navgrp > summary { transition: none }
+}

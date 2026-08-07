@@ -305,6 +305,12 @@ jobs:
       # removed a dark :root it should not have. Hermetic.
       - name: the design system holds
         run: python3 scripts/design_tokens.py
+      # One navigation, generated from one definition. The site had SEVEN
+      # different nav bars across 22 pages and between them they reached 13 of
+      # 142 routes; /guard appeared in exactly one nav, its own. A hand edit to
+      # any page's nav is drift, and this reports it.
+      - name: one navigation, not seven
+        run: python3 scripts/gen_nav.py --check
 
   # Two gates that check a RUNNING system rather than the source. Both are
   # here because the failures they catch are invisible to every other job:

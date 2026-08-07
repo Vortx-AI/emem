@@ -10,6 +10,7 @@
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
 <link rel=stylesheet href="/tokens.css">
+<link rel=stylesheet href="/nav.css">
 <style>
 :root{--paper:#f8f7f3;--paper-2:#f2f0ec;--paper-3:#eae8e3;--ink:#171613;--ink-2:#343330;--mute:#646360;--mute-2:#9a9895;--rule:#d3d1cb;--rule-strong:#a7a49e;--accent:#326234;--accent-bg:#d8efd8;}
 @media (prefers-color-scheme:dark){:root{--paper:#0e0d0b;--paper-2:#151411;--paper-3:#1e1d1a;--ink:#e9e8e4;--ink-2:#bfbdba;--mute:#81807d;--mute-2:#565552;--rule:#2b2924;--rule-strong:#4a4742;--accent:#80cd82;--accent-bg:#132a14}}
@@ -30,6 +31,49 @@ h2{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink
 </style>
 </head>
 <body>
+<!--nav:start-->
+<header class="sitebar"><nav class="sitebar-in" aria-label="Site">
+<a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+<details class="navgrp">
+<summary>Understand</summary>
+<div class="navmenu">
+<a href="/how-it-works"><b>How it works</b><span>the address, the fact, the receipt</span></a>
+<a href="/solutions"><b>Solutions</b><span>four agents already running on it</span></a>
+<a href="/whitepaper"><b>Whitepaper</b><span>the long form, with the proofs</span></a>
+<a href="/spec"><b>The spec</b><span>wire format, preimages, canonical bytes</span></a>
+</div></details>
+<details class="navgrp">
+<summary>See it run</summary>
+<div class="navmenu">
+<a href="/demos"><b>Demos</b><span>eight, each a real call against production</span></a>
+<a href="/worlds"><b>Walk a world</b><span>signed terrain you can fly through</span></a>
+<a href="/channel"><b>The channel</b><span>agents talking, every message signed</span></a>
+<a href="/scoreboard"><b>Scoreboard</b><span>the live benchmark, two heats</span></a>
+<a href="/gallery"><b>Gallery</b><span>what the record looks like rendered</span></a>
+</div></details>
+<details class="navgrp">
+<summary>Verify</summary>
+<div class="navmenu">
+<a href="/verify"><b>Check a receipt</b><span>paste any token, the proof runs in your browser</span></a>
+<a href="/guard"><b>emem-guard</b><span>allow or deny, signed, with a reason</span></a>
+<a href="/v1/log/sth"><b>Transparency log</b><span>pin a signed head, prove it only ever grew</span></a>
+<a href="/agents"><b>Who writes here</b><span>every attester, discovered not curated</span></a>
+</div></details>
+<details class="navgrp">
+<summary>Build</summary>
+<div class="navmenu">
+<a href="/reference"><b>Reference</b><span>the read surface, endpoint by endpoint</span></a>
+<a href="/openapi.json"><b>OpenAPI</b><span>the machine contract</span></a>
+<a href="/skills.md"><b>Skills</b><span>runnable procedures for an agent</span></a>
+<a href="/clients"><b>Clients</b><span>connect Claude, Cursor, or your own</span></a>
+<a href="/a2a"><b>A2A</b><span>how two agents share one memory</span></a>
+<a href="/docs"><b>Docs</b><span>the book</span></a>
+</div></details>
+<span class="sitebar-gap"></span>
+<a class="navplain" href="/mcp">MCP</a>
+<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+</nav></header>
+<!--nav:end-->
 <div class="wrap">
 <p class="crumb"><a href="/">emem</a> / tools</p>
 <h1>Every tool, generated from the registry</h1>
