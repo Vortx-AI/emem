@@ -286,6 +286,12 @@ jobs:
           curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${ver}/actionlint_${ver}_linux_amd64.tar.gz" \
             | tar xz actionlint
           ./actionlint -shellcheck= -pyflakes= .github/workflows/*.yml
+      # A route is either described in the OpenAPI document or excluded with a
+      # written reason. Five live routes that llms.txt told agents to call sat
+      # outside the document for weeks: nothing was false, the route was just
+      # added in one place and not the other. Hermetic, so it runs here.
+      - name: openapi coverage
+        run: python3 scripts/openapi_coverage.py
 
   # Two gates that check a RUNNING system rather than the source. Both are
   # here because the failures they catch are invisible to every other job:
@@ -441,6 +447,20 @@ jobs:
           set -e
           if [ "$code" = "2" ]; then
             echo "::warning::the responder did not answer; route truth not asserted this run"
+            exit 0
+          fi
+          exit $code
+      # The source can describe a route the responder does not serve yet: that
+      # is a build nobody deployed, and it reads to an agent exactly like a
+      # route that was never written. Only checkable against a live origin.
+      - name: openapi is deployed, not just written
+        run: |
+          set +e
+          python3 scripts/openapi_coverage.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; deployment not asserted this run"
             exit 0
           fi
           exit $code
