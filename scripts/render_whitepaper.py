@@ -30,6 +30,15 @@ from __future__ import annotations
 import html
 import pathlib
 import re
+import importlib.util as _ilu
+
+# The nav comes from the one place that generates it. This file used to
+# carry its own hand-written copy, which is how the site ended up with seven
+# of them, and a generated page holding a stale nav is the same drift wearing
+# a build step.
+_spec = _ilu.spec_from_file_location('gen_nav', str(__import__('pathlib').Path(__file__).with_name('gen_nav.py')))
+_gen_nav = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_gen_nav)
+
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -283,23 +292,12 @@ def build() -> str:
         r"^(.*?): (.*)$", r'\1: <span class="accent">\2</span>', html.escape(h1)
     )
 
+    site_nav = _gen_nav.render("/whitepaper")
     return f"""{head}
 </head>
 <body>
 
-<header class="statusbar">
-  <div class="statusbar-inner">
-    <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
-    <a href="/how-it-works" class="nav-sec">how it works</a>
-    <a href="/solutions" class="nav-sec">solutions</a>
-    <a href="/reference" class="nav-sec">reference</a>
-    <a href="/whitepaper" class="nav-sec on">whitepaper</a>
-    <span class="spacer"></span>
-    <a href="/docs">docs</a>
-    <a href="/verify">verify</a>
-    <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a>
-  </div>
-</header>
+{site_nav}
 
 <div class="page">
   <header class="hero">
