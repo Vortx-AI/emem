@@ -706,6 +706,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);flex:0 0 auto;opacity:.8}
 
 .chapter{display:grid;grid-template-columns:1fr 1.272fr;gap:var(--s-5);align-items:start;padding:var(--s-6) 0}
+.chapter .words a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.18em}
 .chapter.wide{grid-template-columns:1fr}
 .chapter .art{margin:0;min-width:0}
 .chapter .art svg{display:block;width:100%;height:auto;border:0}
@@ -887,7 +888,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .th-beats .beat h3{font-size:var(--t-base);margin:0 0 .5rem}
 .th-beats .beat p{font-size:var(--t-sm);line-height:1.55;color:var(--ink-2);margin:0 0 .7rem}
 .th-beats .beat-tech{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);border-top:1px dotted var(--rule-strong);padding-top:.55rem}
-@media (max-width:860px){.th-top{grid-template-columns:1fr}.th-core{max-width:220px;margin:0 auto;order:-1}.th-beats{grid-template-columns:1fr}}
+@media (max-width:860px){.th-top{grid-template-columns:1fr;gap:var(--s-4)}.th-core{max-width:200px;margin:var(--s-2) auto 0}.th-beats{grid-template-columns:1fr}}
 
 /* the decay demo: one real recorded run, two presses. Placed in the hero on the
    benchmark author's evidence that position decides what gets seen, and that an
@@ -1403,7 +1404,7 @@ html,body{overflow-x:clip}
     <h2>Built to be checked</h2>
     <p class="cap">Every number below is fetched from the running responder when this page loads; nothing here is typed in.</p>
     <div class="tiles">
-      <a class="tile" href="/mcp"><b id="sp-tools" data-pending>&hellip;</b><span><span id="sp-core" data-pending>&hellip;</span>-tool core loop, MCP tools in full</span></a>
+      <a class="tile" href="/mcp"><b id="sp-tools" data-pending>&hellip;</b><span>MCP tools, <span id="sp-core" data-pending>&hellip;</span> of them in the core loop</span></a>
       <a class="tile" href="/openapi.json"><b id="sp-paths" data-pending>&hellip;</b><span>documented /v1 endpoints</span></a>
       <a class="tile" href="/v1/algorithms?summary=true"><b id="sp-algos" data-pending>&hellip;</b><span>registered algorithms</span></a>
       <a class="tile" href="/v1/bands"><b id="sp-bands" data-pending>&hellip;</b><span>wired band measurements</span></a>
