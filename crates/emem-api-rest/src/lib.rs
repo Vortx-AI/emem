@@ -107,6 +107,9 @@ const MATERIALIZERS_MD: &str = include_str!("../../../docs/developers/data-sourc
 const SPACES_MD: &str = include_str!("../../../docs/operators/operating.md");
 const TEMPORAL_MD: &str = include_str!("../../../docs/protocol.md");
 const ROBOTS_TXT: &str = include_str!("../../../web/robots.txt");
+/// The one design-token file every page steps off. Tokens only: it defines
+/// no rule that styles an element, so including it can never move a page.
+const TOKENS_CSS: &str = include_str!("../../../web/tokens.css");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 
@@ -920,6 +923,7 @@ pub fn router(state: AppState) -> Router {
         .route("/docs/*path", get(serve_docs_book_path))
         .route("/multimodal", get(serve_multimodal_md))
         .route("/multimodal.md", get(serve_multimodal_md))
+        .route("/tokens.css", get(serve_tokens_css))
         .route("/llms.txt", get(serve_llms_txt))
         .route("/llms-full.txt", get(serve_llms_full))
         .route("/robots.txt", get(serve_robots))
@@ -4112,6 +4116,9 @@ async fn serve_spaces_md() -> Response {
 }
 async fn serve_temporal_md() -> Response {
     text_response("text/markdown; charset=utf-8", TEMPORAL_MD)
+}
+async fn serve_tokens_css() -> Response {
+    text_response("text/css; charset=utf-8", TOKENS_CSS)
 }
 async fn serve_robots() -> Response {
     text_response("text/plain; charset=utf-8", ROBOTS_TXT)

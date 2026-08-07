@@ -1,0 +1,96 @@
+/* emem design tokens: the one file the whole site steps off.
+ *
+ * Every page used to carry its own copy of this block, which is how the site
+ * ended up with three different body sizes and no display face anywhere but
+ * the homepage. /guard set --t-base to .84375rem, so its body copy rendered at
+ * 13.5px and its --t-xs at 11px across twenty rules. Nobody chose that; it was
+ * copied from an older page and then edited in one place.
+ *
+ * Rules for editing:
+ *   - Change a value here, never in a page.
+ *   - A page may add a token of its own. It may not redefine one of these.
+ *   - Nothing in this file styles an element. Tokens only, so including it can
+ *     never move a page's layout, only its scale and palette.
+ *
+ * The type scale is the golden ratio: phi (1.618) and its square root (1.272)
+ * alternating, so every step is a full golden jump or a half one. The spacing
+ * ladder is the same ratio, so a gap is always a multiple of something else on
+ * the page.
+ *
+ * Two families, and the split carries meaning rather than decoration. Mono is
+ * the machine record: tokens, addresses, code, measured numbers, anything a
+ * reader could resolve or recompute. Serif is the human claim: headlines and
+ * the sentences that frame what the record means. That is emem's own thesis
+ * set in type, since prose here is never evidence and the token always is.
+ */
+:root{
+--paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
+  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
+  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);--vermilion:oklch(0.50 0.16 30);
+  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
+  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  /* Two families, and the split carries meaning rather than decoration.
+     Mono is the machine record: tokens, addresses, code, measured
+     numbers, anything a reader could resolve or recompute. Serif is the
+     human claim: headlines and the sentences that frame what the record
+     means. That is emem's own thesis set in type, since prose here is
+     never evidence and the token always is. A reader can tell which
+     they are looking at before reading a word.
+
+     Newsreader carries an optical-size axis, so a 110px hero and a 26px
+     section head are drawn as different letterforms rather than one
+     shape scaled, which is what makes large type look drawn rather
+     than stretched. */
+  --display:'Newsreader',Georgia,'Times New Roman',serif;
+  --pad-x:1.5rem;--col-meta:13.75rem;
+  /* One type scale for the whole page, built on the golden ratio.
+     Body copy sits at --t-base (1rem = 16px). Steps above it are phi
+     (1.618) and its square root (1.272) alternating, so every jump is
+     either a full golden step or a half one and nothing lands by taste.
+     Steps below body use the same ladder inverted.
+
+     The previous scale stepped by ~1.2, which is too small a jump to
+     read as a change: 1rem to 1.0625rem is a six percent difference
+     nobody sees. Worse, --t-xs and --t-sm carried 107 of the page's
+     sized elements between them at 12px and 13px, so the page was
+     mostly set two steps below its own body size. Raising those two
+     tokens is the single highest-leverage change here.
+
+     Edit html{font-size} to retune everything without touching a rule. */
+  --t-3xs:.694rem;   /* 11.1px  phi^-2, micro labels only */
+  --t-2xs:.786rem;   /* 12.6px  phi^-1.5 */
+  --t-xs:.875rem;    /* 14px    was 12px */
+  --t-sm:.9375rem;   /* 15px    was 13px */
+  --t-base:1rem;     /* 16px    body */
+  --t-md:1.125rem;   /* 18px    lead paragraphs */
+  --t-lg:1.272rem;   /* 20.4px  sqrt(phi) */
+  --t-xl:1.618rem;   /* 25.9px  phi */
+  --t-2xl:2.058rem;  /* 32.9px  phi * sqrt(phi) */
+  --t-3xl:2.618rem;  /* 41.9px  phi^2 */
+  --t-4xl:3.330rem;  /* 53.3px  phi^2 * sqrt(phi) */
+  --t-5xl:4.236rem;  /* 67.8px  phi^3 */
+  --t-6xl:6.854rem;  /* 109.7px phi^4, hero only */
+
+  /* Spacing on the same ladder, so vertical rhythm and type share one
+     ratio and a gap is always a multiple of something else on the page. */
+  --s-1:.382rem;--s-2:.618rem;--s-3:1rem;--s-4:1.618rem;
+  --s-5:2.618rem;--s-6:4.236rem;--s-7:6.854rem;--s-8:11.09rem;
+
+  /* The golden section itself, for splitting a row into major and minor. */
+  --phi:1.618;--col-major:61.8%;--col-minor:38.2%;
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  }
+}
