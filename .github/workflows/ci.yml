@@ -292,6 +292,12 @@ jobs:
       # added in one place and not the other. Hermetic, so it runs here.
       - name: openapi coverage
         run: python3 scripts/openapi_coverage.py
+      # A figure the homepage presents as live must not ship a number in the
+      # HTML. Five tiles did, three had gone stale against the responder they
+      # claimed to report, and the caption above them said nothing there was
+      # typed in. Hermetic: it reads the markup, not the network.
+      - name: live numbers are fetched, not typed
+        run: python3 scripts/live_numbers.py
 
   # Two gates that check a RUNNING system rather than the source. Both are
   # here because the failures they catch are invisible to every other job:

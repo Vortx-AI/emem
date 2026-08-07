@@ -1392,7 +1392,8 @@ html,body{overflow-x:clip}
 .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:.7rem;margin:1.3rem 0 1.5rem}
 .tile{border:1.6px solid var(--ink);background:var(--paper);padding:.7rem .8rem;text-decoration:none;display:flex;flex-direction:column;gap:.2rem}
 .tile:hover{background:var(--accent-bg)}
-.tile b{font-family:var(--mono);font-size:var(--t-lg);color:var(--ink);font-weight:600}
+.tile b{font-family:var(--mono);font-size:var(--t-2xl);color:var(--ink);font-weight:600;line-height:1.05;letter-spacing:-.02em}
+.tile b[data-pending],.tile span [data-pending]{color:var(--mute-2)}
 .tile span{font-size:var(--t-xs);color:var(--mute);line-height:1.35}
 @media (max-width:880px){.tiles{grid-template-columns:repeat(2,1fr)}.latent-cards[style]{grid-template-columns:1fr 1fr !important}}
 </style>
@@ -1402,11 +1403,11 @@ html,body{overflow-x:clip}
     <h2>Built to be checked</h2>
     <p class="cap">Every number below is fetched from the running responder when this page loads; nothing here is typed in.</p>
     <div class="tiles">
-      <a class="tile" href="/mcp"><b id="sp-tools">104</b><span>MCP tools, 15-tool core loop</span></a>
-      <a class="tile" href="/openapi.json"><b id="sp-paths">130</b><span>documented /v1 endpoints</span></a>
-      <a class="tile" href="/v1/algorithms?summary=true"><b id="sp-algos">168</b><span>registered algorithms</span></a>
-      <a class="tile" href="/v1/bands"><b id="sp-bands">129</b><span>wired band measurements</span></a>
-      <a class="tile" href="/v1/log/sth"><b id="sp-tree">707,949</b><span>attestations in the transparency log</span></a>
+      <a class="tile" href="/mcp"><b id="sp-tools" data-pending>&hellip;</b><span><span id="sp-core" data-pending>&hellip;</span>-tool core loop, MCP tools in full</span></a>
+      <a class="tile" href="/openapi.json"><b id="sp-paths" data-pending>&hellip;</b><span>documented /v1 endpoints</span></a>
+      <a class="tile" href="/v1/algorithms?summary=true"><b id="sp-algos" data-pending>&hellip;</b><span>registered algorithms</span></a>
+      <a class="tile" href="/v1/bands"><b id="sp-bands" data-pending>&hellip;</b><span>wired band measurements</span></a>
+      <a class="tile" href="/v1/log/sth"><b id="sp-tree" data-pending>&hellip;</b><span>attestations in the transparency log</span></a>
       <a class="tile" href="/live"><b id="sp-up">live</b><span>this responder, up and answering</span></a>
     </div>
     <div class="latent-cards cols4">
@@ -2132,10 +2133,12 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 // The live numbers: fetched, never typed. Every fetch is same-origin and
 // cheap; a failure leaves the em-dash placeholder rather than a lie.
 (function(){
-  function put(id, v){ var el=document.getElementById(id); if(el && v!=null && v!=='') el.textContent=v; }
+  function put(id, v){ var el=document.getElementById(id);
+    if(el && v!=null && v!=='') { el.textContent=v; el.removeAttribute('data-pending'); } }
   function j(u){ return fetch(u,{headers:{accept:'application/json'}}).then(function(r){ if(!r.ok) throw 0; return r.json(); }); }
   j('/agent.json').then(function(a){
     put('sp-tools', a.mcp_tools && a.mcp_tools.total || a.primitive_count);
+    put('sp-core', a.mcp_tools && a.mcp_tools.core);
     put('sp-paths', a.rest_paths_v1_in_openapi);
     put('sp-algos', a.algorithm_count);
     put('sp-bands', a.materializer_wired_band_names);
