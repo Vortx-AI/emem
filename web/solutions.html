@@ -2,7 +2,7 @@
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>Built with emem</title>
-<meta name=description content="Use cases built on emem: EUDR compliance, carbon-credit verification, insurance flood pre-screen, supply-chain location verification. Each one names the bands and algorithm it uses, and every answer is an ed25519-signed receipt.">
+<meta name=description content="What emem is used for: shared memory two agents can hand off without trusting each other, a guardrail that checks claims about the physical world, a device registry for machines that must prove what they are, and an append-only record. Four regulated workflows run on the same read surface, and every answer is an ed25519-signed receipt.">
 <link rel=canonical href="https://emem.dev/solutions">
 <link rel="alternate" type="text/markdown" href="/llms.txt">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
@@ -46,6 +46,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .section-meta .idx{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.5rem}
 .section-meta .idx-num{font-weight:700;color:var(--ink);font-size:var(--t-sm)}
 .section-meta .idx-label{color:var(--mute-2);text-transform:uppercase;letter-spacing:.08em;font-size:var(--t-xs)}
+.st-part{color:var(--warn);border-left:2px solid var(--warn);padding-left:.5rem}
+.section-meta a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}
 .section-meta dl{margin:1rem 0 0;padding:0;display:grid;grid-template-columns:1fr;gap:.4rem}
 .section-meta dt{color:var(--mute-2);font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em}
 .section-meta dd{margin:0 0 .5rem 0;color:var(--ink-2);font-size:var(--t-xs)}
@@ -510,12 +512,99 @@ input::placeholder{color:var(--mute,#7a7363)}
   </div>
 </section>
 
-<!-- EUDR compliance -->
+
+<!-- The substrate. Four sections, every figure fetched from the responder. -->
+
+<section class="section page" id="shared-memory">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">01</span><span class="idx-label">The substrate</span></div>
+    <dl>
+      <dt>attesters</dt><dd><a href="/v1/agents"><span id="sv-agents" data-pending>&hellip;</span> keys have written</a></dd>
+      <dt>skills</dt><dd><a href="/v1/a2a/skills?q="><span id="sv-skills" data-pending>&hellip;</span> advertised over A2A</a></dd>
+      <dt>standard</dt><dd><a href="/a2a">ten rules, ratified</a></dd>
+      <dt>mailbox</dt><dd>POST&nbsp;/v1/inbox</dd>
+      <dt>channel</dt><dd><a href="/channel">every message signed</a></dd>
+    </dl>
+  </aside>
+  <div class="section-body">
+    <h2><span class="num">01</span>Two agents, one memory</h2>
+    <p class="lede">Two models asked about the same thing write two descriptions of it, and the descriptions drift while the thing stands still. Handing over a token instead of a paraphrase is the fix, and it only works if both agents can resolve the token to the same bytes without trusting each other.</p>
+    <p>That is what this responder is. An agent writes a signed note, another reads it by address, and either can verify the other's signature offline against a key neither of them issued. Nobody grants access, because reads need no key and no account.</p>
+    <p>The roster is discovered rather than configured: any key that writes appears, and the count beside this paragraph is read from the ledger when the page loads. The messages are on <a href="/channel">the channel</a>, and the rules two agents agree to before they start are on <a href="/a2a">the A2A page</a>.</p>
+  </div>
+</section>
+
+<section class="section page" id="guardrail">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">02</span><span class="idx-label">The substrate</span></div>
+    <dl>
+      <dt>checkpoints</dt><dd><a href="/.well-known/emem-guard.json"><span id="sv-cps" data-pending>&hellip;</span>, <span id="sv-cps-open" data-pending>&hellip;</span> vendor-neutral</a></dd>
+      <dt>answer</dt><dd>allow or deny, ed25519-signed</dd>
+      <dt>reason</dt><dd>machine-readable, never prose</dd>
+      <dt>endpoint</dt><dd>POST&nbsp;/v1/guard/verdict</dd>
+      <dt>page</dt><dd><a href="/guard">emem-guard</a></dd>
+    </dl>
+  </aside>
+  <div class="section-body">
+    <h2><span class="num">02</span>A guardrail for the physical world</h2>
+    <p class="lede">Every content filter on the market asks whether a piece of text contains a card number, a secret, or a classified marking. None of them can ask whether a claim about the world is still true, because none of them hold a signed observation of it.</p>
+    <p>emem-guard reads the citations in a transcript, resolves each one, and answers on the evidence. A cited observation whose signature fails is a denial. A cited observation this node has never seen is not, because that is indistinguishable from one minted by another responder, and refusing it would be a guess dressed as a verdict.</p>
+    <p>The verdict is signed and appended to a hash-chained log before it is returned, so a decision cannot be revised after the fact. Most of the checkpoints belong to no vendor: they are shapes any inference stack can adopt.</p>
+  </div>
+</section>
+
+<section class="section page" id="attested-devices">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">The substrate</span></div>
+    <dl>
+      <dt>platforms</dt><dd><a href="/v1/device_platforms"><span id="sv-plat" data-pending>&hellip;</span> whitelisted</a></dd>
+      <dt>families</dt><dd><span id="sv-fam" data-pending>&hellip;</span>, from edge AI to mobile secure elements</dd>
+      <dt>grounding</dt><dd>RATS RFC&nbsp;9334, DICE, 802.1AR, TPM&nbsp;2.0</dd>
+      <dt>endpoint</dt><dd>GET&nbsp;/v1/device_platforms</dd>
+      <dt>status</dt><dd class="st-part">the whitelist ships, the enrolment gate does not</dd>
+    </dl>
+  </aside>
+  <div class="section-body">
+    <h2><span class="num">03</span>Machines that prove what they are</h2>
+    <p class="lede">A robot, a satellite, or a sensor writing into a shared memory raises a question a signature alone cannot answer: is this a genuine, un-tampered instance of the hardware it claims to be, or a laptop asserting a string?</p>
+    <p>The device-platform registry is the device-side analogue of the sources registry. It records which hardware may enrol a key and how each one proves it is real, grounded in the standards that already exist for this rather than a scheme invented here.</p>
+    <p><b>Where this actually stands.</b> The whitelist is published and readable now. The gate that verifies enrolment evidence before admitting a key is the next stage and is not wired, so no device has enrolled through it. Said plainly because a registry with nothing enrolled behind it is a plan, and the difference matters to anyone deciding whether to build on this.</p>
+  </div>
+</section>
+
+<section class="section page" id="append-only">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">The substrate</span></div>
+    <dl>
+      <dt>attestations</dt><dd><a href="/v1/log/sth"><span id="sv-tree" data-pending>&hellip;</span> in the tree</a></dd>
+      <dt>structure</dt><dd>RFC&nbsp;6962 Merkle log</dd>
+      <dt>proves</dt><dd>inclusion, and that it only ever grew</dd>
+      <dt>endpoint</dt><dd>GET&nbsp;/v1/log/sth</dd>
+      <dt>check one</dt><dd><a href="/verify">in your browser, offline</a></dd>
+    </dl>
+  </aside>
+  <div class="section-body">
+    <h2><span class="num">04</span>A record that cannot be rewritten</h2>
+    <p class="lede">An audit trail an operator can edit is a claim about the operator, not about the world. This one is a Merkle tree of the shape certificate transparency uses: pin a signed head today, and any later head has to prove it contains everything the earlier one did.</p>
+    <p>That turns a promise into arithmetic. You do not have to believe the log was not rewritten, and you do not have to ask us. Two heads and a consistency proof settle it, and the proof runs on your machine.</p>
+    <p>Inclusion of a specific fact is a separate guarantee, and it is <a href="/verify">stated plainly on the verify page</a> that facts do not yet chain to log leaves. Naming what a green tick does not cover is the reason to trust the ticks that remain.</p>
+  </div>
+</section>
+
 <div class="mith-band"><figure><img src="/docs/diagrams/29-eudr-supply-chain.svg" alt="" loading="lazy"></figure></div>
+<section class="section page" id="under-audit">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">&nbsp;</span><span class="idx-label">Worked evidence</span></div>
+  </aside>
+  <div class="section-body">
+    <h2>It holds up under audit</h2>
+    <p class="lede">Four regulated workflows already run on the read surface, where a number has to survive an auditor a year later. Each names the exact bands and algorithm it calls, and every answer comes back as a receipt anyone can re-verify offline, on any node, in any year.</p>
+  </div>
+</section>
 
 <section class="section page" id="eudr">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">01</span><span class="idx-label">Built with emem</span></div>
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Built with emem</span></div>
     <dl>
       <dt>agent</dt><dd><a href="https://eudr.dev">eudr.dev</a></dd>
       <dt>regulation</dt><dd>EU 2023/1115</dd>
@@ -528,7 +617,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">01</span>EUDR compliance</h2>
+    <h2><span class="num">05</span>EUDR compliance</h2>
     <p class="lede"><a href="https://eudr.dev">eudr.dev</a> is an independent EU Deforestation Regulation compliance agent. Every paragraph it quotes resolves to an ed25519-signed <span class="band">fact_cid</span> served from this responder.</p>
 
     <p>The agent ingests a shipment plot, dispatches <span class="band">/v1/eudr_dds</span> against the cell64-tiled forest baseline, and returns a Due Diligence Statement shaped to Annex II of Regulation (EU) 2023/1115. The per-cell algorithm <span class="band">eudr_compliance@1</span> implements Article 2(4) as written: &gt;0.5&nbsp;ha, &gt;5&nbsp;m height, &gt;10&nbsp;% canopy cover, excluding land predominantly under agricultural or urban use. The forest baseline is JRC GFC2020 V3 (the Commission&rsquo;s expected non-binding baseline, a live single-COG materialiser at JEODPP), corroborated against the <span class="band">forest_change.treecover2000</span> band from Global Forest Change. Article 2(28) dispatch picks POINT (&le;4&nbsp;ha non-cattle) versus POLYGON (&gt;4&nbsp;ha or any cattle plot under HS&nbsp;0102/0201/0202).</p>
@@ -550,7 +639,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <section class="section page" id="carbon">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">02</span><span class="idx-label">Built with emem</span></div>
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Built with emem</span></div>
     <dl>
       <dt>use case</dt><dd>Carbon MRV verification</dd>
       <dt>standard</dt><dd>VM0042 / VCS / Gold Standard</dd>
@@ -562,7 +651,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">02</span>Carbon-credit verifier</h2>
+    <h2><span class="num">06</span>Carbon-credit verifier</h2>
     <p class="lede">An agent that cross-checks carbon offset claims against signed satellite evidence: forest-cover baselines, deforestation trajectories, soil organic carbon, and vegetation condition.</p>
 
     <p>Ingest a project polygon and a claimed baseline year. The agent calls <span class="band">/v1/forest</span> for <span class="band">forest_change.treecover2000</span> plus <span class="band">forest_change.lossyear</span> from Global Forest Change, <span class="band">/v1/soil</span> for <span class="band">soilgrids.soc_0_30cm</span> (organic carbon at 0&ndash;30&nbsp;cm), and <span class="band">/v1/ndvi</span> for <span class="band">indices.ndvi</span> from Sentinel-2. Each fact is ed25519-signed and content-addressed; the receipt&rsquo;s <span class="band">fact_cid</span> is citable in VM0042 monitoring reports for VCS or Gold Standard registries.</p>
@@ -583,7 +672,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <section class="section page" id="flood">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">03</span><span class="idx-label">Built with emem</span></div>
+    <div class="idx"><span class="idx-num">07</span><span class="idx-label">Built with emem</span></div>
     <dl>
       <dt>use case</dt><dd>Flood risk pre-screening</dd>
       <dt>output</dt><dd>signed elevation + water + weather profile</dd>
@@ -594,7 +683,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">03</span>Insurance flood pre-screen</h2>
+    <h2><span class="num">07</span>Insurance flood pre-screen</h2>
     <p class="lede">A property-risk agent that pre-screens addresses for flood exposure using signed elevation, surface-water history, precipitation nowcast, and SAR-derived water extent, before an underwriter opens the file.</p>
 
     <p>The agent takes an address or lat/lng, calls <span class="band">/v1/elevation</span> for <span class="band">copdem30m.elevation_mean</span> (Copernicus DEM 30&nbsp;m, GMRT for bathymetry), <span class="band">/v1/water</span> for <span class="band">surface_water.recurrence</span> (JRC Global Surface Water, 1984&ndash;2021) plus <span class="band">sentinel1_raw</span> backscatter, and <span class="band">/v1/weather</span> for <span class="band">weather.precipitation_mm</span> (MET Norway nowcast). The <span class="band">flood_risk@2</span> algorithm fuses these into a single 0&ndash;1 risk score.</p>
@@ -614,7 +703,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <section class="section page" id="supplychain">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Built with emem</span></div>
+    <div class="idx"><span class="idx-num">08</span><span class="idx-label">Built with emem</span></div>
     <dl>
       <dt>use case</dt><dd>Supply-chain provenance</dd>
       <dt>output</dt><dd>signed location + land-cover attestation</dd>
@@ -624,7 +713,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">04</span>Supply-chain location verifier</h2>
+    <h2><span class="num">08</span>Supply-chain location verifier</h2>
     <p class="lede">A provenance agent that checks supply-chain origin claims (for example, &ldquo;this coffee was grown at these coordinates&rdquo;) against signed satellite evidence of what is actually at that place.</p>
 
     <p>The agent takes a claimed origin (coordinates or place name from a supplier declaration), calls <span class="band">/v1/locate</span> to resolve a cell64, then <span class="band">/v1/recall</span> to fetch signed land-cover (ESA WorldCover, the <span class="band">landcover.*</span> band family), vegetation (<span class="band">indices.ndvi</span>), and built-environment (<span class="band">overture.buildings.count</span>) facts. A coffee-farm claim at coordinates that recall as <span class="band">landcover.built</span> rather than <span class="band">landcover.crop</span> is flagged at ingest.</p>
@@ -644,7 +733,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <section class="section page" id="patterns">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Production patterns</span></div>
+    <div class="idx"><span class="idx-num">09</span><span class="idx-label">Production patterns</span></div>
     <dl>
       <dt>point-in-time</dt><dd>as_of_tslot + as_of_signed_at</dd>
       <dt>provenance</dt><dd>per-attester namespace, ed25519 signed</dd>
@@ -655,7 +744,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">05</span>Production patterns</h2>
+    <h2><span class="num">09</span>Production patterns</h2>
     <p class="lede">The patterns the four agents above share. Each call sketch is paste-runnable against <a href="https://emem.dev">emem.dev</a>; every receipt verifies offline at <a href="/verify">/verify</a>.</p>
 
     <h3>Audit-grade point-in-time evidence</h3>
@@ -704,7 +793,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <!-- The use-case shelf -->
 <section class="section page" id="use-cases">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Use-case shelf</span></div>
+    <div class="idx"><span class="idx-num">10</span><span class="idx-label">Use-case shelf</span></div>
     <dl>
       <dt>what</dt><dd>one worked diagram per industry</dd>
       <dt>gallery</dt><dd><a href="/docs/diagrams">/docs/diagrams</a></dd>
@@ -713,7 +802,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">06</span>The use-case shelf</h2>
+    <h2><span class="num">10</span>The use-case shelf</h2>
     <p class="lede">The users of the memory are AI agents, robots, and sensing platforms; the entries below are the Earth-observation uses they already pull from it. Every story runs on the same four calls; only the bands and the claim change. Each entry is one worked diagram: the workflow, the bands it reads, and where the signed handle lands.</p>
     <ul class="uc-list">
       <li><a href="/docs/diagrams#11">property &amp; casualty underwriting</a><span>price every parcel from the same signed truth</span></li>
@@ -854,5 +943,35 @@ document.querySelectorAll('.copy').forEach(function(btn){
   })();
 </script>
 
+
+<script>
+// Every figure in the meta rails above is fetched here. None is typed into
+// the markup, so none of them can quietly go stale the way the tile counts did.
+(function(){
+  function put(id, v){ var el=document.getElementById(id);
+    if(el && v!=null && v!=='') { el.textContent=v; el.removeAttribute('data-pending'); } }
+  function j(u){ return fetch(u,{headers:{accept:'application/json'}})
+    .then(function(r){ if(!r.ok) throw 0; return r.json(); }); }
+  j('/v1/agents').then(function(a){ put('sv-agents', (a.agents&&a.agents.length)||a.count); }).catch(function(){});
+  j('/v1/a2a/skills?q=').then(function(d){ put('sv-skills', (d.skills&&d.skills.length)); }).catch(function(){});
+  j('/.well-known/emem-guard.json').then(function(g){
+    var c=g.checkpoints||[];
+    put('sv-cps', c.length);
+    // `open` is the descriptor's own field for a checkpoint shape that
+    // belongs to no vendor. Guessing at a field name that did not exist
+    // counted all nine as open.
+    put('sv-cps-open', c.filter(function(x){ return x.open === true; }).length);
+  }).catch(function(){});
+  j('/v1/device_platforms').then(function(d){
+    var r=d.registry||{};
+    put('sv-plat', (r.platforms&&r.platforms.length));
+    put('sv-fam', (r.families&&r.families.length));
+  }).catch(function(){});
+  j('/v1/log/sth').then(function(s){
+    var t=(s.sth&&s.sth.tree_size)||s.tree_size;
+    put('sv-tree', t && t.toLocaleString ? t.toLocaleString() : t);
+  }).catch(function(){});
+})();
+</script>
 </body>
 </html>
