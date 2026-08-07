@@ -810,6 +810,10 @@ input::placeholder{color:var(--mute,#7a7363)}
 button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5rem;border:1px solid var(--rule-strong);background:var(--paper);cursor:pointer}
 .th-meta{display:flex;gap:.7rem;align-items:center;flex-wrap:wrap;margin-top:.5rem;font-family:var(--mono);font-size:var(--t-2xs)}
 .prov{padding:.2rem .5rem;border:1px solid var(--ink);border-radius:0}
+.th-echo{padding:.2rem .5rem;border:1px solid var(--rule-strong);border-radius:0}
+.th-echo-run{color:var(--mute)}
+.th-echo-ok{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
+.th-echo-bad{color:var(--absent);border-color:var(--absent);background:var(--absent-bg);font-weight:600}
 .prov-det{background:var(--accent-bg);color:var(--accent)}
 .prov-mod{background:var(--absent-bg);color:var(--absent)}
 .th-len{color:var(--mute)}
@@ -975,20 +979,69 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
       var md=f.band_metadata||{};
       var unit=md.units?(' '+esc(md.units)):'';
       html+='<div class="th-fact">';
-      html+='<div class="th-fact-top"><span class="th-band">'+esc(f.band||'')+'</span><span class="th-val">'+esc(String(val))+unit+'</span></div>';
+      html+='<div class="th-fact-top"><span class="th-band">'+esc(f.band||'')+'</span><span class="th-val" data-emem-token="'+esc(tok)+'" data-emem-value="'+esc(String(val))+'">'+esc(String(val))+unit+'</span></div>';
       html+='<div class="th-tok"><code>'+esc(tok)+'</code><button type="button" class="th-copy" data-t="'+esc(tok)+'">copy</button></div>';
-      html+='<div class="th-meta">'+prov(md.provenance)+'<span class="th-len">the handle is '+tok.length+' characters; the signed fact it stands for is roughly 1,600 tokens</span>'+(cid?'<a class="th-verify" href="/verify/'+esc(cid)+'">verify &rarr;</a>':'')+'</div>';
+      html+='<div class="th-meta">'+prov(md.provenance)+'<span class="th-echo th-echo-run">checking this number against the fact it cites&hellip;</span><span class="th-len">the handle is '+tok.length+' characters; the signed fact it stands for is roughly 1,600 tokens</span>'+(cid?'<a class="th-verify" href="/verify/'+esc(cid)+'">verify &rarr;</a>':'')+'</div>';
       html+='</div>';
     });
     out.innerHTML=html; out.hidden=false;
     out.querySelectorAll('.th-copy').forEach(function(b){b.addEventListener('click',function(){ if(navigator.clipboard){navigator.clipboard.writeText(b.getAttribute('data-t'));b.textContent='copied';setTimeout(function(){b.textContent='copy';},1200);} });});
+    // Every value this page renders is checked against the fact it cites,
+    // by the responder, on the page that rendered it. A number edited in the
+    // markup no longer matches its token, and this says so rather than
+    // showing a tick nobody earned.
+    out.querySelectorAll('.th-val[data-emem-token]').forEach(function(el){
+      var slot=el.closest('.th-fact').querySelector('.th-echo');
+      if(!slot) return;
+      var raw=el.getAttribute('data-emem-value');
+      var num=parseFloat(raw);
+      fetch('/v1/echo_verify',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({token:el.getAttribute('data-emem-token'),
+                             claimed_value:isNaN(num)?raw:num})})
+        .then(function(r){return r.json();})
+        .then(function(v){
+          slot.classList.remove('th-echo-run');
+          if(v && v.matches){
+            slot.classList.add('th-echo-ok');
+            slot.textContent='checked: this number matches the signed fact it cites';
+          } else {
+            slot.classList.add('th-echo-bad');
+            slot.textContent='this number does NOT match the fact it cites'
+              + (v && v.resolved_value_verbatim!=null ? ' (the fact says ' + v.resolved_value_verbatim + ')' : '');
+          }
+        })
+        .catch(function(){ slot.classList.remove('th-echo-run');
+                           slot.textContent='could not reach the responder to check this number'; });
+    });
   }
   function run(place){
     out.hidden=false;
     out.innerHTML='<div class="th-load">grounding '+esc(place)+'… a cold cell signs a fresh fact, which can take a few seconds.</div>';
-    fetch('/v1/recall',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cell:place,bands:['copdem30m.elevation_mean','indices.ndvi'],include:['freshness']})})
+    // Walk the loop this page teaches: locate, then recall the resolved
+    // address. Handing a place NAME straight to recall used to work by
+    // accident and stopped: recall resolves more strictly than locate, so
+    // the demo's own default example came back
+    // `ambiguous_top_two_candidates` and a visitor's first click was a
+    // refusal. locate is the step that turns a name into one address, and
+    // it is the reason that step exists.
+    fetch('/v1/locate',{method:'POST',headers:{'content-type':'application/json'},
+                        body:JSON.stringify({place:place})})
       .then(function(r){return r.json();})
-      .then(function(d){ if(d&&d.code&&!d.facts){ out.innerHTML='<div class="th-miss">'+esc(d.message||'could not ground that place')+'</div>'; return; } render(d); })
+      .then(function(loc){
+        var cell=loc && (loc.cell64 || (loc.cell && loc.cell.cell64));
+        if(!cell){
+          out.innerHTML='<div class="th-miss">'+esc((loc&&loc.message)||'could not ground that place')+'</div>';
+          return null;
+        }
+        return fetch('/v1/recall',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({cell:cell,bands:['copdem30m.elevation_mean','indices.ndvi'],include:['freshness']})})
+          .then(function(r){return r.json();});
+      })
+      .then(function(d){
+        if(!d) return;
+        if(d.code && !d.facts){ out.innerHTML='<div class="th-miss">'+esc(d.message||'could not ground that place')+'</div>'; return; }
+        render(d);
+      })
       .catch(function(){ out.innerHTML='<div class="th-miss">network error, try again.</div>'; });
   }
   form.addEventListener('submit',function(e){e.preventDefault();var v=q.value.trim();if(v)run(v);});
