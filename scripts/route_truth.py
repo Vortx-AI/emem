@@ -65,6 +65,17 @@ def fetch(url, method="GET", body=None, timeout=45):
         return 0, str(e)
 
 
+def fetch_status(url, timeout=12):
+    """Status line only, body left unread. For endpoints that never end."""
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--origin", default=DEFAULT_ORIGIN)
@@ -165,12 +176,19 @@ def main():
     # returns 405, which is not drift. That is the same mistake the parity
     # harness made before it learned to read operationIds.
     methods = {}
+    streaming = set()
     try:
         doc = json.loads(fetch(f"{origin}/openapi.json")[1])
         for path, ops in (doc.get("paths") or {}).items():
-            for verb in ops:
+            for verb, op in ops.items():
                 if verb.upper() in ("GET", "POST"):
                     methods.setdefault(path, verb.upper())
+                # A long-lived stream never finishes a body, so reading one
+                # times out and reports code 0, which is indistinguishable
+                # from an outage. /v1/memory/sse spent a run in the dead list
+                # for that reason while serving perfectly.
+                if "event-stream" in json.dumps(op.get("responses") or {}):
+                    streaming.add(path)
     except Exception:
         methods = {}
 
@@ -205,7 +223,13 @@ def main():
         # that is not 404 or 405 counts as present.
         # Short timeout: this is a reachability sweep over ~100 URLs, not a
         # latency test, and a slow route is checked elsewhere.
-        code, _ = fetch(u, verb, {} if verb == "POST" else None, timeout=12)
+        if path in streaming:
+            # Headers only: the question is whether the stream opens, and
+            # urlopen returns as soon as it has a status line. Reading the
+            # body is what hangs, so do not.
+            code = fetch_status(u)
+        else:
+            code, _ = fetch(u, verb, {} if verb == "POST" else None, timeout=12)
         if code == 404 or code == 405 or code == 0:
             dead.append((u, code, sorted(advertised[u])))
     print(f"\n  {'ok  ' if not dead else 'FAIL'} {len(advertised)} emem.dev URLs "
