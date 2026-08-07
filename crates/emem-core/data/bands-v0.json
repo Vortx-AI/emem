@@ -481,7 +481,12 @@
         "dem.elevation_mean",
         "dem.slope_mean",
         "dem.aspect_mean"
-      ]
+      ],
+      "scalar_units": {
+        "dem.aspect_mean": "degrees",
+        "dem.elevation_mean": "metres",
+        "dem.slope_mean": "degrees"
+      }
     },
     {
       "key": "landcover",
@@ -876,7 +881,12 @@
         "nightlights.year",
         "nightlights.satellite"
       ],
-      "references": "Elvidge et al. 1997 (DMSP-OLS); Li & Zhou 2017 (Remote Sensing 9:637, DN-to-radiance regression)"
+      "references": "Elvidge et al. 1997 (DMSP-OLS); Li & Zhou 2017 (Remote Sensing 9:637, DN-to-radiance regression)",
+      "scalar_units": {
+        "nightlights.dmsp_ols_avg_dn": "digital number (uint8, 0..63)",
+        "nightlights.satellite": "satellite identifier (string)",
+        "nightlights.year": "calendar year"
+      }
     },
     {
       "key": "ghsl",
@@ -898,7 +908,12 @@
         "ghsl.built_surface_m2",
         "ghsl.built_volume_m3",
         "ghsl.smod_class"
-      ]
+      ],
+      "scalar_units": {
+        "ghsl.built_surface_m2": "m2 of built surface",
+        "ghsl.built_volume_m3": "m3 of built volume",
+        "ghsl.smod_class": "SMOD settlement class code (integer, not a quantity)"
+      }
     },
     {
       "key": "population",
@@ -945,7 +960,12 @@
         "forest_change.lossyear",
         "forest_change.treecover2000",
         "forest_change.gain"
-      ]
+      ],
+      "scalar_units": {
+        "forest_change.gain": "boolean (1 = gain observed)",
+        "forest_change.lossyear": "year of loss (0 = no loss; otherwise 2000 + value)",
+        "forest_change.treecover2000": "percent canopy cover in 2000"
+      }
     },
     {
       "key": "mangrove",
@@ -1058,7 +1078,12 @@
         "terraclimate.tmean_normal_c",
         "terraclimate.precip_normal_mm",
         "terraclimate.aet_normal_mm"
-      ]
+      ],
+      "scalar_units": {
+        "terraclimate.aet_normal_mm": "mm/year",
+        "terraclimate.precip_normal_mm": "mm/month",
+        "terraclimate.tmean_normal_c": "degrees Celsius"
+      }
     },
     {
       "key": "cop_dem",
@@ -1082,7 +1107,15 @@
         "copdem30m.slope_mean",
         "copdem30m.aspect_sin",
         "copdem30m.aspect_cos"
-      ]
+      ],
+      "scalar_units": {
+        "copdem30m.aspect_cos": "unitless (cosine of aspect, [-1, +1])",
+        "copdem30m.aspect_sin": "unitless (sine of aspect, [-1, +1])",
+        "copdem30m.elevation_mean": "metres",
+        "copdem30m.elevation_p10": "metres",
+        "copdem30m.elevation_p90": "metres",
+        "copdem30m.slope_mean": "degrees"
+      }
     },
     {
       "key": "soilgrids",
@@ -1106,7 +1139,15 @@
         "soilgrids.silt_0_30cm",
         "soilgrids.bulk_density_0_30cm",
         "soilgrids.ph_0_30cm"
-      ]
+      ],
+      "scalar_units": {
+        "soilgrids.bulk_density_0_30cm": "kg/dm3",
+        "soilgrids.clay_0_30cm": "g/100g",
+        "soilgrids.ph_0_30cm": "pH x10",
+        "soilgrids.sand_0_30cm": "g/100g",
+        "soilgrids.silt_0_30cm": "g/100g",
+        "soilgrids.soc_0_30cm": "g/kg"
+      }
     },
     {
       "key": "ecoregions",
@@ -1170,7 +1211,10 @@
       "references": "Bourgoin, C. et al. 2026. GFC2020: A Global Map of Forest Land Use for year 2020 to support the EU Deforestation Regulation. ESSD 18:1331. DOI 10.5194/essd-2025-351. Data: https://forobs.jrc.ec.europa.eu/GFC ; single COG: https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V3_COG.tif",
       "scalar_keys": [
         "jrc_gfc2020.forest_2020"
-      ]
+      ],
+      "scalar_units": {
+        "jrc_gfc2020.forest_2020": "boolean (1 = EUDR-definition forest at the 2020-12-31 cut-off)"
+      }
     },
     {
       "key": "jrc_tmf",
@@ -1212,7 +1256,11 @@
       "scalar_keys": [
         "radd.alert_date",
         "radd.confidence"
-      ]
+      ],
+      "scalar_units": {
+        "radd.alert_date": "encoded date (YYYYDDD julian, not a quantity)",
+        "radd.confidence": "confidence class (2 = low, 3 = high; not a quantity)"
+      }
     },
     {
       "key": "wri_gdm",
@@ -1405,7 +1453,11 @@
       "scalar_keys": [
         "opera_dist.veg_dist_status",
         "opera_dist.veg_dist_date"
-      ]
+      ],
+      "scalar_units": {
+        "opera_dist.veg_dist_date": "calendar date (YYYYMMDD, not a quantity)",
+        "opera_dist.veg_dist_status": "status class (0 = none, 1-4 provisional, 5-8 confirmed; not a quantity)"
+      }
     },
     {
       "key": "reserved",

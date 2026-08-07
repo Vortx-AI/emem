@@ -11082,6 +11082,11 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
                     }
                 }
             }
+            // A unit stated for this exact scalar key beats the band-wide
+            // string, which for ten cube bands names several units at once.
+            if let Some(u) = b.scalar_units.get(band_key) {
+                map.insert("units".into(), json!(u));
+            }
             map.insert("inherited_from_cube_band".into(), json!(cube_band));
         }
     }

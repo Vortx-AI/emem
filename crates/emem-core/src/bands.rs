@@ -298,6 +298,21 @@ pub struct Band {
     /// `/v1/materializers` separately.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scalar_keys: Vec<String>,
+    /// Units for individual `scalar_keys`, where the band-wide `units`
+    /// string describes several of them at once.
+    ///
+    /// Ten cube bands pair one `units` string with several scalars, so 32
+    /// scalar bands reported a unit that was not theirs:
+    /// `copdem30m.elevation_mean` answered
+    /// `"metres (elevation), degrees (slope), unitless (sin/cos)"`, and an
+    /// agent reading that cannot tell what the number is in. The
+    /// `dimensions[]` overlay already solves this where it is populated, but
+    /// it requires a slot `index` this registry does not record for these
+    /// bands, and inventing one would publish a worse claim than the one
+    /// being fixed. This carries only what is actually known: the unit of a
+    /// named scalar.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub scalar_units: std::collections::BTreeMap<String, String>,
 }
 
 /// The full band-ontology manifest.
@@ -432,7 +447,20 @@ pub fn cube_band_alias(band_key: &str) -> &str {
         // value_range live in dimensions[]; the dimension lookup
         // in the API layer pulls the right one by name.
         b if b.starts_with("cams.") => "air_quality",
-        _ => band_key,
+        // Everything else whose prefix IS the cube band key. The table above
+        // exists for scalars whose prefix does NOT match their band
+        // ("copdem30m." rides "cop_dem", "hansen." rides "forest_change"),
+        // and every band whose scalars share its own name was simply left
+        // out. That silently cost 41 scalar keys all of their registry
+        // metadata: no units, no description, no pitfalls, and worst,
+        // provenance_class_for fell through to `Unclassified`, the
+        // lowest-trust class. jrc_gfc2020.forest_2020, the EUDR forest flag,
+        // was one of them, and so was every RADD and OPERA alert.
+        //
+        // The caller looks the result up in the registry and falls back to
+        // the full key if it misses, so returning a prefix that is not a band
+        // is harmless.
+        b => b.split_once('.').map(|(prefix, _)| prefix).unwrap_or(b),
     }
 }
 
