@@ -10,7 +10,6 @@
 :root{
   --paper:#0f1012; --paper-2:#16181c; --paper-3:#1d2025; --rule:#272b32; --rule-2:#363b44;
   --ink:#f3f5f8; --ink-2:#c5cbd4; --mute:#8b939e;
-  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --ok:#4ade80; --warn:#e8a33d; --bad:#e2574c;
 }
 @media (prefers-color-scheme:light){
@@ -45,7 +44,7 @@ body{margin:0;background:var(--paper);color:var(--ink);overflow:hidden;
 
 /* the fairness callout: the single most important sentence on the page */
 .why{padding:.5rem 1rem;background:var(--paper-3);border-bottom:1px solid var(--rule);
-  font-size:.79rem;color:var(--ink-2);line-height:1.5}
+  font-size:var(--t-xs);color:var(--ink-2);line-height:1.5}
 .why b{color:var(--ink)}
 
 .board{flex:1;display:grid;grid-template-columns:1fr 310px;min-height:0}
@@ -57,7 +56,7 @@ svg{width:100%;height:100%;display:block}
 .gl{stroke:var(--rule);stroke-dasharray:2 4}
 .ax{fill:var(--mute);font-family:var(--mono);font-size:var(--t-3xs)}
 .heatlbl{font-family:var(--mono);font-size:var(--t-3xs);font-weight:700;letter-spacing:.04em}
-.heatsub{font-family:var(--mono);font-size:9.5px;fill:var(--mute)}
+.heatsub{font-family:var(--mono);font-size:var(--t-3xs);fill:var(--mute)}
 .band{fill:var(--paper-2);opacity:.55}
 .lbl{font-family:var(--mono);font-size:var(--t-3xs);font-weight:600}
 .cursor{stroke:var(--ink-2);stroke-width:1;stroke-dasharray:3 3;opacity:.65}
@@ -84,7 +83,7 @@ svg{width:100%;height:100%;display:block}
 .ev{margin:.3rem .2rem .8rem;border:1px solid var(--rule);border-radius:4px;overflow:hidden}
 .ev-h{padding:.4rem .55rem;background:var(--paper-3);font-family:var(--mono);font-size:var(--t-2xs);
   color:var(--ink-2);display:flex;gap:.4rem;align-items:center}
-.ev-r{padding:.45rem .55rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:.69rem;
+.ev-r{padding:.45rem .55rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:var(--t-3xs);
   line-height:1.55}
 .ev-r .c{color:var(--mute);font-size:var(--t-3xs)}
 .ev-r .s{color:var(--ok)}.ev-r .g{color:var(--ink)}
@@ -105,7 +104,7 @@ svg{width:100%;height:100%;display:block}
 .t-r{font-size:var(--t-2xs);line-height:1.55}
 .t-r .hd{color:var(--ink-2)}
 .t-r .cost{color:var(--bad);display:block;margin-top:.25rem}
-.t-r .nc{color:var(--mute);display:block;margin-top:.2rem;font-size:.71rem}
+.t-r .nc{color:var(--mute);display:block;margin-top:.2rem;font-size:var(--t-2xs)}
 .st{font-size:var(--t-3xs);padding:.08rem .34rem;border-radius:2px;font-family:var(--mono);font-weight:700}
 .st.run{background:rgba(232,163,61,.18);color:var(--warn)}
 .st.pub{background:rgba(78,168,222,.18);color:#4ea8de}
@@ -116,10 +115,10 @@ svg{width:100%;height:100%;display:block}
   border-top:1px solid var(--rule);background:var(--paper-2);flex-wrap:wrap}
 .scrub{flex:1;min-width:180px;accent-color:var(--ink-2)}
 .play{width:34px;height:26px;display:inline-flex;align-items:center;justify-content:center}
-.note{font-size:.71rem;color:var(--mute);width:100%;line-height:1.45}
+.note{font-size:var(--t-2xs);color:var(--mute);width:100%;line-height:1.45}
 .note code{font-family:var(--mono);color:var(--ink-2)}
 #tip{position:absolute;pointer-events:none;background:var(--paper-3);border:1px solid var(--rule-2);
-  border-radius:3px;padding:.4rem .55rem;font-family:var(--mono);font-size:.71rem;color:var(--ink);
+  border-radius:3px;padding:.4rem .55rem;font-family:var(--mono);font-size:var(--t-2xs);color:var(--ink);
   opacity:0;transition:opacity .12s;white-space:nowrap;z-index:5}
 </style>
 
@@ -151,7 +150,7 @@ they are doing different jobs.<div id="why2" style="margin-top:.35rem;color:var(
     <h2 style="margin-top:.9rem">check it yourself <em>click an arm above</em></h2>
     <div id="evidence" style="padding:0 .1rem"></div>
     <h2 style="margin-top:.9rem">reading it</h2>
-    <div style="font-size:.73rem;color:var(--mute);line-height:1.55;padding:0 .3rem 1rem">
+    <div style="font-size:var(--t-2xs);color:var(--mute);line-height:1.55;padding:0 .3rem 1rem">
       <b style="color:var(--ink-2)">Byte-exact</b> is whether the answer equals the signed value
       character for character, which is what a citation needs.
       <b style="color:var(--ink-2)">Material</b> is whether the error is big enough to change a
@@ -307,11 +306,11 @@ they are doing different jobs.<div id="why2" style="margin-top:.35rem;color:var(
   function esc(t){return String(t).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
   function renderEvidence(){
     var box=$('evidence');
-    if(!sel){ box.innerHTML='<div style="font-size:.71rem;color:var(--mute);padding:.2rem .3rem">'
+    if(!sel){ box.innerHTML='<div style="font-size:var(--t-2xs);color:var(--mute);padding:.2rem .3rem">'
       +'Click any arm to see REAL rows from the run: the cell, the signed value, and what the model'
       +' actually answered. Wins and losses both. Shift-click to hide a lane instead.</div>'; return; }
     var a=(data.arms||[]).filter(function(x){return x.arm===sel})[0];
-    if(!a||!(a.examples||[]).length){ box.innerHTML='<div style="font-size:.71rem;color:var(--mute);padding:.3rem">No sampled rows yet for this arm.</div>'; return; }
+    if(!a||!(a.examples||[]).length){ box.innerHTML='<div style="font-size:var(--t-2xs);color:var(--mute);padding:.3rem">No sampled rows yet for this arm.</div>'; return; }
     var h='<div class="ev"><div class="ev-h"><span class="dot" style="background:'+col(a.arm)+'"></span>'
       + (LAB[a.arm]||a.arm) + ' &middot; sampled rows</div>';
     a.examples.forEach(function(e){

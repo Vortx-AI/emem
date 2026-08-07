@@ -44,8 +44,20 @@
   --accent-dim:oklch(0.55 0.10 145);
   --warn:oklch(0.50 0.11 35);    --pending:oklch(0.55 0.12 75);
   --info:oklch(0.50 0.13 270);
-  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   --sans:var(--mono);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
+    --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
+    --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
+    --fg-3:oklch(0.60 0.005 85);  --fg-mute:oklch(0.45 0.005 85);
+    --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
+    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+    --accent-dim:oklch(0.66 0.10 145);
+    --warn:oklch(0.72 0.13 35);   --pending:oklch(0.78 0.13 75);
+    --info:oklch(0.78 0.14 270);
+  }
 }
 
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -67,7 +79,7 @@ button.primary{border-color:var(--accent);color:var(--accent);background:var(--a
 button.primary:hover{background:var(--accent-bg);filter:brightness(.98)}
 button.ghost{border:none;padding:.3em .6em;color:var(--fg-2)}
 input,textarea{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
-  border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:12.5px;
+  border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:var(--t-2xs);
   font-variant-ligatures:none}
 input:focus,textarea:focus{border-color:var(--accent)}
 textarea{min-height:120px;resize:vertical;line-height:1.5}
@@ -85,11 +97,11 @@ hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
   .input-card .row input,.input-card .row button{flex:none;width:100%}
 }
 @media(max-width:480px){
-  html{font-size:13.5px}
+  html{font-size:var(--t-xs)}
   .lede{font-size:var(--t-xs)}
   .card{padding:.9em 1em}
-  .card .grid{font-size:11.5px}
-  .recipes pre{font-size:10.5px}
+  .card .grid{font-size:var(--t-2xs)}
+  .recipes pre{font-size:var(--t-3xs)}
   .source-row{flex-wrap:wrap}
 }
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
@@ -104,14 +116,14 @@ header.top .navlinks a{color:var(--fg-3);border-bottom:none}
 header.top .navlinks a:hover{color:var(--accent)}
 @media(max-width:760px){header.top .tag{display:none}}
 
-.lede{color:var(--fg-2);font-size:14.5px;margin:0 0 1.4em;line-height:1.65;max-width:680px}
+.lede{color:var(--fg-2);font-size:var(--t-sm);margin:0 0 1.4em;line-height:1.65;max-width:680px}
 .lede b{color:var(--fg);font-weight:500}
 .lede .accent{color:var(--accent);font-weight:500}
 
 /* input section */
 .input-card{background:var(--bg-1);border:1px solid var(--line);padding:1.1em 1.2em;
   border-radius:4px;margin-bottom:1.3em}
-.input-card label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+.input-card label{display:block;font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;
   text-transform:uppercase;color:var(--fg-mute);margin-bottom:.45em}
 .input-card .row{display:flex;gap:.55em;align-items:stretch;flex-wrap:wrap}
 .input-card .row input{flex:1;min-width:200px}
@@ -121,15 +133,15 @@ header.top .navlinks a:hover{color:var(--accent)}
 .input-card .examples{margin-top:.55em;display:flex;flex-wrap:wrap;gap:.3em;align-items:center}
 .input-card .examples .lbl{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;
   color:var(--fg-mute);text-transform:uppercase;margin-right:.3em}
-.input-card .examples button{font-size:10.5px;padding:.22em .55em;border-radius:99px;background:var(--bg-2)}
+.input-card .examples button{font-size:var(--t-3xs);padding:.22em .55em;border-radius:99px;background:var(--bg-2)}
 
 /* status banner */
 .status{display:flex;align-items:center;gap:.7em;padding:1em 1.2em;border-radius:4px;
   margin-bottom:1.3em;font-family:var(--mono);font-size:var(--t-xs);border:1px solid var(--line)}
-.status .glyph{font-size:24px;line-height:1;flex-shrink:0;
+.status .glyph{font-size:var(--t-xl);line-height:1;flex-shrink:0;
   width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%}
 .status .text{flex:1}
-.status .sub{font-size:11.5px;color:var(--fg-3);margin-top:.18em;line-height:1.5}
+.status .sub{font-size:var(--t-2xs);color:var(--fg-3);margin-top:.18em;line-height:1.5}
 .status.ok{border-color:var(--accent);background:var(--accent-bg)}
 .status.ok .glyph{background:var(--accent-bg);color:var(--accent)}
 .status.ok .text{color:var(--accent)}
@@ -157,11 +169,11 @@ header.top .navlinks a:hover{color:var(--accent)}
 .card h3{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.18em;
   color:var(--fg-mute);text-transform:uppercase;margin:0 0 .9em;font-weight:500;
   display:flex;align-items:center;gap:.55em}
-.card h3 .pill{font-size:9.5px;letter-spacing:.1em;padding:.1em .55em;border:1px solid var(--line-2);
+.card h3 .pill{font-size:var(--t-3xs);letter-spacing:.1em;padding:.1em .55em;border:1px solid var(--line-2);
   border-radius:99px;color:var(--fg-3);background:var(--bg-2);text-transform:none}
-.card .grid{display:grid;grid-template-columns:auto 1fr;gap:.5em 1.2em;font-family:var(--mono);font-size:12.5px}
+.card .grid{display:grid;grid-template-columns:auto 1fr;gap:.5em 1.2em;font-family:var(--mono);font-size:var(--t-2xs)}
 @media(max-width:600px){.card .grid{grid-template-columns:1fr;gap:.2em .8em}}
-.card .grid .k{color:var(--fg-mute);font-size:10.5px;letter-spacing:.06em;text-transform:lowercase;
+.card .grid .k{color:var(--fg-mute);font-size:var(--t-3xs);letter-spacing:.06em;text-transform:lowercase;
   padding-top:.18em;align-self:start}
 @media(min-width:601px){.card .grid .k{text-align:right}}
 .card .grid .v{color:var(--fg);word-break:break-all;line-height:1.55}
@@ -181,7 +193,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 .chip[data-kind=fail] .dot{background:var(--warn)}
 .chip[data-kind=fail]{color:var(--warn);border-color:var(--warn)}
 .value-preview{background:var(--bg-2);border:1px solid var(--line);padding:.55em .7em;
-  border-radius:3px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
+  border-radius:3px;font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);
   white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;margin-top:.2em}
 .actions{display:flex;gap:.4em;margin-top:.85em;flex-wrap:wrap}
 .actions button{font-size:var(--t-3xs);padding:.3em .65em}
@@ -189,17 +201,17 @@ header.top .navlinks a:hover{color:var(--accent)}
 /* sources block */
 .source-row{display:flex;align-items:center;gap:.6em;padding:.45em 0;border-bottom:1px dashed var(--line)}
 .source-row:last-child{border-bottom:none}
-.source-row .lic{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);
+.source-row .lic{font-family:var(--mono);font-size:var(--t-3xs);color:var(--fg-3);
   border:1px solid var(--line);padding:.05em .4em;border-radius:99px;background:var(--bg-2);
   white-space:nowrap;flex-shrink:0}
-.source-row a{color:var(--fg-2);font-family:var(--mono);font-size:11.5px;flex:1;
+.source-row a{color:var(--fg-2);font-family:var(--mono);font-size:var(--t-2xs);flex:1;
   overflow-wrap:anywhere}
 .source-row a:hover{color:var(--accent)}
 
 /* "verify it yourself" recipes */
 .recipes{display:grid;gap:.6em;margin-top:.4em}
 .recipes details{background:var(--bg-2);border:1px solid var(--line);padding:.55em .8em;
-  border-radius:3px;font-family:var(--mono);font-size:11.5px}
+  border-radius:3px;font-family:var(--mono);font-size:var(--t-2xs)}
 .recipes summary{cursor:pointer;color:var(--fg-2);outline:none;list-style:none}
 .recipes summary::-webkit-details-marker{display:none}
 .recipes summary::before{content:"▸ ";color:var(--fg-mute)}
@@ -220,7 +232,7 @@ header.top .navlinks a:hover{color:var(--accent)}
   border-radius:99px;cursor:help;letter-spacing:.02em}
 .gloss .gchip:hover{color:var(--accent);border-color:var(--accent)}
 .gpop{position:absolute;background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
-  border-radius:4px;font-family:var(--mono);font-size:11.5px;color:var(--fg);
+  border-radius:4px;font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);
   max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.18);line-height:1.6;z-index:10;display:none}
 .gpop.on{display:block}
 .gpop b{color:var(--accent);font-weight:600}
@@ -246,7 +258,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 /* toast */
 .toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
   background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
-  border-radius:3px;font-family:var(--mono);font-size:11.5px;z-index:200;opacity:0;
+  border-radius:3px;font-family:var(--mono);font-size:var(--t-2xs);z-index:200;opacity:0;
   pointer-events:none;transition:opacity .18s ease,transform .18s ease;
   box-shadow:0 8px 32px rgba(0,0,0,.18)}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -394,7 +406,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <section class="card" aria-label="Verify it yourself">
     <h3>verify it yourself <span class=pill>three independent paths</span></h3>
-    <p class=muted style="font-size:12.5px;margin:0 0 .8em;line-height:1.6">
+    <p class=muted style="font-size:var(--t-2xs);margin:0 0 .8em;line-height:1.6">
       The receipt's signature is reproducible from primitives every system already has. Pick whichever recipe
       matches your toolchain; they all compute the same byte-for-byte digest and run the same ed25519 verify.
     </p>
@@ -425,7 +437,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <section class="card" aria-label="Transparency log">
     <h3>transparency log <span class=pill>append-only anchor</span></h3>
-    <p class=muted style="font-size:12.5px;margin:0 0 .8em;line-height:1.6">
+    <p class=muted style="font-size:var(--t-2xs);margin:0 0 .8em;line-height:1.6">
       An RFC 6962 Merkle tree (BLAKE3) records every attestation batch. Pin its signed head now; later prove the log
       only grew, never rewrote history. The head's signature verifies against the responder's key by the rule at
       <a href="/v1/verifier_spec" target=_blank rel=noopener><code>/v1/verifier_spec</code></a>
@@ -1076,7 +1088,7 @@ function renderReceipt(receipt, result){
                                                  : bytesToHex(buildPreimageBytes(receipt));
   const preimageLen = result && result.preimage ? result.preimage.length
                                                  : buildPreimageBytes(receipt).length;
-  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:10.5px;margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:var(--t-3xs);display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:10.5px;margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:10.5px;display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
+  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:var(--t-3xs);margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:var(--t-3xs);display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:var(--t-3xs);margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:var(--t-3xs);display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
   if (result && result.digest) {
     rows.push(['blake3(preimage)', `<code style="font-size:11px">${escapeHtml(bytesToHex(result.digest))}</code> <span class=muted>· 32-byte digest, ed25519 verifies this</span>`]);
   }

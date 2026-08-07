@@ -35,7 +35,6 @@
     --accent:  oklch(0.45 0.09 145);
     --warn:    oklch(0.55 0.16 25);
     --info:    oklch(0.55 0.12 230);
-    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   }
   
 
@@ -85,7 +84,7 @@
     display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
     margin-bottom: 0.5rem;
   }
-  .pg-head h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+  .pg-head h1 { margin: 0; font-size:var(--t-base); font-weight: 700; letter-spacing: -.01em; }
   .pg-head .sub { font-size:var(--t-2xs); color: var(--mute); }
   .pg-head a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--rule); }
   .pg-head a:hover { border-bottom-color: var(--accent); }
@@ -105,7 +104,7 @@
     color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
   }
   .pg-tabs .method-chip {
-    display: inline-block; font-size: 9.5px;
+    display: inline-block; font-size:var(--t-3xs);
     padding: 1px 5px; border-radius: 2px;
     background: var(--accent); color: var(--paper);
     margin-right: .4em; font-weight: 700; vertical-align: 1px;
@@ -141,7 +140,7 @@
 
   .pg-actions { display: flex; gap: .5em; margin-top: .7em; flex-wrap: wrap; }
   .pg-actions button {
-    font: inherit; font-family: var(--mono); font-size: 11.5px;
+    font: inherit; font-family: var(--mono); font-size:var(--t-2xs);
     background: transparent; color: var(--ink); cursor: pointer;
     border: 1px solid var(--rule); border-radius: 3px;
     padding: .45em .9em; letter-spacing: .02em;
@@ -155,7 +154,7 @@
   .pg-actions button[disabled] { opacity: .4; cursor: not-allowed; }
 
   pre.pg-out {
-    margin: 0; font-family: var(--mono); font-size: 11.5px;
+    margin: 0; font-family: var(--mono); font-size:var(--t-2xs);
     background: var(--paper); color: var(--ink);
     border: 1px solid var(--rule); border-radius: 3px;
     padding: .7em .9em; max-height: 480px; overflow: auto;
@@ -169,7 +168,7 @@
   .pg-chip {
     display: inline-flex; align-items: center; gap: .35em;
     padding: 2px 7px; border-radius: 99px;
-    font-size: 10.5px; border: 1px solid var(--rule);
+    font-size:var(--t-3xs); border: 1px solid var(--rule);
     font-weight: 600; letter-spacing: .02em;
   }
   .pg-chip.ok   { color: var(--accent); border-color: var(--accent); background: color-mix(in oklch, var(--accent) 8%, transparent); }

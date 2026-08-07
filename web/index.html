@@ -29,6 +29,7 @@
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css">
 <!-- ##GA_BEGIN## -->
 <script>
 // Google Consent Mode v2: every storage purpose denied before gtag.js
@@ -53,76 +54,8 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
 <!-- ##GA_END## -->
 <script type=application/ld+json>{"@context":"https://schema.org","@graph":[{"@type":"WebAPI","@id":"https://emem.dev/#api","name":"emem","url":"https://emem.dev","description":"Shared, verifiable memory for AI agents, robots, and world models. Every place, fact, and object gets one signed, citeable identity, grounded in Earth observation. Every read is an ed25519-signed receipt with a content-addressed CID, checkable offline.","documentation":"https://emem.dev/openapi.json","provider":{"@id":"https://vortx.ai/#org"},"license":"https://www.apache.org/licenses/LICENSE-2.0","termsOfService":"https://emem.dev/terms"},{"@type":"SoftwareApplication","@id":"https://emem.dev/#app","name":"emem","applicationCategory":"DeveloperApplication","operatingSystem":"Linux, macOS, Windows","url":"https://emem.dev","downloadUrl":"https://github.com/Vortx-AI/emem","license":"https://www.apache.org/licenses/LICENSE-2.0","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"creator":{"@id":"https://vortx.ai/#org"}},{"@type":"WebSite","@id":"https://emem.dev/#site","name":"emem","url":"https://emem.dev","publisher":{"@id":"https://vortx.ai/#org"},"potentialAction":{"@type":"SearchAction","target":{"@type":"EntryPoint","urlTemplate":"https://emem.dev/v1/locate?place={query}"},"query-input":"required name=query"}},{"@type":"Organization","@id":"https://vortx.ai/#org","name":"Vortx AI Private Limited","url":"https://vortx.ai","email":"avijeet@vortx.ai","logo":"https://emem.dev/logo.png","sameAs":["https://github.com/Vortx-AI"]},{"@type":"Service","@id":"https://emem.dev/#service","name":"emem use cases","provider":{"@id":"https://vortx.ai/#org"},"serviceType":"Shared, verifiable memory for AI agents","areaServed":{"@type":"Place","name":"Earth"},"hasOfferCatalog":{"@type":"OfferCatalog","name":"emem agent use cases","itemListElement":[{"@type":"Offer","itemOffered":{"@type":"Service","name":"Consumer health","description":"Air quality (CAMS PM2.5, NO₂, O₃), urban heat exposure, wildfire smoke risk, pollen seasonality."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Real estate and insurance","description":"Flood risk composite, walkability, elevation, surface-water recurrence, storm-surge exposure."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Climate finance and carbon MRV","description":"Above-ground biomass proxies, mangrove cover, deforestation rate, NDVI / EVI trajectories with signed receipts for VM0042 / VCS / Gold Standard MRV."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"ESG and SDG reporting","description":"Biodiversity proxies (Tessera embedding novelty), supply-chain forest-loss adjacency, land-cover transitions for SDG 15."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Agriculture","description":"Crop stress (NDVI / NDRE), evapotranspiration (MODIS ET), soil moisture proxy, growing-season anomaly."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Urban planning","description":"Surface temperature, urban heat island, building density (Overture), road network length, green-space share."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Disaster response","description":"S1 backscatter for flood extent under cloud, MODIS burned area, JRC GSW for permanent vs flood water."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Conservation and biodiversity","description":"Hansen forest loss, ESA WorldCover transitions, ecoregion lookup, mangrove change."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Energy siting","description":"Solar irradiance (NASA POWER), wind speed (ERA5), DEM slope, land cover constraints."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Mining impact","description":"Pre / post NDVI delta, surface-water encroachment, land-cover change attestable per cell."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Tourism and recreation","description":"Marine wave height (ECMWF WAM), SST, snow cover seasonality, weather nowcast (MET Norway)."}},{"@type":"Offer","itemOffered":{"@type":"Service","name":"Fisheries","description":"Sea-surface temperature, ocean chlorophyll-a proxy, marine wave conditions, bathymetry (GMRT)."}}]}},{"@type":"FAQPage","@id":"https://emem.dev/#faq","mainEntity":[{"@type":"Question","name":"What is emem?","acceptedAnswer":{"@type":"Answer","text":"emem is a shared, verifiable memory for AI agents. Every place on Earth gets a stable address called a cell64 (about 10 m on a side). Facts at that address (elevation, weather, land cover, foundation embeddings) are recall-able as Cell × Band × Tslot → Fact, signed with ed25519, content-addressed with blake3. There are no API keys for read endpoints."}},{"@type":"Question","name":"How do I connect Claude, Cursor, Cline, Gemini, or ChatGPT?","acceptedAnswer":{"@type":"Answer","text":"Point any MCP client at https://emem.dev/mcp. tools/list advertises the 15 core tools, which keeps the descriptors out of your context; call emem_tools to search the rest or fetch one tool's schema, and note that every tool stays callable by name whether or not it was advertised. Point at https://emem.dev/mcp/full instead to have all 105 registered up front. Claude Code, Claude Desktop, Cursor, Cline, Gemini CLI, and ChatGPT Custom GPTs all support Streamable HTTP MCP. For ChatGPT Actions, import https://emem.dev/openapi.action.json with auth: none."}},{"@type":"Question","name":"Does it cost anything?","acceptedAnswer":{"@type":"Answer","text":"L0 and L1 read endpoints are free and anonymous. No accounts, no API keys, no payment. Apache-2.0 source. Operators self-hosting their own responder pay only for their own compute."}},{"@type":"Question","name":"Can I verify the answers offline?","acceptedAnswer":{"@type":"Answer","text":"Yes. Every read returns a receipt with the responder's ed25519 public key, the signed payload, and the content-addressed CID for each fact. Recompute blake3 over the canonical CBOR fact, verify ed25519 against the signer pubkey, and the answer is reproducible. POST /v1/verify_receipt does this for you, or do it offline in any ed25519 + blake3 implementation."}},{"@type":"Question","name":"Where does the data come from?","acceptedAnswer":{"@type":"Answer","text":"Sentinel-2 L2A and Sentinel-1 GRD via the Element84 STAC, MODIS Terra/Aqua via NASA LP DAAC, Copernicus DEM, GMRT topo and bathy, JRC Global Surface Water, Hansen Global Forest Change, ESA WorldCover, SoilGrids 2.0, MET Norway nowcast weather, ECMWF ERA5 and CAMS via Open-Meteo, NASA POWER, Overture Maps. Foundation embeddings: Tessera v1 (Cambridge), Clay v1.5 (Clay Foundation), Prithvi-EO-2.0 (NASA / IBM), Galileo Base (NASA Harvest)."}},{"@type":"Question","name":"How does emem handle GDPR, CCPA, and DPDP? Does it use Google Analytics?","acceptedAnswer":{"@type":"Answer","text":"The canonical channel carries no PII. The hosted responder logs only a blake3-hashed truncated IP (non-reversible), the request path, and GET query strings, retained for 30 days then vacuumed by systemd-journald. The HTML landing page loads Google Analytics 4 (operator-configurable measurement ID, see /.well-known/agent-card.json) under Consent Mode v2 with default-denied. An explicit consent banner asks human visitors whether to enable cookie-based analytics, with equal-prominence Accept and Reject buttons. AI crawlers do not run JS and do not see the banner. The decision is stored in a first-party cookie emem_consent (180-day max-age, SameSite=Lax, Secure) and can be revoked via the Manage cookies link in the footer. Data subject rights under GDPR Art. 15-21, UK GDPR, India DPDP 2023, and CCPA / CPRA route to avijeet@vortx.ai. Full policy at https://emem.dev/privacy."}}]}]}</script>
 <style>
-:root{
-  --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
-  --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
-  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
-  --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
-  --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);--vermilion:oklch(0.50 0.16 30);
-  --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
-  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
-  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
-  /* Two families, and the split carries meaning rather than decoration.
-     Mono is the machine record: tokens, addresses, code, measured
-     numbers, anything a reader could resolve or recompute. Serif is the
-     human claim: headlines and the sentences that frame what the record
-     means. That is emem's own thesis set in type, since prose here is
-     never evidence and the token always is. A reader can tell which
-     they are looking at before reading a word.
+:root{ /* tokens come from /tokens.css, which was generated from this block */ }
 
-     Newsreader carries an optical-size axis, so a 110px hero and a 26px
-     section head are drawn as different letterforms rather than one
-     shape scaled, which is what makes large type look drawn rather
-     than stretched. */
-  --display:'Newsreader',Georgia,'Times New Roman',serif;
-  --pad-x:1.5rem;--col-meta:13.75rem;
-  /* One type scale for the whole page, built on the golden ratio.
-     Body copy sits at --t-base (1rem = 16px). Steps above it are phi
-     (1.618) and its square root (1.272) alternating, so every jump is
-     either a full golden step or a half one and nothing lands by taste.
-     Steps below body use the same ladder inverted.
-
-     The previous scale stepped by ~1.2, which is too small a jump to
-     read as a change: 1rem to 1.0625rem is a six percent difference
-     nobody sees. Worse, --t-xs and --t-sm carried 107 of the page's
-     sized elements between them at 12px and 13px, so the page was
-     mostly set two steps below its own body size. Raising those two
-     tokens is the single highest-leverage change here.
-
-     Edit html{font-size} to retune everything without touching a rule. */
-  --t-3xs:.694rem;   /* 11.1px  phi^-2, micro labels only */
-  --t-2xs:.786rem;   /* 12.6px  phi^-1.5 */
-  --t-xs:.875rem;    /* 14px    was 12px */
-  --t-sm:.9375rem;   /* 15px    was 13px */
-  --t-base:1rem;     /* 16px    body */
-  --t-md:1.125rem;   /* 18px    lead paragraphs */
-  --t-lg:1.272rem;   /* 20.4px  sqrt(phi) */
-  --t-xl:1.618rem;   /* 25.9px  phi */
-  --t-2xl:2.058rem;  /* 32.9px  phi * sqrt(phi) */
-  --t-3xl:2.618rem;  /* 41.9px  phi^2 */
-  --t-4xl:3.330rem;  /* 53.3px  phi^2 * sqrt(phi) */
-  --t-5xl:4.236rem;  /* 67.8px  phi^3 */
-  --t-6xl:6.854rem;  /* 109.7px phi^4, hero only */
-
-  /* Spacing on the same ladder, so vertical rhythm and type share one
-     ratio and a gap is always a multiple of something else on the page. */
-  --s-1:.382rem;--s-2:.618rem;--s-3:1rem;--s-4:1.618rem;
-  --s-5:2.618rem;--s-6:4.236rem;--s-7:6.854rem;--s-8:11.09rem;
-
-  /* The golden section itself, for splitting a row into major and minor. */
-  --phi:1.618;--col-major:61.8%;--col-minor:38.2%;
-}
-@media (prefers-color-scheme: dark){
-  :root{
-    --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
-    --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
-    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
-    --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
-    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
-    --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
-    --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
-  }
-}
 *{box-sizing:border-box}
 /* Body copy reads at a full 16px baseline. The type scale above is in
    rem, so this single knob retunes the whole page. */

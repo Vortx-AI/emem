@@ -85,12 +85,21 @@ def migrate(src):
     else:
         notes.append("no local :root with a scale in it")
 
+    # Only when the page speaks the same token names the shared file defines.
+    # Six pages use a --bg/--fg namespace of their own, and removing their dark
+    # :root left them with no dark palette at all: tokens.css defines --paper
+    # and --ink, which those pages never read. /verify shipped a light body on
+    # a dark --paper for one deploy because this check was not here.
+    shared_namespace = '--paper' in src
     dark = re.search(
         r'@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{.*?\n\s*\}\s*\n?\s*\}',
         s, re.S)
-    if dark:
+    if dark and shared_namespace:
         s = s.replace(dark.group(0), '', 1)
         notes.append(f"removed a local dark-mode :root of {len(dark.group(0))} chars")
+    elif dark:
+        notes.append("KEPT the local dark-mode :root: this page uses its own "
+                     "token names, which the shared file does not define")
 
     hits = collections.Counter()
 

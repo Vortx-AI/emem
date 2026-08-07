@@ -298,6 +298,13 @@ jobs:
       # typed in. Hermetic: it reads the markup, not the network.
       - name: live numbers are fetched, not typed
         run: python3 scripts/live_numbers.py
+      # One token file, one scale, and a dark mode on every page. Every page
+      # used to carry its own copy of the tokens; /guard rendered body copy at
+      # 13.5px because of it, three pages requested no webfont at all, and
+      # /verify shipped a light body over a dark palette when the migration
+      # removed a dark :root it should not have. Hermetic.
+      - name: the design system holds
+        run: python3 scripts/design_tokens.py
 
   # Two gates that check a RUNNING system rather than the source. Both are
   # here because the failures they catch are invisible to every other job:

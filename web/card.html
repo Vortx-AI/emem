@@ -28,7 +28,6 @@
   --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
   --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
   --warn:oklch(0.55 0.12 75);
-  --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
 }
 
 *{box-sizing:border-box}
@@ -116,7 +115,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 @media (max-width:520px){
   .card{padding:1.8rem 1.4rem 1.5rem}
   .meta{grid-template-columns:1fr}
-  .value{font-size:1.7rem}
+  .value{font-size:var(--t-xl)}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
