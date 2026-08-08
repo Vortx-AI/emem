@@ -81,6 +81,19 @@
 
   /* The golden section itself, for splitting a row into major and minor. */
   --phi:1.618;--col-major:61.8%;--col-minor:38.2%;
+
+  /* Container widths. The page container was a flat 1180px, which left 39%
+     of a 1920 screen as empty gutter and 30% of a 1680 one. It is fluid now
+     and capped, so a laptop gets nearly the whole width and a very wide
+     monitor still stops before the lines become unreadable.
+
+     --w-text is the measure, in characters, because readability depends on
+     how many characters are on a line and not on how many pixels. Prose caps
+     itself with this; the container is free to be wider so panels and grids
+     can use the room. */
+  --w-page:min(94vw, 1400px);
+  --w-text:68ch;
+  --w-narrow:min(94vw, 820px);
 }
 
 @media (prefers-color-scheme: dark){

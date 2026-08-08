@@ -1212,8 +1212,8 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **122 documented REST paths under `/v1/*`** (127 total
-in OpenAPI) and **102 MCP tools (15 core, 87 extended)**.
+`0.0.0.0:5051`): **154 documented REST paths under `/v1/*`** (160 total
+in OpenAPI) and **107 MCP tools (16 core, 91 extended)**.
 
 Discovery on first contact:
 
@@ -1246,7 +1246,7 @@ without touching REST.
 An MCP host loads every advertised descriptor into the model's context at
 connect. All 102 cost about 243 KB of every conversation whether or not it
 ever touches Earth observation, and a third party measured exactly that
-and called it overhead. So `POST /mcp` advertises the 15 tools of the core
+and called it overhead. So `POST /mcp` advertises the 16 tools of the core
 loop, about 40 KB, and `POST /mcp/full` advertises all 102.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
@@ -1650,7 +1650,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 102 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 107 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §15: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 16.2 Claims in v1's supporting material this document withdraws

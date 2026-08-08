@@ -173,7 +173,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 
 /* statusbar — shared with index.html */
 .statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-2xs)}
+.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-2xs)}
 .statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
 .statusbar a:first-of-type{border-left:1px solid var(--line);margin-left:.5rem}
 .statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2)}
@@ -186,7 +186,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 .statusbar .brand{opacity:1;cursor:pointer}
 
 /* footer — shared with index.html */
-.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
 .foot{position:relative;background:var(--bg);padding:3rem 0;border-top:1px solid var(--line);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--fg-3);font-size:var(--t-2xs)}
 .foot-meta .name{color:var(--fg);font-weight:700;font-size:var(--t-xs);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--fg-3);line-height:1.5}

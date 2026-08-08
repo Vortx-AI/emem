@@ -37,7 +37,7 @@ a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
 /* statusbar — shared with index.html */
 .statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
 .statusbar a{color:var(--ink-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
 .statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
 .statusbar a:hover{opacity:1;color:var(--ink);background:var(--paper-3)}
@@ -49,7 +49,7 @@ a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 @media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
 
 /* footer — shared with index.html */
-.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
 .foot{position:relative;background:var(--paper);padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
 .foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--mute);line-height:1.5}

@@ -53,7 +53,7 @@
   /* unified statusbar — same shape as the rest of emem.dev, adapted to the
      atlas's cream/forest tokens; sits above the fixed-height shell. */
   .statusbar{border-bottom:1px solid var(--rule);background:rgba(244,236,216,.85);position:sticky;top:0;z-index:50;backdrop-filter:saturate(120%) blur(6px)}
-  .statusbar-inner{max-width:1280px;margin:0 auto;padding:0 18px;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-3xs)}
+  .statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 18px;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-3xs)}
   .statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
   .statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
   .statusbar a:hover{opacity:1;color:var(--ink);background:var(--paper)}

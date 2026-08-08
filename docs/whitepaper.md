@@ -1163,7 +1163,7 @@ demand: **46 declared source schemes** and **124 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and four open
 foundation-model embeddings (Tessera, Clay v1.5, Prithvi-EO-2.0, and
-Galileo; references at the end). **163 algorithms** and **27 topics**
+Galileo; references at the end). **168 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ![the encoder runs at the source and emits an embedding; emem stores and signs the embedding on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
@@ -1315,8 +1315,8 @@ them attributes a change, which is exactly the §10.3 gap.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **116 documented REST paths under `/v1/*`** (120 total
-in OpenAPI) and **102 MCP tools (15 core, 87 extended)**.
+`0.0.0.0:5051`): **154 documented REST paths under `/v1/*`** (160 total
+in OpenAPI) and **107 MCP tools (16 core, 91 extended)**.
 
 Discovery on first contact:
 
@@ -1348,7 +1348,7 @@ without touching REST.
 
 An MCP host loads every advertised descriptor into the model's context at
 connect. All 94 cost about 210 KB of every conversation whether or not it
-ever touches Earth observation. So `POST /mcp` advertises the 14 tools of
+ever touches Earth observation. So `POST /mcp` advertises the 16 tools of
 the core loop, about 39 KB, and `POST /mcp/full` advertises all 102.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
@@ -1752,7 +1752,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §17: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 102 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §17: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 107 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §17: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 18.2 Claims in v1's supporting material this document withdraws

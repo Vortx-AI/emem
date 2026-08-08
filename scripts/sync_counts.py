@@ -262,6 +262,86 @@ _TOOL_CLAIMS = [
 ]
 
 
+# Documents that record what a count WAS, on purpose. A changelog that says
+# "the counts moved to 94 tools" is correct forever, and rewriting it would
+# destroy the only record of when it moved. upstream-readme.md is a vendored
+# copy of the public MCP directory listing other people's servers; those counts
+# are theirs. whitepaper-v1 is superseded and kept as it shipped.
+COUNT_HISTORY = (
+    "CHANGELOG.md", "collaboration-log.md", "upstream-readme.md",
+    "whitepaper-v1.md", "whitepaper-v1.html", "channel.html",
+    "AGENT_HANDOFF", "audit-repro", "roadmap.md",
+    # Generated from docs/whitepaper-v2.md, which is checked above. A rendered
+    # table cell has no leading pipe, so the HTML cannot tell the quoted-v1
+    # column from a live claim; the source can, and the source is the one to
+    # fix.
+    "whitepaper-v2.html",
+)
+
+# Prose that asserts a canonical quantity as a fact about this responder. Each
+# pattern names one CANON key and one way the docs phrase it.
+PROSE_CLAIMS = (
+    ("mcp_tools",    r"(\d{2,4})\s+MCP tools\b"),
+    ("mcp_tools",    r"\b(\d{2,4})\s+tools\s*\((\d{1,3})\s*core"),
+    ("mcp_core",     r"the\s+(\d{1,3})\s+tools of the core loop"),
+    ("mcp_core",     r"(\d{1,3})[- ]tool core loop"),
+    ("algorithms",   r"(\d{2,4})\s+algorithms\b"),
+    ("topics",       r"(\d{1,3})\s+topics\b"),
+    ("rest_paths_openapi_total", r"\((\d{2,4})\s+total(?:\s+in OpenAPI)?\)"),
+)
+
+
+def verify_prose_counts() -> list[str]:
+    """A count stated as prose has to match the responder it describes.
+
+    sync_counts already rewrites the machine surfaces, and verify_tool_counts
+    asserts the tool number on seven of them. Neither looked at the documents
+    that carry the most detailed claims. /whitepaper, the flagship document,
+    served "102 MCP tools (15 core, 87 extended)" and "127 total in OpenAPI"
+    against a responder answering 107, 16, 91 and 160, and this script reported
+    no drift the whole time, because the surface list it checks and the phrase
+    list it looks for were both written by hand and neither included it.
+
+    So this asserts the number rather than remembering a phrasing. Documents
+    that record history on purpose are excluded by name above.
+    """
+    hits: list[str] = []
+    targets = sorted(REPO.glob("docs/*.md")) + sorted(REPO.glob("web/*.html")) + [
+        REPO / "README.md", REPO / "AGENTS.md", REPO / "ARCHITECTURE_NOTES.md",
+    ]
+    for path in targets:
+        if not path.exists() or any(h in path.name for h in COUNT_HISTORY):
+            continue
+        body = path.read_text(encoding="utf-8", errors="replace")
+        body = re.sub(r"<script.*?</script>|<style.*?</style>", "", body, flags=re.S)
+        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
+        for key, pat in PROSE_CLAIMS:
+            want = CANON.get(key)
+            if want is None:
+                continue
+            for m in re.finditer(pat, flat, re.I):
+                # A sentence that explicitly frames the number as past tense is
+                # a record, not a claim: "70 of the then-102 tools".
+                lead = flat[max(0, m.start() - 24):m.start()].lower()
+                if "then-" in lead or "was " in lead or "were " in lead:
+                    continue
+                # The whitepaper carries a "what v1 said -> what is true now"
+                # table. The left cell QUOTES the superseded spec and is
+                # correct forever; only the right cell is a claim about this
+                # responder. A quoted cell opens with a section citation, so
+                # find the cell this match sits in and skip it if it does.
+                cell = flat.rfind("|", 0, m.start())
+                if cell != -1 and re.match(r"\|\s*§", flat[cell:cell + 6]):
+                    continue
+                got = int(m.group(1))
+                if got != want:
+                    ctx = flat[max(0, m.start() - 40):m.end() + 20].strip()
+                    hits.append(
+                        f"{path.relative_to(REPO)}: says {got} for {key}, "
+                        f"the responder answers {want} ({ctx[:70]!r})")
+    return hits
+
+
 def verify_tool_counts() -> list[str]:
     """Assert the CURRENT numbers, rather than listing yesterday's stale ones.
 
@@ -311,6 +391,7 @@ def verify_canon() -> list[str]:
     # The surfaces a directory reads. Checked by reading their numbers out and
     # comparing to CANON, not by listing phrases that have already gone stale.
     drift.extend(verify_tool_counts())
+    drift.extend(verify_prose_counts())
     return drift
 
 

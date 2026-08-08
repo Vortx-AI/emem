@@ -21,7 +21,7 @@
   display: flex;
   align-items: stretch;
   gap: 0;
-  max-width: 1180px;
+  max-width:var(--w-page);
   margin: 0 auto;
   padding: 0 var(--pad-x);
   font-family: var(--mono);

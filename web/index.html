@@ -71,7 +71,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
    run past the right edge and take the whole page into horizontal scroll;
    let it scroll inside itself instead, with no visible scrollbar to steal
    from the 40px. */
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs);overflow-x:auto;scrollbar-width:none}
+.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs);overflow-x:auto;scrollbar-width:none}
 .statusbar-inner::-webkit-scrollbar{display:none}
 .statusbar-inner>a{flex:0 0 auto}
 .statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
@@ -82,7 +82,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .statusbar .spacer{flex:1}
 
 /* page shell */
-.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
 .section{border-bottom:1px solid var(--rule);padding:3.5rem 0;display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
 .section-meta{font-size:var(--t-xs);color:var(--mute);line-height:1.6;position:sticky;top:56px;align-self:start;max-height:calc(100vh - 80px);overflow:auto}
 .section-meta .idx{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.5rem}
@@ -632,14 +632,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 }
 
 /* ---- the painted story scroll ------------------------------------------- */
-.scroll{max-width:1180px;margin:0 auto;padding:0 var(--pad-x)}
+.scroll{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
 .scroll>h2{font-family:var(--display);font-size:var(--t-3xl);font-weight:420;font-variation-settings:'opsz' 42;letter-spacing:-.014em;line-height:1.06;margin:0 0 var(--s-3);color:var(--ink);text-wrap:balance}
 /* a Mithila divider between chapters: a thin double rule with a centred lotus dot */
 .mith-div{display:flex;align-items:center;gap:1rem;margin:0;color:var(--rule-strong)}
 .mith-div::before,.mith-div::after{content:"";height:0;flex:1;border-top:1px solid var(--rule);box-shadow:0 3px 0 -2px var(--rule)}
 .mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);flex:0 0 auto;opacity:.8}
 
-.chapter{display:grid;grid-template-columns:1fr 1.272fr;gap:var(--s-5);align-items:start;padding:var(--s-6) 0}
+.chapter{display:grid;grid-template-columns:1fr 1.272fr;gap:var(--s-5);align-items:start;padding:var(--s-5) 0}
 .chapter .words a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.18em}
 .chapter.wide{grid-template-columns:1fr}
 .chapter .art{margin:0;min-width:0}
@@ -794,7 +794,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <!-- ===================== HERO ===================== -->
 <style>
-.th{padding:var(--s-6) var(--pad-x) var(--s-5);max-width:1180px;margin:0 auto;border-bottom:2.6px solid var(--ink)}
+.th{padding:var(--s-6) var(--pad-x) var(--s-5);max-width:var(--w-page);margin:0 auto;border-bottom:2.6px solid var(--ink)}
 .th-top{display:grid;grid-template-columns:1.618fr 1fr;gap:var(--s-6);align-items:center}
 .th h1{font-family:var(--display);font-size:clamp(var(--t-3xl),6.4vw,var(--t-5xl));font-weight:380;font-variation-settings:'opsz' 72;line-height:.96;letter-spacing:-.021em;margin:0 0 var(--s-4);max-width:16ch;text-wrap:balance}
 .th-lede{font-size:var(--t-sm);line-height:1.64;color:var(--mute);max-width:60ch;margin:0 0 var(--s-4)}

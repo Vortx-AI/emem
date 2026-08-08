@@ -35,7 +35,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 /* statusbar (verbatim from index.html) */
 .statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:1280px;margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
+.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
 .statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
 .statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
 .statusbar a:hover{color:var(--ink);background:var(--paper-3);opacity:1}
@@ -46,7 +46,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .statusbar .spacer{flex:1}
 
 /* page shell */
-.page{max-width:1280px;margin:0 auto;padding:0 var(--pad-x)}
+.page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
 .btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer;position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
 .btn:hover{background:var(--ink-2);transform:translateY(-1px)}
 .btn.ghost{background:transparent;color:var(--ink)}
