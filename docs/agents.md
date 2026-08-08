@@ -1,5 +1,7 @@
 # emem agent guide
 
+*For agents. Machine-first: expect exact endpoints, arguments and refusals, with no hand-holding.*
+
 ## What this is
 
 **Shared, verifiable memory for AI agents.** A vendor-neutral, citeable

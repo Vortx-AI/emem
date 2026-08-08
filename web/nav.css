@@ -129,3 +129,51 @@
 @media (prefers-reduced-motion: reduce) {
   .navgrp > summary { transition: none }
 }
+
+/* The audience strip.
+ *
+ * The site mixes three readerships and marked none of them. /tools is 14,000
+ * words and 321 code blocks, /reference is nine tables, and /llms.txt is a
+ * machine format a person can open by accident. A leader who lands on a wall
+ * of JSON concludes the project is not for them. Neither page is bad at its
+ * job; nobody was told whose job it was.
+ *
+ * One line, quiet, directly under the bar. It names the reader first because
+ * that is the question being answered, then what the page is, then what to
+ * expect from it.
+ */
+.audience {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-3);
+  max-width: var(--w-page);
+  margin: 0 auto;
+  padding: var(--s-2) var(--pad-x);
+  font-family: var(--mono);
+  font-size: var(--t-2xs);
+  color: var(--mute);
+  border-bottom: 1px solid var(--rule);
+}
+.aud-for {
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  border-left: 2px solid var(--rule-strong);
+  padding-left: var(--s-2);
+}
+.aud-what { color: var(--ink-2) }
+.aud-note { color: var(--mute-2) }
+
+/* Colour carries the same distinction the words do, so the strip is
+   recognisable before it is read. Agents get the machine hue the rest of the
+   site already uses for machine-produced things. */
+.aud-agents     .aud-for { border-left-color: var(--machine); color: var(--machine) }
+.aud-developers .aud-for { border-left-color: var(--accent);  color: var(--accent) }
+.aud-leaders    .aud-for { border-left-color: var(--warn);    color: var(--warn) }
+
+@media (max-width: 860px) {
+  .audience { gap: var(--s-2); padding: var(--s-2) var(--s-3) }
+  .aud-note { display: none }
+}

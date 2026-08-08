@@ -1,5 +1,7 @@
 # emem skills
 
+*For agents. Machine-first: runnable procedures, not an explanation of why. A person should read https://emem.dev/how-it-works first.*
+
 Composed recipes for AI agents building on emem, a shared, verifiable
 memory for AI agents: a citeable identity layer that stops referential
 drift, so different models reason from the same world object instead of

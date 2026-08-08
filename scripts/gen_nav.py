@@ -82,6 +82,57 @@ NAV = [
     ]),
 ]
 
+# Who each surface is for, and what it will feel like when you open it.
+#
+# The site mixes three readerships with no marking at all. /tools is 14,000
+# words and 321 code blocks; /reference is nine tables; /llms.txt and
+# /openapi.json are machine formats a person can open by accident. A leader
+# deciding whether to adopt lands on a wall of JSON and concludes the project
+# is not for them, and a developer looking for the wire format wades through
+# positioning. Neither is a content problem: both pages are good at their job.
+# Nobody was told whose job it was.
+#
+# Three audiences, named for the reader rather than for us, and a fourth for
+# the pages that genuinely suit anyone.
+AUDIENCE = {
+    "/":            ("anyone",    "what emem is, in one page"),
+    "/solutions":   ("leaders",   "what it is used for, and what holds up under audit"),
+    "/whitepaper":  ("leaders",   "the long argument, with the proofs"),
+    "/spec":        ("developers","the wire format, byte by byte"),
+    "/reference":   ("developers","every endpoint, with worked calls"),
+    "/docs":        ("developers","the book"),
+    "/guard":       ("developers","a server you run, with the commands to run it"),
+    "/verify":      ("developers","paste a token, watch the proof run"),
+    "/demos":       ("anyone",    "eight things you can click"),
+    "/tools":       ("agents",    "the full tool registry, generated, long"),
+    "/a2a":         ("agents",    "how two agents agree before they start"),
+    "/agents":      ("agents",    "who writes here, as data"),
+    "/worlds":      ("anyone",    "signed terrain you can fly through"),
+    "/gallery":     ("anyone",    "the record, rendered"),
+    "/channel":     ("anyone",    "agents talking, in public"),
+    "/scoreboard":  ("anyone",    "the benchmark, live"),
+    "/api-redoc":   ("developers","the OpenAPI contract, browsable"),
+    "/whitepaper-v1": ("leaders", "superseded, kept as it shipped"),
+    "/how-it-works":  ("anyone",    "the address, the fact, the receipt, in order"),
+    "/404":           ("anyone",    "the page you asked for is not here"),
+    # The demos are the one place a reader of any kind can just press a button,
+    # so none of them is marked for a specialist.
+    "/demos/ask-the-earth":   ("anyone", "ask a question, get a signed answer"),
+    "/demos/find-similar":    ("anyone", "find places that resemble this one"),
+    "/demos/recall-polygon":  ("anyone", "read a whole area at once"),
+    "/demos/signed-answer":   ("anyone", "watch a receipt get built in four steps"),
+    "/demos/state-cube":      ("anyone", "the full state vector of one place"),
+    "/demos/trajectory":      ("anyone", "one cell, seven steps through its history"),
+}
+
+# What the chip says about the reader it names.
+AUDIENCE_NOTE = {
+    "agents":     "machine-first: expect JSON, long listings, and no hand-holding",
+    "developers": "expect commands you can paste and formats you can implement",
+    "leaders":    "expect the argument and the evidence, not the wire format",
+    "anyone":     "no prior knowledge assumed",
+}
+
 GITHUB = "https://github.com/Vortx-AI/emem"
 
 
@@ -105,6 +156,15 @@ def render(current: str) -> str:
     out.append('<a class="navplain" href="/mcp">MCP</a>')
     out.append(f'<a class="navplain" href="{GITHUB}" rel="noopener">GitHub</a>')
     out.append('</nav></header>')
+    # The audience strip. One line, directly under the bar, so a reader knows
+    # whose page this is before they start reading it.
+    who, what = AUDIENCE.get(current, ("anyone", ""))
+    note = AUDIENCE_NOTE.get(who, "")
+    out.append(f'<div class="audience aud-{who}">'
+               f'<span class="aud-for">for {who}</span>'
+               f'<span class="aud-what">{what}</span>'
+               f'<span class="aud-note">{note}</span>'
+               f'</div>')
     # Progressive enhancement only. Escape and outside-click are the two
     # dismissals <details> has no answer for; everything else is HTML.
     out.append('<script>(function(){'
@@ -127,7 +187,9 @@ GEN = re.compile(re.escape(START) + r'.*?' + re.escape(END), re.S)
 def served_as(name: str) -> str:
     if name == "index.html":
         return "/"
-    if name.startswith("demos-") and name != "demos-index.html":
+    if name == "demos-index.html":
+        return "/demos"
+    if name.startswith("demos-"):
         return "/demos/" + name[len("demos-"):-len(".html")]
     return "/" + name[:-len(".html")]
 
@@ -183,6 +245,22 @@ def main():
             else:
                 open(path, "w", encoding="utf-8").write(out)
                 changed.append(name)
+
+    # Every page the nav reaches must have an audience someone chose. A page
+    # that falls through to the "anyone" default has not been classified; it
+    # has been forgotten, and "for anyone" is exactly the claim the strip
+    # exists to stop the site making by accident.
+    unclassified = []
+    for path in sorted(glob.glob("web/*.html")):
+        name = os.path.basename(path)
+        if name in SKIP:
+            continue
+        served = served_as(name)
+        if served not in AUDIENCE:
+            unclassified.append(f"{name} (served at {served}) has no audience "
+                                f"in AUDIENCE; add one rather than letting it "
+                                f"default.")
+    drifted.extend(unclassified)
 
     total = sum(len(i) for _, i in NAV) + 2
     print(f"nav: {len(NAV)} groups, {total} destinations, "

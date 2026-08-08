@@ -1,5 +1,7 @@
 # emem MCP installation
 
+*For agents and the developers wiring them up. Expect commands you can paste.*
+
 emem is a public remote MCP server: shared, verifiable memory for AI agents.
 Every place has one permanent address, every observation is one signed fact,
 and any agent can check any answer offline with no key, no account, and no
