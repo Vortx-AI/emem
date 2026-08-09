@@ -957,6 +957,10 @@ pub struct CitedNumber {
     pub numbers: Vec<(f64, usize)>,
 }
 
+/// One sentence's ingredients: its text, the citations inside it, and the
+/// figures it states paired with the precision each was written to.
+type SentenceParts<'a> = (&'a str, Vec<String>, Vec<(f64, usize)>);
+
 /// Find sentences that state a number and cite exactly one observation.
 ///
 /// Numbers inside the token are never counted. A cell64 is full of digits, and
@@ -977,7 +981,7 @@ pub fn scan_cited_numbers<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<C
             masked = masked.replacen(&t.token, &filler, 1);
         }
         // Pass one: what each sentence contains.
-        let mut parts: Vec<(&str, Vec<String>, Vec<(f64, usize)>)> = Vec::new();
+        let mut parts: Vec<SentenceParts> = Vec::new();
         for msent in sentences(&masked) {
             let off = msent.as_ptr() as usize - masked.as_ptr() as usize;
             let Some(sentence) = text.get(off..off + msent.len()) else {
