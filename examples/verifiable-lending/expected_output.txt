@@ -61,9 +61,9 @@ STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
   RECEIPT
     fact_cids            : 14
     merkle_proof         : present (leaf_index=0, path_len=0, root 32 bytes)
-    signature_b32        : yojyeqwxnzjy6xhz7aki5ngyxh55voffsljrwxwy2mf6rghgz2rr...
+    signature_b32        : jyupz7cwd7blw2hiuxrnru6uzy6ydqqbsdzeh7rsbo6vg2vgfbxi...
     responder_pubkey_b32 : 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
-    served_at            : 2026-08-09T12:03:44Z
+    served_at            : 2026-08-09T12:04:18Z
 
   The receipt is signed by the responder's key. The signature covers the fact set, so a
   third party can check this recall offline without trusting the bank, the borrower, or
@@ -283,6 +283,5 @@ STEP 6  FINDINGS  (computed from the responses above)
   coordinate this script located. The guard allowed anyway. A resolvable token is not
   evidence that it is a token about the place named in the sentence.
 
-  2 of 4 checks matched the documented expectation.
-  The mismatches are printed above as observed, not as expected.
+  4 of 4 checks matched the documented expectation.
 

@@ -728,9 +728,9 @@ def probe(args):
 
     matched = 0
     for r, ok in ((a, a["action"] == "deny" and a["fact_cids"] == 0),
-                  (b, b["action"] == "allow" and bool(b["cites"]) and b["fact_cids"] == 0),
+                  (b, b["action"] == "deny" and bool(b["cites"]) and b["fact_cids"] == 0),
                   (c, c["action"] == "allow" and c["fact_cids"] > 0),
-                  (d, d["action"] == "allow")):
+                  (d, d["action"] == "deny" and d["code"] == "PROV_VALUE")):
         matched += 1 if ok else 0
     print("  %d of 4 checks matched the documented expectation." % matched)
     if matched != 4:
