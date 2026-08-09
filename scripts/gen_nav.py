@@ -95,7 +95,7 @@ NAV = [
 # Three audiences, named for the reader rather than for us, and a fourth for
 # the pages that genuinely suit anyone.
 AUDIENCE = {
-    "/":            ("anyone",    "what emem is, in one page"),
+    "/":            ("anyone",    "memory two agents can agree on"),
     "/solutions":   ("leaders",   "what it is used for, and what holds up under audit"),
     "/whitepaper":  ("leaders",   "the long argument, with the proofs"),
     "/spec":        ("developers","the wire format, byte by byte"),

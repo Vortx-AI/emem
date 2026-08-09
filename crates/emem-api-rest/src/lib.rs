@@ -11284,6 +11284,12 @@ fn boring_view(
                 "cell_dedupe_m":         RESOLUTION_M_GRID,
                 "cell64":                cell64,
                 "fact_cid":              fact_cid,
+                // The citation, assembled. Callers used to build
+                // `emem:fact:{cell64}:{fact_cid}` themselves from the two
+                // fields above; a hand-built token with one wrong character
+                // still returns allow from the guard while resolving to
+                // nothing, so the mistake looks exactly like success.
+                "memory_token":          fact_cid.map(|c| format!("emem:fact:{cell64}:{c}")),
                 "responder_pubkey_b32":  responder_pubkey_b32,
                 "signed_at":             p.signed_at,
                 "served_at":             served_at,
@@ -11314,6 +11320,12 @@ fn boring_view(
                 "cell_dedupe_m":         RESOLUTION_M_GRID,
                 "cell64":                cell64,
                 "fact_cid":              fact_cid,
+                // An Absence is citable too, and this is the case where it
+                // matters most: "we looked and there is nothing there" is a
+                // signed answer, while a materializer that timed out or was
+                // never wired is silence. Only one of those mints a token,
+                // which is what lets a reader tell them apart.
+                "memory_token":          fact_cid.map(|c| format!("emem:fact:{cell64}:{c}")),
                 "responder_pubkey_b32":  responder_pubkey_b32,
                 "signed_at":             a.signed_at,
                 "served_at":             served_at,
