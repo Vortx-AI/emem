@@ -20392,12 +20392,80 @@ const MCP_CORE_ENDPOINT_TIER: &str = "core";
 /// `/mcp` served before the split.
 const MCP_FULL_ENDPOINT_TIER: &str = "all";
 
+/// The MCP revisions this server implements.
+///
+/// Module scope because three places need them and they must not drift: the
+/// `initialize` negotiation, the `MCP-Protocol-Version` header we answer with,
+/// and the check that refuses a version we cannot serve.
+const MCP_SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
+const MCP_LATEST_VERSION: &str = "2025-11-25";
+
+/// What Streamable HTTP says to assume when a client sends no version header.
+///
+/// Not our latest, deliberately: a client that omits the header is one written
+/// before the header existed, and answering as though it had asked for the
+/// newest revision would attribute an intent it never expressed.
+const MCP_VERSION_WHEN_HEADER_ABSENT: &str = "2025-03-26";
+
+/// Which revision this exchange runs at, or the unusable value the client sent.
+fn mcp_negotiated_version(headers: &axum::http::HeaderMap) -> Result<&'static str, String> {
+    match headers
+        .get("mcp-protocol-version")
+        .and_then(|v| v.to_str().ok())
+    {
+        None => Ok(MCP_VERSION_WHEN_HEADER_ABSENT),
+        Some(asked) => MCP_SUPPORTED_VERSIONS
+            .iter()
+            .copied()
+            .find(|s| *s == asked)
+            .ok_or_else(|| asked.to_string()),
+    }
+}
+
+/// Run an MCP request and stamp the revision it was answered under.
+///
+/// Two things this fixes. The response header was listed in
+/// `access-control-expose-headers` and never sent, so CORS advertised
+/// something a browser client could never read: a promise with no
+/// implementation behind it. And a version this server cannot speak was
+/// accepted in silence, so `1999-01-01` got a normal answer and the caller had
+/// no way to learn the difference.
+async fn mcp_with_version(
+    s: AppState,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+    tier: &str,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let negotiated = match mcp_negotiated_version(&headers) {
+        Ok(v) => v,
+        Err(asked) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "unsupported_protocol_version",
+                    "requested": asked,
+                    "supported": MCP_SUPPORTED_VERSIONS,
+                    "latest": MCP_LATEST_VERSION,
+                    "hint": "Resend with an MCP-Protocol-Version this server implements, or omit the header entirely, which is read as 2025-03-26.",
+                })),
+            )
+                .into_response();
+        }
+    };
+    let mut resp = mcp_jsonrpc_inner(s, headers, body, tier).await;
+    if let Ok(v) = axum::http::HeaderValue::from_str(negotiated) {
+        resp.headers_mut().insert("mcp-protocol-version", v);
+    }
+    resp
+}
+
 async fn mcp_jsonrpc(
     State(s): State<AppState>,
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> axum::response::Response {
-    mcp_jsonrpc_inner(s, headers, body, MCP_CORE_ENDPOINT_TIER).await
+    mcp_with_version(s, headers, body, MCP_CORE_ENDPOINT_TIER).await
 }
 
 async fn mcp_jsonrpc_full(
@@ -20405,7 +20473,7 @@ async fn mcp_jsonrpc_full(
     headers: axum::http::HeaderMap,
     body: axum::body::Bytes,
 ) -> axum::response::Response {
-    mcp_jsonrpc_inner(s, headers, body, MCP_FULL_ENDPOINT_TIER).await
+    mcp_with_version(s, headers, body, MCP_FULL_ENDPOINT_TIER).await
 }
 
 async fn mcp_jsonrpc_inner(
@@ -20487,8 +20555,8 @@ async fn mcp_jsonrpc_inner(
             // `tasks` server capability implemented below). All four share
             // the same wire shape for tools/list and tools/call; only
             // 2025-11-25 adds the optional task layer, which is additive.
-            const SUPPORTED: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
-            const LATEST: &str = "2025-11-25";
+            const SUPPORTED: &[&str] = MCP_SUPPORTED_VERSIONS;
+            const LATEST: &str = MCP_LATEST_VERSION;
             let requested = req
                 .params
                 .as_ref()
@@ -64876,6 +64944,53 @@ mod tests {
             assert!(skill.contains(cmd), "the skill never mentions {cmd}");
         }
         assert!(v["run_bare"].is_string());
+    }
+
+    /// CORS advertised a header this server never sent.
+    ///
+    /// `mcp-protocol-version` sat in `access-control-expose-headers`, which
+    /// tells a browser client the header is there to be read, while nothing
+    /// ever set it. That is the same defect shape as a deny naming a band
+    /// recall cannot serve: a published promise with no implementation behind
+    /// it, where the caller who believes the contract is the one who suffers.
+    #[tokio::test]
+    async fn the_mcp_protocol_version_header_is_sent_and_an_unknown_one_is_refused() {
+        use axum::http::{HeaderMap, HeaderValue, StatusCode};
+        let s = test_app_state();
+        let body = axum::body::Bytes::from(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"#,
+        );
+
+        // Absent: answered under the revision Streamable HTTP says to assume,
+        // not under our newest, because omitting the header expresses no
+        // intent to use it.
+        let r = mcp_with_version(s.clone(), HeaderMap::new(), body.clone(), "core").await;
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(
+            r.headers().get("mcp-protocol-version").unwrap(),
+            MCP_VERSION_WHEN_HEADER_ABSENT
+        );
+
+        // Present and supported: echoed, so the client can confirm which
+        // revision it actually got rather than the one it hoped for.
+        for v in MCP_SUPPORTED_VERSIONS {
+            let mut h = HeaderMap::new();
+            h.insert("mcp-protocol-version", HeaderValue::from_static(v));
+            let r = mcp_with_version(s.clone(), h, body.clone(), "core").await;
+            assert_eq!(r.status(), StatusCode::OK, "{v} must be served");
+            assert_eq!(r.headers().get("mcp-protocol-version").unwrap(), *v);
+        }
+
+        // Present and impossible: refused, and the refusal names what we do
+        // speak. Accepting it silently let a caller believe it had negotiated
+        // something.
+        let mut h = HeaderMap::new();
+        h.insert(
+            "mcp-protocol-version",
+            HeaderValue::from_static("1999-01-01"),
+        );
+        let r = mcp_with_version(s.clone(), h, body, "core").await;
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
     }
 
     /// Every deny code and every remedy a verdict can carry is published, or
