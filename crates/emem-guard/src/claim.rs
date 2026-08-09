@@ -1015,12 +1015,28 @@ pub fn scan_cited_numbers<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<C
             if citing.len() != 1 {
                 continue;
             }
-            let (numbers, sentence) = if !own_numbers.is_empty() {
-                (own_numbers.clone(), *sentence)
-            } else if i > 0 && parts[i - 1].1.is_empty() && !parts[i - 1].2.is_empty() {
-                (parts[i - 1].2.clone(), parts[i - 1].0)
-            } else {
+            // Candidates are the figures in this fragment AND, when the
+            // fragment before it cited nothing of its own, that one's figures
+            // too. Both, never either/or.
+            //
+            // Either/or made LINE WRAPPING SEMANTIC. "NDBI is -0.037 / at 500 m
+            // south [token]" denied because 500 sat on the token's line and the
+            // rule never looked back, while the identical paragraph unwrapped
+            // allowed. A desk measured the same prose both ways and got two
+            // verdicts, which is not a judgement anyone can act on. Widening
+            // the candidate set can only make the rule quieter, and a wrong
+            // deny costs more here than a miss.
+            let mut numbers = own_numbers.clone();
+            if i > 0 && parts[i - 1].1.is_empty() {
+                numbers.extend(parts[i - 1].2.iter().copied());
+            }
+            if numbers.is_empty() {
                 continue;
+            }
+            let sentence = if own_numbers.is_empty() && i > 0 {
+                parts[i - 1].0
+            } else {
+                *sentence
             };
             out.push(CitedNumber {
                 sentence: truncate_chars(sentence.trim(), SENTENCE_MAX),

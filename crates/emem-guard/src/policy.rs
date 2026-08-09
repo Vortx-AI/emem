@@ -939,6 +939,54 @@ mod tests {
         let _ = evaluate(&cfg, &ev(&ambiguous));
     }
 
+    /// Where you wrap a line must not change the verdict.
+    ///
+    /// A desk measured the same paragraph both ways and got two answers: with
+    /// the figure and the token on one line it allowed, and with the wrap
+    /// falling so that a DISTANCE was the last number before the citation it
+    /// denied. Line breaks are typography. Treating them as meaning produces a
+    /// deny nobody can act on, which costs more than a miss.
+    #[test]
+    fn wrapping_a_line_does_not_change_the_verdict() {
+        let cfg = Config::default();
+        let token =
+            "emem:fact:defi.zb493.hufo.zccc6:2hsx3izrfsgpafhqb6neqnavximzpywr5uo7innarfftvj2yeeaa";
+        let fv = crate::resolve::FactValue {
+            value: -0.036_615_874_459_859,
+            unit: None,
+            band: "indices.ndbi".to_string(),
+        };
+        let ev = |s: &str| Evidence {
+            tokens: vec![(tok(token, TokenKind::Fact), TokenStatus::Verified)],
+            values: vec![(token.to_string(), fv.clone())],
+            cited_numbers: crate::claim::scan_cited_numbers([s]),
+            ..Default::default()
+        };
+
+        let flat = format!("Built-up index is -0.037 at 500 m south [{token}]");
+        let wrapped = format!("Built-up index is -0.037\nat 500 m south [{token}]");
+        assert_eq!(
+            evaluate(&cfg, &ev(&flat)).outcome,
+            Outcome::Proceed,
+            "the figure agrees, so this must allow"
+        );
+        assert_eq!(
+            evaluate(&cfg, &ev(&wrapped)).outcome,
+            Outcome::Proceed,
+            "and the same prose must not deny merely because it wrapped"
+        );
+
+        // Widening the candidates must not blunt the rule: a paragraph where
+        // NO figure matches still denies, wrapped or not.
+        let wrong = format!("Built-up index is 0.42 at 500 m south [{token}]");
+        let wrong_wrapped = format!("Built-up index is 0.42\nat 500 m south [{token}]");
+        assert_eq!(evaluate(&cfg, &ev(&wrong)).code, Some(DenyCode::ProvValue));
+        assert_eq!(
+            evaluate(&cfg, &ev(&wrong_wrapped)).code,
+            Some(DenyCode::ProvValue)
+        );
+    }
+
     /// Two citations in one sentence and the rule declines, because deciding
     /// which number answers which citation is the same guess the claim gate
     /// refuses to make.
