@@ -976,35 +976,55 @@ pub fn scan_cited_numbers<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<C
             let filler = "x".repeat(t.token.len());
             masked = masked.replacen(&t.token, &filler, 1);
         }
+        // Pass one: what each sentence contains.
+        let mut parts: Vec<(&str, Vec<String>, Vec<(f64, usize)>)> = Vec::new();
         for msent in sentences(&masked) {
             let off = msent.as_ptr() as usize - masked.as_ptr() as usize;
             let Some(sentence) = text.get(off..off + msent.len()) else {
                 continue;
             };
             let found = crate::tokens::scan(sentence);
-            // Exactly one citation, and one that resolves to bytes: an entity
-            // names an object and a cell names an address, so neither carries
-            // a reading a sentence could misreport.
-            let citing: Vec<_> = found
+            // Only tokens that resolve to bytes: an entity names an object and
+            // a cell names an address, so neither carries a reading a sentence
+            // could misreport.
+            let citing: Vec<String> = found
                 .iter()
                 .filter(|t| t.kind.resolves_to_bytes())
+                .map(|t| t.token.clone())
                 .collect();
-            if citing.len() != 1 {
-                continue;
-            }
             // Blank every token out before reading numbers, so the digits in
             // an address are never mistaken for an assertion.
             let mut stripped = sentence.to_string();
             for t in &found {
                 stripped = stripped.replace(&t.token, " ");
             }
-            let numbers = numbers_in(&stripped);
-            if numbers.is_empty() {
+            parts.push((sentence, citing, numbers_in(&stripped)));
+        }
+
+        // Pass two: pair a citation with the figure it supports.
+        //
+        // Usually they share a sentence. But the ordinary way to cite is to
+        // finish the sentence and put the reference after it, "sits at 5000 m
+        // elevation. [emem:fact:...]", which splits the number away from the
+        // token. So a fragment carrying ONLY a citation adopts the figures of
+        // the sentence immediately before it, and only when that sentence
+        // cited nothing itself. Anything less tidy is left alone: a wrong deny
+        // here is worse than a miss.
+        for i in 0..parts.len() {
+            let (sentence, citing, own_numbers) = &parts[i];
+            if citing.len() != 1 {
                 continue;
             }
+            let (numbers, sentence) = if !own_numbers.is_empty() {
+                (own_numbers.clone(), *sentence)
+            } else if i > 0 && parts[i - 1].1.is_empty() && !parts[i - 1].2.is_empty() {
+                (parts[i - 1].2.clone(), parts[i - 1].0)
+            } else {
+                continue;
+            };
             out.push(CitedNumber {
                 sentence: truncate_chars(sentence.trim(), SENTENCE_MAX),
-                token: citing[0].token.clone(),
+                token: citing[0].clone(),
                 numbers,
             });
         }

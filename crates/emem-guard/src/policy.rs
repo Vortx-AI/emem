@@ -900,6 +900,45 @@ mod tests {
         assert_eq!(evaluate(&cfg, &bare).outcome, Outcome::Proceed);
     }
 
+    /// The ordinary way to cite is to finish the sentence first.
+    ///
+    /// "sits at 5000 m elevation. [emem:fact:...]" splits the figure away from
+    /// the token, and a rule that only ever looked inside one sentence missed
+    /// every memo written that way, including this repository's own example.
+    #[test]
+    fn a_citation_after_the_full_stop_still_answers_for_the_sentence() {
+        let cfg = Config::default();
+        let token =
+            "emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa";
+        let fv = crate::resolve::FactValue {
+            value: 889.643_920_898_437_5,
+            unit: Some("m".to_string()),
+            band: "copdem30m.elevation_mean".to_string(),
+        };
+        let ev = |s: &str| Evidence {
+            tokens: vec![(tok(token, TokenKind::Fact), TokenStatus::Verified)],
+            values: vec![(token.to_string(), fv.clone())],
+            cited_numbers: crate::claim::scan_cited_numbers([s]),
+            ..Default::default()
+        };
+
+        let lying = format!("The parcel at Jagraon sits at 5000 m elevation. [{token}]");
+        assert_eq!(
+            evaluate(&cfg, &ev(&lying)).code,
+            Some(DenyCode::ProvValue),
+            "the citation trails the sentence it supports"
+        );
+
+        let honest = format!("The parcel at Jagraon sits at 889.6 m elevation. [{token}]");
+        assert_eq!(evaluate(&cfg, &ev(&honest)).outcome, Outcome::Proceed);
+
+        // A citation adopts figures only from a sentence that cited nothing
+        // itself. Two citations in a row leave the pairing ambiguous, so the
+        // rule declines rather than guessing.
+        let ambiguous = format!("Elevation is 5000 m [{token}]. And again [{token}]");
+        let _ = evaluate(&cfg, &ev(&ambiguous));
+    }
+
     /// Two citations in one sentence and the rule declines, because deciding
     /// which number answers which citation is the same guess the claim gate
     /// refuses to make.

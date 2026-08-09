@@ -572,12 +572,12 @@ def probe(args):
         ("A", "bare uncited measurable claim", claim,
          "deny CLAIM_UNGROUNDED"),
         ("B", "same claim + CORRUPTED token", "%s [%s]" % (claim, bad_tok),
-         "allow, citations_found 1, fact_cids EMPTY"),
+         "deny CLAIM_UNGROUNDED, citations_found 1, fact_cids EMPTY"),
         ("C", "same claim + VALID token", "%s [%s]" % (claim, good_tok),
          "allow, fact_cids populated, merkle_proof present"),
         ("D", "VALID token, FALSE value in prose",
          "The parcel at Jagraon sits at 5000 m elevation. [%s]" % good_tok,
-         "allow"),
+         "deny PROV_VALUE, fix correct_value"),
     ]
 
     results = []
@@ -632,10 +632,18 @@ def probe(args):
             "documented expectation is reported, not asserted."
             % (a["action"], a["code"]))
 
-    if b["action"] == "allow" and b["cites"] and b["fact_cids"] == 0:
+    if b["action"] == "deny" and b["cites"] and b["fact_cids"] == 0:
         conclusions.append(
-            "B is the uncomfortable one. A citation that is well-formed but does "
-            "not resolve turned a DENY into an ALLOW. citations_found=%s while "
+            "B is closed. A citation that is well-formed but does not resolve no "
+            "longer buys an allow: citations_found=%s while fact_cids=%d, and the "
+            "denial the sentence earned stands. Before 2026-08-08 this returned "
+            "ALLOW, so pasting any plausible string defeated the gate more cheaply "
+            "than grounding the claim did." % (b["cites"], b["fact_cids"]))
+    elif b["action"] == "allow" and b["cites"] and b["fact_cids"] == 0:
+        conclusions.append(
+            "B is the uncomfortable one, and this responder still has it. A "
+            "citation that is well-formed but does not resolve turned a DENY into "
+            "an ALLOW. citations_found=%s while "
             "receipt.fact_cids is empty: the guard counted the token in the prose "
             "and could not resolve it, and still allowed."
             % b["cites"])
@@ -655,16 +663,26 @@ def probe(args):
             "C behaved differently: action=%s, fact_cids=%d."
             % (c["action"], c["fact_cids"]))
 
-    if d["action"] == "allow":
+    if d["action"] == "deny" and d["code"] == "PROV_VALUE":
         conclusions.append(
-            "D is the limit. The prose says 5000 m; the cited fact says %.1f m. "
-            "The token resolves, so the verdict is ALLOW. The guard checks that a "
-            "citation exists and resolves. It does not check that the number in "
-            "the sentence matches the number in the fact." % elev)
+            "D is caught. The prose says 5000 m; the cited fact says %.1f m. The "
+            "token resolves, verifies and binds to the right cell, so every "
+            "provenance check passes and the receipt arithmetic balances. "
+            "PROV_VALUE is the rule that reads the number inside the fact and "
+            "compares it with the number in the sentence, and the fix is "
+            "correct_value: the citation is the sound half, the prose is what "
+            "disagrees with it." % elev)
+    elif d["action"] == "allow":
+        conclusions.append(
+            "D was NOT caught on this responder. The prose says 5000 m; the cited "
+            "fact says %.1f m, and the verdict is ALLOW. That means this node "
+            "predates PROV_VALUE (shipped 2026-08-09), so it checks that a "
+            "citation exists and resolves but not that the number beside it "
+            "matches the number inside it." % elev)
     else:
         conclusions.append(
-            "D behaved differently from the documented expectation: action=%s."
-            % d["action"])
+            "D behaved differently from either documented expectation: action=%s, "
+            "code=%s." % (d["action"], d.get("code")))
 
     for i, line in enumerate(conclusions, 1):
         print()
@@ -684,12 +702,18 @@ def probe(args):
                  "(vacuous, nothing cited)" if (r["cites"] or 0) == 0 else ""))
     print()
     if d["action"] == "allow" and d["fact_cids"] == (d["cites"] or 0):
-        print(wrap("And even that test passes D, which is false. A resolvable "
-                   "citation proves the fact exists and was signed. It does not "
-                   "prove the sentence reports it correctly. Binding prose to the "
-                   "value inside the fact is the reader's job, and this example "
-                   "does it in step 3 by recomputing the published algorithms and "
-                   "cross-checking against the responder's own value.",
+        print(wrap("And that test still passes D, which is false: the arithmetic "
+                   "balances because the citation is real. A resolvable citation "
+                   "proves the fact exists and was signed; it does not prove the "
+                   "sentence reports it correctly. On a responder carrying "
+                   "PROV_VALUE the guard makes that comparison itself.",
+                   indent="  "))
+    elif d["action"] == "deny" and d["code"] == "PROV_VALUE":
+        print(wrap("Note that the arithmetic alone would have passed D: "
+                   "fact_cids == citations_found, because the citation is real. "
+                   "What catches it is PROV_VALUE reading the value inside the "
+                   "fact. Receipt arithmetic answers \"is this citation real\"; "
+                   "it never answered \"does the sentence agree with it\".",
                    indent="  "))
     print()
     # Same-cell check: does the guard care that the prose names a different place?

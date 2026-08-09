@@ -61,9 +61,9 @@ STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
   RECEIPT
     fact_cids            : 14
     merkle_proof         : present (leaf_index=0, path_len=0, root 32 bytes)
-    signature_b32        : 4nhud5te3xjadk4jpjua2dk6757rstzjecoqj23ir7nxubpihnii...
+    signature_b32        : yojyeqwxnzjy6xhz7aki5ngyxh55voffsljrwxwy2mf6rghgz2rr...
     responder_pubkey_b32 : 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
-    served_at            : 2026-08-09T09:11:52Z
+    served_at            : 2026-08-09T12:03:44Z
 
   The receipt is signed by the responder's key. The signature covers the fact set, so a
   third party can check this recall offline without trusting the bank, the borrower, or
@@ -152,7 +152,7 @@ STEP 5  GUARD VERDICTS  (POST /v1/guard/verdict?shape=native)
     claim it named:
       sentence    : The collateral parcel at Koramangala sits at 889.6 m elevation, well clear of any flood plain.
       magnitude   : 889.6 m   quantity: length
-      anchor      : place_name   source_band: dem
+      anchor      : place_name   source_band: copdem30m.elevation_mean
 
   MEMO B
     action : allow
@@ -170,7 +170,7 @@ STEP 6  FINDINGS  (computed from the responses above)
   1. The naive memo verdict was DENY (CLAIM_UNGROUNDED).
      The guard named exactly one claim, and reported only that one: 'The collateral parcel
      at Koramangala sits at 889.6 m elevation, well clear of any flood plain.', attributed
-     to source_band 'dem' as quantity 'length'.
+     to source_band 'copdem30m.elevation_mean' as quantity 'length'.
 
   2. Sentence by sentence, the naive memo scores like this:
        allow -            Collateral for application APP-2291 is a parcel at Koramanga...
@@ -219,9 +219,9 @@ STEP 6  FINDINGS  (computed from the responses above)
       CHECK                              ACTION CODE              CITE CIDS   MERKLE
 --------------------------------------------------------------------------------------------
   A   bare uncited measurable claim      deny   CLAIM_UNGROUNDED  0    0      no
-  B   same claim + CORRUPTED token       allow  None              1    0      no
+  B   same claim + CORRUPTED token       deny   CLAIM_UNGROUNDED  1    0      no
   C   same claim + VALID token           allow  None              1    1      yes
-  D   VALID token, FALSE value in prose  allow  None              1    1      yes
+  D   VALID token, FALSE value in prose  deny   PROV_VALUE        1    1      yes
 ============================================================================================
 
   WHAT EACH CHECK PROVES
@@ -231,16 +231,16 @@ STEP 6  FINDINGS  (computed from the responses above)
      observed               : action=deny code=CLAIM_UNGROUNDED citations_found=0 fact_cids=0
 
   B. same claim + CORRUPTED token
-     documented expectation : allow, citations_found 1, fact_cids EMPTY
-     observed               : action=allow code=None citations_found=1 fact_cids=0
+     documented expectation : deny CLAIM_UNGROUNDED, citations_found 1, fact_cids EMPTY
+     observed               : action=deny code=CLAIM_UNGROUNDED citations_found=1 fact_cids=0
 
   C. same claim + VALID token
      documented expectation : allow, fact_cids populated, merkle_proof present
      observed               : action=allow code=None citations_found=1 fact_cids=1
 
   D. VALID token, FALSE value in prose
-     documented expectation : allow
-     observed               : action=allow code=None citations_found=1 fact_cids=1
+     documented expectation : deny PROV_VALUE, fix correct_value
+     observed               : action=deny code=PROV_VALUE citations_found=1 fact_cids=1
 
 ============================================================================================
   DERIVED RULE  (each line below is gated on what was just measured)
@@ -249,16 +249,19 @@ STEP 6  FINDINGS  (computed from the responses above)
   1. A denied with no citations. The guard does detect a bare measurable claim anchored to
   a place name.
 
-  2. B is the uncomfortable one. A citation that is well-formed but does not resolve turned
-  a DENY into an ALLOW. citations_found=1 while receipt.fact_cids is empty: the guard
-  counted the token in the prose and could not resolve it, and still allowed.
+  2. B is closed. A citation that is well-formed but does not resolve no longer buys an
+  allow: citations_found=1 while fact_cids=0, and the denial the sentence earned stands.
+  Before 2026-08-08 this returned ALLOW, so pasting any plausible string defeated the gate
+  more cheaply than grounding the claim did.
 
   3. C is the honest case: the token resolved, and the responder re-signed the resolved
   fact_cid into the verdict receipt with a merkle_proof.
 
-  4. D is the limit. The prose says 5000 m; the cited fact says 889.6 m. The token
-  resolves, so the verdict is ALLOW. The guard checks that a citation exists and resolves.
-  It does not check that the number in the sentence matches the number in the fact.
+  4. D is caught. The prose says 5000 m; the cited fact says 889.6 m. The token resolves,
+  verifies and binds to the right cell, so every provenance check passes and the receipt
+  arithmetic balances. PROV_VALUE is the rule that reads the number inside the fact and
+  compares it with the number in the sentence, and the fix is correct_value: the citation
+  is the sound half, the prose is what disagrees with it.
 
 --------------------------------------------------------------------------------------------
   The test that discriminates B from C is NOT the action. It is:
@@ -270,16 +273,16 @@ STEP 6  FINDINGS  (computed from the responses above)
       C : 1 == 1 -> True  
       D : 1 == 1 -> True  
 
-  And even that test passes D, which is false. A resolvable citation proves the fact exists
-  and was signed. It does not prove the sentence reports it correctly. Binding prose to the
-  value inside the fact is the reader's job, and this example does it in step 3 by
-  recomputing the published algorithms and cross-checking against the responder's own
-  value.
+  Note that the arithmetic alone would have passed D: fact_cids == citations_found, because
+  the citation is real. What catches it is PROV_VALUE reading the value inside the fact.
+  Receipt arithmetic answers "is this citation real"; it never answered "does the sentence
+  agree with it".
 
   One more thing this run measured without being asked to: the prose in every check says
   "at Jagraon", while the cited fact belongs to cell64 defi.zb493.hufo.zccc6, which is the
   coordinate this script located. The guard allowed anyway. A resolvable token is not
   evidence that it is a token about the place named in the sentence.
 
-  4 of 4 checks matched the documented expectation.
+  2 of 4 checks matched the documented expectation.
+  The mismatches are printed above as observed, not as expected.
 

@@ -40,9 +40,9 @@ sounds stronger than it is.
 | | claim | citation | verdict |
 |---|---|---|---|
 | A | measurable, anchored to a place | none | **deny** `CLAIM_UNGROUNDED` |
-| B | same | a real token with 4 characters changed | see below |
+| B | same | a real token with 4 characters changed | **deny** `CLAIM_UNGROUNDED` |
 | C | same | a token that resolves | allow |
-| D | **false number** | the correct token for that fact | **allow** |
+| D | **false number** | the correct token for that fact | **deny** `PROV_VALUE` |
 
 **`action: allow` is not clearance.** It means no rule fired. The field that
 carries information is `receipt.fact_cids`, and the test that separates a real
@@ -52,12 +52,21 @@ citation from an invented one is:
 len(receipt.fact_cids) == citations_found
 ```
 
-**And even that test passes D.** A citation that resolves proves the fact exists
-and was signed. It does not prove the sentence reports the fact's *value*
-correctly, and it does not prove the fact is *about* the place the sentence
-names. The probe checks both and prints what it finds. Binding prose to the value
-inside the fact is still the reader's job, which is what step 3 does by
-recomputing the algorithms and comparing against the responder.
+**That test passes D, and D is false.** The arithmetic balances because the
+citation is real: right cell, right band, resolves, verifies. What catches D is
+`PROV_VALUE`, a rule that reads the value *inside* the fact and compares it with
+the number in the sentence. Its fix is `correct_value`, never "drop the
+citation", because the citation is the sound half.
+
+Agreement is judged at the precision you wrote. Reporting `889.6439208984375 m`
+as `889.6 m` is correct; `5000 m` is not.
+
+**What is still not checked: relevance.** A citation that resolves is not
+evidence that it is a citation *about the place the sentence names*. The probe
+measures this and says so — every check says "at Jagraon" while citing a fact
+from a different `cell64`, and the guard allows it. Step 3 is the honest answer
+to that: recompute the published algorithms and compare against the responder's
+own value.
 
 Guard verdicts from `emem.dev` are **advisory**: `blocks_nothing: true`. To
 enforce, run your own node (`GET /v1/guard/selfhost`), which also lets you check
