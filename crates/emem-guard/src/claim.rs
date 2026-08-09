@@ -112,13 +112,38 @@ pub struct MeasurableUnit {
     /// as written, since no case variation of them exists.
     pub symbol: &'static str,
     pub quantity: Quantity,
-    /// Which band family reports this unit, verbatim from `GET /v1/bands`.
+    /// A band key that can actually be recalled to answer a claim in this
+    /// unit, or `None` when this responder observes no such quantity.
     ///
-    /// Load-bearing, not decoration. A unit is in this table because emem
-    /// measures something in it, and a reviewer can check every row against
-    /// the live registry. A row that cannot name its band does not belong,
-    /// which is asserted by [`tests::every_unit_names_the_band_it_came_from`].
-    pub source_band: &'static str,
+    /// Load-bearing, not decoration: it is the actionable half of
+    /// [`Fix::CiteObservation`](crate::policy::Fix::CiteObservation). An agent
+    /// told to cite an observation needs somewhere to go, so this must be a
+    /// key `POST /v1/recall` accepts and a materializer can serve.
+    ///
+    /// # Why this is a leaf key and not a family
+    ///
+    /// `GET /v1/bands` publishes 43 FAMILY ROOTS (`dem`, `soilgrids`,
+    /// `esa_cci_biomass`). Recall does not accept them: a family root returns
+    /// `unknown_band`, or at best only pre-existing attestations. The
+    /// materializable keys are the leaves under them
+    /// (`copdem30m.elevation_mean`, `soilgrids.soc_0_30cm`), published by
+    /// `GET /v1/materializers`. This table named families until 2026-08-08, so
+    /// every pointer it emitted was uncitable, and a caller who trusted one
+    /// concluded emem could not answer a question it answers fine. Naming a
+    /// family here is the same defect wearing a new coat.
+    ///
+    /// # Why `None` is a real answer
+    ///
+    /// Nothing here reports hectares, cubic metres or tonnes per hectare. The
+    /// gate still fires on those claims, because a measurable assertion about
+    /// a place with no citation is exactly what it is for, but the verdict
+    /// must not invent a band to send the agent after. `None` says the claim
+    /// is ungrounded AND that this node cannot ground it, which is two useful
+    /// facts rather than one confident wrong one.
+    ///
+    /// Asserted against the live registry by
+    /// [`tests::every_unit_names_a_recallable_band`].
+    pub source_band: Option<&'static str>,
 }
 
 /// The unit table, derived from `GET /v1/bands` on 2026-08-06 (43 bands).
@@ -142,22 +167,22 @@ pub const UNITS: &[MeasurableUnit] = &[
     MeasurableUnit {
         symbol: "mm/month",
         quantity: Quantity::PrecipitationRate,
-        source_band: "climate",
+        source_band: Some("weather.precipitation_mm"),
     },
     MeasurableUnit {
         symbol: "mm/year",
         quantity: Quantity::PrecipitationRate,
-        source_band: "climate",
+        source_band: Some("weather.precipitation_mm"),
     },
     MeasurableUnit {
         symbol: "mm/day",
         quantity: Quantity::PrecipitationRate,
-        source_band: "chirps.precip_daily_mm",
+        source_band: Some("weather.precipitation_mm"),
     },
     MeasurableUnit {
         symbol: "mm/yr",
         quantity: Quantity::PrecipitationRate,
-        source_band: "climate",
+        source_band: Some("weather.precipitation_mm"),
     },
     // Concentrations. The micro sign has two Unicode spellings in the wild
     // (U+00B5 MICRO SIGN and U+03BC GREEK SMALL LETTER MU) and text arriving
@@ -165,204 +190,204 @@ pub const UNITS: &[MeasurableUnit] = &[
     MeasurableUnit {
         symbol: "µg/m³",
         quantity: Quantity::MassConcentration,
-        source_band: "air_quality",
+        source_band: Some("cams.pm25"),
     },
     MeasurableUnit {
         symbol: "μg/m³",
         quantity: Quantity::MassConcentration,
-        source_band: "air_quality",
+        source_band: Some("cams.pm25"),
     },
     MeasurableUnit {
         symbol: "µg/m3",
         quantity: Quantity::MassConcentration,
-        source_band: "air_quality",
+        source_band: Some("cams.pm25"),
     },
     MeasurableUnit {
         symbol: "μg/m3",
         quantity: Quantity::MassConcentration,
-        source_band: "air_quality",
+        source_band: Some("cams.pm25"),
     },
     MeasurableUnit {
         symbol: "ug/m3",
         quantity: Quantity::MassConcentration,
-        source_band: "air_quality",
+        source_band: Some("cams.pm25"),
     },
     MeasurableUnit {
         symbol: "mg/m³",
         quantity: Quantity::MassConcentration,
-        source_band: "ocean_chl",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "mg/m3",
         quantity: Quantity::MassConcentration,
-        source_band: "ocean_chl",
+        source_band: None,
     },
     // Biomass and soil.
     MeasurableUnit {
         symbol: "mg/ha",
         quantity: Quantity::AreaDensity,
-        source_band: "esa_cci_biomass",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "t/ha",
         quantity: Quantity::AreaDensity,
-        source_band: "esa_cci_biomass",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "g/kg",
         quantity: Quantity::MassFraction,
-        source_band: "soilgrids",
+        source_band: Some("soilgrids.soc_0_30cm"),
     },
     MeasurableUnit {
         symbol: "kg/dm³",
         quantity: Quantity::Density,
-        source_band: "soilgrids",
+        source_band: Some("soilgrids.bdod_0_30cm"),
     },
     MeasurableUnit {
         symbol: "kg/dm3",
         quantity: Quantity::Density,
-        source_band: "soilgrids",
+        source_band: Some("soilgrids.bdod_0_30cm"),
     },
     // Population.
     MeasurableUnit {
         symbol: "persons/km²",
         quantity: Quantity::PopulationDensity,
-        source_band: "population",
+        source_band: Some("population"),
     },
     MeasurableUnit {
         symbol: "persons/km2",
         quantity: Quantity::PopulationDensity,
-        source_band: "population",
+        source_band: Some("population"),
     },
     MeasurableUnit {
         symbol: "people/km²",
         quantity: Quantity::PopulationDensity,
-        source_band: "population",
+        source_band: Some("population"),
     },
     MeasurableUnit {
         symbol: "people/km2",
         quantity: Quantity::PopulationDensity,
-        source_band: "population",
+        source_band: Some("population"),
     },
     // Areas and volumes, before the lengths they are built from.
     MeasurableUnit {
         symbol: "km²",
         quantity: Quantity::Area,
-        source_band: "overture",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "km2",
         quantity: Quantity::Area,
-        source_band: "overture",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "m³",
         quantity: Quantity::Volume,
-        source_band: "ghsl",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "m3",
         quantity: Quantity::Volume,
-        source_band: "ghsl",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "m²",
         quantity: Quantity::Area,
-        source_band: "overture",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "m2",
         quantity: Quantity::Area,
-        source_band: "overture",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "hectares",
         quantity: Quantity::Area,
-        source_band: "esa_cci_biomass",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "hectare",
         quantity: Quantity::Area,
-        source_band: "esa_cci_biomass",
+        source_band: None,
     },
     MeasurableUnit {
         symbol: "ha",
         quantity: Quantity::Area,
-        source_band: "esa_cci_biomass",
+        source_band: None,
     },
     // Temperature.
     MeasurableUnit {
         symbol: "°c",
         quantity: Quantity::Temperature,
-        source_band: "climate",
+        source_band: Some("weather.temperature_2m"),
     },
     MeasurableUnit {
         symbol: "degrees celsius",
         quantity: Quantity::Temperature,
-        source_band: "climate",
+        source_band: Some("weather.temperature_2m"),
     },
     MeasurableUnit {
         symbol: "celsius",
         quantity: Quantity::Temperature,
-        source_band: "climate",
+        source_band: Some("weather.temperature_2m"),
     },
     // Lengths. `dem` reports metres relative to mean sea level; the SI
     // multiples of a metre are the same quantity by definition, not by guess.
     MeasurableUnit {
         symbol: "kilometres",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "kilometers",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "metres",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "meters",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "metre",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "meter",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "km",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "cm",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     MeasurableUnit {
         symbol: "mm",
         quantity: Quantity::Length,
-        source_band: "chirps.precip_daily_mm",
+        source_band: Some("weather.precipitation_mm"),
     },
     MeasurableUnit {
         symbol: "m",
         quantity: Quantity::Length,
-        source_band: "dem",
+        source_band: Some("copdem30m.elevation_mean"),
     },
     // Radar backscatter.
     MeasurableUnit {
         symbol: "db",
         quantity: Quantity::PowerRatio,
-        source_band: "sentinel1_raw",
+        source_band: Some("sentinel1_raw"),
     },
     // Cover fractions. `%` is the one symbol common enough in non-physical
     // prose to be a real source of noise, which is exactly what the anchor
@@ -370,7 +395,7 @@ pub const UNITS: &[MeasurableUnit] = &[
     MeasurableUnit {
         symbol: "%",
         quantity: Quantity::Fraction,
-        source_band: "forest_change",
+        source_band: Some("forest_change.treecover2000"),
     },
 ];
 
@@ -445,9 +470,10 @@ pub struct Claim {
     pub magnitude: String,
     /// What was measured.
     pub quantity: Quantity,
-    /// Which band family reports this quantity, so the denial can tell an
-    /// agent where the citable observation would come from.
-    pub source_band: &'static str,
+    /// A recallable band key that would answer this claim, or `None` when
+    /// this responder observes no band in this quantity. See
+    /// [`MeasurableUnit::source_band`].
+    pub source_band: Option<&'static str>,
     /// What anchored it to a place or a time.
     pub anchor: Anchor,
 }
@@ -526,7 +552,7 @@ fn claim_in(sentence: &str) -> Option<Claim> {
 // ── G1: a number followed by a unit some band reports ────────────────────
 
 /// The first `<number><unit>` in a sentence whose unit is in [`UNITS`].
-fn measurable_magnitude(s: &str) -> Option<(String, Quantity, &'static str)> {
+fn measurable_magnitude(s: &str) -> Option<(String, Quantity, Option<&'static str>)> {
     let b = s.as_bytes();
     let mut i = 0usize;
     while i < b.len() {
@@ -573,7 +599,7 @@ fn measurable_magnitude(s: &str) -> Option<(String, Quantity, &'static str)> {
 }
 
 /// The longest unit symbol starting at `at`, if the match ends cleanly.
-fn unit_at(s: &str, at: usize) -> Option<(&'static str, Quantity, &'static str)> {
+fn unit_at(s: &str, at: usize) -> Option<(&'static str, Quantity, Option<&'static str>)> {
     if at >= s.len() || !s.is_char_boundary(at) {
         return None;
     }
@@ -919,13 +945,42 @@ mod tests {
         scan_claims([s])
     }
 
+    /// Band keys `POST /v1/recall` accepts and a materializer can serve.
+    ///
+    /// Verified against `GET /v1/materializers` (127 keys) on 2026-08-08.
+    /// This is an allow-list on purpose: adding an entry here is the step
+    /// where someone confirms the key is a materializable LEAF and not a
+    /// family root from `GET /v1/bands`. Family roots are the exact defect
+    /// this test exists to prevent, because recall answers them with
+    /// `unknown_band` and the agent we told to cite an observation has
+    /// nowhere to go.
+    const RECALLABLE_BANDS: &[&str] = &[
+        "cams.pm25",
+        "copdem30m.elevation_mean",
+        "forest_change.treecover2000",
+        "population",
+        "sentinel1_raw",
+        "soilgrids.bdod_0_30cm",
+        "soilgrids.soc_0_30cm",
+        "weather.precipitation_mm",
+        "weather.temperature_2m",
+    ];
+
     /// The table is only defensible if every row can name the band that
     /// produces it. A unit with no source is an opinion about what looks
     /// physical, which is the thing this design refuses to be.
     #[test]
-    fn every_unit_names_the_band_it_came_from() {
+    fn every_unit_names_a_recallable_band() {
         for u in UNITS {
-            assert!(!u.source_band.is_empty(), "{} has no source band", u.symbol);
+            if let Some(b) = u.source_band {
+                assert!(
+                    RECALLABLE_BANDS.contains(&b),
+                    "{} points at {b}, which POST /v1/recall does not accept. \
+                     source_band must be a materializable leaf key from \
+                     GET /v1/materializers, never a family root from GET /v1/bands.",
+                    u.symbol
+                );
+            }
             assert!(
                 u.symbol == u.symbol.to_lowercase()
                     || u.symbol.contains('²')
@@ -1052,7 +1107,7 @@ mod tests {
         let c = &claims("Canopy cover in Rondonia fell to 42 % last season.")[0];
         assert_eq!(c.magnitude, "42 %");
         assert_eq!(c.quantity, Quantity::Fraction);
-        assert_eq!(c.source_band, "forest_change");
+        assert_eq!(c.source_band, Some("forest_change.treecover2000"));
         assert_eq!(c.anchor, Anchor::PlaceName);
 
         // A sentence with more than one anchor reports the first form found,

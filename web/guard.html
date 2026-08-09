@@ -392,17 +392,33 @@ HTTP 200</code></pre></div>
     "sentence": "Canopy height in Sumatra reached 31 m on 2026-08-05.",
     "magnitude": "31 m",
     "quantity": "length",
-    "source_band": "dem",
+    "source_band": "copdem30m.elevation_mean",
     "anchor": "iso_date"
   }
 }</code></pre></div>
-    <p><code>action: allow</code>, because nobody is being blocked. <code>shadowed: true</code>, because the rule fired. And <code>source_band: "dem"</code>, which is the actionable part: it names where a citable observation would come from, so the remedy is <em>resolve elevation there and cite it</em> rather than <em>cite something</em>.</p>
+    <p><code>action: allow</code>, because nobody is being blocked. <code>shadowed: true</code>, because the rule fired. And <code>source_band: "copdem30m.elevation_mean"</code>, which is the actionable part: it names where a citable observation would come from, so the remedy is <em>resolve elevation there and cite it</em> rather than <em>cite something</em>.</p>
 
-    <p>Add the citation and the rule declines:</p>
+    <p>That field has to name a band <code>POST /v1/recall</code> will actually serve. Until 2026-08-08 it named <code>dem</code>, a family root from <code>GET /v1/bands</code> that recall answers with <code>unknown_band</code>, so every pointer the gate emitted sent the agent somewhere that does not exist. Where <em>no</em> band reports a quantity at all, hectares and cubic metres among them, it is now <code>null</code>: the claim is still ungrounded, and this node is saying it cannot ground it either, which is more useful than a confident wrong answer.</p>
+
+    <p>Add a citation that <strong>resolves</strong> and the rule declines:</p>
     <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
            per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala."]}
 
 { "action": "allow", "leaf": "leaf_3", "checked": 1 }</code></pre></div>
+
+    <p>A citation that does <strong>not</strong> resolve buys nothing. Change four characters of that cid and the denial stands:</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
+           per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45za22."]}
+
+{
+  "action": "deny",
+  "reason": "EMEM-GUARD DENY CLAIM_UNGROUNDED token=- fix=cite_observation leaf=leaf_7",
+  "code": "CLAIM_UNGROUNDED",
+  "fix": "cite_observation",
+  "checked": 1
+}</code></pre></div>
+    <p>This is the 2026-08-08 correction, and it mattered more than it looks. The rule used to decline the moment <em>any</em> token was present, resolved or not, so pasting a plausible-looking string turned a denial into an allow while the receipt's <code>fact_cids</code> stayed empty. Defeating the gate cost less than satisfying it, which is the worst property a control can have. Grounding now means <em>resolved</em>.</p>
+    <p>Note what did <strong>not</strong> change: an unresolvable citation is still never a provenance denial. No <code>PROV_</code> code fires on it, because a token minted by another responder is legitimate and, from inside this node, indistinguishable from a forgery. <code>CLAIM_UNGROUNDED</code> is a narrower and true statement: nothing you cited grounds this sentence <em>here</em>.</p>
 
     <p>And ordinary engineering prose never reaches it at all:</p>
     <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["The verdict path took 800 ms and the transcript limit is 10 MB."]}
@@ -410,7 +426,7 @@ HTTP 200</code></pre></div>
 { "action": "allow", "leaf": "leaf_4", "checked": 0 }</code></pre></div>
 
     <h3>Why <code>800 ms</code> is not a claim about the world</h3>
-    <p>The discriminator is a unit table where <strong>every row names the band that reports it</strong>. Metres come from <code>dem</code>, millimetres per day from <code>chirps.precip_daily_mm</code>, micrograms per cubic metre from <code>air_quality</code>. Bytes, seconds, hertz and currency are absent because no band reports them, so a claim measured in one is not a claim this node could have verified had it been cited. The gate is bounded by its own competence.</p>
+    <p>The discriminator is a unit table where <strong>every row names the band that reports it</strong>. Metres come from <code>copdem30m.elevation_mean</code>, millimetres per day from <code>weather.precipitation_mm</code>, micrograms per cubic metre from <code>cams.pm25</code>, all of them keys recall will serve rather than the family roots they sit under. Bytes, seconds, hertz and currency are absent because no band reports them, so a claim measured in one is not a claim this node could have verified had it been cited. The gate is bounded by its own competence.</p>
     <p>Three more clauses have to hold, and each can only ever remove firings: a <strong>world anchor</strong> (an ISO date, a year, a coordinate pair in range, or a preposition followed by a capitalised name), an <strong>assertion</strong> rather than a question, a hedge, a conditional or an already-attributed statement, and <strong>prose</strong> rather than a fenced code block or a configuration line.</p>
     <p>Measured over this repository's own documentation, the register the gate will sit in front of: <strong>3 firings in 8739 sentences across 8 files</strong>, a rate of 0.034%. Two of the three are the detector firing on its own positive test fixtures, sentences written to be gateable claims, so they are the rule working rather than false positives; the third is a changelog line that genuinely asserts a rainfall rate on a date and cites nothing. They are counted apart rather than excluded, because hiding them would flatter the number.</p>
     <p>The corpus found two real defects on the way, both now fixed and pinned by tests: a citation key (<code>Reiche-2018</code>) and a model name (<code>gpt-4o-2024</code>) each read as a year.</p>

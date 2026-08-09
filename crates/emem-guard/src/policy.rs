@@ -337,7 +337,9 @@ pub struct Evidence {
     ///
     /// Gathered unconditionally so a shadow report can count them whether or
     /// not the rule is enforcing. The rule itself needs the pair of this and
-    /// `tokens`: a claim is only ungrounded when the transcript cited nothing.
+    /// `tokens`: a claim is ungrounded when nothing the transcript cited
+    /// RESOLVED here. Citing something unresolvable is not grounding, however
+    /// well-formed the token looks.
     pub claims: Vec<crate::claim::Claim>,
     /// What each loaded policy module concluded, in load order.
     ///
@@ -505,15 +507,31 @@ pub fn evaluate(cfg: &Config, ev: &Evidence) -> Decision {
 
     if cfg.claim_gating {
         // The transcript-level condition, and the reason this rule is safe
-        // enough to exist. A transcript that cited ANYTHING is the work of an
-        // agent that knows how to ground itself, and gating its individual
+        // enough to exist. A transcript that GROUNDED something is the work of
+        // an agent that knows how to ground itself, and gating its individual
         // sentences would need attribution this engine cannot do: which claim
         // does which citation support. Rather than guess, the rule declines to
-        // fire the moment a single token is present.
+        // fire the moment one citation actually resolved.
         //
         // The cost is an agent that cites once and asserts ten times. That is
         // a real gap and it is the conservative side of it.
-        if ev.tokens.is_empty() {
+        //
+        // GROUNDED MEANS RESOLVED, NOT MERELY PRESENT. Until 2026-08-08 this
+        // tested `ev.tokens.is_empty()`, so pasting any well-formed token
+        // suppressed the denial the sentence had already earned: a real cid
+        // with four characters changed turned a deny into an allow while
+        // `receipt.fact_cids` stayed empty, and no provenance rule fired
+        // either, because an unresolvable token is deliberately never a
+        // denial. Defeating the gate was less work than satisfying it, which
+        // is the worst property a control can have. An `Unresolved` token is
+        // still never a DENIAL, for every reason given on that variant, but
+        // it cannot count as EVIDENCE: this node has established nothing
+        // about it, and silence is not a citation.
+        let grounded = ev
+            .tokens
+            .iter()
+            .any(|(_, st)| matches!(st, TokenStatus::Verified | TokenStatus::Drifted { .. }));
+        if !grounded {
             if let Some(c) = ev.claims.first() {
                 return Decision::block(DenyCode::ClaimUngrounded, None, Fix::CiteObservation)
                     .with_claim(c.clone())
@@ -686,11 +704,19 @@ mod tests {
     }
 
     /// The transcript-level condition, and the whole reason this rule is safe
-    /// enough to exist. An agent that cited anything is one that knows how to
-    /// ground itself, and attributing individual sentences to individual
+    /// enough to exist. An agent that GROUNDED anything is one that knows how
+    /// to ground itself, and attributing individual sentences to individual
     /// citations is a problem this engine declines to guess at.
+    ///
+    /// Until 2026-08-08 this test was called
+    /// `a_single_citation_anywhere_disarms_the_claim_gate` and asserted that
+    /// an `Unresolved` token disarmed the rule. That was the defect, written
+    /// down as an invariant: any well-formed token, including a real cid with
+    /// four characters changed, turned this denial into an allow while
+    /// `receipt.fact_cids` stayed empty. Defeating the gate was cheaper than
+    /// satisfying it. Resolution is now the test.
     #[test]
-    fn a_single_citation_anywhere_disarms_the_claim_gate() {
+    fn only_a_resolved_citation_disarms_the_claim_gate() {
         let cfg = Config {
             claim_gating: true,
             ..Default::default()
@@ -710,11 +736,29 @@ mod tests {
         // that grows adoption rather than removing a reference.
         assert_eq!(d.fix, Some(Fix::CiteObservation));
         // And the denial carries what to go and cite.
-        assert_eq!(d.claim.as_ref().unwrap().source_band, "dem");
+        assert_eq!(
+            d.claim.as_ref().unwrap().source_band,
+            Some("copdem30m.elevation_mean")
+        );
 
-        // One citation, even an unresolved one from another responder, and the
-        // rule declines.
-        let cited = Evidence {
+        // One citation that RESOLVED, and the rule declines.
+        let grounded = Evidence {
+            claims: vec![claim.clone()],
+            tokens: vec![(tok("emem:fact:a:b", TokenKind::Fact), TokenStatus::Verified)],
+            ..Default::default()
+        };
+        assert_eq!(evaluate(&cfg, &grounded).outcome, Outcome::Proceed);
+
+        // A citation that did NOT resolve is not evidence, so the rule still
+        // fires. This node has established nothing about that token, and a
+        // string that merely looks like a citation must not buy an allow.
+        //
+        // Note what this does NOT change: an unresolved token is still never a
+        // denial in its own right. No PROV_ code fires on it, because a token
+        // minted by another responder is legitimate and indistinguishable from
+        // a forgery from in here. The claim gate is a different statement, and
+        // a true one: nothing you cited grounds this sentence HERE.
+        let unresolved = Evidence {
             claims: vec![claim],
             tokens: vec![(
                 tok("emem:entity:abc", TokenKind::Entity),
@@ -722,7 +766,7 @@ mod tests {
             )],
             ..Default::default()
         };
-        assert_eq!(evaluate(&cfg, &cited).outcome, Outcome::Proceed);
+        assert_eq!(evaluate(&cfg, &unresolved).outcome, Outcome::Block);
     }
 
     /// Claim gating is the lowest-severity rule: a failed check is a stronger

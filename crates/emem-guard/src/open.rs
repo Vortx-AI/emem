@@ -172,9 +172,15 @@ pub struct ClaimDetail {
     pub magnitude: String,
     /// What kind of quantity it is.
     pub quantity: &'static str,
-    /// Which emem band reports that quantity. This is the actionable field:
-    /// it names where a citable observation would come from.
-    pub source_band: &'static str,
+    /// A recallable band key that would answer this claim, or `null` when
+    /// this responder observes no band in that quantity.
+    ///
+    /// The actionable field, so it must name a key `POST /v1/recall` accepts
+    /// and a materializer can serve, never a family root from
+    /// `GET /v1/bands`. A `null` here is informative rather than missing: the
+    /// claim is ungrounded and this node cannot ground it either, so the
+    /// agent should stop looking rather than chase a band that does not exist.
+    pub source_band: Option<&'static str>,
     /// What tied the claim to a place or a time.
     pub anchor: &'static str,
 }

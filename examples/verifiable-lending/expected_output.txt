@@ -1,0 +1,285 @@
+
+============================================================================================
+                              VERIFIABLE LENDING DUE-DILIGENCE                              
+                             underwriting a parcel against emem                             
+============================================================================================
+  A credit memo makes physical assertions about a piece of land. Below, the same assertions
+  are made twice: once the way a model writes them by default, and once with every physical
+  claim bound to a signed fact. Then both go through emem-guard.
+
+  responder : https://emem.dev
+  parcel    : lat 12.9352, lng 77.6245
+
+============================================================================================
+STEP 1  GROUND THE PARCEL  (POST /v1/locate)
+============================================================================================
+  cell64      : defi.zb493.hufo.zccc6
+  place_label : null  (the responder returns no label for a direct lat/lng; it is not a geocoded name)
+  cell centre : lat 12.9351630, lng 77.6244778
+  resolved by : direct
+
+  This address is the join key. Any agent that locates the same coordinate gets the same
+  cell64, so two memos about this parcel are about the same parcel and not about two
+  paraphrases of it.
+
+============================================================================================
+STEP 2  RECALL SIGNED FACTS  (POST /v1/recall, 14 bands)
+============================================================================================
+  BAND                                   VALUE                    UNIT   CONF
+--------------------------------------------------------------------------------------------
+  indices.ndvi                           0.26435506241331486      -      0.95
+      emem:fact:defi.zb493.hufo.zccc6:yimc47juvb5pe3zzjwktkomgx7ebq6iz2pzs53orch4xsjgsihxa
+  modis.ndvi_mean                        0.3476                   -      0.75
+      emem:fact:defi.zb493.hufo.zccc6:7d7jrfv56nbamxyfirzudisnvzldisfhlwsswlwsiqkrazqag6na
+  copdem30m.elevation_mean               889.6439208984375        m      0.95
+      emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
+  surface_water.recurrence               0.0                      percent 0.95
+      emem:fact:defi.zb493.hufo.zccc6:2z5brwgznn7zvardbjtztvrr5ij3mfy3yjzsfk4gwmtjpkrwmpkq
+  sentinel1_raw                          -6.973320173518356       dB     0.85
+      emem:fact:defi.zb493.hufo.zccc6:ikdtmfsz54m3n3mkaxv6ce5bmbocn4lmpqbvmkom7oxqqcjf7pia
+  weather.temperature_2m                 20.8                     degC   0.85
+      emem:fact:defi.zb493.hufo.zccc6:qcpzx7dvacyb32sgrw3m6lwsp33ycwrs7otuuq5pnmalgxrkozgq
+  weather.precipitation_mm               0.0                      mm     0.75
+      emem:fact:defi.zb493.hufo.zccc6:g4awl7awqmekki363hnxrdifjcthq2szhqibuophm2kafs2uf23a
+  weather.cloud_cover                    33.6                     percent 0.80
+      emem:fact:defi.zb493.hufo.zccc6:ecc7pvjwabb6korcfqdjja7dgijai4nsbl53cznv2w4ktvbjwc2a
+  overture.buildings.count               0                        -      0.95
+      emem:fact:defi.zb493.hufo.zccc6:meprokriujybrb6l4pg4wqejdxqgzw2avusounl5fyrauwn3qe2q
+  overture.places.count                  2                        -      0.90
+      emem:fact:defi.zb493.hufo.zccc6:ao6wdguh2tubd23nlhn2sn3zhuij2u6dqnki5sbawy2saagtn6qq
+  overture.transportation.road_length_m  14.917538482859685       m      0.85
+      emem:fact:defi.zb493.hufo.zccc6:w2woji7633bpchgg7sbqpox7qjkbwehneucledeancureufxx5ea
+  gmrt.topobathy_mean                    903.0                    metres_above_sea_level 0.93
+      emem:fact:defi.zb493.hufo.zccc6:7hwq6r6i6xbdpczc3u2w2p7tl4rd5umigre2wg5pjn6eqamvoztq
+  geotessera                             [vector 128 dims, first 5.03036975] -      0.85
+      emem:fact:defi.zb493.hufo.zccc6:qyaspjf55xvnl5kmfyxe54rhxy3oulwkazogs2ik7n52i5pnyliq
+  koppen                                 "Aw"                     koppen_class 0.85
+      emem:fact:defi.zb493.hufo.zccc6:kzm32mker4y5benoi3fk2f5tdeqjpuvngpl2f44ej5ffj6sfypdq
+
+  14 of 14 bands materialized.
+
+  RECEIPT
+    fact_cids            : 14
+    merkle_proof         : present (leaf_index=0, path_len=0, root 32 bytes)
+    signature_b32        : 4nhud5te3xjadk4jpjua2dk6757rstzjecoqj23ir7nxubpihnii...
+    responder_pubkey_b32 : 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+    served_at            : 2026-08-09T09:11:52Z
+
+  The receipt is signed by the responder's key. The signature covers the fact set, so a
+  third party can check this recall offline without trusting the bank, the borrower, or
+  emem.
+
+============================================================================================
+STEP 3  APPLY PUBLISHED ALGORITHMS  (GET /v1/algorithms/<key>)
+============================================================================================
+  The scores below are not invented here. Both recipes are published in the
+  content-addressed algorithm registry, and the responder returns its own computed value
+  alongside the facts, so this script's arithmetic can be checked against the responder's.
+
+  vegetation_class_from_ndvi@1
+    published formula: let n = indices.ndvi; if n < 0 -> 'water_or_snow'; else if n < 0.1
+    -> 'bare'; else if n < 0.3 -> 'sparse'; else if n < 0.5 -> 'moderate'; else -> 'dense'
+    inputs:
+      indices.ndvi = 0.26435506241331486
+      emem:fact:defi.zb493.hufo.zccc6:yimc47juvb5pe3zzjwktkomgx7ebq6iz2pzs53orch4xsjgsihxa
+    arithmetic:
+      n = 0.264355 -> n < 0.3 and n >= 0.1 -> class ordinal 2 = 'sparse'
+    cross-check: responder computed 2.0 -> AGREES with this script.
+
+  flood_risk@2
+    published formula: let dem_agreement = if abs(copdem30m.elevation_mean -
+    gmrt.topobathy_mean) <= 5 then 1.0 else 0.5; 0.55*(surface_water.recurrence/100) +
+    0.25*dem_agreement*(relu(50 - copdem30m.elevation_mean)/50) + 0.20*sigmoid((-15 -
+    sentinel1_raw)/2)
+    inputs:
+      surface_water.recurrence               = 0.0                 
+        emem:fact:defi.zb493.hufo.zccc6:2z5brwgznn7zvardbjtztvrr5ij3mfy3yjzsfk4gwmtjpkrwmpkq
+      copdem30m.elevation_mean               = 889.6439208984375   
+        emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
+      gmrt.topobathy_mean                    = 903.0               
+        emem:fact:defi.zb493.hufo.zccc6:7hwq6r6i6xbdpczc3u2w2p7tl4rd5umigre2wg5pjn6eqamvoztq
+      sentinel1_raw                          = -6.973320173518356  
+        emem:fact:defi.zb493.hufo.zccc6:ikdtmfsz54m3n3mkaxv6ce5bmbocn4lmpqbvmkom7oxqqcjf7pia
+    arithmetic:
+      dem_agreement : |889.6439 - 903.0000| = 13.3561 > 5  ->  0.5
+      term 1 water  : 0.55 * (0.0000 / 100)                  = 0.00000000
+      term 2 elev   : 0.25 * 0.5 * (relu(50 - 889.6439) / 50)  = 0.00000000
+      term 3 radar  : 0.20 * sigmoid((-15 - -6.9733) / 2)      = 0.00355042
+      sum                                                   = 0.00355042
+      clamp01                                               = 0.00355042
+      band          : 0.00355042 -> low
+    cross-check: responder computed 0.0035504199597706748 -> AGREES with this script (within 1e-9).
+
+============================================================================================
+STEP 4  TWO CREDIT MEMOS ABOUT THE SAME PARCEL
+============================================================================================
+  MEMO A - naive. Confident physical claims, no evidence.
+--------------------------------------------------------------------------------------------
+    Collateral for application APP-2291 is a parcel at Koramangala, Bengaluru.
+    The collateral parcel at Koramangala sits at 889.6 m elevation, well clear of any flood
+    plain.
+    Vegetation cover at the parcel is sparse, with an NDVI of 0.26.
+    Surface water recurrence at the site is 0 percent, so flood risk is negligible.
+    Underwriting recommends approval at 70 percent LTV.
+
+  MEMO B - grounded. Every physical claim carries its emem:fact: token.
+--------------------------------------------------------------------------------------------
+    Collateral for application APP-2291 is the parcel at cell64 defi.zb493.hufo.zccc6.
+    The collateral parcel at Koramangala sits at 889.6 m elevation
+    [emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa],
+    well clear of any flood plain.
+    Vegetation cover at the parcel is sparse, with an NDVI of 0.26
+    [emem:fact:defi.zb493.hufo.zccc6:yimc47juvb5pe3zzjwktkomgx7ebq6iz2pzs53orch4xsjgsihxa],
+    per published algorithm vegetation_class_from_ndvi@1.
+    Surface water recurrence at the site is 0 percent
+    [emem:fact:defi.zb493.hufo.zccc6:2z5brwgznn7zvardbjtztvrr5ij3mfy3yjzsfk4gwmtjpkrwmpkq];
+    flood_risk@2 scores 0.00355 (low) from that recurrence, elevation
+    [emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa]
+    and radar backscatter
+    [emem:fact:defi.zb493.hufo.zccc6:ikdtmfsz54m3n3mkaxv6ce5bmbocn4lmpqbvmkom7oxqqcjf7pia].
+    Underwriting recommends approval at 70 percent LTV.
+
+============================================================================================
+STEP 5  GUARD VERDICTS  (POST /v1/guard/verdict?shape=native)
+============================================================================================
+  MEMO A (naive)    action=deny  code=CLAIM_UNGROUNDED checked=0  citations_found=0  fact_cids=0
+  MEMO B (grounded) action=allow code=None             checked=5  citations_found=5  fact_cids=5
+
+  MEMO A
+    action : deny
+    code   : CLAIM_UNGROUNDED
+    fix    : cite_observation
+    claim it named:
+      sentence    : The collateral parcel at Koramangala sits at 889.6 m elevation, well clear of any flood plain.
+      magnitude   : 889.6 m   quantity: length
+      anchor      : place_name   source_band: dem
+
+  MEMO B
+    action : allow
+    code   : None
+    fix    : None
+    claim it named: none
+
+  The responder marks this verdict advisory=True. This is an advisory check, not a
+  checkpoint: nothing is blocked. Run your own node to enforce, or to check a corpus this
+  responder does not hold. GET /v1/guard/selfhost returns the procedure.
+
+============================================================================================
+STEP 6  FINDINGS  (computed from the responses above)
+============================================================================================
+  1. The naive memo verdict was DENY (CLAIM_UNGROUNDED).
+     The guard named exactly one claim, and reported only that one: 'The collateral parcel
+     at Koramangala sits at 889.6 m elevation, well clear of any flood plain.', attributed
+     to source_band 'dem' as quantity 'length'.
+
+  2. Sentence by sentence, the naive memo scores like this:
+       allow -            Collateral for application APP-2291 is a parcel at Koramanga...
+       deny  length       The collateral parcel at Koramangala sits at 889.6 m elevati...
+       allow -            Vegetation cover at the parcel is sparse, with an NDVI of 0.26.
+       allow -            Surface water recurrence at the site is 0 percent, so flood ...
+       allow -            Underwriting recommends approval at 70 percent LTV.
+     5 of 5 sentences contain a numeral; the guard denied 1 of them and allowed 4.
+     These uncited numeric claims were ALLOWED. They are exactly as unevidenced as the one
+     that was denied:
+       - Collateral for application APP-2291 is a parcel at Koramangala, Bengaluru.
+       - Vegetation cover at the parcel is sparse, with an NDVI of 0.26.
+       - Surface water recurrence at the site is 0 percent, so flood risk is negligible.
+       - Underwriting recommends approval at 70 percent LTV.
+     The quantity type the guard did fire on was 'length'. The detector needs both a
+     place-name anchor and a magnitude it recognises; ratios, percentages and counts did
+     not trip it here.
+
+  3. The grounded memo verdict was ALLOW. citations_found=5, receipt.fact_cids=5.
+     Every token in the memo resolved to a fact this responder holds and re-signed into the
+     verdict receipt.
+
+  4. The discriminator, len(receipt.fact_cids) == citations_found:
+       naive    : 0 == 0 -> True  (vacuously true: nothing was cited)
+       grounded : 5 == 5 -> True
+
+  What this run did NOT show is what the guard misses on citations themselves. Run `python3
+  run.py --probe` for the four controlled checks that isolate that.
+
+
+============================================================================================
+                        PROBE: WHAT A GUARD VERDICT ACTUALLY PROVES                         
+============================================================================================
+  Four texts. They differ only in the citation attached to one measurable claim. Everything
+  below is measured live; where the responder disagrees with the documented expectation,
+  the difference is printed rather than the expectation.
+
+  cell64        : defi.zb493.hufo.zccc6
+  real fact     : copdem30m.elevation_mean = 889.6439208984375 m
+  valid token   : emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
+  corrupted     : emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuejagehmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa
+  (the corrupted token is the valid one with 4 characters rotated inside the base32
+  alphabet: same shape, same length, wrong cid)
+
+============================================================================================
+      CHECK                              ACTION CODE              CITE CIDS   MERKLE
+--------------------------------------------------------------------------------------------
+  A   bare uncited measurable claim      deny   CLAIM_UNGROUNDED  0    0      no
+  B   same claim + CORRUPTED token       allow  None              1    0      no
+  C   same claim + VALID token           allow  None              1    1      yes
+  D   VALID token, FALSE value in prose  allow  None              1    1      yes
+============================================================================================
+
+  WHAT EACH CHECK PROVES
+
+  A. bare uncited measurable claim
+     documented expectation : deny CLAIM_UNGROUNDED
+     observed               : action=deny code=CLAIM_UNGROUNDED citations_found=0 fact_cids=0
+
+  B. same claim + CORRUPTED token
+     documented expectation : allow, citations_found 1, fact_cids EMPTY
+     observed               : action=allow code=None citations_found=1 fact_cids=0
+
+  C. same claim + VALID token
+     documented expectation : allow, fact_cids populated, merkle_proof present
+     observed               : action=allow code=None citations_found=1 fact_cids=1
+
+  D. VALID token, FALSE value in prose
+     documented expectation : allow
+     observed               : action=allow code=None citations_found=1 fact_cids=1
+
+============================================================================================
+  DERIVED RULE  (each line below is gated on what was just measured)
+============================================================================================
+
+  1. A denied with no citations. The guard does detect a bare measurable claim anchored to
+  a place name.
+
+  2. B is the uncomfortable one. A citation that is well-formed but does not resolve turned
+  a DENY into an ALLOW. citations_found=1 while receipt.fact_cids is empty: the guard
+  counted the token in the prose and could not resolve it, and still allowed.
+
+  3. C is the honest case: the token resolved, and the responder re-signed the resolved
+  fact_cid into the verdict receipt with a merkle_proof.
+
+  4. D is the limit. The prose says 5000 m; the cited fact says 889.6 m. The token
+  resolves, so the verdict is ALLOW. The guard checks that a citation exists and resolves.
+  It does not check that the number in the sentence matches the number in the fact.
+
+--------------------------------------------------------------------------------------------
+  The test that discriminates B from C is NOT the action. It is:
+
+      len(receipt.fact_cids) == citations_found
+
+      A : 0 == 0 -> True  (vacuous, nothing cited)
+      B : 0 == 1 -> False 
+      C : 1 == 1 -> True  
+      D : 1 == 1 -> True  
+
+  And even that test passes D, which is false. A resolvable citation proves the fact exists
+  and was signed. It does not prove the sentence reports it correctly. Binding prose to the
+  value inside the fact is the reader's job, and this example does it in step 3 by
+  recomputing the published algorithms and cross-checking against the responder's own
+  value.
+
+  One more thing this run measured without being asked to: the prose in every check says
+  "at Jagraon", while the cited fact belongs to cell64 defi.zb493.hufo.zccc6, which is the
+  coordinate this script located. The guard allowed anyway. A resolvable token is not
+  evidence that it is a token about the place named in the sentence.
+
+  4 of 4 checks matched the documented expectation.
+

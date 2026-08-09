@@ -12525,6 +12525,9 @@ async fn boring_recall_aggregated(
         // removes.
         let mut primary_cells: Vec<String> = Vec::with_capacity(entries.len());
         let mut fact_cids: Vec<String> = Vec::with_capacity(entries.len());
+        // The same citations as `fact_cids`, in the same order, already in
+        // token form so a caller can paste one straight into a reply.
+        let mut memory_tokens: Vec<String> = Vec::with_capacity(entries.len());
         let mut signed_ats: Vec<String> = Vec::with_capacity(entries.len());
         let mut absence_count = 0usize;
         let mut sample_unit: Option<String> = None;
@@ -12551,6 +12554,17 @@ async fn boring_recall_aggregated(
                 "value": val_json,
                 "kind":  kind_str,
                 "fact_cid": e.fact_cid,
+                // The citation, pre-assembled, exactly as `/v1/recall` emits
+                // it. Every boring endpoint (soil, water, forest, weather,
+                // air, lst, ndvi) returned a `fact_cid` and no token until
+                // 2026-08-08, so a caller wanting to cite one had to
+                // concatenate `emem:fact:{cell}:{fact_cid}` by hand. That is
+                // a silent-failure shape: a hand-built token with one wrong
+                // character still returns `allow` from the guard while
+                // resolving to nothing, so the mistake looks like success.
+                // Emitting it here removes the step that could go wrong.
+                "memory_token": e.fact_cid.as_ref()
+                    .map(|c| format!("emem:fact:{}:{}", e.cell, c)),
             }));
             match &e.fact {
                 emem_fact::Fact::Primary(p) => {
@@ -12568,6 +12582,7 @@ async fn boring_recall_aggregated(
             }
             if let Some(c) = &e.fact_cid {
                 fact_cids.push(c.clone());
+                memory_tokens.push(format!("emem:fact:{}:{}", e.cell, c));
             }
             signed_ats.push(e.signed_at.clone());
         }
@@ -12613,6 +12628,7 @@ async fn boring_recall_aggregated(
             "stats":                 stats,
             "kind":                  kind_str,
             "fact_cids":             fact_cids,
+            "memory_tokens":         memory_tokens,
             "data_resolution_m":     band_input_resolution_m(band),
             "cell_dedupe_m":         RESOLUTION_M_GRID,
             "n":                     n_present,
@@ -64547,17 +64563,31 @@ mod tests {
         assert_eq!(v["fix"], "cite_observation");
         // The actionable half: which band would answer this, so the remedy is
         // "resolve elevation there and cite it" rather than "cite something".
-        assert_eq!(v["claim"]["source_band"], "dem");
+        // It must name a key recall will serve. `dem` is a family root and
+        // answers `unknown_band`, so an agent that followed it went nowhere.
+        assert_eq!(v["claim"]["source_band"], "copdem30m.elevation_mean");
         assert_eq!(v["claim"]["magnitude"], "31 m");
 
-        // Cite anything and the rule declines, because attributing individual
-        // sentences to individual citations is a guess this engine will not
-        // make.
-        let cited = json!({
+        // A citation this node cannot resolve does NOT buy an allow. Before
+        // 2026-08-08 it did, so appending any well-formed token silenced the
+        // denial the sentence had earned while `receipt.fact_cids` stayed
+        // empty: defeating the gate was cheaper than satisfying it.
+        let unresolvable = json!({
             "texts":["Canopy height in Sumatra reached 31 m on 2026-08-05, per emem:entity:abc123."],
             "claim_gating": true
         });
-        assert_eq!(guard_verdict_json(&s, &cited).await["action"], "allow");
+        let u = guard_verdict_json(&s, &unresolvable).await;
+        assert_eq!(
+            u["action"], "deny",
+            "an unresolvable token is not grounding"
+        );
+        assert_eq!(u["code"], "CLAIM_UNGROUNDED");
+        // And it is still not accused of being a forgery: no provenance code
+        // fires on a token another responder may legitimately hold.
+        assert_eq!(
+            u["receipt"]["fact_cids"].as_array().map(|a| a.len()),
+            Some(0)
+        );
     }
 
     /// The gap a reader actually stood in: we published a nine-route table

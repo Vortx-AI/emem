@@ -161,7 +161,27 @@ impl Guard {
             let status = if Instant::now() >= deadline || tokens.len() >= MAX_RESOLVED_TOKENS {
                 policy::TokenStatus::Unresolved
             } else {
-                self.resolver.resolve(t, per_token)
+                // The resolver does BLOCKING http, and this runs inside an
+                // async handler. Calling it straight through panicked the
+                // worker with "Cannot drop a runtime in a context where
+                // blocking is not allowed" the moment a transcript carried a
+                // citation, so a node started with `--responder` answered
+                // every cited request by dropping the connection. Nothing
+                // caught it because every test here uses `NullResolver`,
+                // which does no IO: the resolving path had no coverage at all.
+                //
+                // `block_in_place` tells the scheduler this worker is about
+                // to block, which both unblocks the runtime and makes the
+                // drop legal. It requires a multi-thread runtime and a
+                // runtime context, so both are checked rather than assumed;
+                // outside one, a direct call is already correct.
+                let resolve_one = || self.resolver.resolve(t, per_token);
+                match tokio::runtime::Handle::try_current() {
+                    Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                        tokio::task::block_in_place(resolve_one)
+                    }
+                    _ => resolve_one(),
+                }
             };
             tokens.push((t.clone(), status));
         }
@@ -1231,8 +1251,8 @@ mod tests {
         assert_eq!(v["code"], "CLAIM_UNGROUNDED");
         assert_eq!(v["fix"], "cite_observation");
         assert_eq!(
-            v["claim"]["source_band"], "dem",
-            "and names where to get a citation"
+            v["claim"]["source_band"], "copdem30m.elevation_mean",
+            "and names a band recall will actually serve, not the `dem` family root"
         );
 
         // The count comes off disk, from the same file an auditor reads.
