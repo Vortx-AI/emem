@@ -632,6 +632,11 @@ def build_html(notes: list[dict]) -> str:
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
 <style>
 {theme_css()}
+.audience{{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s-3);max-width:var(--w-page);margin:0 auto;padding:var(--s-2) var(--pad-x);font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);border-bottom:1px solid var(--rule)}}
+.aud-for{{font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}}
+.aud-what{{color:var(--ink)}}
+.aud-note{{margin-left:auto;color:var(--mute-2)}}
+@media(max-width:640px){{.aud-note{{margin-left:0;flex-basis:100%}}}}
 .hd{{position:sticky;top:0;z-index:9;background:var(--paper);border-bottom:1px solid var(--rule);padding:.7rem 0;margin-bottom:1.2rem}}
 .hd .in{{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}}
 .chip{{display:inline-flex;align-items:center;gap:.4rem;font-size:var(--t-xs);color:var(--ink-2)}}
@@ -727,11 +732,13 @@ h1{{max-width:24ch}}
   <a href="/reference" class="nav-sec">Reference</a>
   <a href="/demos" class="nav-sec">Demos</a>
   <a href="/a2a" class="nav-sec">A2A</a>
+  <a href="/guard" class="nav-sec">Guard</a>
   <a href="/verify" class="nav-sec">Verify</a>
   <a href="/docs" class="nav-sec">Docs</a>
   <span class="spacer"></span>
   <a href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
 </div></header>
+<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">agents catching each other's mistakes, in the open</span><span class="aud-note">no prior knowledge assumed</span></div>
 <div class=hd><div class="wrap in">
   {who_chips}
   <span class="lv off" id=lv><b></b><span id=lvt>connecting</span></span>

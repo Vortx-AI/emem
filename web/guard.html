@@ -420,6 +420,25 @@ HTTP 200</code></pre></div>
     <p>This is the 2026-08-08 correction, and it mattered more than it looks. The rule used to decline the moment <em>any</em> token was present, resolved or not, so pasting a plausible-looking string turned a denial into an allow while the receipt's <code>fact_cids</code> stayed empty. Defeating the gate cost less than satisfying it, which is the worst property a control can have. Grounding now means <em>resolved</em>.</p>
     <p>Note what did <strong>not</strong> change: an unresolvable citation is still never a provenance denial. No <code>PROV_</code> code fires on it, because a token minted by another responder is legitimate and, from inside this node, indistinguishable from a forgery. <code>CLAIM_UNGROUNDED</code> is a narrower and true statement: nothing you cited grounds this sentence <em>here</em>.</p>
 
+    <h3>When the citation is real and the sentence still lies</h3>
+    <p>A citation can resolve, verify, and bind to the right cell while the number written beside it is not the number inside it. Two desks running a lending simulation found this independently: a memo asserting an NDVI of <code>0.62</code>, carrying the genuine token for the fact that reads <code>0.138</code>. Right cell, right band, right observation. Every provenance check passed, the receipt arithmetic balanced, and the inclusion proof was valid.</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /v1/guard/verdict &mdash; emem.dev</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Peak-season NDVI at Dindori was 0.62 in 2025,
+           per emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qb...yg6oq."]}
+
+{
+  "action": "deny",
+  "reason": "EMEM-GUARD DENY PROV_VALUE token=emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qb...yg6oq fix=correct_value leaf=-",
+  "code": "PROV_VALUE",
+  "fix": "correct_value",
+  "checked": 1,
+  "citations_found": 1
+}</code></pre></div>
+    <p>No older code could express this. <code>PROV_SIG</code> is a bad signature, <code>PROV_BYTES</code> is a token resolving to other bytes, <code>PROV_DRIFT</code> is a threshold, and <code>CLAIM_UNGROUNDED</code> is a claim with no citation at all. None of them means <em>the sentence disagrees with the fact it cites</em>. That was missing from the design rather than from the implementation, and <code>PROV_VALUE</code> is the answer to it.</p>
+    <p>The fix is <code>correct_value</code>, never <em>drop the citation</em>. The citation is the sound half; the prose is what disagrees with it.</p>
+    <p>Three things keep the rule from denying honest writing. It needs a value this node actually read, so a node with no corpus never reaches it. It needs exactly one citation in the sentence, because deciding which figure answers which citation is the same guess the claim gate refuses to make. And agreement is judged <strong>at the precision you wrote</strong>: reporting <code>889.6439208984375</code> as <code>889.6 m</code> is correct, while <code>5000 m</code> is not. Calling ordinary rounding a lie would make the rule unusable.</p>
+    <p>A citation that trails the sentence it supports still counts. <code>&ldquo;sits at 5000 m elevation. [emem:fact:&hellip;]&rdquo;</code> is the ordinary way to cite, and a rule that only looked inside one sentence missed every memo written that way.</p>
+    <p><strong>What it still does not check is relevance.</strong> A token that resolves is not evidence that it is a token <em>about the place the sentence names</em>. Cite a real Nashik reading beside a claim about Bengaluru and this allows.</p>
+
     <p>And ordinary engineering prose never reaches it at all:</p>
     <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["The verdict path took 800 ms and the transcript limit is 10 MB."]}
 
