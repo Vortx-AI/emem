@@ -937,6 +937,139 @@ fn truncate_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
+/// A sentence that cites exactly one observation and also states a number.
+///
+/// The pair a value-agreement rule needs: prose asserting a figure, and the
+/// single citation offered as evidence for it. Restricted to ONE token on
+/// purpose. With two, attributing which number answers which citation is the
+/// same guess the claim gate refuses to make, and a wrong deny there is worse
+/// than a miss.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CitedNumber {
+    /// The sentence, trimmed and bounded by [`SENTENCE_MAX`].
+    pub sentence: String,
+    /// The one citation it offers.
+    pub token: String,
+    /// Every number stated in the prose, paired with the decimal places it
+    /// was written to. The precision matters: `889.6` is a correct report of
+    /// `889.6439208984375`, and comparing them at full width would call
+    /// ordinary rounding a lie.
+    pub numbers: Vec<(f64, usize)>,
+}
+
+/// Find sentences that state a number and cite exactly one observation.
+///
+/// Numbers inside the token are never counted. A cell64 is full of digits, and
+/// reading them as claims would make every citation contradict itself.
+pub fn scan_cited_numbers<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<CitedNumber> {
+    let mut out = Vec::new();
+    for text in texts {
+        // Sentence splitting must not cut inside a citation. A cell64 is
+        // dotted, so `defi.zb4e4.zcced.fUrI` reads as four sentence endings
+        // and the token arrives at the rule in pieces. Mask every token to a
+        // filler of the SAME BYTE LENGTH first, split that, then read the
+        // original text back by offset: the mask changes which bytes are
+        // punctuation without moving any of them.
+        let all = crate::tokens::scan(text);
+        let mut masked = text.to_string();
+        for t in &all {
+            let filler = "x".repeat(t.token.len());
+            masked = masked.replacen(&t.token, &filler, 1);
+        }
+        for msent in sentences(&masked) {
+            let off = msent.as_ptr() as usize - masked.as_ptr() as usize;
+            let Some(sentence) = text.get(off..off + msent.len()) else {
+                continue;
+            };
+            let found = crate::tokens::scan(sentence);
+            // Exactly one citation, and one that resolves to bytes: an entity
+            // names an object and a cell names an address, so neither carries
+            // a reading a sentence could misreport.
+            let citing: Vec<_> = found
+                .iter()
+                .filter(|t| t.kind.resolves_to_bytes())
+                .collect();
+            if citing.len() != 1 {
+                continue;
+            }
+            // Blank every token out before reading numbers, so the digits in
+            // an address are never mistaken for an assertion.
+            let mut stripped = sentence.to_string();
+            for t in &found {
+                stripped = stripped.replace(&t.token, " ");
+            }
+            let numbers = numbers_in(&stripped);
+            if numbers.is_empty() {
+                continue;
+            }
+            out.push(CitedNumber {
+                sentence: truncate_chars(sentence.trim(), SENTENCE_MAX),
+                token: citing[0].token.clone(),
+                numbers,
+            });
+        }
+    }
+    out
+}
+
+/// Every decimal number in a string, with the precision it was written to.
+fn numbers_in(s: &str) -> Vec<(f64, usize)> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < b.len() {
+        if !b[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        // Walk back over a sign and forward over the whole literal, so
+        // thousands separators and a decimal tail stay part of one number.
+        let start = i;
+        let mut j = i;
+        let mut decimals = 0usize;
+        let mut seen_dot = false;
+        while j < b.len() {
+            if b[j].is_ascii_digit() {
+                if seen_dot {
+                    decimals += 1;
+                }
+                j += 1;
+            } else if b[j] == b',' && j + 1 < b.len() && b[j + 1].is_ascii_digit() && !seen_dot {
+                j += 1;
+            } else if b[j] == b'.' && !seen_dot && j + 1 < b.len() && b[j + 1].is_ascii_digit() {
+                seen_dot = true;
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        let neg = start > 0 && b[start - 1] == b'-';
+        let lit: String = s[start..j].chars().filter(|c| *c != ',').collect();
+        if let Ok(v) = lit.parse::<f64>() {
+            out.push((if neg { -v } else { v }, decimals));
+        }
+        i = j.max(start + 1);
+    }
+    out
+}
+
+/// Whether prose reporting `stated` to `decimals` places agrees with `actual`.
+///
+/// Agreement is judged at the precision the writer chose. Rounding `actual` to
+/// the same width is what makes `889.6` a correct report of
+/// `889.6439208984375` while `5000` is not, and it is the only comparison that
+/// does not punish a human for writing a readable number.
+pub fn agrees(stated: f64, decimals: usize, actual: f64) -> bool {
+    let f = 10f64.powi(decimals.min(12) as i32);
+    if (actual * f).round() / f == stated {
+        return true;
+    }
+    // A relative fallback for very large or very small magnitudes, where a
+    // half-ulp at the printed width is not the interesting question.
+    let scale = actual.abs().max(stated.abs());
+    scale > 0.0 && (actual - stated).abs() / scale <= 1e-9
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

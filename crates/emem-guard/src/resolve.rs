@@ -33,12 +33,46 @@ use std::time::Duration;
 use crate::policy::TokenStatus;
 use crate::tokens::{FoundToken, TokenKind};
 
+/// The numeric reading a citation resolved to.
+///
+/// Carried out of the resolver so a rule can compare a transcript's prose
+/// against the fact it points at. Only numbers: a fact whose value is a
+/// vector, a class label or a struct has nothing a sentence could contradict
+/// by stating a different figure.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FactValue {
+    pub value: f64,
+    pub unit: Option<String>,
+    pub band: String,
+}
+
+/// What resolving one citation established.
+///
+/// `status` is the verdict-bearing half and existed first. `value` is
+/// additive: a resolver that cannot report one returns `None`, which disables
+/// the value-agreement rule for that citation rather than failing it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resolution {
+    pub status: TokenStatus,
+    pub value: Option<FactValue>,
+}
+
+impl Resolution {
+    /// A status with nothing to compare against.
+    pub fn bare(status: TokenStatus) -> Self {
+        Self {
+            status,
+            value: None,
+        }
+    }
+}
+
 /// Something that can say what a citation turned out to be.
 pub trait Resolver: Send + Sync {
     /// Resolve one citation. Must return within `budget` or answer
     /// [`TokenStatus::Unresolved`]; a resolver that blocks past the deadline
     /// converts a verdict into a webhook failure.
-    fn resolve(&self, token: &FoundToken, budget: Duration) -> TokenStatus;
+    fn resolve(&self, token: &FoundToken, budget: Duration) -> Resolution;
 
     /// A short name for the log, so an auditor can tell which kind of node
     /// produced a verdict. A bare node and a corpus-backed one reach
@@ -58,8 +92,8 @@ pub trait Resolver: Send + Sync {
 pub struct NullResolver;
 
 impl Resolver for NullResolver {
-    fn resolve(&self, _token: &FoundToken, _budget: Duration) -> TokenStatus {
-        TokenStatus::Unresolved
+    fn resolve(&self, _token: &FoundToken, _budget: Duration) -> Resolution {
+        Resolution::bare(TokenStatus::Unresolved)
     }
     fn describe(&self) -> String {
         "null".to_string()
@@ -112,9 +146,9 @@ impl ResponderResolver {
 }
 
 impl Resolver for ResponderResolver {
-    fn resolve(&self, token: &FoundToken, budget: Duration) -> TokenStatus {
+    fn resolve(&self, token: &FoundToken, budget: Duration) -> Resolution {
         let Some(cid) = Self::fact_cid(token) else {
-            return TokenStatus::Unresolved;
+            return Resolution::bare(TokenStatus::Unresolved);
         };
         // A cid is used to build a URL, so it must be shape-checked first.
         // Anything else is an injection surface and, worse, a way to make the
@@ -125,29 +159,29 @@ impl Resolver for ResponderResolver {
             || cid.len() < 16
             || cid.len() > 64
         {
-            return TokenStatus::Unresolved;
+            return Resolution::bare(TokenStatus::Unresolved);
         }
 
         let url = format!("{}/v1/facts/{cid}", self.base);
         let Ok(resp) = self.client.get(&url).timeout(budget).send() else {
             // Unreachable, slow, or refused. Not evidence about the claim.
-            return TokenStatus::Unresolved;
+            return Resolution::bare(TokenStatus::Unresolved);
         };
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
             // The responder is healthy and does not hold it. Still not a
             // statement that the observation is false: this node may simply
             // not have cached what another minted.
-            return TokenStatus::Unresolved;
+            return Resolution::bare(TokenStatus::Unresolved);
         }
         if !resp.status().is_success() {
-            return TokenStatus::Unresolved;
+            return Resolution::bare(TokenStatus::Unresolved);
         }
         let Ok(body) = resp.json::<serde_json::Value>() else {
-            return TokenStatus::Unresolved;
+            return Resolution::bare(TokenStatus::Unresolved);
         };
         // A typed error body carries `code`, not a fact.
         if body.get("code").is_some() && body.get("cell").is_none() {
-            return TokenStatus::Unresolved;
+            return Resolution::bare(TokenStatus::Unresolved);
         }
 
         // The fact resolved. That the responder returned it under this cid is
@@ -163,11 +197,33 @@ impl Resolver for ResponderResolver {
                 body.get("cell").and_then(|c| c.as_str()),
             ) {
                 if claimed != actual {
-                    return TokenStatus::ByteMismatch;
+                    return Resolution::bare(TokenStatus::ByteMismatch);
                 }
             }
         }
-        TokenStatus::Verified
+        // Verified. Pull the numeric reading out of the same body we already
+        // fetched, so the value-agreement rule costs no extra round trip.
+        // A non-numeric value (a vector, a class label, a struct) yields None
+        // and simply exempts the citation from that rule.
+        let value = body
+            .get("value")
+            .and_then(|v| v.as_f64())
+            .map(|value| FactValue {
+                value,
+                unit: body
+                    .get("unit")
+                    .and_then(|u| u.as_str())
+                    .map(|u| u.to_string()),
+                band: body
+                    .get("band")
+                    .and_then(|b| b.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            });
+        Resolution {
+            status: TokenStatus::Verified,
+            value,
+        }
     }
 
     fn describe(&self) -> String {
@@ -206,7 +262,8 @@ mod tests {
             r.resolve(
                 &tok("emem:fact:a.b.c.d:cid", TokenKind::Fact),
                 Duration::from_millis(50)
-            ),
+            )
+            .status,
             TokenStatus::Unresolved
         );
         assert_eq!(r.describe(), "null");
@@ -244,7 +301,8 @@ mod tests {
             "emem:fact:a.b.c.d:short",
         ] {
             assert_eq!(
-                r.resolve(&tok(bad, TokenKind::Fact), Duration::from_millis(5)),
+                r.resolve(&tok(bad, TokenKind::Fact), Duration::from_millis(5))
+                    .status,
                 TokenStatus::Unresolved,
                 "{bad} must not produce a request"
             );
@@ -265,7 +323,7 @@ mod tests {
             ),
             Duration::from_millis(50),
         );
-        assert_eq!(st, TokenStatus::Unresolved);
+        assert_eq!(st.status, TokenStatus::Unresolved);
     }
 
     /// The address half of a fact token is what a transcript can get wrong by

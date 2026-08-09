@@ -7794,13 +7794,19 @@ const GUARD_SKILL_MD: &str = include_str!("../../emem-guard/SKILL.md");
 /// Everything this responder does not hold is `Unresolved`, which is never a
 /// denial: a token minted elsewhere is unresolvable here and completely
 /// legitimate.
-async fn guard_resolve_token(s: &AppState, t: &emem_guard::FoundToken) -> emem_guard::TokenStatus {
+async fn guard_resolve_token(
+    s: &AppState,
+    t: &emem_guard::FoundToken,
+) -> (
+    emem_guard::TokenStatus,
+    Option<emem_guard::resolve::FactValue>,
+) {
     use emem_guard::{TokenKind, TokenStatus};
     if !t.kind.resolves_to_bytes() {
-        return TokenStatus::Unresolved;
+        return (TokenStatus::Unresolved, None);
     }
     let Some(cid) = t.token.rsplit(':').next().filter(|c| looks_like_cid(c)) else {
-        return TokenStatus::Unresolved;
+        return (TokenStatus::Unresolved, None);
     };
     let facts = match s
         .storage
@@ -7809,10 +7815,10 @@ async fn guard_resolve_token(s: &AppState, t: &emem_guard::FoundToken) -> emem_g
     {
         Ok(f) => f,
         // Storage being unhealthy is not evidence about the claim.
-        Err(_) => return TokenStatus::Unresolved,
+        Err(_) => return (TokenStatus::Unresolved, None),
     };
     let Some(Some(fact)) = facts.into_iter().next() else {
-        return TokenStatus::Unresolved;
+        return (TokenStatus::Unresolved, None);
     };
 
     // The cid IS the hash of the canonical bytes, so returning a fact under
@@ -7830,11 +7836,27 @@ async fn guard_resolve_token(s: &AppState, t: &emem_guard::FoundToken) -> emem_g
             .and_then(|v| v.get("cell").and_then(|c| c.as_str()).map(str::to_string));
         if let (Some(claimed), Some(actual)) = (claimed, actual) {
             if claimed != actual {
-                return TokenStatus::ByteMismatch;
+                return (TokenStatus::ByteMismatch, None);
             }
         }
     }
-    TokenStatus::Verified
+    // The numeric reading, for the value-agreement rule. Read off the same
+    // fact already in hand, so it costs no extra storage trip. A non-numeric
+    // value has nothing a sentence could contradict with a different figure,
+    // and yields None.
+    let blob = serde_json::to_value(&fact).ok();
+    let value = blob.as_ref().and_then(|v| {
+        Some(emem_guard::resolve::FactValue {
+            value: v.get("value")?.as_f64()?,
+            unit: v.get("unit").and_then(|u| u.as_str()).map(str::to_string),
+            band: v
+                .get("band")
+                .and_then(|b| b.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        })
+    });
+    (TokenStatus::Verified, value)
 }
 
 /// Which envelope the caller speaks.
@@ -7956,6 +7978,7 @@ async fn guard_verdict_shaped(
     let need = policy::needs_resolution(&found);
     let mut resolved = Vec::with_capacity(need.len());
     let mut read_cids: Vec<emem_fact::FactCid> = Vec::new();
+    let mut guard_values: Vec<(String, emem_guard::resolve::FactValue)> = Vec::new();
     // The same ceiling the standalone server applies. A transcript can carry
     // thousands of tokens and an unbounded loop over them is a way for any
     // caller to make this responder do unbounded work.
@@ -7963,7 +7986,10 @@ async fn guard_verdict_shaped(
         .into_iter()
         .take(emem_guard::server::MAX_RESOLVED_TOKENS)
     {
-        let st = guard_resolve_token(s, t).await;
+        let (st, val) = guard_resolve_token(s, t).await;
+        if let Some(v) = val {
+            guard_values.push((t.token.clone(), v));
+        }
         // Which cids this responder actually read to reach the verdict. They
         // go into the receipt, which is what turns "we checked" into something
         // a third party can confirm we checked.
@@ -7980,6 +8006,11 @@ async fn guard_verdict_shaped(
     let checked = resolved.len();
     let evidence = policy::Evidence {
         tokens: resolved,
+        values: guard_values,
+        // The value-agreement rule rides with the provenance switch, which is
+        // on by default: it denies only where this responder positively read
+        // the fact and the prose disagrees with it.
+        cited_numbers: emem_guard::claim::scan_cited_numbers(texts.iter().copied()),
         // A hosted node enforces nobody's zone policy. Geo restriction is an
         // operator's decision about their own org and has no meaning here.
         restricted_cells: Vec::new(),
@@ -64859,14 +64890,17 @@ mod tests {
             .iter()
             .map(|c| c["code"].as_str().unwrap())
             .collect();
-        for c in [
-            "PROV_SIG",
-            "PROV_BYTES",
-            "PROV_DRIFT",
-            "GEO_ZONE",
-            "CLAIM_UNGROUNDED",
-        ] {
-            assert!(codes.contains(&c), "{c} undocumented");
+        // Exhaustive over the enum rather than a list someone remembers to
+        // extend. PROV_VALUE shipped 2026-08-09 and this test passed without
+        // it, because it only ever checked the codes already written down,
+        // while its own name promised every code the engine can emit.
+        for c in emem_guard::policy::DenyCode::ALL {
+            assert!(
+                codes.contains(&c.as_str()),
+                "{} undocumented: an agent reading the contract would meet a \
+                 code it was never told about",
+                c.as_str()
+            );
         }
         let fixes: Vec<&str> = v["fixes"]
             .as_array()
@@ -64874,13 +64908,8 @@ mod tests {
             .iter()
             .map(|f| f["fix"].as_str().unwrap())
             .collect();
-        for f in [
-            "refresh_token",
-            "remove_reference",
-            "contact_admin",
-            "cite_observation",
-        ] {
-            assert!(fixes.contains(&f), "{f} undocumented");
+        for f in emem_guard::policy::Fix::ALL {
+            assert!(fixes.contains(&f.as_str()), "{} undocumented", f.as_str());
         }
         assert_eq!(v["hosted"]["blocks_nothing"], true);
     }

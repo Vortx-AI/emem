@@ -153,13 +153,17 @@ impl Guard {
         };
 
         let mut tokens = Vec::with_capacity(need.len());
+        // The numeric reading behind each citation that resolved to one, so
+        // the value-agreement rule can compare prose against fact without a
+        // second round trip.
+        let mut values: Vec<(String, crate::resolve::FactValue)> = Vec::new();
         let deadline = Instant::now() + RESOLVE_BUDGET;
         for t in need {
             // Past the deadline everything remaining is unresolved rather
             // than unchecked-and-silent. The count still reaches the log, so
             // a shadow report can show how often the budget ran out.
-            let status = if Instant::now() >= deadline || tokens.len() >= MAX_RESOLVED_TOKENS {
-                policy::TokenStatus::Unresolved
+            let resolved = if Instant::now() >= deadline || tokens.len() >= MAX_RESOLVED_TOKENS {
+                crate::resolve::Resolution::bare(policy::TokenStatus::Unresolved)
             } else {
                 // The resolver does BLOCKING http, and this runs inside an
                 // async handler. Calling it straight through panicked the
@@ -183,7 +187,10 @@ impl Guard {
                     _ => resolve_one(),
                 }
             };
-            tokens.push((t.clone(), status));
+            if let Some(v) = resolved.value.clone() {
+                values.push((t.token.clone(), v));
+            }
+            tokens.push((t.clone(), resolved.status));
         }
 
         // Modules run over the evidence gathered so far, on the same thread and
@@ -211,6 +218,14 @@ impl Guard {
 
         Evidence {
             tokens,
+            values,
+            // Scanned whenever provenance is on, since the value-agreement
+            // rule lives there. Pure string work over text already in memory.
+            cited_numbers: if self.config.provenance {
+                crate::claim::scan_cited_numbers(texts.iter().copied())
+            } else {
+                Vec::new()
+            },
             // A cell64 reference is restricted when the operator listed it.
             // Exact match against a configured set, never a geocode: fuzzy
             // resolution on the verdict path is how a guard confidently
@@ -1224,8 +1239,17 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("EMEM-GUARD DENY"));
-        assert_eq!(d["deny_codes"].as_array().unwrap().len(), 5);
-        assert_eq!(d["fixes"].as_array().unwrap().len(), 4);
+        // Counted off the enum, not off a number someone typed. Both of these
+        // were literals until 2026-08-09, and POLICY_MODULE and
+        // redact_and_retry had gone unpublished behind them the whole time.
+        assert_eq!(
+            d["deny_codes"].as_array().unwrap().len(),
+            crate::policy::DenyCode::ALL.len()
+        );
+        assert_eq!(
+            d["fixes"].as_array().unwrap().len(),
+            crate::policy::Fix::ALL.len()
+        );
     }
 
     /// Shadow: every rule runs, every verdict is signed and logged with what

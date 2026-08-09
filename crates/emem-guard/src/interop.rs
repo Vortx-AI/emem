@@ -545,8 +545,16 @@ pub fn deny_codes() -> Vec<(&'static str, &'static str)> {
             "a cited address falls in an operator-restricted zone",
         ),
         (
+            DenyCode::ProvValue.as_str(),
+            "a sentence states a figure that disagrees with the fact it cites",
+        ),
+        (
             DenyCode::ClaimUngrounded.as_str(),
             "a measurable claim about a place carried no citation",
+        ),
+        (
+            DenyCode::PolicyModule.as_str(),
+            "a loaded detection module denied; the module id and version are in the verdict and the log",
         ),
     ]
 }
@@ -566,6 +574,14 @@ pub fn fixes() -> Vec<(&'static str, &'static str)> {
         (
             Fix::CiteObservation.as_str(),
             "resolve the observation through emem and cite the token",
+        ),
+        (
+            Fix::RedactAndRetry.as_str(),
+            "remove the offending span and retry; the request itself is fine",
+        ),
+        (
+            Fix::CorrectValue.as_str(),
+            "restate the figure as the cited fact reports it, or cite the fact that says what you wrote",
         ),
     ]
 }

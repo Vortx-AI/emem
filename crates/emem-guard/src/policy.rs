@@ -45,6 +45,15 @@ pub enum DenyCode {
     GeoZone,
     /// An unverifiable quantitative claim about physical-world state.
     ClaimUngrounded,
+    /// A sentence states a figure that disagrees with the fact it cites.
+    ///
+    /// The gap every other code leaves open. `PROV_SIG` is a bad signature,
+    /// `PROV_BYTES` is a token resolving to something other than claimed, and
+    /// `CLAIM_UNGROUNDED` is a claim with no citation at all. None of them can
+    /// say "the citation is real, resolves, verifies, is about the right cell,
+    /// and the number written beside it is not the number inside it". That is
+    /// the shape a fabricated figure takes once someone has learned to cite.
+    ProvValue,
     /// A loaded policy module denied.
     ///
     /// One code for every module rather than one per module, because the
@@ -56,6 +65,20 @@ pub enum DenyCode {
 }
 
 impl DenyCode {
+    /// Every code, so a contract can be generated from the enum rather than
+    /// from a list somebody remembers to extend. A `match` below would not
+    /// help: the compiler cannot force a `vec!` to be complete, and that is
+    /// exactly how PROV_VALUE shipped unpublished for one commit.
+    pub const ALL: &'static [DenyCode] = &[
+        DenyCode::ProvSig,
+        DenyCode::ProvBytes,
+        DenyCode::ProvDrift,
+        DenyCode::GeoZone,
+        DenyCode::ClaimUngrounded,
+        DenyCode::ProvValue,
+        DenyCode::PolicyModule,
+    ];
+
     /// The wire form. Stable.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -64,6 +87,7 @@ impl DenyCode {
             Self::ProvDrift => "PROV_DRIFT",
             Self::GeoZone => "GEO_ZONE",
             Self::ClaimUngrounded => "CLAIM_UNGROUNDED",
+            Self::ProvValue => "PROV_VALUE",
             Self::PolicyModule => "POLICY_MODULE",
         }
     }
@@ -97,9 +121,25 @@ pub enum Fix {
     /// reads this and acts starts carrying citations, which is worth more than
     /// the single request it was denied.
     CiteObservation,
+    /// Restate the figure as the cited fact reports it, or cite the fact that
+    /// says what you wrote.
+    ///
+    /// Never "drop the citation": the citation is the sound half. The prose is
+    /// what disagrees with it.
+    CorrectValue,
 }
 
 impl Fix {
+    /// Every remedy, for the same reason as [`DenyCode::ALL`].
+    pub const ALL: &'static [Fix] = &[
+        Fix::RefreshToken,
+        Fix::RemoveReference,
+        Fix::ContactAdmin,
+        Fix::RedactAndRetry,
+        Fix::CiteObservation,
+        Fix::CorrectValue,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RefreshToken => "refresh_token",
@@ -107,6 +147,7 @@ impl Fix {
             Self::ContactAdmin => "contact_admin",
             Self::RedactAndRetry => "redact_and_retry",
             Self::CiteObservation => "cite_observation",
+            Self::CorrectValue => "correct_value",
         }
     }
 }
@@ -347,6 +388,12 @@ pub struct Evidence {
     /// arrive here already answered. That is what keeps this module pure and
     /// what stops a third party's plugin from reaching upstream mid-verdict.
     pub modules: Vec<(crate::module::ModuleManifest, crate::module::ModuleVerdict)>,
+    /// The numeric reading behind each citation that resolved to one, keyed by
+    /// the token as it appeared. Empty on a node with no corpus attached,
+    /// which disables the value-agreement rule rather than failing it.
+    pub values: Vec<(String, crate::resolve::FactValue)>,
+    /// Sentences that state a number and cite exactly one observation.
+    pub cited_numbers: Vec<crate::claim::CitedNumber>,
 }
 
 /// Which rules are on.
@@ -455,6 +502,38 @@ pub fn evaluate(cfg: &Config, ev: &Evidence) -> Decision {
                 )
                 .with_checked(checked);
             }
+        }
+
+        // Then the number itself. A citation can resolve, verify and bind to
+        // the right cell while the sentence beside it reports a different
+        // figure entirely, and until 2026-08-09 nothing looked: two desks
+        // running a lending simulation put "NDVI was 0.62" next to the genuine
+        // token for a fact reading 0.138 and got an allow with balanced
+        // fact_cids and a valid inclusion proof.
+        //
+        // This denies only on positively established disagreement, which is
+        // the safe direction. It needs a resolved numeric value, so a node
+        // with no corpus never reaches it; it needs exactly one citation in
+        // the sentence, so attribution is never a guess; and agreement is
+        // judged at the precision the writer chose, so reporting
+        // 889.6439208984375 as `889.6 m` is correct rather than a lie.
+        for cn in &ev.cited_numbers {
+            let Some((_, fv)) = ev.values.iter().find(|(t, _)| *t == cn.token) else {
+                continue;
+            };
+            if cn
+                .numbers
+                .iter()
+                .any(|(n, d)| crate::claim::agrees(*n, *d, fv.value))
+            {
+                continue;
+            }
+            return Decision::block(
+                DenyCode::ProvValue,
+                Some(cn.token.clone()),
+                Fix::CorrectValue,
+            )
+            .with_checked(checked);
         }
     }
 
@@ -767,6 +846,91 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(evaluate(&cfg, &unresolved).outcome, Outcome::Block);
+    }
+
+    /// The gap the other four codes leave open.
+    ///
+    /// Reproduced twice by two independent desks during a lending simulation:
+    /// a sentence asserting an NDVI of 0.62 carrying the GENUINE token for the
+    /// fact that reads 0.138. Right cell, right band, right observation; it
+    /// resolves, verifies and proves inclusion. Only the prose is false, and
+    /// no code in the vocabulary could say so.
+    #[test]
+    fn a_figure_that_disagrees_with_the_fact_it_cites_is_denied() {
+        let cfg = Config::default();
+        assert!(cfg.provenance, "the rule lives under the provenance switch");
+        let token =
+            "emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qbj67sc4lhdgh5yklp43kqik2evhvdtbqq2rjv7m7yg6oq";
+        let fv = crate::resolve::FactValue {
+            value: 0.138_136_153_337_739_65,
+            unit: None,
+            band: "indices.ndvi".to_string(),
+        };
+        let ev = |sentence: &str| Evidence {
+            tokens: vec![(tok(token, TokenKind::Fact), TokenStatus::Verified)],
+            values: vec![(token.to_string(), fv.clone())],
+            cited_numbers: crate::claim::scan_cited_numbers([sentence]),
+            ..Default::default()
+        };
+
+        let lying = format!("Peak-season NDVI at Dindori was 0.62 in 2025, per {token}.");
+        let d = evaluate(&cfg, &ev(&lying));
+        assert_eq!(d.code, Some(DenyCode::ProvValue), "0.62 is not 0.138");
+        // The citation is the sound half. Telling the author to drop it would
+        // remove the evidence and keep the false number.
+        assert_eq!(d.fix, Some(Fix::CorrectValue));
+        assert_eq!(d.token.as_deref(), Some(token));
+
+        // Reporting the same fact at the precision a person would write is not
+        // a lie, and calling it one would make the rule unusable.
+        let honest = format!("Peak-season NDVI at Dindori was 0.14 in 2025, per {token}.");
+        assert_eq!(evaluate(&cfg, &ev(&honest)).outcome, Outcome::Proceed);
+
+        // Full width agrees with itself.
+        let exact = format!("NDVI at Dindori was 0.13813615333773965, per {token}.");
+        assert_eq!(evaluate(&cfg, &ev(&exact)).outcome, Outcome::Proceed);
+
+        // A node with no corpus resolved no value, so it has established
+        // nothing and must not deny.
+        let bare = Evidence {
+            tokens: vec![(tok(token, TokenKind::Fact), TokenStatus::Unresolved)],
+            cited_numbers: crate::claim::scan_cited_numbers([lying.as_str()]),
+            ..Default::default()
+        };
+        assert_eq!(evaluate(&cfg, &bare).outcome, Outcome::Proceed);
+    }
+
+    /// Two citations in one sentence and the rule declines, because deciding
+    /// which number answers which citation is the same guess the claim gate
+    /// refuses to make.
+    #[test]
+    fn two_citations_in_a_sentence_are_not_attributed() {
+        let a =
+            "emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qbj67sc4lhdgh5yklp43kqik2evhvdtbqq2rjv7m7yg6oq";
+        let b =
+            "emem:fact:defi.zb4e4.zcced.fUrI:cj4ccplttk6oyp5sr7rn76igvqq7mno2b6z4kqxbztcjemsisdya";
+        let sentence = format!("NDVI at Dindori was 0.62 and moisture was 0.31, per {a} and {b}.");
+        assert!(
+            crate::claim::scan_cited_numbers([sentence.as_str()]).is_empty(),
+            "a two-citation sentence yields nothing to compare"
+        );
+    }
+
+    /// The digits inside a cell64 are an address, not an assertion.
+    #[test]
+    fn an_address_is_not_a_number_the_prose_claimed() {
+        let token =
+            "emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qbj67sc4lhdgh5yklp43kqik2evhvdtbqq2rjv7m7yg6oq";
+        let found =
+            crate::claim::scan_cited_numbers([
+                format!("Elevation there is 640.89 m per {token}.").as_str()
+            ]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].numbers,
+            vec![(640.89, 2)],
+            "only the figure in the prose, never the digits in the address"
+        );
     }
 
     /// Claim gating is the lowest-severity rule: a failed check is a stronger
