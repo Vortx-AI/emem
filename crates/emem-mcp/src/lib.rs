@@ -428,6 +428,36 @@ const OUT_RECALL: &str = r#"{"type":"object","required":["facts","receipt","fact
 "bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"What else is readable here without materialising, so an empty result can be told apart from a wrong band name."},
 "materialize_notes":{"type":"array","items":{"type":"object"}}}}"#;
 
+const OUT_GUARD_VERDICT: &str = r#"{"type":"object","required":["action","advisory","checked","citations_found","receipt"],"properties":{
+"action":{"type":"string","enum":["allow","deny"],"description":"NOT a clearance. `allow` means no rule fired, which on a transcript that cited nothing is silence rather than approval. Branch on citations_found and receipt.fact_cids."},
+"code":{"type":"string","enum":["PROV_SIG","PROV_BYTES","PROV_DRIFT","PROV_VALUE","GEO_ZONE","CLAIM_UNGROUNDED","POLICY_MODULE"],"description":"Present only on a deny."},
+"fix":{"type":"string","enum":["refresh_token","remove_reference","contact_admin","redact_and_retry","cite_observation","correct_value"],"description":"The actionable half: what to change and retry."},
+"citations_found":{"type":"integer","description":"How many emem: tokens were found in the text. Compare with receipt.fact_cids: a well-formed token that resolved to nothing counts here and not there."},
+"checked":{"type":"integer","description":"How many were actually resolved, bounded by the verdict budget."},
+"claim":{"type":"object","description":"On CLAIM_UNGROUNDED: the sentence, magnitude, quantity, anchor, and source_band. source_band is a recallable band key, or null when this responder observes no band in that quantity."},
+"receipt":{"type":"object","description":"ed25519 receipt. `fact_cids` lists what actually resolved and is the field that separates a real citation from an invented one."},
+"advisory":{"type":"boolean","description":"True on the hosted route, where nothing is blocked. Run your own node to enforce."}}}"#;
+
+const OUT_ECHO_VERIFY: &str = r#"{"type":"object","required":["matches","token","claimed_value"],"properties":{
+"matches":{"type":"boolean","description":"Whether what you were about to publish agrees with the signed fact. Treat false as a gate, not a warning."},
+"drift":{"type":"string","description":"Present when it does not match: the difference between what you wrote and what emem holds."},
+"resolved_value_verbatim":{"type":"string","description":"The fact's value as the exact decimal string it was signed as. Quote this rather than reformatting it."},
+"claimed_value":{"type":"string","description":"Echoed back, so a log line carries both sides of the comparison."},
+"fact_cid":{"type":"string"},
+"canonical_token":{"type":"string","description":"The token in its canonical spelling, whatever form you passed."},
+"degraded":{"type":"boolean","description":"True when a bare cid was passed and the cell binding could not be checked."},
+"token":{"type":"string","description":"The citation you passed, echoed back exactly as sent."},
+"offline_verify_at":{"type":"string","description":"Where to re-run this check without trusting this responder."},
+"receipt":{"type":"object"}}}"#;
+
+const OUT_MEMORY_TOKEN: &str = r#"{"type":"object","required":["memory_token","cell","fact_cid"],"properties":{
+"memory_token":{"type":"string","description":"The citation to paste: emem:fact:<cell64>:<fact_cid>. Copy it verbatim; a hand-assembled token that is one character wrong still reads as a citation and resolves to nothing."},
+"cell":{"type":"string"},
+"fact_cid":{"type":"string"},
+"cell_token":{"type":"string","description":"The address alone, when you mean the place rather than an observation of it."},
+"grammar":{"type":"string","description":"The token grammar, so the form can be parsed rather than pattern-matched."},
+"docs":{"type":"string"}}}"#;
+
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
 
 const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"properties":{
@@ -1291,7 +1321,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         description: "Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Algebra: cite.",
         when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `emem:entity:` token. FOR MANY FACTS, USE emem_memory_bundle INSTEAD, and this is a measured cost rather than a style preference: a token is ~104 characters while the signed value it points at averages ~18, so N individual tokens cost roughly 5.8x the context of simply pasting the N numbers, and an N-token prompt hits the context wall SOONER than the plain values would. A bundle is 38 characters at ANY N up to 256 and resolves in one round trip. Individual tokens are for citing ONE fact you must be able to verify later; they are the wrong tool for carrying a set.",
         input_schema: SCHEMA_MEMORY_TOKEN,
-        output_schema: None,
+        output_schema: Some(OUT_MEMORY_TOKEN),
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
@@ -1315,7 +1345,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         description: "Grade a value you are about to emit against the signed fact your citation points at. Returns `matches` and, when it does not, the `drift` between what you were about to say and what emem holds. This is the step that turns a transcription error into a caught event instead of a silent wrong number: a model that resolves a fact correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Algebra: verify.",
         when_to_use: "Call immediately before publishing, logging, or handing on any value you took from an emem fact, and treat a false `matches` as a gate rather than a warning. Pair it with `value_verbatim` from resolve: quote that exact decimal string rather than reformatting the number, then echo-verify what you actually emitted. For a due-diligence or compliance record this is what lets you assert `every cited value was echo-verified` with a signed check per citation instead of a promise. Accepts a bare cid too, so a damaged citation still grades rather than failing closed.",
         input_schema: SCHEMA_ECHO_VERIFY,
-        output_schema: None,
+        output_schema: Some(OUT_ECHO_VERIFY),
         example_args: r#"{"token":"emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq","claimed_value":"-0.0558"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
@@ -2095,7 +2125,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Algebra: verify.",
         when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. Set claim_gating:true to also be told which measurable claims carry no citation at all and which emem band would answer them. To ENFORCE this rather than consult it, run your own node: emem_guard_selfhost returns the procedure, and it works across Anthropic Inference hooks, Claude Code hooks, MCP tool calls, OpenAI-shaped clients, CloudEvents and OPA-style policy clients.",
         input_schema: SCHEMA_GUARD_VERDICT,
-        output_schema: None,
+        output_schema: Some(OUT_GUARD_VERDICT),
         example_args: r#"{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}"#,
         level: "L1", category: ToolCategory::Verify,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
