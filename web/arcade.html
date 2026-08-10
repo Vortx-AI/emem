@@ -1460,6 +1460,48 @@ function evPhoto(dataURL,caption){
   d.appendChild(img);
   $('wire').scrollTop=$('wire').scrollHeight;
 }
+/* ---------- label deconfliction ----------
+   Every world tag was positioned on its own: each clamped to the stage, none
+   aware of the others. At the camera angles the globe actually rests at, that
+   put "AGENT A idle at", "SCOUT receive" and "the EMEM tower" on one latitude
+   and stacked them into a single unreadable run, with SENTINEL-2's tag sitting
+   on another. Clamping cannot fix that, because the collision is between tags
+   rather than between a tag and an edge.
+
+   So this runs after placement and separates them in screen space: measure the
+   visible tags, walk them top-down, and push any that still overlap far enough
+   down to clear, keeping a small gutter. Order is by current y so the result is
+   stable frame to frame rather than jittering as tags swap priority. A tag
+   pushed past the bottom of the stage is hidden instead of being drawn off the
+   edge, because a label you cannot read is worse than one that admits it had no
+   room. */
+function deconflictTags(stageH){
+  const tags=[];
+  document.querySelectorAll('.wtag').forEach(function(el){
+    if(el.hidden||el.style.visibility==='hidden')return;
+    const r=el.getBoundingClientRect();
+    if(!r.height)return;
+    tags.push({el:el,top:parseFloat(el.style.top)||0,h:r.height,
+               left:parseFloat(el.style.left)||0,w:r.width});
+  });
+  if(tags.length<2)return;
+  tags.sort(function(a,b){return a.top-b.top;});
+  const GUT=3;
+  for(let i=1;i<tags.length;i++){
+    const cur=tags[i];
+    for(let j=0;j<i;j++){
+      const prev=tags[j];
+      /* horizontal overlap only matters if they share a band; tags are
+         centred, so compare half-widths about their left coordinate. */
+      const dx=Math.abs(cur.left-prev.left);
+      if(dx > (cur.w+prev.w)/2) continue;
+      const bottom=prev.top+prev.h+GUT;
+      if(cur.top<bottom)cur.top=bottom;
+    }
+    if(stageH&&cur.top+cur.h>stageH-4){cur.el.style.visibility='hidden';continue;}
+    cur.el.style.top=cur.top+'px';
+  }
+}
 function placeSiteOverlays(){
   const ta=$('tagAgent');
   if(siteAgent.visible){const s1=toScreen(siteWorld(siteAgent.position,0).clone());ta.hidden=false;
@@ -4431,6 +4473,11 @@ function placeFleetTags(){
       f.tagEl.style.top=Math.min(stageH-44,sc.y+8)+'px';
     }
   }
+  /* Last pass that moves a world tag, so deconfliction belongs here.
+     Calling it from placeSiteOverlays/placeInsideOverlays fixed nothing:
+     the fleet tags are positioned afterwards and simply overwrote the
+     separated tops. Measured before this moved: 6 overlapping pairs. */
+  deconflictTags(stageH);
 }
 async function fleetSync(){
   try{
