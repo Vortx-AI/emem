@@ -104,6 +104,9 @@ async fn main() -> anyhow::Result<()> {
         started_at_unix_s,
     });
 
+    // Kept so the shutdown path can flush the sled index after the listener
+    // has stopped; `router` takes the Arc.
+    let server_for_shutdown = server.clone();
     let app = emem_api_rest::router(server);
 
     // Force the topic router (sentence-transformer) to load BEFORE we
@@ -227,13 +230,26 @@ async fn main() -> anyhow::Result<()> {
         let listener = tokio::net::TcpListener::bind(&bind).await?;
         tracing::info!(%bind, "emem listening (plain HTTP)");
         eprintln!("emem listening on http://{bind}");
-        let shutdown = shutdown_signal();
-        axum::serve(
+        // `with_graceful_shutdown` alone waits for every open connection to
+        // close, with no deadline. A keep-alive SSE stream never closes, so
+        // the race below puts a ceiling on the wait: whichever finishes first,
+        // the clean drain or the grace timer, ends the serve.
+        let serving = axum::serve(
             listener,
             app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
         )
-        .with_graceful_shutdown(shutdown)
-        .await?;
+        .with_graceful_shutdown(shutdown_signal());
+        let grace = shutdown_grace();
+        tokio::select! {
+            r = serving => { r?; }
+            _ = async { shutdown_signal().await; tokio::time::sleep(grace).await; } => {
+                tracing::warn!(
+                    grace_s = grace.as_secs(),
+                    "drain deadline reached with connections still open, closing them"
+                );
+            }
+        }
+        flush_and_exit(&server_for_shutdown).await
     } else {
         // Native TLS via rustls + Let's Encrypt (TLS-ALPN-01). Only :443 needed.
         let tls_bind: std::net::SocketAddr = std::env::var("EMEM_TLS_BIND")
@@ -303,17 +319,43 @@ async fn main() -> anyhow::Result<()> {
             });
         }
 
-        // TLS server. axum-server handles graceful shutdown via tokio signals.
+        // TLS server.
+        //
+        // The comment that used to sit here said axum-server handled graceful
+        // shutdown via tokio signals. It does not: without a `Handle` the
+        // serve future has nothing to complete on, so SIGTERM was simply never
+        // acted upon and `main` never returned. systemd waited out
+        // TimeoutStopSec and SIGKILLed — measured on this host as 90 s of
+        // refused connections on every single deploy, with
+        // `State 'stop-sigterm' timed out. Killing.` in the journal each time.
+        // A `Handle` is what turns the signal into "stop accepting, give
+        // in-flight work `grace`, then close what is left".
+        //
         // `into_make_service_with_connect_info` is required so the
         // rate-limit middleware can read the peer SocketAddr — without
         // it, every anonymous request collapses into one shared
         // "unknown" bucket and the per-IP limit becomes a global limit.
+        let handle = axum_server::Handle::new();
+        {
+            let handle = handle.clone();
+            let grace = shutdown_grace();
+            tokio::spawn(async move {
+                shutdown_signal().await;
+                tracing::info!(
+                    grace_s = grace.as_secs(),
+                    "no longer accepting connections, draining"
+                );
+                eprintln!("emem: draining, {}s deadline", grace.as_secs());
+                handle.graceful_shutdown(Some(grace));
+            });
+        }
         axum_server::bind(tls_bind)
             .acceptor(acceptor)
+            .handle(handle)
             .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await?;
+        flush_and_exit(&server_for_shutdown).await
     }
-    Ok(())
 }
 
 async fn shutdown_signal() {
@@ -330,9 +372,56 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let term = std::future::pending::<()>();
     tokio::select! {
-        _ = ctrl_c => tracing::info!("ctrl_c received — draining"),
-        _ = term   => tracing::info!("SIGTERM received — draining"),
+        _ = ctrl_c => tracing::info!("ctrl_c received, draining"),
+        _ = term   => tracing::info!("SIGTERM received, draining"),
     }
+}
+
+/// How long in-flight requests get to finish after the listener stops
+/// accepting, before their connections are closed underneath them.
+///
+/// Three seconds because the drain only has to cover a request already being
+/// served: the boring endpoints answer in milliseconds and the long ones
+/// (materialize, polygon fan-out) are the very requests that must NOT be
+/// allowed to hold a deploy open. Long-lived streams (`/v1/memory/sse`,
+/// `/v1/stream`) never end on their own, so without a deadline "graceful"
+/// means "never".
+fn shutdown_grace() -> std::time::Duration {
+    let s = std::env::var("EMEM_SHUTDOWN_GRACE_S")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(3)
+        .min(30);
+    std::time::Duration::from_secs(s)
+}
+
+/// Flush the sled index, then leave.
+///
+/// `std::process::exit` skips destructors, so sled's own drop-time flush never
+/// runs and anything still only in its in-memory log would be lost. This
+/// flushes explicitly first, under its own timeout so a wedged flush cannot
+/// reintroduce the hang this whole path exists to remove. sled fsyncs the
+/// whole `Db`, so one call covers every tree.
+///
+/// Exiting explicitly rather than returning from `main` is deliberate: the
+/// runtime's drop waits for blocking-pool tasks to finish, and this process
+/// keeps long sled scans and COG range-reads on that pool.
+async fn flush_and_exit(server: &Arc<Server>) -> ! {
+    let t0 = std::time::Instant::now();
+    if let Some(db) = server.storage.hot_sled_db() {
+        let db = db.clone();
+        match tokio::time::timeout(std::time::Duration::from_secs(10), db.flush_async()).await {
+            Ok(Ok(bytes)) => tracing::info!(
+                flushed_bytes = bytes,
+                flush_ms = t0.elapsed().as_millis() as u64,
+                "sled flushed"
+            ),
+            Ok(Err(e)) => tracing::error!(error = %e, "sled flush failed"),
+            Err(_) => tracing::error!("sled flush did not finish in 10s; exiting anyway"),
+        }
+    }
+    eprintln!("emem: shutdown complete in {} ms", t0.elapsed().as_millis());
+    std::process::exit(0);
 }
 
 fn load_or_create_identity(data_dir: &str) -> anyhow::Result<ResponderIdentity> {
