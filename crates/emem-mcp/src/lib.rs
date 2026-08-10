@@ -270,7 +270,11 @@ const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties"
 "scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set, the recall is FILTERED to facts written under the same four-tuple (a recall scoped to {user_id:'u1'} sees only u1's facts, never another tenant's and never globally-written facts) AND the signed receipt binds the scope. Omit (or send {}) for the global, pre-v0.0.8 recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},
 "include":{"type":"array","items":{"type":"string","enum":["freshness","edges","provenance"]},"description":"Opt-in response expansion. include:['provenance'] attaches each fact's tamper-provenance class, which is what `deterministic` and the `provenance` filter select ON: without it you can filter by class and never be told which class a returned fact is. include:['freshness'] attaches an advisory per-fact freshness block: a Q(Δt) staleness score from the band's physics decay kernel (the same one /v1/temporal_route ranks bands with), so an agent learns how stale each reading is in the call that returns it. Advisory only; it does NOT enter the receipt. include:['edges'] attaches each fact's typed temporal edges and threads their CIDs into the receipt. Absent leaves the response byte-identical to the pre-v0.0.9 recall."},
 "provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","attested_execution","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. `attested_execution` is a device reading trusted through its verified OS execution trace and platform attestation (not recomputable). Applied BEFORE the receipt is signed, so the receipt covers exactly the returned facts; `bands_already_attested_at_cell` stays unfiltered so you still see what else exists at the cell."},
-"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only facts any third party can recompute from the cited raw source (direct_sensor + deterministic_index); false keeps the rest (attested_execution + model_output + human_curated + unclassified). Composable with `provenance` (intersection)."}
+"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only facts any third party can recompute from the cited raw source (direct_sensor + deterministic_index); false keeps the rest (attested_execution + model_output + human_curated + unclassified). Composable with `provenance` (intersection)."},
+"cell64":{"type":"string","description":"Alias for `cell`."},
+"place":{"type":"string","description":"Free-text place name, an alternative to `cell`."},
+"lat":{"type":"number","description":"Explicit latitude, an alternative to `cell`; paired with `lng`."},
+"lng":{"type":"number","description":"Explicit longitude, paired with `lat`."}
 }}"#;
 
 const SCHEMA_QUERY_REGION: &str = r#"{"type":"object","required":["geometry"],"properties":{
@@ -302,7 +306,11 @@ const SCHEMA_FIND_SIMILAR: &str = r#"{"type":"object","required":["key"],"proper
 "band":{"type":"string","default":"geotessera","description":"vector band to scan (default: 128-D Tessera foundation embedding). For mode=hamming/hamming_then_rerank you can pass either the cosine band (e.g. 'geotessera') or its binary sibling ('geotessera.bin128'), the responder picks the right one."},
 "mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. cosine = fp32 over full vector (precise, ~256 B/cell scan). hamming = sign-bit popcount over the binary sibling band (~16 B/cell, ~1000× faster, ~65% recall@10). hamming_then_rerank = triage with Hamming on 4·k candidates then re-rank by cosine, matches cosine precision at ~16× less work."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Applied to candidate cells BEFORE cosine scoring, a cell with no fact whose tslot ≤ as_of_tslot under the scoring band is dropped from the candidate pool (undecidable→drop). When set, the Lance ANN fast-path is bypassed (the index has no signed_at column); brute-force k-NN runs instead so as_of is honoured truthfully."},
-"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Also applied to candidates BEFORE cosine. Same Lance-bypass note as as_of_tslot."}
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Also applied to candidates BEFORE cosine. Same Lance-bypass note as as_of_tslot."},
+"cell":{"type":"string","description":"Alias for `key`."},
+"cell64":{"type":"string","description":"Alias for `key`."},
+"filter":{"type":"object","description":"Claim-algebra predicate evaluated against every candidate before ranking. A cell with no fact for the filter's band is DROPPED rather than treated as false, so 'places like X where NDVI > 0.5' never silently includes cells with no NDVI."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`. Setting it bypasses the ANN index entirely, because that index carries no scope column, and runs the brute-force scan instead: the tenant filter is honoured truthfully, and the call is slower."}
 }}"#;
 
 const SCHEMA_DIFF: &str = r#"{"type":"object","required":["cell","band","tslot_a","tslot_b"],"properties":{
@@ -319,7 +327,8 @@ const SCHEMA_COMPARE_SAME_DOY: &str = r#"{"type":"object","required":["band","do
 "lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude, paired with lat."},
 "band":{"type":"string","description":"Seasonal band to compare, e.g. \"indices.ndvi\". Comparing a seasonal band across DIFFERENT days-of-year mixes phenology with real change, which is what this tool exists to avoid."},
 "doy":{"type":"integer","minimum":1,"maximum":366,"description":"target day-of-year"},
-"years":{"type":"array","items":{"type":"integer"},"description":"years to compare at that day-of-year"}
+"years":{"type":"array","items":{"type":"integer"},"description":"years to compare at that day-of-year"},
+"cell64":{"type":"string","description":"Alias for `cell`."}
 }}"#;
 
 const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["cell","band","window"],"properties":{
@@ -469,7 +478,8 @@ const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"propert
 "families":{"type":"array","items":{"type":"string"},"description":"`view=cube` only. Limit the cube to a subset of band families (e.g. [\"foundation\",\"vegetation\"]). Slots from other families report `status:\"filtered_out\"`."},
 "include_reserved":{"type":"boolean","description":"`view=cube` only. Include declared-but-inert placeholder slots (`_reserved_128`, `reserved`) in the coverage manifest. Default false."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound, forwarded to the underlying recall. Lets `/v1/state` answer `what did this place look like as of date X` for both encoder and cube views."},
-"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`. Restricts the read to facts written under the same four-tuple and binds the scope into the receipt."}
 }}"#;
 
 const SCHEMA_STATE_MULTI: &str = r#"{"type":"object","required":["cell"],"properties":{
@@ -477,7 +487,10 @@ const SCHEMA_STATE_MULTI: &str = r#"{"type":"object","required":["cell"],"proper
 "encoders":{"type":"array","items":{"type":"string","enum":["geotessera","clay_v1","prithvi_eo2","galileo"]},"description":"Optional explicit list; defaults to all wired foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`)."},
 "tslot":{"type":"integer","description":"Valid-time slot to read at, band-tempo-relative from the emem epoch (not unix seconds). Omit for the latest."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound, forwarded to every per-encoder recall."},
-"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`. Restricts the read to facts written under the same four-tuple and binds the scope into the receipt."},
+"vectors":{"type":"boolean","description":"Inline the raw per-encoder floats. Default false: the four foundation vectors are ~13 KB combined and breach the MCP wire budget, while the slim default still carries each encoder's `dim`, `l2_norm`, `fact_cid` and `memory_token`, which is enough to verify and to chain into similarity calls."},
+"include":{"type":"array","description":"Array form of the same opt-ins: `include:[\"vectors\"]` is equivalent to `vectors:true`."}
 }}"#;
 
 const SCHEMA_STATE_DIFF: &str = r#"{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{
@@ -490,7 +503,8 @@ const SCHEMA_STATE_DIFF: &str = r#"{"type":"object","required":["cell","tslot_a"
 const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_cid"],"properties":{
 "cell":{"type":"string","description":"cell64, neither component may contain `:`.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "fact_cid":{"type":"string","description":"52-char base32-nopad-lowercase content-id of the fact (full 32-byte blake3)."},
-"band":{"type":"string","description":"Optional band key. When set, the minted citation carries the band's tamper-provenance block (class, deterministic, tamper_evidence, trust_rank) so the receiving agent sees the trust class without a resolve round-trip."}
+"band":{"type":"string","description":"Optional band key. When set, the minted citation carries the band's tamper-provenance block (class, deterministic, tamper_evidence, trust_rank) so the receiving agent sees the trust class without a resolve round-trip."},
+"observed_on":{"type":"string","description":"The fact's source capture date (YYYY-MM-DD) as `/v1/recall` reports it in `sources[].captured_at`. Supplied together with `band` it additionally mints the self-describing `descriptor_token`. A wrong date forges nothing: resolve binds the date to the signed fact and answers 409 on a mismatch."}
 }}"#;
 
 const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
@@ -503,9 +517,9 @@ const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token
 // the one check that closes the loop was unreachable from the surface most
 // agents actually speak.
 const SCHEMA_ECHO_VERIFY: &str = r#"{"type":"object","required":["token","claimed_value"],"properties":{
-"token":{"type":"string","description":"The citation you used. Any form resolve accepts, including a bare cid (answers degraded)."},
-"claimed_value":{"description":"The value you are about to publish, as a string or a number. A string is compared verbatim first, which is what catches a retype a float comparison would forgive."},
-"strict":{"type":"boolean","description":"Require BYTE-IDENTICAL equality. Default false, which also accepts a numerically equal value spelled differently (0.50 for 0.5)."}
+"token":{"type":"string","description":"The citation you used. Any form resolve accepts, including a bare cid, which answers with `degraded: true`: a bare cid asserts no location, so the cell-binding check is skipped and the grade covers the value only. A cid that is not 52 characters is refused as a damaged citation rather than as a missing one, and must not be retried."},
+"claimed_value":{"description":"The value you are about to publish, as a string or a number. Send it as a STRING, character for character as you will emit it. A JSON number is stringified before the comparison, so `0.50` arrives as `0.5` and `0.2411000` as `0.2411` (measured against the live responder): the trailing digits this check exists to defend are gone before it runs. Quote `value_verbatim` from resolve as a string and echo the exact characters you will publish."},
+"strict":{"type":"boolean","description":"Require BYTE-IDENTICAL equality. Default false, which also accepts a numerically equal value spelled differently (0.50 for 0.5). It changes exactly one outcome: the numerically-equal-but-respelled case, which passes by default and becomes `drift: \"reformatted\"` here. `rounded` and `wrong` already fail either way, so `strict` never turns a pass into a pass. It is also inert when `claimed_value` came in as a JSON number, because the respelling then happened in the JSON parser, before this tool saw it."}
 }}"#;
 
 // Caller-registered derivation. Turns a citation list into a DAG: the
@@ -560,7 +574,8 @@ const SCHEMA_MEMORY_BUNDLE: &str = r#"{"type":"object","required":["triples"],"p
   "band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)."},
   "tslot":{"type":"integer","description":"Optional tslot pin. Omit to use the band's natural latest tslot at the cell."}
 }}},
-"purpose":{"type":"string","description":"Optional human-readable purpose string. Included in the bundle_cid preimage so the same triples + different purposes produce distinct CIDs."}
+"purpose":{"type":"string","description":"Optional human-readable purpose string. Included in the bundle_cid preimage so the same triples + different purposes produce distinct CIDs."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`, applied to EVERY triple's underlying recall so the whole bundle cites only facts written under that four-tuple."}
 }}"#;
 
 const SCHEMA_MEMORY_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
@@ -641,12 +656,12 @@ const SCHEMA_REASON: &str = r#"{"type":"object","required":["q"],"properties":{
   "q":{"type":"string","description":"The plain-language question to reason about."}}}"#;
 
 const SCHEMA_TOOLS: &str = r#"{"type":"object","properties":{
-"name":{"type":"string","description":"Return the full descriptor for exactly this tool (input schema, runnable example, annotations), e.g. `emem_ndvi`. Use this when you already know the name and want its schema without loading the whole catalog."},
-"q":{"type":"string","description":"Free-text filter over tool names, titles and trigger text, e.g. `ndvi`, `cloud`, `flood`, `verify`, `token`."},
+"name":{"type":"string","description":"Return the full descriptor for exactly this tool (input schema, runnable example, annotations), e.g. `emem_ndvi`. Use this when you already know the name and want its schema without loading the whole catalog. It SHORT-CIRCUITS: when `name` is set every other argument here is ignored, so `{name, q}` is not a search within one tool. A name this responder does not carry is not an error status, you get a body with `did_you_mean` holding up to five names that share a substring with what you asked for."},
+"q":{"type":"string","description":"Free-text filter over tool names, titles and trigger text, e.g. `ndvi`, `cloud`, `flood`, `verify`, `token`. Plain lowercased substring over name + title + description + trigger text, not fuzzy and not stemmed: `ndvi` hits, `vegetation index` only hits tools that spell that phrase. Combines with `shape`/`bundle`/`category`/`tier` as AND, so an over-narrow combination answers with an empty catalog rather than an error."},
 "shape":{"type":"string","enum":["scalar","timeseries","raster","geometry","vector","identity","token","proof","plan","file","catalog"],"description":"Filter by what the answer looks like, which is usually the real question. `scalar` is one number at one address; `raster` is a gridded field over an area; `timeseries` is a value per timestep; `vector` is a learned embedding; `identity` is a canonical name for a thing; `token` is a citation handle; `proof` checks one."},
 "bundle":{"type":"string","enum":["tokenisation","verification","agent_to_agent","long_horizon","robotics","satellites","agriculture","forestry","climate_risk"],"description":"Filter by the job you are doing. Call with no arguments first to see each bundle and its size."},
-"category":{"type":"string","enum":["read","write","verify","introspect","plan"],"description":"Filter to one category."},
-"tier":{"type":"string","enum":["core","extended","all"],"description":"Which slice to list. Defaults to `all`, so this tool shows the whole surface even when the endpoint advertises only the core loop."}
+"category":{"type":"string","enum":["read","write","verify","introspect","plan"],"description":"Filter to one category. This is about the shape of the job, NOT about safety: 13 tools outside `write` declare `readOnlyHint: false` because reading a cold address can materialise or mint as a side effect, so `category: \"read\"` is not a safe-tools filter. Read each result's `annotations.readOnlyHint` for that."},
+"tier":{"type":"string","enum":["core","extended","all"],"description":"Which slice to list. Defaults to `all`, so this tool shows the whole surface even when the endpoint advertises only the core loop, and an `extended` tool you find here is callable by name through tools/call whether or not your host listed it. Pass `core` to see only what a default connection advertises."}
 }}"#;
 
 const SCHEMA_MEMORY_RENAME: &str = r#"{"type":"object","required":["old_path","new_path"],"properties":{
@@ -690,7 +705,9 @@ const SCHEMA_LOCATE: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name (e.g. 'Mount Everest', 'Tokyo'). REQUIRED unless `lat`+`lng` is provided. Aliases also accepted: `q`, `query`, `name`."},
 "q":{"type":"string","description":"Alias for `place`, accepted because OSM/Mapbox/Google Geocoding all use `q`. Provide either this or `place` (or `lat`+`lng`)."},
 "lat":{"type":"number","description":"WGS-84 latitude in degrees, paired with `lng`. REQUIRED with `lng` unless `place`/`q` is provided."},
-"lng":{"type":"number","description":"WGS-84 longitude in degrees, paired with `lat`. REQUIRED with `lat` unless `place`/`q` is provided."}
+"lng":{"type":"number","description":"WGS-84 longitude in degrees, paired with `lat`. REQUIRED with `lat` unless `place`/`q` is provided."},
+"query":{"type":"string","description":"Alias for `place`."},
+"name":{"type":"string","description":"Alias for `place`."}
 }}"#;
 
 const SCHEMA_ASK: &str = r#"{"type":"object","required":["q"],"properties":{
@@ -701,7 +718,9 @@ const SCHEMA_ASK: &str = r#"{"type":"object","required":["q"],"properties":{
 "lng":{"type":"number","description":"WGS-84 longitude (paired with `lat`)."},
 "include_image":{"type":"boolean","default":false,"description":"Bundle a Sentinel-2 RGB scene URL for the resolved cell. Adds ~1-2 s on first call."},
 "verbose":{"type":"boolean","default":false,"description":"When true, return the full envelope: per-algorithm formula strings, temporal_recipe blocks, per-fact band_metadata duplicates, and the long _explanation prose. Default (since 2026-05-05) is false so the response fits MCP's 25 KB cap; the signed receipt + fact CIDs + algorithm keys + algorithms_cid are always retained. Pass true to get the full body when debugging."},
-"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","foundation_embeddings","scene","inventory"]},"description":"Opt-in heavy response sections. Default response is slim (~5 KB): answer + algorithm key + fact_cids + caveats. Name specific sections to include them. Ignored when verbose=true (which includes everything)."}
+"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","foundation_embeddings","scene","inventory"]},"description":"Opt-in heavy response sections. Default response is slim (~5 KB): answer + algorithm key + fact_cids + caveats. Name specific sections to include them. Ignored when verbose=true (which includes everything)."},
+"question":{"type":"string","description":"Alias for `q`."},
+"query":{"type":"string","description":"Alias for `q`."}
 }}"#;
 
 const SCHEMA_HUNT: &str = r#"{"type":"object","required":["event"],"properties":{
@@ -710,7 +729,8 @@ const SCHEMA_HUNT: &str = r#"{"type":"object","required":["event"],"properties":
 "polygon_bbox":{"type":"object","properties":{
   "min_lat":{"type":"number"},"max_lat":{"type":"number"},
   "min_lng":{"type":"number"},"max_lng":{"type":"number"}
-}, "description":"Explicit polygon bbox; alternative to `region`. Provide when you already have coordinates from a prior locate / recall_polygon call."}
+}, "description":"Explicit polygon bbox; alternative to `region`. Provide when you already have coordinates from a prior locate / recall_polygon call."},
+"event_type":{"type":"string","description":"Alias for `event`."}
 }}"#;
 
 const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properties":{
@@ -727,7 +747,11 @@ const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properti
 "forest_baseline_override":{"type":"string","description":"Optional baseline override. Default 'jrc_gfc2020_v3' is the EU Commission's expected (non-binding) baseline. Acceptable: 'jrc_gfc2020_v3', 'hansen_only', 'both'."},
 "legality_module":{"type":"string","description":"Operator-chosen legality provider. Default null surfaces the explicit Article 9(1)(b) out-of-EO-scope disclaimer."},
 "operator":{"type":"object","description":"Operator identity written into the due-diligence statement. Echoed verbatim; this responder does not validate it against any registry, so an EORI here is a claim by the caller, not a verified one.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
-"max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot. Omit to auto-derive from polygon area (~110 cells/ha, clamped to 51,200) so the whole plot is evaluated; EUDR plots are typically large, so do not set a small value unless you have a tight latency budget. POINT plots evaluate at 1 cell."}
+"max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot. Omit to auto-derive from polygon area (~110 cells/ha, clamped to 51,200) so the whole plot is evaluated; EUDR plots are typically large, so do not set a small value unless you have a tight latency budget. POINT plots evaluate at 1 cell."},
+"activity_type":{"type":"string","description":"Annex II \u00a71 activity type: `DOMESTIC`, `IMPORT`, `EXPORT` or `TRADE`."},
+"geolocation_confidential":{"type":"boolean","description":"Annex II geolocation-confidentiality flag. Default false."},
+"internal_reference_number":{"type":"string","description":"The operator's own reference, echoed verbatim into the TRACES NT envelope."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`. Here it binds the scope into the receipt's signature preimage so an offline verifier rebinds the statement to this caller; unlike on the read tools it does NOT filter what is read."}
 }}"#;
 
 // ── Runtime algorithm endpoints (mirror the REST /v1/* + OpenAPI) ────────
@@ -814,7 +838,11 @@ const SCHEMA_BAND_COMPOSITE: &str = r#"{"type":"object","required":["bbox","band
 
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
-"step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."}
+"step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."},
+"place":{"type":"string","description":"Alias for `cell`."},
+"q":{"type":"string","description":"Alias for `cell`."},
+"lat":{"type":"number","description":"Explicit latitude, used when neither `cell` nor `place` is given."},
+"lng":{"type":"number","description":"Explicit longitude, paired with `lat`."}
 }}"#;
 
 const SCHEMA_REGION_GENERIC: &str = r#"{"type":"object","properties":{
@@ -831,7 +859,11 @@ const SCHEMA_REGION_SIMILARITY: &str = r#"{"type":"object","required":["region_a
 }}"#;
 
 const SCHEMA_NEIGHBORHOOD_CONSISTENCY: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"Target cell64 or place name. Scored against its 8 immediate cell64 neighbours."}
+"cell":{"type":"string","description":"Target cell64 or place name. Scored against its 8 immediate cell64 neighbours."},
+"place":{"type":"string","description":"Alias for `cell`."},
+"q":{"type":"string","description":"Alias for `cell`."},
+"lat":{"type":"number","description":"Explicit latitude, used when neither `cell` nor `place` is given."},
+"lng":{"type":"number","description":"Explicit longitude, paired with `lat`."}
 }}"#;
 
 const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
@@ -852,7 +884,12 @@ const SCHEMA_RECALL_POLYGON: &str = r#"{"type":"object","properties":{
 "drill_on_water":{"type":"boolean","description":"Two-stage scan: after the coarse fan-out, drill 9-cell sub-grids around each cell whose surface_water.recurrence exceeds 25%. Total cells is still capped by max_cells, so the coarse pass uses a quarter of the budget. Finds sub-stride water bodies a uniform sample misses; costs up to 2x the upstream fetches."},
 "verbose":{"type":"boolean","description":"Re-attach per-fact band_metadata. Default false: the response carries one consolidated band_metadata map at the top level instead, because duplicating it on every fact across N cells cost ~8 KB on a 16-fact response."},
 "polygon_geojson":{"type":"object","description":"True boundary as GeoJSON Polygon or MultiPolygon. Candidate cells from the bbox grid are then filtered point-in-polygon, so the recall scope matches the feature instead of its rectangular envelope (which over-counts 25-40% on L-shaped admin regions and far more on coastal or archipelago features). emem_locate returns this value; chaining locate to recall_polygon should pass it back verbatim."},
-"include":{"type":"array","items":{"type":"string","enum":["ftw_fields"]},"description":"Optional supplements attached to the response. `ftw_fields` adds per-field agricultural-boundary polygons from Fields of The World (https://fieldsofthe.world, CC-BY-4.0) for the resolved polygon bbox, useful for farm queries where the OSM polygon is the estate envelope but the user wants the actual fields inside. Adds ~150-500 ms on first call per region (cached thereafter)."}
+"include":{"type":"array","items":{"type":"string","enum":["ftw_fields"]},"description":"Optional supplements attached to the response. `ftw_fields` adds per-field agricultural-boundary polygons from Fields of The World (https://fieldsofthe.world, CC-BY-4.0) for the resolved polygon bbox, useful for farm queries where the OSM polygon is the estate envelope but the user wants the actual fields inside. Adds ~150-500 ms on first call per region (cached thereafter)."},
+"bbox":{"type":"object","description":"Alias for `polygon_bbox`, the spelling `emem_cells_in_bbox` uses for the same idea."},
+"q":{"type":"string","description":"Alias for `place`."},
+"query":{"type":"string","description":"Alias for `place`."},
+"name":{"type":"string","description":"Alias for `place`."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`, forwarded to every per-cell recall in the fan-out, so the whole polygon read is restricted to facts written under that four-tuple."}
 }}"#;
 
 const SCHEMA_FIELD_BOUNDARIES: &str = r#"{"type":"object","properties":{
@@ -861,7 +898,11 @@ const SCHEMA_FIELD_BOUNDARIES: &str = r#"{"type":"object","properties":{
   "min_lat":{"type":"number"},"max_lat":{"type":"number"},
   "min_lng":{"type":"number"},"max_lng":{"type":"number"}
 }, "description":"Explicit bbox; alternative to `place`."},
-"zoom":{"type":"integer","minimum":6,"maximum":15,"description":"Web-Mercator zoom level for the FTW PMTiles read. Default = library-picked min(14, archive.max_zoom). Higher zoom = sharper boundaries but more tiles per query (capped internally at 16, split very wide farms)."}
+"zoom":{"type":"integer","minimum":6,"maximum":15,"description":"Web-Mercator zoom level for the FTW PMTiles read. Default = library-picked min(14, archive.max_zoom). Higher zoom = sharper boundaries but more tiles per query (capped internally at 16, split very wide farms)."},
+"max_features":{"type":"integer","description":"Cap on returned field polygons (default 10000, clamped 1..=200000). When the cap bites, `truncated` is true and `count` still reports the true total, so a capped answer is distinguishable from a small one."},
+"q":{"type":"string","description":"Alias for `place`."},
+"query":{"type":"string","description":"Alias for `place`."},
+"name":{"type":"string","description":"Alias for `place`."}
 }}"#;
 
 const SCHEMA_GRID_INFO: &str = r#"{"type":"object","properties":{}}"#;
@@ -869,7 +910,8 @@ const SCHEMA_GRID_INFO: &str = r#"{"type":"object","properties":{}}"#;
 const SCHEMA_CELLS_IN_BBOX: &str = r#"{"type":"object","required":["bbox"],"properties":{
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box to enumerate."},
 "page_size":{"type":"integer","minimum":1,"maximum":4096,"default":1024,"description":"cells per page."},
-"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; pass the previous response's next_cursor."}
+"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; pass the previous response's next_cursor."},
+"polygon_bbox":{"type":"object","description":"Alias for `bbox`, the spelling `emem_recall_polygon` uses for the same idea."}
 }}"#;
 const SCHEMA_COVERAGE_MATRIX: &str = r#"{"type":"object","properties":{}}"#;
 
@@ -891,25 +933,31 @@ const SCHEMA_BACKFILL: &str = r#"{"type":"object","required":["cell","band"],"pr
 const SCHEMA_HEAT_SOLVE: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 string. Forecast LST evolution at this cell.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours; capped at 168 (one week)."},
-"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default urban surface (Oke 2017 §2.3); use ~5e-7 for vegetation, ~1.4e-7 for water."}
+"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default urban surface (Oke 2017 §2.3); use ~5e-7 for vegetation, ~1.4e-7 for water."},
+"place":{"type":"string","description":"Alias for `cell`, which already accepts a place name."}
 }}"#;
 
 const SCHEMA_WAVE_SOLVE: &str = r#"{"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{
 "coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},
 "offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},
 "period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); typical wind-wave + swell envelope is 6-18 s."},
-"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Cells to sample seaward when building the bathymetric profile."}
+"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Cells to sample seaward when building the bathymetric profile."},
+"cell":{"type":"string","description":"Alias for `coastal_cell`."},
+"place":{"type":"string","description":"Alias for `coastal_cell`, which also accepts a place name."}
 }}"#;
 
 const SCHEMA_JEPA_PREDICT: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 to forecast at.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},
 "lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},
-"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1 only."}
+"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1 only."},
+"place":{"type":"string","description":"Alias for `cell`, which already accepts a place name."}
 }}"#;
 
 const SCHEMA_JEPA_PREDICT_V2: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 to forecast at, or a free-text place name (auto-resolved via /v1/locate)."}
+"cell":{"type":"string","description":"cell64 to forecast at, or a free-text place name (auto-resolved via /v1/locate)."},
+"place":{"type":"string","description":"Alias for `cell`, which already accepts a place name."},
+"target_month":{"type":"integer","description":"Month-of-year to forecast, 1..=12. Absent means the current UTC month, i.e. 'next month from now'; set it to ask about a month without shifting the clock."}
 }}"#;
 
 // Shared schema for the 8 boring lat/lng shortcuts (emem_at, emem_ndvi,
@@ -926,7 +974,14 @@ const SCHEMA_BORING_LATLNG: &str = r#"{"type":"object","properties":{
 "bands":{"type":"string","description":"Optional CSV of band keys, replaces the endpoint's default band set."},
 "tslot":{"type":"integer","description":"Optional tslot offset (band-tempo-relative)."},
 "n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon fan-out width. `n_cells: 1` = point at centroid. Defaults vary per endpoint (1 for /v1/at, 16 for single-band endpoints)."},
-"include":{"type":"array","items":{"type":"string","enum":["value_per_cell","geojson","scene_thumbs"]},"description":"Opt-in heavy response sections. Default response omits per-cell arrays to stay under MCP's 25 KB cap. Name specific sections to include them."}
+"include":{"type":"array","items":{"type":"string","enum":["value_per_cell","geojson","scene_thumbs"]},"description":"Opt-in heavy response sections. Default response omits per-cell arrays to stay under MCP's 25 KB cap. Name specific sections to include them."},
+"cell64":{"type":"string","description":"Alias for `cell`."},
+"lon":{"type":"number","description":"Alias for `lng`."},
+"q":{"type":"string","description":"Alias for `place`."},
+"query":{"type":"string","description":"Alias for `place`."},
+"name":{"type":"string","description":"Alias for `place`."},
+"radius_m":{"type":"number","description":"Area mode on a bare `lat`+`lng`: the point is expanded to a square of half-side `radius_m` metres and the endpoint fans out over it, returning the same `stats` block a place-with-extent gets. Without this and without `n_cells`, bare coordinates stay a single pixel."},
+"threshold":{"type":"number","description":"Cut point for the `pct_area_over` reducer (area-weighted the same way the mean is). Only meaningful once the call is in area mode, so it does nothing on a bare `lat`+`lng` with no `radius_m` and no `n_cells`, and nothing on a non-numeric band."}
 }}"#;
 
 const SCHEMA_RECALL_MANY: &str = r#"{"type":"object","required":["cells"],"properties":{
@@ -934,14 +989,19 @@ const SCHEMA_RECALL_MANY: &str = r#"{"type":"object","required":["cells"],"prope
 "cells":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"List of cell64 strings, max 256. Each cell is recalled in parallel and the responses are merged into a single signed envelope."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter, same shape as emem_recall.bands."},
 "band":{"type":"string","description":"Optional single band override (alias for bands:[band])."},
-"tslot":{"type":"integer","description":"Optional tslot offset."}
+"tslot":{"type":"integer","description":"Optional tslot offset."},
+"cell64s":{"type":"array","description":"Alias for `cells`."}
 }}"#;
 
 const SCHEMA_ELEVATION: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name. Resolved through the standard locate cascade. Provide this OR `lat`+`lng` OR `cell`."},
 "lat":{"type":"number","description":"WGS-84 latitude."},
 "lng":{"type":"number","description":"WGS-84 longitude."},
-"cell":{"type":"string","description":"cell64 string, skip geocoding entirely.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23}
+"cell":{"type":"string","description":"cell64 string, skip geocoding entirely.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
+"cell64":{"type":"string","description":"Alias for `cell`."},
+"q":{"type":"string","description":"Alias for `place`."},
+"query":{"type":"string","description":"Alias for `place`."},
+"name":{"type":"string","description":"Alias for `place`."}
 }}"#;
 
 const SCHEMA_TEMPORAL_ROUTE: &str = r#"{"type":"object","required":["cell"],"properties":{
@@ -949,12 +1009,15 @@ const SCHEMA_TEMPORAL_ROUTE: &str = r#"{"type":"object","required":["cell"],"pro
 "query_time":{"type":"integer","description":"Optional anchor time (Unix epoch seconds). Defaults to now."},
 "intent":{"type":"string","description":"Optional intent hint, drives recipe selection (e.g. 'flood_window', 'crop_season', 'change_year')."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter to scope the planner."},
-"limit":{"type":"integer","minimum":1,"description":"Optional cap on recipe entries returned."}
+"limit":{"type":"integer","minimum":1,"description":"Optional cap on recipe entries returned."},
+"cell64":{"type":"string","description":"Alias for `cell`."}
 }}"#;
 
 const SCHEMA_VERIFY_RECEIPT: &str = r#"{"type":"object","required":["receipt"],"properties":{
 "receipt":{"type":"object","description":"The signed receipt envelope (as returned by any read primitive). Must carry primitive/served_at/request_id/cells/fact_cids and either `signature` byte[] + `responder_pubkey` byte[] or their b32 string forms."},
-"pubkey_b32":{"type":"string","description":"Optional explicit responder pubkey (base32). When omitted, uses the receipt's embedded pubkey/responder fields."}
+"pubkey_b32":{"type":"string","description":"Optional explicit responder pubkey (base32). When omitted, uses the receipt's embedded pubkey/responder fields."},
+"current_responder_epoch":{"type":"integer","description":"The responder key epoch you currently trust, from `/v1/manifests`. Produces an advisory `key_epoch_advisory` comparison against the receipt's epoch; a mismatch is reported, never rejected."},
+"facts":{"type":"array","description":"The fact value(s) you intend to rely on. Each is content-addressed and checked for membership in the receipt's `fact_cids`, so a genuine receipt presented beside a tampered fact answers `valid:false` / `fact_mismatch`. Omit it and only the signature is checked, which a doctored fact survives."}
 }}"#;
 
 const SCHEMA_TRACE_VERIFY: &str = r#"{"type":"object","required":["trace","profile"],"properties":{
@@ -1008,7 +1071,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_locate",
         title: "Resolve place to cell64 + band inventory",
-        description: "Mint the canonical, vendor-neutral address (cell64) for a real-world place: the shared spatial identity every agent resolves to identically, so two models refer to the same ground instead of two descriptions of it. Also returns the topic-grouped inventory of bands and algorithms recallable there. For a first-class OBJECT identity (a bridge, a plot, a named place) rather than a raw cell, use emem_entity. Send EITHER `lat`+`lng` as numbers OR a free-text `place`/`q`; coordinates win when both arrive. Any other key (`query`, `name`) is dropped and reported in `_unrecognised_arguments`, so a typo answers about somewhere else rather than erroring.",
+        description: "Mint the canonical, vendor-neutral address (cell64) for a real-world place: the shared spatial identity every agent resolves to identically, so two models refer to the same ground instead of two descriptions of it. Also returns the topic-grouped inventory of bands and algorithms recallable there. For a first-class OBJECT identity (a bridge, a plot, a named place) rather than a raw cell, use emem_entity. Send EITHER `lat`+`lng` as numbers OR a free-text place; coordinates win when both arrive. `q`, `query` and `name` are all accepted spellings of `place`. A key this schema does not declare is reported in `_unrecognised_arguments`, so a typo answers about somewhere else rather than erroring.",
         when_to_use: "Use whenever the input refers to a real-world location and the next step needs the cell64 identifier or wants to know which bands are available before recalling. The response carries `data_at_this_cell` with three sub-fields: `live_bands_by_topic` (every band recallable here, grouped by topic such as flood_water_event_window, vegetation_condition, built_up_human_geography), `algorithms_for_topic` (composition recipes that fuse those bands into named scores), and `declared_but_no_materializer_at_this_responder` (cube slots reserved without a live connector). For the single-shot path that runs the full chain server-side and returns one packaged answer, use `emem_ask` instead.",
         input_schema: SCHEMA_LOCATE,
         output_schema: None,

@@ -405,17 +405,24 @@ def compare(case, mcp, rest):
         return "DIVERGE", f"keys only in mcp={only_mcp} only in rest={only_rest}"
 
     # Did the two calls answer the same question? A place-addressed tool
-    # resolves `place` to a polygon on every call, and that resolution is not
-    # stable: the Overture division lookup races a 900 ms deadline and, on a
-    # miss, answers from Nominatim while a detached task warms the memo, so the
-    # NEXT call wins the race and gets a different polygon. Measured on ONE
-    # transport, three consecutive REST calls: `Bayanhongor` resolved to
+    # resolves `place` to a polygon on every call, and that resolution used to
+    # be unstable: the Overture division lookup raced a 900 ms deadline and, on
+    # a miss, answered from a local fallback while a detached task warmed the
+    # memo, so the NEXT call won the race and got a different polygon. Measured
+    # on ONE transport, three consecutive REST calls: `Bayanhongor` resolved to
     # nominatim_boundingbox (5.2 x 4.2 deg, the province) and then twice to
     # overture_division_area (0.12 x 0.19 deg, the town), and 109 of 112 fact
-    # pairs from the first call were absent from the third. Nothing about that
-    # involves MCP, so reporting it as MCP/REST drift sends a reader hunting a
-    # transport bug that is not there. It is still a failure: one place name
-    # answering about two different places is the drift emem exists to stop.
+    # pairs from the first call were absent from the third.
+    #
+    # The race is gone (2026-08-10): the lookup is decided once against the
+    # durable cache and persisted, and 18 of 18 cold places now give one answer
+    # across four consecutive calls where 8 of 10 gave two. This check stays
+    # because it is the guard, not the bug: any future resolver change that
+    # makes one place name answer about two places must fail here. Nothing
+    # about that involves MCP, so it is reported as INPUT_DRIFT rather than as
+    # transport drift, which would send a reader hunting a bug that is not
+    # there. It is still a failure: one place name answering about two
+    # different places is the drift emem exists to stop.
     m_scope, r_scope = resolved_scope(mcp_body), resolved_scope(rest_body)
     if m_scope and r_scope and m_scope != r_scope:
         return ("INPUT_DRIFT",

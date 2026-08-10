@@ -715,6 +715,73 @@ impl OvertureClient {
         Ok(total)
     }
 
+    /// The cache key `division_polygon_with_subtype` would use for these
+    /// arguments. Factored out so the network-free probe below and the
+    /// lookup itself cannot drift apart: a probe that computed the key
+    /// differently would report "undecided" for an entry that is decided,
+    /// which is exactly the failure the probe exists to prevent.
+    fn division_cache_key(
+        lat: f64,
+        lng: f64,
+        name_hint: &str,
+        preferred_subtype: Option<&str>,
+    ) -> DivisionCacheKey {
+        (
+            (lat * 100.0).round() as i32,
+            (lng * 100.0).round() as i32,
+            format!(
+                "{}|{}",
+                preferred_subtype.unwrap_or(""),
+                normalize_division_name(name_hint)
+            ),
+        )
+    }
+
+    /// Has this (anchor, name, subtype) already been decided, without
+    /// touching the network?
+    ///
+    /// Returns `Some(answer)` when the in-process memo or the durable
+    /// cache already holds a verdict — including `Some(None)`, meaning
+    /// "Overture definitively carries no polygon covering this anchor".
+    /// Returns `None` only when nothing has decided it yet.
+    ///
+    /// Why this exists separately from `division_polygon_with_subtype`:
+    /// the caller needs to know whether an answer is *free* before it
+    /// decides how long to wait. Racing a deadline against a lookup that
+    /// might be a HashMap hit or might be a 10 s parquet scan makes the
+    /// returned polygon a function of wall-clock timing, so the same
+    /// place name answered about two different places on consecutive
+    /// requests. Probing first separates "already decided, serve it" from
+    /// "never seen, decide it now and persist" and removes the timing
+    /// from the answer.
+    pub async fn division_polygon_decided(
+        &self,
+        lat: f64,
+        lng: f64,
+        name_hint: &str,
+        preferred_subtype: Option<&str>,
+    ) -> Option<Option<DivisionMatch>> {
+        let cache_key = Self::division_cache_key(lat, lng, name_hint, preferred_subtype);
+        if let Some(hit) = self.division_cache.lock().await.get(&cache_key) {
+            return Some(hit.clone());
+        }
+        let pc = self.persistent_cache.get()?;
+        let key_str = division_cache_key_string(&cache_key);
+        let raw = pc.get(&key_str)?;
+        match serde_json::from_slice::<Option<DivisionMatch>>(&raw) {
+            Ok(decoded) => {
+                self.division_cache
+                    .lock()
+                    .await
+                    .insert(cache_key, decoded.clone());
+                Some(decoded)
+            }
+            // Corrupt row. Report undecided so the caller pays for a fresh
+            // scan, which overwrites it. Same self-healing as the lookup path.
+            Err(_) => None,
+        }
+    }
+
     /// Resolve a place's true administrative boundary from Overture's
     /// `divisions/division_area` theme, optionally biased toward a
     /// specific admin subtype. Convenience wrapper over
@@ -779,14 +846,10 @@ impl OvertureClient {
         // call doesn't re-pay the full shard scan. Static-tempo data;
         // no TTL.
         let normalized_hint = normalize_division_name(name_hint);
-        let normalized_pref = preferred_subtype.unwrap_or("").to_string();
         // Cache key includes the subtype preference so country-tier
         // and locality-tier calls at the same anchor don't collide.
-        let cache_key: DivisionCacheKey = (
-            (lat * 100.0).round() as i32,
-            (lng * 100.0).round() as i32,
-            format!("{}|{}", normalized_pref, normalized_hint),
-        );
+        let cache_key: DivisionCacheKey =
+            Self::division_cache_key(lat, lng, name_hint, preferred_subtype);
         if let Some(hit) = self.division_cache.lock().await.get(&cache_key) {
             return Ok(hit.clone());
         }

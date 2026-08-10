@@ -19247,6 +19247,20 @@ fn mcp_unknown_arguments(tool: &str, args: &JsonValue) -> Vec<String> {
 /// Advisory, never fatal, and never on the error path: a tool that already
 /// failed has a reason of its own to report, and burying it under a note
 /// about a typo would make the smaller problem the loud one.
+///
+/// It used to say `effect: "ignored"` and `"dropped before it ran"`, and that
+/// was a claim about a mechanism this function cannot observe. All it sees is
+/// the inputSchema; what the argument DOES is decided by the dispatch arm,
+/// which deserialises into the same request type the REST handler uses, so any
+/// serde field or alias on that type is honoured whatever the schema declares.
+/// Measured 2026-08-10 against the live node: `emem_ndvi {lat:-1.28, lon:36.82}`
+/// resolved cell `defi.zb3f1.rEdi.wajI` and echoed `lon: 36.82` in the same
+/// response that reported `lon` dropped; `emem_locate {query:"Reykjavik"}`
+/// returned Reykjavik; `emem_ask {question:...}` answered the question. A sweep
+/// of every tool whose dispatch struct could be resolved found 112 such
+/// parameters across 32 tools, all now declared, and 24 tools whose dispatch
+/// shape the sweep could not resolve, which is exactly why the wording must not
+/// assert more than the schema knows.
 fn attach_unknown_arguments(mut inner: JsonValue, unknown: &[String]) -> JsonValue {
     if unknown.is_empty() {
         return inner;
@@ -19256,11 +19270,13 @@ fn attach_unknown_arguments(mut inner: JsonValue, unknown: &[String]) -> JsonVal
             "_unrecognised_arguments".into(),
             json!({
                 "names": unknown,
-                "effect": "ignored",
-                "why": "This tool does not declare these arguments, so they were dropped \
-                        before it ran. If one was a typo for a real parameter, the tool \
-                        answered without it rather than with what you meant. Check the \
-                        tool's inputSchema.",
+                "effect": "not_declared",
+                "why": "This tool's inputSchema does not declare these names. That is all this \
+                        notice knows: an argument the tool never reads and an argument the \
+                        request type behind it honours without the schema saying so look \
+                        identical from here. So read this as `check the inputSchema`, not as \
+                        proof the value was discarded. If a name was a typo for a declared \
+                        parameter, the answer above was computed without what you meant.",
             }),
         );
     }
@@ -29756,6 +29772,12 @@ struct EntityResolveReq {
     text: Option<String>,
     #[serde(default)]
     label: Option<String>,
+    /// An `emem:entity:<entity_cid>` handle to dereference straight to its
+    /// stored object, skipping the text search. Documented since this endpoint
+    /// shipped and missing from this struct until now, so the argument was
+    /// silently dropped and the request failed asking for `text`.
+    #[serde(default)]
+    token: Option<String>,
     /// Optional place/cell to narrow to objects anchored nearby.
     #[serde(default)]
     near: Option<String>,
@@ -29770,12 +29792,25 @@ async fn post_entity_resolve(
     use emem_primitives::entity::{
         alias_lookup_key, entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
     };
+    // A token is an exact handle, so it answers before the fuzzy search and
+    // ignores `near` / `k`: there is nothing to rank when the caller already
+    // holds the identity.
+    if let Some(tok) = req
+        .token
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        return Ok(Json(entity_dereference(&s, tok)?));
+    }
     let q = req
         .text
         .clone()
         .or_else(|| req.label.clone())
         .filter(|s| !s.trim().is_empty())
-        .ok_or_else(|| entity_bad_arg("entity_resolve requires `text` (or `label`)"))?;
+        .ok_or_else(|| {
+            entity_bad_arg("entity_resolve requires `text` (or `label`), or `token` to dereference an emem:entity: handle")
+        })?;
     let key = alias_lookup_key(&q);
     let k = req.k.unwrap_or(10).clamp(1, 100);
 
@@ -29837,13 +29872,30 @@ async fn get_entity(
     State(s): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    Ok(Json(entity_dereference(&s, &id)?))
+}
+
+/// Dereference an `emem:entity:` token (or a bare `entity_cid`) to the stored
+/// signed object.
+///
+/// Shared by `GET /v1/entity/:id` and by the `token` argument of
+/// `POST /v1/entity/resolve`. The second of those was documented in three
+/// places — the OpenAPI request body, the `emem_entity_resolve` MCP input
+/// schema, and that tool's own description, all promising "pass an
+/// `emem:entity:` token to dereference it directly" — and implemented in none:
+/// the request struct had no `token` field, so the argument was dropped and the
+/// endpoint answered `entity_resolve requires \`text\` (or \`label\`)`. An MCP
+/// caller holding a token had no door at all, `GET /v1/entity/:id` not being
+/// reachable through a tool call. Factored here so the two doors cannot answer
+/// differently.
+fn entity_dereference(s: &AppState, id: &str) -> Result<JsonValue, ApiError> {
     use emem_primitives::entity::{entity_token, parse_entity_token, ENTITIES_TREE};
     let cid = if id.starts_with("emem:entity:") || id.starts_with("meme:") {
-        parse_entity_token(&id).map_err(entity_bad_arg)?
+        parse_entity_token(id).map_err(entity_bad_arg)?
     } else {
-        id
+        id.to_string()
     };
-    let db = memory_db(&s)?;
+    let db = memory_db(s)?;
     let entities = db.open_tree(ENTITIES_TREE).map_err(|e| {
         entity_err(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -29863,7 +29915,7 @@ async fn get_entity(
         .and_then(|v| v.as_str())
         .unwrap_or_default()
         .to_string();
-    Ok(Json(json!({
+    Ok(json!({
         "resolved": true,
         "entity_token": entity_token(&cid),
         "entity": rec.get("entity").cloned(),
@@ -29871,7 +29923,7 @@ async fn get_entity(
         "minted_at": rec.get("minted_at").cloned(),
         "recall_hint": format!("recall or ask at cell {cell} for signed facts about this object"),
         "offline_verify_at": "/verify",
-    })))
+    }))
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -56869,16 +56921,27 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
 }
 
 async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
-    // One deadline for the whole request's optional Overture enrichment. See
-    // apply_overture_division_upgrade: this is a nice-to-have that was setting
-    // the floor on a required answer, so it now gets a fixed slice of the
-    // request and the cascade shares it.
+    // One deadline for the whole request's Overture enrichment, shared by every
+    // tier of the cascade so the cost cannot multiply.
+    //
+    // This budget is paid ONLY by a place nothing has ever resolved. See
+    // `overture_division_decide`: a place with a decided verdict answers from
+    // the memo or the sled tree without touching the network and without
+    // consuming any of this, so the warm path is unaffected by the number here.
+    //
+    // It was 900 ms, which is where the instability came from: a cold Overture
+    // lookup measured 1.2 s to 12.5 s against the live node, so 900 ms lost
+    // essentially every cold race, the request answered from a local fallback,
+    // and the background fetch then changed the answer for the next caller.
+    // Buying determinism means the one caller who first names a place waits for
+    // the place to be decided. Every caller after that, forever and across
+    // restarts, gets the sled hit.
     let overture_deadline = std::time::Instant::now()
         + std::time::Duration::from_millis(
             std::env::var("EMEM_LOCATE_OVERTURE_BUDGET_MS")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(900),
+                .unwrap_or(9_000),
         );
     // Provenance of the (lat,lng) returned to the agent. "direct", caller
     // supplied coordinates; "embedded", hit our compiled-in gazetteer
@@ -57212,6 +57275,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     lo,
                                     &lab,
                                     Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
+                                    Some("overture_division_area"),
                                     None,
                                 );
                             }
@@ -57230,6 +57294,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                         lo,
                                         &lab,
                                         Some([bb.0, bb.1, bb.2, bb.3]),
+                                        Some("nominatim_boundingbox"),
                                         None,
                                     );
                                 }
@@ -57312,7 +57377,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 via = "pois";
                 let lab = poi.label();
                 (poi.lat, poi.lng, Some(lab))
-            } else if let Some((la, lo, lab, bb_cached, cached_imp, cached_verdict)) =
+            } else if let Some((la, lo, lab, bb_cached, bb_source, cached_imp, cached_verdict)) =
                 nominatim_cache_get(p)
             {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
@@ -57340,7 +57405,16 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 if !force_admin_override && polygon_bbox.is_none() {
                     if let Some(arr) = bb_cached {
                         polygon_bbox = Some((arr[0], arr[1], arr[2], arr[3]));
-                        polygon_source = Some("nominatim_boundingbox");
+                        // The row's own recorded source, not an assumption.
+                        // This said `nominatim_boundingbox` unconditionally,
+                        // and the embedded / GeoNames tiers write an OVERTURE
+                        // bbox into this row, so a place resolved from Overture
+                        // reported Nominatim provenance on every later read.
+                        // A row minted before the field existed carries none;
+                        // it is re-resolved by the resolver-version gate rather
+                        // than guessed at, so `None` here is unreachable in
+                        // practice and honest if it ever is not.
+                        polygon_source = bb_source;
                     }
                 }
                 // Same Overture-first enrichment as the embedded
@@ -57364,6 +57438,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                     lo,
                                     &lab,
                                     Some([div.bbox.0, div.bbox.1, div.bbox.2, div.bbox.3]),
+                                    Some("overture_division_area"),
                                     None,
                                 );
                                 if force_admin_override {
@@ -57388,6 +57463,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                         lo,
                                         &lab,
                                         Some([bb.0, bb.1, bb.2, bb.3]),
+                                        Some("nominatim_boundingbox"),
                                         None,
                                     );
                                 }
@@ -57611,12 +57687,21 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     via = "overture_admin_fallback";
                 }
                 let hit_bbox_arr = hit.bbox.map(|(a, b, c, d)| [a, b, c, d]);
+                // `hit.bbox` is the Overture division polygon when the admin
+                // fallback above rerouted, and the geocoder's own bounding box
+                // otherwise. Record whichever actually produced it; this row is
+                // what a later cache hit reports as its provenance.
                 nominatim_cache_put(
                     p,
                     hit.lat,
                     hit.lng,
                     &hit.label,
                     hit_bbox_arr,
+                    Some(if admin_fallback_used {
+                        "overture_division_area"
+                    } else {
+                        "nominatim_boundingbox"
+                    }),
                     Some(hit.importance),
                 );
                 if polygon_bbox.is_none() {
@@ -58758,39 +58843,91 @@ async fn division_polygon_near_bounded(
     lng: f64,
     name: &str,
 ) -> Result<Option<emem_fetch::overture::DivisionMatch>, emem_fetch::overture::OvertureError> {
+    overture_division_decide(deadline, lat, lng, name, None).await
+}
+
+/// Decide, once and durably, which Overture division polygon a place resolves
+/// to; afterwards serve that decision from cache and never race for it again.
+///
+/// This replaced a bounded RACE, and the race was the bug. The old shape
+/// spawned the fetch, waited 900 ms, and answered from whatever local fallback
+/// it had if the fetch had not landed — while the detached task kept running
+/// and warmed the memo. So the answer depended on wall-clock timing, and the
+/// next caller got a different polygon for the same name. Measured 2026-08-10
+/// against the live node, four consecutive `/v1/recall_polygon` calls per
+/// place over ten cold places: 8 of 10 places returned two distinct
+/// (polygon_source, bbox) answers. Coihaique went from a single 0.0001 deg
+/// cell to a 1.31 x 1.61 deg region between call 1 and call 2; an earlier
+/// Bayanhongor triple lost 109 of 112 recalled (band, value) pairs the same
+/// way. Nothing persisted the winner, so every never-before-seen place name
+/// exhibited it.
+///
+/// The shape now is: probe, then decide.
+///
+/// 1. `division_polygon_decided` asks the memo and the sled tree whether this
+///    (anchor, name, subtype) already has a verdict. That probe touches no
+///    network, so it costs nothing and, being a lookup rather than a race, it
+///    returns the same answer every time. This is the path essentially every
+///    request takes.
+/// 2. Only a genuinely undecided place reaches the fetch, and it is now
+///    awaited rather than raced against a budget too short to win. The verdict
+///    (including a definitive "Overture carries nothing here") is written to
+///    the sled tree by the client, survives restarts, and answers every later
+///    caller in milliseconds.
+///
+/// The deadline still bounds the request: an undecided place cannot make a
+/// caller wait forever, and the whole locate cascade shares one deadline so
+/// the cost cannot multiply across tiers. The spawn is kept deliberately — a
+/// cancelled fetch never populates the cache, so an expiry that dropped the
+/// task would leave the place undecided and the next request would pay the
+/// budget again. On expiry the task keeps running to completion and the place
+/// is decided for whoever asks next.
+///
+/// What this does NOT guarantee: a place whose fetch exceeds the budget is
+/// still undecided when we answer, so that one caller sees the local fallback
+/// and the next sees Overture. That residual is bounded by the budget rather
+/// than by the 900 ms that made it universal, and it is an upstream-latency
+/// fault rather than a design one. A transport error is likewise not persisted
+/// and is retried on the next call.
+async fn overture_division_decide(
+    deadline: std::time::Instant,
+    lat: f64,
+    lng: f64,
+    name: &str,
+    preferred_subtype: Option<&str>,
+) -> Result<Option<emem_fetch::overture::DivisionMatch>, emem_fetch::overture::OvertureError> {
+    let client = emem_fetch::overture::OvertureClient::shared();
+    if let Some(decided) = client
+        .division_polygon_decided(lat, lng, name, preferred_subtype)
+        .await
+    {
+        return Ok(decided);
+    }
     let budget = deadline.saturating_duration_since(std::time::Instant::now());
-    // Detach, then race. Cancelling the fetch on expiry was the obvious way to
-    // write this and the wrong one: OvertureClient memoizes, so a cancelled
-    // fetch never populates the memo and the NEXT request pays the full budget
-    // again. Measured, that turned a place that used to be 15.9 s once and
-    // 14 ms afterwards into 920 ms every single time. Spawning lets the fetch
-    // finish and warm the memo in the background while this request answers on
-    // the deadline, so the second call is fast for the usual reason.
-    //
-    // KNOWN COST, measured 2026-08-10 and not yet paid down: the caller's
-    // polygon choice is therefore decided by a RACE, and the race is re-run on
-    // every request because the winner is never persisted. Three consecutive
-    // REST calls to /v1/recall_polygon {place:"Bayanhongor"} resolved it first
-    // to the Nominatim bbox (5.2 x 4.2 deg, the province) and then twice to the
-    // Overture division (0.12 x 0.19 deg, the town): one place name, two
-    // different places, 109 of 112 recalled (band,value) pairs gone between the
-    // first answer and the third. It reads as MCP/REST drift to anything that
-    // compares two calls, which is why scripts/parity.py now names it. A restart
-    // empties the memo, so it recurs after every deploy. Making it stable means
-    // persisting the resolved polygon rather than re-racing for it, and that
-    // changes which polygon a cached place resolves to, so it needs a
-    // LOCATE_RESOLVER_VERSION bump or prod serves the old answer for 30 days.
     let owned = name.to_string();
+    let owned_pref = preferred_subtype.map(|s| s.to_string());
+    let started = std::time::Instant::now();
     let task = tokio::spawn(async move {
-        emem_fetch::overture::OvertureClient::shared()
-            .division_polygon_near(lat, lng, &owned)
+        client
+            .division_polygon_with_subtype(lat, lng, &owned, owned_pref.as_deref())
             .await
     });
     if budget.is_zero() {
         return Ok(None);
     }
     match tokio::time::timeout(budget, task).await {
-        Ok(Ok(inner)) => inner,
+        Ok(Ok(inner)) => {
+            // The once-per-place cold cost, logged because it is the whole
+            // price of determinism and nothing else on this path reports it.
+            tracing::info!(
+                target: "emem::geocoder",
+                name,
+                decide_ms = started.elapsed().as_millis() as u64,
+                decided_polygon = matches!(inner, Ok(Some(_))),
+                "overture division decided cold"
+            );
+            inner
+        }
         // The task panicked. Treat it as "Overture had nothing" like any other
         // failure here; the caller keeps its local bbox.
         Ok(Err(_)) => Ok(None),
@@ -58798,8 +58935,9 @@ async fn division_polygon_near_bounded(
             tracing::debug!(
                 target: "emem::geocoder",
                 name,
-                "overture division_polygon_near exceeded the request budget; \
-                 answering without it and letting the fetch warm the memo"
+                budget_ms = budget.as_millis() as u64,
+                "overture division lookup exceeded the request budget; answering \
+                 without it and letting the fetch decide the place for the next caller"
             );
             Ok(None)
         }
@@ -58859,32 +58997,15 @@ async fn apply_overture_division_upgrade(
     // bounding: with 900 ms each, Bujumbura still spent 5.8 s across tiers.
     // Sharing one deadline means the whole locate pays for the upgrade at most
     // once, and later tiers inherit whatever is left rather than starting over.
-    let budget = deadline.saturating_duration_since(std::time::Instant::now());
-    if budget.is_zero() {
-        return;
-    }
-    // Detached for the same reason as division_polygon_near_bounded: a
-    // cancelled fetch leaves the memo cold, so the next request pays the budget
-    // again instead of the 14 ms a warm memo gives.
-    let owned_hint = name_hint.to_string();
-    let owned_sub = preferred_subtype.map(|s| s.to_string());
-    let task = tokio::spawn(async move {
-        emem_fetch::overture::OvertureClient::shared()
-            .division_polygon_with_subtype(lat, lng, &owned_hint, owned_sub.as_deref())
-            .await
-    });
-    let div = match tokio::time::timeout(budget, task).await {
-        Ok(Ok(Ok(Some(d)))) => d,
-        Ok(Ok(Ok(None))) | Ok(Ok(Err(_))) | Ok(Err(_)) => return,
-        Err(_) => {
-            tracing::debug!(
-                target: "emem::geocoder",
-                name = name_hint,
-                budget_ms = budget.as_millis() as u64,
-                "overture division upgrade exceeded its budget; keeping the tier-table bbox"
-            );
-            return;
-        }
+    // Probe-then-decide, exactly as `overture_division_decide` documents: this
+    // path had the same race and produced the same instability, one tier up.
+    // The admin tiers reach here with a tier-table bbox already in hand, so a
+    // timing-dependent upgrade meant `country_table` on one call and
+    // `overture_division_area` on the next for one unchanged place name.
+    let div = match overture_division_decide(deadline, lat, lng, name_hint, preferred_subtype).await
+    {
+        Ok(Some(d)) => d,
+        Ok(None) | Err(_) => return,
     };
     // Polygon is authoritative, overwrite cities-derived bbox too.
     *polygon_geojson = Some(div.geometry.clone());
@@ -58959,11 +59080,44 @@ struct CachedPlace {
     is_high_confidence: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     confidence_reason: Option<String>,
+    /// Which resolver produced `polygon_bbox`, stored so a cache hit can say
+    /// where its own bbox came from.
+    ///
+    /// Without it the cache-hit path asserted `nominatim_boundingbox` for every
+    /// stored bbox, and four of the five writers do not put a Nominatim bbox
+    /// there: the embedded and GeoNames tiers write the Overture division bbox
+    /// through this same row. So a place resolved from Overture, then re-read
+    /// from cache, reported Nominatim provenance for an Overture polygon. The
+    /// bbox was right and the label was a lie, which is worse than either.
+    ///
+    /// Also part of the stability fix: `polygon_source` is half of what a
+    /// caller compares between two answers, so a source that flips while the
+    /// bbox holds still is drift in its own right.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    polygon_source: Option<String>,
     /// The `LOCATE_RESOLVER_VERSION` that produced this row. `None` on rows
     /// written before the field existed, which are re-resolved like any other
     /// superseded generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resolver_version: Option<u32>,
+}
+
+/// Map a stored `polygon_source` string back onto the `&'static str` the
+/// locate response uses. Unknown values are dropped rather than leaked: the
+/// field is a closed enum in the OpenAPI schema and a cached row is not
+/// allowed to widen it.
+fn polygon_source_static(s: &str) -> Option<&'static str> {
+    Some(match s {
+        "wide_bbox_table" => "wide_bbox_table",
+        "country_table" => "country_table",
+        "admin1_table" => "admin1_table",
+        "admin2_table" => "admin2_table",
+        "admin3_table" => "admin3_table",
+        "nominatim_boundingbox" => "nominatim_boundingbox",
+        "overture_division_area" => "overture_division_area",
+        "centre_cell_bbox" => "centre_cell_bbox",
+        _ => return None,
+    })
 }
 
 /// Which generation of the resolution logic minted a cached row.
@@ -58995,7 +59149,13 @@ struct CachedPlace {
 ///    "La Table Ronde" with importance 0.6 and a stored verdict of
 ///    high-confidence; without this bump that verdict replays from cache
 ///    for the full 30 d TTL and the fix looks like it never deployed.
-const LOCATE_RESOLVER_VERSION: u32 = 4;
+/// 5: the Overture division lookup is decided once and persisted instead of
+///    raced against a 900 ms deadline, and the cached row now carries the
+///    `polygon_source` that produced its bbox instead of having the read path
+///    assert `nominatim_boundingbox`. Both change which polygon a cached place
+///    answers with, so every generation-4 row must re-resolve rather than
+///    replay a bbox chosen by a race that no longer runs.
+const LOCATE_RESOLVER_VERSION: u32 = 5;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -59185,6 +59345,7 @@ type CachedGeocode = (
     f64,
     String,
     Option<[f64; 4]>,
+    Option<&'static str>,
     Option<f64>,
     Option<(bool, String)>,
 );
@@ -59223,11 +59384,30 @@ fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
             return None;
         }
     };
+    // A bbox whose provenance the row cannot name is not servable: the reader
+    // would have to guess a source, and guessing is how "nominatim_boundingbox"
+    // came to be stamped on Overture polygons. Drop the row and re-resolve, the
+    // same rule this cache already applies to a row with no stored verdict.
+    let bb_source = match (entry.polygon_bbox, entry.polygon_source.as_deref()) {
+        (None, _) => None,
+        (Some(_), Some(s)) => match polygon_source_static(s) {
+            Some(st) => Some(st),
+            None => {
+                let _ = geocoder_db().remove(q.as_bytes());
+                return None;
+            }
+        },
+        (Some(_), None) => {
+            let _ = geocoder_db().remove(q.as_bytes());
+            return None;
+        }
+    };
     Some((
         entry.lat,
         entry.lng,
         entry.label,
         entry.polygon_bbox,
+        bb_source,
         entry.importance,
         verdict,
     ))
@@ -59289,6 +59469,14 @@ fn merge_cached_place(prior: Option<CachedPlace>, fresh: CachedPlace) -> CachedP
     let Some(prior) = prior else { return fresh };
     CachedPlace {
         // `None` from a caller means "I do not have this", never "erase it".
+        // Bbox and source move together or not at all: keeping a fresh bbox
+        // beside a prior source would relabel one resolver's polygon with
+        // another's name, which is the provenance lie this field exists to end.
+        polygon_source: if fresh.polygon_bbox.is_some() {
+            fresh.polygon_source
+        } else {
+            prior.polygon_source.clone()
+        },
         polygon_bbox: fresh.polygon_bbox.or(prior.polygon_bbox),
         importance: fresh.importance.or(prior.importance),
         // The verdict survives a bbox being attached. It is dropped only when
@@ -59308,6 +59496,7 @@ fn nominatim_cache_put(
     lng: f64,
     label: &str,
     polygon_bbox: Option<[f64; 4]>,
+    polygon_source: Option<&str>,
     importance: Option<f64>,
 ) {
     let q = query.trim().to_ascii_lowercase();
@@ -59321,6 +59510,7 @@ fn nominatim_cache_put(
         lng,
         label: label.to_string(),
         polygon_bbox,
+        polygon_source: polygon_bbox.and(polygon_source.map(|s| s.to_string())),
         inserted_unix_s: now_unix_s(),
         importance,
         // On a fresh resolution this is decided later in the same request, once
@@ -62589,12 +62779,24 @@ mod tests {
             mcp_unknown_arguments("emem_recall", &json!({"cell": "x", "_meta": {}})).is_empty()
         );
 
-        // The notice rides on the result, says it was ignored, and names it.
+        // The notice rides on the result and names what it saw. It must claim
+        // only that the schema does not declare the name: whether the value was
+        // actually dropped is decided by the dispatch arm's request type, which
+        // this function never sees. `emem_ndvi {lat, lon}` answered ABOUT `lon`
+        // while the old wording called it dropped.
         let out = attach_unknown_arguments(json!({"ok": true}), &["celll".to_string()]);
         let n = &out["_unrecognised_arguments"];
-        assert_eq!(n["effect"], json!("ignored"));
+        assert_eq!(n["effect"], json!("not_declared"));
         assert_eq!(n["names"], json!(["celll"]));
-        assert!(n["why"].as_str().unwrap().contains("typo"));
+        let why = n["why"].as_str().unwrap();
+        assert!(
+            why.contains("typo"),
+            "the typo case is the point of the notice"
+        );
+        assert!(
+            !why.contains("dropped before it ran"),
+            "the notice must not assert a mechanism it cannot observe"
+        );
 
         // Nothing attached when there is nothing to say.
         assert_eq!(
@@ -68707,6 +68909,7 @@ mod tests {
             lng: 77.0345,
             label: label.to_string(),
             polygon_bbox: None,
+            polygon_source: None,
             inserted_unix_s: 0,
             importance: None,
             is_high_confidence: None,
@@ -68782,6 +68985,43 @@ mod tests {
         );
         assert_eq!(merged.polygon_bbox, Some([1.0, 2.0, 3.0, 4.0]));
         assert_eq!(merged.inserted_unix_s, 999, "the fresh write still wins");
+    }
+
+    /// A bbox and the name of what produced it must never be merged apart.
+    ///
+    /// The cache-hit read path used to assert `nominatim_boundingbox` for
+    /// whatever bbox the row held, and four of the five writers put an Overture
+    /// division bbox there, so an Overture polygon was served under Nominatim
+    /// provenance. Storing the source only helps if the merge keeps the pair
+    /// together: a fresh bbox beside a prior source relabels one resolver's
+    /// polygon with another's name, which is the same lie one layer down.
+    #[test]
+    fn a_bbox_and_its_source_are_merged_as_one_or_not_at_all() {
+        let mut prior = a_row("Bayanhongor, 02 MN");
+        prior.polygon_bbox = Some([46.12, 46.24, 100.57, 100.76]);
+        prior.polygon_source = Some("overture_division_area".into());
+
+        // A re-put that carries a NEW bbox from a different resolver.
+        let mut fresh = a_row("Bayanhongor, 02 MN");
+        fresh.polygon_bbox = Some([44.0, 49.2, 98.0, 102.2]);
+        fresh.polygon_source = Some("nominatim_boundingbox".into());
+        let merged = merge_cached_place(Some(prior.clone()), fresh);
+        assert_eq!(merged.polygon_bbox, Some([44.0, 49.2, 98.0, 102.2]));
+        assert_eq!(
+            merged.polygon_source.as_deref(),
+            Some("nominatim_boundingbox"),
+            "the source must follow the bbox it describes"
+        );
+
+        // A re-put with no bbox of its own keeps BOTH halves of the prior.
+        let bare = a_row("Bayanhongor, 02 MN");
+        let merged = merge_cached_place(Some(prior), bare);
+        assert_eq!(merged.polygon_bbox, Some([46.12, 46.24, 100.57, 100.76]));
+        assert_eq!(
+            merged.polygon_source.as_deref(),
+            Some("overture_division_area"),
+            "`None` from a caller means 'I do not have this', never 'erase it'"
+        );
     }
 
     /// A verdict is about one answer, so a different answer does not inherit it.
