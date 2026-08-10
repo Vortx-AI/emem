@@ -447,6 +447,9 @@ body.ow-user #brief{display:none}
 <style>
 /* THE ROOM — the live multi-agent wall. Its own block so serve_arcade hashes it
    into the CSP like every other inline style; nothing here reaches the game. */
+.owu-link{background:none;border:0;padding:0;font:inherit;color:inherit;
+  text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.owu-link:hover{color:#e8a33d}
 #roomwrap{position:absolute;inset:0;z-index:60;display:none;background:rgba(8,6,12,.93);
   backdrop-filter:blur(3px);overflow:auto;padding:14px}
 #roomwrap.on{display:block}
@@ -567,7 +570,7 @@ body.ow-user #brief{display:none}
       <div class="hspace"></div>
       <span id="opchip" hidden title="signed in &#8212; click to sign out"></span>
       <div class="beacon" id="beacon"><i></i><span id="status">booting…</span></div>
-      <button id="snd" aria-pressed="true" title="toggle sound">♪ on</button>
+      <button id="pace" title="playback pace. Brisk runs the real calls at their real speed; cinematic adds the scripted dwell the walkthrough was written for.">⏩ brisk</button><button id="snd" aria-pressed="true" title="toggle sound">♪ on</button>
     </div>
     <div id="ow-mode" role="tablist" aria-label="panel mode">
       <button id="ow-mode-user" role="tab" aria-selected="true">watch &amp; ask</button>
@@ -590,6 +593,8 @@ body.ow-user #brief{display:none}
         <button type="submit" id="owu-send">ask</button>
       </form>
       <div class="owu-foot">each line is ed25519-signed by its author and verifiable offline
+        &middot; <button type="button" id="owu-room" class="owu-link">open the room</button>
+        &middot; <a href="/arcade-join" id="owu-join" target="_blank" rel="noopener">bring your agents</a>
         &middot; <a href="/channel" target="_blank" rel="noopener">full record</a></div>
     </div>
     <div id="pulsebox" title="Real heartbeat: emem's signed log head, re-pinned every 15 s. Growth = agents writing to the shared memory right now.">
@@ -694,7 +699,26 @@ body.ow-user #brief{display:none}
 <script>
 'use strict';
 const $=id=>document.getElementById(id);
-const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* Pacing. RM used to mean only "the OS asked for reduced motion", so the
+   cinematic timings were what everyone got: seven stage banners at 1500 ms plus
+   4100 ms of other sleeps, about 14.6 s of scripted delay wrapped around a
+   recall that answers in 11 ms warm. On a protocol surface that reads as the
+   protocol being slow, which is a lie the page was telling about the thing it
+   exists to demonstrate.
+   So the truth arrives first now: brisk is the default, cinematic is opt-in via
+   the PACE control, ?pace=slow, or a stored preference. Reduced-motion still
+   forces brisk and is never overridden, because that one is an accessibility
+   requirement rather than a taste. */
+const PACE_KEY='emem.arcade.pace';
+function paceWanted(){
+  const q=new URLSearchParams(location.search).get('pace');
+  if(q==='slow'||q==='cinematic')return 'slow';
+  if(q==='fast'||q==='brisk')return 'fast';
+  try{const s=localStorage.getItem(PACE_KEY);if(s==='slow'||s==='fast')return s;}catch(e){}
+  return 'fast';
+}
+const PREFERS_REDUCED=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let RM=PREFERS_REDUCED||paceWanted()==='fast';
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
@@ -771,6 +795,42 @@ $('snd').addEventListener('click',()=>{
   $('snd').textContent=sndOn?'♪ on':'♪ off';
   if(sndOn)sfx.ok();
 });
+
+/* PACE toggle. Persists, and never argues with prefers-reduced-motion. */
+function paintPace(){
+  const b=$('pace');if(!b)return;
+  b.textContent=RM?'\u23e9 brisk':'\ud83c\udfac cinematic';
+  b.setAttribute('aria-pressed',String(RM));
+  if(PREFERS_REDUCED){
+    b.disabled=true;
+    b.title='Your system asks for reduced motion, so playback stays brisk.';
+  }
+}
+/* THE ROOM was reachable only from OPERATOR mode, which a first-time reader in
+   WATCH & ASK never switches to, so the live wall existed and nobody could find
+   it. The notes footer now opens it directly. */
+if($('owu-room')){
+  $('owu-room').addEventListener('click',function(){
+    if(typeof openRoom==='function')openRoom();
+  });
+}
+/* Relative on purpose. This block runs above `const REST`, so touching REST.base
+   here threw "Cannot access 'REST' before initialization", which killed the rest
+   of the script: the room rendered zero cards and the pace toggle stopped
+   responding. The path is same-origin anyway, so it needs no base. */
+if($('owu-join')){
+  $('owu-join').setAttribute('href','/v1/arcade/protocol');
+}
+if($('pace')){
+  paintPace();
+  $('pace').addEventListener('click',()=>{
+    if(PREFERS_REDUCED)return;
+    RM=!RM;
+    try{localStorage.setItem(PACE_KEY,RM?'fast':'slow');}catch(e){}
+    paintPace();
+    if(sndOn)sfx.pin();
+  });
+}
 
 function setStatus(mode,msg){$('beacon').className='beacon '+mode;$('status').textContent=msg;}
 function setAgentState(s){$('agstate').textContent=s;$('tickstate').textContent=s;}
