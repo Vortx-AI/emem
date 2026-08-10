@@ -277,12 +277,15 @@ const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties"
 "lng":{"type":"number","description":"Explicit longitude, paired with `lat`."}
 }}"#;
 
-const SCHEMA_QUERY_REGION: &str = r#"{"type":"object","required":["geometry"],"properties":{
-"geometry":{"type":"string","description":"cell64 string, or 'cells:c1,c2,c3'"},
+const SCHEMA_QUERY_REGION: &str = r#"{"type":"object","properties":{
+"geometry":{"type":"string","description":"cell64 string, or 'cells:c1,c2,c3'. Either this or `bbox` is required; `geometry` wins when both arrive."},
+"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first). Sampled to a cell list and run through the same primitive as `geometry`."},
+"max_cells":{"type":"integer","minimum":1,"maximum":1024,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied. Defaults to an area-driven cap clamped to [64, 1024]."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Bands to aggregate over the region. Omit for every band attested across the cells."},
 "agg":{"type":"string","enum":["mean","median","p90","vector_centroid"],"description":"optional per-band aggregation"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound, applied per cell across the region. See emem_recall for semantics."},
-"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."}
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`. Restricts every per-cell scan to facts written under the same four-tuple and binds the scope into the receipt.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}}
 }}"#;
 
 const SCHEMA_COMPARE: &str = r#"{"type":"object","required":["a","b"],"properties":{
@@ -297,7 +300,8 @@ const SCHEMA_COMPARE_BANDS: &str = r#"{"type":"object","required":["cell","a","b
 "b":{"type":"string","description":"band B key (e.g. 'gmrt.topobathy_mean')"},
 "tslot_a":{"type":"integer","minimum":0,"description":"tslot for band A. Omit to auto-pick the latest attested tslot for this band at this cell, required for medium/fast-tempo bands (NDVI 30-day, MODIS 8-day, weather, CAMS) which have NO fact at tslot=0. The response carries `tslot_resolution.per_band.tslot_used_a` so you see which slot was chosen."},
 "tslot_b":{"type":"integer","minimum":0,"description":"tslot for band B. Same auto-pick semantics as `tslot_a` when omitted."},
-"predicate":{"type":"object","description":"Optional consistency predicate. When set, the response carries a signed `verdict` (true|false|incomparable) over the comparison.","properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}},"required":["kind","threshold"]}
+"predicate":{"type":"object","description":"Optional consistency predicate. When set, the response carries a signed `verdict` (true|false|incomparable) over the comparison.","properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}},"required":["kind","threshold"]},
+"cell64":{"type":"string","description":"Alias for `cell`."}
 }}"#;
 
 const SCHEMA_FIND_SIMILAR: &str = r#"{"type":"object","required":["key"],"properties":{
@@ -317,7 +321,8 @@ const SCHEMA_DIFF: &str = r#"{"type":"object","required":["cell","band","tslot_a
 "cell":{"type":"string","description":"cell64 or free-text place name."},
 "band":{"type":"string","description":"One band, e.g. \"indices.ndvi\". A diff is per band; call once per band you want."},
 "tslot_a":{"type":"integer","description":"Earlier tslot. Band-tempo-relative integer from the emem epoch, NOT unix seconds or a date. List the tslots that exist at this cell with emem_trajectory first."},
-"tslot_b":{"type":"integer","description":"Later tslot, same units. The result is b minus a; passing them reversed gives the negated delta rather than an error."}
+"tslot_b":{"type":"integer","description":"Later tslot, same units. The result is b minus a; passing them reversed gives the negated delta rather than an error."},
+"cell64":{"type":"string","description":"Alias for `cell`."}
 }}"#;
 
 const SCHEMA_COMPARE_SAME_DOY: &str = r#"{"type":"object","required":["band","doy","years"],"properties":{
@@ -336,11 +341,14 @@ const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["cell","band","w
 "band":{"type":"string","description":"One band to trace, e.g. \"indices.ndvi\". Returns only what is already attested; it does NOT materialise, so an empty series means nothing has been fetched here yet, not that nothing happened."},
 "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot] inclusive"},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Skips points with tslot > as_of_tslot, effectively clips the window's upper edge."},
-"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Restricts the series to facts signed at or before this instant."}
+"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Restricts the series to facts signed at or before this instant."},
+"cell64":{"type":"string","description":"Alias for `cell`."},
+"scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`. Restricts the series to facts written under the same four-tuple and binds the scope into the receipt.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}}
 }}"#;
 
 const SCHEMA_VERIFY: &str = r#"{"type":"object","required":["claim","cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or free-text place name where the claim is tested."},
+"cell64":{"type":"string","description":"Alias for `cell`."},
 "mode":{"type":"string","enum":["fast","resolve"],"default":"fast","description":"fast answers from what is already attested. resolve materialises the band first when the cell is cold, which is slower but avoids an `absent` verdict that only means \"not fetched yet\"."},
 "claim":{"type":"object","required":["band","op","value"],"description":"The proposition to test. The verdict names the signed facts it rests on, so a false is as citeable as a true.","properties":{
   "band":{"type":"string","description":"Band to test, e.g. \"indices.ndvi\"."},
@@ -468,6 +476,18 @@ const OUT_MEMORY_TOKEN: &str = r#"{"type":"object","required":["memory_token","c
 "docs":{"type":"string"}}}"#;
 
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
+
+/// Catalogue tools whose dispatch arm forwards `page` / `page_size` /
+/// `summary` into the same `PageQuery` the REST handler reads. They were
+/// declared with `SCHEMA_NONE`, which is why the pagination worked and was
+/// invisible: an empty `properties` also suppresses the unrecognised-argument
+/// notice, so the caller got neither the parameter nor a hint it existed, and
+/// the full catalogue overflowed the 24 KB result budget instead.
+const SCHEMA_PAGED_CATALOG: &str = r#"{"type":"object","properties":{
+"page":{"type":"integer","minimum":1,"default":1,"description":"1-based page. The full catalogue does not fit the MCP result budget, so walk it a page at a time; the response carries `page`, `pages` and `total`."},
+"page_size":{"type":"integer","minimum":1,"maximum":100,"default":20,"description":"Entries per page (max 100). Large pages are truncated by the response budget rather than rejected."},
+"summary":{"type":"boolean","default":false,"description":"Return one line per entry (key + one-sentence purpose) instead of the full record, so the whole catalogue fits in a couple of pages."}
+}}"#;
 
 const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 OR free-text place name."},
@@ -997,6 +1017,7 @@ const SCHEMA_ELEVATION: &str = r#"{"type":"object","properties":{
 "place":{"type":"string","description":"Free-text place name. Resolved through the standard locate cascade. Provide this OR `lat`+`lng` OR `cell`."},
 "lat":{"type":"number","description":"WGS-84 latitude."},
 "lng":{"type":"number","description":"WGS-84 longitude."},
+"lon":{"type":"number","description":"Alias for `lng`."},
 "cell":{"type":"string","description":"cell64 string, skip geocoding entirely.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "cell64":{"type":"string","description":"Alias for `cell`."},
 "q":{"type":"string","description":"Alias for `place`."},
@@ -2010,7 +2031,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         title: "Auto-fetch registry (per-band materializers)",
         description: "Auto-fetch registry: which bands the responder will materialize on a recall miss, the upstream provider, license, value shape, and history bounds.",
         when_to_use: "Call once at session start (alongside `emem_bands` and `emem_coverage_matrix`) to learn which bands answer for ANY cell on Earth without seeding. Each entry declares `upstream_scheme`, `upstream_endpoint`, `derivation_fn_key`, `value_kind` (primary | absence | primary_or_absence), `coverage` (where the upstream has data), `unit`, `tempo`, `confidence`, and `history_available_from` / `history_available_to` (when the upstream supports historical fetch via `emem_backfill`). Use this when the user asks 'do you have flood data here', 'what providers feed this', or you need license attribution. The response also carries an `agent_hint` block explaining the trust model (responder signs, not upstream) and the absence-fact contract.",
-        input_schema: SCHEMA_NONE,
+        input_schema: SCHEMA_PAGED_CATALOG,
         output_schema: None,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
@@ -2034,7 +2055,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         title: "Composition recipes (algorithms)",
         description: "Content-addressed dictionary of composition recipes, formulas that fuse attested band facts (and embeddings) into derived scores, classifications, and similarity metrics.",
         when_to_use: "Call when the user's question is COMPOSITE (flood risk, urban density, water consensus, change-since-2020) rather than a single band readout. Each entry has `kind` (solo | combined | embedding), the input `bands` (assemble one `emem_recall` body from them), the `formula` in plain math, the `output` shape, and a `citation`. The agent applies the formula in-process and quotes the algorithm key + `algorithms_cid` (from `emem_manifests`) alongside the input fact_cids, that gives the receipt enough context for any other operator to replay the same composition deterministically. Embedding entries (cosine, novelty, change, neighborhood-consistency) operate on `geotessera`; for the most common k-NN pattern the protocol-native `emem_find_similar` is faster than fetching vectors and computing locally.",
-        input_schema: SCHEMA_NONE,
+        input_schema: SCHEMA_PAGED_CATALOG,
         output_schema: None,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
@@ -2082,7 +2103,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         title: "Sentinel-2 true-colour thumbnail (PNG)",
         description: "True-colour Sentinel-2 L2A RGB thumbnail centred on a cell. PNG returned as a native MCP ImageContent block (mimeType image/png). Pure-Rust pipeline: STAC search + HTTP-Range COG reads + 2-98 percentile stretch + PNG encode.",
         when_to_use: "Call when the user wants a VISUAL of a place, 'show me what this looks like', 'before/after the flood', 'is there a forest here', 'is this developed'. Returns a 256×256 px RGB image (~2.56 km × ~2.56 km at S2's 10 m native resolution), centred on the cell. Pass `cell` as a cell64 string OR a place name (auto-resolved). `max_cloud` filters scenes by `eo:cloud_cover` (default 20 %); raise it (60–80 %) for cloud-prone tropics if you keep getting 'no scene' errors. `datetime` is an RFC 3339 interval like `\"2024-01-01T00:00:00Z/2024-12-31T00:00:00Z\"` for a temporal slice (defaults to last 90 days). `structuredContent` carries the STAC item id, capture time, cloud_cover, EPSG, and per-channel reflectance percentile stretch values used, quote those alongside the image so the receipt is reproducible.",
-        input_schema: r#"{"type":"object","properties":{"cell":{"type":"string","description":"cell64 or place name"},"max_cloud":{"type":"number","default":20,"description":"max eo:cloud_cover percent"},"datetime":{"type":"string","description":"RFC 3339 interval; defaults to last 90 days"}},"required":["cell"]}"#,
+        input_schema: r#"{"type":"object","properties":{"cell":{"type":"string","description":"cell64 or place name"},"max_cloud":{"type":"number","default":20,"description":"max eo:cloud_cover percent"},"datetime":{"type":"string","description":"RFC 3339 interval; defaults to last 90 days"},"at":{"type":"string","description":"A single ISO-8601 date or datetime (e.g. \"2024-06-15\"), resolved server-side to the window [at-7d, at]. `datetime` wins when both are supplied. Tune the lookback with EMEM_SCENE_AT_LOOKBACK_DAYS."}},"required":["cell"]}"#,
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.waro.zcb89","max_cloud":20}"#,
         level: "L0", category: ToolCategory::Read,
