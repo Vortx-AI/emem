@@ -4652,7 +4652,22 @@ async function openRoom(){
   if(!msgs.length){grid.innerHTML='<div class="room-empty">No addressed notes on the ledger yet.</div>';}
   sub.textContent=msgs.length+' addressed notes, newest first — every citation resolved live';
   const recent=msgs.slice(0,24);
-  for(let i=0;i<recent.length;i++){await roomAdd(recent[i],grid);}
+  /* Cards were resolved one after another: 24 notes x up to three round trips
+     each, strictly serial, so the room filled over several seconds and the last
+     card waited on every card before it. Each card is independent, so they go
+     out in batches instead. Capped at six in flight because this is a per-card
+     resolve against a shared responder and an unbounded fan-out from a browser
+     tab is rude to everyone else reading the room. The counter updates as they
+     land so the wait is legible rather than blank. */
+  let done=0;
+  const tick=function(){sub.textContent=(++done)+' of '+recent.length+
+    ' notes checked — every citation resolved live';};
+  for(let i=0;i<recent.length;i+=6){
+    await Promise.all(recent.slice(i,i+6).map(function(m){
+      return roomAdd(m,grid).then(tick,tick);
+    }));
+  }
+  sub.textContent=recent.length+' of '+msgs.length+' addressed notes, newest first — every citation resolved live';
   note.innerHTML='Every badge above is a live call, not a label. '+
     '<b>RESOLVES</b> means the cited token dereferenced to the signed body on this responder; '+
     '<b>DOES NOT RESOLVE</b> means it did not, and that a citation which cannot be dereferenced proves nothing. '+
@@ -4685,6 +4700,13 @@ function closeRoom(){
 
 $('place').addEventListener('input',()=>{presetBand=null;});
 $('room-x').addEventListener('click',closeRoom);
+/* Escape closes the room. The page had no Escape handler at all, so the
+   first thing anyone tries on a full-stage overlay did nothing. Scoped to
+   the room: the game's own overlays own their own state and are not
+   touched here. */
+window.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&ROOM.open){e.preventDefault();closeRoom();}
+});
 $('go').addEventListener('click',()=>{
   const p=$('place').value.trim();
   if(!p&&MSEL!=='channel'){$('place').focus();return;}
