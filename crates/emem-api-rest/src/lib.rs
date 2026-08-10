@@ -20856,10 +20856,17 @@ async fn mcp_jsonrpc_inner(
             // under the budget, so it still arrives whole and its cursor
             // still reads `tier:extended`: nothing a working client does
             // today changes. Only the pages that were too big get split.
+            // Budget halved from 80,000 to 45,000 after the reporting host still
+            // saw the cap with every page of ours measurably under it. Our
+            // largest page was 79,496 bytes, leaving 22,904 of headroom under
+            // 102,400, and a host that wraps the body (SSE framing, a request
+            // record, base64) counts bytes we cannot see. The ceiling is the
+            // client's total, not ours. More pages cost a round trip each and
+            // nothing else; a page the client refuses costs the whole catalog.
             let budget: usize = std::env::var("EMEM_MCP_LIST_BUDGET_BYTES")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(80_000);
+                .unwrap_or(45_000);
             let start: usize = cursor_tier
                 .rsplit_once('@')
                 .and_then(|(_, i)| i.parse().ok())
