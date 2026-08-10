@@ -1318,7 +1318,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token",
         title: "Compose a memory_token citation handle",
-        description: "Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Algebra: cite.",
+        description: "Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Memory algebra: the `cite` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `emem:entity:` token. FOR MANY FACTS, USE emem_memory_bundle INSTEAD, and this is a measured cost rather than a style preference: a token is ~104 characters while the signed value it points at averages ~18, so N individual tokens cost roughly 5.8x the context of simply pasting the N numbers, and an N-token prompt hits the context wall SOONER than the plain values would. A bundle is 38 characters at ANY N up to 256 and resolves in one round trip. Individual tokens are for citing ONE fact you must be able to verify later; they are the wrong tool for carrying a set.",
         input_schema: SCHEMA_MEMORY_TOKEN,
         output_schema: Some(OUT_MEMORY_TOKEN),
@@ -1330,7 +1330,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token_resolve",
         title: "Dereference a memory_token in one round-trip",
-        description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Algebra: resolve.",
+        description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the underlying signed bytes. The response carries the parsed cell + fact_cid, the full fact body, and the stable `fact_url` an agent can hand to any other peer. 404 with a typed code if the responder doesn't hold the cid; try /v1/fetch with the cid then, or paste the token at a mirror.",
         input_schema: SCHEMA_MEMORY_TOKEN_RESOLVE,
         output_schema: None,
@@ -1342,7 +1342,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_echo_verify",
         title: "Check a value against the fact it cites, before you publish it",
-        description: "Grade a value you are about to emit against the signed fact your citation points at. Returns `matches` and, when it does not, the `drift` between what you were about to say and what emem holds. This is the step that turns a transcription error into a caught event instead of a silent wrong number: a model that resolves a fact correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Algebra: verify.",
+        description: "Grade a value you are about to emit against the signed fact your citation points at. Returns `matches` and, when it does not, the `drift` between what you were about to say and what emem holds. This is the step that turns a transcription error into a caught event instead of a silent wrong number: a model that resolves a fact correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call immediately before publishing, logging, or handing on any value you took from an emem fact, and treat a false `matches` as a gate rather than a warning. Pair it with `value_verbatim` from resolve: quote that exact decimal string rather than reformatting the number, then echo-verify what you actually emitted. For a due-diligence or compliance record this is what lets you assert `every cited value was echo-verified` with a signed check per citation instead of a promise. Accepts a bare cid too, so a damaged citation still grades rather than failing closed.",
         input_schema: SCHEMA_ECHO_VERIFY,
         output_schema: Some(OUT_ECHO_VERIFY),
@@ -1354,7 +1354,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_derive",
         title: "Register your own derivation over emem facts",
-        description: "Register a value YOU computed from facts this responder holds, and get back a citeable `emem:fact:` token whose lineage terminates in emem-signed measurements. The registered fact names its parents by CID, so a stranger walks the DAG down to signed sensor data instead of trusting your summary. Requires an ed25519 `attester` block. What the responder signs is narrow and it says so on the response: that YOU submitted this derivation, over these parents, at this time, and it stored it. NOT that the value is true. Algebra: derive.",
+        description: "Register a value YOU computed from facts this responder holds, and get back a citeable `emem:fact:` token whose lineage terminates in emem-signed measurements. The registered fact names its parents by CID, so a stranger walks the DAG down to signed sensor data instead of trusting your summary. Requires an ed25519 `attester` block. What the responder signs is narrow and it says so on the response: that YOU submitted this derivation, over these parents, at this time, and it stored it. NOT that the value is true. Memory algebra: the `derive` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call when you have computed something from emem facts (a delta, a zone classification, a per-plot verdict, a model output) and need to hand another agent a token for it rather than a claim. Every input token must already resolve here; recall or backfill the parents first. Provenance class is model_output or human_curated; the sensor classes are refused, since this responder did not compute your value. Note the tenancy rule: a derived fact carries no canonical (cell, band, tslot) key, so it will NOT appear in anyone's emem_recall at that cell. That is the point: you are getting citation and resolution, not an injection into the shared commons. Read it back with emem_memory_token_resolve, or list your own with emem_derive_list. Idempotent per (your key, derivation body): re-registering an identical derivation returns the same token rather than a twin, so retrying a timed-out call is safe.",
         input_schema: SCHEMA_DERIVE,
         output_schema: None,
@@ -1383,7 +1383,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_bundle",
         title: "Compose a signed multi-fact memory bundle",
-        description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set. Algebra: merge.",
+        description: "Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set. Memory algebra: the `merge` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt (the receipt covers all cited fact_cids and cells). Use this instead of N separate `emem_memory_token` composers when the citation is conceptually one thing (e.g. \"the EUDR-relevant baseline for these 8 plots at 2020-12-31\"). Caps at 256 triples per call, and the response reports `members` and `resolved` so a bundle that only partly resolved is visible without walking every citation.",
         input_schema: SCHEMA_MEMORY_BUNDLE,
         output_schema: None,
@@ -1409,7 +1409,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_entity",
         title: "Mint or get a canonical object identity",
         description: "Give a real-world object (a bridge, a farm plot, a river, a named place) a single, shared, content-addressed identity that any agent resolves the same way. Returns an `entity_token` (`emem:entity:<entity_cid>`) plus a signed receipt that attests how the reference resolved. Two agents that name the same object mint the SAME entity_cid; when a stable external id (Overture GERS / OSM) is known it dominates identity, so divergent labels for one real object still collapse to one id. This is the object-level antidote to referential drift: 'the damaged bridge near the river' becomes one canonical thing every model reasons about, not a phrase each model re-interprets.",
-        when_to_use: "Call when a conversation refers to a THING and you want a stable handle to it that survives summarization and travels between agents/turns/LLMs, before it drifts into 'that infrastructure issue'. Anchor it with `place`, a `cell`, or `lat`+`lng`. Hand the returned `emem:entity:` token to any other agent; they dereference the identical object. Recall/ask at the entity's `cell64` for signed facts about it.",
+        when_to_use: "Call when a conversation refers to a THING and you want a stable handle to it that survives summarization and travels between agents/turns/LLMs, before it drifts into 'that infrastructure issue'. Anchor it with `place`, a `cell`, or `lat`+`lng`. Hand the returned `emem:entity:` token to any other agent; they dereference the identical object. Recall/ask at the entity's `cell64` for signed facts about it. Pick the right sibling: `emem_entity` MINTS or returns the identity for a thing you can anchor to a place; `emem_entity_resolve` takes a fuzzy phrase and finds an identity someone ALREADY registered, so reach for it when you suspect the thing is known and you only have words for it; `emem_entity_link` asserts that two spellings you already hold mean one object. Do NOT call this for an observation, which is a fact and belongs in emem_recall or emem_memory_token, and do not call it to name a place itself, which is emem_locate: an entity is a THING AT a place, not the place.",
         input_schema: SCHEMA_ENTITY,
         output_schema: None,
         example_args: r#"{"label":"Golden Gate Bridge","kind":"bridge","place":"Golden Gate Bridge, San Francisco"}"#,
@@ -1674,7 +1674,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_diff",
         title: "Signed delta between two tslots",
-        description: "Compute a DerivativeFact (delta) between a band's values at two tslots. Algebra: diff. For a time-varying band the response also carries an unsigned `phenology` advisory: the day-of-year of each tslot, their gap, and a `caution` when the two dates sit at different points in the seasonal cycle, because that delta mixes phenology with real change (the '4 prospered / 0 stressed' trap). It surfaces the bias rather than rejecting the call; the advisory never enters the receipt.",
+        description: "Compute a DerivativeFact (delta) between a band's values at two tslots. Memory algebra: the `diff` operation (https://emem.dev/docs/model.html). For a time-varying band the response also carries an unsigned `phenology` advisory: the day-of-year of each tslot, their gap, and a `caution` when the two dates sit at different points in the seasonal cycle, because that delta mixes phenology with real change (the '4 prospered / 0 stressed' trap). It surfaces the bias rather than rejecting the call; the advisory never enters the receipt.",
         when_to_use: "Call when the user asks 'what changed between t1 and t2', 'give me the delta'. Returns a signed DerivativeFact + receipt; the delta itself is content-addressed and citable. Read the `phenology` block before treating a seasonal-band delta as change: if `same_doy` is false, compare the same day-of-year across years instead.",
         input_schema: SCHEMA_DIFF,
         output_schema: None,
@@ -2111,7 +2111,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_verify_receipt",
         title: "Server-side ed25519 receipt verifier",
-        description: "Verify a signed receipt envelope server-side: recomputes the canonical preimage (preimage v1: tagged, length-prefixed segments; receipts without `preimage_version` verify under the legacy `request_id | served_at | primitive | cells, | fact_cids,` concatenation), runs ed25519 over the embedded pubkey + signature, and returns `{valid, reason, pubkey_b32}`. Use when the in-browser /verify path is blocked (CDN offline, agent runtime has no crypto) or when you want a server-side audit of a third-party receipt. Algebra: verify.",
+        description: "Verify a signed receipt envelope server-side: recomputes the canonical preimage (preimage v1: tagged, length-prefixed segments; receipts without `preimage_version` verify under the legacy `request_id | served_at | primitive | cells, | fact_cids,` concatenation), runs ed25519 over the embedded pubkey + signature, and returns `{valid, reason, pubkey_b32}`. Use when the in-browser /verify path is blocked (CDN offline, agent runtime has no crypto) or when you want a server-side audit of a third-party receipt. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Pass a receipt object exactly as returned by any read primitive (signature can be byte[] or sig_b32; pubkey can be byte[] or responder_pubkey_b32, the verifier tolerates both shapes). Optionally override `pubkey_b32` to assert verification against a specific signer. Returns 200 with `valid: false` when the signature fails, never 4xx for a structurally-well-formed bad signature.",
         input_schema: SCHEMA_VERIFY_RECEIPT,
         output_schema: None,
@@ -2129,13 +2129,23 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_guard_verdict",
         title: "Check whether the citations in a draft actually verify",
-        description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Algebra: verify.",
+        description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. Set claim_gating:true to also be told which measurable claims carry no citation at all and which emem band would answer them. To ENFORCE this rather than consult it, run your own node: emem_guard_selfhost returns the procedure, and it works across Anthropic Inference hooks, Claude Code hooks, MCP tool calls, OpenAI-shaped clients, CloudEvents and OPA-style policy clients.",
         input_schema: SCHEMA_GUARD_VERDICT,
         output_schema: Some(OUT_GUARD_VERDICT),
         example_args: r#"{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}"#,
         level: "L1", category: ToolCategory::Verify,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        // openWorldHint was false while the description says the opposite in
+        // plain words: "a citation this responder does not hold is never a
+        // denial, because it is indistinguishable from one minted elsewhere".
+        // That is absence-of-evidence reasoning about a corpus whose boundary
+        // this node cannot see, which is what open-world means. PROV_DRIFT
+        // compounds it: a reading moving past its band threshold is external
+        // state changing under the tool between calls.
+        // I defended the closed-world flag on the grounds that the check runs
+        // against THIS responder's corpus. That confused where the lookup
+        // happens with what the verdict claims about everything outside it.
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         // Core, and the last step of the loop. A physical-world guardrail that
         // an agent has to go looking for is one that does not run.
         tier: "core",
@@ -2143,7 +2153,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_guard_selfhost",
         title: "The procedure for running your own verdict server",
-        description: "Returns the full emem-guard self-host skill as markdown, plus the exact build, test and run commands. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It exposes checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor. Algebra: introspect.",
+        description: "Returns the full emem-guard self-host skill as markdown, plus the exact build, test and run commands. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It exposes checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor. Memory algebra: the `introspect` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call when you want to ENFORCE grounding rather than consult it, when you need a verdict over a corpus this responder does not hold, or when a signed, offline-verifiable record of every allow and deny has to live on infrastructure you control. Every step in the returned document is a command plus a check, written to be run unattended.",
         input_schema: SCHEMA_GUARD_SELFHOST,
         output_schema: None,
