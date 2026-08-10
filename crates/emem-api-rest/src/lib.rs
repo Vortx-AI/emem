@@ -4033,51 +4033,54 @@ async fn get_arcade_protocol() -> Json<JsonValue> {
 }
 
 /// `/arcade`, a self-contained pixel-globe game that plays the whole emem
-/// loop through live same-origin `/v1` calls. Unlike every other surface the
-/// page is a private build artifact, so it is read from DISK at request time
-/// (`EMEM_ARCADE_HTML`, default `var/arcade/arcade.html` under the process
-/// cwd, gitignored) instead of `include_str!`; an absent file is the
-/// standard 404. Its inline blocks get their own hashes through `build_csp`,
-/// so the page runs under the same strict policy without touching
-/// `served_html_pages`.
+/// loop through live same-origin `/v1` calls.
+///
+/// It used to live at `var/arcade/arcade.html`, which is gitignored, and be
+/// read from disk at request time. That had two costs. The page could not be
+/// reviewed, diffed or collaborated on, and — because the runtime image copies
+/// only the binary, not `web/` or `var/` — `/arcade` answered 404 in every
+/// published container. The arcade shipped nowhere except the node that
+/// happened to have the file.
+///
+/// It is now `web/arcade.html`, tracked and `include_str!`d like every other
+/// page, so it travels with the binary. `EMEM_ARCADE_HTML` still overrides it
+/// with a path on disk, which keeps the fast loop for whoever is actively
+/// working on the page: point it at a working copy and edit without rebuilding.
+/// Its inline blocks get their own hashes through `build_csp`, so the page runs
+/// under the same strict policy from either source.
+const ARCADE_HTML: &str = include_str!("../../../web/arcade.html");
+
 async fn serve_arcade() -> Response {
-    let path =
-        std::env::var("EMEM_ARCADE_HTML").unwrap_or_else(|_| "var/arcade/arcade.html".to_string());
-    match std::fs::read_to_string(&path) {
-        Ok(html) => {
-            let mut scripts = std::collections::BTreeSet::new();
-            let mut styles = std::collections::BTreeSet::new();
-            extract_inline_blocks(&html, "script", |open_tag, body| {
-                if has_src_attr(open_tag) || body.trim().is_empty() {
-                    return;
-                }
-                scripts.insert(sha256_b64(body));
-            });
-            extract_inline_blocks(&html, "style", |_open_tag, body| {
-                if body.trim().is_empty() {
-                    return;
-                }
-                styles.insert(sha256_b64(body));
-            });
-            let join = |set: &std::collections::BTreeSet<String>| -> String {
-                set.iter().map(|h| format!(" 'sha256-{h}'")).collect()
-            };
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("content-type", "text/html; charset=utf-8")
-                .header(
-                    "content-security-policy",
-                    build_csp(&join(&scripts), &join(&styles)),
-                )
-                .body(axum::body::Body::from(html))
-                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+    let html = std::env::var("EMEM_ARCADE_HTML")
+        .ok()
+        .and_then(|p| std::fs::read_to_string(&p).ok())
+        .unwrap_or_else(|| ARCADE_HTML.to_string());
+    let mut scripts = std::collections::BTreeSet::new();
+    let mut styles = std::collections::BTreeSet::new();
+    extract_inline_blocks(&html, "script", |open_tag, body| {
+        if has_src_attr(open_tag) || body.trim().is_empty() {
+            return;
         }
-        Err(_) => {
-            let mut resp = text_response("text/html; charset=utf-8", NOT_FOUND_HTML);
-            *resp.status_mut() = StatusCode::NOT_FOUND;
-            resp
+        scripts.insert(sha256_b64(body));
+    });
+    extract_inline_blocks(&html, "style", |_open_tag, body| {
+        if body.trim().is_empty() {
+            return;
         }
-    }
+        styles.insert(sha256_b64(body));
+    });
+    let join = |set: &std::collections::BTreeSet<String>| -> String {
+        set.iter().map(|h| format!(" 'sha256-{h}'")).collect()
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/html; charset=utf-8")
+        .header(
+            "content-security-policy",
+            build_csp(&join(&scripts), &join(&styles)),
+        )
+        .body(axum::body::Body::from(html))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 /// `/demos/state-cube`, interactive walk of `/v1/state` view=encoder,
@@ -56866,6 +56869,17 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
 }
 
 async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
+    // One deadline for the whole request's optional Overture enrichment. See
+    // apply_overture_division_upgrade: this is a nice-to-have that was setting
+    // the floor on a required answer, so it now gets a fixed slice of the
+    // request and the cascade shares it.
+    let overture_deadline = std::time::Instant::now()
+        + std::time::Duration::from_millis(
+            std::env::var("EMEM_LOCATE_OVERTURE_BUDGET_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(900),
+        );
     // Provenance of the (lat,lng) returned to the agent. "direct", caller
     // supplied coordinates; "embedded", hit our compiled-in gazetteer
     // (no upstream network call); "cache", Photon/Nominatim TTL cache
@@ -57048,6 +57062,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // unreachable or has no match, the cities-derived
                 // bbox stays as the honest fallback.
                 apply_overture_division_upgrade(
+                    overture_deadline,
                     c.centroid_lat,
                     c.centroid_lng,
                     &c.name,
@@ -57070,6 +57085,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     polygon_source = Some("admin1_table");
                 }
                 apply_overture_division_upgrade(
+                    overture_deadline,
                     a.centroid_lat,
                     a.centroid_lng,
                     &a.name,
@@ -57092,6 +57108,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     polygon_source = Some("admin2_table");
                 }
                 apply_overture_division_upgrade(
+                    overture_deadline,
                     a.centroid_lat,
                     a.centroid_lng,
                     &a.name,
@@ -57114,6 +57131,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     polygon_source = Some("admin3_table");
                 }
                 apply_overture_division_upgrade(
+                    overture_deadline,
                     a.centroid_lat,
                     a.centroid_lng,
                     &a.name,
@@ -57180,10 +57198,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // memoized per (anchor, name) inside `OvertureClient`
                 // so subsequent calls for the same city are ~10 ms.
                 if polygon_geojson.is_none() || polygon_bbox.is_none() {
-                    match emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(la, lo, p)
-                        .await
-                    {
+                    match division_polygon_near_bounded(overture_deadline, la, lo, p).await {
                         Ok(Some(div)) => {
                             if polygon_geojson.is_none() {
                                 polygon_geojson = Some(div.geometry.clone());
@@ -57250,8 +57265,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // lands on the borough polygon, not a neighborhood
                 // inside it.
                 if polygon_geojson.is_none() || polygon_bbox.is_none() {
-                    match emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(g.lat, g.lng, &g.name)
+                    match division_polygon_near_bounded(overture_deadline, g.lat, g.lng, &g.name)
                         .await
                     {
                         Ok(Some(div)) => {
@@ -57336,10 +57350,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // The Photon → Nominatim tail still handles names
                 // none of the prior layers carried at all.
                 if force_admin_override || polygon_geojson.is_none() || polygon_bbox.is_none() {
-                    match emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(la, lo, p)
-                        .await
-                    {
+                    match division_polygon_near_bounded(overture_deadline, la, lo, p).await {
                         Ok(Some(div)) => {
                             if force_admin_override || polygon_geojson.is_none() {
                                 polygon_geojson = Some(div.geometry.clone());
@@ -57561,8 +57572,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // auditor can see when the protocol rerouted.
                 let mut admin_fallback_used = false;
                 if admin_query && is_poi_hit(&hit) {
-                    match emem_fetch::overture::OvertureClient::shared()
-                        .division_polygon_near(hit.lat, hit.lng, p)
+                    match division_polygon_near_bounded(overture_deadline, hit.lat, hit.lng, p)
                         .await
                     {
                         Ok(Some(div)) => {
@@ -58733,8 +58743,58 @@ fn embedded_gazetteer_lookup(query: &str) -> Option<(f64, f64, String)> {
 /// would itself be longer than the call site. Side-effect helpers
 /// also keep the four admin-tier arms shape-identical to the
 /// previous in-line body.
+/// `division_polygon_near` under the request's shared Overture deadline.
+///
+/// Same four tiers of the locate cascade were each awaiting this unbounded, so
+/// a cold `via=embedded` answer still spent seconds on optional geometry after
+/// the name had already resolved in-process. Expiry is reported as `Ok(None)`,
+/// which every call site already handles as "Overture had nothing", so the
+/// caller keeps whatever bbox it derived locally and says so in
+/// `polygon_source`. A slow enrichment and an absent one are the same thing to
+/// a consumer; a slow REQUIRED answer is not.
+async fn division_polygon_near_bounded(
+    deadline: std::time::Instant,
+    lat: f64,
+    lng: f64,
+    name: &str,
+) -> Result<Option<emem_fetch::overture::DivisionMatch>, emem_fetch::overture::OvertureError> {
+    let budget = deadline.saturating_duration_since(std::time::Instant::now());
+    // Detach, then race. Cancelling the fetch on expiry was the obvious way to
+    // write this and the wrong one: OvertureClient memoizes, so a cancelled
+    // fetch never populates the memo and the NEXT request pays the full budget
+    // again. Measured, that turned a place that used to be 15.9 s once and
+    // 14 ms afterwards into 920 ms every single time. Spawning lets the fetch
+    // finish and warm the memo in the background while this request answers on
+    // the deadline, so the second call is fast for the usual reason.
+    let owned = name.to_string();
+    let task = tokio::spawn(async move {
+        emem_fetch::overture::OvertureClient::shared()
+            .division_polygon_near(lat, lng, &owned)
+            .await
+    });
+    if budget.is_zero() {
+        return Ok(None);
+    }
+    match tokio::time::timeout(budget, task).await {
+        Ok(Ok(inner)) => inner,
+        // The task panicked. Treat it as "Overture had nothing" like any other
+        // failure here; the caller keeps its local bbox.
+        Ok(Err(_)) => Ok(None),
+        Err(_) => {
+            tracing::debug!(
+                target: "emem::geocoder",
+                name,
+                "overture division_polygon_near exceeded the request budget; \
+                 answering without it and letting the fetch warm the memo"
+            );
+            Ok(None)
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn apply_overture_division_upgrade(
+    deadline: std::time::Instant,
     lat: f64,
     lng: f64,
     name_hint: &str,
@@ -58764,12 +58824,53 @@ async fn apply_overture_division_upgrade(
     {
         return;
     }
-    let div = match emem_fetch::overture::OvertureClient::shared()
-        .division_polygon_with_subtype(lat, lng, name_hint, preferred_subtype)
-        .await
-    {
-        Ok(Some(d)) => d,
-        Ok(None) | Err(_) => return,
+    // Bound it. This upgrade is an ENRICHMENT: it replaces a bbox we already
+    // hold with a better one and attaches a GERS id. It was unbounded, and
+    // measured against the live node it dominated the whole call: locate on a
+    // cold place name took 2.2 s (Tromso), 5.4 s (Gaborone), 7.7 s (Asuncion),
+    // 15.9 s (Vientiane, Podgorica), while the SAME name repeated came back in
+    // 11 ms. The name resolution is in-process and instant; every one of those
+    // seconds was this fetch. `via` said `embedded` on the 3 s answers, so the
+    // page was waiting on optional geometry for a lookup that had already
+    // succeeded locally.
+    //
+    // An optional improvement is not allowed to set the floor on a required
+    // answer. Past the deadline we keep the tier-table bbox, which
+    // `polygon_source` already labels honestly, and return. Nothing is
+    // fabricated and nothing silently degrades: a caller that needs the
+    // authoritative polygon reads `polygon_source` and sees it did not come
+    // from Overture.
+    // The deadline is the REQUEST's, not this call's. The cascade invokes this
+    // once per tier it resolves, so a per-call budget multiplied instead of
+    // bounding: with 900 ms each, Bujumbura still spent 5.8 s across tiers.
+    // Sharing one deadline means the whole locate pays for the upgrade at most
+    // once, and later tiers inherit whatever is left rather than starting over.
+    let budget = deadline.saturating_duration_since(std::time::Instant::now());
+    if budget.is_zero() {
+        return;
+    }
+    // Detached for the same reason as division_polygon_near_bounded: a
+    // cancelled fetch leaves the memo cold, so the next request pays the budget
+    // again instead of the 14 ms a warm memo gives.
+    let owned_hint = name_hint.to_string();
+    let owned_sub = preferred_subtype.map(|s| s.to_string());
+    let task = tokio::spawn(async move {
+        emem_fetch::overture::OvertureClient::shared()
+            .division_polygon_with_subtype(lat, lng, &owned_hint, owned_sub.as_deref())
+            .await
+    });
+    let div = match tokio::time::timeout(budget, task).await {
+        Ok(Ok(Ok(Some(d)))) => d,
+        Ok(Ok(Ok(None))) | Ok(Ok(Err(_))) | Ok(Err(_)) => return,
+        Err(_) => {
+            tracing::debug!(
+                target: "emem::geocoder",
+                name = name_hint,
+                budget_ms = budget.as_millis() as u64,
+                "overture division upgrade exceeded its budget; keeping the tier-table bbox"
+            );
+            return;
+        }
     };
     // Polygon is authoritative, overwrite cities-derived bbox too.
     *polygon_geojson = Some(div.geometry.clone());
