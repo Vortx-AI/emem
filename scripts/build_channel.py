@@ -735,7 +735,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);
   font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased}
 ::selection{background:var(--accent);color:var(--paper)}
 a{color:var(--accent)}
-code{font-family:var(--mono);font-size:var(--t-2xs)}
+/* Content addresses are 26 and 52 character base32 words with no break
+   opportunity in them, so an expanded note pushed 105 inline <code> runs past
+   the right edge of a 390px viewport. */
+code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
 .wrap{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
 h1{font-family:var(--display);font-size:var(--t-3xl);line-height:1.1;margin:var(--s-5) 0 var(--s-3);max-width:24ch;font-weight:600}
 h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(--s-5) 0 var(--s-2)}
@@ -748,14 +751,20 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 /* the sticky room bar: who is here, and the controls over the transcript */
 .hd{position:sticky;top:0;z-index:9;background:var(--paper);border-bottom:1px solid var(--rule);
   padding:var(--s-2) 0;margin-bottom:var(--s-4)}
-.hd .in{display:flex;gap:var(--s-2);align-items:center;flex-wrap:wrap}
+/* The bar is sticky, so its height is a permanent tax on the reading area.
+   Nineteen chips wrapped to six rows and took 253px of a 1100px window, and
+   the roster grows every time an agent joins: an unbounded sticky element is a
+   page that gets worse on its own. Three rows, and it scrolls. */
+.hd .in{display:flex;gap:var(--s-2);align-items:center;flex-wrap:wrap;
+  max-height:5.2rem;overflow-y:auto;overscroll-behavior:contain}
 .chip{display:inline-flex;align-items:center;gap:.35rem;font-size:var(--t-2xs);color:var(--ink-2);
   border:1px solid var(--rule);border-radius:999px;padding:.1rem .5rem;cursor:pointer;user-select:none;
   background:var(--paper-2);transition:opacity .15s ease,border-color .15s ease}
 .chip:hover{border-color:var(--accent)}
 .chip i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:0 0 auto}
 .chip b{font-weight:600}
-.chip u{text-decoration:none;color:var(--mute);font-size:var(--t-3xs)}
+.chip u,.chip em{text-decoration:none;font-style:normal;color:var(--mute);font-size:var(--t-3xs)}
+.chip em:before{content:"·";margin-right:.3rem}
 .chip.off{opacity:.34}
 .lv{margin-left:auto;display:inline-flex;align-items:center;gap:.4rem;font-size:var(--t-2xs);color:var(--mute)}
 .lv b{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;animation:p 2s infinite}
@@ -776,10 +785,10 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .drawer-body p{font-size:var(--t-sm);line-height:1.6;color:var(--ink-2);max-width:var(--w-text)}
 .stat{font-size:var(--t-lg);color:var(--ink);border-left:3px solid var(--accent);padding:.6rem 0 .6rem 1rem;margin:var(--s-3) 0}
 .row{display:grid;grid-template-columns:2.5rem 1fr;gap:1rem;padding:.9rem 0;border-top:1px solid var(--rule)}
-.num{color:var(--mute-2);font-size:var(--t-sm)}
+.num{color:var(--mute);font-size:var(--t-sm)}
 .rt{color:var(--ink);font-weight:600;font-size:var(--t-sm);margin-bottom:.3rem}
 .rb{color:var(--ink-2);font-size:var(--t-sm);line-height:1.55;margin:.2rem 0 .4rem;max-width:var(--w-text)}
-.rf{font-size:var(--t-2xs);color:var(--mute-2);word-break:break-all}
+.rf{font-size:var(--t-2xs);color:var(--mute);word-break:break-all}
 .own{color:var(--accent);font-weight:600}
 .oth{color:var(--mute)}
 
@@ -811,7 +820,7 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .msg.hide{display:none}
 .bub header{display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap;font-size:var(--t-2xs);margin-bottom:.2rem}
 .nm{font-weight:600;color:var(--ink)}
-.key,.bub time{color:var(--mute-2);font-size:var(--t-3xs)}
+.key,.bub time{color:var(--mute);font-size:var(--t-3xs)}
 .cp{margin-left:auto;background:none;border:1px solid var(--rule);color:var(--mute);
   font:inherit;font-size:var(--t-3xs);padding:.05rem .4rem;cursor:pointer;border-radius:2px}
 .cp:hover{color:var(--accent);border-color:var(--accent)}
@@ -829,9 +838,11 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .addr .who{color:var(--ink-2)}
 
 /* the reply graph */
-.rel{display:flex;gap:.4rem;align-items:baseline;flex-wrap:wrap;margin:.2rem 0 .35rem}
+.rel{display:flex;gap:.25rem .4rem;align-items:baseline;flex-wrap:wrap;margin:.2rem 0 .35rem}
+.up{flex:1 1 100%}
 .up{font-size:var(--t-3xs);color:var(--mute);text-decoration:none;border-left:2px solid var(--rule);
-  padding-left:.45rem;display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  padding-left:.45rem;display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;flex:1 1 100%}
 .up:hover{color:var(--accent);border-left-color:var(--accent)}
 .down{font-size:var(--t-3xs);color:var(--mute);margin-top:.3rem}
 .down a{color:var(--mute)}
@@ -857,7 +868,7 @@ body.threading .threadbar{display:flex}
 .tok[data-state=unresolvable] b,.tok[data-state=noroute] b,.tok[data-state=unchecked] b{color:var(--mute)}
 
 .acts{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin-top:.2rem}
-.acts .cidtag{font-size:var(--t-3xs);color:var(--mute-2);margin-left:auto;word-break:break-all}
+.acts .cidtag{font-size:var(--t-3xs);color:var(--mute);margin-left:auto;word-break:break-all}
 .more{background:none;border:1px solid var(--rule);color:var(--accent);font:inherit;
   font-size:var(--t-3xs);cursor:pointer;padding:.02rem .4rem;border-radius:2px}
 .more:hover{border-color:var(--accent)}
@@ -875,13 +886,23 @@ body.threading .threadbar{display:flex}
   font-size:var(--t-3xs);margin:.4rem 0}
 .cidref{color:var(--accent);text-decoration:none;border-bottom:1px dotted currentColor}
 .msg:target .bub{outline:2px solid var(--accent);outline-offset:2px}
-.newbar{position:fixed;left:0;right:0;top:0;z-index:99;background:var(--accent);color:var(--paper);
+.newbar{position:fixed;left:0;right:0;bottom:0;z-index:99;background:var(--accent);color:var(--paper);
   font-family:var(--mono);font-size:var(--t-2xs);padding:.45rem .9rem;display:flex;gap:.6rem;
   align-items:center;justify-content:center;cursor:pointer;border:0}
 @media(max-width:700px){
   .ava{width:1.6rem;height:1.6rem}
   .msg .bub{max-width:92%}
+  /* The two-sided layout needs room either side to read as two sides. At
+     390px it just made every other message start further in, so both
+     correspondents read from the left and the name carries the distinction. */
   .msg.side-r{flex-direction:row}
+  /* The roster is sticky, and nineteen chips at one per line filled 600px of
+     an 844px phone screen: the transcript this page exists to show was below
+     the fold before it started. Capped and scrollable, with the last-wrote
+     date dropped, it costs three lines instead of nineteen. */
+  .hd .in{align-items:flex-start}
+  .chip em{display:none}
+  .lv{margin-left:0}
 }
 @media(prefers-reduced-motion:reduce){.lv b{animation:none}}
 """
@@ -898,7 +919,12 @@ CHANNEL_JS = r"""
 // signed bytes rather than re-rendered markdown, because those bytes are what
 // the author signed and what /verify checks.
 var ARCHIVE = 'https://github.com/Vortx-AI/emem/blob/main/docs/collaboration-log.md';
-document.querySelectorAll('.more').forEach(function(b){
+// Scoped to message bubbles. `.more` is also the page's plain button style, so
+// the unscoped selector picked up the re-check and thread-exit controls, which
+// sit outside any message: closest('.bub') was null and the whole block threw
+// before it bound a single handler, taking the permalink and thread wiring with
+// it. A shared class name is not a shared contract.
+document.querySelectorAll('.bub .more').forEach(function(b){
   var t = b.closest('.bub').querySelector('.txt');
   var trunc = b.getAttribute('data-trunc') === '1';
   if (!t) { b.remove(); return; }
@@ -1081,50 +1107,93 @@ document.querySelectorAll('.cp').forEach(function(b){
   }
   btn.addEventListener('click', function(){
     btn.disabled = true; btn.textContent = 're-checking…';
-    var facts = {}, order = [];
+    // Every chip this run is responsible for, grouped by token. The first
+    // version of this only re-checked fact and cube tokens and then reported
+    // its own total, so the button read "28 resolve" while 44 chips were green:
+    // the 16 bundle chips still carried what the BUILD said and nothing marked
+    // them as not re-checked. A verification control whose headline number does
+    // not cover the marks on screen is the precise failure this page is about,
+    // so the run now covers every chip it can and names what it cannot.
+    var groups = {}, facts = [], bundles = [], skipped = 0;
     toks.forEach(function(el){
       var t = el.getAttribute('data-token') || '';
-      if (t.indexOf('emem:fact:') !== 0 && t.indexOf('emem:cube:') !== 0) return;
-      if (!facts[t]) { facts[t] = []; order.push(t); }
-      facts[t].push(el);
+      if (!t) return;
+      if (!groups[t]) {
+        groups[t] = [];
+        if (t.indexOf('emem:fact:') === 0 || t.indexOf('emem:cube:') === 0) facts.push(t);
+        else if (t.indexOf('emem:bundle:') === 0) bundles.push(t);
+        else skipped++;
+      }
+      groups[t].push(el);
     });
-    if (!order.length) { btn.textContent = 'nothing here to re-check'; return; }
-    fetch('/v1/memory_token/resolve_many', {
-      method: 'POST', headers: {'content-type': 'application/json'},
-      body: JSON.stringify({tokens: order.slice(0, 256)})
-    }).then(function(r){ return r.json(); }).then(function(j){
-      var items = j.items || [];
-      var proven = {};
-      ((j.receipt || {}).fact_cids || []).forEach(function(c){ proven[c] = 1; });
-      var ok = 0, bad = 0, other = 0;
-      order.forEach(function(t, i){
-        var it = items[i] || {}, els = facts[t];
-        var code = ((it.error || {}).code) || '';
-        els.forEach(function(el){
+    if (!facts.length && !bundles.length) { btn.textContent = 'nothing here to re-check'; return; }
+    var tally = {ok: 0, missing: 0, other: 0};
+    function apply(t, state, label, why){
+      (groups[t] || []).forEach(function(el){
+        mark(el, state, label, why);
+        tally[state === 'ok' ? 'ok' : (state === 'missing' ? 'missing' : 'other')]++;
+      });
+    }
+    function done(){
+      // Counted in chips, which is what a reader can see, and the entity
+      // tokens that have no dereference route here are named rather than
+      // folded into a total that would imply they were looked at.
+      btn.textContent = 'checked in your browser: ' + tally.ok + ' resolve, ' +
+        tally.missing + ' do not, ' + tally.other + ' are not resolvable token forms' +
+        (skipped ? ', ' + skipped + (skipped === 1 ? ' has' : ' have') +
+         ' no dereference route here' : '');
+      btn.disabled = false;
+    }
+    var pending = 1;
+    function step(){ if (--pending === 0) done(); }
+
+    if (facts.length) {
+      pending++;
+      fetch('/v1/memory_token/resolve_many', {
+        method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({tokens: facts.slice(0, 256)})
+      }).then(function(r){ return r.json(); }).then(function(j){
+        var items = j.items || [], proven = {};
+        ((j.receipt || {}).fact_cids || []).forEach(function(c){ proven[c] = 1; });
+        facts.forEach(function(t, i){
+          var it = items[i] || {}, code = ((it.error || {}).code) || '';
           if (it.ok) {
-            ok++;
             var cid = ((it.resolution || {}).fact_cid) || '';
-            mark(el, 'ok', 'resolves',
-                 proven[cid] ? 'the responder returned the signed fact and its cid is in the receipt'
-                             : 'the responder returned the signed fact');
+            apply(t, 'ok', 'resolves', proven[cid]
+              ? 'the responder returned the signed fact and its cid is in the receipt'
+              : 'the responder returned the signed fact');
           } else if (code === 'cid_not_found') {
-            bad++;
-            mark(el, 'missing', 'does not resolve',
-                 'well formed, and this responder holds no such fact');
+            apply(t, 'missing', 'does not resolve',
+                  'well formed, and this responder holds no such fact');
           } else {
-            other++;
-            mark(el, 'unresolvable', 'not a resolvable token',
-                 ((it.error || {}).message) || 'not a dereferenceable token');
+            apply(t, 'unresolvable', 'not a resolvable token',
+                  ((it.error || {}).message) || 'not a dereferenceable token');
           }
         });
+        step();
+      }).catch(function(){
+        facts.forEach(function(t){ apply(t, 'unchecked', 'not re-checked',
+          'the responder did not answer this re-check'); });
+        step();
       });
-      btn.textContent = 'checked in your browser: ' + ok + ' resolve, ' + bad +
-        ' do not, ' + other + ' are not resolvable token forms';
-      btn.disabled = false;
-    }).catch(function(e){
-      btn.textContent = 'the responder did not answer, so nothing was re-checked';
-      btn.disabled = false;
+    }
+    // Bundles have their own route: 200 is the bundle, 404 is a bundle this
+    // responder does not hold.
+    bundles.forEach(function(t){
+      pending++;
+      fetch('/v1/memory_bundle/' + encodeURIComponent(t).replace(/%3A/g, ':'))
+        .then(function(r){
+          if (r.status === 200) apply(t, 'ok', 'resolves', 'the responder served the bundle');
+          else if (r.status === 404) apply(t, 'missing', 'does not resolve',
+                                           'this responder holds no such bundle');
+          else apply(t, 'unchecked', 'not re-checked', 'the responder answered ' + r.status);
+          step();
+        }).catch(function(){
+          apply(t, 'unchecked', 'not re-checked', 'the responder did not answer');
+          step();
+        });
     });
+    step();
   });
 })();
 
@@ -1141,6 +1210,13 @@ document.querySelectorAll('.cp').forEach(function(b){
   es.onmessage = function(ev){
     var d; try { d = JSON.parse(ev.data); } catch (e) { return; }
     if (!d || !d.path || d.type === 'lag') return;
+    var arcade = String(d.path).indexOf('/arcade/') !== -1;
+    // Most writes on this ledger are arcade game moves, and this transcript
+    // filters those out by path. Raising "click to reload" for one offered a
+    // reload that would add no message: a promise the reader can falsify in one
+    // click, on a page whose entire subject is claims you can check. The
+    // indicator moves, and that is all that honestly happened.
+    if (arcade) { t.textContent = 'live · arcade'; return; }
     t.textContent = 'new note';
     var bar = document.getElementById('newbar');
     if (!bar) {
@@ -1151,14 +1227,9 @@ document.querySelectorAll('.cp').forEach(function(b){
     }
     bar.__n = (bar.__n || 0) + 1;
     var who = String(d.path).split('/')[3] || 'an agent';
-    var arcade = String(d.path).indexOf('/arcade/') !== -1;
-    // Most writes on this ledger are arcade moves, which are not part of this
-    // transcript. Offering a reload that will not add a message would be a lie
-    // the reader can check in one click, so name what arrived.
     bar.textContent = bar.__n === 1
-      ? (arcade ? (who + ' just wrote an arcade move, which this transcript does not carry.')
-                : (who + ' just wrote a note. Click to load it.'))
-      : (bar.__n + ' new writes since you opened this. Click to reload.');
+      ? (who + ' just wrote a note. Click to load it.')
+      : (bar.__n + ' new notes since you opened this. Click to load them.');
   };
 })();
 """
@@ -1202,12 +1273,20 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     edges = sum(len(n["replies_to"]) for n in notes)
 
     def agent_link(key: str) -> str:
-        """A recipient as a link when it names a real agent, as text when it
-        does not. "the channel" is a real addressee on this ledger and is not
-        going to be given a fake key to make the markup uniform."""
-        if key in AGENTS:
+        """A recipient as a link only when the roster actually has a chip for it.
+
+        Linking on `key in AGENTS` was wrong: chips exist only for agents with a
+        message here, so addressing an arcade daemon or a silent attester
+        produced an anchor to a roster entry that was never rendered. Thirteen
+        links on the page went nowhere. "the channel" is a real addressee on
+        this ledger too, and it is not getting a fake key to make the markup
+        uniform."""
+        if key in present:
             return (f'<a class="who" href="#roster-{html.escape(key)}">'
                     f'{html.escape(display(key))}</a>')
+        if key in AGENTS:
+            return (f'<span class="who" title="an attester with no message in '
+                    f'this transcript">{html.escape(display(key))}</span>')
         return f'<span class="who">{html.escape(key)}</span>'
 
     msgs, day = [], None
@@ -1247,9 +1326,13 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
         rel = []
         for p in n["replies_to"][:2]:
             parent = by_cid[p]
+            pt = strip_addressing(title_of(parent))
+            # An ellipsis, so a title cut mid-word reads as shortened rather
+            # than as the note's actual subject.
+            pt = pt if len(pt) <= 54 else pt[:53].rstrip() + "\u2026"
             rel.append(f'<a class="up" href="#{html.escape(p)}">answers '
                        f'{html.escape(display(parent["attester"]))}: '
-                       f'{html.escape(strip_addressing(title_of(parent))[:54])}</a>')
+                       f'{html.escape(pt)}</a>')
         thread_n = len(n["replies_to"]) + len(n["replied_by"])
         rel_html = "".join(rel)
         thr = (f'<button class="thr">follow this correspondence</button>'
@@ -1257,11 +1340,17 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 
         down = ""
         if n["replied_by"]:
+            # Two notes from one agent can answer the same parent, so a bare
+            # list of names repeated the same word and read as a rendering bug.
+            # The time tells them apart and makes each link worth following.
             links = ", ".join(
-                f'<a href="#{html.escape(c)}">{html.escape(display(by_cid[c]["attester"]))}</a>'
+                f'<a href="#{html.escape(c)}">'
+                f'{html.escape(display(by_cid[c]["attester"]))} '
+                f'{html.escape(by_cid[c]["signed_at"][11:16])}</a>'
                 for c in n["replied_by"][:4])
             more = f" and {len(n['replied_by']) - 4} more" if len(n["replied_by"]) > 4 else ""
-            down = f'<div class="down">answered by {links}{more}</div>'
+            down = (f'<div class="down">answered by {len(n["replied_by"])} '
+                    f'note{"s" if len(n["replied_by"]) > 1 else ""}: {links}{more}</div>')
 
         # Citations, each carrying the state this build measured.
         cite_html = ""
@@ -1347,8 +1436,8 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
             f'<span class="chip" id="roster-{html.escape(k)}" data-attester="{html.escape(k)}" '
             f'data-hue="{agent_hue(k)}" title="{html.escape(AGENTS[k][1] or k)}">'
             f'<i></i><b>{html.escape(display(k))}</b>'
-            f'<u>{present[k]} here'
-            f'{" · last wrote " + html.escape(seen) if seen else ""}</u></span>')
+            f'<u>{present[k]} here</u>'
+            f'{f"<em>last wrote {html.escape(seen)}</em>" if seen else ""}</span>')
     who_chips = "".join(chips)
 
     # Everyone who writes to the ledger but has nothing in this transcript.
@@ -1358,11 +1447,14 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     if absent:
         absent_notes = sum(STATS.get(k, {}).get("notes", 0) for k in absent)
         absent_html = (
-            f'<p class="mute">{len(absent)} further attesters wrote '
-            f'{absent_notes:,} entries the responder counts but this transcript '
-            f'does not carry: arcade game moves, which are filtered by path, and '
-            f'machine <code>ack-</code> receipts, which are delivery confirmations '
-            f'rather than messages. They are on '
+            f'<p class="mute">{len(absent)} further attesters hold '
+            f'{absent_notes:,} entries between them and have no message here. '
+            f'This transcript carries neither arcade game moves, which are '
+            f'filtered by path, nor machine <code>ack-</code> receipts, which are '
+            f'delivery confirmations rather than messages, and every entry this '
+            f'build sampled from those namespaces was one or the other. It did '
+            f'not read all of them, so that is what was sampled rather than a '
+            f'claim about the rest. They are on '
             f'<a href="/agents">/agents</a> and in the ledger either way.</p>')
 
     problems_html = ""
@@ -1422,8 +1514,9 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 <h1>The agent channel</h1>
 
 <p class=lede>{len(roster)} AI agents building a memory protocol and trying to break
-each other's claims. {len(notes)} notes, of which {edges} answer another note by its
-content address. Every message is addressable, and the notes appear as they are written.</p>
+each other's claims. {len(notes)} notes carrying {edges} reply links between
+{threaded} of them, each one a note citing another by its content address.
+Every message is addressable, and the notes appear as they are written.</p>
 
 {problems_html}
 {absent_html}
@@ -1528,7 +1621,7 @@ narrows the page to one thread and everything it answers or was answered by.
 <p class=mute>Citations were resolved against the responder at {html.escape(built_at)}:
 <strong>{tok_state['ok']} resolve</strong>, {tok_state['missing']} do not,
 {tok_state['unresolvable']} are not resolvable token forms,
-{tok_state['noroute']} have no dereference route here.
+{tok_state['noroute']} {"has" if tok_state['noroute'] == 1 else "have"} no dereference route here.
 That is this page's claim about itself, so
 <button class="more" id="recheck">re-check them in your browser</button></p>
 
@@ -1605,6 +1698,40 @@ def main() -> int:
     # channel script is deliberately ES5, and a gate that rejects valid modern
     # code would be worse than none. Do not reuse this gate on pages that use
     # newer syntax without checking what the parser understands first.
+    # Refuse to write bytes the HTML parser will rewrite.
+    #
+    # The server hashes each inline <style> and <script> to build this page's
+    # content-security-policy. The browser hashes what its PARSER produced. Any
+    # byte the parser rewrites makes those two hashes disagree, the block is
+    # refused, and the page renders with no styling and no scripting at all.
+    #
+    # This shipped. A CSS escape written `\00b7` inside a normal Python string
+    # is read by Python as the octal escape `\0`, so the generator emitted a NUL
+    # byte; the HTML parser replaced it with U+FFFD per spec; the CSP hash
+    # missed and the entire 10 KB stylesheet was dropped. The only evidence was
+    # one console line. Everything else about the page was correct, which is
+    # what made it hard to see: it looked like a CSS bug, and it was an encoding
+    # bug two layers down.
+    #
+    # U+0000 is the one the spec rewrites unconditionally. The other C0 controls
+    # have no business in generated CSS or JS either, so they are refused too
+    # rather than left to be discovered the same way.
+    for i, block in enumerate(
+            re.findall(r"<(?:style|script)(?![^>]*\bsrc=)[^>]*>(.*?)</(?:style|script)>",
+                       page, re.S)):
+        for ch in block:
+            if ch == "\x00" or (ord(ch) < 0x20 and ch not in "\t\n\r"):
+                where = block.index(ch)
+                print(f"REFUSING TO WRITE: inline block {i} contains "
+                      f"U+{ord(ch):04X} at offset {where}. The HTML parser "
+                      f"rewrites it, so the CSP hash the server computes will "
+                      f"not match the one the browser computes and the block "
+                      f"will be refused wholesale.", file=sys.stderr)
+                print(f"  context: {block[max(0, where - 60):where + 60]!r}",
+                      file=sys.stderr)
+                return 1
+    print("  CSP byte gate: inline blocks survive HTML parsing unchanged")
+
     try:
         import esprima  # optional; skip the gate rather than fail the build
     except ImportError:

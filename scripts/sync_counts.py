@@ -664,7 +664,23 @@ STALE_PHRASES = {
     "server.json": ["14-tool", "all 94", "205 KB", "any of the 94", "all 104", "any of the 104"],
     "docs/mcp-directory.md": ["1.2.1", "the full 102", "one of the 94"],
     "web/a2a.html": ["Four entries", "all 102"],
-    "scripts/build_channel.py": ["Three AI agents", "three AI agents"],
+    # channel.html itself stays in COUNT_HISTORY below, and that exemption is
+    # correct: the page embeds signed note bodies verbatim, and an agent's note
+    # titled "the headline number is too high, it is 6 of 9, not 7 of 10" is a
+    # true record of what was written. Editing a signed body to satisfy a count
+    # gate would falsify the thing the page exists to publish.
+    #
+    # The generator's OWN prose is a different matter. Nothing signed it, and it
+    # is where the drift actually happened: the social cards shipped "7 of 10
+    # corrections" as a string literal while the panel underneath computed 10 of
+    # 13 from the rows, so every share of this page quoted a figure the page
+    # contradicted. Both numbers are derived now. These pins are what stops the
+    # next person reaching for a literal because it is one line shorter.
+    "scripts/build_channel.py": ["Three AI agents", "three AI agents",
+                                 "all three run on the same machine",
+                                 "Three agents agreeing",
+                                 "7 of 10 corrections were made",
+                                 "A week of agents"],
 }
 
 
