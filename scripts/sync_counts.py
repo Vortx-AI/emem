@@ -66,7 +66,7 @@ CANON = {
     "mcp_resources": 18,       # resources/list entries (emem-mcp 7 + emem-api-rest 11)
     "mcp_uri_templates": 8,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 18,
-    "version": "2.0.0",
+    "version": "2.1.0",
 }
 
 
@@ -296,6 +296,49 @@ PROSE_CLAIMS = (
 )
 
 
+# A doc STATING the current version, as opposed to referring to an old one.
+# Deliberately narrow: "the preimage last changed in 2.0.0" and "every release
+# from v2.0.0 on" are history and must not match, so each pattern requires the
+# word Version/version to introduce the number rather than merely sit near it.
+VERSION_CLAIMS = (
+    r"\|\s*Version\s*\|\s*(\d+\.\d+\.\d+)\s*\|",      # a spec-table row
+    r"\*\*Version:\*\*\s*(\d+\.\d+\.\d+)",            # a doc header field
+    r"(?:emem is at version|(?:^|[.!?]\s)Version)\s+(\d+\.\d+\.\d+)",
+)
+
+
+def verify_prose_version() -> list[str]:
+    """The version stated in prose has to be the version the responder serves.
+
+    `--check` already compared CANON to /v1/agent_card, and every count to the
+    docs, but nothing compared the VERSION to the docs. So `docs/agents.md`
+    carried `| Version | 2.0.0 |` through a release and the gate stayed green:
+    the count patterns parse with int() and skipped a dotted string entirely.
+    Same hole as the tool-count pattern, one type over.
+    """
+    want = CANON["version"]
+    hits: list[str] = []
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("web/*.html")) + [
+        REPO / "README.md", REPO / "AGENTS.md", REPO / "CHANGELOG.md",
+    ]
+    for path in targets:
+        if not path.exists() or any(h in path.name for h in COUNT_HISTORY):
+            continue
+        if path.name == "CHANGELOG.md":
+            continue  # every heading in it is a record of a past release
+        body = re.sub(r"<script.*?</script>|<style.*?</style>", "",
+                      path.read_text(encoding="utf-8", errors="replace"), flags=re.S)
+        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
+        for pat in VERSION_CLAIMS:
+            for m in re.finditer(pat, flat):
+                if m.group(1) != want:
+                    ctx = flat[max(0, m.start() - 30):m.end() + 15].strip()
+                    hits.append(
+                        f"{path.relative_to(REPO)}: states version {m.group(1)}, "
+                        f"the responder serves {want} ({ctx[:70]!r})")
+    return hits
+
+
 def verify_prose_counts() -> list[str]:
     """A count stated as prose has to match the responder it describes.
 
@@ -397,6 +440,7 @@ def verify_canon() -> list[str]:
     # comparing to CANON, not by listing phrases that have already gone stale.
     drift.extend(verify_tool_counts())
     drift.extend(verify_prose_counts())
+    drift.extend(verify_prose_version())
     return drift
 
 

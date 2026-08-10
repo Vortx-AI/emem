@@ -7,6 +7,21 @@ to verify.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-10
+
+![emem 2.1.0](web/release-2.1.0.png)
+
+*Nine token shapes around the consolidation lotus. One is drawn sealed, with an
+unbroken line to the centre, because one of them binds a complete signed body;
+the other eight are dashed, because what they hand you is a reference. Served
+at [/release.png](https://emem.dev/release.png).*
+
+**A minor, because that is what this is.** It adds a new component
+(`emem-guard`), advertises seven renamed tool spellings without retiring the
+old ones, and declares `outputSchema` where the responder can keep the
+promise. Nothing in it breaks a verifier, a receipt or an address. The
+receipt preimage last moved in 2.0.0 and has not moved since.
+
 ### Added
 
 - **`emem-guard`**: a signed allow/deny server for AI inference checkpoints.
@@ -136,14 +151,55 @@ to verify.
   the attester preimage binds a bare verb (`create`, `delete`), never the
   tool name, so no receipt or stored write is touched.
 
-### Added
-
-- **`outputSchema` on eight tools**, declared only where the promise can be
+- **`outputSchema` on eleven tools**, declared only where the promise can be
   kept. The MCP spec binds it to returning conforming `structuredContent` on
   every call, and this responder drops that mirror when the two-copy envelope
   would breach the wire budget. Tools that can exceed it stay undeclared;
   tools that declare one now keep their mirror (slimming both copies rather
-  than dropping it), so the descriptor cannot come to lie.
+  than dropping it), so the descriptor cannot come to lie. `emem_locate`
+  stays undeclared on purpose: its response runs to ~20 KB, so a mirror
+  would only fit by halving the payload, and a caller would get less data in
+  exchange for a shape it could already read off the response.
+
+### Fixed
+
+- **The `FactCid` schema rejected every `fact_cid` this responder serves.**
+  `components/schemas/FactCid` described the cid as
+  `blake3(canonical_cbor(fact))[..16]`, 26 characters, with an example that
+  was an IPFS CIDv1 and did not satisfy even that description. It is 52
+  characters: the full 32-byte digest, untruncated. That schema is `$ref`'d
+  by `Receipt.fact_cids`, `Fact.fact_cid`, `FindSimilarResp` and
+  `VerifyResp`, so an agent generating a validator from our own machine
+  surface would have rejected the cid on every core response. Measured
+  against live recall: 28 of 28 real cids validate now, 0 of 28 would have
+  validated before. It now carries `pattern`, `minLength` and `maxLength`,
+  so it validates rather than describes.
+
+- **The homepage claimed every token shape "resolves the same way, verifies
+  the same way".** It does not, and the protocol already said so: the MCP
+  instructions call an entity token "a shared reference rather than shared
+  bytes". `fact_cid` hashes the complete canonical-CBOR body at the full 32
+  bytes; `entity_cid` hashes an identity anchor and `bundle_cid` hashes a
+  citation list, both truncated to 16; `emem:cell:` is an address rather
+  than a digest and nothing verifies until a fact hangs on it. The homepage
+  now states what each shape binds, because that difference decides what a
+  citation proves.
+
+- **`/verify` said fact CIDs were 32 characters**, in the lede and in the
+  input placeholder a reader is looking at while pasting one. They are 52.
+
+- **The counts gate matched phrasings, not numbers.** `sync_counts.py`
+  claims in its own docstring to assert the number rather than remember a
+  wording, but the tool-count pattern required a parenthesis, so
+  `ARCHITECTURE_NOTES.md` drifted to a colon-form `104 / 15 / 89` and CI
+  stayed green. Widened to accept both forms; it caught the stale line
+  immediately. That file also claimed no CI workflow ran the gate, which
+  stopped being true when the gate was wired into CI.
+
+- **`llms.txt` listed five of the nine token shapes.** The agent-facing
+  discovery surface named `fact`, `bundle`, `entity`, `trace` and
+  `attestation` and omitted `cell`, `raster`, `cube` and `rasterset`, so an
+  agent reading it learned a smaller protocol than the one being served.
 
 ## [2.0.0] - 2026-08-05
 

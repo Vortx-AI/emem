@@ -80,6 +80,36 @@ An agent can write files as well as read facts (emem_memory_create, emem_memory_
 
 Full detail: https://emem.dev/privacy#agent-written-memory
 
+## Token shapes
+
+Nine typed shapes share one syntax. They do NOT share one guarantee, and the
+difference decides what citing one proves. Do not treat them as equivalent.
+
+- `emem:fact:<cell64>:<fact_cid>` — one signed observation. blake3 over the
+  canonical CBOR of the complete fact body, full 32 bytes, 52 base32 chars, no
+  truncation. Re-hydrates byte-identical for whoever holds it. This is the only
+  shape the "same bytes for everyone" claim is true about. Resolve at
+  POST /v1/memory_token/resolve.
+- `emem:cell:<cell64>` — a bare place. An address, not a digest: it does not
+  dereference to a body, because nothing is attached until a fact hangs on it.
+- `emem:entity:<entity_cid>` — one canonical object identity. Hashed from an
+  identity anchor (an external id, else cell64 + kind + label), truncated to 16
+  bytes. Two agents holding it co-refer to the same object; it does NOT promise
+  they hold the same bytes. A shared reference, not shared content.
+- `emem:bundle:<bundle_cid>` — a signed set of facts. Hashed over the citation
+  list, truncated to 16 bytes; it binds which facts are cited, while each member
+  `fact_cid` still binds its own body.
+- `emem:raster:` — a native-resolution field over an area, the array a world
+  model reads. Resolve at POST /v1/raster/resolve.
+- `emem:cube:` — a field over time, a manifest over raster slices. Resolve at
+  POST /v1/cube/resolve.
+- `emem:rasterset:` — several fields as one re-derivable set, so a whole scene
+  travels as one handle. Resolve at POST /v1/raster_bundle/resolve.
+- `emem:trace:` — one verified OS execution trace: how a machine ran when it
+  produced a reading.
+- `emem:attestation:` — a device's platform evidence: which hardware root of
+  trust vouched for its key. Resolve both at POST /v1/trace_resolve.
+
 ## Primitives
 
 - [recall](https://emem.dev/v1/recall): POST cell × bands → signed facts; auto-fetches from open-data upstream on a miss and signs the result. Pass include:["freshness"] for an advisory per-fact Q(Δt) staleness score, or include:["edges"] for typed temporal edges.

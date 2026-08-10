@@ -221,6 +221,12 @@ const OG_IMAGE_SVG: &str = include_str!("../../../web/og-image.svg");
 /// crawlers (Slack, X, LinkedIn, Discord, most LLM fetchers) do NOT render
 /// an SVG og:image, the pages reference this PNG so previews actually show.
 const OG_IMAGE_PNG: &[u8] = include_bytes!("../../../web/og-image.png");
+/// The current release card, served at `/release.svg` and `/release.png`.
+/// `scripts/gen_release_card.py` writes a versioned pair for the archive and
+/// this `-current` pair for the binary, so the served card follows the release
+/// without the router growing a route per version.
+const RELEASE_CARD_SVG: &str = include_str!("../../../web/release-current.svg");
+const RELEASE_CARD_PNG: &[u8] = include_bytes!("../../../web/release-current.png");
 
 /// Bespoke Mithila (Madhubani) story panels reused across the homepage and the
 /// narrative pages (`/how-it-works`, `/solutions`, `/reference`). Flat-fill SVGs
@@ -949,6 +955,8 @@ pub fn router(state: AppState) -> Router {
         .route("/logo-1200w.png", get(serve_logo_1200))
         .route("/og-image.svg", get(serve_og_image))
         .route("/og-image.png", get(serve_og_image_png))
+        .route("/release.svg", get(serve_release_card))
+        .route("/release.png", get(serve_release_card_png))
         .route("/art/:name", get(serve_art_panel))
         .route(
             "/484b153b1031a5a89d8217c1efbe6fe91313e0b328e94b0f10446c6dbda8b10e.txt",
@@ -2129,6 +2137,8 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/logo-1200w.png"
         | "/og-image.svg"
         | "/og-image.png"
+        | "/release.svg"
+        | "/release.png"
         | "/robots.txt"
         | "/sitemap.xml" => Some("public, max-age=86400"),
         _ => None,
@@ -2594,6 +2604,8 @@ async fn rate_limit_layer(
             | "/logo-1200w.png"
             | "/og-image.svg"
             | "/og-image.png"
+            | "/release.svg"
+            | "/release.png"
     );
     if bypass {
         return next.run(req).await;
@@ -4189,6 +4201,16 @@ async fn serve_logo_1200() -> Response {
 }
 async fn serve_og_image_png() -> Response {
     png_response(OG_IMAGE_PNG)
+}
+/// `/release.svg` — the current release card, in the same Mithila hand as the
+/// OG card. Regenerated per release by `scripts/gen_release_card.py`.
+async fn serve_release_card() -> Response {
+    text_response("image/svg+xml; charset=utf-8", RELEASE_CARD_SVG)
+}
+/// `/release.png` — rasterised 1200x630 twin of the above, because social and
+/// agent link-preview crawlers do not render SVG.
+async fn serve_release_card_png() -> Response {
+    png_response(RELEASE_CARD_PNG)
 }
 /// `/art/<name>.svg`, one of the bespoke Mithila story panels. Slug must match
 /// the file name verbatim (e.g. `p1.svg`). 404 with a short reason on an unknown

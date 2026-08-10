@@ -9,7 +9,7 @@ picture.
 
 ## Honest limits
 
-emem is at version 2.0.0. The 1.x line promised the wire format, the receipt preimage and the cell64 address space would not break under a 1.x; 2.0.0 changes the receipt preimage, and is a major for exactly that reason. Receipts signed under 1.x verify unchanged under the 1.x rule, and a verifier selects the rule from the receipt's own `preimage_version`. The cell64 address space is untouched and stays settled. What it does not do yet, so you can plan around it:
+emem is at version 2.1.0, a minor that adds `emem-guard` and breaks nothing. The receipt preimage last moved in 2.0.0: the 1.x line promised the wire format, the receipt preimage and the cell64 address space would not break under a 1.x, and 2.0.0 changed the preimage, so it was a major for exactly that reason. Receipts signed under 1.x verify unchanged under the 1.x rule, and a verifier selects the rule from the receipt's own `preimage_version`. The cell64 address space is untouched and stays settled. What it does not do yet, so you can plan around it:
 
 - **Single host.** No federation, no global routing, no SOC 2 yet. One responder, one signing key. Durability today is the hosted node plus any node you run; content addressing means any node that holds the bytes can re-serve and re-verify them, so run your own if the facts matter to you.
 - **Thousands of places, not billions.** The memory grows every day it is used, but it is early. Check the live count before you assume coverage.
