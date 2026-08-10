@@ -20803,6 +20803,14 @@ async fn mcp_jsonrpc_inner(
                 "extended"
             } else if cursor_tier == "tier:core" {
                 "core"
+            // A byte-paged cursor is `<tier>@<index>`. The legacy `tier:<name>`
+            // forms above still resolve, so a client holding an old cursor is
+            // not stranded by this change.
+            } else if matches!(
+                cursor_tier.split_once('@').map(|(t, _)| t),
+                Some("core") | Some("extended") | Some("all")
+            ) {
+                cursor_tier.split_once('@').map(|(t, _)| t).unwrap_or(default_tier)
             } else {
                 default_tier
             };
@@ -20823,8 +20831,49 @@ async fn mcp_jsonrpc_inner(
             } else {
                 emem_mcp::tools_in_bundle(requested_bundle)
             };
-            let tool_json: Vec<JsonValue> = tools.iter().map(|t| mcp_tool_descriptor(t)).collect();
+            let all_tool_json: Vec<JsonValue> =
+                tools.iter().map(|t| mcp_tool_descriptor(t)).collect();
             let total = emem_mcp::TOOLS.len();
+
+            // Page by BYTES, not by tier.
+            //
+            // An AWS-hosted client reported "MCP server response exceeds
+            // maximum allowed size of 102400 bytes" and it was right:
+            // /mcp/full serialised to 288,002 bytes for 107 tools, 2.8x the
+            // cap, so the full surface could not be listed at all from that
+            // host. The tier cursor did not save it either. Paging was
+            // TIER-shaped, so a client walking the cursor correctly got
+            // page 1 of 16 tools at 61,380 bytes and then page 2 of 91 tools
+            // at 227,496 bytes, still 2.2x over. Both all-107 paths returned
+            // nextCursor:null, telling the client "this is everything" in a
+            // body it could not accept.
+            //
+            // So a page now ends when the next descriptor would breach the
+            // budget. The core tier is 61,380 bytes for 16 tools and is
+            // under the budget, so it still arrives whole and its cursor
+            // still reads `tier:extended`: nothing a working client does
+            // today changes. Only the pages that were too big get split.
+            let budget: usize = std::env::var("EMEM_MCP_LIST_BUDGET_BYTES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(80_000);
+            let start: usize = cursor_tier
+                .rsplit_once('@')
+                .and_then(|(_, i)| i.parse().ok())
+                .unwrap_or(0);
+            let mut tool_json: Vec<JsonValue> = Vec::new();
+            let mut used = 0usize;
+            for t in all_tool_json.iter().skip(start) {
+                // +2 for the comma and the array framing this element adds.
+                let cost = serde_json::to_string(t).map(|s| s.len()).unwrap_or(0) + 2;
+                if !tool_json.is_empty() && used + cost > budget {
+                    break;
+                }
+                used += cost;
+                tool_json.push(t.clone());
+            }
+            let next_index = start + tool_json.len();
+            let more_in_tier = next_index < all_tool_json.len();
             // The hint is built from what this request actually did. It
             // used to be a fixed string claiming "the full catalog is
             // returned by default" and "{\"tier\":\"core\"} for just the 10
@@ -20865,9 +20914,20 @@ async fn mcp_jsonrpc_inner(
                     "hint": hint,
                 },
             });
-            if effective_tier == "core" {
+            // Cursor order: finish the current tier's pages first, then hand
+            // core readers on to extended. Only the genuinely last page omits
+            // nextCursor, because a null cursor is a promise that there is
+            // nothing more.
+            let next_cursor = if more_in_tier {
+                Some(format!("{effective_tier}@{next_index}"))
+            } else if effective_tier == "core" {
+                Some("tier:extended".to_string())
+            } else {
+                None
+            };
+            if let Some(c) = next_cursor {
                 if let Some(map) = result.as_object_mut() {
-                    map.insert("nextCursor".into(), json!("tier:extended"));
+                    map.insert("nextCursor".into(), json!(c));
                 }
             }
             Ok(result)
