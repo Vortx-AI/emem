@@ -69505,6 +69505,14 @@ mod tests {
             .copied()
             // INDEX_HTML is reached through rendered_index_html(), not by name.
             .filter(|c| *c != "INDEX_HTML")
+            // ARCADE_HTML is hashed per REQUEST by serve_arcade, not from this
+            // static list, and it has to be: EMEM_ARCADE_HTML can replace the
+            // page with a copy on disk, and hashes baked from the compiled-in
+            // copy would not match those bytes. Listing it here would also push
+            // its inline-block hashes into the CSP of all 23 other pages, which
+            // never serve it. The invariant this test defends still holds for
+            // the arcade, by a different route.
+            .filter(|c| *c != "ARCADE_HTML")
             .filter(|c| !listed.contains(*c))
             .collect();
         assert!(
