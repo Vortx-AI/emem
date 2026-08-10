@@ -153,7 +153,9 @@ receipt preimage last moved in 2.0.0 and has not moved since.
 
 - **`outputSchema` on eleven tools**, declared only where the promise can be
   kept. The MCP spec binds it to returning conforming `structuredContent` on
-  every call, and this responder drops that mirror when the two-copy envelope
+  every successful call (an `isError` result carries prose and no mirror,
+  because there is no result to mirror), and this responder drops that
+  mirror when the two-copy envelope
   would breach the wire budget. Tools that can exceed it stay undeclared;
   tools that declare one now keep their mirror (slimming both copies rather
   than dropping it), so the descriptor cannot come to lie. `emem_locate`

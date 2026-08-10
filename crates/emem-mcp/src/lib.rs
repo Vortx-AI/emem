@@ -45,8 +45,8 @@ pub struct ToolDescriptor {
     ///
     /// `None` is a deliberate answer, not an omission. The MCP spec requires
     /// that a tool declaring `outputSchema` return conforming
-    /// `structuredContent` on every call, and this responder drops that
-    /// mirror when the two-copy envelope would breach the wire budget,
+    /// `structuredContent` on every SUCCESSFUL call, and this responder drops
+    /// that mirror when the two-copy envelope would breach the wire budget,
     /// because the host truncates an oversized result silently and mid-token.
     /// A tool whose result can exceed the budget therefore cannot honestly
     /// promise a schema, and `emem_bands` (22.8 KB) or `emem_materializers`
@@ -440,7 +440,7 @@ const OUT_GUARD_VERDICT: &str = r#"{"type":"object","required":["action","adviso
 
 const OUT_ECHO_VERIFY: &str = r#"{"type":"object","required":["matches","token","claimed_value"],"properties":{
 "matches":{"type":"boolean","description":"Whether what you were about to publish agrees with the signed fact. Treat false as a gate, not a warning."},
-"drift":{"type":"string","description":"Present when it does not match: the difference between what you wrote and what emem holds."},
+"drift":{"type":["string","null"],"description":"The difference between what you wrote and what emem holds, when they disagree. Explicit null on an exact match: the key is always present, so branch on its value rather than on whether it exists. Declaring this `string` alone was a live schema violation on every matching call, which is how it was found."},
 "resolved_value_verbatim":{"type":"string","description":"The fact's value as the exact decimal string it was signed as. Quote this rather than reformatting it."},
 "claimed_value":{"type":"string","description":"Echoed back, so a log line carries both sides of the comparison."},
 "fact_cid":{"type":"string"},
@@ -3436,7 +3436,11 @@ mod tests {
     /// an object with named, documented properties.
     ///
     /// Declaring one is a promise the MCP spec binds to returning conforming
-    /// `structuredContent` on every call. A schema that does not parse, or
+    /// `structuredContent` on every successful call. (An `isError` result
+    /// carries prose describing the failure and no structured mirror: there is
+    /// no result to mirror, and synthesising a conforming object for a failure
+    /// would make the schema describe something that did not happen.)
+    /// A schema that does not parse, or
     /// that says nothing beyond "object", would make that promise while
     /// carrying no information, which is worse than declining to promise.
     #[test]

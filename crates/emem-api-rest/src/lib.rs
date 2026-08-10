@@ -19212,8 +19212,10 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
     // mirror roughly doubles the inner bytes; +96 covers the envelope keys.
     if text.len().saturating_mul(2).saturating_add(96) > budget {
         // A tool that declared an outputSchema owes conforming
-        // structuredContent on EVERY call, so the mirror cannot be the thing
-        // that gives way. Slim once, send both, and say what was dropped.
+        // structuredContent on every call it ANSWERS, so on this path the
+        // mirror cannot be the thing that gives way. (An isError result is not
+        // an answer and carries no mirror; that is the spec's shape, not a gap
+        // in this budget logic.) Slim once, send both, and say what was dropped.
         if emem_mcp::declares_output_schema(tool) {
             let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget / 2);
             let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());

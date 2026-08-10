@@ -329,6 +329,25 @@ jobs:
           fi
           exit $code
 
+      # outputSchema is the only descriptor field that binds RUNTIME behaviour:
+      # declare one and every successful call owes conforming structuredContent.
+      # A unit test can only check the schema is well-formed; it took a live
+      # call to find that emem_echo_verify declared `drift` as a string and
+      # returned null on every exact match, violating its own schema on the
+      # most common path. Same warn-on-unreachable rule as the counts gate.
+      - name: declared output schemas are honoured live
+        run: |
+          python3 -m pip install --quiet jsonschema
+          set +e
+          python3 scripts/output_schema_conformance.py --check
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; schemas not asserted this run"
+            exit 0
+          fi
+          exit $code
+
   # Two gates that check a RUNNING system rather than the source. Both are
   # here because the failures they catch are invisible to every other job:
   # the code is correct, the tests are green, and the thing an agent talks
