@@ -1,6 +1,7 @@
 <div align="center">
 
-<img src="web/vortxgola.gif" alt="emem" width="160" />
+<img src="web/emem-strip.png" width="880"
+     alt="Six panels explaining emem. 1: two agents describe one field, one reports 0.62 and one reports 'looks healthy', neither can check the other. 2: the place resolves to one cell64 and the reading becomes a fact hashed with blake3 over canonical CBOR and signed with ed25519. 3: the fact collapses to one line, emem:fact:<cell64>:<fact_cid>, a 52-character untruncated digest. 4: anyone resolves that token to the byte-identical signed body and verifies the receipt in their own process, with no key, no account and no callback. 5: emem-guard reads the emem: tokens in a transcript before an agent asserts, denying PROV_SIG when a signature fails, PROV_BYTES when it resolves to different bytes, and PROV_DRIFT when it moved past the band threshold. 6: what it does not do, one responder signs rather than a network consensus, a real citation can still sit on a wrong claim, and only emem:fact: binds a whole body while entity and bundle tokens co-refer." />
 
 # emem
 
