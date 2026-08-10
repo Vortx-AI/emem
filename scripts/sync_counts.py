@@ -307,6 +307,41 @@ VERSION_CLAIMS = (
 )
 
 
+def verify_package_versions() -> list[str]:
+    """Every packaging surface has to carry CANON's version.
+
+    2.1.0 shipped to PyPI, Smithery and the MCP Registry and failed on npm,
+    because `sdks/emem-ts/src/version.ts` is a hand-maintained twin of
+    `package.json` and only one of them got bumped. The npm workflow caught it,
+    but at publish time, after three other ecosystems had already released. The
+    file's own docstring says "bump both together"; a docstring is not a gate.
+
+    The Python SDKs are absent on purpose: they read __version__ from installed
+    distribution metadata, so they cannot drift from pyproject.toml.
+    """
+    want = CANON["version"]
+    checks = [
+        ("sdks/emem-ts/package.json", r'"version"\s*:\s*"([^"]+)"'),
+        ("sdks/emem-ts/src/version.ts", r'VERSION\s*=\s*"([^"]+)"'),
+        ("sdks/emem-py/pyproject.toml", r'(?m)^version\s*=\s*"([^"]+)"'),
+        ("sdks/emem-langmem/pyproject.toml", r'(?m)^version\s*=\s*"([^"]+)"'),
+        ("server.json", r'"version"\s*:\s*"([^"]+)"'),
+        ("web/agent.json", r'"version"\s*:\s*"([^"]+)"'),
+    ]
+    hits = []
+    for rel, pat in checks:
+        path = REPO / rel
+        if not path.exists():
+            hits.append(f"{rel}: missing (it is a packaging surface)")
+            continue
+        m = re.search(pat, path.read_text(encoding="utf-8", errors="replace"))
+        if not m:
+            hits.append(f"{rel}: no version field matched {pat!r}")
+        elif m.group(1) != want:
+            hits.append(f"{rel}: packages version {m.group(1)}, CANON says {want}")
+    return hits
+
+
 def verify_prose_version() -> list[str]:
     """The version stated in prose has to be the version the responder serves.
 
@@ -441,6 +476,7 @@ def verify_canon() -> list[str]:
     drift.extend(verify_tool_counts())
     drift.extend(verify_prose_counts())
     drift.extend(verify_prose_version())
+    drift.extend(verify_package_versions())
     return drift
 
 
