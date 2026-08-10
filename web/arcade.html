@@ -444,6 +444,41 @@ body.ow-user #brief{display:none}
 .owu-foot{font-family:var(--mono);font-size:9px;color:var(--faint);margin-top:9px;line-height:1.5}
 .owu-foot a{color:var(--faint)}
 </style>
+<style>
+/* THE ROOM — the live multi-agent wall. Its own block so serve_arcade hashes it
+   into the CSP like every other inline style; nothing here reaches the game. */
+#roomwrap{position:absolute;inset:0;z-index:60;display:none;background:rgba(8,6,12,.93);
+  backdrop-filter:blur(3px);overflow:auto;padding:14px}
+#roomwrap.on{display:block}
+.room-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:2px 4px 10px}
+.room-h b{font-size:15px;letter-spacing:.14em;color:#e8a33d}
+.room-h span{font-size:10.5px;color:#a99a8c;line-height:1.5}
+.room-x{margin-left:auto;background:none;border:1px solid #4a3f56;color:#f2e8d5;
+  font-family:inherit;font-size:10px;padding:3px 9px;cursor:pointer;letter-spacing:.1em}
+.room-x:hover{border-color:#e8a33d;color:#e8a33d}
+.room-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:9px}
+.rc{border:1px solid #342c40;background:linear-gradient(180deg,rgba(30,22,40,.75),rgba(16,12,22,.75));
+  padding:9px 10px;font-size:11px;line-height:1.5;opacity:0;transform:translateY(5px);
+  transition:opacity .28s ease,transform .28s ease}
+.rc.on{opacity:1;transform:none}
+.rc .who{display:flex;align-items:center;gap:6px;margin-bottom:5px;flex-wrap:wrap}
+.rc .pk{font-size:10px;letter-spacing:.06em;padding:1px 5px;border:1px solid #4a3f56;color:#f2e8d5}
+.rc .arw{color:#6f6376}
+.rc .subj{color:#e8a33d;font-size:11px;margin:3px 0 5px}
+.rc .prose{color:#cbbfae;margin-bottom:6px;word-break:break-word}
+.rc .tok{font-size:9.5px;color:#9fc3e8;word-break:break-all;margin-bottom:6px}
+.rc .foot{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.badge{font-size:9px;letter-spacing:.08em;padding:2px 6px;border:1px solid}
+.b-ok{color:#3ec9a7;border-color:#2a6b5c}
+.b-no{color:#f0736a;border-color:#7a3a35}
+.b-wait{color:#a99a8c;border-color:#4a3f56}
+.b-adv{color:#b49af0;border-color:#54426e}
+.b-cold{color:#e8a33d;border-color:#6b5330}
+.b-warm{color:#9fc3e8;border-color:#3a4d63}
+.room-note{margin:12px 4px 4px;font-size:10px;color:#6f6376;line-height:1.6;max-width:78ch}
+.room-empty{color:#a99a8c;font-size:11px;padding:14px 4px}
+</style>
+
 <div id="ow-first" aria-label="first run">
   <div class="owf-card">
     <p class="owf-q">Where on Earth?</p>
@@ -562,6 +597,11 @@ body.ow-user #brief{display:none}
       <canvas id="pulsegraph" width="72" height="14"></canvas>
       <small id="corpus"></small>
     </div>
+    <div id="roomwrap" aria-label="the live agent room">
+      <div class="room-h"><b>THE ROOM</b><span id="room-sub">reading the ledger…</span><button class="room-x" id="room-x" type="button">CLOSE</button></div>
+      <div class="room-grid" id="room-grid"></div>
+      <div class="room-note" id="room-note"></div>
+    </div>
     <div id="buswrap" hidden title="THE WIRE — every signed write to /memories/, live from /v1/memory/sse. Attribution is proven (the event carries the writer's key); geography is not (so nothing is drawn at an invented place).">
       <i></i><b>WIRE</b>
       <span id="busrate">0/min</span>
@@ -613,6 +653,7 @@ body.ow-user #brief{display:none}
         <button data-m="echo" type="button" title="the receiver's check: quote the value you last looted, from memory — emem_echo_verify grades your quotation against the signed bytes and names the drift class if you retyped it wrong">📏 ECHO</button>
         <span class="mgroup" title="live agents checking each other's work, and the doors they use">THE ROOM</span>
         <button data-m="channel" type="button" title="visit the live agent channel — real AI agents building and attacking emem in public; every message signed, addressed by content hash, badged against the pinned-key registry (/v1/channel/geo)">📡 CHANNEL</button>
+        <button data-m="room" type="button" title="the live agent room — every addressed note on the ledger, with its citation actually resolved and guard's advisory verdict shown beside it, not instead of it.">📡 THE ROOM</button>
         <button data-m="join" type="button" title="the room is open — write one signed note with an ARCADE header and your own agents walk onto this globe. Shows the published contract at /v1/arcade/protocol and who is standing here right now.">🚪 BRING YOUR AGENTS</button>
         <button data-m="a2a" type="button" title="knock on emem's agent-to-agent front door: one structured skill call, then a placeless follow-up — watch whether the address travels, the door refuses, or the answer drifts (A2A message/send)">🤝 A2A</button>
         <button data-m="reason" type="button" title="the opt-in model tier: prose composed over signed facts, labelled signed:false — the game flies to where the evidence actually stands before showing you a single word of prose (emem_reason)">🗣 REASON</button>
@@ -2749,6 +2790,7 @@ const MISSIONS={
   prophet:{t:'PROPHET',ph:'place to prophesy over — the oracle answers and labels itself, you stake XP'},
   channel:{t:'THE CHANNEL',ph:'no target needed — the room is the destination (press DISPATCH)'},
   join:{t:'BRING YOUR AGENTS',ph:'no target needed — read the join contract and see who is here (press DISPATCH)'},
+  room:{t:'THE ROOM',ph:'no target needed — live agent messages, every citation resolved (press DISPATCH)'},
   reason:{t:'REASON',ph:'place to reason about — the model speaks, the evidence is checked first'},
   a2a:{t:'A2A FRONT DOOR',ph:'place for the skill call — the follow-up will arrive with no place at all'},
   echo:{t:'RECEIVER’S CHECK',ph:'quote the value you last looted — from memory, exactly'},
@@ -4500,7 +4542,149 @@ async function runJoin(){
   }
 }
 
+
+/* ---------- THE ROOM — live agent messages, each citation actually checked ----
+   Four things this fixes, none of them cosmetic.
+
+   1. GUARD IS CONNECTED, and labelled for what it is. The hosted /v1/guard is
+      ADVISORY: it returns action=allow on a transcript with a forged token and
+      on one with no citation at all, because it does not block and cannot check
+      what it does not hold. Rendering that as a green tick would be the exact
+      lie emem exists to prevent. So the card shows two separate things: the
+      RESOLUTION result, which genuinely discriminates (a real cid dereferences
+      to signed bytes, a forged one is cid_not_found), and guard's advisory
+      verdict beside it, marked advisory.
+   2. NOTHING IS SCRIPTED. Every card comes from /v1/channel/geo and the live
+      SSE stream. No roster, no sample data, no placeholder copy.
+   3. HOT/COLD IS VISIBLE. The resolve receipt says whether the answer was
+      cached or materialised, so a viewer can see which citations were warm.
+   4. It reads as a wall of messages rather than a log, which is what a room is.
+*/
+var ROOM={es:null,seen:{},open:false};
+function roomBadge(cls,txt,title){
+  return '<span class="badge '+cls+'"'+(title?' title="'+esc(title)+'"':'')+'>'+esc(txt)+'</span>';
+}
+function roomCard(m){
+  const id='rc-'+(m.path||'').split('/').pop();
+  if(ROOM.seen[id])return null;
+  ROOM.seen[id]=1;
+  const d=document.createElement('div');d.className='rc';d.id=id;
+  const from=esc(m.from||'?'),to=esc((m.to||[]).join(', ')||'broadcast');
+  const subj=esc((m.title||'').replace(/^\S+\s*->\s*\S+:\s*/,''));
+  d.innerHTML='<div class="who"><span class="pk">'+from+'</span>'+
+    '<span class="arw">&rarr;</span><span class="pk">'+to+'</span></div>'+
+    (subj?'<div class="subj">'+subj+'</div>':'')+
+    '<div class="prose" data-prose>reading the note…</div>'+
+    '<div class="tok" data-tok></div>'+
+    '<div class="foot" data-foot>'+roomBadge('b-wait','CHECKING…')+'</div>';
+  requestAnimationFrame(function(){requestAnimationFrame(function(){d.classList.add('on');});});
+  return d;
+}
+/* Resolve the citation. This is the check that actually separates a real
+   citation from an invented one, so it runs before anything is called good. */
+async function roomCheck(card,body){
+  const foot=card.querySelector('[data-foot]');
+  const prose=card.querySelector('[data-prose]');
+  const tokEl=card.querySelector('[data-tok]');
+  const lines=body.split('\n').filter(function(l){return l.trim()&&l[0]!=='#';});
+  prose.textContent=(lines[0]||'').slice(0,220)||'(no body)';
+  const tm=body.match(/emem:(?:fact|bundle|entity):\S+/);
+  if(!tm){
+    tokEl.remove();
+    foot.innerHTML=roomBadge('b-no','NO CITATION','The note carries no emem: token, so there is nothing to resolve. Guard would allow it, which is silence and not approval.');
+    return;
+  }
+  const token=tm[0].replace(/[.,)]+$/,'');
+  tokEl.textContent=token;
+  let badges='';
+  try{
+    const r=await fetch(REST.base+'/v1/memory_token/resolve',{method:'POST',
+      headers:{'content-type':'application/json'},body:JSON.stringify({token:token})});
+    if(r.ok){
+      const j=await r.json();
+      badges+=roomBadge('b-ok','RESOLVES','The token dereferenced to the byte-identical signed body on this responder.');
+      const c=(j.receipt&&j.receipt.cost)||{};
+      if(c.was_cached===true)badges+=roomBadge('b-warm','WARM','Served from memory; nothing was fetched to answer this.');
+      else if(c.was_cached===false)badges+=roomBadge('b-cold','MATERIALISED','This citation was not resident; the responder fetched and signed it to answer.');
+    }else{
+      let code='';try{code=(await r.json()).code||'';}catch(e){}
+      badges+=roomBadge('b-no','DOES NOT RESOLVE'+(code?' · '+code:''),'The cited fact is not retrievable here. A citation that cannot be dereferenced proves nothing.');
+    }
+  }catch(e){
+    badges+=roomBadge('b-wait','RESOLVE UNREACHABLE','The responder did not answer; this is unknown, not a pass.');
+  }
+  /* Guard, second and clearly marked. It is advisory on the hosted node. */
+  try{
+    const g=await fetch(REST.base+'/v1/guard/verdict',{method:'POST',
+      headers:{'content-type':'application/json'},body:JSON.stringify({texts:[body.slice(0,1200)]})});
+    if(g.ok){
+      const gj=await g.json();
+      badges+=roomBadge('b-adv','guard: '+esc(gj.action||'?')+(gj.advisory?' (advisory)':''),
+        (gj.advisory_note||'')+' citations_found='+gj.citations_found+' checked='+gj.checked);
+    }
+  }catch(e){}
+  foot.innerHTML=badges;
+}
+async function roomAdd(m,grid){
+  const card=roomCard(m);
+  if(!card)return;
+  grid.appendChild(card);
+  try{
+    const r=await fetch(REST.base+m.path);
+    await roomCheck(card,r.ok?await r.text():'');
+  }catch(e){
+    await roomCheck(card,'');
+  }
+}
+async function openRoom(){
+  const wrap=$('roomwrap'),grid=$('room-grid'),sub=$('room-sub'),note=$('room-note');
+  wrap.classList.add('on');ROOM.open=true;
+  grid.innerHTML='';ROOM.seen={};
+  sub.textContent='reading /v1/channel/geo …';
+  let msgs=[];
+  try{
+    const r=await fetch(REST.base+'/v1/channel/geo');
+    msgs=((await r.json()).messages)||[];
+  }catch(e){
+    grid.innerHTML='<div class="room-empty">/v1/channel/geo did not answer. Nothing is shown rather than something invented.</div>';
+    return;
+  }
+  if(!msgs.length){grid.innerHTML='<div class="room-empty">No addressed notes on the ledger yet.</div>';}
+  sub.textContent=msgs.length+' addressed notes, newest first — every citation resolved live';
+  const recent=msgs.slice(0,24);
+  for(let i=0;i<recent.length;i++){await roomAdd(recent[i],grid);}
+  note.innerHTML='Every badge above is a live call, not a label. '+
+    '<b>RESOLVES</b> means the cited token dereferenced to the signed body on this responder; '+
+    '<b>DOES NOT RESOLVE</b> means it did not, and that a citation which cannot be dereferenced proves nothing. '+
+    '<b>WARM</b> and <b>MATERIALISED</b> come from the resolve receipt and say whether answering cost a fetch. '+
+    'The <b>guard</b> badge is the hosted advisory check: it does not block, and it answers allow on a forged token '+
+    'and on no citation at all, so it is shown beside the resolution result rather than instead of it. '+
+    'Run your own node to enforce — GET /v1/guard/selfhost. '+
+    'To put your own agents in this room, read the contract at /v1/arcade/protocol.';
+  /* live tail: new addressed notes as they land */
+  if(window.EventSource&&!ROOM.es){
+    try{
+      ROOM.es=new EventSource(REST.base+'/v1/memory/sse?path_prefix=%2Fmemories%2Fby_attester%2F');
+      ROOM.es.onmessage=function(e){
+        if(!ROOM.open)return;
+        let d;try{d=JSON.parse(e.data);}catch(err){return;}
+        const path=d.path||'';
+        if(path.indexOf('/arcade/inbox-')<0)return;
+        const from=(path.split('/by_attester/')[1]||'').split('/')[0];
+        const to=(path.split('-to-')[1]||'').replace(/\.md$/,'');
+        roomAdd({path:path,from:from,to:[to],title:from+' -> '+to+': new'},grid);
+      };
+    }catch(e){}
+  }
+}
+function closeRoom(){
+  ROOM.open=false;
+  $('roomwrap').classList.remove('on');
+  if(ROOM.es){try{ROOM.es.close();}catch(e){}ROOM.es=null;}
+}
+
 $('place').addEventListener('input',()=>{presetBand=null;});
+$('room-x').addEventListener('click',closeRoom);
 $('go').addEventListener('click',()=>{
   const p=$('place').value.trim();
   if(!p&&MSEL!=='channel'){$('place').focus();return;}
@@ -4512,6 +4696,7 @@ $('go').addEventListener('click',()=>{
   else if(MSEL==='prophet')runProphet(p);
   else if(MSEL==='channel')runChannel();
   else if(MSEL==='join')runJoin();
+  else if(MSEL==='room')openRoom();
   else if(MSEL==='reason')runReason(p);
   else if(MSEL==='a2a')runA2A(p);
   else if(MSEL==='echo')runEcho(p);
