@@ -1763,6 +1763,13 @@ function stepWalk(dt){
 
 /* camera */
 let camDir=BASEd.clone().normalize(),camDist=2.6,idleT=0,userCam=-1e9;
+/* Where the view has been ASKED to look, as opposed to where it is. The panel
+   could move the agent to a cited place and the camera never turned to it:
+   travelTo(dd,true) teleports and ends the walk in the same frame, so the loop
+   fell straight to the idle branch, which does tDir=camDir and therefore holds
+   whatever framing it already had. Reading a note moved a character off screen.
+   Only the idle branch consults this, so a mission's awaited walk is untouched. */
+let camGoal=null;
 let fx={station:null,t:0,flash:0};
 let lastPk=0;
 function stepCamera(dt){
@@ -1794,11 +1801,18 @@ function stepCamera(dt){
     idleT+=dt;
     /* a human who aimed the camera keeps their framing: no auto-rotate for 60 s
        after a manual drag — "the area I chose slid away" is broken UX, not ambience */
-    if(idleT>4&&!RM&&dragPid===null&&fx.t-userCam>60){
-      const rot=new THREE.Matrix4().makeRotationY(dt*.05);
-      camDir.applyMatrix4(rot).normalize();
+    if(camGoal){
+      /* eased by the same slerp every other camera move uses, so an anchored
+         note arrives the way a mission's travel does rather than snapping. */
+      tDir=camGoal;tDist=2.6;
+      if(angleBetween(camDir,camGoal)<.012)camGoal=null;
+    }else{
+      if(idleT>4&&!RM&&dragPid===null&&fx.t-userCam>60){
+        const rot=new THREE.Matrix4().makeRotationY(dt*.05);
+        camDir.applyMatrix4(rot).normalize();
+      }
+      tDir=camDir;tDist=2.6;
     }
-    tDir=camDir;tDist=2.6;
   }
   const k=1-Math.exp(-2.6*dt);
   camDir=slerpDir(camDir,tDir,k);
@@ -4849,7 +4863,7 @@ function camOrbit(dx,dy){
   const nl=Math.max(-1.45,Math.min(1.45,lat+dy*.005));
   const hx=camDir.x,hz=camDir.z,hl=Math.sqrt(hx*hx+hz*hz)||1e-6;
   camDir.set(hx/hl*Math.cos(nl),Math.sin(nl),hz/hl*Math.cos(nl)).normalize();
-  idleT=0;userCam=fx.t;
+  idleT=0;userCam=fx.t;camGoal=null;
 }
 cv.addEventListener('pointerdown',e=>{
   dragDist=0;
@@ -5019,7 +5033,9 @@ $('skipbrief').addEventListener('click',()=>{brief.hidden=true;try{localStorage.
       if((typeof busy!=='undefined'&&busy)||walk.active) return;
       var dd=llDir(lat,lng);
       userCam=fx.t; /* the reader chose this framing; idle rotate yields */
-      travelTo(dd,true); ringPulse(dd, col||0x3ec9a7);
+      travelTo(dd,true);
+      camGoal=dd.clone();   /* and the VIEW goes there too, which it never did */
+      ringPulse(dd, col||0x3ec9a7);
     }catch(e){}
   }
 
