@@ -20810,7 +20810,10 @@ async fn mcp_jsonrpc_inner(
                 cursor_tier.split_once('@').map(|(t, _)| t),
                 Some("core") | Some("extended") | Some("all")
             ) {
-                cursor_tier.split_once('@').map(|(t, _)| t).unwrap_or(default_tier)
+                cursor_tier
+                    .split_once('@')
+                    .map(|(t, _)| t)
+                    .unwrap_or(default_tier)
             } else {
                 default_tier
             };
