@@ -987,6 +987,16 @@ curl -sS -X POST https://emem.dev/v1/guard/verdict \
 { "action": "allow", "checked": 1, "advisory": true, "receipt": { ... } }
 ```
 
+Read `checked` for what it says. It counts the citations the responder looked
+at, not the ones that resolved, so a token this responder does not hold still
+counts: change one character of that cid and the same body comes back as
+`allow` with `checked: 1`. The discriminator is `receipt.fact_cids`, which
+lists only the facts actually read. It is empty on a citation that did not
+resolve and carries the cid on one that did. To establish a citation
+positively rather than infer it, resolve it yourself: `POST
+/v1/memory_token/resolve` answers 404 `cid_not_found` on a token this responder
+cannot dereference.
+
 MCP tool: `emem_guard_verdict`, in the core tier. A deny answers with a line
 built to be parsed rather than read:
 
