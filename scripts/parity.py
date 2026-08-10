@@ -384,6 +384,18 @@ def compare(case, mcp, rest):
         if len(mf) < len(rf) and key(mf).issubset(key(rf)):
             return ("MCP_TRUNCATED",
                     f"{len(mf)} of {len(rf)} facts survived the wire budget, all agreeing")
+        # A materialising tool changes the corpus as it answers. The two sides
+        # are separate calls, so on a cold area the first one can file facts the
+        # second then reads, and the sets differ for a reason that is not drift.
+        # emem_recall_polygon reported "14 facts on mcp, 128 on rest" once and
+        # then passed on every rerun with the MCP set a clean subset; the cells
+        # had gone warm in between. Saying so is better than a bare DIVERGE that
+        # sends a reader hunting a bug that has already healed.
+        if any(f in (mcp_body or {}) for f in ("materialize_notes", "materialise_notes")):
+            return ("DIVERGE",
+                    f"{len(mf)} facts on mcp, {len(rf)} on rest; this tool "
+                    f"materialises, so rerun before treating it as drift: a cold "
+                    f"first call can file facts the second call then sees")
         return "DIVERGE", f"{len(mf)} facts on mcp, {len(rf)} on rest"
 
     worst = None
