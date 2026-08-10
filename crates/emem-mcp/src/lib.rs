@@ -1649,7 +1649,14 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"key":"damO.zb000.xUti.zde78","k":10}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    // `readOnlyHint: false` contradicted this tool's own description, which
+    // says it "ranks what the corpus already holds and materialises nothing".
+    // find_similar reads vectors and returns a receipt over what it read; it
+    // writes nothing and signs no new fact. The wrong flag made a pure read
+    // advertise itself as a mutation, so a cautious host would gate it like
+    // one. It also set the floor of the whole server's score, because the
+    // Glama rubric weights the MINIMUM tool score at 40%.
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
