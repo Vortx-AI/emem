@@ -33,11 +33,15 @@ Categories
   ONLY_ERR    one refused and the other answered. The real divergence signal.
   DIVERGE     both answered, and the facts differ beyond tolerance
   TOLERANCE   both answered and agree within EPSILON but not exactly
+  INPUT_DRIFT the two calls did not answer the same question: the responder
+              resolved one `place` to two different polygons across them. A
+              real defect, but in the geocoder rather than in either door, so
+              it is reported as itself instead of as MCP/REST drift.
 
 Exit codes
 ----------
   0  every case is MATCH, BOTH_ERR or TOLERANCE
-  1  any ONLY_ERR or DIVERGE
+  1  any ONLY_ERR, DIVERGE or INPUT_DRIFT
   2  the harness could not run (responder unreachable, bad arguments)
 
 Usage
@@ -83,6 +87,12 @@ EPSILON = 1e-9
 # How many cases to compare at once. Each is two HTTP round trips and no local
 # work, so this is latency hiding rather than parallel computation.
 CONCURRENCY = 6
+
+# Categories that fail the build. INPUT_DRIFT is here because a place name that
+# answers about two different polygons is a defect whichever component owns it;
+# it is a category of its own so the report accuses the geocoder instead of the
+# transports, not so that it can be waved through.
+FAILING = ("ONLY_ERR", "DIVERGE", "INPUT_DRIFT")
 
 # Fields that legitimately differ per call. Excluding them is what makes the
 # comparison about the ANSWER rather than about the envelope.
@@ -291,6 +301,35 @@ def facts_of(payload):
     return sorted(out, key=lambda x: (str(x[0]), str(x[1])))
 
 
+def resolved_scope(payload):
+    """What the responder decided the question WAS, or None if it did not say.
+
+    A place-addressed tool answers about whatever polygon its geocoder picked,
+    and the response declares that choice in `polygon_bbox` (corners plus a
+    `source` naming the resolver layer that won). Comparing facts is only
+    meaningful once both sides agree about this: two calls that resolved
+    `Bayanhongor` to a 5.2 x 4.2 degree province envelope and to a 0.12 x 0.19
+    degree town have no shared subject to have parity about.
+
+    Corners are compared at 4 dp (~11 m). Not a round number picked for looks:
+    the resolvers hand back the same corner in different widths, and an f32
+    spelling of an f64 corner near longitude 79 differs by ~8e-6, so a 5 dp
+    comparison calls one number two numbers and invents a divergence. The
+    differences that matter here are degrees wide. `source` is compared exactly,
+    because a different resolver answering is the instability itself.
+    """
+    if not isinstance(payload, dict):
+        return None
+    bb = payload.get("polygon_bbox")
+    if not isinstance(bb, dict):
+        return None
+    corners = tuple(
+        round(bb[k], 4) if isinstance(bb.get(k), (int, float)) else bb.get(k)
+        for k in ("min_lat", "max_lat", "min_lng", "max_lng")
+    )
+    return bb.get("source"), corners
+
+
 def shape_of(payload):
     """Top-level non-volatile keys. For tools with no facts to compare."""
     if not isinstance(payload, dict):
@@ -365,6 +404,27 @@ def compare(case, mcp, rest):
                     f"mcp asked for the compact projection; rest also carries {only_rest}")
         return "DIVERGE", f"keys only in mcp={only_mcp} only in rest={only_rest}"
 
+    # Did the two calls answer the same question? A place-addressed tool
+    # resolves `place` to a polygon on every call, and that resolution is not
+    # stable: the Overture division lookup races a 900 ms deadline and, on a
+    # miss, answers from Nominatim while a detached task warms the memo, so the
+    # NEXT call wins the race and gets a different polygon. Measured on ONE
+    # transport, three consecutive REST calls: `Bayanhongor` resolved to
+    # nominatim_boundingbox (5.2 x 4.2 deg, the province) and then twice to
+    # overture_division_area (0.12 x 0.19 deg, the town), and 109 of 112 fact
+    # pairs from the first call were absent from the third. Nothing about that
+    # involves MCP, so reporting it as MCP/REST drift sends a reader hunting a
+    # transport bug that is not there. It is still a failure: one place name
+    # answering about two different places is the drift emem exists to stop.
+    m_scope, r_scope = resolved_scope(mcp_body), resolved_scope(rest_body)
+    if m_scope and r_scope and m_scope != r_scope:
+        return ("INPUT_DRIFT",
+                f"the two calls resolved `{case.args.get('place')}` to different "
+                f"polygons, so their facts are not comparable: "
+                f"mcp={m_scope[0]} {m_scope[1]} rest={r_scope[0]} {r_scope[1]}. "
+                f"Not a transport difference; repeat either door alone on a cold "
+                f"place and it moves there too.")
+
     mf, rf = facts_of(mcp_body), facts_of(rest_body)
     if not mf and not rf:
         # No facts either side: fall back to shape so the row still asserts
@@ -384,18 +444,25 @@ def compare(case, mcp, rest):
         if len(mf) < len(rf) and key(mf).issubset(key(rf)):
             return ("MCP_TRUNCATED",
                     f"{len(mf)} of {len(rf)} facts survived the wire budget, all agreeing")
-        # A materialising tool changes the corpus as it answers. The two sides
-        # are separate calls, so on a cold area the first one can file facts the
-        # second then reads, and the sets differ for a reason that is not drift.
-        # emem_recall_polygon reported "14 facts on mcp, 128 on rest" once and
-        # then passed on every rerun with the MCP set a clean subset; the cells
-        # had gone warm in between. Saying so is better than a bare DIVERGE that
-        # sends a reader hunting a bug that has already healed.
+        # A materialising tool changes the corpus as it answers, and the two
+        # sides are separate calls, so the second one can see facts the first
+        # one filed. That was the first theory for the `emem_recall_polygon`
+        # divergence and it is NOT sufficient on its own: over six cold
+        # polygons at eight cells each, in both call orders, the first call
+        # materialised every fact and the two doors still returned the
+        # identical set, because the second call reads back exactly what the
+        # first one signed. What it DOES explain is a partial first call: a
+        # cold fan-out that runs out of budget answers `converged: false` and
+        # the retry returns strictly more, which puts the extra facts on
+        # whichever door went second. Rerun before treating it as drift, and
+        # check `converged` on both bodies before believing either.
         if any(f in (mcp_body or {}) for f in ("materialize_notes", "materialise_notes")):
+            conv = (mcp_body.get("converged"), rest_body.get("converged"))
             return ("DIVERGE",
                     f"{len(mf)} facts on mcp, {len(rf)} on rest; this tool "
-                    f"materialises, so rerun before treating it as drift: a cold "
-                    f"first call can file facts the second call then sees")
+                    f"materialises and converged={conv} (mcp, rest), so rerun "
+                    f"before treating it as drift: a first call that ran out of "
+                    f"budget leaves the retry strictly richer")
         return "DIVERGE", f"{len(mf)} facts on mcp, {len(rf)} on rest"
 
     worst = None
@@ -572,7 +639,7 @@ def main():
 
     def run_case(c):
         cat, detail = compare(c, call_mcp(origin, c), call_rest(origin, c))
-        if cat in ("ONLY_ERR", "DIVERGE") and c.name in KNOWN_DIVERGENCES:
+        if cat in FAILING and c.name in KNOWN_DIVERGENCES:
             cat, detail = "KNOWN", KNOWN_DIVERGENCES[c.name]
         return {"case": c.name, "tool": c.tool, "path": c.path,
                 "category": cat, "detail": detail}
@@ -615,7 +682,7 @@ def main():
                                        f"identical calls: an unstable fact_cid for "
                                        f"inputs that never changed"})
 
-    bad = [r for r in rows if r["category"] in ("ONLY_ERR", "DIVERGE")]
+    bad = [r for r in rows if r["category"] in FAILING]
 
     if a.json:
         print(json.dumps({"origin": origin, "rows": rows,
@@ -623,7 +690,7 @@ def main():
     else:
         print(f"MCP/REST parity against {origin}\n")
         for r in rows:
-            mark = "FAIL" if r["category"] in ("ONLY_ERR", "DIVERGE") else "ok  "
+            mark = "FAIL" if r["category"] in FAILING else "ok  "
             print(f"  {mark} {r['category']:<10} {r['case']:<40} {r['detail']}")
         by_cat = {}
         for r in rows:
@@ -631,7 +698,13 @@ def main():
         print(f"\n{len(rows) - len(bad)} of {len(rows)} cases have parity")
         print("  " + "  ".join(f"{k}={v}" for k, v in sorted(by_cat.items())))
         if bad:
-            print("\nA divergence means an agent's answer depends on which door it used.")
+            if any(r["category"] != "INPUT_DRIFT" for r in bad):
+                print("\nA divergence means an agent's answer depends on which "
+                      "door it used.")
+            if any(r["category"] == "INPUT_DRIFT" for r in bad):
+                print("\nAn INPUT_DRIFT means the responder answered two "
+                      "questions, not that the doors disagree: the same place "
+                      "name resolved to a different polygon between the calls.")
             for r in bad:
                 print(f"  {r['case']}: {r['detail']}")
     return 1 if bad else 0
