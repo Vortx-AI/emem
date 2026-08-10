@@ -425,6 +425,64 @@ def verify_prose_counts() -> list[str]:
     return hits
 
 
+# The trailing-number form. PROSE_CLAIMS reads "168 algorithms"; the arcade
+# writes "archetype algorithms - 168 content-addressed recipes", with the noun
+# first, which none of those patterns can match.
+SCRIPT_PROSE_CLAIMS = PROSE_CLAIMS + (
+    ("algorithms", r"(\d{2,4})\s+content-addressed recipes\b"),
+    ("algorithms", r"\balgorithms\s*[—–:-]\s*(\d{2,4})\b"),
+)
+
+
+def verify_script_prose_counts() -> list[str]:
+    """The same assertion, for prose that lives inside a <script> block.
+
+    verify_prose_counts strips <script> before it scans, which is right for a
+    page whose script is machinery. web/arcade.html is not that page: nearly
+    all of its agent-facing prose is JS string literals, so the largest such
+    surface in the repo was guarded by nothing at all. It served "163
+    content-addressed recipes" against a responder answering 168, and a stale
+    "15 of 105 tools", and this script reported no drift the whole time.
+
+    Only literals shaped like prose are read: six spaces or more. That is what
+    separates a sentence from minified three.js, which shares the same script
+    tag and would otherwise produce a wall of noise.
+    """
+    hits: list[str] = []
+    lit = re.compile(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"|`([^`\\]*)`")
+    for path in sorted(REPO.glob("web/*.html")):
+        if any(h in path.name for h in COUNT_HISTORY):
+            continue
+        body = path.read_text(encoding="utf-8", errors="replace")
+        for block in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>",
+                                body, re.S):
+            for m in lit.finditer(block):
+                s = m.group(1) or m.group(2) or m.group(3) or ""
+                if s.count(" ") < 6:
+                    continue
+                # Two patterns can reach the same number from opposite sides;
+                # keyed on where the number sits, that is one finding.
+                said: set[tuple[str, int]] = set()
+                for key, pat in SCRIPT_PROSE_CLAIMS:
+                    want = CANON.get(key)
+                    if want is None:
+                        continue
+                    for c in re.finditer(pat, s, re.I):
+                        lead = s[max(0, c.start() - 24):c.start()].lower()
+                        if "then-" in lead or "was " in lead or "were " in lead:
+                            continue
+                        got = int(c.group(1))
+                        if got == want or (key, c.start(1)) in said:
+                            continue
+                        said.add((key, c.start(1)))
+                        ctx = s[max(0, c.start() - 40):c.end() + 20].strip()
+                        hits.append(
+                            f"{path.relative_to(REPO)}: script prose says "
+                            f"{got} for {key}, the responder answers {want} "
+                            f"({ctx[:70]!r})")
+    return hits
+
+
 def verify_tool_counts() -> list[str]:
     """Assert the CURRENT numbers, rather than listing yesterday's stale ones.
 
@@ -475,6 +533,7 @@ def verify_canon() -> list[str]:
     # comparing to CANON, not by listing phrases that have already gone stale.
     drift.extend(verify_tool_counts())
     drift.extend(verify_prose_counts())
+    drift.extend(verify_script_prose_counts())
     drift.extend(verify_prose_version())
     drift.extend(verify_package_versions())
     return drift
