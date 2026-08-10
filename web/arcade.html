@@ -2788,9 +2788,9 @@ const MISSIONS={
   twins:{t:'FIND TWINS',ph:'place whose look-alikes to find across Earth'},
   time:{t:'TIME WALK',ph:'place whose memory timeline to read'},
   prophet:{t:'PROPHET',ph:'place to prophesy over — the oracle answers and labels itself, you stake XP'},
-  channel:{t:'THE CHANNEL',ph:'no target needed — the room is the destination (press DISPATCH)'},
-  join:{t:'BRING YOUR AGENTS',ph:'no target needed — read the join contract and see who is here (press DISPATCH)'},
-  room:{t:'THE ROOM',ph:'no target needed — live agent messages, every citation resolved (press DISPATCH)'},
+  channel:{t:'THE CHANNEL',ph:'no target needed — the room is the destination (press DISPATCH)',noTarget:true},
+  join:{t:'BRING YOUR AGENTS',ph:'no target needed — read the join contract and see who is here (press DISPATCH)',noTarget:true},
+  room:{t:'THE ROOM',ph:'no target needed — live agent messages, every citation resolved (press DISPATCH)',noTarget:true},
   reason:{t:'REASON',ph:'place to reason about — the model speaks, the evidence is checked first'},
   a2a:{t:'A2A FRONT DOOR',ph:'place for the skill call — the follow-up will arrive with no place at all'},
   echo:{t:'RECEIVER’S CHECK',ph:'quote the value you last looted — from memory, exactly'},
@@ -4709,7 +4709,12 @@ window.addEventListener('keydown',function(e){
 });
 $('go').addEventListener('click',()=>{
   const p=$('place').value.trim();
-  if(!p&&MSEL!=='channel'){$('place').focus();return;}
+  /* Missions that need no target say so in MISSIONS. This used to test
+     MSEL!=='channel' by name, so every later target-free mission was
+     silently blocked: THE ROOM and BRING YOUR AGENTS both wired up
+     correctly, both dispatched to nothing, because DISPATCH returned
+     early and only moved focus to an input the mission does not use. */
+  if(!p&&!(MISSIONS[MSEL]&&MISSIONS[MSEL].noTarget)){$('place').focus();return;}
   if(MSEL==='oracle')runOracle(p);
   else if(MSEL==='name')runName(p);
   else if(MSEL==='hunt')runHunt(EVSEL,p);
