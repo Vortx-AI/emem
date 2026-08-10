@@ -364,7 +364,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </header>
 
   <p class=lede>
-    Every fact this protocol serves is <b>content-addressed</b> (BLAKE3 over canonical CBOR → 32-char base32 CID).
+    Every fact this protocol serves is <b>content-addressed</b> (BLAKE3 over canonical CBOR → 52-char base32 CID).
     Every recall is wrapped in a <b>receipt</b> signed by the responder's ed25519 key over a deterministic preimage.
     <span class=accent>This page verifies that signature in your browser</span>, with no call back to the issuer.
     Drop a fact CID, an <code>emem:</code> token, a signed <code>/memories/</code> message, or a raw receipt JSON, and watch the math run.
@@ -376,7 +376,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <label for=cidInput>a fact CID, an <code>emem:</code> token, or a <code>/memories/</code> path</label>
     <div class=row>
       <input id=cidInput type=text spellcheck=false autocomplete=off
-             placeholder="a 32-char fact CID, emem:fact:… , or /memories/by_attester/…">
+             placeholder="a 52-char fact CID, emem:fact:… , or /memories/by_attester/…">
       <button id=btnVerifyCid class=primary type=button>fetch &amp; verify</button>
     </div>
     <div class=examples>

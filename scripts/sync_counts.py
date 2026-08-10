@@ -282,7 +282,12 @@ COUNT_HISTORY = (
 # pattern names one CANON key and one way the docs phrase it.
 PROSE_CLAIMS = (
     ("mcp_tools",    r"(\d{2,4})\s+MCP tools\b"),
-    ("mcp_tools",    r"\b(\d{2,4})\s+tools\s*\((\d{1,3})\s*core"),
+    # Both the parenthesised form, "107 tools (16 core, 91 extended)", and the
+    # colon form, "107 tools: 16 core, 91 extended". ARCHITECTURE_NOTES.md used
+    # the colon and drifted to 104/15/89 unnoticed, because requiring "(" meant
+    # this pattern was still remembering a phrasing, which is the exact failure
+    # the docstring below claims to have fixed.
+    ("mcp_tools",    r"\b(\d{2,4})\s+tools\s*[:(]\s*(\d{1,3})\s*core"),
     ("mcp_core",     r"the\s+(\d{1,3})\s+tools of the core loop"),
     ("mcp_core",     r"(\d{1,3})[- ]tool core loop"),
     ("algorithms",   r"(\d{2,4})\s+algorithms\b"),

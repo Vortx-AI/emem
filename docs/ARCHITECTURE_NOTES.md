@@ -227,7 +227,7 @@ write path from scratch.
 - Canonical catalog: `pub const TOOLS: &[ToolDescriptor]` in
   `crates/emem-mcp/src/lib.rs:716`; `ToolDescriptor` struct at :31-68 (name,
   title, description, when_to_use, input_schema, level, category, four MCP
-  hint flags, tier). 104 tools: 15 core, 89 extended. Helpers: `lookup`
+  hint flags, tier). 107 tools: 16 core, 91 extended. Helpers: `lookup`
   (:1738), `tools_at_level` (:1743), `tools_at_tier` (:1792).
 - JSON-RPC dispatch and the REST mirror live in emem-api-rest
   (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:14875`, `mcp_tool_call`
@@ -250,9 +250,19 @@ write path from scratch.
   `crates/emem-primitives/src/memory_bundle.rs` (strict `emem:bundle:` parser at
   :177-183).
 
-## Counts that CI does not guard
+## Counts, and what guards them
 
-`scripts/sync_counts.py --check` verifies the canonical counts (89 tools,
-116 /v1 paths, 46 sources, 43 slots, 124 wired bands, 168 algorithms, 27
-topics, 17 crates) against the registries and the live responder, but no CI
-workflow runs it. Run it manually after editing any doc that quotes a count.
+`scripts/sync_counts.py --check` verifies the canonical counts (107 tools,
+154 /v1 paths, 46 sources, 43 slots, 129 wired bands, 168 algorithms, 27
+topics, 18 crates) against the registries and the live responder. CI runs it
+(`.github/workflows/ci.yml`, "prose counts match the responder"); it warns
+rather than fails when the origin is unreachable, so a green run does not
+by itself prove the counts were checked against a live responder.
+
+Two limits worth knowing before trusting a green result. The scan matches a
+fixed set of phrasings, so a count written a new way is invisible to it until
+the pattern is added: this file drifted to a stale `104 / 15 / 89` and went on
+passing, because the tool-count pattern required a parenthesis and this file
+used a colon. And documents in `COUNT_HISTORY` are exempt on purpose, because they
+record what a count *was*: `then-102` in a benchmark row and "v1 said 102" in
+the whitepaper are correct forever and must not be rewritten.
