@@ -282,6 +282,31 @@ COUNT_HISTORY = (
 # pattern names one CANON key and one way the docs phrase it.
 PROSE_CLAIMS = (
     ("mcp_tools",    r"(\d{2,4})\s+MCP tools\b"),
+    # The REST surface, in every phrasing the repo actually used. None of these
+    # existed until 2026-08-10 and all four were wrong at once: web/llms.txt
+    # told agents "133 documented /v1 paths" and docs/agents.md "114 paths
+    # under /v1/* (133 documented; 138 total in /openapi.json)" against a
+    # responder serving 155 and 161. The tool and algorithm numbers in the same
+    # sentences were current, which is the tell: whoever updated them updated
+    # only what a pattern here was watching.
+    ("rest_paths_v1", r"(\d{2,4})\s+(?:documented\s+)?/v1\s+paths"),
+    ("rest_paths_v1", r"(\d{2,4})\s+paths\s+under\s*/v1"),
+    ("rest_paths_v1", r"(\d{2,4})\s+documented\s+REST\s+paths\s+under\s*/v1"),
+    # "144 documented, 138 under /v1/*": the first number is the whole OpenAPI
+    # document, the second is the /v1 subset, so they bind to different keys.
+    ("rest_paths_openapi_total", r"(\d{2,4})\s+documented,\s*\d{2,4}\s+under\s*/v1"),
+    ("rest_paths_v1", r"\d{2,4}\s+documented,\s*(\d{2,4})\s+under\s*/v1"),
+    ("rest_paths_v1", r"\((\d{2,4})\s+documented;"),
+    ("rest_paths_openapi_total", r"(\d{2,4})\s+total\s+in\s*/openapi\.json"),
+    # The MCP resource catalog. resources/list serves 19; agents.md and the
+    # structured object in web/agent.json both still said 18.
+    ("mcp_resources", r"(\d{1,3})\s+static\s+MCP\s+resources"),
+    ("mcp_resources", r"(\d{1,3})\s+static\s*\+\s*\d{1,3}\s+URI templates"),
+    ("mcp_uri_templates", r"\d{1,3}\s+static\s*\+\s*(\d{1,3})\s+URI templates"),
+    # "168 algorithms" was watched; "162 composition recipes", the phrasing
+    # docs/registries.md and the registry packs use, was not.
+    ("algorithms",   r"(\d{2,4})\s+(?:named\s+)?composition (?:recipes|algorithms)"),
+    ("materializer_wired", r"(\d{2,4})\s+materializer-wired"),
     # Both the parenthesised form, "107 tools (16 core, 91 extended)", and the
     # colon form, "107 tools: 16 core, 91 extended". ARCHITECTURE_NOTES.md used
     # the colon and drifted to 104/15/89 unnoticed, because requiring "(" meant
@@ -389,15 +414,60 @@ def verify_prose_counts() -> list[str]:
     that record history on purpose are excluded by name above.
     """
     hits: list[str] = []
-    targets = sorted(REPO.glob("docs/*.md")) + sorted(REPO.glob("web/*.html")) + [
+    # web/llms.txt is here because it is the most agent-facing prose in the
+    # repo and it was guarded by nothing but a burn-down list of phrases that
+    # had already gone stale. It served "133 documented /v1 paths" against a
+    # responder answering 155, in the same sentence as a correct tool count.
+    named = [
         REPO / "README.md", REPO / "AGENTS.md", REPO / "ARCHITECTURE_NOTES.md",
+        REPO / "docs" / "ARCHITECTURE_NOTES.md", REPO / "web" / "llms.txt",
     ]
+    targets = sorted(REPO.glob("docs/*.md")) + sorted(REPO.glob("web/*.html")) + named
+    # The RENDER of those same docs. `docs/book/` is mdbook output, it is
+    # gitignored, and `crates/emem-api-rest` bakes it with include_dir!, so
+    # https://emem.dev/docs serves whatever happened to be on the builder's disk
+    # when the binary was compiled. Nothing rebuilt it and nothing checked it,
+    # so /docs/agents.html served "163 algorithms" and "118 documented, 114
+    # under /v1/*" for weeks while docs/agents.md next to it said 168 and every
+    # gate was green: doc_lint skips docs/book/ as generated output, and this
+    # function only ever globbed one directory level.
+    #
+    # Only the renders of pages already scanned above are added, so this checks
+    # freshness of the render and does not quietly widen what counts as a claim.
+    # Absent (a clean checkout, or CI, where the directory does not exist) it
+    # adds nothing rather than reporting a pass it did not perform.
+    # A source excluded as history stays excluded in its render: the exclusion
+    # is a fact about the CONTENT, and COUNT_HISTORY matches file names, so
+    # `collaboration-log.md` would otherwise come straight back in as
+    # `collaboration-log.html` carrying every count it ever recorded.
+    book = REPO / "docs" / "book"
+    if book.is_dir():
+        targets += [b for p in sorted(REPO.glob("docs/*.md"))
+                    if not any(h in p.name for h in COUNT_HISTORY)
+                    and (b := book / f"{p.stem}.html").exists()]
+    # A named target that does not exist is a check that silently stopped
+    # running. `ARCHITECTURE_NOTES.md` was listed at the repo root, where it has
+    # not lived for some time, and the PROSE_CLAIMS comment above still credits
+    # that entry with catching its drift; the docs/*.md glob was doing the work.
+    for path in named:
+        if not path.exists() and path.name != "ARCHITECTURE_NOTES.md":
+            hits.append(f"{path.relative_to(REPO)}: named in verify_prose_counts "
+                        f"but does not exist (renamed or deleted?)")
+    if not (REPO / "ARCHITECTURE_NOTES.md").exists() and not (
+            REPO / "docs" / "ARCHITECTURE_NOTES.md").exists():
+        hits.append("ARCHITECTURE_NOTES.md: named in verify_prose_counts at both "
+                    "the repo root and docs/ and present at neither")
     for path in targets:
         if not path.exists() or any(h in path.name for h in COUNT_HISTORY):
             continue
         body = path.read_text(encoding="utf-8", errors="replace")
         body = re.sub(r"<script.*?</script>|<style.*?</style>", "", body, flags=re.S)
-        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
+        # Backticks come out with the tags. A markdown code span is invisible to
+        # a reader of the rendered page, so it must be invisible to the claim
+        # patterns too: "138 total in `/openapi.json`" is the same assertion as
+        # "138 total in /openapi.json", and requiring the pattern to know which
+        # one the author typed is how a phrase list rots.
+        flat = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body).replace("`", ""))
         for key, pat in PROSE_CLAIMS:
             want = CANON.get(key)
             if want is None:
@@ -596,6 +666,14 @@ def write_agent(check_only: bool) -> list[str]:
                f'"mcp_tools": {{\n    "core": {CANON["mcp_core"]},\n    "extended": {CANON["mcp_extended"]},\n    "total": {CANON["mcp_tools"]}\n  }}', new)
     new = _sub(r"\d+ static MCP resources \+ \d+ URI templates",
                f'{CANON["mcp_resources"]} static MCP resources + {CANON["mcp_uri_templates"]} URI templates', new)
+    # The structured mcp_resources object, for exactly the reason the mcp_tools
+    # object above got one: only the prose regex was maintained, so line 6 of
+    # this file said "19 static MCP resources + 8 URI templates" while the
+    # object a machine actually parses, at the bottom of the same file, said
+    # `"static": 18`. The live responder's resources/list serves 19.
+    new = _sub(r'"mcp_resources":\s*\{\s*"static":\s*\d+,\s*"uri_templates":\s*\d+\s*\}',
+               f'"mcp_resources": {{\n    "static": {CANON["mcp_resources"]},\n'
+               f'    "uri_templates": {CANON["mcp_uri_templates"]}\n  }}', new)
     new = _sub(r"\d+ algorithms in a content-addressed registry",
                f'{CANON["algorithms"]} algorithms in a content-addressed registry', new)
     new = _sub(r"\d+ materializer-wired band names across \d+ cube slots",

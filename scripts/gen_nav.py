@@ -228,6 +228,18 @@ def main():
     a = ap.parse_args()
 
     changed, drifted, skipped = [], [], []
+    # A SKIP entry for a page that is gone stops being a decision and becomes a
+    # comment, and it silently shrinks what this gate covers. Every entry was
+    # re-checked on 2026-08-10 against the file it names: whitepaper-v2.html
+    # does carry the markers render_whitepaper.py writes (it calls render()
+    # here at line 295), card.html and api-redoc.html carry no nav markers and
+    # no site chrome, and arcade.html still carries the explicit way back its
+    # entry promises (href="/" plus emem.dev links in the notes footer).
+    present = {os.path.basename(p) for p in glob.glob("web/*.html")}
+    for name in sorted(SKIP):
+        if name not in present:
+            drifted.append(f"{name} is listed in SKIP but web/{name} does not "
+                           f"exist; drop the entry or fix the name.")
     for path in sorted(glob.glob("web/*.html")):
         name = os.path.basename(path)
         if name in SKIP:

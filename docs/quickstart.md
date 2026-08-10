@@ -176,13 +176,20 @@ curl -sX POST https://emem.dev/v1/memory_bundle \
         {"cell":"defi.zb592.nemu.zEvE","band":"indices.ndvi"}
       ],
       "purpose":"site assessment 2026-05"
-    }' | jq '.bundle_token'
-# "emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq"
+    }' | jq -r '.bundle_token'
+# emem:bundle:scoo4edeuqkgmkzbjw5m3nsa4m   <- yours will differ, see below
 
 # Anyone with the token can pull the same signed envelope.
-curl -sX GET https://emem.dev/v1/memory_bundle/emem:bundle:vlkbh5bfzjeem6t3o54yje5rrq | jq .schema
+curl -sX GET "https://emem.dev/v1/memory_bundle/$TOKEN" | jq .schema
 # "emem.memory_bundle.v1"
 ```
+
+The bundle cid is over the member fact CIDs, and NDVI at a live cell gets a
+new fact as new imagery lands, so the same two triples mint a different
+bundle token on a different day. Use the token the compose call just handed
+you; a token copied out of this page resolves to `404 cid_not_found` once
+the underlying facts have moved on. That is the content addressing working,
+not a broken example.
 
 ## Agent memory: write, search, audit on the same trust layer
 

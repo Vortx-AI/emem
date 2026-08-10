@@ -59,12 +59,20 @@ SCALE_TOKENS = frozenset(
     + ["--phi", "--mono", "--display"])
 
 # Pages that are one theme on purpose, so the dark-mode check does not apply.
-# Each needs a reason a stranger would accept.
+# Each needs a reason a stranger would accept, and each was re-checked on
+# 2026-08-10 by asking whether check 4 would still fail without the entry.
+# tools.html was here on the reasoning that it is "a generated reference sheet
+# with its own light palette". It grew a `prefers-color-scheme: dark` block at
+# some point since, so the reason had quietly stopped being true and the entry
+# was buying nothing: the page passes check 4 on its own. An exemption that
+# exempts nothing is worse than none, because the next reader takes it as
+# evidence the page has no dark mode and stops looking. Removed, and the gate
+# now holds tools.html to the same rule as every other page, so a regeneration
+# that drops the dark block is reported.
 SINGLE_THEME = {
     "gallery.html": "a printed-plate look with its own warm paper palette; "
                     "inverting it would be a different artefact",
     "scoreboard.html": "always dark, because it is a scoreboard shown on a wall",
-    "tools.html": "a generated reference sheet with its own light palette",
     "api-redoc.html": "hosts a third-party renderer that brings its own theme",
     "card.html": "a share card rendered at a fixed size for embedding",
 }
@@ -93,6 +101,10 @@ EXEMPT = {
     # widening /tokens.css until it no longer constrains the 23 pages it exists
     # for. It moved into web/ from a gitignored path on 2026-08-10, which is
     # the only reason this gate can suddenly see it.
+    # Re-checked 2026-08-10 by measuring what the entry actually buys: the page
+    # links no /tokens.css, requests no Newsreader, forks --mono, and carries 88
+    # literal font-sizes. All four checks, not one, so this is load-bearing and
+    # the reason above is the reason.
     "arcade.html": "a 3D game canvas, not a document page: type is sized "
                    "against the WebGL stage and the palette is its night sky",
 }
@@ -118,6 +130,17 @@ def main():
 
     fails = []
     checked = 0
+
+    # A page named in an exemption table that no longer exists is a decision
+    # about a file nobody can look at. It also hides a rename: move a page and
+    # its exemption silently keeps applying to nothing while the page itself is
+    # checked, or worse, a new page inherits the old name and the exemption.
+    present = {os.path.basename(p) for p in pages}
+    for table, label in ((EXEMPT, "EXEMPT"), (SINGLE_THEME, "SINGLE_THEME")):
+        for name in sorted(table):
+            if name not in present:
+                fails.append(f"{name} is listed in {label} but web/{name} does "
+                             f"not exist; drop the entry or fix the name.")
 
     for path in pages:
         name = os.path.basename(path)

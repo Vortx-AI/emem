@@ -147,7 +147,7 @@ removed when its no-key path closed.
 
 ## emem-algorithms (algorithms-v0.json)
 
-162 composition recipes split across three kinds:
+168 composition recipes split across three kinds:
 
 | Kind        | Count | What it composes                                                       |
 |-------------|-------|------------------------------------------------------------------------|

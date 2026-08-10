@@ -1159,7 +1159,7 @@ is the hardest honest test available: open, adversarially large, and
 already full of the drift the protocol exists to stop.
 
 Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
-demand: **46 declared source schemes** and **124 materializer-wired
+demand: **46 declared source schemes** and **129 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and four open
 foundation-model embeddings (Tessera, Clay v1.5, Prithvi-EO-2.0, and

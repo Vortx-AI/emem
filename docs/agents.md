@@ -190,9 +190,9 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface ships 114 paths under
-`/v1/*` (133 documented; 138 total in `/openapi.json`), 107 MCP tools (16 core, 91 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 107), 18 static MCP
+port 5051. The live surface documents 155 paths under
+`/v1/*` (161 total in `/openapi.json`), 107 MCP tools (16 core, 91 extended, with
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 107), 19 static MCP
 resources + 8 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
@@ -204,7 +204,7 @@ Four discovery URLs for agent onboarding:
 | URL | Purpose |
 |---|---|
 | `GET /openapi.json` | Full OpenAPI 3.1, every endpoint and schema |
-| `GET /mcp` | MCP 2025-03-26 Streamable-HTTP transport |
+| `GET /mcp` | MCP 2025-11-25 Streamable-HTTP transport |
 | `GET /v1/agent_card` | Discover-first card: band taxonomy + tool list |
 | `GET /llms.txt` | Page-scoped manifest for LLM crawlers |
 
@@ -215,15 +215,15 @@ Four discovery URLs for agent onboarding:
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 144 documented, 138 under `/v1/*` |
+| REST paths (OpenAPI) | 161 documented, 155 under `/v1/*` |
 | MCP tools | 107 (16 core / 91 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
-| MCP resources | 18 static + 8 URI templates |
+| MCP resources | 19 static + 8 URI templates |
 | Materializer-wired band names | 129 |
 | Source schemes | 46 declared (several not yet wired) |
-| Data connectors | 16 data + 13 utility modules |
-| Topics (declared / live) | 27 / 11 |
+| Data connectors | 27 data + 7 utility modules |
+| Topics (declared / live) | 27 / 27 |
 | Version | 2.1.0 |
 
 ---
@@ -231,7 +231,8 @@ Four discovery URLs for agent onboarding:
 ## Connect
 
 All hosted-MCP clients point at `https://emem.dev/mcp` (Streamable-HTTP,
-MCP 2025-03-26). For self-host on port 5051, replace the URL. Reads
+MCP 2025-11-25; `initialize` also negotiates 2025-06-18, 2025-03-26 and
+2024-11-05). For self-host on port 5051, replace the URL. Reads
 require no keys.
 
 | Client | Config |
@@ -318,11 +319,11 @@ curl -s -X POST https://emem.dev/v1/recall \
   "facts": [{
     "band": "copdem30m.elevation_mean", "cell": "defi.zb493.xuqA.zcb5f",
     "tslot": 0, "value": 918.0, "unit": "m", "confidence": 0.95,
-    "derivation": {"fn_key": "copernicus_dem_30m_aws_pixel@1", "args": [12.971899, 77.593665]},
-    "sources": [{"scheme": "copernicus.dem.30m.aws",
-                 "id": "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_N12_00_E077_00_DEM/Copernicus_DSM_COG_10_N12_00_E077_00_DEM.tif",
+    "derivation": {"fn_key": "open_meteo_copdem90m@1", "args": [12.971899, 77.593665]},
+    "sources": [{"scheme": "open_meteo",
+                 "id": "https://api.open-meteo.com/v1/elevation?latitude=12.971899&longitude=77.593665",
                  "captured_at": "2021-04-30T00:00:00Z"}],
-    "signed_at": "2026-05-03T17:45:32Z",
+    "signed_at": "2026-05-28T19:54:32Z",
     "signer_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"
   }],
   "bands_already_attested_at_cell": ["...keys actually present at this cell..."],
@@ -355,6 +356,12 @@ Key fields:
 - `bands_already_attested_at_cell` is the no-silent-fallback escape
   hatch: if your band returned empty but the cell carries data under a
   different name, this list shows what is there.
+- Read `derivation.fn_key` and `sources[].scheme`, not the band name, to
+  know where a number came from. The band above is named
+  `copdem30m.elevation_mean`, and the fact stored at this cell was derived
+  by `open_meteo_copdem90m@1` from the Open-Meteo elevation API rather than
+  by a range read of the 30 m Copernicus COG. A band name is a slot in the
+  cube; the derivation is the provenance.
 
    ### Find similar
 
