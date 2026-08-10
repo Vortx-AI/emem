@@ -23,12 +23,18 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.request
 from pathlib import Path
 
 BASE = os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/")
-ARCADE_HTML = Path(os.environ.get("EMEM_ARCADE_HTML", "var/arcade/arcade.html"))
+# web/arcade.html is the page now: tracked, and include_str!'d into the binary.
+# This defaulted to the old gitignored var/ copy, so after the move the gate was
+# happily checking a stale file that no longer had the code it was asserting on.
+# A gate pointed at the wrong artefact is worse than no gate, because it reports
+# a pass.
+ARCADE_HTML = Path(os.environ.get("EMEM_ARCADE_HTML", "web/arcade.html"))
 
 problems: list[str] = []
 notes: list[str] = []
@@ -63,9 +69,17 @@ def main() -> int:
             # `o.<field>` or `'field'` / "field" is how the parser reads it
             if f"o.{f}" not in html and f"'{f}'" not in html and f'"{f}"' not in html:
                 problems.append(f"page never reads header field {f!r}, but the contract lists it")
+        # An act is renderable if the page names it at all: as a quoted literal
+        # in a comparison, or as a bare object key like `ask:'\U0001f52e'` in the
+        # icon table. Checking only the quoted forms reported `ask` as
+        # unhandled while the page had `ask:` in FACTS_ICON and rendered it
+        # through the generic path, which is a gate crying wolf about its own
+        # regex. Acts the page never mentions still get reported, because those
+        # really would arrive with no icon and no label.
         for a in acts:
-            if f"'{a}'" not in html and f'"{a}"' not in html:
-                notes.append(f"act {a!r} is published but the page has no branch for it")
+            if not re.search(rf"(['\"]){a}\1|\b{a}\s*:", html):
+                notes.append(f"act {a!r} is published and the page never names it; "
+                             f"it will render through the generic path with no icon")
         print(f"  renderer: checked {ARCADE_HTML}")
     else:
         notes.append(f"renderer not present at {ARCADE_HTML} (gitignored build artifact); "
