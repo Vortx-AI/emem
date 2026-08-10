@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Record this repo's claims as a signed emem note; fail when one stops being true.
 
-Three subcommands:
+Four subcommands:
 
   record   probe every claim in claims.py, write the answers into one ledger,
            sign it with an ed25519 key, POST it to emem, and pin its content
            address in assertions.lock.json.
   check    the gate. Re-fetch the ledger, verify its signature offline, rebuild
            it from the repo, and re-run every probe. Non-zero exit on drift.
-  demo     run check green, then apply a one-character edit and run the SAME
-           check again so you can see it go red.
+  demo     run check green, then run the SAME check three more times under a
+           deliberate edit, so you see a pass and three failures. Read-only.
+  selftest attack the signed record four ways offline and require each attack to
+           be named. Needs no key and no writes.
 
 Exit codes match the other gates in this repo: 0 clean, 1 drift, 2 unreachable.
 
@@ -78,7 +80,14 @@ def identity() -> tuple[SigningKey, str, str]:
 def ledger_text(claims: list[dict], observed: dict[str, str],
                 recorded_at: str, attester: str) -> str:
     """The exact bytes that get signed. Deterministic given the repo plus the
-    two values the lock remembers, so `check` can rebuild it and diff."""
+    two values the lock remembers, so `check` can rebuild it and diff.
+
+    A claim with no recorded answer renders as NEVER RECORDED rather than
+    raising. Adding a claim and running the gate before running `record` is the
+    most ordinary thing a user of this will do, and the first version answered
+    it with a KeyError traceback: exit 1 by accident, no finding, and inside
+    `demo` it took the whole run down. A gate owes a sentence, not a stack.
+    """
     out = [
         "# stabilisation ledger",
         "",
@@ -95,7 +104,7 @@ def ledger_text(claims: list[dict], observed: dict[str, str],
         out += [f"## {c['id']}",
                 f"claim: {c['claim']}",
                 f"how: {c['how']}",
-                f"observed: {observed[c['id']]}"]
+                f"observed: {observed.get(c['id'], '<NEVER RECORDED>')}"]
         if c.get("token"):
             out += [f"token: {c['token']}", f"quotes: {c['quotes']}"]
         out.append("")
@@ -162,6 +171,45 @@ def cmd_record(_a) -> int:
 
 
 # --------------------------------------------------------------------- check
+def verify_record(note: dict, lock: dict) -> list[str]:
+    """Is this the record git pins, and did its named attester sign these bytes?
+
+    Nothing the responder says is taken on trust: the bytes it served are
+    re-hashed here and the signature is checked here against the attester's own
+    public key. Split out of run_check so `selftest` can attack it directly with
+    a mutated note instead of re-running every network probe.
+
+    The three questions are asked independently. An earlier version chained them
+    with elif, so a note signed by the wrong key was never cryptographically
+    verified at all: the report named the key and stopped. That is fine for
+    turning the gate red and useless for telling a forgery from a re-signing.
+    """
+    problems: list[str] = []
+    served = note["content"]
+    a = note.get("authorship") or {}
+    local_cid = file_cid(served.encode())
+    if local_cid != lock["ledger_file_cid"]:
+        problems.append(
+            f"the ledger at {lock['ledger_path']} now hashes to {local_cid}, but the lock "
+            f"pins {lock['ledger_file_cid']}: the recorded assertions were rewritten")
+    if a.get("attester_pubkey_b32") != lock["attester_pubkey_b32"]:
+        problems.append(f"the ledger is now signed by {a.get('attester_pubkey_b32')}, "
+                        f"not {lock['attester_pubkey_b32']}")
+    if a.get("body_hash_hex") != blake3.blake3(served.encode()).hexdigest():
+        # The signature is bound to a body that is not the one served, so there
+        # is nothing left to verify it against. Reporting a bad signature on top
+        # would name the wrong defect.
+        return problems + ["the signature on the ledger is bound to a different body "
+                           "than the bytes served"]
+    try:
+        VerifyKey(base64.b32decode(a["attester_pubkey_b32"].upper() + "====")).verify(
+            write_digest(a["signed_path"], served.encode()),
+            base64.b32decode(a["sig_b32"].upper() + "="))
+    except (BadSignatureError, ValueError, KeyError, TypeError) as e:
+        problems.append(f"the ledger's ed25519 signature does not verify: {e}")
+    return problems
+
+
 def run_check(claims: list[dict], lock: dict) -> list[str]:
     """Every failure this gate can report. Returns a list of problems.
 
@@ -186,25 +234,7 @@ def run_check(claims: list[dict], lock: dict) -> list[str]:
         # ends up green about a record that is no longer there.
         return problems + [f"the ledger at {lock['ledger_path']} is gone: HTTP {e.code}"]
     served = note["content"]
-    a = note.get("authorship") or {}
-    local_cid = file_cid(served.encode())
-    if local_cid != lock["ledger_file_cid"]:
-        problems.append(
-            f"the ledger at {lock['ledger_path']} now hashes to {local_cid}, but the lock "
-            f"pins {lock['ledger_file_cid']}: the recorded assertions were rewritten")
-    if a.get("attester_pubkey_b32") != lock["attester_pubkey_b32"]:
-        problems.append(f"the ledger is now signed by {a.get('attester_pubkey_b32')}, "
-                        f"not {lock['attester_pubkey_b32']}")
-    elif a.get("body_hash_hex") != blake3.blake3(served.encode()).hexdigest():
-        problems.append("the signature on the ledger is bound to a different body than "
-                        "the bytes served")
-    else:
-        try:
-            VerifyKey(base64.b32decode(a["attester_pubkey_b32"].upper() + "====")).verify(
-                write_digest(a["signed_path"], served.encode()),
-                base64.b32decode(a["sig_b32"].upper() + "="))
-        except (BadSignatureError, ValueError, KeyError) as e:
-            problems.append(f"the ledger's ed25519 signature does not verify: {e}")
+    problems += verify_record(note, lock)
 
     # 2. The repo still says what was signed. Rebuilding from claims.py means an
     #    edit to a claim's prose is caught even when the world has not moved.
@@ -282,55 +312,172 @@ def report(problems: list[str], n: int, lock: dict) -> int:
 
 
 # ---------------------------------------------------------------------- demo
+def scenario(n: int, title: str, edit: str, problems: list[str], expect: str) -> bool:
+    """One deliberate edit, checked. A scenario passes only when the gate goes
+    red AND names `expect`.
+
+    Requiring the reason matters. A red is easy to get by accident: point this
+    at a responder that is mid-restart and every probe fails, every scenario
+    goes red, and a demo that only counted non-zero exits would print its
+    triumphant closing paragraph having proved nothing.
+    """
+    print(f"\n{n}. {title}")
+    print(f"   edit: {edit}")
+    for p in problems:
+        print(f"   x {p}")
+    if not problems:
+        print("   NOT CAUGHT. This is a failure of the demo, not a pass.")
+        return False
+    if not any(expect in p for p in problems):
+        print(f"   CAUGHT FOR THE WRONG REASON: nothing said {expect!r}, so this red "
+              f"is not evidence for the claim above it.")
+        return False
+    print(f"   caught: a finding names {expect!r}")
+    return True
+
+
 def cmd_demo(_a) -> int:
     if not LOCK.exists():
         print(f"no lock at {LOCK}; run `stabilise.py record` first")
         return 2
     lock = json.loads(LOCK.read_text())
+    try:
+        return _demo(lock)
+    except urllib.error.URLError as e:
+        print(f"  (skipped: {RESPONDER} unreachable: {e})")
+        return 2
 
-    print("=" * 72)
+
+def _demo(lock: dict) -> int:
     print("1. the recorded claims, checked against the live responder")
-    print("=" * 72)
     clean = run_check(CLAIMS, lock)
-    report(clean, len(CLAIMS), lock)
+    rc = report(clean, len(CLAIMS), lock)
     if clean:
         print("\nThe green half of this demo did not come out green, so the red half "
               "\nbelow proves nothing. Re-run `record` and try again.")
-        return 1
+        return rc
 
-    print()
-    print("=" * 72)
-    print("2. the same check, after one digit of the quoted value is edited")
-    print("=" * 72)
+    ok = []
+
+    # A number in prose is edited. The world has not moved; the citation next to
+    # the number now contradicts it.
     edited = [dict(c) for c in CLAIMS]
     target = next(c for c in edited if c.get("token"))
     old = target["quotes"]
     i = old.index(".") + 1
     new = old[:i] + str((int(old[i]) + 1) % 10) + old[i + 1:]
-    print(f"editing {target['id']}: {old} -> {new}")
     target["claim"] = target["claim"].replace(old, new)
     target["quotes"] = new
-    rc2 = report(run_check(edited, lock), len(edited), lock)
+    ok.append(scenario(2, "one digit of the quoted value is edited",
+                       f"{target['id']}: {old} -> {new}",
+                       run_check(edited, lock),
+                       "but the signed fact says"))
 
-    print()
-    print("=" * 72)
-    print("3. the same check, after one character of the citation is edited")
-    print("=" * 72)
+    # The citation is edited instead. It stops resolving at all.
     edited = [dict(c) for c in CLAIMS]
     target = next(c for c in edited if c.get("token"))
     old = target["token"]
     target["token"] = old[:-1] + ("a" if old[-1] != "a" else "b")
-    print(f"editing {target['id']}: last character of the token, "
-          f"...{old[-8:]} -> ...{target['token'][-8:]}")
-    rc3 = report(run_check(edited, lock), len(edited), lock)
+    ok.append(scenario(3, "one character of the citation is edited",
+                       f"{target['id']}: ...{old[-8:]} -> ...{target['token'][-8:]}",
+                       run_check(edited, lock),
+                       "its citation does not resolve"))
 
-    if rc2 == 0 or rc3 == 0:
-        print("\nAn edit was NOT caught. That is a failure of this demo, not a pass.")
+    # The move a plain assertion script cannot survive: nobody touches the code,
+    # somebody edits the expected value. This replays the real defect, putting
+    # the 163 back that this repo shipped against a live 168.
+    retconned = json.loads(json.dumps(lock))
+    was = retconned["observed"]["algorithm_registry_total"]
+    retconned["observed"]["algorithm_registry_total"] = "163"
+    ok.append(scenario(4, "the expected value in the lockfile is edited",
+                       f"assertions.lock.json: algorithm_registry_total {was} -> 163",
+                       run_check(CLAIMS, retconned),
+                       "algorithm_registry_total: recorded '163', now "))
+
+    if not all(ok):
+        print("\nAt least one edit was not caught, or was caught for the wrong reason."
+              "\nThat is a failure of this demo, not a pass.")
         return 1
     print("\nOne digit changed and the number stopped matching the fact emem signed."
           "\nOne character of the citation changed and the citation stopped resolving."
-          "\nBoth also broke the content address of the signed ledger, which is the"
-          "\ncheck that works even when the world has not moved at all.")
+          "\nOne edit to the expected value, with no code touched at all, and the"
+          "\nsigned ledger stopped matching the repo. That last one is the whole"
+          "\npoint: EXPECTED = 168 at the top of a script has no defence against it.")
+    return 0
+
+
+# ------------------------------------------------------------------ selftest
+def _flip(s: str, i: int = 0) -> str:
+    """Change one base32 character, staying inside the alphabet."""
+    return s[:i] + ("a" if s[i] != "a" else "b") + s[i + 1:]
+
+
+def cmd_selftest(_a) -> int:
+    """Attack the signed record four ways and require each attack to be named.
+
+    Entirely offline after one fetch: no key, no writes, nothing recorded moves.
+    This exists because "the signature is verified" is exactly the kind of
+    sentence this demo is about, and an unexercised verifier that returns no
+    findings looks identical to one that works.
+    """
+    if not LOCK.exists():
+        print(f"no lock at {LOCK}; run `stabilise.py record` first")
+        return 2
+    lock = json.loads(LOCK.read_text())
+    try:
+        note = fetch_note(lock["ledger_path"])
+    except urllib.error.URLError as e:
+        print(f"  (skipped: {RESPONDER} unreachable: {e})")
+        return 2
+
+    def mutate(**kw) -> dict:
+        n = {"content": note["content"], "authorship": dict(note["authorship"])}
+        n["content"] = kw.pop("content", n["content"])
+        n["authorship"].update(kw)
+        return n
+
+    other = SigningKey(os.urandom(32))
+    other_pub = b32(bytes(other.verify_key))
+    forged_body = note["content"].replace("recorded_at:", "recorded-at:", 1)
+    cases = [
+        ("the untampered record", note, None),
+        ("one character of the signature flipped",
+         mutate(sig_b32=_flip(note["authorship"]["sig_b32"])),
+         "does not verify"),
+        ("the body edited, the signature block left alone",
+         mutate(content=forged_body),
+         "bound to a different body"),
+        ("a different key re-signs different bytes, correctly",
+         mutate(content=forged_body, attester_pubkey_b32=other_pub,
+                body_hash_hex=blake3.blake3(forged_body.encode()).hexdigest(),
+                sig_b32=b32(other.sign(write_digest(note["authorship"]["signed_path"],
+                                                    forged_body.encode())).signature)),
+         "the ledger is now signed by"),
+    ]
+
+    ok = True
+    for title, n, expect in cases:
+        found = verify_record(n, lock)
+        for f in found:
+            print(f"   x {f}")
+        if expect is None:
+            good = not found
+            print(f"{'ok  ' if good else 'FAIL'} {title}: "
+                  f"{'no finding, as it should be' if good else 'reported a defect in a clean record'}")
+        else:
+            good = any(expect in f for f in found)
+            print(f"{'ok  ' if good else 'FAIL'} {title}: "
+                  f"{'named' if good else 'NOT named'} {expect!r}")
+            if title.startswith("a different key") and any("does not verify" in f for f in found):
+                print("FAIL a valid signature by the wrong key was reported as a bad "
+                      "signature, which names the wrong defect")
+                good = False
+        ok = ok and good
+    if not ok:
+        print("\nThe verifier did not behave as described. Do not ship the description.")
+        return 1
+    print("\nA corrupt signature, a swapped body, and a competent re-signing by another "
+          "\nkey are each named for what they are, and the clean record is left alone.")
     return 0
 
 
@@ -339,7 +486,9 @@ def main() -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("record", help="probe, sign, publish, pin").set_defaults(fn=cmd_record)
     sub.add_parser("check", help="the gate; non-zero on drift").set_defaults(fn=cmd_check)
-    sub.add_parser("demo", help="show a pass and a fail").set_defaults(fn=cmd_demo)
+    sub.add_parser("demo", help="show a pass and three fails").set_defaults(fn=cmd_demo)
+    sub.add_parser("selftest", help="attack the signed record offline").set_defaults(
+        fn=cmd_selftest)
     a = p.parse_args()
     return a.fn(a)
 

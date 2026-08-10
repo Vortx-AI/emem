@@ -7,28 +7,34 @@ Every defect found in this repo on 2026-08-10 was a true statement that had
 stopped being true, and every one passed the test suite:
 
 - an OpenAPI schema declaring `fact_cid` as 26 characters when it is 52,
-  referenced by four core response schemas
+  referenced by four core response schemas, so a validator generated from our
+  own machine surface rejected every cid we serve
 - `/v1/guard/verdict` returning `action: allow` with `checked: 1` on a citation
   that does not resolve
 - a page claiming "13 missions" with 17 on screen
-- an architecture note hardcoding "163 recipes" against a live 168
+- a panel hardcoding "163 recipes" against a live 168, while the panel next to
+  it was already being patched from the responder at load
 - a stylesheet scraped from a page that had since moved its tokens away,
-  leaving 32 of 33 custom properties undefined
+  leaving 32 of 33 custom properties undefined and the body rendering in Times
+  New Roman
 - an MCP default of 64 the server had never honoured
 - an annotation saying closed-world over a description saying the opposite
+- `tools/list` returning 288,002 bytes against a client cap of 102,400
 
 None of these is a code bug. Each is a sentence about something that lives
 outside the repo: a live response, a rendered page, a registry, a default the
-server actually applies. Git content-addresses the code, so code-versus-code
-drift is a solved problem. It has nothing to say about the sentences.
+server actually applies, the size of a payload. Git content-addresses the code,
+so code-versus-code drift is a solved problem. It has nothing to say about the
+sentences.
 
-Those seven were fixed. Nothing stops the eighth. This demo pins the sentences
-so the eighth announces itself.
+Those eight were fixed. Nothing stops the ninth. This demo pins the sentences so
+the ninth announces itself.
 
-Three of the seven are pinned here as executable claims and were measured
-against the live responder while writing this: the `fact_cid` length, the
-registry total, and the guard verdict. The other four are reported from the
-same session's findings and were not re-measured for this README.
+Four of the eight are pinned here as executable claims and were measured against
+the live responder while writing this: the `fact_cid` length, the registry
+total, the guard verdict, and the `tools/list` payload size. The other four are
+carried over from the same session's findings and were not re-measured for this
+README.
 
 ## The idea
 
@@ -44,8 +50,9 @@ both:
 
 - **The world moved.** Re-run the probe and it answers something else. 168
   becomes 169 the day someone adds an algorithm.
-- **The record moved.** Someone edited the claim. The note no longer hashes to
-  the address git pins, and the check says which line changed.
+- **The record moved.** Someone edited the claim, or edited what the claim was
+  supposed to say. The note no longer hashes to the address git pins, and the
+  check says which line changed.
 
 The second half is what a plain assertion script cannot do. `EXPECTED = 168` at
 the top of a script is one edit away from agreeing with any lie you like, and
@@ -56,8 +63,8 @@ at their own address on a surface you do not control, signed by a named key.
 
 | file | what it is |
 | --- | --- |
-| `claims.py` | the five claims and the probe that decides each. This is the file you edit. |
-| `stabilise.py` | `record`, `check`, `demo`. |
+| `claims.py` | the six claims and the probe that decides each. This is the file you edit. |
+| `stabilise.py` | `record`, `check`, `demo`, `selftest`. |
 | `assertions.lock.json` | committed. Pins the ledger's path, its content address, the signing key, and every recorded answer. |
 
 ## Run it
@@ -68,56 +75,57 @@ python3 demos/stabilisation/stabilise.py demo
 ```
 
 `demo` is read-only. It runs `check` green against the ledger already recorded
-in the lockfile, then runs the same `check` twice more against a copy of the
-claims with one character edited, so you see a pass and two failures from the
+in the lockfile, then runs the same `check` three more times against a copy of
+the claims with one thing edited, so you see a pass and three failures from the
 same code path.
+
+A scenario counts as caught only when the gate goes red *and* a finding names
+the expected string. An earlier version counted any non-zero exit, which meant
+pointing it at a responder mid-restart would fail every probe, redden every
+scenario, and print its closing paragraph having proved nothing.
 
 Real output, verbatim, 2026-08-10 against `https://emem.dev`:
 
 ```
-========================================================================
 1. the recorded claims, checked against the live responder
-========================================================================
-5 claims, recorded 2026-08-10T18:40:08Z against https://emem.dev
+6 claims, recorded 2026-08-10T20:21:37Z against https://emem.dev
 
 Every claim still holds, and the signed record of them is intact.
 
-========================================================================
-2. the same check, after one digit of the quoted value is edited
-========================================================================
-editing ndvi_value_quoted_in_prose: 0.4253807106598985 -> 0.5253807106598985
-5 claims, recorded 2026-08-10T18:40:08Z against https://emem.dev
-
-DRIFT:
-  x claims.py no longer matches the signed ledger, first difference at line 32:
+2. one digit of the quoted value is edited
+   edit: ndvi_value_quoted_in_prose: 0.4253807106598985 -> 0.5253807106598985
+   x claims.py no longer matches the signed ledger, first difference at line 37:
       signed: claim: NDVI at cell defi.zb4e3.zaeed.fEya is 0.4253807106598985.
       repo:   claim: NDVI at cell defi.zb4e3.zaeed.fEya is 0.5253807106598985.
-  x ndvi_value_quoted_in_prose: the prose says 0.5253807106598985 but the signed fact says 0.4253807106598985 (drift: wrong)
+   x ndvi_value_quoted_in_prose: the prose says 0.5253807106598985 but the signed fact says 0.4253807106598985 (drift: wrong)
+   caught: a finding names 'but the signed fact says'
 
-Either the claim was true and stopped being true, or someone changed
-what it says. Fix the claim, then re-run `record` to sign the new one.
-
-========================================================================
-3. the same check, after one character of the citation is edited
-========================================================================
-editing ndvi_value_quoted_in_prose: last character of the token, ...w2mj57oq -> ...w2mj57oa
-5 claims, recorded 2026-08-10T18:40:08Z against https://emem.dev
-
-DRIFT:
-  x claims.py no longer matches the signed ledger, first difference at line 35:
+3. one character of the citation is edited
+   edit: ndvi_value_quoted_in_prose: ...w2mj57oq -> ...w2mj57oa
+   x claims.py no longer matches the signed ledger, first difference at line 40:
       signed: token: emem:fact:defi.zb4e3.zaeed.fEya:qtv2bco56qw4pmlohk56dotoxyl3atmnjpmzrijj2kazw2mj57oq
       repo:   token: emem:fact:defi.zb4e3.zaeed.fEya:qtv2bco56qw4pmlohk56dotoxyl3atmnjpmzrijj2kazw2mj57oa
-  x ndvi_value_quoted_in_prose: recorded '0.4253807106598985', now 'unresolved (cid_not_found)'  (dereference the cited token and read value_verbatim)
-  x ndvi_value_quoted_in_prose: its citation does not resolve: HTTP 404 cid_not_found for rijj2kazw2mj57oa
+   x ndvi_value_quoted_in_prose: recorded '0.4253807106598985', now 'unresolved (cid_not_found)'  (dereference the cited token and read value_verbatim)
+   x ndvi_value_quoted_in_prose: its citation does not resolve: HTTP 404 cid_not_found for rijj2kazw2mj57oa
+   caught: a finding names 'its citation does not resolve'
 
-Either the claim was true and stopped being true, or someone changed
-what it says. Fix the claim, then re-run `record` to sign the new one.
+4. the expected value in the lockfile is edited
+   edit: assertions.lock.json: algorithm_registry_total 168 -> 163
+   x claims.py no longer matches the signed ledger, first difference at line 24:
+      signed: observed: 168
+      repo:   observed: 163
+   x algorithm_registry_total: recorded '163', now '168'  (GET /v1/algorithms and read pagination.total)
+   caught: a finding names "algorithm_registry_total: recorded '163', now "
 
 One digit changed and the number stopped matching the fact emem signed.
 One character of the citation changed and the citation stopped resolving.
-Both also broke the content address of the signed ledger, which is the
-check that works even when the world has not moved at all.
+One edit to the expected value, with no code touched at all, and the
+signed ledger stopped matching the repo. That last one is the whole
+point: EXPECTED = 168 at the top of a script has no defence against it.
 ```
+
+Scenario 4 is the "163 recipes" defect replayed against the live registry: put
+163 back where 168 was recorded, touch no code, and the gate names both numbers.
 
 To record your own set, edit `claims.py` and run `record`. It generates an
 ed25519 key at `.identity.json` on first use (gitignored), writes the ledger to
@@ -125,18 +133,19 @@ ed25519 key at `.identity.json` on first use (gitignored), writes the ledger to
 There is no registration step: the namespace belongs to whoever writes to it
 first and is then held by that key alone.
 
-`check` is the CI gate. Exit 0 clean, 1 on drift, 2 when the responder is
+`check` is the gate. Exit 0 clean, 1 on drift, 2 when the responder is
 unreachable, matching the other gates in this repo.
 
 Anyone can run `check` against a lockfile someone else recorded. Verifying the
 ledger needs no key and no account. Only `record` needs the key. The ledger this
 lockfile pins is readable now, without running anything:
 
-<https://emem.dev/memories/by_attester/ukctss4i/stabilise/20260810T184008Z-ledger.md>
+<https://emem.dev/memories/by_attester/ukctss4i/stabilise/20260810T202137Z-ledger.md>
 
 Add `Accept: application/json` and you also get the `authorship` block: the
-attester's public key, the signature, the body hash, and the exact preimage
-recipe, which is everything `check` needs to verify it offline.
+attester's public key, the signature, the body hash, the signed path, and the
+preimage recipe it was computed from, which is everything `check` needs to
+verify it offline.
 
 ## What the check actually does
 
@@ -161,18 +170,38 @@ Four things, in order.
    against the digits in the signed fact, with `strict: true` so a reformat is
    reported rather than forgiven.
 
-Step 1 was tested adversarially rather than assumed. Against the live ledger:
-a corrupted signature is reported as "Signature was forged or corrupt"; a body
-swapped under a valid signature is reported as bound to a different body; a
-different attester claiming the same bytes is reported by name; and the
-untampered control produces no finding. The published ledger was also rewritten
-for real, with a valid signature over the new bytes, and `check` exited 1
-naming both the old and the new content address.
+Step 1 is the one worth distrusting, because a verifier that never finds
+anything looks exactly like a verifier that does not work. `selftest` attacks it
+four ways, offline, needing no key and writing nothing:
 
-## The five claims
+```
+ok   the untampered record: no finding, as it should be
+   x the ledger's ed25519 signature does not verify: Signature was forged or corrupt
+ok   one character of the signature flipped: named 'does not verify'
+   x the ledger at /memories/by_attester/ukctss4i/stabilise/20260810T202137Z-ledger.md now hashes to cdlt5fvf75yi23iggutl5nm4v4, but the lock pins mnjmkhtrebmagn44kozajzgx5m: the recorded assertions were rewritten
+   x the signature on the ledger is bound to a different body than the bytes served
+ok   the body edited, the signature block left alone: named 'bound to a different body'
+   x the ledger at /memories/by_attester/ukctss4i/stabilise/20260810T202137Z-ledger.md now hashes to cdlt5fvf75yi23iggutl5nm4v4, but the lock pins mnjmkhtrebmagn44kozajzgx5m: the recorded assertions were rewritten
+   x the ledger is now signed by 66dhqcaocpwoxw36b36a5wa2zervpmwltnfehpg3q2brovnriomq, not ukctss4i5mfbaz7fllc5z746iblx6xx2wrqi7fibkyetm6yo66gq
+ok   a different key re-signs different bytes, correctly: named 'the ledger is now signed by'
+```
 
-They are deliberately claims this repo actually made and got wrong, or nearly
-got wrong.
+The fourth case is the interesting one. It generates a fresh key, edits the
+body, and signs the new bytes properly, so the record is internally perfect:
+body hash correct, signature valid, preimage right. It is caught anyway, by the
+two things the forger does not control, the content address git pins and the
+public key the lockfile names, and it is specifically *not* reported as a bad
+signature, because the signature is fine. Naming the wrong defect is how an hour
+gets spent on the wrong file.
+
+That case also drove a fix. The three questions in step 1 used to be chained
+with `elif`, so a note signed by the wrong key was never cryptographically
+verified at all: the report named the key and stopped. They are asked
+independently now.
+
+## The six claims
+
+They are claims this repo actually made and got wrong, or nearly got wrong.
 
 - `fact_cid_is_52_chars` and `short_cid_is_refused_as_malformed` are the schema
   defect. A `fact_cid` is the full 32-byte blake3, 52 base32 characters. A
@@ -191,9 +220,16 @@ got wrong.
   `/v1/guard/verdict` returns `action: allow` on a transcript citing a token
   that does not resolve, and `checked: 1` counts what it looked at, not what
   verified. The honest discriminator is `receipt.fact_cids`, which is empty for
-  a forgery. This claim exists so that a future change making guard actually
-  gate cannot ship without someone noticing the sentence in the docs was
-  already wrong or already right for the wrong reason.
+  a forgery. This claim exists so that a change making guard actually gate
+  cannot ship while the docs still describe the advisory behaviour, in either
+  direction.
+
+- `tools_list_pages_fit_client_cap` is the 288,002-byte defect. It walks the
+  whole `tools/list` cursor chain and measures each HTTP body against the
+  102,400-byte cap. What it records is the verdict, `fits`, not the byte count.
+  A byte count moves every time anyone edits a tool description, and a claim
+  that goes red on an edit nobody cares about is a claim that gets switched off.
+  Pin the property, not the measurement.
 
 - `ndvi_value_quoted_in_prose` is the one claim that quotes a number emem
   signed, with the citation next to it. It is the case where a later edit
@@ -204,10 +240,14 @@ got wrong.
 Stated plainly, because a gate that oversells itself is the defect it is
 supposed to catch.
 
-- **It does not make the record immutable.** The attester can overwrite their
-  own path. What changes is that the bytes get a new content address and the
-  gate goes red naming both, and the earlier recording stays readable at its own
-  timestamped path. Detection and attribution, not prevention.
+- **It does not make the record immutable.** A second write to a path your key
+  already owns replaces the bytes; that was measured on a scratch path in this
+  namespace, not argued from the docs. What changes is that the new bytes get a
+  new content address, so the gate goes red naming both, and the earlier
+  recording stays readable at its own timestamped path. Detection and
+  attribution, not prevention. `selftest` case four shows the cryptographic half
+  of that end to end; rewriting the live ledger and restoring it was not
+  performed in this session.
 
 - **It is not on the transparency log.** emem's RFC 6962 log at `/v1/log/*`
   covers fact attestations. `persist_memory_write` in `crates/emem-api-rest`
@@ -215,18 +255,22 @@ supposed to catch.
   and content-addressed but not committed under a signed tree head. Do not tell
   an auditor otherwise.
 
+- **Nothing runs this in CI.** `.github/workflows/ci.yml` invokes eleven of
+  these gate scripts by path and does not mention this directory. Wiring it is
+  one line in that file, and this demo does not own that file.
+
 - **It does not stop someone editing a claim and re-recording it in the same
   commit.** Nothing can. What it does is make that a visible act with its own
   signature and its own address, instead of a one-line change to a constant.
 
 - **The committed lockfile goes stale on purpose.** The day someone adds an
   algorithm, `algorithm_registry_total` goes red for everyone. That is the gate
-  working. Read the two numbers, decide whether the change was intended, fix
-  the prose, re-run `record`.
+  working. Read the two numbers, decide whether the change was intended, fix the
+  prose, re-run `record`.
 
-- **A claim is only as good as its probe.** `how` is prose and nothing checks
-  it against the lambda underneath. If the probe asks the wrong question, the
-  gate is green and wrong, which is exactly the `len(algorithms)` trap above.
+- **A claim is only as good as its probe.** `how` is prose and nothing checks it
+  against the lambda underneath. If the probe asks the wrong question, the gate
+  is green and wrong, which is exactly the `len(algorithms)` trap above.
 
 ## Copying this into another repo
 
@@ -243,6 +287,8 @@ The crude version of this already ships here and is worth reading first:
 live responder, `scripts/output_schema_conformance.py` asserts that every tool
 declaring an `outputSchema` returns conforming content on a real call, and
 `scripts/arcade_protocol_check.py` asserts the published contract against the
-renderer and the live fleet. Each of those pins a claim against the responder.
+renderer and the live fleet. Each of those pins a claim against the responder,
+and each was written after the drift it now prevents.
+
 This demo adds the missing half: signing the claim itself, so the claim cannot
 quietly become whatever the next commit needs it to be.

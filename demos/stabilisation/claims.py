@@ -22,9 +22,12 @@ import urllib.request
 
 RESPONDER = os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/")
 
-# A fact this responder holds, pinned as a citation. Claim 5 quotes its value.
+# A fact this responder holds, pinned as a citation. One claim quotes its value.
 NDVI_CELL = "defi.zb4e3.zaeed.fEya"
 NDVI_TOKEN = f"emem:fact:{NDVI_CELL}:qtv2bco56qw4pmlohk56dotoxyl3atmnjpmzrijj2kazw2mj57oq"
+
+# The payload ceiling MCP clients enforce on a single response.
+CLIENT_CAP_BYTES = 102_400
 
 
 def get(path: str, timeout: int = 60):
@@ -43,6 +46,34 @@ def post(path: str, body: dict, timeout: int = 90) -> tuple[int, dict]:
             return r.status, json.load(r)
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read().decode() or "{}")
+
+
+def widest_tools_page(endpoint: str = "/mcp/full") -> str:
+    """Walk the whole tools/list cursor chain and report whether every page fits
+    the client cap. Returns a verdict, not a byte count, on purpose: the size of
+    a page moves every time anyone edits a tool description, and a claim that
+    goes red on an edit nobody cares about gets switched off. The property is
+    "it fits". That is what gets pinned."""
+    cursor, seen, page = None, set(), 0
+    while True:
+        page += 1
+        req = urllib.request.Request(
+            RESPONDER + endpoint,
+            data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                             "params": {} if cursor is None else {"cursor": cursor}}).encode(),
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/json, text/event-stream"})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            raw = r.read()
+        # The whole HTTP body, because that is the number the client measures.
+        if len(raw) > CLIENT_CAP_BYTES:
+            return f"over on page {page}: {len(raw)} > {CLIENT_CAP_BYTES}"
+        cursor = json.loads(raw)["result"].get("nextCursor")
+        if not cursor:
+            return "fits"
+        if cursor in seen:  # a cursor that repeats is a loop, not a last page
+            return f"cursor loop at page {page}: {cursor}"
+        seen.add(cursor)
 
 
 # --------------------------------------------------------------------------- #
@@ -84,6 +115,15 @@ CLAIMS = [
                 "NDVI at that cell is 0.4253807106598985, per "
                 f"emem:fact:{NDVI_CELL}:qtv2bco56qw4pmlohk56dotoxyl3atmnjpmzrijj2kazw2mj57zz."
             ]})[1]),
+    },
+    {
+        "id": "tools_list_pages_fit_client_cap",
+        "claim": "Every page of tools/list on /mcp/full fits the 102,400-byte "
+                 "payload cap MCP clients enforce. Measured over the whole HTTP "
+                 "body, which is what the client measures.",
+        "how": "walk the tools/list cursor chain, compare each response body "
+               "against the cap, report a verdict rather than a size",
+        "probe": lambda c: widest_tools_page(),
     },
     {
         "id": "ndvi_value_quoted_in_prose",
