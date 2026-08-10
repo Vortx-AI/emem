@@ -570,7 +570,7 @@ body.ow-user #brief{display:none}
       <div class="hspace"></div>
       <span id="opchip" hidden title="signed in &#8212; click to sign out"></span>
       <div class="beacon" id="beacon"><i></i><span id="status">booting…</span></div>
-      <button id="pace" title="playback pace. Brisk runs the real calls at their real speed; cinematic adds the scripted dwell the walkthrough was written for.">⏩ brisk</button><button id="snd" aria-pressed="true" title="toggle sound">♪ on</button>
+      <button id="pace" style="white-space:nowrap" title="playback pace. Brisk runs the real calls at their real speed; cinematic adds the scripted dwell the walkthrough was written for.">brisk</button><button id="snd" aria-pressed="true" title="toggle sound">♪ on</button>
     </div>
     <div id="ow-mode" role="tablist" aria-label="panel mode">
       <button id="ow-mode-user" role="tab" aria-selected="true">watch &amp; ask</button>
@@ -799,7 +799,7 @@ $('snd').addEventListener('click',()=>{
 /* PACE toggle. Persists, and never argues with prefers-reduced-motion. */
 function paintPace(){
   const b=$('pace');if(!b)return;
-  b.textContent=RM?'\u23e9 brisk':'\ud83c\udfac cinematic';
+  b.textContent=RM?'brisk':'cinematic';
   b.setAttribute('aria-pressed',String(RM));
   if(PREFERS_REDUCED){
     b.disabled=true;
