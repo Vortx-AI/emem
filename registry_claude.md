@@ -46,7 +46,7 @@ Do NOT use the same example everywhere. Each ecosystem gets a different demo tha
 |--------|----------|--------|
 | sacridini/Awesome-Geospatial | #200 | MERGED |
 | sacridini/Awesome-Geospatial | #201 | OPEN (move emem to MCP Servers section) |
-| punkpeye/awesome-mcp-servers | #6532 | OPEN |
+| punkpeye/awesome-mcp-servers | #6532 | MERGED (2026-07-25, after a Glama score and a rebase) |
 | Shubhamsaboo/awesome-llm-apps | #819 | CLOSED (needs full runnable demo, not just link) |
 | Shubhamsaboo/awesome-llm-apps | #821 | OPEN (full Streamlit demo resubmission) |
 | steven2358/awesome-generative-ai | #762 | OPEN |
@@ -65,3 +65,24 @@ Do NOT use the same example everywhere. Each ecosystem gets a different demo tha
 | cline/mcp-marketplace | #1605 | OPEN (marketplace submission) |
 | crewAIInc/crewAI | n/a | CLOSED (maintainer declined) |
 | mastra-ai/mastra | n/a | CLOSED (maintainer declined) |
+
+## 2.1.0: the guard-era targets
+
+Every venue above is a geospatial or MCP-catalogue list, which is the right
+shelf for a memory protocol and the wrong one for a verdict server. The
+targets `emem-guard` opens up, each checked against its own README and
+CONTRIBUTING for section, entry format and submission mechanism, are in
+[docs/registries/guard-2.1.0-listings.md](docs/registries/guard-2.1.0-listings.md),
+along with the exact line and PR text for each and the announcement copy.
+
+Three things from that document that change how this agent should behave:
+
+- **hesreallyhim/awesome-claude-code must not be submitted by an agent.** Its
+  CONTRIBUTING forbids PRs, forbids the `gh` CLI, and asks that
+  recommendations come from humans. It is a web issue form, and Avijeet files
+  it.
+- **bh-rat/awesome-mcp-enterprise does not qualify** and should not be tried:
+  it needs two of four enterprise-readiness proofs, and emem-guard's own
+  README says it has not been pointed at a live organisation yet.
+- **rust-unofficial/awesome-rust is on hold** until the crates are published;
+  `emem` does not exist on crates.io today.
