@@ -84,5 +84,16 @@ Three things from that document that change how this agent should behave:
 - **bh-rat/awesome-mcp-enterprise does not qualify** and should not be tried:
   it needs two of four enterprise-readiness proofs, and emem-guard's own
   README says it has not been pointed at a live organisation yet.
-- **rust-unofficial/awesome-rust is on hold** until the crates are published;
-  `emem` does not exist on crates.io today.
+- **rust-unofficial/awesome-rust is eligible now**, contrary to an earlier
+  reading of it. Their bar is 50 GitHub stars *or* 2000 crates.io downloads
+  *or* equivalent, crates.io is explicitly optional, and applications count.
+  emem was at 52 stars, so it is filed.
+
+Ten submissions are in flight, one sibling session per target repo, covering
+MCP security, AI security, Claude Code security, A2A (a category nothing here
+targeted before), MCP catalogues, Rust and geospatial. Session IDs and the
+per-target status are in the same document.
+
+**The geospatial rows below need a sweep, not more entries.** Ten are still
+marked OPEN, one of them was actually merged and the table did not notice.
+Find out which are alive before opening an eleventh geospatial PR.

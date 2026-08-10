@@ -497,3 +497,77 @@ to exist, and that argument gets weaker as other people ship the same thing.
 section that is currently all content classifiers. Stagger the prose posts
 behind the listings by a few days, so a reader arriving from Hacker News
 finds the project already on the shelves they would check next.
+
+---
+
+# Filed: the second wave
+
+The repo-scope block that stopped the first pass is worked around by the
+mechanism the tooling itself names: a sibling session seeded with the target
+repo as its initial source clears it. Ten are running, one per target, each
+scoped to one file, one line, one PR, and each told to read the target's own
+CONTRIBUTING and let the target's real formatting override the draft line.
+
+| Target | Category | Session |
+|---|---|---|
+| tamish560/awesome-mcp-security | MCP security | `session_011NZHcndjdrtwjbpdSUG4E5` |
+| ottosulin/awesome-ai-security | AI security | `session_01UTp6QpdhiWEXPmFPdiB9zW` |
+| efij/awesome-claude-code-security | Claude Code security | `session_0171KHhx3qmDxgRXpLUmnNyU` |
+| inference-gateway/awesome-a2a | A2A | `session_01V3ViwKZads3az2FrgjwJs1` |
+| pab1it0/awesome-a2a | A2A | `session_011qCCtXwNgSesWknaeo5FCH` |
+| ai-boost/awesome-a2a | A2A | `session_01U5DDDeWpDVY32SXSZRWaiz` |
+| wong2/awesome-mcp-servers | MCP | `session_01XBjUmvuygqj9TWkUSfgjk2` |
+| appcypher/awesome-mcp-servers | MCP | `session_01Tvpa2HF5i34Z9RjHSb7fii` |
+| rust-unofficial/awesome-rust | Rust | `session_01PSZ6HGVuLeeHTbpmQaTC3T` |
+| capizziemanuele/useful-geospatial-tools | geospatial | `session_01BipExGhrrZKSRJHLFRb8YP` |
+
+Sessions inherit `default` permission mode and will block on a permission
+prompt that only a human can clear in the web UI. The first one stalled on a
+needless `list_repos` call, so every later prompt says not to call it. If you
+spawn more, keep that line in.
+
+## A2A is a new category and emem already qualifies
+
+Nothing in `registry_claude.md` targets A2A, and the implementation is live
+rather than aspirational, which is what these lists check:
+
+- `https://emem.dev/.well-known/agent-card.json` — 200
+- `a2a-message-send` → `https://emem.dev/a2a/tasks`
+- `a2a-async-tasks` (create / get / cancel) → `https://emem.dev/v1/a2a/tasks`
+- `a2a-skill-query` → `https://emem.dev/v1/a2a/skills?q=elevation` — 200
+
+The argument that lands on an A2A list is not "signed data". It is that a
+handoff in natural language transfers a paraphrase, and a paraphrase drifts;
+an `emem:fact:` token transfers bytes both sides resolve identically. That is
+a property of the handoff, which is the layer A2A defines.
+
+## Correction: awesome-rust was wrongly held
+
+An earlier version of this document held `rust-unofficial/awesome-rust` on the
+grounds that it wants published crates. That was wrong. Their CONTRIBUTING
+sets the bar at "at least 50 stars on GitHub, **2000 downloads on crates.io,
+or an equivalent level of other popularity metrics**", crates.io is explicitly
+optional, and applications are accepted alongside libraries. emem was at 52
+stars, so it clears the bar today and the submission is filed.
+
+Publishing the crates is still worth doing on its own merits, but it is not a
+precondition for this listing. The submission states plainly that emem is not
+on crates.io rather than leaving their template fields to be guessed at.
+
+## The geospatial backlog is the bigger lever
+
+Ten geospatial listings in `registry_claude.md` are still marked OPEN, some
+for months, and one of them turned out to have merged without the table
+noticing. Opening an eleventh geospatial PR is worth less than finding out
+which of the ten are alive, stale, or merged. Do that sweep before adding
+more geospatial targets.
+
+## Still not filed, and why
+
+- **hesreallyhim/awesome-claude-code** — human only. Their CONTRIBUTING
+  forbids PRs, forbids the `gh` CLI, and asks that recommendations come from
+  humans rather than AI agents. Avijeet files it; text is above.
+- **fuzzylabs/awesome-secure-mcp-servers** — an issue asking to enter their
+  `mcp-scan` queue, not a PR. Held until the first wave lands.
+- **bh-rat/awesome-mcp-enterprise** — still does not qualify.
+- **ant-research/awesome-mllm-guardrails** — still the wrong list.
