@@ -234,7 +234,7 @@ write path from scratch.
   at :16177).
 - Two endpoints, one dispatcher: `/mcp` (`mcp_jsonrpc`) advertises the core
   tier from `tools/list`, `/mcp/full` (`mcp_jsonrpc_full` at :14883)
-  advertises all 102. Both funnel into `mcp_jsonrpc_inner` (:14891) with a
+  advertises all 107. Both funnel into `mcp_jsonrpc_inner` (:14891) with a
   different `default_tier`; see `MCP_CORE_ENDPOINT_TIER` (:14869) for why the
   split exists and which earlier `nextCursor` attempt it supersedes. An
   explicit `{"tier":...}` beats the endpoint default, and `tools/call`

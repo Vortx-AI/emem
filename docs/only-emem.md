@@ -23,9 +23,19 @@ escalate a real one.
 ```bash
 curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.q7k2x.m4ph.aa913","band":"indices.ndvi"}' \
-  | jq '{severity, attesters: [.observations[].attester]}'
+  -d '{"cell":"defi.zb441.zd21e.zd3ee","band":"indices.ndvi"}' \
+  | jq '.contradictions[] | {cell, band, severity, kind,
+                             attesters: [.attestations[].attester_pubkey_b32]}'
 ```
+
+`severity` and the attester list sit on each entry of `contradictions`,
+not at the top of the response. The top level carries the scan
+accounting instead: `corpus_scanned`, `scan_truncated`, `agent_hint` and
+the signed `receipt`. An empty `contradictions` array with a non-zero
+`corpus_scanned` is the honest "these attesters agree", not a lookup
+failure, and it is what this call returns today: the live corpus holds
+no `indices.ndvi` disagreement above the default threshold. Pass
+`min_severity: 0.0` to see borderline ones.
 
 Why it matters: a guess from one model looks identical to a consensus of
 three. The result is visible to the agent. (MCP: `memory_contradictions`.)

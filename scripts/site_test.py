@@ -380,20 +380,46 @@ def check_counts(base: str, res: Result, pages: dict[str, str], quiet: bool):
             if claimed != v1:
                 res.fail("counts", f"{path} claims {claimed} REST paths under /v1/*, server serves {v1}")
 
-    # MCP tool count.
-    req = urllib.request.Request(
-        base.rstrip("/") + "/mcp/full",
-        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
-                         "params": {"tier": "all"}}).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    try:
+    # MCP tool count. `tools/list` is PAGED: it answers with one page plus a
+    # `nextCursor`, and the page break is a byte budget, so the first page holds
+    # 27 or 28 descriptors depending on how long they are that day. Reading one
+    # page and calling it the tool count turned this check inside out: it
+    # reported "/whitepaper claims 102 tools, server advertises 27" against a
+    # server advertising 107, so the one number in the message that was NOT a
+    # page artefact was the one the page got wrong. Follow the cursor.
+    def _page(cursor):
+        params = {"tier": "all"} if cursor is None else {"tier": "all", "cursor": cursor}
+        req = urllib.request.Request(
+            base.rstrip("/") + "/mcp/full",
+            data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                             "params": params}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S, context=CTX) as r:
-            tools = json.load(r)["result"]["tools"]
+            return json.load(r)["result"]
+
+    tools, cursor, seen = [], None, set()
+    try:
+        while True:
+            got = _page(cursor)
+            tools.extend(got.get("tools") or [])
+            cursor = got.get("nextCursor")
+            if not cursor:
+                break
+            if cursor in seen:
+                raise RuntimeError(f"tools/list repeated cursor {cursor!r}")
+            seen.add(cursor)
     except Exception as e:  # noqa: BLE001
         res.fail("counts", f"tools/list failed: {e}")
         return
     n_tools = len(tools)
+    # Below the smallest page ever observed means paging stopped being followed,
+    # not that tools were deleted. Say that instead of blaming every page.
+    if n_tools < 40:
+        res.fail("counts", f"tools/list returned {n_tools} tools, about one page; "
+                           f"paging is not being followed, so every claim below "
+                           f"would be compared against a fragment")
+        return
     res.ok()
     tool_pat = re.compile(r"(?:all|of)\s+(\d{2,4})\s+(?:tools|by name)")
     for path, page in pages.items():

@@ -968,14 +968,35 @@ cloudy regions.
    ### 6. EUDR pre-screen
 
 ```bash
-curl -s -X POST https://emem.dev/v1/intent \
+curl -s -X POST https://emem.dev/v1/eudr_dds \
   -H 'content-type: application/json' \
-  -d '{"kind":"verify","claim":{"algorithm":"deforestation_triple@1","cell":"defi.zb493.xuqA.zcb5f","window":["2020-12-31","2024-12-31"]}}'
+  -d '{"plots":[{"plot_id":"cocoa-soubre-01",
+                 "geometry_geojson":{"type":"Point","coordinates":[-6.5933,5.7850]},
+                 "country_of_production":"CIV",
+                 "commodity_hs":"180100",
+                 "quantity_kg":12000}]}'
 ```
 
-Returns the triple-consensus verdict, the Hansen GFC mask uplift, and a
-signed receipt citing every contributing fact CID. Drop the receipt
-into an EUDR DDS submission.
+Runs `eudr_compliance@1` per cell (JRC GFC2020 V3 as the 2020 legal
+baseline, Hansen GFC v1.12 for post-cut-off loss year), applies the
+Article 2(4) 0.5 ha floor, and returns the Annex II-shaped statement
+with a `dds_reference_number` and a signed receipt citing every
+contributing fact CID. It also carries a `legality_disclaimer`: Article
+9(1)(b) legality is out of Earth-observation scope, so the receipt
+proves the forest facts and nothing about land tenure.
+
+This endpoint used to be documented here as `/v1/intent` with
+`{"kind":"verify"}`. That request 400s: the field is `type`, not `kind`,
+and `verify` is not one of the seven intents. `/v1/intent` takes
+`where_is | what_is_here | is_like | did_change | find_like | confirm |
+ask`, and `type` selects which other fields are read:
+
+```bash
+curl -s -X POST https://emem.dev/v1/intent \
+  -H 'content-type: application/json' \
+  -d '{"type":"confirm","cell":"defi.zb493.xuqA.zcb5f",
+       "claim":{"band":"indices.ndvi","op":"gt","value":0}}'
+```
 
 ---
 

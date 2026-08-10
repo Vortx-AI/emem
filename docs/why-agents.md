@@ -24,7 +24,7 @@ a handle it can quote later, not a fuzzy name.
 curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
   -d '{"q":"Soubré, Côte d'\''Ivoire"}' | jq -r .cell64
-# "defi.q7k2x.m4ph.aa913"
+# defi.zb441.zd21e.zd3ee
 ```
 
 A `cell64` addresses a place the way a token addresses text in an LLM:
@@ -40,18 +40,33 @@ returns it in the same call.
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.q7k2x.m4ph.aa913","band":"jrc.gfc2020.forest_2020"}' \
-  | jq '{value: .facts[0].value, fact_cid: .facts[0].fact_cid, source: .facts[0].derivation.source}'
+  -d '{"cell":"defi.zb441.zd21e.zd3ee","band":"jrc_gfc2020.forest_2020"}' \
+  | jq '{value: .facts[0].value, fact_cid: .facts[0].fact_cid, source: .facts[0].sources[0].scheme}'
 # {
-#   "value": 1,                       # forest in 2020 under JRC GFC2020 V3
-#   "fact_cid": "qi3jo4sqcg…l2hgjtwm", # 52-char content id: names the bytes
-#   "source": "jrc.gfc2020"
+#   "value": 0,                       # NOT forest at the 2020-12-31 cut-off
+#   "fact_cid": "l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq",
+#   "source": "jrc.gfc2020.v3"
 # }
 ```
 
-The number is not a guess. It comes from a named upstream source, and it
-arrives with a **fact_cid**, a content id that is the fingerprint of
-the exact bytes. Change one byte and the id changes.
+The band name is `jrc_gfc2020.forest_2020`: underscore between the
+publisher and the product, dot before the measure. The dotted spelling
+`jrc.gfc2020.forest_2020` is not in the registry and the responder
+answers `band_not_in_registry` rather than guessing what you meant.
+
+Zero is the useful answer here, not a miss. Under the EUDR the 2020
+baseline decides whether a plot is in scope at all: a cell that was not
+forest at the cut-off cannot have been deforested after it. The number
+is not a guess either. It comes from a named upstream source (the JRC
+tile the fact cites in `sources`), and it arrives with a **fact_cid**, a
+content id that is the fingerprint of the exact bytes. Change one byte
+and the id changes.
+
+The provenance lives in two different places and they answer different
+questions. `sources[]` is where the bytes came from: the JRC tile URL
+and its capture date. `derivation` is how the value was computed from
+them: `fn_key: "jrc_gfc2020_v3_pixel@1"` plus the lat, lng and dataset
+version it was called with. There is no `derivation.source`.
 
 ### 3. Cite: drop the fact_cid into the report
 
@@ -59,8 +74,9 @@ The agent writes its due-diligence note and cites the `fact_cid`
 instead of re-stating the number. The citation is the evidence, not a
 pointer to evidence that might move.
 
-> Plot at `defi.q7k2x.m4ph.aa913` was forest in 2020 (JRC GFC2020 V3).
-> Evidence: `qi3jo4sqcg…l2hgjtwm`.
+> Plot at `defi.zb441.zd21e.zd3ee` was not forest at the 2020-12-31
+> cut-off (JRC GFC2020 V3), so it is out of scope for the deforestation
+> test. Evidence: `l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq`.
 
 ### 4. Verify: a colleague checks it offline
 
@@ -68,7 +84,7 @@ A compliance reviewer at another company never logged into emem. They
 take the `fact_cid` and open it in their own browser:
 
 ```
-https://emem.dev/verify/qi3jo4sqcg…l2hgjtwm
+https://emem.dev/verify/l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq
 ```
 
 The page pulls the same bytes and checks the ed25519 signature locally,

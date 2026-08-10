@@ -34,9 +34,17 @@ band facts:
 ```bash
 curl -s -X POST https://emem.dev/v1/edges/recall \
   -H 'content-type: application/json' \
-  -d '{"subj":"qi3jo4sqcg…l2hgjtwm","pred":"disagrees_with"}' \
-  | jq '.edges[] | {pred, obj, valid_from, valid_to}'
+  -d '{"subj":"l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq",
+       "pred":"disagrees_with"}' \
+  | jq '{edges: (.edges|length), hint: .agent_hint}'
 ```
+
+`subj` is a fact CID, not a cell. The one above is a real fact (the JRC
+2020 forest flag near Soubré) and it has no edges yet, so this returns
+`edges: []` with an `agent_hint` saying so. That is the honest "no
+relation known", not a lookup failure: `/v1/edges/recall` rejects an
+empty or ambiguous request with a 400 rather than returning a silent
+empty array.
 
 The MCP tool is `emem_edges_recall`. Edges are signed under the same
 receipt envelope as band facts: no new key material, and they verify
@@ -58,9 +66,14 @@ with the fact, so an agent does not need a second round trip:
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.q7k2x.m4ph.aa913","band":"indices.ndvi","include":["edges"]}' \
+  -d '{"cell":"defi.zb441.zd21e.zd3ee","band":"indices.ndvi","include":["edges"]}' \
   | jq '{value: .facts[0].value, edges: .facts[0].edges}'
 ```
+
+A fact with no edges carries no `edges` key at all, so that `jq` prints
+`null` rather than `[]`, and the response is byte-identical to the same
+recall without `include`. Absence is the default on purpose: adding the
+flag must not change the bytes for callers who have nothing to attach.
 
 ## The refinement loop: how the memory evolves
 

@@ -23,6 +23,15 @@ Exemptions, all visible here rather than silent:
   * LEGACY_DASHES is the burn-down list: files that predate the gate
     with their dash count pinned. A file on the list may only shrink;
     fixing it fully removes it from the list. New files never join.
+  * Check 4 resolves relative links only. Site-absolute targets (`/verify`,
+    `/docs/diagrams/*.svg`) are served by the responder, not by the repo, so
+    there is nothing on disk to resolve them against. Measured against
+    https://emem.dev on 2026-08-10: all 14 distinct site-absolute targets in
+    docs/ answer 200, so the hole is real but currently empty.
+
+Every name in SKIP and LEGACY_DASHES is checked to still exist. An entry for
+a file that has been renamed or deleted stops being a decision and becomes a
+comment, and it shrinks what this gate covers without saying so.
 
 Usage: scripts/doc_lint.py            # lint, exit non-zero on findings
 """
@@ -88,8 +97,33 @@ def strip_code(text: str) -> str:
     return re.sub(r"`[^`\n]*`", "", text)
 
 
+def stale_exemptions() -> list[str]:
+    """Names in SKIP and LEGACY_DASHES that no longer point at a file.
+
+    Both tables are keyed by repo-relative path, and both are consulted with a
+    lookup that treats a miss as "not exempt". So a renamed file silently drops
+    off its own burn-down row and re-enters the gate at cap 0, or, for SKIP,
+    silently re-enters the gate entirely. Either is arguably fine; what is not
+    fine is that the table keeps carrying a reason for a file nobody can open,
+    and the next reader takes the row as evidence a decision was made about the
+    file that exists today.
+    """
+    out = []
+    for rel in sorted(SKIP):
+        if not (REPO / rel).exists():
+            out.append(f"{rel}: listed in SKIP but does not exist; drop the entry or fix the name")
+    for rel in sorted(LEGACY_DASHES):
+        if not (REPO / rel).exists():
+            out.append(f"{rel}: has a LEGACY_DASHES row ({LEGACY_DASHES[rel]}) but does not "
+                       f"exist; drop the row or fix the name")
+    for d in SKIP_DIRS:
+        if not (REPO / d).exists():
+            out.append(f"{d}: listed in SKIP_DIRS but no such directory; drop it or fix the name")
+    return out
+
+
 def main() -> int:
-    problems: list[str] = []
+    problems: list[str] = stale_exemptions()
     for f in prose_files():
         rel = f.relative_to(REPO).as_posix()
         raw = f.read_text(encoding="utf-8")

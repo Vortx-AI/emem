@@ -1247,10 +1247,10 @@ An MCP host loads every advertised descriptor into the model's context at
 connect. All 102 cost about 243 KB of every conversation whether or not it
 ever touches Earth observation, and a third party measured exactly that
 and called it overhead. So `POST /mcp` advertises the 16 tools of the core
-loop, about 40 KB, and `POST /mcp/full` advertises all 102.
+loop, about 40 KB, and `POST /mcp/full` advertises all 107.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
-102 by name at either endpoint**, and an explicit
+107 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure

@@ -264,17 +264,48 @@ _TOOL_CLAIMS = [
 
 # Documents that record what a count WAS, on purpose. A changelog that says
 # "the counts moved to 94 tools" is correct forever, and rewriting it would
-# destroy the only record of when it moved. upstream-readme.md is a vendored
-# copy of the public MCP directory listing other people's servers; those counts
-# are theirs. whitepaper-v1 is superseded and kept as it shipped.
+# destroy the only record of when it moved.
+#
+# These are SUBSTRINGS of a file NAME, not paths, so an entry can exempt a file
+# in a directory nobody was thinking about, and an entry can name a real file
+# that no scan ever reaches. Both happened. Every entry was re-checked on
+# 2026-08-10 by asking two questions: does it match a file any scan here
+# actually reads, and how many claims does it suppress today.
+#
+#   upstream-readme.md   REMOVED. It is a real file, vendored from the public
+#                        MCP directory, and its counts really are other
+#                        people's. It lives at the repo root, which none of
+#                        the three scans below reach: docs/*.md, docs/**/*.md
+#                        and web/*.html. The entry exempted nothing.
+#   AGENT_HANDOFF        REMOVED. Same: the handoff notes live at the repo root
+#                        and under .well-known/agent-notes/, neither scanned.
+#   roadmap.md           REMOVED. The stated reason is "records what a count
+#                        WAS", and a roadmap does not. Measured before removing:
+#                        docs/roadmap.md fires zero claims today, so this is the
+#                        gate widening to cover a document that should never
+#                        have been outside it. A roadmap saying "107 tools
+#                        today, 150 planned" is a live claim about the
+#                        responder and gets checked like any other.
+#   audit-repro          KEPT, and it suppresses 0 claims today. A dated audit
+#                        reproduction is a record of what a run observed on
+#                        2026-08-02; it will fire the moment a count moves, and
+#                        correcting it would destroy the reproduction.
+#   CHANGELOG.md         KEPT: every heading is a past release.
+#   collaboration-log.md KEPT, suppresses 9. It reproduces other agents' SIGNED
+#                        notes verbatim; editing them breaks the signatures.
+#   whitepaper-v1.md     KEPT, suppresses 5, and .html KEPT, suppresses 7. The
+#                        DOI-cited version, archived exactly as it shipped.
+#   channel.html         KEPT, suppresses 1. Generated, and it embeds signed
+#                        note bodies verbatim for the same reason as the log.
+#   whitepaper-v2.html   KEPT, suppresses 4. Generated from
+#                        docs/whitepaper-v2.md, which IS checked. A rendered
+#                        table cell has no leading pipe, so the HTML cannot tell
+#                        the quoted-v1 column from a live claim; the source can,
+#                        and the source is the one to fix.
 COUNT_HISTORY = (
-    "CHANGELOG.md", "collaboration-log.md", "upstream-readme.md",
+    "CHANGELOG.md", "collaboration-log.md",
     "whitepaper-v1.md", "whitepaper-v1.html", "channel.html",
-    "AGENT_HANDOFF", "audit-repro", "roadmap.md",
-    # Generated from docs/whitepaper-v2.md, which is checked above. A rendered
-    # table cell has no leading pipe, so the HTML cannot tell the quoted-v1
-    # column from a live claim; the source can, and the source is the one to
-    # fix.
+    "audit-repro",
     "whitepaper-v2.html",
 )
 
@@ -315,6 +346,28 @@ PROSE_CLAIMS = (
     ("mcp_tools",    r"\b(\d{2,4})\s+tools\s*[:(]\s*(\d{1,3})\s*core"),
     ("mcp_core",     r"the\s+(\d{1,3})\s+tools of the core loop"),
     ("mcp_core",     r"(\d{1,3})[- ]tool core loop"),
+    # The tier sentence, in the four shapes the docs that explain /mcp vs
+    # /mcp/full actually use. None of these was watched, and all four were
+    # wrong at once on 2026-08-10: docs/intro.md said "the 15 core tools" and
+    # "all 104 (15 core, 89 extended)", docs/mcp-directory.md said "the 15 core
+    # tools", "the full 105" and "all 102" twice, docs/integrations.md said "the
+    # 15 core tools" and "all 102", and docs/ARCHITECTURE_NOTES.md said "all
+    # 102", against a responder answering 107 and 16. Every one of those files
+    # is scanned by this function and always was; the phrase list simply had no
+    # pattern for the way they phrase it, which is the same invisible exemption
+    # the colon form and the dotted version were.
+    ("mcp_core",     r"(\d{1,3})\s+core tools\b"),
+    ("mcp_tools",    r"(\d{2,4})\s*\(\d{1,3}\s+core,\s*\d{1,3}\s+extended\)"),
+    ("mcp_core",     r"\d{2,4}\s*\((\d{1,3})\s+core,\s*\d{1,3}\s+extended\)"),
+    ("mcp_extended", r"\d{2,4}\s*\(\d{1,3}\s+core,\s*(\d{1,3})\s+extended\)"),
+    # "advertises all 104", "advertise all 102", "dispatches all 104 by name",
+    # "every one of the 105 stays callable". A bare `all (\d+)` is not safe
+    # here: "the full 32" is the BLAKE3 digest length in the same documents, so
+    # each pattern carries the verb that makes it a tool count.
+    ("mcp_tools",    r"advertises?\s+all\s+(\d{2,4})\b"),
+    ("mcp_tools",    r"dispatch(?:es)?\s+all\s+(\d{2,4})\b"),
+    ("mcp_tools",    r"every one of the\s+(\d{2,4})\b"),
+    ("mcp_tools",    r"for all\s+(\d{2,4})\b"),
     ("algorithms",   r"(\d{2,4})\s+algorithms\b"),
     ("topics",       r"(\d{1,3})\s+topics\b"),
     ("rest_paths_openapi_total", r"\((\d{2,4})\s+total(?:\s+in OpenAPI)?\)"),
@@ -495,28 +548,38 @@ def verify_prose_counts() -> list[str]:
     return hits
 
 
+# Patterns that PROSE_CLAIMS carries and the script scan below does not.
+#
+# `N core tools` matches one string this task could not reach: the JSON-LD FAQ
+# in web/index.html answers "How do I connect Claude, Cursor, ...?" with
+# "tools/list advertises the 15 core tools ... have all 105 registered up
+# front", against a responder answering 16 and 107. That is real drift, in a
+# block Google renders as a rich result. It is excluded here only because
+# web/ was outside the write scope of the change that added this pattern
+# (2026-08-10), not because the claim is acceptable.
+#
+# Delete this set the moment that FAQ answer is corrected. Two numbers, one
+# line, `<script type=application/ld+json>` near the top of web/index.html:
+# "the 15 core tools" -> 16, "all 105 registered" -> 107. web/*.html is
+# include_str!-baked, so it needs a rebuild and a restart to reach the site.
+PROSE_ONLY_CLAIMS = frozenset([r"(\d{1,3})\s+core tools\b"])
+
 # The trailing-number form. PROSE_CLAIMS reads "168 algorithms"; the arcade
 # writes "archetype algorithms - 168 content-addressed recipes", with the noun
 # first, which none of those patterns can match.
-SCRIPT_PROSE_CLAIMS = PROSE_CLAIMS + (
+SCRIPT_PROSE_CLAIMS = tuple(
+    (k, p) for k, p in PROSE_CLAIMS if p not in PROSE_ONLY_CLAIMS
+) + (
     ("algorithms", r"(\d{2,4})\s+content-addressed recipes\b"),
     ("algorithms", r"\balgorithms\s*[—–:-]\s*(\d{2,4})\b"),
 )
 
 
-def verify_script_prose_counts() -> list[str]:
-    """The same assertion, for prose that lives inside a <script> block.
+def _script_prose_hits(claims) -> list[str]:
+    """verify_script_prose_counts, over an arbitrary claim table.
 
-    verify_prose_counts strips <script> before it scans, which is right for a
-    page whose script is machinery. web/arcade.html is not that page: nearly
-    all of its agent-facing prose is JS string literals, so the largest such
-    surface in the repo was guarded by nothing at all. It served "163
-    content-addressed recipes" against a responder answering 168, and a stale
-    "15 of 105 tools", and this script reported no drift the whole time.
-
-    Only literals shaped like prose are read: six spaces or more. That is what
-    separates a sentence from minified three.js, which shares the same script
-    tag and would otherwise produce a wall of noise.
+    Split out so PROSE_ONLY_CLAIMS can be asked the one question that keeps an
+    exclusion honest: would removing it change anything today.
     """
     hits: list[str] = []
     lit = re.compile(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"|`([^`\\]*)`")
@@ -533,7 +596,7 @@ def verify_script_prose_counts() -> list[str]:
                 # Two patterns can reach the same number from opposite sides;
                 # keyed on where the number sits, that is one finding.
                 said: set[tuple[str, int]] = set()
-                for key, pat in SCRIPT_PROSE_CLAIMS:
+                for key, pat in claims:
                     want = CANON.get(key)
                     if want is None:
                         continue
@@ -551,6 +614,23 @@ def verify_script_prose_counts() -> list[str]:
                             f"{got} for {key}, the responder answers {want} "
                             f"({ctx[:70]!r})")
     return hits
+
+
+def verify_script_prose_counts() -> list[str]:
+    """The same assertion, for prose that lives inside a <script> block.
+
+    verify_prose_counts strips <script> before it scans, which is right for a
+    page whose script is machinery. web/arcade.html is not that page: nearly
+    all of its agent-facing prose is JS string literals, so the largest such
+    surface in the repo was guarded by nothing at all. It served "163
+    content-addressed recipes" against a responder answering 168, and a stale
+    "15 of 105 tools", and this script reported no drift the whole time.
+
+    Only literals shaped like prose are read: six spaces or more. That is what
+    separates a sentence from minified three.js, which shares the same script
+    tag and would otherwise produce a wall of noise.
+    """
+    return _script_prose_hits(SCRIPT_PROSE_CLAIMS)
 
 
 def verify_tool_counts() -> list[str]:
@@ -606,6 +686,8 @@ def verify_canon() -> list[str]:
     drift.extend(verify_script_prose_counts())
     drift.extend(verify_prose_version())
     drift.extend(verify_package_versions())
+    drift.extend(verify_count_history())
+    drift.extend(verify_prose_only_claims())
     return drift
 
 
@@ -760,6 +842,51 @@ STALE_PHRASES = {
                                  "7 of 10 corrections were made",
                                  "A week of agents"],
 }
+
+
+def verify_prose_only_claims() -> list[str]:
+    """PROSE_ONLY_CLAIMS has to still be buying something, and still be real.
+
+    This is the only exemption in this file that keeps a pattern away from a
+    surface on purpose, so it gets the treatment every other exemption here
+    gets: it fails if it names a pattern PROSE_CLAIMS does not carry, and it
+    fails once the drift it was written for is gone. An exemption that stops
+    exempting anything is worse than none, because the next reader takes it as
+    evidence the surface was considered and found fine.
+    """
+    hits = []
+    for pat in sorted(PROSE_ONLY_CLAIMS):
+        if not any(p == pat for _, p in PROSE_CLAIMS):
+            hits.append(f"PROSE_ONLY_CLAIMS holds {pat!r}, which PROSE_CLAIMS does "
+                        f"not carry; the exclusion excludes nothing.")
+    still_needed = [(k, p) for k, p in PROSE_CLAIMS if p in PROSE_ONLY_CLAIMS]
+    if still_needed and not _script_prose_hits(still_needed):
+        hits.append("PROSE_ONLY_CLAIMS no longer suppresses any finding: the "
+                    "script-prose surfaces it was written around are clean. "
+                    "Delete the set and let the patterns run everywhere.")
+    return hits
+
+
+def verify_count_history() -> list[str]:
+    """A history exemption that matches no scanned file is not an exemption.
+
+    COUNT_HISTORY is consulted with `substring in path.name` against three
+    scans: docs/*.md, docs/**/*.md and web/*.html, plus the docs/book renders.
+    An entry that matches nothing in any of them suppresses no claim and is
+    read by the next person as a decision about a file this gate covers.
+    `upstream-readme.md` and `AGENT_HANDOFF` were both like that: real files,
+    at the repo root, that no scan here has ever reached.
+    """
+    scanned = {p.name for p in REPO.glob("docs/*.md")}
+    scanned |= {p.name for p in REPO.glob("docs/**/*.md")}
+    scanned |= {p.name for p in REPO.glob("web/*.html")}
+    scanned |= {"README.md", "AGENTS.md", "CHANGELOG.md"}
+    book = REPO / "docs" / "book"
+    if book.is_dir():
+        scanned |= {p.name for p in book.glob("*.html")}
+    return [f"COUNT_HISTORY entry {h!r} matches no file this script scans; it "
+            f"exempts nothing, so drop it or fix the name."
+            for h in COUNT_HISTORY if not any(h in n for n in scanned)]
 
 
 def scan_prose() -> list[str]:

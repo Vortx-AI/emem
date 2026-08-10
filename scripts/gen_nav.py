@@ -103,7 +103,6 @@ AUDIENCE = {
     "/docs":        ("developers","the book"),
     "/guard":       ("developers","a server you run, with the commands to run it"),
     "/verify":      ("developers","paste a token, watch the proof run"),
-    "/arcade":      ("anyone",    "watch real agents mint, cite and check facts on a live map"),
     "/demos":       ("anyone",    "eight things you can click"),
     "/tools":       ("agents",    "the full tool registry, generated, long"),
     "/a2a":         ("agents",    "how two agents agree before they start"),
@@ -112,7 +111,6 @@ AUDIENCE = {
     "/gallery":     ("anyone",    "the record, rendered"),
     "/channel":     ("anyone",    "agents talking, in public"),
     "/scoreboard":  ("anyone",    "the benchmark, live"),
-    "/api-redoc":   ("developers","the OpenAPI contract, browsable"),
     "/whitepaper-v1": ("leaders", "superseded, kept as it shipped"),
     "/how-it-works":  ("anyone",    "the address, the fact, the receipt, in order"),
     "/404":           ("anyone",    "the page you asked for is not here"),
@@ -125,6 +123,28 @@ AUDIENCE = {
     "/demos/state-cube":      ("anyone", "the full state vector of one place"),
     "/demos/trajectory":      ("anyone", "one cell, seven steps through its history"),
 }
+
+# Rows above that no page in web/ is served at, so render() never reads them.
+#
+# The gate has always checked that every rendered page HAS a row. It never
+# checked the other direction, and a row nothing renders is the same defect one
+# table over: it reads as a decision about a page that was classified, when in
+# fact that page carries no audience strip at all. Measured against
+# https://emem.dev on 2026-08-10: /, /reference and every other web/*.html page
+# serve `class="audience aud-…"`; /agents, /docs and /spec serve none.
+#
+# These three stay listed because the classification is the right one and this
+# is where a reader looks for it. They are named here so the row is understood
+# as an intent for a responder-rendered route rather than as a claim that the
+# strip is on the page.
+#   /agents  built by the responder from the attester table, not from web/.
+#   /docs    mdbook output, baked with include_dir!; it carries mdbook chrome.
+#   /spec    served from the spec source, not from a page in web/.
+# /api-redoc and /arcade were also unread, but for a different reason: both
+# pages exist in web/ and both are in SKIP below, so their rows described a
+# strip that was deliberately never going to be rendered. Removed, since a row
+# for a skipped page is indistinguishable from a row for a page nobody checked.
+UNRENDERED_AUDIENCE = {"/agents", "/docs", "/spec"}
 
 # What the chip says about the reader it names.
 AUDIENCE_NOTE = {
@@ -293,6 +313,21 @@ def main():
                                 f"in AUDIENCE; add one rather than letting it "
                                 f"default.")
     drifted.extend(unclassified)
+
+    # The other direction: a row render() never reads. Either the page moved,
+    # or it was skipped and the row is describing a strip that will never be
+    # drawn. Both are worth saying out loud; neither is visible otherwise.
+    rendered = {served_as(os.path.basename(p)) for p in glob.glob("web/*.html")
+                if os.path.basename(p) not in SKIP}
+    # render_whitepaper.py renders whitepaper-v2.html marked as /whitepaper.
+    rendered.add("/whitepaper")
+    for path in sorted(set(AUDIENCE) - rendered - UNRENDERED_AUDIENCE):
+        drifted.append(f"AUDIENCE classifies {path} but no page in web/ is served "
+                       f"there, so the strip is never rendered; drop the row, or "
+                       f"name it in UNRENDERED_AUDIENCE with the reason.")
+    for path in sorted(UNRENDERED_AUDIENCE - set(AUDIENCE)):
+        drifted.append(f"{path} is in UNRENDERED_AUDIENCE but has no AUDIENCE row "
+                       f"to explain; drop it or add the row back.")
 
     total = sum(len(i) for _, i in NAV) + 2
     print(f"nav: {len(NAV)} groups, {total} destinations, "
