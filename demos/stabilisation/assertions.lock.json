@@ -1,0 +1,14 @@
+{
+  "attester_pubkey_b32": "ukctss4i5mfbaz7fllc5z746iblx6xx2wrqi7fibkyetm6yo66gq",
+  "ledger_file_cid": "mavlrxkcmb6tmj3rg5kgs2bfq4",
+  "ledger_path": "/memories/by_attester/ukctss4i/stabilise/20260810T184008Z-ledger.md",
+  "observed": {
+    "algorithm_registry_total": "168",
+    "fact_cid_is_52_chars": "52",
+    "guard_verdict_is_advisory": "allow fact_cids=0",
+    "ndvi_value_quoted_in_prose": "0.4253807106598985",
+    "short_cid_is_refused_as_malformed": "400 fact_cid_malformed_length"
+  },
+  "recorded_at": "2026-08-10T18:40:08Z",
+  "responder": "https://emem.dev"
+}
