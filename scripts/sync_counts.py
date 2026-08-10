@@ -56,14 +56,14 @@ CANON = {
     "mcp_core": 16,
     "mcp_extended": 91,
     "algorithms": 168,
-    "rest_paths_v1": 154,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 160,  # all paths in OpenAPI
+    "rest_paths_v1": 155,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 161,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
     "topics": 27,
     "foundation_encoders": 4,
-    "mcp_resources": 18,       # resources/list entries (emem-mcp 7 + emem-api-rest 11)
+    "mcp_resources": 19,       # resources/list entries (emem-mcp 7 + emem-api-rest 12)
     "mcp_uri_templates": 8,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 18,
     "version": "2.1.0",
