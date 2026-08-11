@@ -722,11 +722,24 @@ def check_install_badges(repo_root: str) -> None:
     advertised = "https://emem.dev/mcp"
     badges = re.findall(r"\[!\[([^\]]+)\]\(([^)]+)\)\]\(([^)]+)\)", text)
 
-    # 1. Every install link carries the endpoint we advertise.
+    # 1. Every install link carries the endpoint we advertise, from the host
+    #    that actually performs the handoff, aimed at the build it names.
+    #
+    #    Both halves were wrong here on 2026-08-11 and neither showed up as a
+    #    broken link. The stable badge pointed at `vscode.dev`, which is the
+    #    web editor and 404s the redirect path, so the button rendered and led
+    #    nowhere. The Insiders badge used the right host but omitted
+    #    `quality=insiders`, so it resolved to `vscode:` and installed into
+    #    STABLE VS Code while calling itself Insiders: a working button doing
+    #    the wrong thing, which no reachability check can see. The proven form
+    #    is github/github-mcp-server's own: one host, the build selected by a
+    #    parameter.
+    REDIRECT_HOST = "insiders.vscode.dev"
     installs = [(alt, link) for alt, _img, link in badges if "mcp/install" in link]
     bad = []
     for alt, link in installs:
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
+        parts = urllib.parse.urlparse(link)
+        q = urllib.parse.parse_qs(parts.query)
         cfg = (q.get("config") or ["{}"])[0]
         try:
             url = json.loads(cfg).get("url")
@@ -734,6 +747,14 @@ def check_install_badges(repo_root: str) -> None:
             url = None
         if url != advertised:
             bad.append(f"{alt}: config url={url!r}")
+        if parts.netloc != REDIRECT_HOST:
+            bad.append(f"{alt}: host {parts.netloc!r}, not the redirect service")
+        wants_insiders = "insiders" in alt.lower()
+        has_quality = q.get("quality") == ["insiders"]
+        if wants_insiders and not has_quality:
+            bad.append(f"{alt}: no quality=insiders, so it installs into stable")
+        if not wants_insiders and has_quality:
+            bad.append(f"{alt}: carries quality=insiders but is not labelled so")
     row("VS Code, Copilot",
         "a one-click install badge installs the endpoint we advertise",
         f"{len(installs)} install badge(s), {len(bad)} wrong" if installs

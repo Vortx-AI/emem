@@ -11,11 +11,11 @@
 [![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
 [![emem MCP server](https://glama.ai/mcp/servers/Vortx-AI/emem/badges/score.svg)](https://glama.ai/mcp/servers/Vortx-AI/emem)
 [![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
+[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS%20Code%20Insiders-Install%20emem-24bfa5?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D&quality=insiders)
 [![Whitepaper: Zenodo](https://img.shields.io/badge/whitepaper-Zenodo%20DOI-3b5?logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.20706893)
 
 [Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8) · [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
-
-[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
 
 **Add it to your agent now.**
 In **VS Code / GitHub Copilot**, click the button above, or search `@mcp emem` in the Extensions view.
@@ -31,25 +31,12 @@ In **Claude Code, Cursor, Cline**, paste into `.mcp.json`:
 
 ---
 
-## Install from the GitHub MCP Registry
+## Connect it if you are building any of these
 
-[**github.com/mcp/Vortx-AI/emem**](https://github.com/mcp/Vortx-AI/emem)
-
-One click from the registry page adds the server to a supporting host. Nothing
-else is required: reads take no key, no account and no signup, so the first
-call works before you have decided whether to trust us. That is the point, and
-it is checkable rather than promised, because every answer carries an ed25519
-receipt that verifies against the responder's published key rather than its
-word.
-
-The same server is published in the [official MCP
-registry](https://registry.modelcontextprotocol.io/v0/servers?search=emem) as
-`io.github.Vortx-AI/emem`, under the GitHub organisation that owns this
-repository. The version marked latest there is the version the responder
-answers on, and each is one call to check, so you can tell a live listing from
-a stale one without asking us.
-
-**Connect it if you are building any of these.**
+Reads take no key, no account and no signup, so the first call works before you
+have decided whether to trust us. That is the point, and it is checkable rather
+than promised: every answer carries an ed25519 receipt that verifies against the
+responder's published key rather than its word.
 
 | If you are building | What emem gives you on the first call |
 |---|---|
@@ -343,14 +330,23 @@ No key, no account.
 Reading needs no key, no account, no signup. One endpoint,
 `https://emem.dev/mcp`, and every host below reaches the same 107 tools.
 
+### Where it is published
+
+- **GitHub MCP Registry:** [github.com/mcp/Vortx-AI/emem](https://github.com/mcp/Vortx-AI/emem).
+  One click from that page adds it to a supporting host, and it is what puts
+  emem in front of VS Code and GitHub Copilot users.
+- **Official MCP registry:** [`io.github.Vortx-AI/emem`](https://registry.modelcontextprotocol.io/v0/servers?search=emem),
+  under the GitHub organisation that owns this repository. The version marked
+  latest there is the version the responder answers on, and each is one call
+  to check, so you can tell a live listing from a stale one without asking us.
+
 ### VS Code and GitHub Copilot
 
-emem is in the [GitHub MCP Registry](https://github.com/mcp/Vortx-AI/emem),
-so it installs from inside the editor. Open the **Extensions** view and search
-`@mcp emem`, or click:
+Because emem is in the GitHub MCP Registry it installs from inside the editor.
+Open the **Extensions** view and search `@mcp emem`, or click:
 
-[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
-[![Install in VS Code Insiders](https://img.shields.io/badge/Install%20in-VS%20Code%20Insiders-24bfa5?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/VS%20Code%20Insiders-Install%20emem-24bfa5?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D&quality=insiders)
 
 To write the config yourself, put this in `.vscode/mcp.json` (or run
 **MCP: Open User Configuration** for every workspace):
