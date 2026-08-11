@@ -47,6 +47,16 @@ VERIFY = fixture("verify_receipt")
 
 CELL = "defi.zb493.xuqA.zcb5f"
 
+# Read off the capture rather than typed in. The elevation at this cell was
+# 918.0 from `open_meteo_copdem90m@1` and, between two captures half an hour
+# apart, 915.0712280273438 from `copernicus_dem_30m_aws_pixel@1`: production
+# re-materialised the band from a better source and re-signed the fact. A
+# literal here asserts what Bengaluru's elevation is, which is the responder's
+# job and not this package's; what these tests owe is that the number and its
+# citation cross the trim unaltered.
+ELEVATION = RECALL["facts"][0]["value"]
+ELEVATION_TOKEN = RECALL["facts"][0]["memory_token"]
+
 # Measured over 24 places against https://emem.dev, including both poles, open
 # ocean and the five-way ambiguous names. `locate` came back between 3,712 and
 # 4,867 characters; the spread is `alternatives`, which the responder caps at
@@ -56,12 +66,14 @@ CELL = "defi.zb493.xuqA.zcb5f"
 # in a context window, not whether the number should go up.
 LOCATE_CHAR_BUDGET = 6_000
 
-# Measured over 179 live facts at Bengaluru, Paris and Tokyo: the largest
-# trimmed fact was 608 characters (`geotessera.multi_year`, whose value is
-# withheld) and the smallest 296. Before the value budget the largest was
-# 22,872. This bound does not depend on how many facts came back, which is
-# what makes it worth asserting.
-FACT_CHAR_BUDGET = 800
+# Measured over 332 live facts at eleven places, from two-fact Jakarta to
+# 104-fact Bengaluru: the largest trimmed fact was 507 characters
+# (`geotessera.multi_year`, whose value is withheld) and the smallest 195.
+# Before the value budget the largest was 22,872; before `cell` and `fact_cid`
+# stopped being written out beside the token that already carries them, 608.
+# This bound does not depend on how many facts came back, which is what makes
+# it worth asserting.
+FACT_CHAR_BUDGET = 600
 
 
 def _spec(handler) -> EmemToolSpec:
@@ -111,12 +123,22 @@ def test_every_fixture_was_captured_rather_than_written():
 def test_recall_returns_the_citation_token():
     out = _serving(RECALL).recall("Bengaluru", bands=["copdem30m.elevation_mean"])
 
-    assert out["facts"][0]["value"] == 918.0
+    assert out["facts"][0]["value"] == ELEVATION
     assert out["facts"][0]["unit"] == "m"
-    assert out["cite"] == [
-        f"emem:fact:{CELL}:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"
-    ]
+    assert out["facts"][0]["cite"] == ELEVATION_TOKEN
+    assert out["facts"][0]["cite"].startswith(f"emem:fact:{CELL}:")
     assert out["receipt"]["signature_b32"]
+
+
+def test_there_is_no_top_level_citation_list():
+    """It was every fact's `cite` written a second time: 9,160 characters of a
+    51,637-character result at Bengaluru, for no information. Removed rather
+    than kept as a convenience, because a list of tokens detached from the
+    readings they cite is the harder of the two to quote correctly."""
+    out = _serving(RECALL).recall("Bengaluru")
+
+    assert "cite" not in out
+    assert [f["cite"] for f in out["facts"]] == [ELEVATION_TOKEN]
 
 
 def test_recall_reports_the_address_it_read():
@@ -153,8 +175,11 @@ def test_recall_trims_band_prose_but_never_the_receipt():
 
     assert "pitfalls" not in json.dumps(out), "band prose survived the trim"
     assert out["receipt"] == RECALL["receipt"], "receipt must pass through byte-for-byte"
-    # 5,268 characters of response became 2,201 live at the time of capture.
-    assert len(json.dumps(out)) < 4_000, "tool result grew past the size the design assumes"
+    # 5,300 characters of captured response become 2,014. The receipt is 1,710
+    # of what is left, which is the floor: it cannot be trimmed without making
+    # it verify false, and its `fact_cids` array is a second copy of every cid
+    # the facts already cite.
+    assert len(json.dumps(out)) < 3_000, "tool result grew past the size the design assumes"
 
 
 def test_band_help_is_opt_in():
@@ -209,10 +234,64 @@ def test_an_embedding_value_is_withheld_and_says_so():
     assert "unit" not in raw and fact["unit"] is None
 
 
+def test_a_fact_does_not_repeat_what_its_own_token_says():
+    """`cell` and `fact_cid` are the two halves of `emem:fact:<cell>:<cid>`.
+    Written out beside it they cost 10,296 characters of a 51,637-character
+    result at Bengaluru and said nothing the token had not.
+
+    The thing that must survive is the reverse direction, so it is asserted
+    here rather than trusted: both halves come back out of the token."""
+    raw = RECALL["facts"][0]
+    fact = _serving(RECALL).recall("Bengaluru")["facts"][0]
+
+    assert "cell" not in fact and "fact_cid" not in fact
+    assert fact["cite"] == raw["memory_token"]
+
+    anchor, cid = fact["cite"][len("emem:fact:"):].rsplit(":", 1)
+    assert anchor == raw["cell"]
+    assert cid == raw["fact_cid"]
+
+
+def test_the_cid_is_kept_when_the_token_does_not_yield_it():
+    """The trim is a comparison, not an assumption.
+
+    Two token grammars resolve to the same fact. Both end in `fact_cid` after
+    the last colon, so the cid always comes back. Only the cell64 one spells
+    the cell out: a descriptor anchors on `<lat>,<lng>@<date>@<band~render>`
+    and reaches the cell by quantisation, which no string surgery here can do.
+    So a descriptor citation keeps its `cell` and drops its `fact_cid`, and
+    `test_a_descriptor_token_still_resolves_and_still_hides_the_cell` in
+    test_live_contract.py is the half that checks production agrees.
+
+    The descriptor is built from the fixture's own fact so it cannot go stale
+    against a re-signed one."""
+    raw = RECALL["facts"][0]
+    descriptor = (f"emem:fact:12.97190,77.59366"
+                  f"@{raw['sources'][0]['captured_at'][:10]}"
+                  f"@{raw['band'].replace('_', '~').replace('.', '~')}"
+                  f":{raw['fact_cid']}")
+
+    fact = _serving(dict(RECALL, facts=[dict(raw, memory_token=descriptor)])) \
+        .recall("Bengaluru")["facts"][0]
+    assert "fact_cid" not in fact, "the descriptor grammar still ends in the cid"
+    assert fact["cell"] == CELL, "a descriptor anchor is not the cell; keep the cell"
+
+    # A fact the responder cid'd but never tokenised. `enrich_facts_with_cid`
+    # skips a fact that already carries a `fact_cid`, so it mints no token for
+    # it, and dropping the cid there would drop the only copy.
+    untokenised = dict(RECALL["facts"][0])
+    untokenised.pop("memory_token")
+    fact = _serving(dict(RECALL, facts=[untokenised])).recall("Bengaluru")["facts"][0]
+    assert fact["cite"] is None
+    assert fact["fact_cid"] == RECALL["facts"][0]["fact_cid"]
+    assert fact["cell"] == CELL
+
+
 def test_a_readable_value_is_left_alone():
     fact = _serving(RECALL).recall("Bengaluru")["facts"][0]
-    assert fact["value"] == 918.0
+    assert fact["value"] == ELEVATION
     assert "value_omitted" not in fact
+    assert len(json.dumps(fact["value"])) <= 512
 
 
 def test_a_fact_has_a_bounded_size():
@@ -282,17 +361,29 @@ def test_verify_receipt_reports_validity():
 
 
 def test_resolve_token_reads_a_citation_from_elsewhere():
-    """The resolved record is nested under `fact`, not returned at the top
-    level. Reading the top level looks like it works, every field simply comes
-    back None, so this is asserted against the real envelope."""
+    """The resolved record is nested under `fact`, and that is what the tool
+    reads. Reading only the top level used to look like it worked, every field
+    simply came back None, so this is asserted against the real envelope."""
     out = _serving(RESOLVE).resolve_token(f"emem:fact:{CELL}:cid")
 
     assert out["resolved"] is True
-    assert out["value"] == 918.0
+    assert out["value"] == ELEVATION
     assert out["unit"] == "m"
     assert out["cell"] == CELL
     assert out["signer_b32"] == RESOLVE["signer_b32"]
-    assert "band" not in RESOLVE, "band moved to the top level; the nesting comment is stale"
+
+
+def test_resolve_reads_the_signed_body_even_though_the_envelope_now_echoes_it():
+    """Production started echoing `band`, `kind`, `unit` and `value` at the top
+    level of the resolve envelope, between two fixture captures half an hour
+    apart. The tool keeps reading them out of `fact`, which is the signed
+    record itself; the echo is a copy of the same JSON nodes and is convenient
+    rather than authoritative. Asserted so a future drift between the two is a
+    failure here rather than a value the tool reports from the wrong copy."""
+    for key in ("band", "unit", "value"):
+        assert key in RESOLVE, f"the envelope stopped echoing {key}"
+        assert RESOLVE[key] == RESOLVE["fact"][key], \
+            f"{key} disagrees between the envelope and the signed body"
 
 
 def test_resolve_token_round_trips_a_recall_citation():
@@ -303,9 +394,9 @@ def test_resolve_token_round_trips_a_recall_citation():
     spec = _serving(RECALL, RESOLVE)
 
     recalled = spec.recall("Bengaluru")
-    resolved = spec.resolve_token(recalled["cite"][0])
+    resolved = spec.resolve_token(recalled["facts"][0]["cite"])
 
-    assert recalled["cite"][0] == RESOLVE["token"]
+    assert recalled["facts"][0]["cite"] == RESOLVE["token"]
     assert resolved["value"] == recalled["facts"][0]["value"]
     assert resolved["cell"] == recalled["cell"]
 

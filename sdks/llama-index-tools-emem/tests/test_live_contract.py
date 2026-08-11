@@ -14,6 +14,7 @@ suite is back to certifying that the code agrees with itself.
 
 from __future__ import annotations
 
+import functools
 import glob
 import json
 import os
@@ -21,8 +22,30 @@ import os
 import httpx
 import pytest
 
+from llama_index.tools.emem import EmemToolSpec
+
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 ORIGIN = os.environ.get("EMEM_URL", "https://emem.dev").rstrip("/")
+
+DENSE_CELL = "defi.zb493.xuqA.zcb5f"
+
+# The worst case the tool ships: `bands` omitted at the densest cell the
+# responder serves. Measured over eleven live places with `bands` omitted,
+# Bengaluru worst at 31,990 characters over 104 facts, then Tokyo 13,445 and
+# Paris 12,904. One more fact costs about 291 characters, so 40,000 is 25
+# percent over the worst measured and roughly 27 more bands of room.
+#
+# This is asserted live rather than against a fixture because the fixture
+# would be the 503 KB body that response is; `capture_fixtures.py` picks its
+# queries to stay reviewable in a diff, and half a megabyte is not. The
+# offline half of this bound is `FACT_CHAR_BUDGET`, which caps one fact
+# whatever the fact count.
+#
+# If this trips, the question is what the responder started sending, not
+# whether the number should go up: 40,000 characters is already more than
+# some hosted clients will pass through, and `bands` exists so an agent never
+# has to ask for all of it.
+RECALL_CHAR_BUDGET = 40_000
 
 # What the four tools read, path by path. A fixture that stopped exercising one
 # of these would let it rot unnoticed, so this list is checked against live
@@ -54,14 +77,19 @@ def _load(name: str) -> dict:
         return json.load(handle)
 
 
-def _fetch(capture: dict) -> dict:
-    """Replay a recorded request against ORIGIN, or skip if nothing answers."""
+def _post(path: str, body: dict) -> dict:
+    """One live call, or skip if nothing answers."""
     try:
-        response = httpx.post(ORIGIN + capture["path"], json=capture["request"], timeout=180.0)
+        response = httpx.post(ORIGIN + path, json=body, timeout=180.0)
         response.raise_for_status()
         return response.json()
     except (httpx.HTTPError, json.JSONDecodeError) as error:
-        pytest.skip(f"{ORIGIN} did not answer ({error!r}); fixture shapes NOT verified this run")
+        pytest.skip(f"{ORIGIN} did not answer ({error!r}); shapes NOT verified this run")
+
+
+def _fetch(capture: dict) -> dict:
+    """Replay a recorded request against ORIGIN, or skip if nothing answers."""
+    return _post(capture["path"], capture["request"])
 
 
 def _key_paths(node, prefix: str = ""):
@@ -120,6 +148,93 @@ def test_live_still_serves_every_path_the_tools_read(name):
 
     for path in READS[name]:
         assert _at(live, path) is not None, f"{ORIGIN} sends no {path} for {name}"
+
+
+@functools.lru_cache(maxsize=1)
+def _dense_recall() -> dict:
+    """One `bands`-less recall at the dense cell, reused by both tests below.
+
+    It is the largest call the package makes, so it is made once."""
+    try:
+        return EmemToolSpec(base_url=ORIGIN, timeout=300.0).recall(DENSE_CELL)
+    except httpx.HTTPError as error:
+        pytest.skip(f"{ORIGIN} did not answer ({error!r}); recall size NOT checked this run")
+
+
+def test_recall_with_bands_omitted_still_fits_a_tool_result():
+    """The size that started all of this, measured end to end through the
+    shipped tool against the live responder rather than through a fixture."""
+    out = _dense_recall()
+
+    size = len(json.dumps(out))
+    assert size <= RECALL_CHAR_BUDGET, (
+        f"recall({DENSE_CELL!r}) with bands omitted is {size} chars over "
+        f"{len(out['facts'])} facts"
+    )
+
+
+def test_every_citation_the_trim_leaves_behind_still_dereferences():
+    """The trim drops `cell` and `fact_cid` from a fact because its `cite`
+    already carries both. That is only true while the token still resolves, so
+    it is checked against production rather than against the grammar: take a
+    token out of a trimmed result, hand it back, and require the same signed
+    reading.
+
+    A trim that passes every offline test and yields a token nobody can
+    dereference is the failure this whole package exists to prevent."""
+    out = _dense_recall()
+    spec = EmemToolSpec(base_url=ORIGIN, timeout=300.0)
+
+    # A withheld embedding first: it is the fact with the most riding on its
+    # citation, since resolving it is the only way to reach the value at all.
+    facts = sorted(out["facts"], key=lambda f: "value_omitted" not in f)
+    for fact in facts[:3]:
+        assert "cell" not in fact and "fact_cid" not in fact, \
+            "a cell64 citation stopped spelling out its own halves"
+        try:
+            resolved = spec.resolve_token(fact["cite"])
+        except httpx.HTTPError as error:
+            pytest.skip(f"{ORIGIN} did not answer ({error!r}); citations NOT checked")
+        assert resolved["resolved"] is True, f"{fact['cite']} did not resolve"
+        assert resolved["band"] == fact["band"]
+        assert resolved["cell"] == out["cell"]
+        assert resolved["fact_cid"] == fact["cite"].rsplit(":", 1)[-1]
+        if "value_omitted" in fact:
+            assert len(json.dumps(resolved["value"])) == fact["value_omitted"]["chars"], \
+                "the withheld value did not come back whole"
+
+
+def test_a_descriptor_token_still_resolves_and_still_hides_the_cell():
+    """The premise for keeping `cell` on a descriptor citation.
+
+    `/v1/memory_token` mints a second grammar for the same fact,
+    `emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>`. It resolves to the
+    identical record, so the cid still comes off the end, but its anchor is
+    coordinates: the responder reaches the cell by quantising them, which the
+    client cannot do. That is why the trim compares each half against the token
+    instead of assuming both are in there. If this grammar ever started
+    carrying the cell64, the comparison would simply stop keeping the field,
+    but the reverse, a descriptor whose cell was dropped, is unrecoverable, so
+    the premise is checked rather than remembered."""
+    fixture = _load("recall_bengaluru")
+    fact = fixture["facts"][0]
+    minted = _post("/v1/memory_token", {
+        "cell": fact["cell"],
+        "fact_cid": fact["fact_cid"],
+        "band": fact["band"],
+        "observed_on": fact["sources"][0]["captured_at"][:10],
+    })
+
+    descriptor = minted.get("descriptor_token")
+    assert descriptor, "the responder stopped minting descriptor_token"
+    assert "@" in descriptor and fact["cell"] not in descriptor, \
+        "a descriptor anchor now carries the cell64; re-read _trim_fact"
+    assert descriptor.rsplit(":", 1)[-1] == fact["fact_cid"]
+
+    resolved = _post("/v1/memory_token/resolve", {"token": descriptor})
+    assert resolved["resolved"] is True
+    assert resolved["cell"] == fact["cell"], "the descriptor resolved to another cell"
+    assert resolved["fact_cid"] == fact["fact_cid"]
 
 
 def test_locate_data_at_this_cell_is_still_a_briefing_not_a_band_list():

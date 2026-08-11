@@ -61,14 +61,27 @@ seven of them were 131,246 of a 162,365-character result. A value over 512
 characters is replaced by its length, its first few elements and the citation
 that resolves the whole thing.
 
-The receipt is passed through whole. As of receipt preimage v2 the signature
-covers the inclusion proof, so a receipt with any field removed does not raise
-an error, it verifies as `signature_valid: false`. A tool that trimmed it would
-report honest data as forged.
+What is left is mostly citations, and a citation used to be written out three
+times. A `bands`-less recall at Bengaluru was 51,637 characters, of which
+19,456 were repeats: a top-level `cite` list holding every fact's `cite` again,
+and `fact_cid` and `cell` beside the `emem:fact:<cell>:<fact_cid>` token that
+already spells both out. All three are gone, 19,666 characters with the
+punctuation that held them, and the result is 31,971. A fact
+therefore shows no `cell` and no `fact_cid` unless its token cannot yield them,
+which happens for a descriptor token (`emem:fact:<lat>,<lng>@<date>@<band>:
+<fact_cid>`, whose anchor reaches the cell by quantisation rather than by
+spelling) and for a fact the responder cid'd but never tokenised.
+
+The receipt is passed through whole, even though its `fact_cids` array is a
+further copy of every cid and 5,837 of the 7,480 characters it costs at
+Bengaluru. As of receipt preimage v2 the signature covers the inclusion proof,
+so a receipt with any field removed does not raise an error, it verifies as
+`signature_valid: false`. A tool that trimmed it would report honest data as
+forged.
 
 **Name the bands you need.** Omitting `bands` returns everything the responder
-holds at the cell. At Bengaluru that is 103 facts and about 50 KB, most of it
-citations for bands nobody asked about. Call `locate` first and pick from
+holds at the cell. At Bengaluru that is 104 facts and about 32 KB, nearly all
+of it citations for bands nobody asked about. Call `locate` first and pick from
 `bands_available_here`.
 
 **Verification is per-responder.** `signature_valid: true` proves that this
