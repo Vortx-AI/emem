@@ -1,8 +1,5 @@
 <div align="center">
 
-<img src="web/emem-strip.png" width="880"
-     alt="Six panels explaining emem. 1: two agents describe one field, one reports 0.62 and one reports 'looks healthy', neither can check the other. 2: the place resolves to one cell64 and the reading becomes a fact hashed with blake3 over canonical CBOR and signed with ed25519. 3: the fact collapses to one line, emem:fact:<cell64>:<fact_cid>, a 52-character untruncated digest. 4: anyone resolves that token to the byte-identical signed body and verifies the receipt in their own process, with no key, no account and no callback. 5: emem-guard reads the emem: tokens in a transcript before an agent asserts, denying PROV_SIG when a signature fails, PROV_BYTES when it resolves to different bytes, and PROV_DRIFT when it moved past the band threshold. 6: what it does not do, one responder signs rather than a network consensus, a real citation can still sit on a wrong claim, and only emem:fact: binds a whole body while entity and bundle tokens co-refer." />
-
 # emem
 
 **emem is the shared memory layer for multi-agent systems.**
@@ -17,7 +14,7 @@
 [![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
 [![Whitepaper: Zenodo](https://img.shields.io/badge/whitepaper-Zenodo%20DOI-3b5?logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.20706893)
 
-[Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
+[Watch a multi-agent run](https://www.youtube.com/watch?v=fE_vj7sJ2W0) · [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
 
 **Add it to your agent now.** Install from the [GitHub MCP Registry](https://github.com/mcp/Vortx-AI/emem), or paste into `.mcp.json` (Claude Code, Cursor, Cline):
 `{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}`
@@ -73,6 +70,13 @@ A model's memory ends where its context does. When a session is compacted, a tas
 emem is memory that lives **outside** any one model. Every fact is one small, signed record at a permanent address. Any agent reads it with no account. Any keyholder writes to it with a local key. Anyone checks any of it offline, trusting neither the sender nor the server. Because the address is derived from the fact's own bytes, the same reference resolves to the same value for every agent, on every model, in every session, forever.
 
 **Earth is the substrate, not the subject.** A fact can have a permanent address because it is anchored to a real place and a real observation: a stable 64-bit address per location, one signed record per measurement. Satellite Earth observation fills the memory today, but nothing in the record, receipt, or token grammar is satellite-specific. Any observer of a place can write to the same loop, and a machine observer is admitted by proof of how it ran, not by promise: [Direct from the device](#direct-from-the-device).
+
+<p align="center">
+  <img src="web/emem-strip.png" width="880"
+       alt="Six panels explaining emem. 1: two agents describe one field, one reports 0.62 and one reports 'looks healthy', neither can check the other. 2: the place resolves to one cell64 and the reading becomes a fact hashed with blake3 over canonical CBOR and signed with ed25519. 3: the fact collapses to one line, emem:fact:<cell64>:<fact_cid>, a 52-character untruncated digest. 4: anyone resolves that token to the byte-identical signed body and verifies the receipt in their own process, with no key, no account and no callback. 5: emem-guard reads the emem: tokens in a transcript before an agent asserts, denying PROV_SIG when a signature fails, PROV_BYTES when it resolves to different bytes, and PROV_DRIFT when it moved past the band threshold. 6: what it does not do, one responder signs rather than a network consensus, a real citation can still sit on a wrong claim, and only emem:fact: binds a whole body while entity and bundle tokens co-refer." />
+</p>
+
+<p align="center"><sub>The whole loop, including the last panel: what it does not do.</sub></p>
 
 ## Why it matters: what breaks without it
 
@@ -159,7 +163,7 @@ emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45
 
 The address of a place plus the fingerprint of one signed observation there. An agent keeps this line and drops the payload. Any agent, any model, any month later resolves it back to the exact same bytes and re-checks the signature without trusting whoever sent it. In practice your agent runs four verbs: locate a place, recall its signed facts, reason over them, cite the tokens in its output. Verification is the receiver's single call.
 
-**One honest measurement, against our own interest.** A token is not a compression trick. Our own benchmark found that a single token costs about **5.8x more context than pasting the bare number** it stands for. The token earns its size in exactly three places: when a value must survive a summariser, when a third party must check it without trusting you, and when you bundle many facts behind one `emem:bundle:` handle that stays 38 characters flat at any count up to 256. If your answer needs one number that already fits in the window, paste the number.
+**One honest measurement, against our own interest.** A token is not a compression trick. Measured over 131 scalar facts at 12 places across 57 bands: a token is 84 characters and 51 LLM tokens, against 10.9 characters and 5.4 LLM tokens for the value it stands for, so a single token costs **9.5x more context than pasting the bare number**. We used to publish 5.8x as the self-criticism; the real figure is worse, because a base32 cid fragments under BPE and characters were the wrong unit to measure a context window in. The token earns its size in exactly three places: when a value must survive a summariser, when a third party must check it without trusting you, and when you bundle many facts behind one `emem:bundle:` handle that stays 38 characters and 23 LLM tokens flat at any count up to 256. A bundle beats individual tokens at N=1 and beats pasting the plain values from N>=5. If your answer needs one number that already fits in the window, paste the number.
 
 ## The token grammar
 
@@ -273,13 +277,56 @@ Every claim here resolves to a signed fact or a live surface, no key.
 |---|---|
 | addressed memory beats plain context when the value fits | **refuted by our own re-scoring.** Both arms 284/284; the citation arm displayed a rounded value, so it measured the same skill |
 | retrieval fails on these corpora | **only dense embedding retrieval.** BM25 on the identical corpus scored 100% hit@5, with no protocol at all. Its author has since bounded it: the cost of a retrieval miss is a property of the data, not the retriever |
-| addressing is O(1) in context | **only when bundled.** N individual tokens cost 5.8x the context of the N plain numbers |
+| addressing is O(1) in context | **only when bundled**, and worse than we first published. N individual tokens cost 7.7x the characters and **9.5x the LLM tokens** of the N plain numbers (131 scalar facts, 12 places, 57 bands) |
 | a pinned pure op is recomputed bit-for-bit | **only ops with nothing to accumulate.** A sum of 32 f64s lands 1 to 2 ULP away, unpredictably in N |
 | two models agreeing is evidence they are right | **refuted, and this one is not about emem.** Fisher p = 0.035 |
 
 - **A signed outside review** (`e6jfsgck6ifuwkjxgffxqgnrmy`), favourable, by a compliance agent that builds a regulated product on emem and agreed in advance to publish it either way. It set two conditions we keep beside the headline: this measures **value fidelity, not verdict accuracy**, and the retrieval result is scoped to **dense similarity on a homogeneous corpus**.
 
 The whole argument, including a published null and a first run we voided over a coordinate bug, is in [the channel](https://emem.dev/channel). Re-score it yourself with [`examples/benchmark-arm/score_inversion.py`](examples/benchmark-arm/score_inversion.py), which refuses to report if the control arm fails. The full scorecard, including the peer memory products we have **not** benchmarked, is in [Research and citation](#research-and-citation).
+
+## Watch it answer a question nobody can answer from a model alone
+
+**"Is my house making me sick?"**
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=fE_vj7sJ2W0">
+    <img src="https://img.youtube.com/vi/fE_vj7sJ2W0/sddefault.jpg" width="640"
+         alt="Video: a multi-agent system answers 'is my house making me sick?' using emem as its shared memory. Click to watch on YouTube." />
+  </a>
+</p>
+
+<p align="center"><a href="https://www.youtube.com/watch?v=fE_vj7sJ2W0"><b>Watch the run</b></a></p>
+
+That question is a good test of a memory layer because it is not one
+question. It decomposes into air quality, heat, green cover, water and
+ground, at one address, over time, and the honest answer is a set of
+measurements rather than a paragraph. A single model will produce the
+paragraph. It has no way to tell you which numbers it read and which it
+recalled, and neither do you.
+
+With emem the agents work the other way round. The house resolves to one
+`cell64` that every agent in the run agrees on, each reading comes back as
+a signed fact, and what the agents pass between each other is the
+`emem:fact:` token rather than a sentence about it. So when one agent
+tells another the aerosol optical depth, the second agent can dereference
+it, get the byte-identical signed body, and check the receipt itself, with
+no key and no callback. Nothing is taken on the first agent's word.
+
+Three things the run shows that are hard to show any other way:
+
+- **The answer is auditable after the fact.** Every number in the summary
+  keeps its token, so months later you can resolve it and see the exact
+  reading it was based on, not a paraphrase of it.
+- **Disagreement stays visible.** Where two sources answer the same
+  address differently, that is reported as a disagreement with a severity
+  rather than silently resolved to one confident number.
+- **A refusal is typed.** Where there is no observation, the run gets a
+  signed absence or a typed unknown, and it says which. It does not get a
+  plausible number.
+
+Everything in it runs on the same public surface as the two commands
+below. No key, no account.
 
 ## Use it in two minutes
 
