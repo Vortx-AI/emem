@@ -22,7 +22,7 @@ chain then runs `core@12` → `tier:extended` → `extended@14` → … → null
 ## Failure 1: a client that ignores `nextCursor` sees 12 tools
 
 Most directory scanners, and several hosts, take page one and stop. They get 12
-of 107 — and not even the whole core profile, which is 16. The response says so
+of 107, and not even the whole core profile, which is 16. The response says so
 itself, in two fields that disagree:
 
 ```json
@@ -99,7 +99,7 @@ claims.
 ## A claim worth pinning
 
 `demos/stabilisation` already asserts that every page of `/mcp/full` fits the
-client cap, and it passes — the pages are legal. What nothing asserts is the
+client cap, and it passes, because the pages are legal. What nothing asserts is the
 property that actually matters to a directory:
 
 > A no-cursor `tools/list` on `/mcp` returns the complete core profile, and the

@@ -24,8 +24,8 @@ because the next person to look will otherwise check them again.
 | [enguard-ai/awesome-ai-guardrails](https://github.com/enguard-ai/awesome-ai-guardrails) | Organisations/Companies | PR | optional, weak fit |
 | [fuzzylabs/awesome-secure-mcp-servers](https://github.com/fuzzylabs/awesome-secure-mcp-servers) | Community | issue, then their scan | ask to be scanned |
 | [bh-rat/awesome-mcp-enterprise](https://github.com/bh-rat/awesome-mcp-enterprise) | Security & Governance | issue, then PR | **does not qualify** |
-| [ant-research/awesome-mllm-guardrails](https://github.com/ant-research/awesome-mllm-guardrails) | — | PR | **wrong list** |
-| [rust-unofficial/awesome-rust](https://github.com/rust-unofficial/awesome-rust) | — | PR | **hold** |
+| [ant-research/awesome-mllm-guardrails](https://github.com/ant-research/awesome-mllm-guardrails) | n/a | PR | **wrong list** |
+| [rust-unofficial/awesome-rust](https://github.com/rust-unofficial/awesome-rust) | n/a | PR | **hold** |
 
 ---
 
@@ -35,7 +35,7 @@ The closest fit of any list found. It has a **Firewalls and Guardrails**
 section whose existing entries are proxies and policy engines, and no entry
 in it evaluates whether a cited claim still holds.
 
-`CONTRIBUTING.md` requires the format `- [owner/repo](url) - Description. By
+`CONTRIBUTING.md` requires the format `- [owner/repo](https://github.com/owner/repo) - Description. By
 Author/Org.`, alphabetical order within the section, one or two sentences,
 and explicitly excludes marketing language. Review is 3 to 5 days.
 
@@ -149,7 +149,7 @@ hooks in a Claude Enterprise org, and `POST /verdict/claude-code` for client
 hooks on the Platform API, Bedrock and Vertex, which Inference hooks cannot
 see. That second one is the entry's reason to exist.
 
-`CONTRIBUTING.md` requires `- [Title](URL) - description.` at 15 to 30 words,
+`CONTRIBUTING.md` requires `- [Title](https://example.com/tool) - description.` at 15 to 30 words,
 capitalised, ending in a period, alphabetical within the category, one
 resource per line, submitted from a fork. Review target is two weeks.
 
@@ -186,8 +186,8 @@ Add emem-guard to Hooks and Guardrails
   every verdict is ed25519-signed and appended to a hash-chained log before it
   is returned, so a deleted verdict is detectable, not just a modified one.
   `emem-guard --audit` verifies a log without trusting the node that wrote it.
-  A denial is machine-first — `EMEM-GUARD DENY PROV_SIG token=... fix=refresh_token
-  leaf=leaf_41` — where `fix` tells the agent what to do rather than the human.
+  A denial is machine-first, `EMEM-GUARD DENY PROV_SIG token=... fix=refresh_token
+  leaf=leaf_41`, where `fix` tells the agent what to do rather than the human.
 - *Current.* Shipped in v2.1.0, Apache-2.0, active development.
 - *Unique.* Nothing in this section evaluates whether a cited claim still
   holds; the existing entries cover secrets and permissions.
@@ -203,7 +203,7 @@ pointed at a live organisation.
 
 ---
 
-## 4. hesreallyhim/awesome-claude-code — Avijeet has to file this one
+## 4. hesreallyhim/awesome-claude-code: Avijeet has to file this one
 
 **Do not send an agent at this.** `CONTRIBUTING.md` says
 `ALL RECOMMENDATIONS MUST BE MADE USING THE WEB UI ISSUE FORM TEMPLATE`,
@@ -220,19 +220,19 @@ are `OR`.
 
 One resource per submission, so it is two separate submissions, filed apart:
 
-**Submission A — Security**
+**Submission A, Security**
 
-> emem-guard — a self-hosted server that answers Claude Code hooks and
+> emem-guard, a self-hosted server that answers Claude Code hooks and
 > Anthropic Inference hooks with allow or deny. It checks whether the
 > observations a transcript cites still resolve to the bytes they were signed
 > over, and signs and hash-chains every verdict into a log you can audit
 > offline with `emem-guard --audit`.
 
-**Submission B — Memory & Context Persistence** (this is emem itself, not the
+**Submission B, Memory & Context Persistence** (this is emem itself, not the
 guard, and it is arguably the better of the two: the section exists for
 exactly this problem)
 
-> emem — memory that outlives the context window. An agent keeps one
+> emem, memory that outlives the context window. An agent keeps one
 > `emem:fact:` token instead of a paraphrase; after compaction, a handoff, or
 > a model swap, the token resolves to the byte-identical signed record and the
 > signature still checks. Reads need no key or account. MCP endpoint at
@@ -240,7 +240,7 @@ exactly this problem)
 
 ---
 
-## 5. enguard-ai/awesome-ai-guardrails — optional
+## 5. enguard-ai/awesome-ai-guardrails, optional
 
 A table-shaped list built mainly around guard *models* and datasets. emem-guard
 is neither, so it fits only the Organisations/Companies → Open Source table.
@@ -250,7 +250,7 @@ Low cost, low return. Row, matching the `name | scope | "description"` shape:
 | emem-guard | all | "Signed allow/deny verdicts on claims about the physical world, with a hash-chained log." |
 ```
 
-## 6. fuzzylabs/awesome-secure-mcp-servers — ask to be scanned
+## 6. fuzzylabs/awesome-secure-mcp-servers, ask to be scanned
 
 Entries here are servers that have been through their `mcp-scan` pipeline and
 carry a security score, and the README documents no self-submission path.
@@ -259,7 +259,7 @@ queue, not a PR that adds a row with a score nobody computed. Worth doing:
 the list is small (16 servers) and the scored-server framing suits a server
 whose whole argument is that its claims are checkable.
 
-## 7. bh-rat/awesome-mcp-enterprise — does not qualify, do not submit
+## 7. bh-rat/awesome-mcp-enterprise, does not qualify, do not submit
 
 Its listing-proposal template requires at least two of four proofs: named
 customers, verifiable compliance (SOC 2 / ISO 27001 / HIPAA), 6+ months GA,
@@ -268,13 +268,13 @@ engine and server "have not yet been pointed at a live organisation," so it
 meets none of the four. Revisit after the first design partner is live and
 the conformance suite is green.
 
-## 8. ant-research/awesome-mllm-guardrails — wrong list
+## 8. ant-research/awesome-mllm-guardrails, wrong list
 
 It catalogues guard models, jailbreak attacks, moderation datasets and safety
 benchmarks. emem-guard is infrastructure and classifies nothing. Submitting
 would be noise.
 
-## 9. rust-unofficial/awesome-rust — hold
+## 9. rust-unofficial/awesome-rust, hold
 
 The list is for published, used crates, and `emem` does not exist on
 crates.io (checked: `crates.io/api/v1/crates/emem` returns
@@ -289,8 +289,8 @@ the obvious ground.
 `web/release-2.1.0.png`, 1200×630, is the 2.1.0 card. Two of the three places
 it needs to be are already done:
 
-- **GitHub release v2.1.0** — attached, present in the release body.
-- **Public URL** — served at <https://emem.dev/release.png> (and
+- **GitHub release v2.1.0**: attached, present in the release body.
+- **Public URL**: served at <https://emem.dev/release.png> (and
   `/release.svg`), from `web/release-current.png`, which is byte-identical to
   `web/release-2.1.0.png`. That is the URL to hand to anything that needs to
   fetch the card.
@@ -299,7 +299,7 @@ it needs to be are already done:
   the route is `/release.png`, and the versioned file is the archive copy, not
   a served path. Do not paste the versioned URL into a post.
 
-- **Still to do** — the social posts below. Every one of them takes an image,
+- **Still to do**: the social posts below. Every one of them takes an image,
   and the card is the right one: it names the version, the two headline
   changes, and one limit, which is the tone the rest of the project keeps.
 
@@ -321,7 +321,7 @@ claim these posts make is that claims should be checkable.
 practical ceiling):
 
 ```
-Show HN: Emem-guard – a signed allow/deny server for claims about the world
+Show HN: Emem-guard, a signed allow/deny server for claims about the world
 ```
 
 **Body**
@@ -351,7 +351,7 @@ OpenAI-shaped route, CloudEvents 1.0, an OPA-style policy point, batch, log
 read, plus the two Claude ones. A gate reachable only through one company's
 product is a gate for that company's customers.
 
-Two things it deliberately does not do. It does not classify content — it is
+Two things it deliberately does not do. It does not classify content, it is
 bad at that and will stay that way; third-party detectors load as modules and
 their findings get signed and logged like native rules. And a citation this
 node has not cached is never a denial, because that is indistinguishable from
@@ -394,8 +394,8 @@ argument is auditability, and I would like to hear why it is not.
 Title: emem-guard: gating MCP tools/call (and tool results) on whether the
 cited evidence still verifies
 
-POST /verdict/mcp takes an MCP tools/call — or a tool *result*, which is the
-path a gateway in front of the server never sees — and returns allow or deny.
+POST /verdict/mcp takes an MCP tools/call, or a tool *result*, which is the
+path a gateway in front of the server never sees, and returns allow or deny.
 The check is not content classification. It re-resolves the emem: tokens in
 the payload and denies if a signature fails, if the token now resolves to
 different bytes, or if the value drifted past a band threshold.
@@ -411,7 +411,7 @@ GET /.well-known/emem-guard.json so an agent can integrate without being
 handed a doc.
 
 Apache-2.0, Rust, self-hosted, no account. Tested, not yet run against a live
-org — saying so up front.
+org, saying so up front.
 ```
 
 ### r/rust
@@ -462,7 +462,7 @@ value drifted past a threshold. DLP vendors can tell you a message contains a
 secret. None of them can tell you a claim about the world still holds.
 
 Every verdict is signed and hash-chained before it is returned, so the log
-proves not just that no verdict was altered but that none were removed — and
+proves not just that no verdict was altered but that none were removed, and
 you can check ours without asking us.
 
 Nine checkpoints, seven of which belong to no vendor. Apache-2.0, Rust, self-
@@ -479,7 +479,7 @@ https://emem.dev/guard
 One short paragraph plus the card; the long form belongs in the links.
 
 ```text
-emem 2.1.0 adds emem-guard — allow/deny on an MCP tools/call or tool result,
+emem 2.1.0 adds emem-guard, allow/deny on an MCP tools/call or tool result,
 based on whether the evidence it cites still verifies, not on what the text
 looks like. Signed and hash-chained verdicts, auditable offline with the same
 binary. Apache-2.0, Rust, self-hosted, no account.
@@ -531,10 +531,10 @@ spawn more, keep that line in.
 Nothing in `registry_claude.md` targets A2A, and the implementation is live
 rather than aspirational, which is what these lists check:
 
-- `https://emem.dev/.well-known/agent-card.json` — 200
+- `https://emem.dev/.well-known/agent-card.json` returns 200
 - `a2a-message-send` → `https://emem.dev/a2a/tasks`
 - `a2a-async-tasks` (create / get / cancel) → `https://emem.dev/v1/a2a/tasks`
-- `a2a-skill-query` → `https://emem.dev/v1/a2a/skills?q=elevation` — 200
+- `a2a-skill-query` → `https://emem.dev/v1/a2a/skills?q=elevation` returns 200
 
 The argument that lands on an A2A list is not "signed data". It is that a
 handoff in natural language transfers a paraphrase, and a paraphrase drifts;
@@ -564,10 +564,10 @@ more geospatial targets.
 
 ## Still not filed, and why
 
-- **hesreallyhim/awesome-claude-code** — human only. Their CONTRIBUTING
+- **hesreallyhim/awesome-claude-code**: human only. Their CONTRIBUTING
   forbids PRs, forbids the `gh` CLI, and asks that recommendations come from
   humans rather than AI agents. Avijeet files it; text is above.
-- **fuzzylabs/awesome-secure-mcp-servers** — an issue asking to enter their
+- **fuzzylabs/awesome-secure-mcp-servers**: an issue asking to enter their
   `mcp-scan` queue, not a PR. Held until the first wave lands.
-- **bh-rat/awesome-mcp-enterprise** — still does not qualify.
-- **ant-research/awesome-mllm-guardrails** — still the wrong list.
+- **bh-rat/awesome-mcp-enterprise**: still does not qualify.
+- **ant-research/awesome-mllm-guardrails**: still the wrong list.

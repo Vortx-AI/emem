@@ -66,7 +66,7 @@ Documentation = https://emem.dev/docs/sdks/langmem.html
 
 That page 404s and always has. Its README also pointed at
 `https://emem.dev/docs/memory.md`; docs render as `.html`, so that 404s too.
-The package's own suite passes, 38 tests, and passed throughout — neither link
+The package's own suite passes, 38 tests, and passed throughout, because neither link
 is code, so nothing was watching them.
 
 Both are fixed in the repository. The version on PyPI still carries the dead
@@ -74,7 +74,7 @@ link until the next release.
 
 **Why it mattered beyond two links.** LangChain no longer accepts integration
 PRs at all (see §4). The one PR that still produces a listing is a row carrying
-a `docs_url` — and the `docs_url` it would have carried was the dead one. The
+a `docs_url`, and the `docs_url` it would have carried was the dead one. The
 highest-return submission available to this project was aimed at a 404.
 
 **Guard added.** A claim in `demos/stabilisation` now collects every
@@ -91,7 +91,7 @@ run `pip install`, and neither pip nor npm ever re-checks it.
 
 The resolved record is at `body["fact"]`, not at the top level. An integration
 that reads `body["value"]` and `body["unit"]` gets `None` for every field and
-looks like a working call — no exception, no error code, just a tool that
+looks like a working call: no exception, no error code, just a tool that
 quietly returns nothing useful. `value_verbatim` is at the top level, which
 makes the mistake easier to make.
 
@@ -116,13 +116,13 @@ Worth a line in the endpoint's own documentation, because the failure is silent.
 Seven tracked submissions were checked against their actual PR pages. Four rows
 were wrong:
 
-- `punkpeye/awesome-mcp-servers#6532` — merged 2026-07-25, recorded OPEN
-- `sacridini/Awesome-Geospatial#201` — merged 2026-05-22, recorded OPEN
-- `browser-use/browser-use#4852` — **closed by a stale bot 2026-07-18**, after
+- `punkpeye/awesome-mcp-servers#6532`: merged 2026-07-25, recorded OPEN
+- `sacridini/Awesome-Geospatial#201`: merged 2026-05-22, recorded OPEN
+- `browser-use/browser-use#4852`: **closed by a stale bot 2026-07-18**, after
   it had already passed review, recorded "OPEN (code review passed)". Nothing
   was defective. A bot asked whether it was still wanted and nobody answered
   within 14 days. Reopen it.
-- `Shubhamsaboo/awesome-llm-apps#821` — closed, declined, with the only
+- `Shubhamsaboo/awesome-llm-apps#821`: closed, declined, with the only
   substantive maintainer feedback this campaign has produced:
 
   > a thin wrapper around the emem MCP endpoint with no substantial AI logic of
@@ -153,14 +153,14 @@ maintainer may ask.
 
 ## What developers should file
 
-1. **`langchain-ai/docs`** — one YAML row under `python:` → `stores:` for
+1. **`langchain-ai/docs`**: one YAML row under `python:` → `stores:` for
    `emem-langmem`. Highest return of anything open, and it is one line.
-2. **`run-llama/llama_index`** — `llama-index-tools-emem` into
+2. **`run-llama/llama_index`**: `llama-index-tools-emem` into
    `llama-index-integrations/tools/`. The package exists and is tested.
 3. **Reopen `browser-use/browser-use#4852`.** A merge already earned and lost
    to silence.
 4. **`tamish560/awesome-mcp-security`** and
-   **`efij/awesome-claude-code-security`** — emem-guard, into sections whose
+   **`efij/awesome-claude-code-security`**: emem-guard, into sections whose
    current entries are all content classifiers.
 
 ## What the responder itself should change

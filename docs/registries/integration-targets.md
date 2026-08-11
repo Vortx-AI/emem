@@ -21,7 +21,7 @@ big frameworks, and submissions still aimed at it die quietly. There are now
 three distinct shapes, and picking the wrong one is why a submission gets no
 reply rather than a rejection.
 
-### Shape A — publish first, then a documentation PR
+### Shape A: publish first, then a documentation PR
 
 **LangChain.** `langchain-community` was archived on 2026-06-19. New
 integrations are **not accepted as PRs to any langchain-ai repository**. The
@@ -32,7 +32,7 @@ under `src/oss/python/integrations/<component_type>/` is available at 50,000+
 monthly downloads or by maintainer invitation, which is not us yet.
 
 **The prerequisite is already met and nobody has filed the PR.**
-`emem-langmem` 2.1.0 — a LangChain `BaseStore` for LangGraph — has been on
+`emem-langmem` 2.1.0, a LangChain `BaseStore` for LangGraph, has been on
 PyPI since the 2.1.0 release. That makes the docs row the single
 highest-return action available in this entire campaign: one line of YAML,
 into the repository whose whole purpose is receiving those lines, for a
@@ -56,7 +56,7 @@ Both defects were in what it tells a reader:
 
 Both are fixed here. The published 2.1.0 on PyPI still carries the dead
 Documentation link until the next release, which is why the row below uses the
-GitHub URL — LangChain's own preference order is partner docs, then GitHub,
+GitHub URL, because LangChain's own preference order is partner docs, then GitHub,
 then PyPI, and the GitHub path resolves today.
 
 File: `langchain-ai/docs` → `scripts/data/integration_external_docs.yaml`,
@@ -92,7 +92,7 @@ This also retires `langchain-ai/langchain-mcp-adapters#511`. It was filed as
 an issue, and no issue in that repository can produce a listing, because
 listings do not live there any more.
 
-### Shape B — a real package, into their monorepo
+### Shape B: a real package, into their monorepo
 
 **LlamaIndex** still accepts new integration packages into
 `llama-index-integrations/`, scaffolded with their own CLI, and their team
@@ -109,21 +109,21 @@ Note that `run-llama/llama_index#21699` was opened as a *discussion*. That is
 the wrong instrument. A discussion asks permission for something their
 contributing guide already grants; the package PR is the ask.
 
-### Shape C — a marketplace with its own packaging rules
+### Shape C: a marketplace with its own packaging rules
 
 These want a separately published artefact and have hard, checkable
 requirements. Read them before writing code, because each has at least one
 rule that invalidates work done the obvious way.
 
 **n8n community node.** From 2026-05-01: every verified node must be published
-by a GitHub Action carrying a provenance statement — **a node published from a
+by a GitHub Action carrying a provenance statement: **a node published from a
 laptop is refused**. Scaffold with `npm create @n8n/node`, which includes the
 `publish.yml` they expect. Each package integrates exactly one third-party
 service. TypeScript. The node must not read environment variables or touch the
 filesystem; everything arrives through node parameters.
 
 One rule needs a deliberate decision: **the package licence must be MIT**, and
-emem is Apache-2.0. This is not a conflict, it is a normal split — the node is
+emem is Apache-2.0. This is not a conflict, it is a normal split: the node is
 a thin client that talks HTTP to a public endpoint, so it can ship MIT while
 the server it calls stays Apache-2.0. Do it knowingly and say so in the
 README, rather than discovering it at review.
@@ -136,7 +136,7 @@ source repository URL. `PRIVACY.md` already exists and is unusually thorough,
 so this is mostly assembly.
 
 **Watch their clock.** Dify marks a PR stale at 14 days of unresolved comments
-and closes it at 30 — and a closed one **cannot be reopened**, it needs a new
+and closes it at 30, and a closed one **cannot be reopened**, it needs a new
 PR. That is precisely how `browser-use#4852` died: it passed review, a bot
 asked whether it was still wanted, nobody answered for 14 days, and it closed.
 Any venue with a bot needs a watch, not a submission.
@@ -173,8 +173,8 @@ The absence of a target here is a finding, not an omission.
 
 mem0, Letta, cognee, Zep/Graphiti all solve per-user conversational memory:
 what did this user tell me, what should I remember about them. emem solves a
-different axis — a shared fact that two agents who share no vendor can each
-verify — and the two compose rather than compete. Nothing in
+different axis, a shared fact that two agents who share no vendor can each
+verify, and the two compose rather than compete. Nothing in
 `registry_claude.md` has approached any of them.
 
 The honest opening is not "add emem as a memory backend". It is that their
@@ -197,10 +197,13 @@ in rough order of how quickly they give it away.
    and plain paragraphs if they do not.
 3. **Length out of proportion to the diff.** A one-line entry does not need
    twelve lines of justification. Under six is right, and one is often enough.
-4. **The vocabulary.** seamlessly, robust, leverage, delve, unlock, empower,
-   comprehensive, cutting-edge, "not just X, but Y", "in today's landscape".
-   Cut all of them.
-5. **Em-dash density.** At most one per body. Commas and full stops otherwise.
+4. **The vocabulary.** This repository already has the list, as code:
+   `BUZZWORDS` in `scripts/doc_lint.py`, enforced in CI by the
+   `prose convention holds` job. Run it before you write the PR body, not
+   after, and take the same words out of anything you send to a maintainer.
+5. **Dashes.** `doc_lint.py` caps em and en dashes at zero, which is stricter
+   than the "at most one" this section first advised, and it is the better
+   rule. Commas, colons and full stops carry the same load.
 6. **Tricolons.** Three parallel clauses in a row is a rhythm these models fall
    into constantly. Break the third one or drop it.
 7. **Emoji headers**, unless the surrounding file already uses them.
@@ -234,7 +237,7 @@ So the split is:
 - Where a maintainer bans AI submissions, **Avijeet writes and files it.** The
   research and the draft are useful to him; the authorship has to be real.
 - Everywhere else, the goal is prose that does not read as slop **because it
-  is not slop** — specific, short, checked, and reviewed by a person who
+  is not slop**: specific, short, checked, and reviewed by a person who
   understands the claim and is willing to defend it in the thread. That is a
   quality bar, and it is met by writing better, not by hiding anything.
 
