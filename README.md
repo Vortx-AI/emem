@@ -14,7 +14,7 @@
 [![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
 [![Whitepaper: Zenodo](https://img.shields.io/badge/whitepaper-Zenodo%20DOI-3b5?logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.20706893)
 
-[Watch a multi-agent run](https://www.youtube.com/watch?v=fE_vj7sJ2W0) · [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
+[Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8) · [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
 
 **Add it to your agent now.**
 In **VS Code / GitHub Copilot**, search `@mcp emem` in the Extensions view, or [install in one click](https://vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D).
@@ -287,53 +287,52 @@ Every claim here resolves to a signed fact or a live surface, no key.
 
 The whole argument, including a published null and a first run we voided over a coordinate bug, is in [the channel](https://emem.dev/channel). Re-score it yourself with [`examples/benchmark-arm/score_inversion.py`](examples/benchmark-arm/score_inversion.py), which refuses to report if the control arm fails. The full scorecard, including the peer memory products we have **not** benchmarked, is in [Research and citation](#research-and-citation).
 
-## Watch it answer a question nobody can answer from a model alone
+## Watch nine agents answer one question and survive losing their memory
 
 **"Is my house making me sick?"** Nine agents, one house in Whitefield,
-Bengaluru, and a control arm running the same models on the same seeds with
-emem switched off.
+Bengaluru, against a control arm running the same models on the same seeds
+with emem switched off.
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=fE_vj7sJ2W0">
+  <a href="https://www.youtube.com/watch?v=L12opo7uyH8">
     <img src="web/demo-house-frame.png" width="880"
-         alt="A frame from the run. Left: nine agents arranged around one house, each holding a signed reading, 83.2% relative humidity, 21.8C, 18.92C dew point, 5.8 m/s, PM2.5 5.2, NO2 10.8, 879.06 m elevation. Right: the transcript. The medic resolves ten memory tokens and reports every value byte-identical; the control arm restarts from hypothesis one; the guard reports 10 citations, 10 resolved, 0 ungrounded, and returns ALLOW; the receipt verifies ed25519 VALID; the whole investigation collapses to one emem:bundle: token. Value fidelity 100 percent, cost of that fidelity 1.52 times." />
+         alt="A frame from the run, captioned CONTEXT LOSS. Left: nine agents arranged around one house, each holding a signed reading, 879.06 m elevation, 83.2 percent humidity, 21.8C, 18.92C dew point, 5.2 and 20.8 micrograms per cubic metre, NDVI 0.1004 and 0.4323. Right: the transcript. A satellite agent reports green, history, built and terrain values; envoy reports PM2.5 5.2 and NO2 10.8 against a guideline of 15, finds zero metres of road in the cell and withdraws the traffic hypothesis; drone-7 rules out rising damp and forest loss; medic notes the dew point 18.92 is signed against north glass at 17.9 so it condenses; cctv-3 explains two different NDVI values at 10 m and 250 m are not a contradiction but the roof against the neighbourhood; the orchestrator tallies eighteen facts, three hypotheses dead and one standing. Then the context window ends and all nine agents are wiped. The control arm says notebook says humidity was, trusting past-us; the emem arm re-resolves its tokens and reports damp three of three and air four of four byte-identical. Value fidelity 100 percent, cost of that fidelity 1.51 times." />
   </a>
 </p>
 
-<p align="center"><a href="https://www.youtube.com/watch?v=fE_vj7sJ2W0"><b>Watch the run</b></a> &nbsp;·&nbsp; <sub>4 min</sub></p>
+<p align="center"><a href="https://www.youtube.com/watch?v=L12opo7uyH8"><b>Watch the run</b></a></p>
 
 That question is a good test of a memory layer because it is not one
-question. It decomposes into humidity, temperature, dew point, wind,
-particulates and ground, at one address, across nine agents that never
-share a context window. The honest answer is a set of measurements, and a
-single model will give you a paragraph instead, with no way for you or it
-to tell which numbers it read and which it recalled.
+question, and because the interesting part is not the answer. It
+decomposes into humidity, dew point, particulates, road length, canopy,
+flood history and ground, at one address, across nine agents that never
+share a context window. Then, deliberately, **the context window ends and
+all nine agents are wiped.**
 
-Four moments from the run, and each one is a claim in this README being
-exercised rather than asserted:
+What survives that moment is the whole argument for this protocol.
 
-- **`the memory did not survive. the citations did.`** The control arm,
-  same models and same seeds, restarts from hypothesis one after its
-  context turns over. The emem arm re-resolves ten tokens and reports
-  every value **byte-identical**, including `879.06 m` for elevation.
-- **`we have no sensor inside, so we do not diagnose.`** The run refuses
-  the question it was actually asked, because nothing measured the indoor
-  air. It returns what it can stand behind instead: high condensation
-  risk on the north aspect, the north glass at 17.9°C against a dew point
-  of 18.92°C, and PM2.5 at 5.2 with NO2 at 10.8 ruling out the traffic
-  story. Then it says what to do next, which is to put a probe on that
-  wall.
-- **`10 citations · 10 resolved · 0 ungrounded → ALLOW`.** Every
-  measurable claim in the final answer was checked against a citation
-  that still dereferences, by [emem-guard](#emem-guard-a-yesno-gate-for-claims-about-the-world),
-  before the answer was allowed out.
-- **One `emem:bundle:` token carries the whole investigation**, receipt
-  `ed25519 · VALID`, verifiable by anyone offline with no key and no
-  callback.
+- **The control arm trusts a paraphrase of itself.** Same models, same
+  seeds, emem off: `notebook says humidity was… trusting past-us`. It has
+  a note about a number rather than the number, and no way to tell the
+  difference.
+- **The emem arm re-resolves.** `damp · 3/3 · byte-identical`,
+  `air · 4/4 · byte-identical`. The facts were never in the context; the
+  citations were, and the citations still dereference.
+- **The agents disagree in public and resolve it with addresses.** `envoy`
+  finds zero metres of road in the cell and withdraws its own traffic
+  hypothesis. `cctv-3` gets two different NDVI values, `0.1004` at 10 m
+  and `0.4323` at 250 m, and reports `not a contradiction · the roof vs
+  the neighbourhood`: same place, two resolutions, which is a scale
+  difference and not a conflict. That distinction is only available
+  because both readings are addressed rather than described.
+- **The verdict is what the measurements support, and no more.** The dew
+  point is `18.92` signed against north glass at `17.9`, `so it
+  condenses. that hypothesis survives.` Eighteen facts, three hypotheses
+  dead, one standing.
 
 It also publishes its own cost, which is the part a demo usually leaves
-out: **value fidelity 100%, cost of that fidelity 1.52x**. Addressed
-memory is not free, and the page that tells you it is has not measured it.
+out: **value fidelity 100%, cost of that fidelity 1.51x**. Addressed
+memory is not free, and a page that tells you it is has not measured it.
 
 Everything in the run uses the same public surface as the commands below.
 No key, no account.
