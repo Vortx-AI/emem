@@ -2525,32 +2525,32 @@ pub const CORE_LOOP: &[(u8, &str, &str)] = &[
     (
         1,
         "emem_entity",
-        "Name the thing once. Mints or returns the canonical object identity so two agents co-refer instead of each inventing a description. emem_entity_resolve converges a fuzzy phrasing onto an identity someone already registered; emem_entity_link attests that two phrasings mean the same object.",
+        "Name the thing once so two agents co-refer: mints or returns the canonical object identity. emem_entity_resolve converges a fuzzy phrasing onto an identity already registered; emem_entity_link attests two phrasings mean one object.",
     ),
     (
         2,
         "emem_locate",
-        "Ground it. Turns a place into the canonical cell64 address every agent resolves to identically, and lists which bands are recallable there.",
+        "Ground it: a place becomes the canonical cell64 every agent resolves to identically, with the bands recallable there.",
     ),
     (
         3,
         "emem_recall",
-        "Read the signed facts at that address, auto-fetching on a miss. Pass deterministic:true to keep only facts recomputable from the cited raw source.",
+        "Read the signed facts there, auto-fetching on a miss. deterministic:true keeps only facts recomputable from the cited raw source.",
     ),
     (
         4,
         "emem_memory_token",
-        "Cite it. Composes the emem:fact: handle for one fact; emem_memory_bundle collapses many into one emem:bundle: token. Hand either to another agent or drop it in an audit log.",
+        "Cite it. Composes the emem:fact: handle for one fact; emem_memory_bundle collapses many into one emem:bundle: token.",
     ),
     (
         5,
         "emem_memory_token_resolve",
-        "Dereference a handle back to the byte-identical signed body, so the citation survives leaving this conversation.",
+        "Dereference a handle back to the byte-identical signed body, so a citation survives leaving this conversation.",
     ),
     (
         6,
         "emem_verify_receipt",
-        "Check the ed25519 receipt without trusting the responder. This is the step that makes the rest worth anything.",
+        "Check the ed25519 receipt without trusting the responder. Skip it and the rest is hearsay.",
     ),
     (
         7,
@@ -2560,7 +2560,7 @@ pub const CORE_LOOP: &[(u8, &str, &str)] = &[
     (
         8,
         "emem_guard_verdict",
-        "Gate it. Before you assert something or hand it on, check that every citation in your draft still resolves and that nothing measurable is asserted without one. Returns allow or deny with a machine-readable `fix`. This is the loop closing: the earlier steps make a claim citeable, this one catches the claim that was not.",
+        "Gate it: checks that every citation in your draft still resolves and that nothing measurable is asserted without one. Returns allow or deny with a machine-readable `fix`.",
     ),
 ];
 

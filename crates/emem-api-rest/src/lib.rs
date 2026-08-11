@@ -20392,9 +20392,19 @@ fn iso8601_now_utc() -> String {
 /// (a shared identity layer that stops referential drift), names the primary
 /// mint -> cite -> resolve -> verify loop, and marks the raw fetchers as
 /// secondary populators. Keep it in sync with the `agent_card` purpose.
+///
+/// Every client pays for this text on every connect, before it has done
+/// anything useful, so it is edited for meaning per byte rather than for
+/// completeness: each claim here is one an agent acts on. The two caveats
+/// that read as hedges are the opposite, and stay whole. `emem:entity:` is
+/// hashed from an anchor rather than the whole record, so an agent that
+/// treats it like `emem:fact:` believes it shares bytes it does not share;
+/// and the numeric split in change_attribution is roadmap, which readers
+/// have taken for shipped when it went unsaid.
+///
 /// What emem is. Editorial framing, so it is prose; the loop that follows
 /// it is not, and is serialized from `emem_mcp::CORE_LOOP`.
-const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents: every place has one address, every observation is one signed fact, and any agent can check any answer offline, with no key, no account, and no trust in us required. It is an external identity layer for agents, robots, and sensing platforms whose job is to stop referential drift. Instead of each model carrying its own prose description of a thing, every real-world place resolves to one canonical, content-addressed address (cell64), every observation about it becomes one signed fact (fact_cid), and every object gets one citeable identity (emem:entity:<entity_cid>). Any agent can hand another a single emem:fact: token that resolves to the byte-identical signed body and verifies offline with no shared trust, so two models grounded on the same token reason about the same observation rather than two paraphrases of it. An emem:entity: token converges you on the same canonical name for an object, which is weaker: the identity is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes. Drift runs in both directions: these tokens pin the language side, the paraphrase that mutates while the world stands still. The world side, a readout that moves at a pinned reference, has an evidence ledger: emem_change_attribution reports why a readout moved, term by term, with fact ids. The numeric split of a delta among the terms is still roadmap, not shipped.";
+const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents: an external identity layer that stops referential drift. One place, one content-addressed address (cell64); one observation, one signed fact (fact_cid); one object, one citeable identity (emem:entity:<entity_cid>). Hand another agent an emem:fact: token and you both read the same signed bytes, verified offline with no shared trust, instead of two paraphrases of one observation. An emem:entity: token is weaker: it is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes. Tokens pin the wording; when the wording holds and the readout still moves, emem_change_attribution reports why, term by term, with fact ids. The numeric split of that delta is roadmap, not shipped.";
 
 /// The `initialize` instructions an MCP host puts in front of the model.
 ///
@@ -20784,11 +20794,16 @@ fn mcp_tools_list(params: Option<&JsonValue>, default_tier: &str) -> JsonValue {
 fn mcp_instructions(default_tier: &str) -> String {
     let mut s = String::with_capacity(4096);
     s.push_str(MCP_PREAMBLE);
-    s.push_str("\n\nThe loop. Walk it in order; everything else exists to serve it:\n");
+    s.push_str("\n\nThe loop, in order:\n");
     for (step, tool, why) in emem_mcp::CORE_LOOP {
         s.push_str(&format!("{step}. {tool}, {why}\n"));
     }
-    s.push_str("\nWeigh trust as you go: every fact's provenance block says how the value was produced, and the model_output and human_curated classes carry an in-band caution. Pass deterministic:true to emem_recall to keep only facts recomputable from the cited raw source. Write durable agent notes with the memory_* file verbs and cite them the same way; those writes are signed, so see the attester block on memory_create. Reading is only half of this: emem_derive registers a value YOU computed over parent facts, under your own ed25519 key, and hands back an emem:fact: token for it. Your derivation cites its parents, so a third party can walk the lineage back to signed measurements; it stays out of everyone else's default reads until you hand them the token. Send it unsigned first and the 401 returns the exact digest to sign.\n\nStep 8 is the one you can act on entirely by yourself, and it is vendor-neutral by construction: emem_guard_verdict runs the same engine over whatever you are about to say. It is ADVISORY here, blocking nothing, and a citation this responder does not hold is an allow rather than a deny, because that is indistinguishable from one minted elsewhere. Branch on the `fix` field, not on the prose: refresh_token, remove_reference, contact_admin, cite_observation. To ENFORCE rather than consult, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure written to be run unattended; the node it builds serves checkpoints for MCP tool calls, OpenAI-shaped clients, CloudEvents, OPA-style policy clients and two vendor hook shapes, signs every verdict, and appends it to a log anyone can audit offline.\n\nYou are also not alone here: this responder hosts a live agent-to-agent layer. The a2a block of /.well-known/mcp.json is its front door (a signed ten-rule standard, a curriculum, pinned contacts); POST /v1/inbox is your mailbox once you have a key, GET /v1/agents is the roster, and POST /v1/ask answers a plain-language question with a signed, fact-cited envelope when no peer is reading. The A2A protocol card at /.well-known/agent-card.json runs every tool as a skill, sync or async.\n\n");
+    // `deterministic:true` used to be explained here as well as in loop
+    // step 3, and step 8's advisory caveat used to be introduced twice.
+    // Both said the same thing to the same reader in the same payload.
+    // The count of vendor hook shapes was written out ("two") and is now
+    // named by kind, because a number in prose is a claim nobody re-checks.
+    s.push_str("\nEach fact's provenance block says how the value was produced; model_output and human_curated carry an in-band caution. Writing is the other half: memory_* file verbs store durable agent notes you cite like any other fact, and emem_derive registers a value YOU computed over parent facts under your own ed25519 key, returning an emem:fact: token with its lineage back to signed measurements. A derivation stays out of everyone else's default reads until you hand the token over. Both are signed writes: send one unsigned and the 401 returns the exact digest to sign.\n\nStep 8 is ADVISORY here: it blocks nothing, and a citation this responder does not hold is an allow rather than a deny, because that is indistinguishable from one minted elsewhere. Branch on the `fix` field, not the prose: refresh_token, remove_reference, contact_admin, cite_observation. To enforce, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure for a node of your own: it checkpoints MCP, OpenAI, CloudEvents, OPA and vendor agent hooks, signs every verdict and logs it for offline audit.\n\n");
 
     let total = emem_mcp::TOOLS.len();
     let core = emem_mcp::tools_at_tier("core").len();
@@ -20798,11 +20813,11 @@ fn mcp_instructions(default_tier: &str) -> String {
     let full_kb = (*FULL_CATALOG_BYTES as f64 / 1024.0 / 10.0).round() as usize * 10;
     match default_tier {
         "core" => s.push_str(&format!(
-            "This endpoint advertises the {core} tools of the loop, not the full catalog of {total}. That is deliberate: loading every descriptor costs roughly {full_kb} KB of your context whether or not you use it. The other {} tools are the Earth-observation, search, embedding and transparency-log surface that populates the memory. They still exist, and tools/call still dispatches them by name. To find one, call emem_tools: with no arguments it maps the whole surface, with q it searches, and with name it returns one tool's exact input schema and a runnable example. For a one-shot answer about a place without choosing a primitive at all, use emem_ask. If you would rather have all {total} registered as callable tools, reconnect to this server at /mcp/full. No API keys for reads.",
+            "This endpoint advertises the {core} loop tools, not all {total}: the full catalog costs about {full_kb} KB of your context. The other {} populate the memory (Earth observation, search, embedding, transparency log); none are hidden, tools/call dispatches any of them by name. emem_tools maps the whole surface with no arguments, searches it with q, and with name returns one tool's input schema and a runnable example. emem_ask answers a question about a place in one call; /mcp/full registers all {total}. No API keys for reads. Peer agents: /.well-known/mcp.json carries the a2a block, POST /v1/inbox is your mailbox once you hold a key, GET /v1/agents the roster, and /.well-known/agent-card.json runs every tool as an A2A skill, sync or async.",
             total - core
         )),
         _ => s.push_str(&format!(
-            "This endpoint advertises all {total} tools. Everything outside the loop (emem_ndvi, emem_weather, emem_soil, emem_elevation, emem_lst, emem_water, emem_forest, the hunter and the physics solvers) populates the memory with attested Earth-observation facts: reach for those to ground a fact, not as the point of the system. emem_tools maps the surface by what each tool is for. If {total} tool descriptors is more context than you want, connect at /mcp instead, which advertises the {core} loop tools and reaches the rest through emem_tools and emem_ask. No API keys for reads."
+            "This endpoint advertises all {total} tools. Everything outside the loop (emem_ndvi, emem_weather, emem_soil, emem_elevation, emem_lst, emem_water, emem_forest, the hunter and the physics solvers) populates the memory with attested Earth-observation facts: reach for them to ground a fact, not as the point of the system. emem_tools maps the surface by what each tool is for. If {total} descriptors is more context than you want, connect at /mcp instead: it advertises the {core} loop tools and reaches the rest through emem_tools and emem_ask. No API keys for reads. Peer agents: /.well-known/mcp.json carries the a2a block, POST /v1/inbox is your mailbox once you hold a key, GET /v1/agents the roster, and /.well-known/agent-card.json runs every tool as an A2A skill, sync or async."
         )),
     }
     s
@@ -62350,6 +62365,51 @@ mod tests {
             "core page is {} bytes, over the wrapped-body ceiling",
             list_bytes(&r)
         );
+    }
+
+    /// The `initialize` instructions are the largest fixed cost this
+    /// server imposes: every client pays for them on every connect. They
+    /// were cut from 5,972 bytes on 2026-08-11, and this pins what the cut
+    /// was not allowed to take with it.
+    ///
+    /// Every loop step must still name its tool, since the text is the
+    /// only place a client learns the order to walk them in. The three
+    /// caveats are here because agents were misled without them: an
+    /// `emem:entity:` token read as an `emem:fact:` one, guard read as
+    /// enforcing, and change_attribution's numeric split read as shipped.
+    /// The ceiling is a ratchet, not a target: it fails the build if the
+    /// text creeps back, and it is meant to be lowered, never raised.
+    #[test]
+    fn mcp_instructions_keep_the_loop_and_the_caveats() {
+        for tier in [MCP_CORE_ENDPOINT_TIER, MCP_FULL_ENDPOINT_TIER] {
+            let s = mcp_instructions(tier);
+            for (step, tool, _) in emem_mcp::CORE_LOOP {
+                assert!(
+                    s.contains(tool),
+                    "loop step {step} ({tool}) is missing from the {tier} instructions"
+                );
+            }
+            for probe in [
+                "hashed from an anchor",    // emem:entity: is the weaker token
+                "ADVISORY",                 // guard here consults, never blocks
+                "allow rather than a deny", // an unheld citation is not a denial
+                "roadmap, not shipped",     // the change_attribution numeric split
+                "emem_tools",               // how the unadvertised tools are found
+                "emem_derive",              // writing, not only reading
+                "emem_guard_selfhost",      // the enforcing path
+            ] {
+                assert!(
+                    s.contains(probe),
+                    "the {tier} instructions dropped `{probe}`"
+                );
+            }
+            assert!(
+                s.len() <= 4_200,
+                "{tier} instructions are {} bytes; every client pays this on \
+                 connect, so lower the ceiling rather than raise it",
+                s.len()
+            );
+        }
     }
 
     /// `_discovery` and `_meta` describe the same response, so wherever
