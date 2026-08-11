@@ -54,6 +54,16 @@ SKIP = {
 }
 SKIP_DIRS = ("docs/book/",)
 
+# SKIP_DIRS entries that are generated build output, not committed files.
+# Their absence is the NORMAL state: docs/book/ is gitignored and mdbook only
+# builds it at deploy/CI time, so a clean checkout does not have it and a
+# developer box that has run the build does. Asserting such a directory exists
+# therefore tests the checkout, not the exemption, and fails everywhere the
+# gate actually runs. What the assertion is for is catching a rename, so for
+# these the rename is caught where it would really show up: the .gitignore
+# rule that names the same path.
+GENERATED_DIRS = {"docs/book/"}
+
 # The burn-down list: pre-gate dash debt, pinned so it can only shrink.
 # Every entry is (file, max allowed dashes). Fix a file, delete its row.
 LEGACY_DASHES = {
@@ -116,8 +126,24 @@ def stale_exemptions() -> list[str]:
         if not (REPO / rel).exists():
             out.append(f"{rel}: has a LEGACY_DASHES row ({LEGACY_DASHES[rel]}) but does not "
                        f"exist; drop the row or fix the name")
+    ignore_rules = set()
+    gitignore = REPO / ".gitignore"
+    if gitignore.exists():
+        ignore_rules = {
+            line.strip() for line in gitignore.read_text(encoding="utf-8").splitlines()
+        }
     for d in SKIP_DIRS:
-        if not (REPO / d).exists():
+        if d in GENERATED_DIRS:
+            # Built at CI/deploy time, so the filesystem cannot answer this.
+            # The .gitignore rule can: it moves when the directory is renamed.
+            if not gitignore.exists():
+                out.append(f"{d}: generated-dir exemption cannot be checked, .gitignore is missing")
+            elif d not in ignore_rules and d.rstrip("/") not in ignore_rules:
+                out.append(
+                    f"{d}: listed in SKIP_DIRS as generated output but .gitignore no longer "
+                    f"names it; the directory was probably renamed, so fix the name or drop it"
+                )
+        elif not (REPO / d).exists():
             out.append(f"{d}: listed in SKIP_DIRS but no such directory; drop it or fix the name")
     return out
 
