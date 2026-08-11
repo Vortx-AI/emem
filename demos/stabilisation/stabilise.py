@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Record this repo's claims as a signed emem note; fail when one stops being true.
 
-Four subcommands:
+Five subcommands:
 
   record   probe every claim in claims.py, write the answers into one ledger,
            sign it with an ed25519 key, POST it to emem, and pin its content
@@ -12,6 +12,10 @@ Four subcommands:
            deliberate edit, so you see a pass and three failures. Read-only.
   selftest attack the signed record four ways offline and require each attack to
            be named. Needs no key and no writes.
+  tamper   the fifth attack, which cannot be staged offline: the key that holds
+           a namespace rewrites its own published bytes and re-signs them
+           correctly. Runs against a second key's scratch namespace, never
+           against the ledger the lockfile pins. Writes.
 
 Exit codes match the other gates in this repo: 0 clean, 1 drift, 2 unreachable.
 
@@ -24,6 +28,7 @@ import base64
 import json
 import os
 import sys
+import textwrap
 import time
 import urllib.error
 import urllib.request
@@ -111,7 +116,9 @@ def ledger_text(claims: list[dict], observed: dict[str, str],
     return "\n".join(out)
 
 
-def memory_create(sk: SigningKey, pub: str, path: str, body: str) -> dict:
+def memory_create_raw(sk: SigningKey, pub: str, path: str, body: str) -> dict:
+    """The MCP result, refusals included. `tamper` needs to read a refusal as
+    data: one of the things it demonstrates is the responder saying no."""
     sig = b32(sk.sign(write_digest(path, body.encode())).signature)
     req = urllib.request.Request(
         RESPONDER + "/mcp",
@@ -120,10 +127,17 @@ def memory_create(sk: SigningKey, pub: str, path: str, body: str) -> dict:
                              "path": path, "file_text": body,
                              "attester": {"pubkey_b32": pub, "sig_b32": sig}}}}).encode(),
         headers={"Content-Type": "application/json", "Accept": "application/json"})
-    r = json.load(urllib.request.urlopen(req, timeout=90))["result"]
+    return json.load(urllib.request.urlopen(req, timeout=90))["result"]
+
+
+def error_text(r: dict) -> str:
+    return (r.get("content") or [{}])[0].get("text", "")
+
+
+def memory_create(sk: SigningKey, pub: str, path: str, body: str) -> dict:
+    r = memory_create_raw(sk, pub, path, body)
     if r.get("isError"):
-        raise SystemExit("memory_create refused: "
-                         + (r.get("content") or [{}])[0].get("text", "")[:300])
+        raise SystemExit("memory_create refused: " + error_text(r)[:300])
     return r["structuredContent"]
 
 
@@ -481,6 +495,165 @@ def cmd_selftest(_a) -> int:
     return 0
 
 
+# -------------------------------------------------------------------- tamper
+REHEARSAL_DOMAIN = b"emem.stabilise.tamper-rehearsal.v1|"
+
+SIGNATURE_SHAPED = ("does not verify", "bound to a different body", "is now signed by")
+
+
+def rehearsal_identity() -> tuple[SigningKey, str, str]:
+    """A second key, derived one-way from the demo key, holding its own namespace.
+
+    `selftest` case four models a forger who brought their own key, and the
+    foreign key is what catches it. The attack left over is the one worth being
+    afraid of: the key that legitimately holds the namespace rewrites the bytes
+    and re-signs them properly. Signature valid, body hash right, attester
+    exactly the one the lockfile names. Nothing is wrong with that record except
+    which bytes it is, and the only thing that says so is the address in git.
+
+    That cannot be staged offline, because the point is that the responder
+    accepts it and serves it. It needs a namespace we hold and are willing to
+    rewrite, and it must not be the published one. blake3 of the demo seed under
+    a domain label gives one: one-way, so this is not the demo key wearing a
+    hat, and deterministic, so re-running rewrites a single rehearsal path
+    instead of stranding a fresh namespace on the responder every run.
+    """
+    sk, _pub, _pk8 = identity()
+    r = SigningKey(blake3.blake3(REHEARSAL_DOMAIN + bytes(sk)).digest())
+    pub = b32(bytes(r.verify_key))
+    return r, pub, pub[:8]
+
+
+def cmd_tamper(_a) -> int:
+    if not LOCK.exists():
+        print(f"no lock at {LOCK}; run `stabilise.py record` first")
+        return 2
+    lock = json.loads(LOCK.read_text())
+    sk, pub, pk8 = rehearsal_identity()
+    try:
+        return _tamper(lock, sk, pub, pk8)
+    except urllib.error.URLError as e:
+        print(f"  (skipped: {RESPONDER} unreachable: {e})")
+        return 2
+
+
+def _tamper(lock: dict, sk: SigningKey, pub: str, pk8: str) -> int:
+    path = f"/memories/by_attester/{pk8}/stabilise/tamper-rehearsal.md"
+    published8 = lock["attester_pubkey_b32"][:8]
+
+    # 1. Containment, demonstrated rather than promised.
+    #
+    #    The probe is aimed at a path that does not exist, inside the published
+    #    ledger's namespace, and NOT at the ledger. The refusal is decided from
+    #    the pubkey8 segment of the path before any per-file ownership is
+    #    considered, so an unwritten path proves the same thing. Aiming it at
+    #    the real ledger would prove it slightly harder and would destroy the
+    #    published record on the day the refusal stops working, which is exactly
+    #    the day this would run. A demo does not get to gamble the artefact it
+    #    is demonstrating.
+    decoy = f"/memories/by_attester/{published8}/stabilise/rehearsal-must-be-refused.md"
+    print("1. this key cannot reach the published ledger's namespace")
+    print(f"   attempted: create {decoy}")
+    print(f"   as:        {pk8}, and that namespace belongs to {published8}")
+    r = memory_create_raw(sk, pub, decoy, "this write must not be accepted\n")
+    refusal = error_text(r) if r.get("isError") else ""
+    if "memory_namespace_violation" not in refusal:
+        print("   NOT REFUSED. The rehearsal below would be writing inside the published"
+              "\n   ledger's namespace, so it is not a rehearsal. Stopping.")
+        return 1
+    print(textwrap.fill(refusal.splitlines()[0].split(": ", 1)[-1], width=86,
+                        initial_indent="   refused:   ", subsequent_indent="              "))
+
+    # 2. Record a rehearsal ledger of our own, and pin it the way git pins one.
+    print("\n2. a rehearsal ledger, recorded in this key's own namespace")
+    recorded_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # The claims and answers the published ledger carries. What is being
+    # rehearsed is the rewrite, not the probing, so the answers are taken from
+    # the lockfile rather than re-measured.
+    body_a = ledger_text(CLAIMS, lock["observed"], recorded_at, pub)
+    cid_a = file_cid(body_a.encode())
+    res = memory_create(sk, pub, path, body_a)
+    if res["file_cid"] != cid_a:
+        raise SystemExit(f"the responder addressed it as {res['file_cid']}, these bytes "
+                         f"hash to {cid_a}")
+    pin = dict(lock, attester_pubkey_b32=pub, ledger_path=path, ledger_file_cid=cid_a)
+    print(f"   path      {path}")
+    print(f"   pinned    {cid_a}")
+    found = verify_record(fetch_note(path), pin)
+    for f in found:
+        print(f"   x {f}")
+    if found:
+        print("   The rehearsal ledger does not verify against its own pin, so nothing"
+              "\n   below is evidence about anything. Stopping.")
+        return 1
+    print("   ok        it verifies clean against that pin")
+
+    # 3. The attack. Same key, same path, one value changed, signed properly.
+    forged = dict(lock["observed"])
+    was = forged["algorithm_registry_total"]
+    forged["algorithm_registry_total"] = "163"
+    body_b = ledger_text(CLAIMS, forged, recorded_at, pub)
+    cid_b = file_cid(body_b.encode())
+    print("\n3. the namespace's own key rewrites those bytes and re-signs them")
+    print(f"   edit:     observed algorithm_registry_total {was} -> 163")
+    print("   signed:   by the same key, over the new body, at the same path")
+    res_b = memory_create(sk, pub, path, body_b)
+    note_b = fetch_note(path)
+    if res_b["file_cid"] != cid_b or note_b["content"] != body_b:
+        print("   The responder did not take the rewrite, so there is no attack to catch."
+              "\n   That is a finding about the responder, not a pass for this demo.")
+        return 1
+    print(f"   accepted: the responder now serves the altered bytes at that path, {cid_b}")
+    found = verify_record(note_b, pin)
+    for f in found:
+        print(f"   x {f}")
+    named = [s for s in SIGNATURE_SHAPED if any(s in f for f in found)]
+    if named:
+        print(f"   CAUGHT FOR THE WRONG REASON: a finding says {named[0]!r}. The signature "
+              f"\n   on this record is correct; naming it is how an hour goes on the wrong file.")
+        return 1
+    if len(found) != 1 or "the recorded assertions were rewritten" not in found[0]:
+        print(f"   NOT CAUGHT AS DESCRIBED: expected exactly one finding about the "
+              f"address, got {len(found)}. This is a failure of the demo, not a pass.")
+        return 1
+    # The claim being made is that the signature check ran on THIS record and
+    # passed. Silence does not say that; a check that is not running is also
+    # silent. So break the signature on the served bytes and require the same
+    # code to report it. The control costs one call and turns "nothing was
+    # reported" into "the verifier looked at this record and had nothing to say".
+    control = {"content": note_b["content"],
+               "authorship": dict(note_b["authorship"],
+                                  sig_b32=_flip(note_b["authorship"]["sig_b32"]))}
+    if not any("does not verify" in f for f in verify_record(control, pin)):
+        print("   the signature check is not live on this record, so its silence above is"
+              "\n   not evidence that the signature is good. Failing instead of claiming it.")
+        return 1
+    print("   caught:   one finding, and it is the address. Everything else about this")
+    print("             record is in order: the ed25519 signature verifies, over a body")
+    print(f"             hash matching the bytes served, by {pub[:8]}, which is the key")
+    print("             the pin names. It is a competent record of the wrong claims.")
+    print("   control:  flip one character of that same signature and the same check does")
+    print("             report it, so the silence above is a signature that verified.")
+
+    # 4. Put it back, so the rehearsal path is not left holding a lie.
+    print("\n4. restored")
+    memory_create(sk, pub, path, body_a)
+    found = verify_record(fetch_note(path), pin)
+    for f in found:
+        print(f"   x {f}")
+    if found:
+        print("   The restore did not verify. The rehearsal path is left tampered.")
+        return 1
+    print(f"   ok        {path} serves {cid_a} again and verifies clean")
+
+    print("\nThe strongest attack on this scheme is not a broken signature. It is a"
+          "\ncorrect one over different bytes, by the key that owns the namespace, which"
+          "\nthe responder accepts because it is entitled to. Every question this record"
+          "\ncan answer about itself comes back clean. What disagrees is the address"
+          "\npinned outside it, in git, and one disagreement is enough.")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -489,6 +662,8 @@ def main() -> int:
     sub.add_parser("demo", help="show a pass and three fails").set_defaults(fn=cmd_demo)
     sub.add_parser("selftest", help="attack the signed record offline").set_defaults(
         fn=cmd_selftest)
+    sub.add_parser("tamper", help="rewrite and re-sign, in a scratch namespace").set_defaults(
+        fn=cmd_tamper)
     a = p.parse_args()
     return a.fn(a)
 

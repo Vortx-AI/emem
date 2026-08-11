@@ -64,7 +64,7 @@ at their own address on a surface you do not control, signed by a named key.
 | file | what it is |
 | --- | --- |
 | `claims.py` | the six claims and the probe that decides each. This is the file you edit. |
-| `stabilise.py` | `record`, `check`, `demo`, `selftest`. |
+| `stabilise.py` | `record`, `check`, `demo`, `selftest`, `tamper`. |
 | `assertions.lock.json` | committed. Pins the ledger's path, its content address, the signing key, and every recorded answer. |
 
 ## Run it
@@ -199,6 +199,102 @@ with `elif`, so a note signed by the wrong key was never cryptographically
 verified at all: the report named the key and stopped. They are asked
 independently now.
 
+### The fifth attack, which cannot be staged offline
+
+Case four is a forger who brought their own key, and the foreign key is what
+catches it. The attack left over is the one worth being afraid of: the key that
+legitimately holds the namespace rewrites the bytes and re-signs them properly.
+Signature valid, body hash right, attester exactly the key the lockfile names.
+Nothing is wrong with that record except which bytes it is.
+
+That one cannot be staged offline, because the point of it is that the responder
+accepts it and serves it to everyone who asks. `tamper` runs it live, against a
+namespace that is not the published one:
+
+```
+python3 demos/stabilisation/stabilise.py tamper
+```
+
+Real output, verbatim, 2026-08-11 against `https://emem.dev`:
+
+```
+1. this key cannot reach the published ledger's namespace
+   attempted: create /memories/by_attester/ukctss4i/stabilise/rehearsal-must-be-refused.md
+   as:        4fqtfku6, and that namespace belongs to ukctss4i
+   refused:   memory_namespace_violation: signature verified, but path
+              `/memories/by_attester/ukctss4i/stabilise/rehearsal-must-be-refused.md`
+              is under a different attester's namespace. Use
+              `/memories/by_attester/4fqtfku6/...`
+
+2. a rehearsal ledger, recorded in this key's own namespace
+   path      /memories/by_attester/4fqtfku6/stabilise/tamper-rehearsal.md
+   pinned    h3xlz2fravedia7y7gnuggccse
+   ok        it verifies clean against that pin
+
+3. the namespace's own key rewrites those bytes and re-signs them
+   edit:     observed algorithm_registry_total 168 -> 163
+   signed:   by the same key, over the new body, at the same path
+   accepted: the responder now serves the altered bytes at that path, knvihrkol7nxv7yqyvu3zyof74
+   x the ledger at /memories/by_attester/4fqtfku6/stabilise/tamper-rehearsal.md now hashes to knvihrkol7nxv7yqyvu3zyof74, but the lock pins h3xlz2fravedia7y7gnuggccse: the recorded assertions were rewritten
+   caught:   one finding, and it is the address. Everything else about this
+             record is in order: the ed25519 signature verifies, over a body
+             hash matching the bytes served, by 4fqtfku6, which is the key
+             the pin names. It is a competent record of the wrong claims.
+   control:  flip one character of that same signature and the same check does
+             report it, so the silence above is a signature that verified.
+
+4. restored
+   ok        /memories/by_attester/4fqtfku6/stabilise/tamper-rehearsal.md serves h3xlz2fravedia7y7gnuggccse again and verifies clean
+
+The strongest attack on this scheme is not a broken signature. It is a
+correct one over different bytes, by the key that owns the namespace, which
+the responder accepts because it is entitled to. Every question this record
+can answer about itself comes back clean. What disagrees is the address
+pinned outside it, in git, and one disagreement is enough.
+```
+
+Every line of that happened on the live responder. Nothing in it is replayed
+from a fixture. What is *not* the real thing is which bytes get rewritten: the
+ledger being tampered with is a copy recorded under a second key, in that key's
+own namespace, not the ledger this repo publishes. `4fqtfku6` is derived from
+`.identity.json` by blake3 under a domain label, so it is one way, and
+deterministic, so re-running rewrites one rehearsal path instead of stranding a
+fresh namespace on the responder every run.
+
+Step 1 is the containment being tested rather than asserted, and it is aimed at
+a path that does not exist inside the published namespace, never at the ledger
+itself. The refusal is decided from the `pubkey8` segment of the path before any
+per-file ownership is considered, so an unwritten path proves the same thing; if
+that check ever stops working, the cost is a junk file rather than the record
+this whole demo is about. A demo does not get to gamble the artefact it is
+demonstrating.
+
+Step 3 requires *exactly one* finding, and requires that none of the three
+signature-shaped findings appear, because a valid signature reported as a broken
+one sends the next hour to the wrong file. The `control` line exists because
+silence is ambiguous: a check that is not running reports nothing either. It
+flips one character of that same signature and requires the same code path to
+report it, so "no signature finding" means the verifier looked.
+
+One finding is what step 1 of the gate returns here, and step 1 is all `tamper`
+runs. The whole of `check` returns two against the same tampered rehearsal: the
+address, plus the rebuild from `claims.py` no longer matching the served bytes,
+because the tampered ledger says `observed: 163` where the repo still computes
+168. Both numbers measured, not reasoned about. The second finding is the one an
+attacker erases for free by editing `claims.py` in the same commit. The first
+one they cannot erase without also changing the address pinned in git, which is
+a diff with their name on it.
+
+Those assertions are load-bearing, not decoration. Blinding the address check,
+having it fire but name the signature, having the responder refuse the rewrite,
+and killing the signature check each turn the run red at the right step, with
+exit 1. That was measured by patching `verify_record` and `fetch_note` from
+outside and re-running.
+
+`tamper` writes. Four write attempts per run, one of which is step 1 and is
+meant to be refused; the three that land are all under a key derived from yours,
+all at one path. It and `record` are the only subcommands that write anything.
+
 ## The six claims
 
 They are claims this repo actually made and got wrong, or nearly got wrong.
@@ -241,13 +337,21 @@ Stated plainly, because a gate that oversells itself is the defect it is
 supposed to catch.
 
 - **It does not make the record immutable.** A second write to a path your key
-  already owns replaces the bytes; that was measured on a scratch path in this
-  namespace, not argued from the docs. What changes is that the new bytes get a
-  new content address, so the gate goes red naming both, and the earlier
-  recording stays readable at its own timestamped path. Detection and
-  attribution, not prevention. `selftest` case four shows the cryptographic half
-  of that end to end; rewriting the live ledger and restoring it was not
-  performed in this session.
+  already owns replaces the bytes, and the responder then serves the new ones to
+  everyone who asks. `tamper` does exactly that and restores it, so this is
+  measured rather than argued from the docs. What changes is that the new bytes
+  have a new content address, so the gate goes red naming both. Detection and
+  attribution, not prevention.
+
+- **A rewrite in place is not recoverable through this responder.** Reads are
+  keyed by path. `read_memory_file` in `crates/emem-api-rest` looks the path up,
+  takes whatever cid it points at now, and returns that blob; the router has one
+  memory reader, `/memories/*path`, and MCP `memory_view` also takes a path.
+  Neither accepts a `file_cid`. The superseded blob stays in the store with no
+  route that names it. `record` sidesteps this by writing a new timestamped path
+  every time, so each recording keeps its own URL, but for a path that was
+  rewritten, the address pinned in git is the only surviving statement of what
+  it used to hold.
 
 - **It is not on the transparency log.** emem's RFC 6962 log at `/v1/log/*`
   covers fact attestations. `persist_memory_write` in `crates/emem-api-rest`
@@ -281,6 +385,38 @@ outside the repo, and you would be embarrassed if it quietly became false, write
 the probe next to it. Do not tokenise the codebase; git already does that, and
 doing it twice adds a second thing to drift. Tokenise the claims whose truth
 lives somewhere git cannot look.
+
+### What that means in practice
+
+A claim is worth pinning when the thing that decides it is not in the repo, so
+the repo can go on saying it long after it stops being true. Four kinds, one
+from each of the defects at the top of this file:
+
+| kind | what decides it, outside the repo | the claim here | how the repo looked while it was wrong |
+| --- | --- | --- | --- |
+| a count the responder computes | a registry assembled at startup; the number exists only in a response | `algorithm_registry_total`: `pagination.total` is 168 | `163` hardcoded in a panel, beside a panel already patching itself from the responder |
+| a schema a client validates against | someone else's validator, running against the schema we publish | `fact_cid_is_52_chars`: 52, and 26 is refused as malformed | `26` in the schema, internally consistent, reached through four response schemas |
+| a byte budget a host enforces | the ceiling is the MCP client's, and it does not ask us | `tools_list_pages_fit_client_cap`: every page under 102,400 | a response that had grown to 288,002 bytes with nothing measuring it |
+| a capability a description promises | whether the promise is kept is behaviour, and only running it says so | `guard_verdict_is_advisory`: `action: allow`, `receipt.fact_cids` empty | an allow branch and a doc sentence, each plausible on its own |
+
+The mirror image is just as useful. Do not pin:
+
+- **The code.** Git addresses it already, exactly, for free. A second address for
+  the same bytes is a second thing to keep in step, and the day they disagree
+  you have to work out which one lied.
+
+- **A measurement that moves for reasons nobody cares about.** The `tools/list`
+  claim records `fits`, not the byte count. A claim that reddens every time
+  someone edits a tool description is a claim that gets switched off, and a
+  switched-off claim is worse than no claim, because it still looks like
+  coverage. Pin the property, measure the number.
+
+- **Anything whose probe reads the repo.** If the probe reads the same `163` the
+  prose reads, both move in the same commit and the gate is decoration. It runs,
+  it is green, and it is testing that a constant equals itself. The probe has to
+  ask something the repo does not get a vote on. Same family as the
+  `len(algorithms)` trap: `how` is prose, nothing checks it against the lambda,
+  and a probe can run, pass, and mean nothing.
 
 The crude version of this already ships here and is worth reading first:
 `scripts/sync_counts.py` asserts published counts against the registries and a
