@@ -209,6 +209,20 @@ jobs:
         run: PYTHONPATH=sdks/emem-py/src python -m pytest sdks/emem-py/tests/ -v
       - name: emem-langmem smoke tests
         run: PYTHONPATH=sdks/emem-langmem/src python -m pytest sdks/emem-langmem/tests/ -v
+      # Nothing here ran the llama-index tool spec, so its suite proved
+      # nothing about CI either. Only on 3.12: the package floor is 3.10 and
+      # llama-index-core does not install on 3.9.
+      #
+      # The offline half only. tests/test_live_contract.py replays each
+      # fixture's recorded request against production and would make this job
+      # depend on the origin; it belongs with the live gates, and is run by
+      # hand or from a machine that can reach the responder.
+      - name: llama-index tool spec tests
+        if: matrix.python == '3.12'
+        run: |
+          python -m pip install "llama-index-core>=0.13.0,<0.15"
+          PYTHONPATH=sdks/llama-index-tools-emem python -m pytest \
+            sdks/llama-index-tools-emem/tests/test_emem_tool_spec.py -v
       # The two steps above put src/ on PYTHONPATH, so they pass whether or
       # not the built package contains any code. ememdev 1.0.0 shipped to
       # PyPI holding nothing but metadata, and this suite stayed green
@@ -344,6 +358,49 @@ jobs:
           set -e
           if [ "$code" = "2" ]; then
             echo "::warning::the responder did not answer; schemas not asserted this run"
+            exit 0
+          fi
+          exit $code
+
+  mcp-host-compat:
+    name: MCP hosts can see and call us
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # scripts/mcp_host_compat.py asserts that AWS, Glama, Smithery,
+      # Anthropic and OpenAI shaped clients can each discover the endpoint
+      # and get an answer out of it: the CORS preflight, the Accept header
+      # each one sends, the tools/list page size, and the discovery files
+      # that have to point at the same URL the responder answers on. It has
+      # been at 25 pass, 0 fail for as long as anyone ran it, which was only
+      # ever by hand. Nothing referenced it here, so a regression in any of
+      # those five paths would have reached a host before it reached a test.
+      #
+      # It reads repo files as well as the origin, hence the checkout: half
+      # of what it compares is server.json and .well-known/mcp.json against
+      # what the live endpoint says.
+      #
+      # Same exit-code contract as the counts and schema gates above: 2 is
+      # "the harness could not run", which a deploy window produces and which
+      # must not redden an unrelated pull request; 1 is a real divergence.
+      #
+      # Worth stating plainly: a job that warns when it cannot reach the
+      # origin cannot tell "our endpoint is fine" from "GitHub could not get
+      # to it". A green run here is weaker evidence than the same command run
+      # by hand from a machine that reached us, and it is not a substitute
+      # for one after a deploy.
+      - name: five host shapes can reach and call the endpoint
+        run: |
+          set +e
+          python3 scripts/mcp_host_compat.py --check --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; host compatibility not asserted this run"
             exit 0
           fi
           exit $code
