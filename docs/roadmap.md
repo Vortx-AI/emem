@@ -79,6 +79,68 @@ The test we hold every item to: does it make emem's memories more trusted, porta
   the native-resolution raster surface further down this page; the two
   items share one keystone.
 
+### Open validation: the measurements the claims still rest on
+
+Every other item on this page is *build X*. This one is *prove X*, and it
+is listed separately because the two go stale differently: a feature that
+does not exist is obvious, while a claim nobody has measured looks exactly
+like a claim that has been. Each item below names what the current
+evidence actually establishes, which is usually narrower than the sentence
+it supports.
+
+- **The grid, compared rather than asserted.** Partly closed, and it went
+  against us. Token cost is now measured: a cell64 is 12.5 BPE tokens
+  (cl100k_base, mean over 14 live cells; 12.1 under o200k_base) against
+  8.5 for H3 at a comparable pitch and 7.5 to 8.0 for a geohash or a hex
+  S2 id, so the address is the most expensive of the four in the unit a
+  language model pays in. Earlier drafts of the whitepaper claimed the
+  opposite as the justification for the design; that sentence is now
+  corrected. Still open, and needed before the choice can be defended
+  rather than merely disclosed: encode and decode cost against the same
+  three, address stability under a resolution change, area distortion as
+  a function of latitude quantified rather than described, and whether
+  the addressing scheme measurably changes recall latency at all. The
+  honest position today is that cell64 loses to H3 on both equal-area
+  and token economy, and buys decode-free prefix locality in exchange.
+- **Per-encoder calibration for the change gate.** `triple_consensus`
+  votes each encoder's cosine delta against one threshold, 0.15, borrowed
+  from Healey et al. 2018's LandTrendr gate for spectral change. The
+  embedding spaces do not share a scale: over 8 maximally dissimilar
+  chips Clay spans 0.11 to 0.95 (sd 0.204) and the deployed Prithvi
+  checkpoint spans 0.88 to 0.99 (sd 0.030) with its delta topping out
+  near 0.1155, so Prithvi never votes and `all_three` is arithmetically
+  unreachable. The responder says so in-band on every response. What is
+  missing is not a better number but the corpus that would produce one: a
+  labelled set of known-change and known-no-change cells per encoder,
+  against which a threshold could be fitted and reported with a
+  false-positive rate. Until that exists the three-tier vote is a report
+  of which encoders moved, and one worked example cannot make it more.
+  The quadratic-mean ensemble is likewise a choice and not a derivation;
+  with components on different scales it is dominated by Clay.
+- **Accuracy, measured separately from verifiability.** The grounding
+  comparison scores whether an answer carries a resolvable `fact_cid`. A
+  model with no tools cannot produce one by construction, so that result
+  establishes that emem supplies checkable output and CANNOT establish
+  that emem's values are closer to the truth than another geospatial
+  source's. Those are different claims and only one of them is currently
+  supported. What is needed is an arm that ignores citations entirely:
+  emem's band values against independent reference data (published DEM
+  validation sets, in-situ stations, an established provider queried
+  directly), scored on absolute error, with the disagreements reported
+  whichever way they fall. This is the single most load-bearing gap on
+  this page, because "verifiable" is being read as "accurate" by
+  everyone who has not read the method.
+- **Contradiction scoring, quantitatively.** The primitive ships and now
+  reports provider substitutions as well as multi-attester disagreement,
+  but its severity score has never been evaluated. Needed: seeded
+  disagreements of known magnitude across scalar, vector and categorical
+  bands, and precision and recall of the score against them, so
+  `severity: 0.62` means something to a reader who did not write it.
+- **Memory search, quantitatively.** `emem_memory_search` is BGE over the
+  agent-memory namespace and has no reported recall@k on any held-out
+  set. Until it does, it is a feature with no number, and the honest
+  description of it in any paper is "provided" rather than "effective".
+
 ### Next substrates: everything that observes a location
 
 Satellite Earth observation is the first substrate because its data is

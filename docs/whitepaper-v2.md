@@ -473,10 +473,20 @@ silently misplacing a fact by hundreds of metres.
 The string form is four base-65,536 bigrams joined by `.`, drawn from a
 65,536-entry alphabet (`crates/emem-codec/src/alphabet.rs:48`); four
 16-bit digits are exactly the 64 bits of the address. Bigram widths vary,
-so the rendered cell is 20 or 21 characters and an `emem:fact:` token is
-correspondingly 83 or 84. The alphabet is constructed so adjacent
-codepoints map to adjacent cells, and the encoding is token-economical:
-about four BPE tokens under cl100k/o200k.
+so the rendered cell is 20 to 22 characters and an `emem:fact:` token is
+correspondingly 83 to 85. The alphabet is constructed so adjacent
+codepoints map to adjacent cells.
+
+**It is not token-economical, and earlier drafts of this paper said it
+was.** Measured over 14 live cells: a cell64 costs a mean 12.5 BPE tokens
+under cl100k_base and 12.1 under o200k_base, range 11 to 15. Four bigrams
+do not become four tokens; the alphabet was built for adjacency and a
+BPE vocabulary was never trained on it, so each bigram fragments. At a
+comparable pitch H3 r12 costs 8.5, a 10-character geohash 7.5 to 8.0, and
+a hex-rendered S2 id 7.5 to 8.0. cell64 is therefore the MOST expensive
+of the four in the unit that bills a context window, by about 50% against
+H3. The design intent stands and is not yet achieved; §14.5 records it as
+an open limit rather than a property.
 
 The pitch is ~9.54 m on the latitude axis and ~9.55 m on the longitude
 axis at the equator, chosen to match the native pitch of Sentinel-1 and
@@ -1193,6 +1203,38 @@ between two vintages of one encoder; `triple_consensus` reports
 year-over-year agreement across three encoders behind a gate its own
 output documents as uncalibrated. None of them attributes.
 
+**How uncalibrated, in numbers, because "uncalibrated" is doing a lot of
+work in that sentence.** Each encoder contributes
+`d = clamp(1 - cos(v_now, v_prev), 0, 1)` and votes if `d` clears
+`consensus_threshold`, default 0.15. That figure is Healey et al. 2018's
+LandTrendr gate for SPECTRAL change, applied unchanged to cosine
+distances in three embedding spaces that share no scale. Measured over 8
+maximally dissimilar chips, Clay's cosine spans 0.11 to 0.95 (sd 0.204)
+and clears 0.15 readily, while the deployed Prithvi checkpoint spans 0.88
+to 0.99 (sd 0.030) and its `d` tops out near 0.1155, under the gate.
+Prithvi therefore never votes: `agreement = all_three` is arithmetically
+unreachable on the deployed checkpoints, and `two_of_three` always means
+Clay plus Tessera. The responder says this in-band, in a
+`gate_calibration` string on every response, and the tool description
+tells a caller to read `encoders_used[].change` per encoder rather than
+trust the vote.
+
+The ensemble magnitude is the quadratic mean of the available
+components, `sqrt((d_c^2 + d_p^2 + d_t^2)/3)`, generalised to N <= 3. L2
+rather than an arithmetic mean was a choice, not a derivation: it lets
+the largest component dominate, which is the behaviour you want when one
+encoder detects a change the others miss and the wrong behaviour when the
+components are on different scales, which is the case here. So the
+ensemble is currently driven mostly by Clay.
+
+Fixing this needs a labelled change corpus, per encoder, that this
+responder does not have: a threshold per embedding space calibrated
+against known change and known no-change, rather than one number borrowed
+from a spectral index. Until that exists the three-tier vote should be
+read as a report of which encoders moved, not as a consensus, and a
+single worked example cannot establish otherwise. It is listed in §14.5
+as an open limit for that reason.
+
 What ships as of 2026-07-16 is the LEDGER: `POST /v1/change_attribution`
 (tool `emem_change_attribution`, registry key `change_attribution@1`)
 returns per-term evidence for one cell, the observed Tessera
@@ -1443,6 +1485,16 @@ because the signature speaks to none of them.
   above it: longitude pitch narrows with cos(lat), so a cell at 60° is
   about 9.54 m by 4.77 m. The equal-area hex DGGS is a spec target, not
   this build.
+- **The address is not token-economical.** A cell64 measures 12.5 BPE
+  tokens (cl100k_base, mean over 14 live cells; 12.1 under o200k_base),
+  against 8.5 for H3 at a comparable pitch and 7.5 to 8.0 for a geohash
+  or a hex S2 id. The alphabet was designed for adjacency, not for a
+  tokenizer, and no BPE vocabulary was trained on it, so each of the four
+  bigrams fragments. A tokenizer-aware alphabet under a new mode prefix
+  would fix it without moving existing addresses, and is not built. Until
+  then the grid costs about 50% more context than H3 while also not being
+  equal-area, so on the two axes a reader would compare it against a DGGS
+  on, it currently loses both.
 - **Sub-metre imagery.** None. Sentinel-2 at 10 m is the finest pitch
   served.
 - **Edge and onboard inference.** All inference is in-tenant. No
@@ -1612,10 +1664,19 @@ elevation here" because "here" is not a hash.
 
 **Spatial indexes (H3, S2, geohash).** Peers to §4, and H3 is the
 declared migration target. cell64 is a packed 64-bit lat/lng
-quantisation, which is worse than H3 on equal-area properties and better
-on token economy: four bigrams, about four BPE tokens. That trade is only
-worth making for a memory whose primary consumer is a language model, and
-it is a trade, not a win.
+quantisation. Earlier drafts justified it as a trade, worse than H3 on
+equal-area properties and better on token economy; the second half does
+not survive measurement. At a comparable pitch a cell64 costs 12.5 BPE
+tokens (cl100k_base, n=14 live cells) against 8.5 for H3 r12, 7.5 to 8.0
+for a 10-character geohash and 7.5 to 8.0 for a hex S2 id, so cell64 is
+the most expensive of the four in the unit a language model pays in, and
+it is not equal-area either. What it does buy is decode-free locality:
+adjacent codepoints are adjacent cells, so prefix comparison is a spatial
+operation on the string, and the address is a self-describing 64-bit
+integer with no library needed to parse it. Whether that is worth 4 extra
+tokens per address is not settled by anything measured here, and the
+honest statement is that the grid is a cost the protocol currently pays,
+not an advantage it holds. §4 and §14.5 carry the numbers.
 
 **Agent memory frameworks (MemGPT, CoALA, vector stores).** The kind
 taxonomy in §Abstract is CoALA's. The difference is verifiability: a

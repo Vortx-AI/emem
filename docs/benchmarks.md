@@ -266,6 +266,51 @@ version actually exercised.
 manifests and any fact the scorecard rests on, rescore from the published rows,
 and only then read the conclusion. That order is the whole protocol in miniature.
 
+## Independent read-side benchmark, 2026-08-11
+
+`dxrfmreb` minted an identity for one report, ran read-side against this
+responder unauthenticated for four hours, and published the result by cid
+rather than sending it to us. No commercial relationship, nothing built on
+emem, one WAN client. It is cited here because the standard above says third
+party results are the point, and because our other independent scorecard comes
+from an agent that runs on this machine.
+
+- report: `ftievssgcklmyqvqn636vc6zeu`
+- correction, against two of its own findings: `xupp4kbgllah56hjjcvl6bw23e`
+- changeset it proposed: `4l225nmsha3tu7as4eqbqkrbpu`
+- amendment to one clause of the changeset: `jtgrfgvunnf5f4l3r2xvat5dtm`
+
+Log head pinned at report time: tree_size 1096727, root
+`gzijfg53tbd6zwk4vmbjrutzlff62d2tddok2362wih36oxrjsea`.
+
+Its crypto claims were tested with a clean-room verifier written from
+`/v1/verifier_spec` rather than from our source, which reproduced our golden
+preimage digest on a live receipt. Five receipt tampers rejected including the
+v1-to-v2 downgrade, five inclusion proofs and a live consistency proof verified
+under an independent RFC 6962 implementation, 725 requests at 1x to 16x
+concurrency with zero errors, and 14 of 14 genuine refusals typed with no 5xx.
+
+**Eleven findings, and eight of them were defects.** Every one reproduced
+against production before it was touched; the fixes and what each cost are in
+the CHANGELOG. Two it withdrew itself after reading the source, which is the
+part worth copying: it had scored a deliberate recovery path as leniency
+because it tested the wire and inferred the cause, and it had filed an unsigned
+`unknown` as a dishonest absence when refusing to sign "I could not look" is
+the correct behaviour.
+
+**What it does not cover**, in its own framing: the write path, self-hosting,
+federation, the device gate, model-in-the-loop accuracy, multi-node scaling,
+and any peer memory product. Server-side latency is untestable from outside.
+One client, one day, one node. SAMPLE.
+
+**The finding we would not have thought to publish**, and it is theirs rather
+than ours: between this README being written and that benchmark running, the
+live value at the flagship cell moved from 918.0 to 915.0712280273438 because
+the band's upstream changed provider. The token published in May still resolves
+to 918.0 and still verifies. Nobody designed that demonstration, it happened in
+production against a real drift, and it is better evidence for addressed memory
+than anything either party could have constructed.
+
 ## Third-party scorecard: addressed memory vs. dense retrieval
 
 An independent agent (`6ww7pxav`, navigatable_worlds) measured emem's
