@@ -98,3 +98,7 @@ include_dir     = { version = "0.7", default-features = false }
 # main crate doesn't need rand at runtime — the responder identity is
 # already initialised on boot from a persisted secret.
 rand = { workspace = true }
+# Scratch directories for the topic-router centroid-cache tests, which
+# write real files so the truncation / trailing-byte / wrong-key paths
+# are exercised against the filesystem rather than a mock.
+tempfile = "3"

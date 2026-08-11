@@ -377,8 +377,22 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
   "description":"did_change only: exactly two tslots, [start, end], band-tempo-relative integers from the emem epoch (NOT unix seconds or a date string). Get valid tslots for a cell from emem_trajectory."},
 "key":{"type":"string","description":"find_like only: cell64 to search from. Neighbours are ranked by embedding cosine against this cell."},
 "k":{"type":"integer","minimum":1,"description":"find_like only: how many neighbours to return. Defaults to the primitive's own default when omitted."},
-"filter":{"type":"object","description":"find_like only: optional claim constraining which cells may be returned, same shape as `claim`."},
-"claim":{"type":"object","description":"confirm only: the claim to test at `cell`, e.g. {\"band\":\"indices.ndvi\",\"op\":\"gt\",\"value\":0.4}. The answer is a verdict plus the signed facts it rests on."}
+"filter":{"type":"object","required":["band","op","value"],"description":"find_like only: optional claim constraining which cells may be returned. Same object as `claim` below, same ops, same required fields.","properties":{
+  "band":{"type":"string","description":"Band the neighbour must satisfy, e.g. \"indices.ndvi\"."},
+  "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison. Symbolic only: `gt`, not `greater_than` or `>`."},
+  "value":{"description":"Right-hand side. Required by the parser even for exists/absent, which ignore it."},
+  "tslot":{"type":"integer","description":"Test at one tslot. Mutually exclusive with `window`."},
+  "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Test across [start, end] tslots instead of one. Requires `agg`."},
+  "agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"How a `window` reduces to a single verdict."}
+}},
+"claim":{"type":"object","required":["band","op","value"],"description":"confirm only: the claim to test at `cell`, e.g. {\"band\":\"indices.ndvi\",\"op\":\"gt\",\"value\":0.4}. The answer is a verdict plus the signed facts it rests on.","properties":{
+  "band":{"type":"string","description":"Band to test, e.g. \"indices.ndvi\"."},
+  "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison. These ten spellings and no others: `greater_than`, `>` and `gte` are all rejected. in/ni take an array `value` (member / not member). exists and absent ask only whether the band is attested here."},
+  "value":{"description":"Right-hand side. A number for the ordering ops, an array for in/ni. REQUIRED by the parser even for exists/absent, which then ignore it — omitting it fails the whole intent with `missing field value`."},
+  "tslot":{"type":"integer","description":"Test at one tslot. Omit for the latest. Mutually exclusive with `window`."},
+  "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Test across [start, end] tslots instead of one. Requires `agg` to say how the values across the window collapse to a verdict."},
+  "agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"How a `window` reduces: any/all quantify over the facts in it; mean/min/max compare the reduced value against `value`."}
+}}
 }}"#;
 
 // ── Output schemas ───────────────────────────────────────────────
@@ -1048,6 +1062,7 @@ const SCHEMA_TRACE_VERIFY: &str = r#"{"type":"object","required":["trace","profi
 }}"#;
 
 const SCHEMA_GUARD_VERDICT: &str = r#"{"type":"object","properties":{
+"shape":{"type":"string","enum":["native","mcp","openai","cloudevent","policy"],"default":"native","description":"Which envelope YOUR payload is in, so you never have to reshape it to ask the question: send the body your own framework produced and name its shape. native reads `texts`/`messages`; `mcp` reads a JSON-RPC tools/call or tool result; `openai` reads a moderations (`input`) or chat-completions body; `cloudevent` reads a CloudEvents 1.0 structured event; `policy` reads {input}. It matters: a CloudEvent whose citation sits at data.text is invisible to the native reader, and a check that read nothing answers `allow`, so confirm `citations_found` matches what you sent. Unrecognised values fall back to native rather than erroring. This selects how the body is READ only — the verdict always comes back in this tool's declared output shape, because a tool that declares an outputSchema owes conforming structuredContent. To get the ANSWER translated into the same envelope too (an OPA `result:{allow,deny}`, an MCP CallToolResult to substitute on a deny), call POST /v1/guard/verdict?shape=… directly."},
 "texts":{"type":"array","items":{"type":"string"},"description":"Free text to check. Any number of pieces, in any order: a draft answer, a tool result, a whole turn."},
 "messages":{"type":"array","description":"A chat-completions-shaped transcript, read for its text. Accepted so the same body works against a self-hosted emem-guard node and against any OpenAI-shaped client. Each item is {role, content} where content is a string or an array of blocks.","items":{"type":"object","properties":{"role":{"type":"string"},"content":{"description":"A string, or an array of {type,text} blocks."}}}},
 "claim_gating":{"type":"boolean","description":"Also flag measurable physical-world claims that carry NO citation (deny code CLAIM_UNGROUNDED, fix cite_observation). Off by default: it reports on the absence of a citation rather than on a failed check. The verdict names the sentence, the magnitude, and the emem band that would answer it.","default":false},
@@ -2218,7 +2233,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_guard_verdict",
         title: "Check whether the citations in a draft actually verify",
         description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).",
-        when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. Set claim_gating:true to also be told which measurable claims carry no citation at all and which emem band would answer them. To ENFORCE this rather than consult it, run your own node: emem_guard_selfhost returns the procedure, and it works across Anthropic Inference hooks, Claude Code hooks, MCP tool calls, OpenAI-shaped clients, CloudEvents and OPA-style policy clients.",
+        when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. Set claim_gating:true to also be told which measurable claims carry no citation at all and which emem band would answer them. Checking a payload some other framework produced (a CloudEvent, an OPA input, an OpenAI moderations body, another server's tool call)? Send it as-is and name its `shape`, because the default reader only sees `texts`/`messages` and a check that read nothing still answers allow. To ENFORCE this rather than consult it, run your own node: emem_guard_selfhost returns the procedure, and it works across Anthropic Inference hooks, Claude Code hooks, MCP tool calls, OpenAI-shaped clients, CloudEvents and OPA-style policy clients.",
         input_schema: SCHEMA_GUARD_VERDICT,
         output_schema: Some(OUT_GUARD_VERDICT),
         example_args: r#"{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}"#,
@@ -3169,6 +3184,96 @@ mod tests {
             lookup("emem_backfill").is_some(),
             "emem_backfill must be registered"
         );
+    }
+
+    /// Input schemas are hand-written JSON string literals, so a stray comma
+    /// or an unbalanced brace is a syntax error nothing catches until a
+    /// client tries to parse the catalogue. Parse all of them.
+    ///
+    /// The root-key assertion is the one from the note above `SCHEMA_LOCATE`:
+    /// Anthropic's validator 400s on a top-level `anyOf`/`oneOf`/`allOf`,
+    /// which is exactly what somebody reaches for when they try to express a
+    /// tagged union in the schema itself. (The same note also names a
+    /// top-level `description`; `SCHEMA_INTENT` has carried one for as long
+    /// as it has been live and the connector loads, so that half is not
+    /// asserted here.)
+    #[test]
+    fn every_input_schema_is_well_formed_json() {
+        for t in TOOLS {
+            let v: serde_json::Value = serde_json::from_str(t.input_schema)
+                .unwrap_or_else(|e| panic!("{}: input_schema is not JSON: {e}", t.name));
+            let o = v
+                .as_object()
+                .unwrap_or_else(|| panic!("{}: input_schema is not an object", t.name));
+            assert_eq!(
+                o.get("type").and_then(|x| x.as_str()),
+                Some("object"),
+                "{}: input_schema root must be type object",
+                t.name
+            );
+            for banned in ["anyOf", "oneOf", "allOf"] {
+                assert!(
+                    !o.contains_key(banned),
+                    "{}: top-level `{banned}` is rejected by the Anthropic tool validator",
+                    t.name
+                );
+            }
+        }
+    }
+
+    /// The two parameter gaps the 2026-08-10 sweep left open, pinned.
+    ///
+    /// `shape` decides which text gets read, so an MCP door without it
+    /// answered `allow` on payloads it never looked at; and `emem_intent`'s
+    /// nested claim union named `claim`/`filter` without ever saying what
+    /// goes in them.
+    #[test]
+    fn guard_verdict_and_intent_declare_their_unions() {
+        let ops = [
+            "eq", "ne", "lt", "le", "gt", "ge", "in", "ni", "exists", "absent",
+        ];
+
+        let g: serde_json::Value = serde_json::from_str(SCHEMA_GUARD_VERDICT).unwrap();
+        let shape = &g["properties"]["shape"];
+        assert_eq!(
+            shape["default"].as_str(),
+            Some("native"),
+            "omitting shape must keep the historical native reading"
+        );
+        let declared: Vec<&str> = shape["enum"]
+            .as_array()
+            .expect("shape must enumerate its envelopes")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(
+            declared,
+            ["native", "mcp", "openai", "cloudevent", "policy"],
+            "the five envelopes GuardShape::parse accepts"
+        );
+
+        let i: serde_json::Value = serde_json::from_str(SCHEMA_INTENT).unwrap();
+        for field in ["claim", "filter"] {
+            let c = &i["properties"][field];
+            let got: Vec<&str> = c["properties"]["op"]["enum"]
+                .as_array()
+                .unwrap_or_else(|| panic!("intent.{field} must enumerate its ops"))
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(got, ops, "intent.{field}: emem_claim::Op, all ten");
+            let req: Vec<&str> = c["required"]
+                .as_array()
+                .unwrap_or_else(|| panic!("intent.{field} must name its required fields"))
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(
+                req,
+                ["band", "op", "value"],
+                "intent.{field}: `value` is required by the parser even for exists/absent"
+            );
+        }
     }
 
     /// Every strict-cell schema must carry a cell64 `pattern` so MCP

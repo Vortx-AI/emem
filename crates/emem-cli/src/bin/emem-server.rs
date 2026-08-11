@@ -37,6 +37,18 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    // Wall clock from the top of `main`. Every step below reports its own
+    // duration against it, because "startup is slow" is not actionable and
+    // "storage open 1.9 s, topic router 7.6 s" is. `boot_step` is one line
+    // per phase on stderr, so the breakdown is readable straight out of
+    // `journalctl` without turning on a debug filter.
+    let boot = std::time::Instant::now();
+    let boot_step = |name: &str, t: std::time::Instant| {
+        let ms = t.elapsed().as_millis() as u64;
+        tracing::info!(target: "emem::boot", step = name, elapsed_ms = ms, since_start_ms = boot.elapsed().as_millis() as u64, "boot step");
+        eprintln!("boot: {name} {ms} ms (t+{} ms)", boot.elapsed().as_millis());
+    };
+
     // `bind` is the plain-HTTP listener. When TLS is also active (see
     // EMEM_TLS_DOMAINS below) we default the plain listener to
     // 127.0.0.1:5051 instead of 0.0.0.0:5051 so writes (/v1/attest,
@@ -48,10 +60,38 @@ async fn main() -> anyhow::Result<()> {
     let bind_explicit = std::env::var("EMEM_BIND").ok();
     let data = std::env::var("EMEM_DATA").unwrap_or_else(|_| "./var/emem".into());
 
+    // The topic router is started FIRST and awaited last.
+    //
+    // It has to be loaded before the listener binds (see the await below for
+    // why), and it is the single longest step in startup. It also depends on
+    // nothing else here: it reads its model straight off disk under
+    // EMEM_TOPIC_MODEL_DIR / EMEM_DATA and never touches storage, the
+    // identity or the manifests. Kicking it off now runs it against the
+    // blocking pool while the main thread opens storage and hashes the
+    // manifests, so the two costs overlap instead of adding. Before this the
+    // model load did not begin until storage had finished, and startup was
+    // the sum of both.
+    let warmup_started = std::time::Instant::now();
+    let warmup = tokio::task::spawn_blocking(|| {
+        let t0 = std::time::Instant::now();
+        let r = emem_api_rest::topic_router::TopicRouter::global();
+        let backend = r.backend_name();
+        tracing::info!(
+            target: "emem::topic_router",
+            backend = backend,
+            elapsed_ms = t0.elapsed().as_millis() as u64,
+            "topic router warmup complete"
+        );
+        backend
+    });
+
+    let t = std::time::Instant::now();
     let bands = Arc::new((*emem_core::bands::DEFAULT).clone());
     let functions = Arc::new((*emem_core::functions::DEFAULT).clone());
     let sources = Arc::new((*emem_core::sources::DEFAULT).clone());
+    boot_step("registries", t);
 
+    let t = std::time::Instant::now();
     let storage = if data == ":memory:" {
         tracing::info!("opening ephemeral storage");
         MaterializingStorage::ephemeral(bands.clone(), functions.clone(), sources.clone())?
@@ -59,12 +99,17 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(%data, "opening persistent storage");
         MaterializingStorage::rooted(&data, bands.clone(), functions.clone(), sources.clone())?
     };
+    boot_step("storage_open", t);
 
+    let t = std::time::Instant::now();
     let functions_cid = manifest_cid(&*functions).unwrap_or_default();
     let schema_cid = manifest_cid(&*emem_core::schema::DEFAULT).unwrap_or_default();
     let (bands_cid, sources_cid) = default_manifest_cids();
+    boot_step("manifest_cids", t);
 
+    let t = std::time::Instant::now();
     let identity = load_or_create_identity(&data)?;
+    boot_step("identity", t);
 
     tracing::info!(
         responder_pubkey_b32 = %data_encoding::BASE32_NOPAD.encode(&identity.pubkey.0).to_lowercase(),
@@ -107,33 +152,32 @@ async fn main() -> anyhow::Result<()> {
     // Kept so the shutdown path can flush the sled index after the listener
     // has stopped; `router` takes the Arc.
     let server_for_shutdown = server.clone();
+    let t = std::time::Instant::now();
     let app = emem_api_rest::router(server);
+    boot_step("router_build", t);
 
-    // Force the topic router (sentence-transformer) to load BEFORE we
+    // Wait for the topic router (started at the top of `main`) BEFORE we
     // start accepting requests. The router uses a `OnceLock` that
     // synchronously runs the model load inside whichever thread first
     // calls `global()` — when that thread is an axum handler and the
     // load takes >RST/keepalive timeouts (or hangs on CUDA EP init),
     // every subsequent request that touches the router is wedged for
-    // the rest of the process lifetime. Loading it here on the
-    // dedicated blocking thread pool with a hard 90-second timeout
-    // keeps that path off the live request handlers — if it hangs or
-    // exceeds the budget we abort, log, and let the in-process
-    // fallback (`Backend::Keyword`) take over for `/v1/ask` until the
-    // operator investigates.
+    // the rest of the process lifetime. Loading it on the dedicated
+    // blocking thread pool with a hard 90-second timeout keeps that path
+    // off the live request handlers — if it hangs or exceeds the budget
+    // we abort, log, and let the in-process fallback (`Backend::Keyword`)
+    // take over for `/v1/ask` until the operator investigates.
+    //
+    // It is still awaited before the bind rather than left running behind
+    // an open port, and that is deliberate. `global()` is not reached only
+    // by `/v1/ask`: `GET /v1/agent_card` calls `backend_name()` to publish
+    // `manifests.topic_router_backend`, so a listener opened early would
+    // move the same wait onto a descriptor read, and any request that did
+    // touch the router would park a runtime worker on a `OnceLock` for the
+    // remainder of the load. Overlapping it with storage open takes the
+    // same time off startup without opening a port in front of a responder
+    // that cannot yet answer.
     {
-        let warmup = tokio::task::spawn_blocking(|| {
-            let t0 = std::time::Instant::now();
-            let r = emem_api_rest::topic_router::TopicRouter::global();
-            let backend = r.backend_name();
-            tracing::info!(
-                target: "emem::topic_router",
-                backend = backend,
-                elapsed_ms = t0.elapsed().as_millis() as u64,
-                "topic router warmup complete"
-            );
-            backend
-        });
         match tokio::time::timeout(std::time::Duration::from_secs(90), warmup).await {
             Ok(Ok(backend)) => {
                 eprintln!("topic router ready ({backend})");
@@ -149,6 +193,7 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("warning: topic router warmup exceeded 90s; continuing");
             }
         }
+        boot_step("topic_router_warmup", warmup_started);
     }
 
     // Wire the sled-backed persistent cache for Overture division-
@@ -157,7 +202,9 @@ async fn main() -> anyhow::Result<()> {
     // back on miss, so a process restart doesn't re-pay the 6–15 s
     // cold-cache cost per previously-seen place. Idempotent; safe to
     // skip on sled failure (the in-memory cache still works).
+    let t = std::time::Instant::now();
     emem_api_rest::wire_overture_persistent_cache();
+    boot_step("overture_cache_wire", t);
 
     // NOTE: JRC GFC2020 no longer needs a boot-time COG pre-warm. The
     // connector now reads 10°×10° tiles (jrc_gfc2020::tile_url_for) whose
@@ -228,8 +275,11 @@ async fn main() -> anyhow::Result<()> {
         // Plain HTTP path (the default; behind a reverse proxy in production).
         let bind = bind_explicit.unwrap_or_else(|| "0.0.0.0:5051".into());
         let listener = tokio::net::TcpListener::bind(&bind).await?;
-        tracing::info!(%bind, "emem listening (plain HTTP)");
-        eprintln!("emem listening on http://{bind}");
+        tracing::info!(%bind, boot_ms = boot.elapsed().as_millis() as u64, "emem listening (plain HTTP)");
+        eprintln!(
+            "emem listening on http://{bind}  (boot {} ms)",
+            boot.elapsed().as_millis()
+        );
         // `with_graceful_shutdown` alone waits for every open connection to
         // close, with no deadline. A keep-alive SSE stream never closes, so
         // the race below puts a ceiling on the wait: whichever finishes first,
@@ -349,6 +399,12 @@ async fn main() -> anyhow::Result<()> {
                 handle.graceful_shutdown(Some(grace));
             });
         }
+        tracing::info!(
+            target: "emem::boot",
+            boot_ms = boot.elapsed().as_millis() as u64,
+            "binding TLS listener"
+        );
+        eprintln!("boot: binding :443 at t+{} ms", boot.elapsed().as_millis());
         axum_server::bind(tls_bind)
             .acceptor(acceptor)
             .handle(handle)

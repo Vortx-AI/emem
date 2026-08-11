@@ -27,9 +27,13 @@
 //!      `EMEM_TOPIC_MODEL_DIR` (default
 //!      `<EMEM_DATA>/models/bge-base-en-v1.5/`). Default model is
 //!      `BAAI/bge-base-en-v1.5` (110 M params, 768-D, MTEB ~63);
-//!      pooling is CLS, output is L2-normalised. Microsoft's bundled
-//!      CPU ORT (vendored via the `download-binaries` ort feature)
-//!      runs the 25-topic centroid pass in ~50 ms total. GPU re-enable
+//!      pooling is CLS, output is L2-normalised. The centroid pass was
+//!      documented here as "~50 ms total"; measured on this host on
+//!      2026-08-11 it is 6,732 ms — 27 topics is 420 strings once
+//!      descriptions and aliases are counted, at ~16 ms each on CPU.
+//!      It now runs once and is cached beside the model (see
+//!      `CENTROID_CACHE_FILE`), so only the first boot after a model or
+//!      corpus change pays it. GPU re-enable
 //!      goes through a known-good libonnxruntime — the
 //!      /opt/onnxruntime-1.22.0-cuda12 build deadlocks on session
 //!      create on this host (verified with isolated /tmp/orttest).
@@ -365,19 +369,60 @@ impl TopicRouter {
             .into());
         }
 
+        // Timed in three parts because this is the longest single step in
+        // server startup and "the topic router takes 7.6 s" does not say
+        // which part to attack. Graph optimisation over a 435 MB ONNX file
+        // and embedding the topic corpus are very different problems.
+        let t_tok = std::time::Instant::now();
         let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_json)
             .map_err(|e| format!("load tokenizer {tokenizer_json:?}: {e}"))?;
+        let tokenizer_ms = t_tok.elapsed().as_millis() as u64;
 
+        let t_sess = std::time::Instant::now();
         let _ = ort::init().commit();
 
         let session = ort::session::Session::builder()?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .with_intra_threads(2)?
             .commit_from_file(&onnx_path)?;
+        let session_ms = t_sess.elapsed().as_millis() as u64;
 
         let session = std::sync::Arc::new(std::sync::Mutex::new(session));
         let tokenizer = std::sync::Arc::new(tokenizer);
-        let centroids = compute_centroids_ort(&session, &tokenizer, registry)?;
+
+        // The centroid pass is a pure function of (model bytes, topic
+        // corpus, the pooling code), and it was 6,732 ms of a 7,794 ms
+        // warmup — 420 strings at ~16 ms each, re-derived on every restart
+        // to reach the same 27 vectors. Cache the answer beside the model
+        // and key it on everything that could change it. A miss costs
+        // exactly what it always cost; a hit is a 83 KB read.
+        let cache_path = model_dir.join(CENTROID_CACHE_FILE);
+        let cache_key = centroid_cache_key(&model_id, &onnx_path, registry);
+        let t_cent = std::time::Instant::now();
+        let (centroids, centroids_cached) = match read_centroid_cache(
+            &cache_path,
+            &cache_key,
+            registry.topics.len(),
+        ) {
+            Some(c) => (c, true),
+            None => {
+                let c = compute_centroids_ort(&session, &tokenizer, registry)?;
+                if let Err(e) = write_centroid_cache(&cache_path, &cache_key, &c) {
+                    // Not fatal: a read-only or shared model directory is
+                    // a legitimate deployment. It costs the 6.7 s again
+                    // on the next boot, and says so rather than going
+                    // quiet about a cache that never lands.
+                    tracing::warn!(
+                        target: "emem::topic_router",
+                        error = %e,
+                        path = %cache_path.display(),
+                        "could not persist topic centroids; every restart will re-embed the corpus"
+                    );
+                }
+                (c, false)
+            }
+        };
+        let centroids_ms = t_cent.elapsed().as_millis() as u64;
 
         tracing::info!(
             target: "emem::topic_router",
@@ -385,6 +430,10 @@ impl TopicRouter {
             model_dir = %model_dir.display(),
             threshold = threshold,
             n_topics = registry.topics.len(),
+            tokenizer_ms,
+            session_ms,
+            centroids_cached,
+            centroids_ms,
             "topic router: ort loaded; topic centroids embedded"
         );
 
@@ -711,6 +760,156 @@ fn embed_one_ort(
 /// individual embedding is already CLS-pooled + L2-normalised, but
 /// the per-topic average drifts off the unit sphere so we re-
 /// normalise to keep cosine identity-comparable across topics.
+// ── Centroid cache ───────────────────────────────────────────────────
+//
+// One file beside the model holding the 27 vectors the boot pass would
+// otherwise recompute. Everything about it is designed so a WRONG cache
+// cannot be read: the key hashes every input to the computation, the
+// header pins the format and the topic count, and anything that does not
+// line up returns None, which means "recompute", never "use it anyway".
+
+/// Magic + version pin the FORMAT. `CENTROID_CACHE_VERSION` also pins the
+/// MATHS: the key hashes the inputs, not the code, so this const is the
+/// only thing standing between a change to pooling / normalisation /
+/// averaging in `compute_centroids_ort` and a cache full of vectors
+/// computed the old way. Bump it whenever that function's arithmetic
+/// changes.
+const CENTROID_CACHE_VERSION: u32 = 1;
+const CENTROID_CACHE_MAGIC: &[u8; 8] = b"EMEMCENT";
+const CENTROID_CACHE_FILE: &str = "centroids.emem-cache";
+
+/// blake3 over every input the centroids depend on.
+///
+/// The model file is identified by length + mtime rather than content:
+/// hashing 435 MB to avoid 6.7 s of inference would spend most of what it
+/// saves, and the file is written once by an install script, not edited.
+fn centroid_cache_key(
+    model_id: &str,
+    onnx_path: &std::path::Path,
+    registry: &TopicRegistry,
+) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(&CENTROID_CACHE_VERSION.to_le_bytes());
+    h.update(model_id.as_bytes());
+    if let Ok(md) = std::fs::metadata(onnx_path) {
+        h.update(&md.len().to_le_bytes());
+        if let Ok(t) = md.modified() {
+            if let Ok(d) = t.duration_since(std::time::UNIX_EPOCH) {
+                h.update(&d.as_nanos().to_le_bytes());
+            }
+        }
+    }
+    // The runtime that produced the numbers. A different libonnxruntime can
+    // move the last bits of a float, and centroids that disagree with the
+    // query embedder by a hair are precisely the drift this file exists to
+    // avoid — so an ORT swap invalidates the cache rather than mixing two
+    // runtimes' arithmetic in one cosine.
+    if let Ok(p) = std::env::var("ORT_DYLIB_PATH") {
+        h.update(p.as_bytes());
+        if let Ok(md) = std::fs::metadata(&p) {
+            h.update(&md.len().to_le_bytes());
+        }
+    }
+    // The corpus, exactly as `compute_centroids_ort` feeds it in: per topic,
+    // key then description then aliases, in registry order. Separators are
+    // explicit so ("ab","c") and ("a","bc") cannot hash alike.
+    for t in &registry.topics {
+        h.update(t.key.as_bytes());
+        h.update(b"\0");
+        h.update(t.description.as_bytes());
+        h.update(b"\0");
+        for a in &t.aliases {
+            h.update(a.as_bytes());
+            h.update(b"\0");
+        }
+        h.update(b"\x01");
+    }
+    *h.finalize().as_bytes()
+}
+
+/// Read the cache, or `None` for any reason at all. Every failure path is
+/// the same failure path: recompute.
+fn read_centroid_cache(
+    path: &std::path::Path,
+    key: &[u8; 32],
+    n_topics: usize,
+) -> Option<Vec<Vec<f32>>> {
+    fn take<'a>(b: &'a [u8], i: &mut usize, n: usize) -> Option<&'a [u8]> {
+        let s = b.get(*i..i.checked_add(n)?)?;
+        *i += n;
+        Some(s)
+    }
+    fn u32_at(b: &[u8], i: &mut usize) -> Option<u32> {
+        Some(u32::from_le_bytes(take(b, i, 4)?.try_into().ok()?))
+    }
+    let b = std::fs::read(path).ok()?;
+    let i = &mut 0usize;
+    if take(&b, i, 8)? != CENTROID_CACHE_MAGIC {
+        return None;
+    }
+    if u32_at(&b, i)? != CENTROID_CACHE_VERSION {
+        return None;
+    }
+    if take(&b, i, 32)? != key {
+        return None;
+    }
+    let n = u32_at(&b, i)? as usize;
+    let dim = u32_at(&b, i)? as usize;
+    if n != n_topics || dim == 0 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        // A topic with no texts legitimately has an empty centroid; every
+        // other length must be the one width the file declares.
+        let len = u32_at(&b, i)? as usize;
+        if len != 0 && len != dim {
+            return None;
+        }
+        let raw = take(&b, i, len.checked_mul(4)?)?;
+        out.push(
+            raw.chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect(),
+        );
+    }
+    // Trailing bytes mean this is not the file we think it is.
+    if *i != b.len() {
+        return None;
+    }
+    Some(out)
+}
+
+/// Write the cache through a temp file + rename, so a boot that dies
+/// mid-write leaves the previous cache (or none) rather than a truncated
+/// one that the next boot has to detect.
+fn write_centroid_cache(
+    path: &std::path::Path,
+    key: &[u8; 32],
+    centroids: &[Vec<f32>],
+) -> std::io::Result<()> {
+    let dim = centroids.iter().map(Vec::len).max().unwrap_or(0);
+    let mut b = Vec::with_capacity(48 + centroids.len() * (4 + dim * 4));
+    b.extend_from_slice(CENTROID_CACHE_MAGIC);
+    b.extend_from_slice(&CENTROID_CACHE_VERSION.to_le_bytes());
+    b.extend_from_slice(key);
+    b.extend_from_slice(&(centroids.len() as u32).to_le_bytes());
+    b.extend_from_slice(&(dim as u32).to_le_bytes());
+    for c in centroids {
+        b.extend_from_slice(&(c.len() as u32).to_le_bytes());
+        for x in c {
+            b.extend_from_slice(&x.to_le_bytes());
+        }
+    }
+    let tmp = path.with_file_name(format!(
+        "{}.{}.tmp",
+        CENTROID_CACHE_FILE,
+        std::process::id()
+    ));
+    std::fs::write(&tmp, &b)?;
+    std::fs::rename(&tmp, path)
+}
+
 fn compute_centroids_ort(
     session: &std::sync::Arc<std::sync::Mutex<ort::session::Session>>,
     tokenizer: &std::sync::Arc<tokenizers::Tokenizer>,
@@ -919,5 +1118,134 @@ mod tests {
                 hits.iter().map(|h| &h.key).collect::<Vec<_>>()
             );
         }
+    }
+
+    /// The centroid cache must round-trip f32s EXACTLY. It replaces the
+    /// output of a model, so a vector that comes back one bit different is
+    /// a router that scores differently depending on whether it restarted
+    /// recently — the least debuggable failure this could have.
+    #[test]
+    fn centroid_cache_round_trips_f32_bit_for_bit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(CENTROID_CACHE_FILE);
+        let key = [7u8; 32];
+        let hard = vec![
+            0.0_f32,
+            -0.0,
+            1.0,
+            -1.0,
+            f32::MIN_POSITIVE,
+            f32::from_bits(1), // smallest subnormal
+            f32::MAX,
+            f32::MIN,
+            std::f32::consts::PI,
+            0.1,
+            -0.7071067,
+        ];
+        let centroids = vec![hard.clone(), vec![0.5; hard.len()], Vec::new()];
+        write_centroid_cache(&path, &key, &centroids).unwrap();
+        let got = read_centroid_cache(&path, &key, 3).expect("cache must read back");
+        assert_eq!(got.len(), 3);
+        for (a, b) in centroids.iter().zip(got.iter()) {
+            assert_eq!(a.len(), b.len());
+            for (x, y) in a.iter().zip(b.iter()) {
+                assert_eq!(x.to_bits(), y.to_bits(), "f32 must survive as bits");
+            }
+        }
+    }
+
+    /// Every way the cache can be wrong must read as "recompute", never as
+    /// a usable answer.
+    #[test]
+    fn centroid_cache_refuses_anything_it_cannot_vouch_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(CENTROID_CACHE_FILE);
+        let key = [7u8; 32];
+        let centroids = vec![vec![1.0_f32, 0.0], vec![0.0, 1.0]];
+        write_centroid_cache(&path, &key, &centroids).unwrap();
+        assert!(read_centroid_cache(&path, &key, 2).is_some(), "control");
+
+        assert!(
+            read_centroid_cache(&path, &[8u8; 32], 2).is_none(),
+            "a different key means different inputs"
+        );
+        assert!(
+            read_centroid_cache(&path, &key, 3).is_none(),
+            "a topic count that does not match the registry"
+        );
+        assert!(
+            read_centroid_cache(&dir.path().join("nope"), &key, 2).is_none(),
+            "missing file"
+        );
+
+        let good = std::fs::read(&path).unwrap();
+        let truncated = dir.path().join("t");
+        std::fs::write(&truncated, &good[..good.len() - 3]).unwrap();
+        assert!(
+            read_centroid_cache(&truncated, &key, 2).is_none(),
+            "truncated"
+        );
+        let extended = dir.path().join("e");
+        let mut junk = good.clone();
+        junk.push(0);
+        std::fs::write(&extended, &junk).unwrap();
+        assert!(
+            read_centroid_cache(&extended, &key, 2).is_none(),
+            "trailing bytes"
+        );
+        let wrong_magic = dir.path().join("m");
+        let mut m = good.clone();
+        m[0] = b'X';
+        std::fs::write(&wrong_magic, &m).unwrap();
+        assert!(
+            read_centroid_cache(&wrong_magic, &key, 2).is_none(),
+            "wrong magic"
+        );
+    }
+
+    /// The key has to move when any input to the computation moves,
+    /// because nothing else protects the cached vectors.
+    #[test]
+    fn centroid_cache_key_tracks_the_corpus() {
+        let dir = tempfile::tempdir().unwrap();
+        let onnx = dir.path().join("model.onnx");
+        std::fs::write(&onnx, b"pretend model").unwrap();
+        let base = (*emem_core::topics::DEFAULT).clone();
+        let k0 = centroid_cache_key("BAAI/bge-base-en-v1.5", &onnx, &base);
+        assert_eq!(
+            k0,
+            centroid_cache_key("BAAI/bge-base-en-v1.5", &onnx, &base),
+            "same inputs, same key"
+        );
+        assert_ne!(
+            k0,
+            centroid_cache_key("other/model", &onnx, &base),
+            "model id is an input"
+        );
+
+        let mut edited = base.clone();
+        edited.topics[0]
+            .aliases
+            .push("a phrasing nobody used before".into());
+        assert_ne!(
+            k0,
+            centroid_cache_key("BAAI/bge-base-en-v1.5", &onnx, &edited),
+            "adding an alias changes the corpus and must change the key"
+        );
+
+        let mut described = base.clone();
+        described.topics[0].description.push('.');
+        assert_ne!(
+            k0,
+            centroid_cache_key("BAAI/bge-base-en-v1.5", &onnx, &described),
+            "editing a description must change the key"
+        );
+
+        std::fs::write(&onnx, b"a different pretend model").unwrap();
+        assert_ne!(
+            k0,
+            centroid_cache_key("BAAI/bge-base-en-v1.5", &onnx, &base),
+            "a different model file must change the key"
+        );
     }
 }

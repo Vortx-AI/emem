@@ -11,12 +11,28 @@ count.
 from __future__ import annotations
 
 import html
+import importlib.util as _ilu
 import json
 import sys
 import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+
+# The site nav, from the one place that owns it.
+#
+# This generator predated the design-token and nav consolidation and was never
+# brought forward, so its output was the pre-consolidation page: literal font
+# sizes instead of the scale, no tokens.css, no nav at all. web/tools.html had
+# been fixed BY HAND, which meant every `scripts/redeploy.sh` quietly reverted
+# it before `cargo build` baked it back in via include_str — the live /tools
+# page lost its site chrome on each deploy and only a gate run afterwards
+# would have said so. Importing render() the way render_whitepaper.py and
+# build_channel.py already do makes the generated page the same page
+# gen_nav.py --check and design_tokens.py expect.
+_spec = _ilu.spec_from_file_location("gen_nav", str(Path(__file__).with_name("gen_nav.py")))
+_gen_nav = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(_gen_nav)
 SOURCES = ["http://127.0.0.1:5051/v1/tools", "https://emem.dev/v1/tools"]
 
 CATEGORY_ORDER = ["read", "write", "verify", "introspect", "plan"]
@@ -94,6 +110,7 @@ def main() -> int:
     body = "\n".join(parts)
 
     total = len(tools)
+    site_nav = _gen_nav.render("/tools")
     page = f"""<!doctype html>
 <html lang=en>
 <head>
@@ -104,27 +121,30 @@ def main() -> int:
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css">
+<link rel=stylesheet href="/nav.css">
 <style>
-:root{{--paper:#f8f7f3;--paper-2:#f2f0ec;--paper-3:#eae8e3;--ink:#171613;--ink-2:#343330;--mute:#646360;--mute-2:#9a9895;--rule:#d3d1cb;--rule-strong:#a7a49e;--accent:#326234;--accent-bg:#d8efd8;--mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace}}
+:root{{--paper:#f8f7f3;--paper-2:#f2f0ec;--paper-3:#eae8e3;--ink:#171613;--ink-2:#343330;--mute:#646360;--mute-2:#9a9895;--rule:#d3d1cb;--rule-strong:#a7a49e;--accent:#326234;--accent-bg:#d8efd8;}}
 @media (prefers-color-scheme:dark){{:root{{--paper:#0e0d0b;--paper-2:#151411;--paper-3:#1e1d1a;--ink:#e9e8e4;--ink-2:#bfbdba;--mute:#81807d;--mute-2:#565552;--rule:#2b2924;--rule-strong:#4a4742;--accent:#80cd82;--accent-bg:#132a14}}}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:var(--mono);line-height:1.55}}
 .wrap{{max-width:1080px;margin:0 auto;padding:2.2rem 1.5rem 4rem}}
-h1{{font-size:1.7rem;margin:.2rem 0 .4rem}}
+h1{{font-size:var(--t-xl);margin:.2rem 0 .4rem}}
 .lede{{color:var(--ink-2);max-width:70ch;margin:0 0 .4rem}}
-.crumb{{font-size:.78rem}}.crumb a{{color:var(--accent)}}
-h2{{font-size:1.05rem;margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);padding-bottom:.3rem}}
-.sub{{color:var(--mute);font-size:.85rem;margin:.3rem 0 .6rem}}
+.crumb{{font-size:var(--t-2xs)}}.crumb a{{color:var(--accent)}}
+h2{{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);padding-bottom:.3rem}}
+.sub{{color:var(--mute);font-size:var(--t-xs);margin:.3rem 0 .6rem}}
 .tool{{border:1px solid var(--rule);background:var(--paper-2);margin:.4rem 0}}
 .tool summary{{display:flex;gap:.8rem;align-items:baseline;padding:.5rem .8rem;cursor:pointer;flex-wrap:wrap}}
 .tool summary code{{color:var(--accent);font-weight:600;flex:0 0 auto}}
-.tool .tt{{color:var(--ink-2);font-size:.85rem}}
-.tool .tw{{color:var(--mute);font-size:.8rem}}
-.tool p{{padding:0 .9rem;color:var(--ink-2);font-size:.85rem;max-width:90ch}}
-.tool pre{{margin:.4rem .9rem .8rem;padding:.6rem .7rem;background:var(--paper-3);border:1px solid var(--rule);overflow-x:auto;font-size:.74rem}}
+.tool .tt{{color:var(--ink-2);font-size:var(--t-xs)}}
+.tool .tw{{color:var(--mute);font-size:var(--t-xs)}}
+.tool p{{padding:0 .9rem;color:var(--ink-2);font-size:var(--t-xs);max-width:90ch}}
+.tool pre{{margin:.4rem .9rem .8rem;padding:.6rem .7rem;background:var(--paper-3);border:1px solid var(--rule);overflow-x:auto;font-size:var(--t-2xs)}}
 </style>
 </head>
 <body>
+{site_nav}
 <div class="wrap">
 <p class="crumb"><a href="/">emem</a> / tools</p>
 <h1>Every tool, generated from the registry</h1>

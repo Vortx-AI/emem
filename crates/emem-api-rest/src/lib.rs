@@ -8083,15 +8083,45 @@ fn guard_render(shape: GuardShape, d: &emem_guard::Decision) -> JsonValue {
 }
 
 /// Run the guard's policy pipeline over a transcript, against local state.
+///
+/// Test-only since the MCP arm started reading `shape`: that arm was the last
+/// caller outside `#[cfg(test)]`, and a release build warned it was dead. Kept
+/// rather than inlined because six tests read better naming the default than
+/// spelling `GuardShape::Native, None` at each one.
+#[cfg(test)]
 async fn guard_verdict_json(s: &AppState, req: &JsonValue) -> JsonValue {
     guard_verdict_shaped(s, req, GuardShape::Native, None).await
 }
 
-/// The full form: any envelope, claim gating either way.
+/// The full form: any envelope, claim gating either way. Reads and answers in
+/// the same shape, which is what the REST query parameter means.
 async fn guard_verdict_shaped(
     s: &AppState,
     req: &JsonValue,
     shape: GuardShape,
+    claim_gating_q: Option<bool>,
+) -> JsonValue {
+    guard_verdict_read_render(s, req, shape, shape, claim_gating_q).await
+}
+
+/// Read in one shape, answer in another.
+///
+/// The two halves are separable because only one of them is a promise. Which
+/// envelope the body is in decides WHICH TEXT gets checked, and getting that
+/// wrong means checking nothing and saying `allow`. Which envelope the answer
+/// comes back in is presentation.
+///
+/// The MCP door needs them apart. `emem_guard_verdict` declares an
+/// `outputSchema`, and a tool that declares one owes conforming
+/// `structuredContent` on every successful call, so it cannot hand back an OPA
+/// `result:{allow,deny}` or a CloudEvent without breaking its own descriptor.
+/// It reads any shape and answers native; `POST /v1/guard/verdict?shape=`
+/// translates both halves.
+async fn guard_verdict_read_render(
+    s: &AppState,
+    req: &JsonValue,
+    shape: GuardShape,
+    render_as: GuardShape,
     claim_gating_q: Option<bool>,
 ) -> JsonValue {
     use emem_guard::policy;
@@ -8169,7 +8199,7 @@ async fn guard_verdict_shaped(
     };
     let decision = policy::evaluate(&cfg, &evidence);
 
-    let mut out = guard_render(shape, &decision);
+    let mut out = guard_render(render_as, &decision);
     if let Some(o) = out.as_object_mut() {
         o.insert("schema".into(), json!("emem.guard.verdict.v1"));
         o.insert("checked".into(), json!(checked));
@@ -22950,7 +22980,19 @@ async fn mcp_tool_call(
             }
         }
         // ── emem-guard, hosted and advisory ─────────────────────────
-        "emem_guard_verdict" => Ok(guard_verdict_json(s, &args).await),
+        // `shape` was a query parameter with no MCP equivalent, and this arm
+        // hardcoded native. That was not a missing knob but a wrong answer:
+        // measured against the live responder, a CloudEvent, an OPA input, an
+        // OpenAI moderations body and another server's tool call each carry
+        // their text where the native reader cannot see it, so all four came
+        // back `citations_found: 0, action: allow` over MCP while
+        // `POST /v1/guard/verdict?shape=…` found 1 of 1 in the same bytes.
+        // Silence read as approval. Reading honours the shape now; the answer
+        // stays native because this tool declares an outputSchema.
+        "emem_guard_verdict" => {
+            let shape = GuardShape::parse(args.get("shape").and_then(|v| v.as_str()));
+            Ok(guard_verdict_read_render(s, &args, shape, GuardShape::Native, None).await)
+        }
         "emem_guard_selfhost" => Ok(get_guard_selfhost().await.0),
         // ── Transparency log (RFC 6962) read tools ──────────────────
         "emem_log_sth" => match get_log_sth(State(s.clone())).await {
@@ -23063,6 +23105,22 @@ async fn mcp_tool_call(
                             {"type": "confirm",      "required": ["claim", "cell"]},
                             {"type": "ask",          "required": ["description"], "required_one_of": ["place", "cell", "lat+lng"]},
                         ],
+                        // `valid_types` enumerated the outer union and stopped
+                        // there, so the two variants that take a nested one
+                        // (confirm's `claim`, find_like's `filter`) named a
+                        // field whose grammar the caller could not see from
+                        // anywhere. The parse error does name the ten ops when
+                        // one is wrong, but only after a failed call, and it
+                        // says nothing about `value` being required by the
+                        // parser even for exists/absent.
+                        "claim_grammar": {
+                            "used_by": ["confirm.claim", "find_like.filter"],
+                            "required": ["band", "op", "value"],
+                            "op": ["eq", "ne", "lt", "le", "gt", "ge", "in", "ni", "exists", "absent"],
+                            "agg": ["any", "all", "mean", "min", "max"],
+                            "note": "Ops are symbolic only (`gt`, never `greater_than` or `>`). `value` is required by the parser even for exists/absent, which then ignore it. `tslot` and `window` are mutually exclusive; `window` needs `agg`.",
+                            "example": {"band": "indices.ndvi", "op": "gt", "value": 0.4},
+                        },
                         "examples": [
                             {"type": "ask",          "description": "is this neighbourhood flood-prone", "place": "Ashok Nagar, Ranchi"},
                             {"type": "what_is_here", "place": "Mt Fuji"},

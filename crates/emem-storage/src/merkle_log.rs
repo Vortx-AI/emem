@@ -36,7 +36,17 @@ struct LogState {
     segment_index: u64,
     bytes_in_segment: u64,
     segment_hasher: Hasher,
-    record_count: u64,
+    /// The segment index this process started at. Every segment strictly
+    /// below it was written by an earlier process and can never be appended
+    /// to again (open always starts a fresh segment), so those files are
+    /// frozen and are exactly the ones `prior` counts.
+    first_own_segment: u64,
+    /// Records appended by THIS process.
+    appended: u64,
+    /// Records that were already on disk when this log was opened. `None`
+    /// until somebody asks for it: the count is a length-driven walk over
+    /// every byte of every segment, and open() is on the boot path.
+    prior: Option<u64>,
 }
 
 impl AttestationLog {
@@ -51,6 +61,27 @@ impl AttestationLog {
             root,
             state: Mutex::new(state),
         })
+    }
+
+    /// Records already on disk when this log was opened, counted once and
+    /// then remembered. Held apart from the append counter because it is the
+    /// expensive half: a length-driven walk over every byte of every sealed
+    /// segment. An IO error is not memoised, so a later call retries.
+    /// Runs on the blocking pool for the same reason the append fsync does:
+    /// on this responder it is a multi-second read of several GB, and an
+    /// async worker parked on it stalls every other request that worker
+    /// owned.
+    async fn prior_records(&self, s: &mut LogState) -> u64 {
+        if s.prior.is_none() {
+            let root = self.root.clone();
+            let first_own = s.first_own_segment;
+            if let Ok(Ok(n)) =
+                tokio::task::spawn_blocking(move || count_records_below(&root, first_own)).await
+            {
+                s.prior = Some(n);
+            }
+        }
+        s.prior.unwrap_or(0)
     }
 
     /// Append an attestation. Bytes are flushed and fsynced before this
@@ -95,7 +126,7 @@ impl AttestationLog {
         .map_err(|e| std::io::Error::other(format!("merkle log append task panicked: {e}")))??;
         s.segment_hasher.update(&record);
         s.bytes_in_segment += record.len() as u64;
-        s.record_count += 1;
+        s.appended += 1;
         let mut record_hash_arr = [0u8; 32];
         record_hash_arr.copy_from_slice(record_hash.as_bytes());
         Ok(AppendOutcome {
@@ -108,7 +139,9 @@ impl AttestationLog {
     /// Cumulative number of attestation records appended in this log's
     /// lifetime (including across restarts of the process).
     pub async fn record_count(&self) -> u64 {
-        self.state.lock().await.record_count
+        let mut s = self.state.lock().await;
+        let prior = self.prior_records(&mut s).await;
+        prior + s.appended
     }
 
     /// Collect every record's per-record hash (the trailing
@@ -309,9 +342,18 @@ fn seal_segment(root: &std::path::Path, s: &mut LogState) -> std::io::Result<()>
     Ok(())
 }
 
+/// Decide which segment this process will write to, by name only.
+///
+/// This used to also total the records in every segment, which meant reading
+/// every byte of the log to produce a number. On this responder that was
+/// 1,046 segments and 4.7 GB, because a fresh segment is opened per process
+/// start and the log therefore accumulates one file per restart: the cost
+/// grew with the number of deploys, not with the amount of data. Nothing on
+/// the boot path consumes the total (`leaf_hashes`, `entries` and `verify`
+/// each re-walk the disk themselves), so it moved to [`record_count`], which
+/// pays for it on demand and remembers the answer.
 fn scan_existing(root: &std::path::Path) -> std::io::Result<LogState> {
     let mut max: Option<u64> = None;
-    let mut total_records: u64 = 0;
     for entry in std::fs::read_dir(root)? {
         let entry = entry?;
         let name = match entry.file_name().to_str() {
@@ -321,7 +363,6 @@ fn scan_existing(root: &std::path::Path) -> std::io::Result<LogState> {
         if let Some(rest) = name.strip_prefix("merkle.log.") {
             if let Ok(n) = rest.parse::<u64>() {
                 max = Some(max.map(|m| m.max(n)).unwrap_or(n));
-                total_records += count_records_in(&entry.path())?;
             }
         }
     }
@@ -333,8 +374,34 @@ fn scan_existing(root: &std::path::Path) -> std::io::Result<LogState> {
         segment_index,
         bytes_in_segment: 0,
         segment_hasher: Hasher::new(),
-        record_count: total_records,
+        first_own_segment: segment_index,
+        appended: 0,
+        prior: None,
     })
+}
+
+/// Total the records in every segment with an index below `first_own`, i.e.
+/// everything that existed before this process opened the log. Bounding it
+/// that way is what keeps it composable with the append counter: this
+/// process's own segments are counted by `appended`, never here, so no
+/// record is counted twice however many segments we seal while running.
+fn count_records_below(root: &std::path::Path, first_own: u64) -> std::io::Result<u64> {
+    let mut total = 0u64;
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let name = match entry.file_name().to_str() {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        if let Some(rest) = name.strip_prefix("merkle.log.") {
+            if let Ok(n) = rest.parse::<u64>() {
+                if n < first_own {
+                    total += count_records_in(&entry.path())?;
+                }
+            }
+        }
+    }
+    Ok(total)
 }
 
 fn count_records_in(path: &std::path::Path) -> std::io::Result<u64> {
@@ -483,6 +550,37 @@ mod tests {
         // process's records do not appear in this run's `record_count`,
         // but the existing-on-disk total is reflected through the scan.
         assert_eq!(log.record_count().await, 2);
+    }
+
+    /// `record_count` is now two halves: what was on disk at open (counted
+    /// lazily, so it is off the boot path) plus what this process appended.
+    /// The way that split can go wrong is double counting — the lazy count
+    /// running after we have already written our own segment and totalling
+    /// it too. Reopen, append, and check the sum, in that order.
+    #[tokio::test]
+    async fn reopening_counts_prior_records_without_double_counting_our_own() {
+        let tmp = tempfile::tempdir().unwrap();
+        {
+            let first = AttestationLog::open(tmp.path()).unwrap();
+            for _ in 0..3 {
+                let _ = first.append(&sample_attestation()).await.unwrap();
+            }
+            assert_eq!(first.record_count().await, 3);
+        }
+        let second = AttestationLog::open(tmp.path()).unwrap();
+        // Asked before we write anything: prior only.
+        assert_eq!(second.record_count().await, 3, "prior records on reopen");
+        for _ in 0..2 {
+            let _ = second.append(&sample_attestation()).await.unwrap();
+        }
+        assert_eq!(second.record_count().await, 5, "prior + our own");
+
+        // And the same total when the FIRST question comes after our own
+        // writes, which is the ordering that would double count if the lazy
+        // walk did not stop below `first_own_segment`.
+        let third = AttestationLog::open(tmp.path()).unwrap();
+        let _ = third.append(&sample_attestation()).await.unwrap();
+        assert_eq!(third.record_count().await, 6);
     }
 
     #[tokio::test]
