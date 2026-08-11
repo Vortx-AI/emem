@@ -43,6 +43,51 @@ for `BaseStore`; their docs make listing conditional on it "where applicable".
 If it does not pass, fixing that is the actual work and the PR is the easy
 part.
 
+#### The row, and the two defects that would have sunk it
+
+The package's own suite passes, 38 tests, so the code was never the problem.
+Both defects were in what it tells a reader:
+
+- `pyproject.toml` declared `Documentation = https://emem.dev/docs/sdks/langmem.html`,
+  a page that has never existed. That is the URL the LangChain row would have
+  carried, and a listing whose link 404s is a listing that gets reverted.
+- `README.md` pointed at `https://emem.dev/docs/memory.md`. Docs render as
+  `.html`; the `.md` form 404s.
+
+Both are fixed here. The published 2.1.0 on PyPI still carries the dead
+Documentation link until the next release, which is why the row below uses the
+GitHub URL — LangChain's own preference order is partner docs, then GitHub,
+then PyPI, and the GitHub path resolves today.
+
+File: `langchain-ai/docs` → `scripts/data/integration_external_docs.yaml`,
+under `python:` → `stores:` (the category `BaseStore` belongs to; entries there
+are not alphabetised, so append).
+
+```yaml
+- name: EmemStore
+  pypi: emem-langmem
+  docs_url: https://github.com/Vortx-AI/emem/tree/main/sdks/emem-langmem
+```
+
+PR title:
+
+```
+docs: add EmemStore (emem-langmem) to stores
+```
+
+PR body, which should stay this short:
+
+```markdown
+Adds `emem-langmem`, a `BaseStore[str, bytes]` for LangGraph, to the stores
+listing. Published on PyPI, Apache-2.0, 38 tests.
+
+The store keeps agent memory in emem rather than in process: each write is
+signed with an ed25519 key the caller holds, and lands under
+`/memories/by_attester/<pubkey8>/`, which no other key can write to. Reads
+come back with the content address, so a value written in one session can be
+re-checked in another.
+```
+
 This also retires `langchain-ai/langchain-mcp-adapters#511`. It was filed as
 an issue, and no issue in that repository can produce a listing, because
 listings do not live there any more.

@@ -48,7 +48,7 @@ dependencies = [
 [project.urls]
 Homepage      = "https://emem.dev"
 Repository    = "https://github.com/Vortx-AI/emem"
-Documentation = "https://emem.dev/docs/sdks/langmem.html"
+Documentation = "https://github.com/Vortx-AI/emem/tree/main/sdks/emem-langmem"
 Issues        = "https://github.com/Vortx-AI/emem/issues"
 
 [project.optional-dependencies]
