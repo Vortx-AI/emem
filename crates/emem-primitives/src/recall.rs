@@ -275,23 +275,17 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
                 })
                 .collect();
             let cids = storage.lookup_canonical_many(&keys).await?;
-            let mut pairs: Vec<(CanonicalKey, FactCid)> = keys
+            let pairs: Vec<(CanonicalKey, FactCid)> = keys
                 .into_iter()
                 .zip(cids)
                 .filter_map(|(k, c)| c.map(|cid| (k, cid)))
                 .collect();
+            // Through the shared helper rather than a copy of it. This branch
+            // used to inline the filter, so when the transaction-time rule
+            // learned to walk a key's history the inlined copy would have
+            // silently kept the old, always-empty behaviour.
             if bound.transaction_time.is_some() {
-                let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
-                let facts = storage.get_facts_many(&cids).await?;
-                let mut kept: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
-                for ((k, c), fact) in pairs.drain(..).zip(facts) {
-                    if let Some(f) = fact {
-                        if bound.fact_passes(&f) {
-                            kept.push((k, c));
-                        }
-                    }
-                }
-                kept
+                retain_by_transaction_time(storage, pairs, &bound).await?
             } else {
                 pairs
             }
@@ -585,6 +579,24 @@ pub async fn recall(req: &RecallReq, srv: &Server) -> Result<RecallResp, Storage
 /// (decidable from the key) but not by `signed_at`, so the
 /// transaction-time predicate needs the body — one `get_facts_many`
 /// round-trip keeps it O(1) calls.
+/// Resolve each key to the latest fact that satisfies the transaction-time
+/// bound, considering the key's WHOLE recorded history rather than only the
+/// fact that happens to be current.
+///
+/// This used to filter the current cid and stop, which made the bi-temporal
+/// query answer "nothing" for every bound in the past: the canonical index is
+/// last-write-wins, so the single candidate it offered was the newest fact,
+/// whose `signed_at` is by definition later than any past bound. A
+/// third-party benchmark measured it on 2026-08-11 with a bound the
+/// superseded fact was already inside, and got zero facts back. The history
+/// was in the multi-attester index the whole time; "what did emem know on
+/// date Y" was reachable only if you already held the cid, which is when you
+/// least need a query.
+///
+/// The current cid is always a candidate, so a backend without the index
+/// (the trait's default `history_many` returns empties) behaves exactly as it
+/// did before. Ties on `signed_at` break on the lexicographic cid, which is
+/// deterministic across responders.
 async fn retain_by_transaction_time(
     storage: &dyn emem_storage::Storage,
     pairs: Vec<(CanonicalKey, FactCid)>,
@@ -593,17 +605,7 @@ async fn retain_by_transaction_time(
     if bound.transaction_time.is_none() || pairs.is_empty() {
         return Ok(pairs);
     }
-    let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
-    let facts = storage.get_facts_many(&cids).await?;
-    let mut kept: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
-    for ((k, c), fact) in pairs.into_iter().zip(facts) {
-        if let Some(f) = fact {
-            if bound.fact_passes(&f) {
-                kept.push((k, c));
-            }
-        }
-    }
-    Ok(kept)
+    emem_storage::resolve_as_of_transaction_time(storage, pairs, bound).await
 }
 
 /// Collapse the result of a per-cell scan to the latest fact per

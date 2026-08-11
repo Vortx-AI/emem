@@ -387,17 +387,7 @@ pub trait Storage: Send + Sync {
         // Expensive half: transaction-time predicate reads `signed_at`
         // off the body. Batch-load every surviving fact so the cost is
         // one get-facts-many round-trip, not N.
-        let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
-        let facts = self.get_facts_many(&cids).await?;
-        let mut filtered: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
-        for ((k, c), fact) in pairs.into_iter().zip(facts) {
-            if let Some(f) = fact {
-                if bound.fact_passes(&f) {
-                    filtered.push((k, c));
-                }
-            }
-        }
-        Ok(filtered)
+        resolve_as_of_transaction_time(self, pairs, bound).await
     }
 
     /// Scope-filtered sibling of [`Storage::scan_cell`] (v0.0.8). Returns
@@ -477,6 +467,30 @@ pub trait Storage: Send + Sync {
         _limit: usize,
     ) -> Result<Vec<(emem_cache::CanonicalKey, Vec<FactCid>)>, StorageError> {
         Ok(Vec::new())
+    }
+
+    /// Every fact CID ever written at each canonical key, in append order,
+    /// as a batched point lookup on the same index `scan_multi_attester`
+    /// walks.
+    ///
+    /// The canonical index is last-write-wins, so it answers "what is true
+    /// now" and cannot answer "what did this responder know on date Y". A
+    /// third-party benchmark measured the consequence on 2026-08-11:
+    /// `as_of_signed_at` bounded to a date the superseded fact was already
+    /// inside returned ZERO facts, because the only candidate offered to the
+    /// transaction-time filter was the CURRENT fact, whose `signed_at` is
+    /// later than any bound in the past. The history was in this tree the
+    /// whole time. Transaction-time history was reachable only if you already
+    /// held the cid, which is exactly when you do not need a query.
+    ///
+    /// Returns one vector per input key, index-aligned, empty where the key
+    /// has no recorded history. Default impl returns empties so backends
+    /// without the index keep compiling and keep today's behaviour.
+    async fn history_many(
+        &self,
+        keys: &[emem_cache::CanonicalKey],
+    ) -> Result<Vec<Vec<FactCid>>, StorageError> {
+        Ok(vec![Vec::new(); keys.len()])
     }
 
     /// Persist temporal knowledge-graph edges. Idempotent: an edge whose
@@ -907,19 +921,10 @@ impl Storage for MaterializingStorage {
         if bound.transaction_time.is_none() {
             return Ok(pairs);
         }
-        // Transaction-time predicate requires loading the body for
-        // `signed_at`. Batch the loads so the cost is one round-trip.
-        let cids: Vec<FactCid> = pairs.iter().map(|(_, c)| c.clone()).collect();
-        let facts = self.get_facts_many(&cids).await?;
-        let mut filtered: Vec<(CanonicalKey, FactCid)> = Vec::with_capacity(pairs.len());
-        for ((k, c), fact) in pairs.into_iter().zip(facts) {
-            if let Some(f) = fact {
-                if bound.fact_passes(&f) {
-                    filtered.push((k, c));
-                }
-            }
-        }
-        Ok(filtered)
+        // Transaction-time predicate requires loading bodies for `signed_at`,
+        // and must consider each key's history rather than only the fact that
+        // is current — see `resolve_as_of_transaction_time`.
+        resolve_as_of_transaction_time(self, pairs, bound).await
     }
 
     async fn iter_index(
@@ -960,6 +965,36 @@ impl Storage for MaterializingStorage {
             message: "scan_multi_attester requires a SledHotCache handle".into(),
         })?;
         scan_multi_attester_tree(hot.db(), cell_prefix, limit)
+    }
+
+    async fn history_many(
+        &self,
+        keys: &[emem_cache::CanonicalKey],
+    ) -> Result<Vec<Vec<FactCid>>, StorageError> {
+        let Some(hot) = self.hot.as_ref() else {
+            return Ok(vec![Vec::new(); keys.len()]);
+        };
+        let tree = hot
+            .db()
+            .open_tree(TREE_MULTI_ATTESTER_INDEX)
+            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        let mut out = Vec::with_capacity(keys.len());
+        for k in keys {
+            let key_bytes = canonical_key_bytes(k);
+            let cids: Vec<FactCid> = match tree
+                .get(&key_bytes)
+                .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
+            {
+                Some(b) => ciborium::de::from_reader::<Vec<String>, _>(&*b)
+                    .map_err(|e| StorageError::Cbor(format!("history decode: {e}")))?
+                    .into_iter()
+                    .map(FactCid::new)
+                    .collect(),
+                None => Vec::new(),
+            };
+            out.push(cids);
+        }
+        Ok(out)
     }
 
     async fn add_edges(&self, edges: &[EdgeFact]) -> Result<Vec<EdgeCid>, StorageError> {
@@ -1473,6 +1508,74 @@ fn scan_scope_index(
     Ok(out)
 }
 
+
+/// Resolve each `(key, current_cid)` pair to the latest fact satisfying a
+/// transaction-time bound, considering the key's WHOLE recorded history.
+///
+/// Three call sites used to run their own copy of "load the current fact,
+/// keep it if `signed_at` passes". That answers the wrong question. The
+/// canonical index is last-write-wins, so the only candidate it offers is the
+/// NEWEST fact, whose `signed_at` is later than any bound in the past: a
+/// bi-temporal query therefore returned nothing at every bound, including
+/// bounds the superseded fact was comfortably inside. Measured by a
+/// third-party benchmark on 2026-08-11 (D6). The history was in
+/// `TREE_MULTI_ATTESTER_INDEX` the whole time.
+///
+/// The current cid is always a candidate, so a backend whose `history_many`
+/// returns empties (the trait default) keeps exactly its previous behaviour.
+/// Ties on `signed_at` break on the lexicographic cid, which is deterministic
+/// across responders.
+pub async fn resolve_as_of_transaction_time<S: Storage + ?Sized>(
+    storage: &S,
+    pairs: Vec<(CanonicalKey, FactCid)>,
+    bound: &AsOfBound,
+) -> Result<Vec<(CanonicalKey, FactCid)>, StorageError> {
+    if pairs.is_empty() {
+        return Ok(pairs);
+    }
+    let keys: Vec<CanonicalKey> = pairs.iter().map(|(k, _)| k.clone()).collect();
+    let histories = storage.history_many(&keys).await?;
+
+    let mut candidates: Vec<(usize, FactCid)> = Vec::new();
+    for (i, ((_, current), history)) in pairs.iter().zip(histories.iter()).enumerate() {
+        let mut seen: Vec<&str> = Vec::with_capacity(history.len() + 1);
+        for cid in history.iter().chain(std::iter::once(current)) {
+            if seen.contains(&cid.as_str()) {
+                continue;
+            }
+            seen.push(cid.as_str());
+            candidates.push((i, cid.clone()));
+        }
+    }
+    let cids: Vec<FactCid> = candidates.iter().map(|(_, c)| c.clone()).collect();
+    let facts = storage.get_facts_many(&cids).await?;
+
+    let mut best: Vec<Option<(String, FactCid)>> = vec![None; pairs.len()];
+    for ((i, cid), fact) in candidates.into_iter().zip(facts) {
+        let Some(f) = fact else { continue };
+        if !bound.fact_passes(&f) {
+            continue;
+        }
+        let signed_at = match &f {
+            Fact::Primary(p) => p.signed_at.clone(),
+            Fact::Absence(a) => a.signed_at.clone(),
+            Fact::Derivative(_) => continue,
+        };
+        let replace = match &best[i] {
+            Some((s, c)) => signed_at > *s || (signed_at == *s && cid.as_str() > c.as_str()),
+            None => true,
+        };
+        if replace {
+            best[i] = Some((signed_at, cid));
+        }
+    }
+    Ok(pairs
+        .into_iter()
+        .zip(best)
+        .filter_map(|((k, _), b)| b.map(|(_, cid)| (k, cid)))
+        .collect())
+}
+
 /// Encode `(cell, band, tslot)` exactly as `emem-cache` does so the
 /// multi-attester index keys are bytewise-comparable with the canonical
 /// index for prefix scans by cell64.
@@ -1489,6 +1592,19 @@ fn fact_canonical_key_bytes(fact: &Fact) -> Option<Vec<u8>> {
     buf.push(0u8);
     buf.extend_from_slice(&tslot.to_be_bytes());
     Some(buf)
+}
+
+/// Encode a `CanonicalKey` the same way, for point lookups into the index
+/// that `fact_canonical_key_bytes` writes. The two must agree byte for byte
+/// or a history lookup silently misses.
+fn canonical_key_bytes(k: &emem_cache::CanonicalKey) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(k.cell.len() + k.band.len() + 10);
+    buf.extend_from_slice(k.cell.as_bytes());
+    buf.push(0u8);
+    buf.extend_from_slice(k.band.as_bytes());
+    buf.push(0u8);
+    buf.extend_from_slice(&k.tslot.to_be_bytes());
+    buf
 }
 
 /// Decode a `(cell, band, tslot)` key emitted by

@@ -106,20 +106,36 @@ The part a vendor usually buries.
 
 | axis | individual tokens | **bundled** | context | winner |
 |---|---|---|---|---|
-| citation size | 104 chars each | 38 chars, any N | grows with values | **bundle** |
-| context, N facts | 104·N chars | **38 chars flat** | ~18·N chars | **bundle** |
+| citation size | 84 chars / 51 LLM tokens | 38 chars / 23 LLM tokens, any N | grows with values | **bundle** |
+| context, N facts | 51·N LLM tokens | **23 LLM tokens flat** | ~5.4·N LLM tokens | **bundle** |
 | round trips | N | **1** (to 256) | 1 | bundle / context |
 | wall clock | 69 up to 1,255 ms | **20 to 54 ms flat** | ~0.9 s total | **bundle** |
 
-**Individual addressing is strictly worse than pasting the numbers.** A token is
-104 characters; the signed value it replaces is about 18. So N tokens cost **5.8x**
-the context of N plain values, and the individual-token arm hits the prompt wall
-*sooner* than plain context does. The honest sentence is **"addressing is a loss
-unless you bundle"**, not "addressing wins".
+**Individual addressing is strictly worse than pasting the numbers.** This page
+used to say a token was 104 characters and cost 5.8x. Both figures were wrong,
+and the correction goes against us: the grammar cannot even produce 104
+(`emem:fact:` 10 + cell64 19 to 23 + `:` + cid 52 = 86 max), and the real cost
+is higher, not lower.
+
+Measured over **131 scalar facts at 12 places across 57 bands**, 2026-08-11: a
+token is **83 to 85 characters** (mean 84.1) and the signed value it replaces
+averages **10.9 characters**, so N tokens cost **7.7x** the characters of N
+plain values.
+
+Characters are the wrong unit, though, and this page was using it. What bills a
+context window is LLM tokens, and a base32 cid fragments badly under BPE: the
+same sample gives **50.6 LLM tokens per citation against 5.4 per value, a
+9.5x cost** (cl100k_base). The honest sentence is **"addressing is a loss
+unless you bundle"**, and it is a worse loss than we were publishing against
+ourselves.
 
 Bundled, the picture reverses completely and it is the cleanest result in the
 study: 38 characters and one round trip at every N up to 256, against 26,624
-characters and 256 round trips.
+characters and 256 round trips. Two breakevens worth stating separately,
+because "always bundle" is right for a set and wrong for a single fact: a
+bundle beats **individual tokens at N=1** (23 LLM tokens against 51), and beats
+**pasting the plain values from N ≥ 5** (23 against 5.4·N). At N=1 a bundle
+costs about 4.3x the bare number, and buys a citation that resolves.
 
 **And the cost win does not become an accuracy win.** At N=256 plain context beats
 the bundle 4/6 to 2/6, and every architecture collapses at N≥128. Cheaper context
@@ -249,6 +265,6 @@ instruments during this study; a seventh is more likely than not.
 | Addressed memory beats *lexical* retrieval on these corpora | **refuted.** BM25 scores 16/16 |
 | Model agreement is evidence of correctness | **refuted**, p = 0.035 |
 | Addressed memory is O(1) | **only when bundled.** See below |
-| Individual tokens save context | **refuted.** A token is 104 chars, the value it replaces is ~18, so N tokens cost 5.8x the plain numbers and hit the context wall SOONER |
+| Individual tokens save context | **refuted, and by more than we used to claim.** A token is 84 chars / 51 LLM tokens, the value it replaces averages 10.9 chars / 5.4 LLM tokens, so N tokens cost 7.7x the characters and **9.5x the LLM tokens** of the plain numbers, and hit the context wall SOONER |
 | A bundle saves context | **supported.** 38 chars and one round trip at every N up to 256, against 26,624 chars and 256 trips |
 | emem outperforms peer memory products | **not tested. No evidence either way** |

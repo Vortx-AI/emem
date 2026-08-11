@@ -68,6 +68,28 @@ pub struct ContradictionsReq {
     /// [`compute_severity`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_severity: Option<f32>,
+    /// Also report a key where ONE attester answered from two different
+    /// upstreams. Default `false`.
+    ///
+    /// The scan drops single-attester keys, which is right for its original
+    /// question ("do two witnesses disagree?") and structurally blind on a
+    /// single-responder deployment, where the likeliest real disagreement in
+    /// the world is one responder answering one address from two different
+    /// providers. Measured on 2026-08-11: `copdem30m.elevation_mean` at
+    /// `defi.zb493.xuqA.zcb5f` reads `918.0` via `open_meteo_copdem90m@1`
+    /// and `915.0712280273438` via `copernicus_dem_30m_aws_pixel@1`, a 2.93 m
+    /// disagreement at one cell, one band, one tslot — and the scan returned
+    /// zero contradictions across 50,000 keys at `min_severity: 0.0`.
+    ///
+    /// Qualifying is narrow on purpose: the facts must differ in
+    /// `derivation.fn_key` or in the set of `sources[].scheme`. A responder
+    /// re-signing the SAME provider is a refresh, not a disagreement, and
+    /// turning every refresh into a contradiction would be worse than the
+    /// silence it replaces.
+    ///
+    /// Off by default so existing results stay byte-identical.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub include_same_attester_sources: Option<bool>,
 }
 
 /// One disagreeing attester's contribution to a contradiction.
@@ -106,6 +128,35 @@ pub struct Contradiction {
     /// `"scalar" | "vector" | "categorical" | "mixed"`. Reflects the
     /// shape the severity scorer matched.
     pub kind: String,
+    /// What kind of disagreement this is:
+    ///
+    /// - `"multi_attester"` — two or more distinct keys signed conflicting
+    ///   values at this address. Two witnesses.
+    /// - `"same_attester_provider_substitution"` — ONE key answered the same
+    ///   address from two different upstreams. One witness that changed
+    ///   instruments, which is a different claim and must not be read as
+    ///   corroboration.
+    ///
+    /// Explicit so a compliance reader never has to infer the difference
+    /// from the attester list.
+    pub disagreement_scope: String,
+    /// The upstreams behind the disagreeing facts, one entry per
+    /// attestation and index-aligned with `attestations`: the fact's
+    /// `derivation.fn_key` and its `sources[].scheme` list. Populated for
+    /// every record, because "which instrument said what" is the first
+    /// question asked of any disagreement, and on a provider substitution
+    /// it is the whole finding.
+    pub providers: Vec<ProviderRef>,
+}
+
+/// The upstream behind one attestation in a [`Contradiction`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderRef {
+    /// Function registry key that produced the value, e.g.
+    /// `"copernicus_dem_30m_aws_pixel@1"`.
+    pub fn_key: String,
+    /// Provider schemes cited by the fact, e.g. `["copernicus.dem.30m.aws"]`.
+    pub schemes: Vec<String>,
 }
 
 /// Response — list of contradictions, scan accounting, signed receipt.
@@ -133,6 +184,37 @@ pub struct ContradictionsResp {
     pub receipt: Receipt,
 }
 
+/// Whether one attester's disagreeing values at a single address came from
+/// two DIFFERENT upstreams, rather than from the same one signed twice.
+///
+/// This is the whole guard on `include_same_attester_sources`. Without it
+/// every ordinary refresh — the responder re-reading the same provider and
+/// getting a slightly different number — would surface as a contradiction,
+/// and a report where everything is a contradiction says as little as one
+/// where nothing is.
+///
+/// Qualifies on a changed `derivation.fn_key` OR a changed set of
+/// `sources[].scheme`. Either alone is enough: a new recipe over the same
+/// bytes and the same recipe over a new provider are both instrument
+/// changes. Scheme lists are compared as sets, so provider order does not
+/// manufacture a difference.
+pub fn is_provider_substitution(providers: &[ProviderRef]) -> bool {
+    let fn_keys: BTreeSet<&str> = providers.iter().map(|p| p.fn_key.as_str()).collect();
+    if fn_keys.len() >= 2 {
+        return true;
+    }
+    let scheme_sets: BTreeSet<Vec<&str>> = providers
+        .iter()
+        .map(|p| {
+            let mut v: Vec<&str> = p.schemes.iter().map(|s| s.as_str()).collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        })
+        .collect();
+    scheme_sets.len() >= 2
+}
+
 /// Scan the multi-attester index, score every multi-attester key, and
 /// return the contradictions that meet `min_severity`.
 pub async fn memory_contradictions(
@@ -149,6 +231,7 @@ pub async fn memory_contradictions(
         .min_severity
         .unwrap_or(DEFAULT_MIN_SEVERITY)
         .clamp(0.0, 1.0);
+    let include_same_attester_sources = req.include_same_attester_sources.unwrap_or(false);
     // Wall-clock budget for the per-key fact hydration below. Kept well
     // under the HTTP dispatch cap so an unfiltered whole-corpus scan
     // returns a partial-but-signed result instead of hanging the request.
@@ -244,13 +327,23 @@ pub async fn memory_contradictions(
         if severity == 0.0 {
             continue;
         }
-        if attester_set.len() < 2 {
-            // Only one attester involved — same signer re-attested
-            // with two different values. That's a content mistake,
-            // not a multi-attester contradiction. Drop unless the
-            // caller asked for severity=0 (impossible — already
-            // filtered above). Future versions may surface these as a
-            // separate "same-attester drift" record.
+        // One attester, two values. Historically dropped outright as "a
+        // content mistake, not a multi-attester contradiction". That is
+        // right when the same provider was re-signed, and wrong when the
+        // provider CHANGED: on a single-responder corpus, one responder
+        // answering one address from two upstreams is the likeliest real
+        // disagreement there is, and dropping it made it unreportable by
+        // construction. Opt in with `include_same_attester_sources`.
+        let same_attester = attester_set.len() < 2;
+        let providers: Vec<ProviderRef> = primaries
+            .iter()
+            .map(|p| ProviderRef {
+                fn_key: p.derivation.fn_key.clone(),
+                schemes: p.sources.iter().map(|s| s.scheme.clone()).collect(),
+            })
+            .collect();
+        if same_attester && (!include_same_attester_sources || !is_provider_substitution(&providers))
+        {
             continue;
         }
         if severity < min_severity {
@@ -283,6 +376,13 @@ pub async fn memory_contradictions(
             attestations,
             severity,
             kind,
+            disagreement_scope: if same_attester {
+                "same_attester_provider_substitution"
+            } else {
+                "multi_attester"
+            }
+            .to_string(),
+            providers,
         });
     }
 
@@ -317,6 +417,7 @@ pub async fn memory_contradictions(
         req.cell_prefix.as_deref(),
         req.band.as_deref(),
         scan_truncated,
+        include_same_attester_sources,
     );
 
     let receipt = srv.sign_receipt(
@@ -597,7 +698,17 @@ fn build_agent_hint(
     cell_prefix: Option<&str>,
     band: Option<&str>,
     truncated: bool,
+    include_same_attester_sources: bool,
 ) -> String {
+    // A zero here means "nothing in scope disagreed", and the scope is
+    // narrower than most callers assume. Saying so in the hint is the
+    // difference between an agent reading a zero as evidence of agreement
+    // and reading it as evidence of a question that was not asked.
+    let scope = if include_same_attester_sources {
+        " SCOPE: keys where two attesters disagree, PLUS keys where one attester answered from two different upstreams (a changed derivation.fn_key or sources[].scheme); a re-signing of the same provider is still not counted."
+    } else {
+        " SCOPE: only keys where two or more DISTINCT attesters disagree. A single responder answering one address from two different upstreams is not counted here — pass `include_same_attester_sources: true` to include provider substitutions, which on a single-responder corpus is where the real disagreements are."
+    };
     let trunc = if truncated {
         " NOTE: the hydration budget was spent before every key was examined, so this is a PARTIAL view; pass a `band` filter (or a tighter `cell_prefix`) for complete, fast coverage."
     } else {
@@ -616,18 +727,19 @@ fn build_agent_hint(
     if contradictions.is_empty() {
         if corpus_scanned == 0 {
             return format!(
-                "No multi-attester observations exist yet{filter}. Either the corpus is single-attester (every key has one signer) or no second attester has ever overlapped on the same (cell, band, tslot). This is honest 'no contradictions known', not 'lookup failed'."
+                "No multi-attester observations exist yet{filter}. Either the corpus is single-attester (every key has one signer) or no second attester has ever overlapped on the same (cell, band, tslot). This is honest 'no contradictions known', not 'lookup failed'.{scope}"
             );
         }
         return format!(
-            "Scanned {corpus_scanned} multi-attester keys{filter} (cap {scan_cap}); zero met the severity threshold. Tune `min_severity` down (e.g. 0.0) to see borderline disagreements; raise it (e.g. 0.5) for flagrant only.{trunc}"
+            "Scanned {corpus_scanned} keys{filter} (cap {scan_cap}); zero met the severity threshold. Tune `min_severity` down (e.g. 0.0) to see borderline disagreements; raise it (e.g. 0.5) for flagrant only.{scope}{trunc}"
         );
     }
     let n = contradictions.len();
     let top = &contradictions[0];
     format!(
-        "Found {n} contradiction(s) above the severity floor; scanned {corpus_scanned} multi-attester keys{filter} (cap {scan_cap}). Highest severity: {sev:.3} at cell={cell} band={band} tslot={tslot} kind={kind} with {att_n} disagreeing attester(s). Next steps: (a) call POST /v1/diff with two of these fact_cids to compare them numerically, (b) call POST /v1/verify_receipt on any cited fact_cid to confirm the signature offline, (c) call GET /v1/facts/<fact_cid> to fetch the full signed payload of any disputed observation.{trunc}",
+        "Found {n} contradiction(s) above the severity floor; scanned {corpus_scanned} keys{filter} (cap {scan_cap}). Highest severity: {sev:.3} at cell={cell} band={band} tslot={tslot} kind={kind} scope={dscope} with {att_n} disagreeing attestation(s). Read `disagreement_scope` on each record before quoting it: `multi_attester` is two witnesses, `same_attester_provider_substitution` is ONE witness that changed instruments, and `providers[]` names what changed. Next steps: (a) call POST /v1/diff with two of these fact_cids to compare them numerically, (b) call POST /v1/verify_receipt on any cited fact_cid to confirm the signature offline, (c) call GET /v1/facts/<fact_cid> to fetch the full signed payload of any disputed observation.{scope}{trunc}",
         n = n,
+        dscope = top.disagreement_scope,
         corpus_scanned = corpus_scanned,
         scan_cap = scan_cap,
         sev = top.severity,
@@ -1291,5 +1403,74 @@ mod tests {
         );
         assert_eq!(iso8601_to_unix_s(""), None);
         assert_eq!(iso8601_to_unix_s("2026-13-45T99:99:99Z"), None);
+    }
+
+    // ---- provider substitution (D5, third-party benchmark 2026-08-11) ----
+
+    fn pr(fn_key: &str, schemes: &[&str]) -> ProviderRef {
+        ProviderRef {
+            fn_key: fn_key.to_string(),
+            schemes: schemes.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    /// The measured case. One responder, one cell, one band, one tslot,
+    /// two upstreams: 918.0 m through open_meteo and 915.0712280273438 m
+    /// through copernicus.dem.30m.aws. Before this, the scan dropped the
+    /// key for having one attester and reported zero contradictions across
+    /// 50,000 keys at min_severity 0.0.
+    #[test]
+    fn changed_provider_is_a_provider_substitution() {
+        assert!(is_provider_substitution(&[
+            pr("open_meteo_copdem90m@1", &["open_meteo"]),
+            pr("copernicus_dem_30m_aws_pixel@1", &["copernicus.dem.30m.aws"]),
+        ]));
+    }
+
+    /// The guard that keeps this from drowning the report. A responder
+    /// re-reading the SAME provider and signing a slightly different
+    /// number is a refresh; calling every refresh a contradiction would be
+    /// worse than the silence it replaces.
+    #[test]
+    fn same_provider_resigning_is_not_a_provider_substitution() {
+        assert!(!is_provider_substitution(&[
+            pr("copernicus_dem_30m_aws_pixel@1", &["copernicus.dem.30m.aws"]),
+            pr("copernicus_dem_30m_aws_pixel@1", &["copernicus.dem.30m.aws"]),
+        ]));
+    }
+
+    /// Either half is sufficient: a new recipe over the same bytes is an
+    /// instrument change even when the provider did not move, and a new
+    /// provider under the same recipe is one even when the recipe did not.
+    #[test]
+    fn either_a_changed_recipe_or_a_changed_scheme_qualifies() {
+        assert!(is_provider_substitution(&[
+            pr("v1@1", &["sentinel2.l2a"]),
+            pr("v2@1", &["sentinel2.l2a"]),
+        ]));
+        assert!(is_provider_substitution(&[
+            pr("same@1", &["sentinel2.l2a"]),
+            pr("same@1", &["landsat.c2l2"]),
+        ]));
+    }
+
+    /// Scheme lists are compared as sets. Two facts citing the same two
+    /// providers in a different order have not changed instruments, and
+    /// ordering must not manufacture a finding.
+    #[test]
+    fn scheme_order_does_not_manufacture_a_substitution() {
+        assert!(!is_provider_substitution(&[
+            pr("f@1", &["a.scheme", "b.scheme"]),
+            pr("f@1", &["b.scheme", "a.scheme"]),
+        ]));
+    }
+
+    /// The option is off by default, so every existing caller's results
+    /// stay byte-identical until they ask for the wider scope.
+    #[test]
+    fn same_attester_sources_are_excluded_by_default() {
+        let req = ContradictionsReq::default();
+        assert_eq!(req.include_same_attester_sources, None);
+        assert!(!req.include_same_attester_sources.unwrap_or(false));
     }
 }

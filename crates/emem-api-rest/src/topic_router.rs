@@ -755,11 +755,6 @@ fn embed_one_ort(
     Ok(v)
 }
 
-/// Per-topic centroid via ort: embed (description + aliases) for
-/// every topic, average to a single vector, L2-normalise. Each
-/// individual embedding is already CLS-pooled + L2-normalised, but
-/// the per-topic average drifts off the unit sphere so we re-
-/// normalise to keep cosine identity-comparable across topics.
 // ── Centroid cache ───────────────────────────────────────────────────
 //
 // One file beside the model holding the 27 vectors the boot pass would
@@ -910,6 +905,11 @@ fn write_centroid_cache(
     std::fs::rename(&tmp, path)
 }
 
+/// Per-topic centroid via ort: embed (description + aliases) for
+/// every topic, average to a single vector, L2-normalise. Each
+/// individual embedding is already CLS-pooled + L2-normalised, but
+/// the per-topic average drifts off the unit sphere so we re-
+/// normalise to keep cosine identity-comparable across topics.
 fn compute_centroids_ort(
     session: &std::sync::Arc<std::sync::Mutex<ort::session::Session>>,
     tokenizer: &std::sync::Arc<tokenizers::Tokenizer>,
@@ -1140,6 +1140,11 @@ mod tests {
             f32::MIN,
             std::f32::consts::PI,
             0.1,
+            // Deliberately an awkward decimal rather than
+            // FRAC_1_SQRT_2: the point is a value that is HARD to
+            // round-trip, and swapping in the exact constant would
+            // weaken what this fixture tests.
+            #[allow(clippy::approx_constant)]
             -0.7071067,
         ];
         let centroids = vec![hard.clone(), vec![0.5; hard.len()], Vec::new()];

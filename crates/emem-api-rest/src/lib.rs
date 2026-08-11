@@ -10019,7 +10019,24 @@ async fn get_cell(
 /// then matches against an empty filter) is the worst possible UX. We
 /// normalise to `bands: [band]` here so the auto-materializer downstream
 /// sees the requested band.
+///
+/// `deny_unknown_fields` because a dropped field here is a SILENT one. A
+/// third-party benchmark measured it on 2026-08-11: `determinstic: true`,
+/// one transposed letter, returned 104 facts where `deterministic: true`
+/// returns 55. The tamper-provenance filter did nothing, and the response
+/// was indistinguishable from a successful filtered recall — no error, no
+/// warning, just an unfiltered answer wearing a filtered answer's clothes.
+/// The same hole swallowed `as_of` (a plausible guess at `as_of_signed_at`,
+/// which IS strictly validated when spelled right) and arbitrary junk.
+///
+/// Safe to refuse because the advertised surface and the accepted surface
+/// are the same set: `SCHEMA_RECALL` in `emem-mcp` lists exactly the
+/// fourteen properties this struct accepts, and
+/// `every_advertised_recall_field_still_parses` pins that, so no caller
+/// following the published schema breaks. The pattern is already in this
+/// file on `BackfillReq` for the identical reason.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RecallApiReq {
     /// cell64, or a place name (geocoded). Optional when `lat`+`lng` or
     /// `place` are supplied instead, one consistent location convention
@@ -16198,6 +16215,7 @@ async fn get_memory_contradictions(
         },
         limit: q.limit,
         min_severity: q.min_severity,
+        include_same_attester_sources: q.include_same_attester_sources,
     };
     emem_primitives::memory_contradictions::validate_request(&req)?;
     contradictions_cached(&req, &s).await
@@ -16215,6 +16233,9 @@ struct ContradictionsQuery {
     window_hi: Option<u64>,
     limit: Option<usize>,
     min_severity: Option<f32>,
+    /// Also report keys where ONE attester answered from two different
+    /// upstreams. See the field of the same name on `ContradictionsReq`.
+    include_same_attester_sources: Option<bool>,
 }
 
 /// Request body for `POST /v1/backfill`. Mirrors the MCP `emem_backfill`
@@ -17074,6 +17095,23 @@ fn verify_receipt_shape_hint(detail: &str) -> String {
 /// enumerates the remaining signed families honestly, including the three
 /// bespoke pipe-delimited preimages that have not yet been migrated onto the
 /// tagged v1 family (tracked in the roadmap).
+/// The `manifest_hex` golden vector published by `/v1/verifier_spec`,
+/// computed by the SIGNER's own function over the four real key names.
+///
+/// Not a constant. A hardcoded digest in the spec would be free to drift
+/// from the rule receipts are signed under, and a spec that can drift from
+/// the signer is the failure the spec exists to prevent. `/verify` self-tests
+/// its JS encoder against the same value, so signer, published spec and
+/// shipped browser verifier are pinned to one number.
+fn manifest_golden_vector_hex() -> String {
+    let mut m = std::collections::BTreeMap::new();
+    m.insert("bands_cid".to_string(), "bbb".to_string());
+    m.insert("registry_cid".to_string(), "rrr".to_string());
+    m.insert("schema_cid".to_string(), "sss".to_string());
+    m.insert("sources_cid".to_string(), "ooo".to_string());
+    emem_storage::Server::manifest_versions_blake3_hex(&m).unwrap_or_default()
+}
+
 async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
     use crate::corpus_state_stats_tag as cst;
     use crate::operator_attestation_tag as oat;
@@ -17131,12 +17169,25 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 seg(rt::SCOPE, "scope_hex", "scalar", true, "blake3-hex of the non-empty scope; absent when unscoped"),
                 seg(rt::AS_OF, "as_of_hex", "scalar", true, "blake3-hex of the bi-temporal bound; absent when unbounded"),
                 seg(rt::EDGES, "edges_hex", "scalar", true, "blake3-hex of the edge set; absent when no edges"),
-                seg(rt::MANIFEST, "manifest_hex", "scalar", true, "blake3-hex of cbor(sorted source_versions{registry_cid,schema_cid,bands_cid,sources_cid}); absent when empty. bands_cid rides here, so the band set is transitively attested."),
+                seg(rt::MANIFEST, "manifest_hex", "scalar", true, "blake3-hex of cbor(source_versions{bands_cid,registry_cid,schema_cid,sources_cid}) with the keys in PLAIN STRING SORT order, NOT RFC 8949 §4.2.1 order; absent when empty. See `manifest_hex_key_order` below before implementing this: the two orders disagree for this exact key set. bands_cid rides here, so the band set is transitively attested."),
                 seg(rt::PRIMITIVE, "primitive", "scalar", false, "e.g. emem.recall, emem.memory_token_resolve"),
                 seg(rt::CELLS, "cells", "list", false, ""),
                 seg(rt::FACT_CIDS, "fact_cids", "list", false, ""),
                 seg(rt::FIELD, "field_hex", "scalar", true, "field responses only (docs/plans/field-tokens.md): hex of blake3(domain(\"field\") || tagged(aoi_cid) || tagged(derivation_cid)); appended last so receipts without a field binding hash byte-identically to pre-FIELD receipts"),
             ],
+            "manifest_hex_key_order": {
+                "rule": "The CBOR map is encoded with its keys in plain lexicographic string order — BTreeMap<String, String> iteration order — and NOT in RFC 8949 §4.2.1 canonical order.",
+                "why_this_is_a_trap": "\"sorted\" is ambiguous and the reasonable reading is wrong. RFC 8949 §4.2.1 sorts by the ENCODED key bytes, which for short text strings is length-first, and for this key set the two orders disagree. A verifier that implements §4.2.1 computes a different digest and rejects EVERY valid receipt, with no clue why: the failure looks like a bad signature. This cost an independent implementer an hour on 2026-08-11 and is documented here rather than fixed, because the rule is frozen by every receipt ever signed.",
+                "plain_string_sort": ["bands_cid", "registry_cid", "schema_cid", "sources_cid"],
+                "rfc_8949_4_2_1": ["bands_cid", "schema_cid", "sources_cid", "registry_cid"],
+                "why_they_differ": "bands_cid is 9 bytes, schema_cid 10, sources_cid 11, registry_cid 12; §4.2.1 is length-first for short text keys, plain string sort is not.",
+                "golden_vector": {
+                    "source_versions": {"bands_cid": "bbb", "registry_cid": "rrr", "schema_cid": "sss", "sources_cid": "ooo"},
+                    "manifest_hex": manifest_golden_vector_hex(),
+                    "rfc_8949_digest_for_contrast": "545f412bdd0bd3ab3055f319c8d216775e950a762cd4a8ec242e06f31ee60569",
+                    "how": "Encode the four pairs as a CBOR map in the plain_string_sort order above, blake3 the bytes, lowercase-hex the digest. If you get the rfc_8949 value instead, your map encoder is sorting by encoded key bytes; re-sort by the key strings themselves. This is the same vector the /verify page self-tests its JS encoder against, so the signer and the shipped verifier cannot drift apart.",
+                },
+            },
             "legacy_v1": "receipts with preimage_version 1 use the segment list above WITHOUT the trailing MERKLE segment. Still emitted until 2026-08-05, still verified, still valid; their inclusion proof is unauthenticated, which is what v2 fixes.",
             "legacy_v0": "receipts with preimage_version absent or 0 use the pre-cutover untagged pipe rule blake3(request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*). POST /v1/verify_receipt still verifies those; no responder emits v0 anymore.",
             "verify": {
@@ -17875,8 +17926,19 @@ fn read_translog_leaves(s: &AppState) -> Result<Vec<[u8; 32]>, ApiError> {
 /// signed_at, responder pubkey) so it verifies offline against the
 /// responder key without trusting this endpoint.
 fn sign_sth(s: &AppState, leaves: &[[u8; 32]]) -> JsonValue {
-    let tree_size = leaves.len() as u64;
-    let root = emem_attest::translog::merkle_tree_hash(leaves);
+    sign_sth_over(
+        s,
+        leaves.len() as u64,
+        emem_attest::translog::merkle_tree_hash(leaves),
+    )
+}
+
+/// Sign an STH over an ALREADY-COMPUTED `(tree_size, root)`.
+///
+/// The split exists so a cached head and a freshly-walked one go through the
+/// identical signing path: whatever produced the root, the bytes that get
+/// signed are built here and nowhere else, so the two cannot diverge.
+fn sign_sth_over(s: &AppState, tree_size: u64, root: [u8; 32]) -> JsonValue {
     let signed_at = chrono_iso8601_utc();
     let pk = s.identity.pubkey.0;
     let mut pb = emem_attest::PreimageV1::new(TRANSLOG_STH_DOMAIN);
@@ -17903,10 +17965,75 @@ fn sign_sth(s: &AppState, leaves: &[[u8; 32]]) -> JsonValue {
     })
 }
 
+/// Cached transparency-tree head: `(record_count_at_build, tree_size, root)`.
+///
+/// `merkle_log::leaf_hashes` already documented that "the caller (STH
+/// construction) caches the result by the log's record count so a rebuild only
+/// happens when the log has grown". It did not. A third-party benchmark
+/// measured the cost on 2026-08-11: `/v1/log/sth` p50 4,257 ms against 309 ms
+/// for `/v1/log/entries` and 306 ms for a static file on the same warm
+/// connection, so ~3.9 s of it was this process re-reading 1.09M leaves off
+/// disk and rebuilding the whole tree, per request. Pinning an STH is
+/// documented as step one of an audit, which made the entry point to the
+/// trust story the slowest call in the product.
+///
+/// Keyed on the log's own record count, which only ever increases: a cache hit
+/// therefore means the tree has not changed, not merely that it was checked
+/// recently. There is no TTL, because time is not the thing that invalidates
+/// a merkle root.
+///
+/// The SIGNATURE is still fresh on every call — `signed_at` moves and is
+/// signed over — so this caches the expensive derivation, never the
+/// attestation.
+/// `(record_count_at_build, tree_size, root)`.
+type CachedTreeHead = (u64, u64, [u8; 32]);
+
+static STH_TREE_CACHE: std::sync::OnceLock<std::sync::RwLock<Option<CachedTreeHead>>> =
+    std::sync::OnceLock::new();
+
+/// Which cached head, if any, is still valid at `current_records`.
+///
+/// Split out so the invalidation rule is testable without a 1.09M-leaf log:
+/// the property that matters is that a stale key can never be served, and a
+/// test asserting that must not need a filesystem.
+fn sth_cache_hit(cached: Option<CachedTreeHead>, current_records: u64) -> Option<(u64, [u8; 32])> {
+    match cached {
+        Some((key, tree_size, root)) if key == current_records => Some((tree_size, root)),
+        _ => None,
+    }
+}
+
+/// `(tree_size, root)` for the whole log, rebuilt only when it has grown.
+async fn translog_head_cached(s: &AppState) -> Result<(u64, [u8; 32]), ApiError> {
+    let cache = STH_TREE_CACHE.get_or_init(|| std::sync::RwLock::new(None));
+    let current = match s.storage.transparency_log() {
+        Some(log) => log.record_count().await,
+        // No durable log: fall through and let read_translog_leaves emit the
+        // typed 501 rather than inventing an answer here.
+        None => u64::MAX,
+    };
+    if let Some(hit) = cache
+        .read()
+        .ok()
+        .and_then(|c| sth_cache_hit(*c, current))
+    {
+        return Ok(hit);
+    }
+    // Miss: walk the log and rebuild. Blocking work on the sled/disk path,
+    // kept off the async executor for the same reason the recall hot path is.
+    let leaves = read_translog_leaves(s)?;
+    let tree_size = leaves.len() as u64;
+    let root = emem_attest::translog::merkle_tree_hash(&leaves);
+    if let Ok(mut c) = cache.write() {
+        *c = Some((current, tree_size, root));
+    }
+    Ok((tree_size, root))
+}
+
 /// `GET /v1/log/sth`, the current Signed Tree Head over the whole log.
 async fn get_log_sth(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
-    let leaves = read_translog_leaves(&s)?;
-    let sth = sign_sth(&s, &leaves);
+    let (tree_size, root) = translog_head_cached(&s).await?;
+    let sth = sign_sth_over(&s, tree_size, root);
     Ok(Json(json!({
         "sth": sth,
         "note": "Pin this STH. Later call /v1/log/consistency?first=<this tree_size>&second=<later tree_size> to prove the log only grew (append-only). Verify the signature offline against responder_pubkey_b32.",
@@ -18283,7 +18410,10 @@ async fn get_log_witnesses(
     State(s): State<AppState>,
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let current = read_translog_leaves(&s)?.len();
+    // Only the SIZE is wanted here, and this used to buy it by reading every
+    // leaf off disk: measured at 3.06 s against 0.03 s for /v1/log/entries.
+    // The cached head answers the same question for free once warm.
+    let current = translog_head_cached(&s).await?.0 as usize;
     let db = memory_db(&s)?;
     let tree = db.open_tree(TREE_LOG_WITNESSES).map_err(|e| {
         ApiError(
@@ -19094,11 +19224,61 @@ fn truncation_note_reserve(dropped: &[JsonValue]) -> usize {
     const PREAMBLE: usize = 900;
     let entries: usize = dropped
         .iter()
+        .take(MAX_LISTED_OMISSIONS)
         .map(|d| serde_json::to_string(d).map(|s| s.len()).unwrap_or(0) + 1)
         .sum();
     // Slack for the entry this iteration is about to append.
     PREAMBLE + entries + 256
 }
+
+/// Record (or update) one omitted field in the note's listing.
+///
+/// Upsert rather than push: a collection can be visited twice, once to fit the
+/// budget and again to re-fit it against the note's final size, and listing the
+/// same field twice would report two omissions where there was one.
+fn record_drop(dropped: &mut Vec<JsonValue>, field: &str, mut stub: JsonValue) {
+    match dropped.iter_mut().find(|d| d["field"] == json!(field)) {
+        Some(existing) => {
+            // `_len` is the length BEFORE any truncation, and on a second
+            // visit the field has already been shortened, so re-deriving it
+            // would report the prefix as the whole. A caller reads `_len`
+            // against `_kept` to learn how much is missing; letting it shrink
+            // would quietly say "nothing is missing".
+            if let Some(first_len) = existing["stub"]["_len"].as_u64() {
+                if stub.get("_len").and_then(|v| v.as_u64()).is_some_and(|n| n < first_len) {
+                    stub["_len"] = json!(first_len);
+                }
+            }
+            *existing = json!({ "field": field, "stub": stub });
+        }
+        None => dropped.push(json!({ "field": field, "stub": stub })),
+    }
+}
+
+/// How many omitted fields the note LISTS individually.
+///
+/// The listing used to be unbounded, and the reserve is computed from it, so a
+/// payload with many fields could grow the note past the budget it was
+/// supposed to fit inside — the slimmer's own bookkeeping becoming the thing
+/// that overflowed. Beyond this the note reports a count instead of a name,
+/// which is a smaller loss than an over-cap result the host rejects outright.
+const MAX_LISTED_OMISSIONS: usize = 32;
+
+/// A scalar this small is never worth dropping, whatever it is called.
+///
+/// The KEEP list below only protects what somebody remembered to add to it,
+/// and on 2026-08-11 a third-party benchmark showed what that costs: minting
+/// a 256-fact bundle over MCP omitted `bundle_token` — 38 bytes, the entire
+/// product of the call — while RETAINING the 256-element `fact_cids` array
+/// that caused the overflow, because `fact_cids` was on the list and the
+/// token was not. The agent never learned the handle it had just minted.
+///
+/// So the enumeration is now a floor, not a fence: any scalar at or under
+/// this size is considered for dropping only after every larger field and
+/// every collection has already gone, which in practice means never. It is
+/// an ordering rule rather than a veto, so a payload made entirely of small
+/// scalars still gets slimmed to fit instead of shipping over the cap.
+const NEVER_DROP_SCALAR_BYTES: usize = 128;
 
 fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, JsonValue) {
     // Small identifying/authenticating fields we never drop.
@@ -19120,6 +19300,14 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
         "error",
         "honest_caveat",
         "interpretation",
+        // The handle the call exists to produce. Dropping one of these
+        // returns a successful mint with nothing to cite.
+        "token",
+        "canonical_token",
+        "bundle_token",
+        "bundle_cid",
+        "entity_token",
+        "entity_cid",
     ];
     let JsonValue::Object(mut map) = inner else {
         // Non-object payload (bare array / scalar): we cannot keyed-slim it,
@@ -19137,20 +19325,50 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
     };
 
     // Rank droppable fields by serialized byte cost, descending.
-    let mut costs: Vec<(String, usize)> = map
+    let mut costs: Vec<(String, usize, bool)> = map
         .iter()
         .filter(|(k, _)| !KEEP.contains(&k.as_str()))
         .map(|(k, v)| {
-            (
-                k.clone(),
-                serde_json::to_string(v).map(|s| s.len()).unwrap_or(0),
-            )
+            let cost = serde_json::to_string(v).map(|s| s.len()).unwrap_or(0);
+            // A scalar under the floor is sacrificed last, not never: see
+            // NEVER_DROP_SCALAR_BYTES. Collections are never protected —
+            // they are what overflows a budget in the first place.
+            let protected =
+                !matches!(v, JsonValue::Array(_) | JsonValue::Object(_)) && cost <= NEVER_DROP_SCALAR_BYTES;
+            (k.clone(), cost, protected)
         })
         .collect();
-    costs.sort_by_key(|(_, cost)| std::cmp::Reverse(*cost));
+    costs.sort_by_key(|(_, cost, _)| std::cmp::Reverse(*cost));
+    // Everything unprotected first, biggest first; protected small scalars
+    // appended after, so they are only reached if dropping every collection
+    // in the payload still left it over the cap.
+    // Unprotected first, biggest first, then protected small scalars. The
+    // unprotected group is offered TWICE before the protected one is reached:
+    // the note's reserve grows as fields are dropped, so a collection sized
+    // against an earlier, smaller reserve can leave the result a few dozen
+    // bytes over — and closing that gap by deleting `bundle_token` to save 38
+    // bytes is exactly the trade this function got wrong. A second pass
+    // re-shrinks the collections against the final reserve instead, and only
+    // if THAT fails does an identity scalar go.
+    let unprotected: Vec<(String, usize)> = costs
+        .iter()
+        .filter(|(_, _, protected)| !protected)
+        .map(|(k, cost, _)| (k.clone(), *cost))
+        .collect();
+    let order: Vec<(String, usize)> = unprotected
+        .iter()
+        .cloned()
+        .chain(unprotected.iter().cloned())
+        .chain(
+            costs
+                .iter()
+                .filter(|(_, _, protected)| *protected)
+                .map(|(k, cost, _)| (k.clone(), *cost)),
+        )
+        .collect();
 
     let mut dropped: Vec<JsonValue> = Vec::new();
-    for (k, _cost) in costs {
+    for (k, _cost) in order {
         let cur = serde_json::to_string(&JsonValue::Object(map.clone()))
             .map(|s| s.len())
             .unwrap_or(usize::MAX);
@@ -19165,7 +19383,10 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
         if cur + reserve <= budget {
             break;
         }
-        if let Some(v) = map.get(&k) {
+        if let Some(v) = map.get(&k).filter(|v| !v.is_null()) {
+            // Already null means a previous pass omitted it; nothing left to
+            // reclaim, and re-listing it would double-count the omission.
+            //
             // Degrade, do not drop. A response that replaces a 135-entry
             // listing with a stub burns the caller's round trip and teaches
             // them nothing: they cannot tell "nothing there" from "we hid it",
@@ -19213,7 +19434,7 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
                         "_how": "the first _kept elements are complete and usable; \
                                  re-request with offset=_next_offset for the rest",
                     });
-                    dropped.push(json!({ "field": k, "stub": stub }));
+                    record_drop(&mut dropped, &k, stub);
                     map.insert(k.clone(), JsonValue::Array(a[..kept].to_vec()));
                     continue;
                 }
@@ -19237,7 +19458,7 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
                 }
                 _ => json!({ "_omitted": true }),
             };
-            dropped.push(json!({ "field": k, "stub": stub }));
+            record_drop(&mut dropped, &k, stub);
             map.insert(k.clone(), JsonValue::Null);
         }
     }
@@ -19256,7 +19477,25 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
         .or_else(|| map.get("cell64"))
         .or_else(|| map.get("place"))
         .cloned();
-    let fetch = rest_path.map(|p| {
+    // A content-addressed result has a better pointer than "re-send your
+    // request": its own handle. Re-POSTing a 256-triple bundle re-runs 256
+    // recalls to arrive at bytes that are, by construction, the ones this
+    // token already names — and the POST we used to suggest carried an empty
+    // body anyway, so it could not be run at all. Prefer the GET.
+    let token_fetch = map
+        .get("bundle_token")
+        .and_then(|v| v.as_str())
+        .map(|t| {
+            let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+            let p = format!("/v1/memory_bundle/{}", urlencoding(t));
+            json!({
+                "method": "GET",
+                "path":   p,
+                "url":    format!("{origin}{p}"),
+                "why":    "dereferences the token this call just minted, returning the complete signed envelope including the fields omitted above. Preferred over re-POSTing the triples: the bundle is content-addressed, so the GET returns the same bytes without re-running the underlying recalls",
+            })
+        });
+    let fetch = token_fetch.or_else(|| rest_path.map(|p| {
         let mut body = serde_json::Map::new();
         if let Some(a) = &anchor {
             // most tools key on `cell`; geocoded tools accept `place` too
@@ -19290,21 +19529,44 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
                 "why":    "returns the complete, signed payload including the fields omitted above, the MCP host caps a single tool result, REST does not",
             })
         } else {
-            json!({
+            let mut f = json!({
                 "method": "POST",
                 "path":   p,
                 "url":    format!("{origin}{p}"),
-                "body":   JsonValue::Object(body),
+                "body":   JsonValue::Object(body.clone()),
                 "why":    "returns the complete, signed payload including the fields omitted above, the MCP host caps a single tool result, REST does not",
-            })
+            });
+            // An empty body is not a runnable call. Saying so beats handing
+            // over a request that returns a 400 where the full payload was
+            // promised: this result carried no anchor we could reconstruct
+            // the call from, so only the caller still has the arguments.
+            if body.is_empty() {
+                f["body_incomplete"] = json!(true);
+                f["how"] = json!(
+                    "this result carried no field the original request could be rebuilt from, so `body` is empty and the call as written will be refused. Re-send the arguments you passed to the tool, at this path."
+                );
+            }
+            f
         }
-    });
-    let note = json!({
+    }));
+    // The reserve above is computed over at most MAX_LISTED_OMISSIONS
+    // entries, so the note has to honour the same cap or it can overrun the
+    // budget it was measured against.
+    let listed = dropped.len().min(MAX_LISTED_OMISSIONS);
+    let unlisted = dropped.len() - listed;
+    let mut note = json!({
         "reason": "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). Run `fetch` for the complete signed payload, or pass a pagination cursor (cursor, page, max_cells, encoders) to fit the MCP cap.",
         "budget_bytes": budget,
-        "omitted_fields": dropped,
+        "omitted_fields": dropped[..listed].to_vec(),
         "fetch": fetch,
     });
+    if unlisted > 0 {
+        note["omitted_fields_not_listed"] = json!(unlisted);
+        note["omitted_fields_total"] = json!(dropped.len());
+        note["why_not_listed"] = json!(
+            "the listing is capped so this note cannot itself overflow the budget it reports on; `fetch` still returns every omitted field"
+        );
+    }
     map.insert("_emem_truncation".to_string(), note.clone());
     (JsonValue::Object(map), note)
 }
@@ -24315,7 +24577,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/entity/alias":      {"post":{"summary":"Attest a signed equivalence: bind an alternate label or a stable external id (GERS/OSM/Wikidata) to an existing entity so future entity_resolve calls on that phrasing converge to the same entity_cid. Builds the shared reference graph.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/{id}":       {"get":{"summary":"Dereference a canonical object by entity_cid or emem:entity: token to its signed body, receipt, and recall hint. 404 with a typed code when this responder does not hold it.","operationId":"emem_entity_get","tags":["entity","identity"],"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"},"description":"entity_cid or emem:entity:<entity_cid> (legacy meme: accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
-            "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan the multi-attester index for (cell, band, tslot) triples where two or more attesters have signed disagreeing observations. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"Bytewise prefix filter on cell64 (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."}}}}}},"responses":{"200":json_ok}},
+            "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan for (cell, band, tslot) triples where signed observations disagree. By default that means two or more DISTINCT attesters; pass include_same_attester_sources to also report one attester answering from two different upstreams. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"Bytewise prefix filter on cell64 (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."},"include_same_attester_sources":{"type":"boolean","default":false,"description":"Also report keys where ONE attester answered the same address from two different upstreams. Default false: the scan asks only whether two or more DISTINCT attesters disagree, so on a single-responder corpus a zero means that narrower question came back empty, not that nothing disagrees. When true a single-attester key qualifies only if the facts differ in derivation.fn_key or in their sources[].scheme set — the same provider re-signed is a refresh, not a disagreement. Every record carries disagreement_scope (multi_attester | same_attester_provider_substitution) and a providers[] list, index-aligned with attestations, naming the recipe and schemes behind each value."}}}}}},"responses":{"200":json_ok}},
                                        "get":{"summary":"Same primitive as POST, exposed in query-string form for casual exploration. window_unix_s is split into window_lo + window_hi.","operationId":"emem_memory_contradictions_get","tags":["memory","contradiction-detection"],"parameters":[{"name":"cell_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string"}},{"name":"window_lo","in":"query","required":false,"schema":{"type":"integer"}},{"name":"window_hi","in":"query","required":false,"schema":{"type":"integer"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer"}},{"name":"min_severity","in":"query","required":false,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
             "/v1/edges":             {"post":{"summary":"Persist temporal knowledge-graph edges. Body is a signed Attestation envelope whose `edges[]` array carries each edge {subj, pred, obj, valid_from, valid_to?, confidence, signer, signed_at, schema_cid?, note?}. The edge leaves are folded into the merkle root so the signature commits to them. Additive: an attestation with no edges behaves exactly as /v1/attest.","operationId":"emem_edges_write","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["facts","edges","batch_root","attester","signature"],"properties":{"edges":{"type":"array","items":{"type":"object","required":["subj","pred","obj","valid_from","confidence","signer","signed_at"],"properties":{"subj":{"type":"string","description":"subject fact CID"},"pred":{"type":"string"},"obj":{"type":"string","description":"object fact CID"},"valid_from":{"type":"integer"},"valid_to":{"type":"integer"},"confidence":{"type":"number"},"note":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/edges/recall":      {"post":{"summary":"Recall temporal knowledge-graph edges in either direction, bi-temporally filtered. Forward (subj, direction=\"out\", default): edges originating at a subject fact. Reverse (obj, direction=\"in\"): edges pointing AT a fact (what disagrees-with / supersedes / relates-to it). Set exactly one of subj/obj, ambiguous or empty requests are rejected with a 400, never a silent empty. With as_of_tslot set, returns the latest edge per neighbour whose [valid_from, valid_to) interval covers as_of_tslot (supersession keeps the newest). pred=\"\" scans all predicates. Response carries `direction`, `objs` (always), and `subjs` (reverse only). Receipt cites the anchor + neighbour fact CIDs and commits the returned edge CIDs into the signature preimage.","operationId":"emem_edges_recall","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"subj":{"type":"string","description":"subject fact CID (forward / direction=out); set exactly one of subj/obj"},"obj":{"type":"string","description":"object fact CID (reverse / direction=in): what points at this fact"},"direction":{"type":"string","enum":["out","in"],"description":"out (default)=subj→objs; in=obj→subjs; inferred from which of subj/obj is set when omitted"},"pred":{"type":"string","description":"predicate filter; empty string scans all predicates"},"as_of_tslot":{"type":"integer","description":"valid-time bound; latest edge per neighbour whose interval covers it"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok}}},
@@ -24393,7 +24655,7 @@ fn openapi_spec() -> JsonValue {
                     "fact":{"$ref":"#/components/schemas/Fact"},
                     "value_verbatim":{"type":"string","description":"The scalar value as the exact decimal string it was signed as. Absent for non-scalar values (vectors, class ids, absences). Quote this rather than reformatting the number."},
                     "resolved":{"type":"boolean","description":"Always true on a 200; the responder holds these bytes. A cid it does not hold is a 404, not a `resolved: false` body."},
-                    "cell_matches":{"type":"boolean","description":"Always true on a 200. A token whose cell contradicts the fact's own cell is refused with 409 rather than dereferenced, so a real fact_cid cannot be passed off as being somewhere it is not."},
+                    "cell_matches":{"type":"boolean","description":"Whether the cell the token asserted was CHECKED against the signed fact's own cell, and agreed. `false` means NOT CHECKED, never checked-and-mismatched: a token whose cell contradicts the fact is refused with 409 before this response exists. The only route to a 200 with `false` is a degraded resolve, where a bare or recovered cid asserted no cell to compare and `cell` below is adopted from the signed body. Gate provenance on this field and you get the address check; read `degraded` for whether the citation itself was well-formed."},
                     "fact_url":{"type":"string","format":"uri","description":"Stable URL serving bytes identical to `fact`."},
                     "signer_b32":{"$ref":"#/components/schemas/PubKey"},
                     "provenance":{"type":"object","description":"Tamper-provenance, attached by THIS responder from its own registry at resolve time rather than carried in the token. For a primary fact it describes the band (`class`, `deterministic`, `tamper_evidence`, `trust_rank`); for a derivative it describes the derivation, and `responder_recomputed` is the field that separates what this responder verified from what the attester merely declared. Omitted when the band is unknown here."},
@@ -27499,7 +27761,9 @@ struct MemoryTokenResolveResp {
     /// cell64 the resolved fact is actually anchored at, taken from the
     /// signed fact body (not from the token). On a well-formed citation this
     /// equals the token's cell; a token whose cell disagrees is rejected
-    /// before this point (see `cell_matches`).
+    /// before this point (see `cell_matches`). On a degraded resolve the
+    /// token asserted no cell at all and this one is adopted from the body,
+    /// which is what `cell_matches: false` reports.
     cell: String,
     /// Parsed fact CID.
     fact_cid: String,
@@ -27562,11 +27826,24 @@ struct MemoryTokenResolveResp {
     /// store. `true` means the bytes are attached; `false` is paired
     /// with HTTP 404 and is unreachable on a successful response.
     resolved: bool,
-    /// Whether the cell64 embedded in the token matches the cell the signed
-    /// fact is actually anchored at. Always `true` on a 200: a token whose
-    /// cell contradicts the fact is refused with 409 rather than
-    /// dereferenced, so a forged `emem:fact:<wrong-cell>:<real-cid>` handle
-    /// cannot pass a real fact off as being somewhere it is not.
+    /// Whether the cell64 the token asserted was CHECKED against the cell
+    /// the signed fact is actually anchored at, and agreed.
+    ///
+    /// `true` means the comparison ran and passed. `false` means it did not
+    /// run — never that it ran and failed, because a token whose cell
+    /// contradicts the fact is refused with 409 before this response exists.
+    /// The only way to reach a 200 with `false` is a degraded resolve: a
+    /// bare or recovered cid asserts no cell, so there is nothing to compare
+    /// and the cell here is adopted from the signed body.
+    ///
+    /// This used to be hardcoded `true` on every 200 while the guard behind
+    /// it read `if !degraded && fact_cell != cell` — so on exactly the inputs
+    /// where no cell was checked, the field said it had been. A caller gating
+    /// provenance on `cell_matches` was handed an assertion the responder had
+    /// not earned. Found by a third-party benchmark, 2026-08-11.
+    ///
+    /// Gate on `cell_matches` alone and you get the address check; `degraded`
+    /// tells you separately whether the citation itself was well-formed.
     cell_matches: bool,
     /// Stable URL the agent can hand to any other peer; the bytes at
     /// that URL are byte-identical to `fact`.
@@ -28164,7 +28441,10 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
         kind,
         fact: fact_json,
         resolved: true,
-        cell_matches: true,
+        // NOT hardcoded `true`. The 409 guard above is `if !degraded &&
+        // fact_cell != cell`, so a degraded resolve skips the comparison
+        // entirely; reporting `true` there asserted a check that never ran.
+        cell_matches: !degraded,
         fact_url,
         signer_b32,
         provenance,
@@ -33760,6 +34040,11 @@ pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), 
         // MAX_LIMIT (1000).
         limit: Some(1000),
         min_severity: Some(min_severity),
+        // The refinement loop emits `disagrees_with` edges between
+        // WITNESSES. A provider substitution is one witness changing
+        // instruments, so an edge there would assert corroboration that
+        // does not exist. Deliberately left off.
+        include_same_attester_sources: Some(false),
     };
     let resp = memory_contradictions(&req, s)
         .await
@@ -71946,6 +72231,86 @@ mod slimmer_degrade_tests {
         let (slim, _) = mcp_slim_inner_to_budget(before.clone(), 24_000);
         assert_eq!(slim.get("entries").unwrap().as_array().unwrap().len(), 3);
     }
+
+    /// A 256-fact bundle over MCP, the shape a third-party benchmark measured
+    /// on 2026-08-11. The call's entire product is `bundle_token` — 38 bytes —
+    /// and truncation dropped it while KEEPING the 256-element `fact_cids`
+    /// array that caused the overflow, because `fact_cids` was on the KEEP
+    /// list and the token was not. The agent was handed a successful mint with
+    /// nothing to cite.
+    fn big_bundle(n: usize) -> JsonValue {
+        json!({
+            "schema": "emem.memory_bundle.v1",
+            "bundle_token": "emem:bundle:c7xvf7twq4aqk6ay7bf6jdl5ui",
+            "bundle_cid": "c7xvf7twq4aqk6ay7bf6jdl5ui",
+            "members": n,
+            "resolved": n,
+            "purpose": "truncation probe",
+            "signed_at": "2026-08-11T18:00:00Z",
+            "responder_pubkey_b32": "k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia",
+            "fact_cids": (0..n).map(|i| json!(format!("qtv2bco56qw4pmlohk56dotoxyl3atmnjpmzrijj2kazw2mj57{i:02}"))).collect::<Vec<_>>(),
+            "citations": (0..n).map(|i| json!({
+                "cell": "defi.zb493.xuqA.zcb5f",
+                "band": "copdem30m.elevation_mean",
+                "tslot": i,
+                "fact_cid": format!("qtv2bco56qw4pmlohk56dotoxyl3atmnjpmzrijj2kazw2mj57{i:02}"),
+            })).collect::<Vec<_>>(),
+        })
+    }
+
+    #[test]
+    fn truncation_keeps_the_handle_the_call_exists_to_produce() {
+        let (slim, note) = mcp_slim_inner_to_budget(big_bundle(256), 24_000);
+        assert!(
+            note["omitted_fields"].as_array().is_some_and(|a| !a.is_empty()),
+            "test is not exercising the truncation path"
+        );
+        assert_eq!(
+            slim["bundle_token"],
+            json!("emem:bundle:c7xvf7twq4aqk6ay7bf6jdl5ui"),
+            "the minted token was dropped: the call returned success with nothing to cite"
+        );
+        for k in ["bundle_cid", "members", "resolved", "signed_at", "responder_pubkey_b32"] {
+            assert!(
+                !slim[k].is_null(),
+                "small scalar `{k}` dropped while a 256-element array was kept"
+            );
+        }
+        let n = serde_json::to_string(&slim).unwrap().len();
+        assert!(n <= 24_000, "slimmed bundle is {n} bytes, over budget");
+    }
+
+    /// The pointer has to be runnable. It used to be `POST /v1/memory_bundle`
+    /// with `body: {}` — a call that 400s, offered where the full payload was
+    /// promised. A content-addressed result has a better answer than "re-send
+    /// your request": its own handle.
+    #[test]
+    fn a_truncated_bundle_points_at_a_call_that_works() {
+        let (_, note) = mcp_slim_inner_to_budget(big_bundle(256), 24_000);
+        let fetch = &note["fetch"];
+        assert_eq!(fetch["method"], json!("GET"));
+        assert_eq!(
+            fetch["path"],
+            json!("/v1/memory_bundle/emem%3Abundle%3Ac7xvf7twq4aqk6ay7bf6jdl5ui"),
+            "must dereference the token, not re-run 256 recalls for identical bytes"
+        );
+        assert!(fetch["body"].is_null(), "a GET pointer must not carry a body");
+    }
+
+    /// The floor is an ordering rule, not a veto. A payload made entirely of
+    /// small scalars still has to fit, or the host rejects the whole result
+    /// and the caller gets nothing instead of something.
+    #[test]
+    fn a_payload_of_only_small_scalars_still_fits_the_budget() {
+        let mut m = serde_json::Map::new();
+        m.insert("schema".into(), json!("emem.test.v1"));
+        for i in 0..400 {
+            m.insert(format!("f{i:03}"), json!("x".repeat(100)));
+        }
+        let (slim, _) = mcp_slim_inner_to_budget(JsonValue::Object(m), 8_000);
+        let n = serde_json::to_string(&slim).unwrap().len();
+        assert!(n <= 8_000, "protected scalars were treated as undroppable: {n} bytes");
+    }
 }
 
 #[cfg(test)]
@@ -72372,6 +72737,220 @@ mod cbor_scalar_tests {
                 Box::new(ciborium::Value::Text("3.3".into()))
             )),
             None
+        );
+    }
+
+    // ---- D2: unknown fields are refused, not dropped ----
+    // Third-party benchmark, 2026-08-11. `determinstic: true` (one
+    // transposed letter) returned 104 facts where `deterministic: true`
+    // returns 55: the tamper-provenance filter silently did nothing and the
+    // response was indistinguishable from a successful filtered recall.
+
+    /// The typo that started it. A field name one letter wrong must be a
+    /// typed refusal, not a silently unfiltered answer.
+    #[test]
+    fn a_misspelled_recall_field_is_refused() {
+        for bad in [
+            r#"{"cell":"defi.zb493.xuqA.zcb5f","determinstic":true}"#,
+            r#"{"cell":"defi.zb493.xuqA.zcb5f","as_of":"2026-05-29"}"#,
+            r#"{"cell":"defi.zb493.xuqA.zcb5f","as_of_signedat":"2026-05-29"}"#,
+            r#"{"cell":"defi.zb493.xuqA.zcb5f","provenence":["direct_sensor"]}"#,
+            r#"{"cell":"defi.zb493.xuqA.zcb5f","totally_made_up":42}"#,
+        ] {
+            let err = match serde_json::from_str::<RecallApiReq>(bad) {
+                Ok(_) => panic!("unknown field silently dropped, request accepted: {bad}"),
+                Err(e) => e,
+            };
+            assert!(
+                err.to_string().contains("unknown field"),
+                "the error must name the offending field, got: {err}"
+            );
+        }
+    }
+
+    /// The safety check on the change above: refusing unknown fields is only
+    /// safe if the advertised surface and the accepted surface are the same
+    /// set. This sends every property `SCHEMA_RECALL` advertises.
+    ///
+    /// Thirteen keys for fourteen advertised properties: `cell` and `cell64`
+    /// are serde aliases of ONE field, so sending both is a duplicate-field
+    /// error rather than extra coverage. `cell64` alone exercises the pair.
+    /// `scope` is included deliberately — it is the only advertised field
+    /// with a nested type, and therefore the one most likely to break under
+    /// `deny_unknown_fields` if its shape ever drifts.
+    #[test]
+    fn every_advertised_recall_field_still_parses() {
+        let body = serde_json::json!({
+            "cell64": "defi.zb493.xuqA.zcb5f",
+            "band": "indices.ndvi",
+            "bands": ["indices.ndvi"],
+            "tslot": 0,
+            "as_of_tslot": 0,
+            "as_of_signed_at": "2026-05-29T00:00:00Z",
+            "scope": {"user_id": "u1", "agent_id": "a1", "run_id": "r1", "org_id": "o1"},
+            "include": ["provenance"],
+            "provenance": ["direct_sensor"],
+            "deterministic": true,
+            "place": "Bengaluru",
+            "lat": 12.97,
+            "lng": 77.59,
+        });
+        assert!(
+            serde_json::from_value::<RecallApiReq>(body).is_ok(),
+            "every field the MCP schema advertises must still parse"
+        );
+
+        // And the two sets are the same set, checked against the schema text
+        // rather than against a list retyped here, which would drift.
+        let schema: JsonValue = serde_json::from_str(emem_mcp::SCHEMA_RECALL)
+            .expect("SCHEMA_RECALL must be valid JSON");
+        let advertised: std::collections::BTreeSet<String> = schema["properties"]
+            .as_object()
+            .expect("schema has properties")
+            .keys()
+            .cloned()
+            .collect();
+        for field in &advertised {
+            // Sent one at a time, so a rejection names exactly which
+            // advertised field the struct no longer accepts.
+            let one = serde_json::json!({ field.as_str(): sample_for(field) });
+            assert!(
+                serde_json::from_value::<RecallApiReq>(one).is_ok(),
+                "SCHEMA_RECALL advertises `{field}` but RecallApiReq refuses it: \
+                 deny_unknown_fields would break a caller following the published schema"
+            );
+        }
+    }
+
+    fn sample_for(field: &str) -> JsonValue {
+        match field {
+            "cell" | "cell64" => json!("defi.zb493.xuqA.zcb5f"),
+            "band" => json!("indices.ndvi"),
+            "bands" | "include" | "provenance" => json!(["indices.ndvi"]),
+            "tslot" | "as_of_tslot" => json!(0),
+            "as_of_signed_at" => json!("2026-05-29T00:00:00Z"),
+            "scope" => json!({"user_id": "u1"}),
+            "deterministic" => json!(true),
+            "place" => json!("Bengaluru"),
+            "lat" | "lng" => json!(12.97),
+            _ => json!(null),
+        }
+    }
+}
+
+#[cfg(test)]
+mod sth_cache_tests {
+    use super::*;
+
+    /// The only property that matters: a head is served only when the log has
+    /// not grown since it was built. Time never validates a merkle root, so
+    /// the key is the log's own record count and nothing else.
+    #[test]
+    fn a_head_is_reused_only_at_the_record_count_it_was_built_at() {
+        let root = [7u8; 32];
+        let cached = Some((1_096_727u64, 1_096_727u64, root));
+        assert_eq!(
+            sth_cache_hit(cached, 1_096_727),
+            Some((1_096_727, root)),
+            "same record count must reuse the head rather than rebuild the tree"
+        );
+        assert_eq!(
+            sth_cache_hit(cached, 1_096_728),
+            None,
+            "one append must invalidate: serving the old root here would sign a stale tree"
+        );
+        assert_eq!(sth_cache_hit(cached, 0), None);
+        assert_eq!(sth_cache_hit(None, 1_096_727), None, "a cold cache must rebuild");
+    }
+
+    /// A cached head and a freshly-walked head must produce byte-identical
+    /// signed bytes for the same tree, or the cache is a second signer.
+    /// Guaranteed structurally: both routes call `sign_sth_over`, and
+    /// `sign_sth` is now a thin wrapper that computes the root and hands it to
+    /// the same function.
+    #[test]
+    fn both_routes_sign_through_one_function() {
+        let src = include_str!("lib.rs");
+        assert!(
+            src.contains("fn sign_sth_over(s: &AppState, tree_size: u64, root: [u8; 32])"),
+            "the shared signing path is the thing that keeps cached and fresh heads identical"
+        );
+        assert!(
+            src.contains("sign_sth_over(\n        s,\n        leaves.len() as u64,"),
+            "sign_sth must delegate rather than duplicate the preimage construction"
+        );
+    }
+}
+
+#[cfg(test)]
+mod manifest_key_order_tests {
+    use super::*;
+
+    /// The receipt manifest digest is blake3 over CBOR of `source_versions`
+    /// with the keys in PLAIN STRING SORT order — `BTreeMap` iteration order —
+    /// and NOT in RFC 8949 §4.2.1 canonical order.
+    ///
+    /// `/v1/verifier_spec` used to say "cbor(sorted source_versions)", and the
+    /// reasonable reading of that is §4.2.1, which sorts by ENCODED key bytes
+    /// and is therefore length-first for short text keys. For the real four-key
+    /// set the two orders disagree, so a verifier written to the spec computed
+    /// a different digest and rejected EVERY valid receipt, with the failure
+    /// presenting as a bad signature. It cost an independent implementer an
+    /// hour on 2026-08-11.
+    ///
+    /// The rule is frozen by every receipt ever signed, so it is pinned rather
+    /// than changed. The value below is emem's OWN published vector, the one
+    /// `/verify` self-tests its JS encoder against, so the signer, the spec and
+    /// the shipped browser verifier cannot drift apart.
+    #[test]
+    fn manifest_hex_is_btreemap_order_not_rfc8949() {
+        const VERIFY_PAGE_VECTOR: &str =
+            "de14467c03ed214d08ad536ba2923fed93dfd1d2af63c74d1b08131b00ea3915";
+        // What a verifier implementing RFC 8949 §4.2.1 computes instead.
+        // Asserted so the trap is documented and not merely the value: if this
+        // ever equals the vector above, the two orders have stopped
+        // disagreeing and the warning in the spec can go.
+        const RFC_8949_VECTOR: &str =
+            "545f412bdd0bd3ab3055f319c8d216775e950a762cd4a8ec242e06f31ee60569";
+
+        let got = manifest_golden_vector_hex();
+        assert_eq!(
+            got, VERIFY_PAGE_VECTOR,
+            "the signer's manifest digest moved away from the vector /verify self-tests against"
+        );
+        assert_ne!(
+            got, RFC_8949_VECTOR,
+            "plain string sort and RFC 8949 §4.2.1 now agree for this key set"
+        );
+
+        // And the orders themselves, so the failure names the cause rather
+        // than just a hex mismatch.
+        let keys = ["bands_cid", "registry_cid", "schema_cid", "sources_cid"];
+        let mut plain = keys;
+        plain.sort_unstable();
+        let mut rfc = keys;
+        rfc.sort_unstable_by_key(|k| (k.len(), *k));
+        assert_eq!(plain, ["bands_cid", "registry_cid", "schema_cid", "sources_cid"]);
+        assert_eq!(rfc, ["bands_cid", "schema_cid", "sources_cid", "registry_cid"]);
+        assert_ne!(
+            plain, rfc,
+            "if these agree, the spec's warning is obsolete and should be removed"
+        );
+    }
+
+    /// The spec must SAY so, at the segment a verifier reads. A correct
+    /// implementation that follows an ambiguous spec is still a rejected
+    /// receipt.
+    #[test]
+    fn the_spec_names_the_ordering_rule_and_carries_the_vector() {
+        let src = include_str!("lib.rs");
+        assert!(
+            src.contains("PLAIN STRING SORT order, NOT RFC 8949"),
+            "the manifest_hex segment note must state which sort it means"
+        );
+        assert!(
+            src.contains("manifest_hex_key_order"),
+            "verifier_spec must carry the key-order block with the golden vector"
         );
     }
 }

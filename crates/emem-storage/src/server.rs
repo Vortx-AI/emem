@@ -211,7 +211,21 @@ impl Server {
     /// "body claims X, signature binds nothing" gap. The verifier
     /// rebuilds the same digest when the receipt body carries a
     /// non-empty `source_versions`.
-    pub(crate) fn manifest_versions_blake3_hex(
+    ///
+    /// PUBLIC because `/v1/verifier_spec` publishes a golden vector for this
+    /// digest and must compute it with the signer's own code. A hand-copied
+    /// constant in the spec would be free to drift from the rule receipts are
+    /// actually signed under, which is the exact failure the spec exists to
+    /// prevent.
+    ///
+    /// Key order is BTreeMap iteration order — plain lexicographic string
+    /// sort — and NOT RFC 8949 §4.2.1, which sorts by encoded key bytes and
+    /// is therefore length-first for short text keys. For the real four-key
+    /// set the two orders disagree, so an implementer who reads "sorted" as
+    /// §4.2.1 computes a different digest and rejects every valid receipt.
+    /// The rule is frozen by every receipt ever signed; the spec documents
+    /// it and `manifest_hex_is_btreemap_order_not_rfc8949` pins it.
+    pub fn manifest_versions_blake3_hex(
         versions: &BTreeMap<String, String>,
     ) -> Option<String> {
         if versions.is_empty() {

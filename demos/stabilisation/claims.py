@@ -124,6 +124,76 @@ def dead_sdk_doc_links() -> str:
     return f"{len(dead)} dead of {len(urls)}: " + ", ".join(dead)
 
 
+def core_profile_is_whole_on_page_one() -> str:
+    """A no-cursor tools/list on /mcp must return the COMPLETE core profile and
+    end the chain there.
+
+    Directory scanners and several hosts take page one and stop. When the page
+    budget split the core tier they got 12 of a profile the same response
+    declared as 16, so the advertised surface was unreachable by construction
+    for exactly the clients most likely to read it. The other half of the same
+    property: the chain from /mcp must not hand a patient client on to the
+    extended tier, or the cheap endpoint is the expensive one and the byte
+    figure a directory was promised is wrong in the direction that matters.
+
+    Reports a verdict rather than a count for the same reason widest_tools_page
+    does: tool counts move on purpose, and a claim that reddens on an intended
+    edit gets switched off."""
+    req = urllib.request.Request(
+        RESPONDER + "/mcp",
+        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                         "params": {}}).encode(),
+        headers={"Content-Type": "application/json",
+                 "Accept": "application/json, text/event-stream"})
+    with urllib.request.urlopen(req, timeout=90) as r:
+        raw = r.read()
+    result = json.loads(raw)["result"]
+    shown = len(result.get("tools", []))
+    declared = ((result.get("_meta") or {}).get("dev.emem/profiles") or {}).get("core")
+    if declared is None:
+        return "no core profile declared in _meta"
+    if shown != declared:
+        return f"page one shows {shown} of a {declared}-tool core profile"
+    if result.get("nextCursor"):
+        return f"chain continues past core: nextCursor={result['nextCursor']}"
+    if len(raw) > CLIENT_CAP_BYTES:
+        return f"page one is {len(raw)} > {CLIENT_CAP_BYTES}"
+    return "whole core profile in one page, chain ends"
+
+
+def unknown_recall_field_is_refused() -> str:
+    """`determinstic: true`, one transposed letter, used to return every fact
+    while `deterministic: true` filtered. The tamper-provenance filter silently
+    did nothing and the response was indistinguishable from success.
+
+    Compares the two spellings against each other rather than pinning a fact
+    count, because the corpus grows: the property is that the typo is REFUSED
+    and the correct spelling still filters."""
+    typo_status, typo_body = post("/v1/recall",
+                                  {"place": "Bengaluru", "determinstic": True})
+    if typo_status == 200:
+        return f"typo accepted: {len(typo_body.get('facts', []))} facts returned"
+    code = (typo_body.get("details") or {}).get("code") or typo_body.get("code")
+    unfiltered = len(post("/v1/recall", {"place": "Bengaluru"})[1].get("facts", []))
+    filtered = len(post("/v1/recall",
+                        {"place": "Bengaluru", "deterministic": True})[1].get("facts", []))
+    if filtered >= unfiltered:
+        return f"correct spelling did not filter: {filtered} of {unfiltered}"
+    return f"{typo_status} {code}, and the correct spelling still filters"
+
+
+def cell_matches_reports_a_check_that_ran() -> str:
+    """`cell_matches` was hardcoded true on every 200 while the guard behind it
+    only ran when the token was well-formed, so a bare cid, which asserts no
+    cell at all, came back claiming the address had been checked.
+
+    Asserts both directions: true on a canonical token where the comparison
+    runs, false on a bare cid where there is nothing to compare."""
+    ok = post("/v1/memory_token/resolve", {"token": NDVI_TOKEN})[1]
+    bare = post("/v1/memory_token/resolve", {"token": NDVI_TOKEN.split(":")[-1]})[1]
+    return (f"canonical={ok.get('cell_matches')} "
+            f"bare_cid={bare.get('cell_matches')} degraded={bare.get('degraded')}")
+
 # --------------------------------------------------------------------------- #
 
 CLAIMS = [
@@ -196,5 +266,32 @@ CLAIMS = [
         "probe": lambda c: (lambda s, b: b["value_verbatim"] if s == 200
                             else f"unresolved ({b.get('code')})")(
             *post("/v1/memory_token/resolve", {"token": c["token"]})),
+    },
+    {
+        "id": "core_profile_whole_on_page_one",
+        "claim": "A no-cursor tools/list on /mcp returns the complete core "
+                 "profile and the chain ends there. A scanner that takes page "
+                 "one and stops gets a callable profile, not a fragment.",
+        "how": "one tools/list with no cursor; compare the tools shown against "
+               "the core count the same response declares, and require a null "
+               "nextCursor",
+        "probe": lambda c: core_profile_is_whole_on_page_one(),
+    },
+    {
+        "id": "unknown_recall_field_is_refused",
+        "claim": "A misspelled recall field is refused, not dropped. "
+                 "`determinstic: true` returned every fact while reporting "
+                 "success, so a safety filter could be disabled by a typo.",
+        "how": "send the typo and the correct spelling; require a typed refusal "
+               "for one and real filtering from the other",
+        "probe": lambda c: unknown_recall_field_is_refused(),
+    },
+    {
+        "id": "cell_matches_reports_a_check_that_ran",
+        "claim": "`cell_matches` is true only when the address comparison "
+                 "actually ran. A bare cid asserts no cell, so it reports "
+                 "false: not checked, rather than checked and agreed.",
+        "how": "resolve a canonical token and a bare cid, report both flags",
+        "probe": lambda c: cell_matches_reports_a_check_that_ran(),
     },
 ]

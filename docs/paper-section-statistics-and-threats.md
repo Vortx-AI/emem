@@ -16,15 +16,23 @@ memory.
 
 | axis | individual tokens | **bundled** | context | who wins |
 |---|---|---|---|---|
-| citation size | 104 chars each | 38 chars, any N | grows with values and digits | **bundle** |
-| context, N facts | 104·N | **38, flat** | ~18·N | **bundle** |
+| citation size | 84 chars / 51 LLM tokens | 38 chars / 23 LLM tokens, any N | grows with values and digits | **bundle** |
+| context, N facts | 51·N LLM tokens | **23, flat** | ~5.4·N LLM tokens | **bundle** |
 | round trips | N | **1**, to 256 | 1 | bundle / context |
 | wall clock | 69 up to 1,255 ms | 20 to 54 ms flat | ~0.9 s | **bundle** |
 
 **Unbundled addressing costs MORE context than the values it replaces, and that
-belongs in the headline rather than the caveats.** A token is 104 characters; the
-signed value it points at averages 18. So N individual tokens cost roughly 5.8x
-the context of pasting the N numbers, and the individual-token arm hits the
+belongs in the headline rather than the caveats.** Measured over 131 scalar
+facts at 12 places across 57 bands (2026-08-11): a token is 83 to 85 characters,
+mean 84.1, and the signed value it points at averages 10.9. Earlier drafts of
+this section said 104 characters and 5.8x; both were wrong, the grammar cannot
+produce 104 (`emem:fact:` 10 + cell64 19 to 23 + `:` + cid 52 = 86 max), and
+the true cost is worse rather than better.
+
+Characters are also the wrong unit for a claim about context. In LLM tokens,
+the unit that bills the window, a base32 cid fragments under BPE, so the same
+sample gives **50.6 tokens per citation against 5.4 per value: 9.5x**
+(cl100k_base), where characters alone suggest 7.7x. N individual tokens hit the
 prompt wall *sooner* than plain context does. Addressing is a loss unless you
 bundle.
 

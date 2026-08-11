@@ -58,7 +58,7 @@ a stale one without asking us.
 | Anything that survives context compaction | A citation that outlives the window: keep the token, re-resolve it in the next session or the next model |
 | A robot, drone, camera or satellite pipeline | A write path that admits your output on proof of how it ran, via a signed OS execution trace, rather than on your say-so |
 | An audit, compliance or provenance trail | Append-only history where deletion unpublishes rather than erases, and any third party can re-verify authorship offline |
-| A benchmark or an evaluation | A substrate whose failures are typed and quotable: absences are signed, disagreements are scored, and a refusal names its reason |
+| A benchmark or an evaluation | A substrate whose failures are typed and quotable: a confirmed absence is signed and citeable, an *unknown* is typed and never poses as one, disagreements are scored, and a refusal names its reason |
 
 **Do not connect it for these.** It is not a private scratchpad: everything an
 agent writes to the shared store is world-readable unless sealed, and even
@@ -93,6 +93,35 @@ with emem
 
 Three things you lose when the memory is a paraphrase inside one model: a long task quietly loses its own verified precision and nothing downstream notices; agents re-derive each other's work because a summary from another vendor cannot be trusted; and a claim cannot be audited once its author is gone, because nothing proves which value it actually saw. emem removes all three by making the fact, not the summary, the thing you carry.
 
+### A value moved, and the citation did not
+
+Nobody designed this demonstration; it happened to the example above while this
+README sat unchanged, and an independent benchmark found it on 2026-08-11.
+
+The band behind that cell changed upstream. `copdem30m.elevation_mean` at
+`defi.zb493.xuqA.zcb5f` was answered by `open_meteo_copdem90m@1` and read
+**918.0 m**; it is now answered by `copernicus_dem_30m_aws_pixel@1` and reads
+**915.0712280273438 m**. Different provider, different resolution, 2.93 m apart,
+same address.
+
+The token published in May still resolves to 918.0, and its receipt still
+verifies:
+
+```bash
+curl -s -X POST https://emem.dev/v1/memory_token/resolve -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"}' \
+  | jq '{value_verbatim, fn_key: .fact.fact.derivation.fn_key}'
+```
+
+That is the whole argument, run in production against a real drift rather than
+in a benchmark we wrote. A paraphrase of 918 would now be silently wrong and
+unattributable. The citation is neither: it still returns the bytes that were
+signed, says which instrument produced them, and can be told apart from what
+the same address answers today. Asking whether that difference is a
+*disagreement* is what `emem_memory_contradictions` answers when you pass
+`include_same_attester_sources: true`. One responder that changed instruments
+is not two witnesses, and the report says which it is.
+
 ## How it works, in one call
 
 Reading needs no key. This returns the elevation at one 10-metre cell of Bengaluru as a signed record:
@@ -103,7 +132,9 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"place":"Bengaluru","bands":["copdem30m.elevation_mean"]}'
 ```
 
-The response carries the value (918 metres), the record's content id (`fact_cid`), and an ed25519 receipt. One more paste checks that receipt against the responder's published key, so you are trusting neither the server nor this README:
+The response carries the elevation at that cell, the record's content id (`fact_cid`), and an ed25519 receipt. Read the number off `value_verbatim` in your own response rather than off this page: it is the value exactly as it was signed, and a figure typed into a README is the paraphrase problem committed on the page arguing against it. This one had already drifted, which is the point: see [below](#a-value-moved-and-the-citation-did-not).
+
+One more paste checks that receipt against the responder's published key, so you are trusting neither the server nor this README:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
@@ -189,7 +220,7 @@ A signature proves who attested a record and that the bytes never changed. It do
 | `model_output` | **attributed, not checked.** The responder signs that *this attester claims V via recipe R*. It never evaluated V |
 | `human_curated` | a person asserted it |
 
-Citing a `model_output` derivation as though it were evidence is exactly the error this table exists to prevent. Pass `deterministic: true` on a read to keep only what a third party can recompute from raw source. And where there is no observation, emem returns a **signed absence** carrying a typed reason, never a bare 404: evidence of no-data, citeable like any other fact.
+Citing a `model_output` derivation as though it were evidence is exactly the error this table exists to prevent. Pass `deterministic: true` on a read to keep only what a third party can recompute from raw source. And where there is no observation, emem distinguishes two answers that a 404 would collapse into one. Where the responder looked and there is nothing, it returns a **signed absence** carrying a typed reason: evidence of no-data, citeable like any other fact. Where it could not look (an upstream failed, coverage does not reach) it returns a typed, UNSIGNED note with `absence: false`, because signing "I could not look" as though it were "I looked and found nothing" is the dishonesty the signed absence exists to prevent. An unknown never poses as a confirmed absence.
 
 ## When to use it
 
@@ -224,7 +255,7 @@ It also sits **beside** retrieval, not under it. emem does not hold your documen
 1. A record's id is the blake3 hash of its canonical bytes: change one byte, the id changes, so the id proves the bytes.
 2. Every answer carries an ed25519 receipt that verifies offline against the responder's published key. No callback, no account.
 3. Every record names its source, its versioned algorithm, and its provenance class, so you know whether a value is recomputable from raw data or trusted through a model, a device, or a person.
-4. A missing value is a signed absence with a typed reason, never a bare 404.
+4. A missing value is a signed absence with a typed reason where the responder looked, and a typed unsigned `unknown` where it could not. Never a bare 404, and never an unknown wearing an absence's signature.
 5. Nothing is overwritten. Later records supersede; disagreement between writers is kept and scored as evidence, never averaged away.
 6. The transparency log is auditable, not just assertable: an append-only RFC 6962 tree over BLAKE3 records every attestation batch. Pin a signed head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), prove it only ever grew (`/v1/log/consistency`), enumerate what it holds (`/v1/log/entries`), prove one entry sits under the head (`/v1/log/inclusion`), and co-sign a head (`/v1/log/witness`) so a split view becomes detectable. The honest gap: a receipt does not yet carry its own log coordinate, so tying one fact to one leaf takes the receipt's batch proof plus enumeration; a receipt that names its leaf is [roadmap](docs/roadmap.md).
 7. A derivation over signed facts can be *recomputed*, not just signed: pin the code for a pure op and the responder re-runs it over the cited parents before recording `deterministic_index`. The difference between "someone computed this" and "anyone can check it," in the record itself.
