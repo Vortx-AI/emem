@@ -689,6 +689,83 @@ def check_discovery(origin: str, facts: dict, repo_root: str):
 # --------------------------------------------------------------------- main
 
 
+def check_install_badges(repo_root: str) -> None:
+    """A README badge is a claim, and claims here get checked like any other.
+
+    Two different kinds sit in that header and they fail differently:
+
+    - An INSTALL badge is functional. It carries a config a host executes, so
+      it can be wrong in the worst way: the image renders, the click does
+      nothing useful, and the developer concludes the server is broken. The
+      config inside the link is compared against the endpoint we actually
+      advertise, so a moved endpoint cannot leave a working-looking button
+      pointing at the old one.
+    - A LISTING badge is an assertion. It is a static picture saying we are in
+      a directory, and it will keep saying that forever after a delisting.
+      That is the defect class this repo keeps finding in its own prose, so
+      the target is fetched rather than trusted.
+
+    Not fatal on a network fault: an unreachable directory is their outage,
+    not our drift, and a check that cannot tell those apart gets switched off.
+    """
+    import re
+    import urllib.parse
+
+    readme = os.path.join(repo_root, "README.md")
+    try:
+        with open(readme, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as e:
+        row("VS Code, Copilot", "the README is readable", str(e), False, "")
+        return
+
+    advertised = "https://emem.dev/mcp"
+    badges = re.findall(r"\[!\[([^\]]+)\]\(([^)]+)\)\]\(([^)]+)\)", text)
+
+    # 1. Every install link carries the endpoint we advertise.
+    installs = [(alt, link) for alt, _img, link in badges if "mcp/install" in link]
+    bad = []
+    for alt, link in installs:
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(link).query)
+        cfg = (q.get("config") or ["{}"])[0]
+        try:
+            url = json.loads(cfg).get("url")
+        except json.JSONDecodeError:
+            url = None
+        if url != advertised:
+            bad.append(f"{alt}: config url={url!r}")
+    row("VS Code, Copilot",
+        "a one-click install badge installs the endpoint we advertise",
+        f"{len(installs)} install badge(s), {len(bad)} wrong" if installs
+        else "no install badge in the README",
+        bool(installs) and not bad,
+        "; ".join(bad) if bad else f"{len(installs)} ok")
+
+    # 2. Every badge image and target actually resolves.
+    unreachable, dead = [], []
+    for alt, img, link in badges:
+        for u in (img, link):
+            if not u.startswith("http"):
+                continue  # relative repo path, git already guarantees it
+            try:
+                req = urllib.request.Request(
+                    u, headers={"User-Agent": "Mozilla/5.0 emem-badge-check"})
+                urllib.request.urlopen(req, timeout=25).read(1)
+            except urllib.error.HTTPError as e:
+                # 403 is a bot wall (doi.org and several directories do this),
+                # not a dead link. 404/410 is gone.
+                if e.code in (404, 410):
+                    dead.append(f"{alt} -> {u} ({e.code})")
+            except Exception:
+                unreachable.append(alt)
+    row("Glama, Smithery",
+        "no README badge points at something that has 404'd",
+        f"{len(badges)} badges checked, {len(dead)} dead"
+        + (f", {len(unreachable)} unreachable" if unreachable else ""),
+        not dead,
+        "; ".join(dead) if dead else f"{len(badges)} ok")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--origin", default="https://emem.dev")
@@ -703,6 +780,7 @@ def main() -> int:
         facts = run(args.origin, args.endpoint)
         if not args.skip_discovery:
             check_discovery(args.origin, facts, repo_root)
+            check_install_badges(repo_root)
     except Fail as e:
         print(f"harness could not run: {e}", file=sys.stderr)
         return 2

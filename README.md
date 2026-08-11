@@ -8,16 +8,17 @@
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
-[![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
-[![MCP Registry: io.github.Vortx-AI/emem](https://img.shields.io/badge/MCP%20Registry-io.github.Vortx--AI%2Femem-black)](https://registry.modelcontextprotocol.io/v0/servers?search=emem)
+[![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
 [![emem MCP server](https://glama.ai/mcp/servers/Vortx-AI/emem/badges/score.svg)](https://glama.ai/mcp/servers/Vortx-AI/emem)
 [![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
 [![Whitepaper: Zenodo](https://img.shields.io/badge/whitepaper-Zenodo%20DOI-3b5?logo=zenodo&logoColor=white)](https://doi.org/10.5281/zenodo.20706893)
 
 [Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8) · [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
 
+[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+
 **Add it to your agent now.**
-In **VS Code / GitHub Copilot**, search `@mcp emem` in the Extensions view, or [install in one click](https://vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D).
+In **VS Code / GitHub Copilot**, click the button above, or search `@mcp emem` in the Extensions view.
 In **Claude Code, Cursor, Cline**, paste into `.mcp.json`:
 `{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}`
 &nbsp;·&nbsp; Python `pip install ememdev` &nbsp;·&nbsp; TypeScript `npm i @vortxai/emem` &nbsp;·&nbsp; or `curl` the REST API. **Reads need no key, no account, no signup.**
