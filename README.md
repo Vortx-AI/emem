@@ -289,46 +289,54 @@ The whole argument, including a published null and a first run we voided over a 
 
 ## Watch it answer a question nobody can answer from a model alone
 
-**"Is my house making me sick?"**
+**"Is my house making me sick?"** Nine agents, one house in Whitefield,
+Bengaluru, and a control arm running the same models on the same seeds with
+emem switched off.
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=fE_vj7sJ2W0">
-    <img src="https://img.youtube.com/vi/fE_vj7sJ2W0/sddefault.jpg" width="640"
-         alt="Video: a multi-agent system answers 'is my house making me sick?' using emem as its shared memory. Click to watch on YouTube." />
+    <img src="web/demo-house-frame.png" width="880"
+         alt="A frame from the run. Left: nine agents arranged around one house, each holding a signed reading, 83.2% relative humidity, 21.8C, 18.92C dew point, 5.8 m/s, PM2.5 5.2, NO2 10.8, 879.06 m elevation. Right: the transcript. The medic resolves ten memory tokens and reports every value byte-identical; the control arm restarts from hypothesis one; the guard reports 10 citations, 10 resolved, 0 ungrounded, and returns ALLOW; the receipt verifies ed25519 VALID; the whole investigation collapses to one emem:bundle: token. Value fidelity 100 percent, cost of that fidelity 1.52 times." />
   </a>
 </p>
 
-<p align="center"><a href="https://www.youtube.com/watch?v=fE_vj7sJ2W0"><b>Watch the run</b></a></p>
+<p align="center"><a href="https://www.youtube.com/watch?v=fE_vj7sJ2W0"><b>Watch the run</b></a> &nbsp;·&nbsp; <sub>4 min</sub></p>
 
 That question is a good test of a memory layer because it is not one
-question. It decomposes into air quality, heat, green cover, water and
-ground, at one address, over time, and the honest answer is a set of
-measurements rather than a paragraph. A single model will produce the
-paragraph. It has no way to tell you which numbers it read and which it
-recalled, and neither do you.
+question. It decomposes into humidity, temperature, dew point, wind,
+particulates and ground, at one address, across nine agents that never
+share a context window. The honest answer is a set of measurements, and a
+single model will give you a paragraph instead, with no way for you or it
+to tell which numbers it read and which it recalled.
 
-With emem the agents work the other way round. The house resolves to one
-`cell64` that every agent in the run agrees on, each reading comes back as
-a signed fact, and what the agents pass between each other is the
-`emem:fact:` token rather than a sentence about it. So when one agent
-tells another the aerosol optical depth, the second agent can dereference
-it, get the byte-identical signed body, and check the receipt itself, with
-no key and no callback. Nothing is taken on the first agent's word.
+Four moments from the run, and each one is a claim in this README being
+exercised rather than asserted:
 
-Three things the run shows that are hard to show any other way:
+- **`the memory did not survive. the citations did.`** The control arm,
+  same models and same seeds, restarts from hypothesis one after its
+  context turns over. The emem arm re-resolves ten tokens and reports
+  every value **byte-identical**, including `879.06 m` for elevation.
+- **`we have no sensor inside, so we do not diagnose.`** The run refuses
+  the question it was actually asked, because nothing measured the indoor
+  air. It returns what it can stand behind instead: high condensation
+  risk on the north aspect, the north glass at 17.9°C against a dew point
+  of 18.92°C, and PM2.5 at 5.2 with NO2 at 10.8 ruling out the traffic
+  story. Then it says what to do next, which is to put a probe on that
+  wall.
+- **`10 citations · 10 resolved · 0 ungrounded → ALLOW`.** Every
+  measurable claim in the final answer was checked against a citation
+  that still dereferences, by [emem-guard](#emem-guard-a-yesno-gate-for-claims-about-the-world),
+  before the answer was allowed out.
+- **One `emem:bundle:` token carries the whole investigation**, receipt
+  `ed25519 · VALID`, verifiable by anyone offline with no key and no
+  callback.
 
-- **The answer is auditable after the fact.** Every number in the summary
-  keeps its token, so months later you can resolve it and see the exact
-  reading it was based on, not a paraphrase of it.
-- **Disagreement stays visible.** Where two sources answer the same
-  address differently, that is reported as a disagreement with a severity
-  rather than silently resolved to one confident number.
-- **A refusal is typed.** Where there is no observation, the run gets a
-  signed absence or a typed unknown, and it says which. It does not get a
-  plausible number.
+It also publishes its own cost, which is the part a demo usually leaves
+out: **value fidelity 100%, cost of that fidelity 1.52x**. Addressed
+memory is not free, and the page that tells you it is has not measured it.
 
-Everything in it runs on the same public surface as the two commands
-below. No key, no account.
+Everything in the run uses the same public surface as the commands below.
+No key, no account.
 
 ## Use it in two minutes
 
