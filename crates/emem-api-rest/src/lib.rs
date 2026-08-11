@@ -183,6 +183,11 @@ const SKILL_A2A_COLLABORATION: &str =
     include_str!("../../../claude-skills/emem-a2a-collaboration/SKILL.md");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
+/// The MCP server descriptor. It lives at the repo root because that is
+/// where the registry publish flow reads it, and it was never routed, so
+/// https://emem.dev/server.json answered 404 while every listing that
+/// mentions us expects it at the website origin.
+const SERVER_JSON: &str = include_str!("../../../server.json");
 // Lowercase canonical docs (post-2026-05-08 docs sweep). CLIENTS_MD was
 // merged into agents.md; MULTIMODAL_MD into inference.md; SPEC_MD into
 // protocol.md.
@@ -1025,6 +1030,7 @@ pub fn router(state: AppState) -> Router {
         .route("/oauth/token", post(oauth_token))
         .route("/oauth/status", get(oauth_status))
         .route("/agent.json", get(agent_manifest))
+        .route("/server.json", get(serve_server_json))
         // ── Agent-directory aliases ──────────────────────────────────
         // Directory crawlers (AgenstryBot, MCP-Catalog-Bot,
         // MCPScoringEngine) probe several conventions before landing on
@@ -4574,6 +4580,14 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
 async fn ai_plugin() -> Response {
     text_response("application/json; charset=utf-8", AI_PLUGIN_JSON)
 }
+/// `/server.json`, the MCP server descriptor the registries look for.
+async fn serve_server_json() -> impl axum::response::IntoResponse {
+    (
+        [("content-type", "application/json; charset=utf-8")],
+        SERVER_JSON,
+    )
+}
+
 async fn agent_manifest() -> Response {
     text_response("application/json; charset=utf-8", AGENT_JSON)
 }
