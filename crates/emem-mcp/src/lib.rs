@@ -1433,9 +1433,30 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_memory_token_resolve",
         title: "Dereference a memory_token in one round-trip",
-        description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the signed fact body the cid binds. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html).",
-        when_to_use: "Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the underlying signed bytes. The response carries the parsed cell + fact_cid, the full fact body, and the stable `fact_url` an agent can hand to any other peer. 404 with a typed code if the responder doesn't hold the cid; try /v1/fetch with the cid then, or paste the token at a mirror.",
+        description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the reading it cites. `value`, `unit`, `band` and `kind` are on the response at the TOP level, alongside the full signed `fact` body they were lifted from. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html).",
+        when_to_use: "Call when an agent receives a memory_token from another agent (or out of a previous turn) and wants the value behind it. Read `value` for the reading and `unit` for what it is measured in; both are always present, and an explicit null means the fact genuinely has none (`kind: \"absence\"` has no value, and most index bands including NDVI are dimensionless) rather than that the field is missing. For a scalar, quote `value_verbatim` instead: it is the same number as the exact decimal string it was signed as, and re-typing a JSON number is where measured precision loss comes from. The response also carries the parsed cell + fact_cid, the full `fact` body, and the stable `fact_url` an agent can hand to any other peer. 404 with a typed code if the responder doesn't hold the cid; try /v1/fetch with the cid then, or paste the token at a mirror.",
         input_schema: SCHEMA_MEMORY_TOKEN_RESOLVE,
+        // Stays `None`, and now for a measured reason rather than by default.
+        //
+        // The REST door describes this response properly as of the same
+        // change (components/schemas/MemoryTokenResolveResp in openapi.json),
+        // so the obvious follow-through is to promise the same schema here.
+        // Measuring it says no. Lifting `value` to the top level duplicates
+        // the reading, which is free for a scalar (a real NDVI resolve grows
+        // 2875 -> 2951 bytes) and is not free for a foundation embedding: the
+        // widest bands are 384-D (clay_v1, prithvi_eo2), and a real 128-D
+        // geotessera body widened to 384 floats measures 17,767 bytes, so the
+        // two-copy text+structuredContent envelope is 35,630 against a 24,000
+        // budget. That is exactly the condition documented on `output_schema`
+        // above: a tool whose result can exceed the budget cannot honestly
+        // promise a mirror.
+        //
+        // Declaring one would also make that case WORSE, not better. The
+        // oversize path slims a schema-declaring tool to budget/2 and sends
+        // both copies, and at 12,000 bytes the largest field is the embedding
+        // itself, so the caller would lose the vector from both copies. With
+        // no schema declared the wrapper drops only the mirror and the full
+        // text block survives intact. The data is never what gives way.
         output_schema: None,
         example_args: r#"{"token":"emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,

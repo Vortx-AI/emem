@@ -3560,6 +3560,49 @@ fn serve_docs_book_path_impl(rel: &str) -> Response {
     if rel.split('/').any(|seg| seg == ".." || seg == ".") {
         return StatusCode::BAD_REQUEST.into_response();
     }
+
+    // A `/docs/<name>.md` URL is the SOURCE spelling of a page mdbook renders
+    // to `<name>.html`. Both name the same document, and only one of them has
+    // ever resolved.
+    //
+    // That is not a hypothetical. `docs/memory.md` is a real chapter, it is
+    // listed in SUMMARY.md, and it renders and serves fine at
+    // `/docs/memory.html` — but the emem-langmem README pointed a reader at
+    // `https://emem.dev/docs/memory.md`, which 404'd, because the extension a
+    // human types is the one in the repository and the extension the site
+    // serves is the one mdbook writes. Nobody wrote anything false; the two
+    // spellings were just never connected.
+    //
+    // So connect them once, for the whole class, rather than fixing the two
+    // links that happened to be noticed. A 301 keeps a single canonical URL
+    // per document (the rendered one) and means every `/docs/*.md` link
+    // anyone has already published — in a README, in a package's metadata, in
+    // someone else's blog post — lands on the page instead of on nothing.
+    // Only redirects when the rendered page actually exists, so a genuinely
+    // missing document still 404s with the actionable hint below rather than
+    // bouncing the caller to another 404.
+    //
+    // The hand-routed policy documents (`/docs/PRIVACY.md`, `/docs/TERMS.md`,
+    // and friends) are unaffected: they are their own static routes, and
+    // axum's matchit prefers a static route over this `/docs/*path` wildcard,
+    // so they keep serving markdown at their `.md` URLs as before.
+    if let Some(stem) = rel.strip_suffix(".md") {
+        let rendered = format!("{stem}.html");
+        if DOCS_BOOK.get_file(&rendered).is_some() {
+            return Response::builder()
+                .status(StatusCode::MOVED_PERMANENTLY)
+                .header(axum::http::header::LOCATION, format!("/docs/{rendered}"))
+                .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+                .body(axum::body::Body::from(format!(
+                    "moved permanently to /docs/{rendered}\n\
+                     \n\
+                     `{rel}` is the source spelling of this chapter; the site serves \
+                     the rendered page.\n"
+                )))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        }
+    }
+
     let Some(file) = DOCS_BOOK.get_file(rel) else {
         // List the actual pages that exist so the 404 is actionable
         // instead of pointing at a /docs/searchindex.json that we don't
@@ -23843,6 +23886,11 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
         ("emem_memory_contradictions", "SignedResponse"),
         ("emem_edges_recall", "SignedResponse"),
         ("emem_verify_receipt", "VerifyReceiptResp"),
+        // The dereference at the centre of the product described itself as
+        // `{"type":"object"}`, which is the schema equivalent of saying
+        // nothing. A caller could not learn from the document that the
+        // resolved reading is on the response at all.
+        ("emem_memory_token_resolve", "MemoryTokenResolveResp"),
         ("emem_fetch", "Fact"),
         ("emem_fetch_post", "Fact"),
         ("emem_field_boundaries", "FieldBoundariesResp"),
@@ -24333,6 +24381,26 @@ fn openapi_spec() -> JsonValue {
                 "CompareBandsResp":{"type":"object","description":"Response of /v1/compare_bands. Numeric delta + percent change for scalar pairs; cosine + L2 for vector pairs. `predicate_verdict` is present when a consistency predicate was passed.","required":["delta","receipt"],"properties":{"delta":{"type":"number"},"percent_change":{"type":"number"},"cosine":{"type":"number"},"l2":{"type":"number"},"predicate_verdict":{"type":"object","properties":{"kind":{"type":"string"},"threshold":{"type":"number"},"holds":{"type":"boolean"}}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "VerifyResp":      {"type":"object","description":"Response of /v1/verify. `holds` is the boolean verdict; `evidence_cids` are the fact CIDs the verifier walked to reach the verdict.","required":["holds","receipt"],"properties":{"holds":{"type":"boolean"},"evidence_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"explanation":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "VerifyReceiptResp":{"type":"object","description":"Response of /v1/verify_receipt. `valid` is the ed25519 signature check; `signer` is the responder pubkey the signature was checked against; `preimage_b64` is the canonical preimage that was hashed and signed, for reproduction in any other ed25519 implementation.","required":["valid","signer"],"properties":{"valid":{"type":"boolean"},"signer":{"$ref":"#/components/schemas/PubKey"},"preimage_b64":{"type":"string"},"errors":{"type":"array","items":{"type":"string"}}}},
+                "MemoryTokenResolveResp":{"type":"object","description":"Response of /v1/memory_token/resolve (and of the emem_memory_token_resolve MCP tool, which shares the implementation, so the two cannot disagree). The dereference at the centre of the citation loop: a token in, the signed reading it cites out. `value` / `unit` / `band` / `kind` are the reading itself, lifted to the top level; `fact` is the full signed body they were lifted from, and `value` is the same JSON node as `fact.value` by construction, never a re-render. `value_verbatim` is the scalar as the exact decimal string it was signed as, and is the field a model should quote: re-typing `fact.value` from a JSON number is where measured precision loss comes from. Nothing here is taken from the token: the token carries only cell + fact_cid, and any further claim a descriptor token makes (band, capture date, coordinates) is bound against this body before the dereference is permitted, so a mismatch is a 409 rather than a field in this response.","required":["token","canonical_token","cell","fact_cid","value","unit","band","kind","fact","resolved","cell_matches","fact_url","signer_b32","receipt","degraded"],"properties":{
+                    "token":{"type":"string","description":"The citation exactly as sent, echoed back."},
+                    "canonical_token":{"type":"string","description":"The same citation in canonical grammar, `emem:fact:<cell64>:<fact_cid>`. Cite this one onward: a legacy `memt:` prefix, a descriptor anchor and a bare cid all normalise here."},
+                    "cell":{"$ref":"#/components/schemas/Cell64"},
+                    "fact_cid":{"$ref":"#/components/schemas/FactCid"},
+                    "value":{"description":"The cited reading: a number, an array of numbers for a vector band, or a class id. Always present, explicitly `null` when there is no reading, which happens only for `kind: \"absence\"`. Identical to `fact.value`."},
+                    "unit":{"type":["string","null"],"description":"The band's declared unit (`m`, `degC`, `mm`). Always present, explicitly `null` when the band is dimensionless (most indices, including NDVI) or when the fact is a derivative or an absence."},
+                    "band":{"type":"string","description":"Band key the value is a reading of, from the signed body.","example":"copdem30m.elevation_mean"},
+                    "kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Which kind of fact this token resolved to. Read it to interpret a null `value`. There is deliberately no top-level `tslot`: primary and absence carry a scalar `tslot` and a derivative carries a `tslot_window` pair, so time stays inside `fact` where it is typed honestly rather than flattened into one field that would be wrong for one of the three."},
+                    "fact":{"$ref":"#/components/schemas/Fact"},
+                    "value_verbatim":{"type":"string","description":"The scalar value as the exact decimal string it was signed as. Absent for non-scalar values (vectors, class ids, absences). Quote this rather than reformatting the number."},
+                    "resolved":{"type":"boolean","description":"Always true on a 200; the responder holds these bytes. A cid it does not hold is a 404, not a `resolved: false` body."},
+                    "cell_matches":{"type":"boolean","description":"Always true on a 200. A token whose cell contradicts the fact's own cell is refused with 409 rather than dereferenced, so a real fact_cid cannot be passed off as being somewhere it is not."},
+                    "fact_url":{"type":"string","format":"uri","description":"Stable URL serving bytes identical to `fact`."},
+                    "signer_b32":{"$ref":"#/components/schemas/PubKey"},
+                    "provenance":{"type":"object","description":"Tamper-provenance, attached by THIS responder from its own registry at resolve time rather than carried in the token. For a primary fact it describes the band (`class`, `deterministic`, `tamper_evidence`, `trust_rank`); for a derivative it describes the derivation, and `responder_recomputed` is the field that separates what this responder verified from what the attester merely declared. Omitted when the band is unknown here."},
+                    "receipt":{"$ref":"#/components/schemas/Receipt"},
+                    "offline_verify_at":{"type":"string","description":"Where to re-check the receipt without trusting this responder."},
+                    "degraded":{"type":"boolean","description":"True when a BARE fact_cid was accepted, i.e. the `emem:fact:<descriptor>:` head was missing or the cid was recovered from surrounding text. The bytes and the receipt are as authoritative as any resolve; only the citation was lossy, and a bare cid is responder-scoped so it is ambiguous elsewhere. Re-cite `canonical_token`."},
+                    "degraded_reason":{"type":"string","description":"Present only when `degraded`. Names the recovery class and what to do about it."}}},
                 "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"foundation_embeddings":{"type":"object","description":"Per-encoder neighbour lists and consensus voting. Populated when the intent matches `find places like` / `what changed`."},"answer":{"type":"string","description":"Short natural-language summary of what the responder found, synthesised deterministically from the structured fields (every cited value traces to a fact_cid in the receipt). On a cold cell whose bands are not yet materialized it states that plainly and points at `next_steps`; never an LLM call."},"answer_md":{"type":"string","description":"Markdown variant of `answer`."},"next_steps":{"type":"array","description":"Present when the routed algorithms could not evaluate because their input bands are not materialized at this cell. Each item is a literal follow-up call (e.g. POST /v1/recall with the exact missing bands) the agent can issue, then re-ask.","items":{"type":"object","properties":{"action":{"type":"string"},"why":{"type":"string"},"method":{"type":"string"},"path":{"type":"string"},"url":{"type":"string"},"body":{"type":"object"}}}},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "FieldBoundariesResp":{"type":"object","description":"Response of /v1/field_boundaries. `fields` is an array of per-field GeoJSON-Polygon features from Fields of The World (CC-BY-4.0). `attribution` and `license` must be surfaced with any rendered map.","required":["fields","license","attribution"],"properties":{"fields":{"type":"array","items":{"type":"object","properties":{"geometry":{"type":"object","description":"GeoJSON Polygon."},"area_ha":{"type":"number"},"country":{"type":"string"},"confidence":{"type":"number"}}}},"license":{"type":"string","example":"CC-BY-4.0"},"attribution":{"type":"string","example":"Fields of The World / Taylor Geospatial Institute"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "Error":           {"type":"object","required":["code","message"],"properties":{"code":{"type":"string","example":"invalid_argument"},"message":{"type":"string"},"details":{"type":"object"}}},
@@ -27435,9 +27503,60 @@ struct MemoryTokenResolveResp {
     cell: String,
     /// Parsed fact CID.
     fact_cid: String,
+    /// The cited reading itself, lifted out of the signed body.
+    ///
+    /// This response used to carry the value ONLY at `fact.value`. That is a
+    /// true answer that reads as a worse one: a caller dereferencing a
+    /// citation wants the number the citation cites, and every JSON client
+    /// asking this response for `value` got null, because the key was absent
+    /// rather than because the fact had no value. An external agent reported
+    /// it that way ("value and unit are null"), which is the tell: the field
+    /// they reached for is the field the endpoint is FOR.
+    ///
+    /// Copied verbatim out of the serialized signed body, so it is the same
+    /// JSON node as `fact.value` and cannot drift from it. It is NOT taken
+    /// from the token: the token carries only cell + fact_cid, and every
+    /// other claim in a descriptor token is bound against this same body
+    /// before the dereference is allowed to happen at all.
+    ///
+    /// Explicit `null`, never omitted. An absence fact HAS no value, and the
+    /// distinction "no reading here" versus "this endpoint forgot to tell
+    /// you" is exactly what the missing key destroyed. Read `kind` to tell
+    /// which null you are holding; `kind: "absence"` is the only one that
+    /// produces it. For a scalar, prefer `value_verbatim`: same number, as
+    /// the exact decimal string it was signed as.
+    value: JsonValue,
+    /// The band's declared unit (`m`, `degC`, `mm`), or `null`.
+    ///
+    /// Also explicit rather than omitted, and null is a real answer here:
+    /// most index bands are dimensionless, so `indices.ndvi` is legitimately
+    /// unitless while `copdem30m.elevation_mean` is metres. Only a primary
+    /// fact carries one; a derivative declares no unit and an absence has no
+    /// reading to attach one to.
+    unit: Option<String>,
+    /// Band key the value is a reading of, from the signed body. A number
+    /// without its band is not a reading, so it belongs beside the value.
+    /// On a descriptor token this equals the band the descriptor asserted,
+    /// because a disagreement was already refused with 409.
+    band: String,
+    /// `primary`, `derivative`, or `absence`. Present so `value: null` is
+    /// interpretable in one hop instead of a dig into `fact`.
+    ///
+    /// Deliberately NOT accompanied by a top-level `tslot`: the three
+    /// variants do not agree on one: primary and absence carry a scalar
+    /// `tslot`, a derivative carries a `tslot_window` pair. Flattening those
+    /// into one field would mean picking an edge of the window and calling
+    /// it the time, which is the kind of half-true convenience this response
+    /// is being fixed for. Time stays in `fact`, where it is typed honestly.
+    kind: &'static str,
     /// The signed fact body. Same bytes `GET /v1/facts/<cid>` would
     /// return; we include it inline so an agent gets the
     /// content-addressed payload in a single round-trip.
+    ///
+    /// Still here, unchanged. The fields above are additive: nothing moved
+    /// out of this object, so a client already reading `fact.value` keeps
+    /// working. Removing it would have been a wire break for every existing
+    /// parser to buy nothing.
     fact: JsonValue,
     /// Whether the responder could resolve the fact_cid in its own
     /// store. `true` means the bytes are attached; `false` is paired
@@ -28015,12 +28134,34 @@ async fn resolve_one_token(s: &AppState, token: &str) -> Result<MemoryTokenResol
 
     // Computed before the struct literal: `fact_json` is moved into it.
     let value_verbatim = value_verbatim_of(&fact_json);
+    // The cited reading, lifted to the top level. `value` is cloned out of
+    // the SERIALIZED body rather than re-rendered from the typed enum, so the
+    // node at `value` and the node at `fact.value` are the same JSON by
+    // construction and no future change to fact serialization can make the
+    // two disagree. An absence has no `value` key, which is precisely the
+    // case that must land as an explicit null instead of a missing key.
+    let value = fact_inner_json(&fact_json)
+        .get("value")
+        .cloned()
+        .unwrap_or(JsonValue::Null);
+    // Unit and kind come off the typed enum instead: they are infallible
+    // there, and only a primary fact declares a unit at all.
+    let (unit, kind) = match &fact {
+        emem_fact::Fact::Primary(p) => (p.unit.clone(), emem_fact::fact::kind::PRIMARY),
+        emem_fact::Fact::Derivative(_) => (None, emem_fact::fact::kind::DERIVATIVE),
+        emem_fact::Fact::Absence(_) => (None, emem_fact::fact::kind::ABSENCE),
+    };
+    let band = band_key.unwrap_or_default().to_string();
 
     Ok(MemoryTokenResolveResp {
         token: token.trim().to_string(),
         canonical_token,
         cell,
         fact_cid: cid,
+        value,
+        unit,
+        band,
+        kind,
         fact: fact_json,
         resolved: true,
         cell_matches: true,

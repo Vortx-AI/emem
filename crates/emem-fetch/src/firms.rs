@@ -357,7 +357,12 @@ async fn refresh_cache_if_stale(client: &Client) -> Result<(), FirmsError> {
         let url = csv_url(sensor);
         let mut req = client.get(&url).header(
             "user-agent",
-            "emem.dev-fetch/0.x (https://emem.dev/contact)",
+            // A User-Agent contact URL exists so an upstream operator who sees
+            // this traffic can reach whoever is causing it. `/contact` has
+            // never resolved, which makes it worse than no URL at all: it
+            // reads as a way to get in touch and is a 404. Point it at the
+            // support page, which is served.
+            "emem.dev-fetch/0.x (https://emem.dev/docs/SUPPORT.md)",
         );
         if let Some(etag) = prev_etags.get(&sensor) {
             req = req.header("if-none-match", etag);

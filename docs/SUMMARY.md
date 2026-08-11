@@ -43,6 +43,7 @@
 - [The memory model](./model.md)
 - [EUDR DDS + visual evidence](./eudr.md)
 - [Integrations](./integrations.md)
+  - [emem-langmem (LangChain / LangGraph)](./sdks/langmem.md)
 - [MCP Directory](./mcp-directory.md)
 
 # Developers
