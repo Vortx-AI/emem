@@ -20893,8 +20893,29 @@ async fn mcp_with_version(
                 .into_response();
         }
     };
+    // On `initialize` the version is negotiated in the BODY: the spec has the
+    // client send `params.protocolVersion` there, and only send the
+    // MCP-Protocol-Version HEADER on the requests that follow. So on that one
+    // exchange the header is absent, `mcp_negotiated_version` correctly falls
+    // back to the header-absent default, and the response then carried two
+    // different answers about itself: the body echoed 2025-06-18 while the
+    // header said 2025-03-26. Reported from a direct curl against production.
+    //
+    // The header on an initialize RESPONSE should state what was actually
+    // negotiated, which is the body's value. Read it from the request body for
+    // that method only; every later request still negotiates by header, which
+    // is where the client is required to put it.
+    let initialize_version: Option<&'static str> = serde_json::from_slice::<JsonValue>(&body)
+        .ok()
+        .filter(|v| v.get("method").and_then(|m| m.as_str()) == Some("initialize"))
+        .and_then(|v| {
+            v.pointer("/params/protocolVersion")
+                .and_then(|p| p.as_str())
+                .and_then(|asked| MCP_SUPPORTED_VERSIONS.iter().copied().find(|s| *s == asked))
+        });
+    let stamped = initialize_version.unwrap_or(negotiated);
     let mut resp = mcp_jsonrpc_inner(s, headers, body, tier).await;
-    if let Ok(v) = axum::http::HeaderValue::from_str(negotiated) {
+    if let Ok(v) = axum::http::HeaderValue::from_str(stamped) {
         resp.headers_mut().insert("mcp-protocol-version", v);
     }
     resp
