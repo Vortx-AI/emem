@@ -17,6 +17,23 @@ out the conversation. So facts come back as value, unit, address and citation,
 and `band_help=True` pulls the prose back in when the agent needs to interpret
 an unfamiliar band rather than just report it.
 
+Two fields are trimmed harder than the rest because measurement said so, and
+both numbers are from https://emem.dev rather than from a fixture:
+
+`locate`'s `data_at_this_cell` is not a band list. It is a 19 KB briefing on
+what the responder can do, of which `live_bands_by_topic` (2,951 chars, the
+same on every cell sampled) is the part that answers "what can I read here".
+Passing the whole thing through made a 20,058-character tool result; passing
+the topic map makes 3,712.
+
+A fact's `value` is normally under 100 characters, but the embedding bands
+return vectors: `clay_v1` alone is 22,581 characters of floats. A recall at
+Bengaluru with `bands` omitted returned 103 facts, and seven embedding vectors
+were 131,246 of its 162,365 characters. No agent reads a 768-float vector out
+of a tool result; it can only cite it. So a value over `VALUE_CHAR_BUDGET` is
+replaced by its length, its first few elements and the citation that resolves
+the whole thing, and the fact keeps every field needed to quote it.
+
 The receipt is the exception and is passed through whole. As of receipt
 preimage v2 the signature covers the inclusion proof, so a receipt with any
 field removed does not fail loudly, it verifies as `signature_valid: false`.
@@ -26,6 +43,7 @@ An agent handed a trimmed receipt would report honest data as forged. Saving
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any, Dict, List, Optional
 
@@ -34,6 +52,13 @@ from llama_index.core.tools.tool_spec.base import BaseToolSpec
 
 DEFAULT_BASE_URL = "https://emem.dev"
 DEFAULT_TIMEOUT = 60.0
+
+# Where a readable value stops and a vector begins. Measured at Bengaluru over
+# the 103 facts a `bands`-less recall returns: the largest scalar or short
+# array was 74 characters (`geotessera.bin128`), the smallest embedding was
+# 2,535 (`geotessera`). 512 sits in that gap with room on both sides, so a
+# monthly series stays readable and a 768-float vector does not.
+VALUE_CHAR_BUDGET = 512
 
 
 class EmemToolSpec(BaseToolSpec):
@@ -77,6 +102,23 @@ class EmemToolSpec(BaseToolSpec):
             "cite": fact.get("memory_token"),
             "signed_at": fact.get("signed_at"),
         }
+        # An embedding is a citation, not a reading. Withhold the body and say
+        # so, explicitly enough that a model reports "the tool did not give me
+        # the vector" rather than "the value is null".
+        encoded = json.dumps(out["value"], default=str)
+        if len(encoded) > VALUE_CHAR_BUDGET:
+            value = out["value"]
+            out["value"] = None
+            out["value_omitted"] = {
+                "reason": (
+                    "this band's value is too large for a tool result and was "
+                    "withheld by the client, not missing from the record; "
+                    "resolve `cite` to read it in full"
+                ),
+                "chars": len(encoded),
+                "length": len(value) if isinstance(value, (list, str)) else None,
+                "head": value[:4] if isinstance(value, list) else None,
+            }
         if band_help:
             metadata = fact.get("band_metadata") or {}
             out["band_help"] = {
@@ -99,17 +141,29 @@ class EmemToolSpec(BaseToolSpec):
         than one place, and `alternatives` lists them. Ask the user which one
         they meant instead of guessing.
 
+        `bands_available_here` maps a topic to the bands recallable at this
+        cell, so pick the topic that matches the question and pass those names
+        to `recall`.
+
         Args:
             place: A place name, or "lat,lng".
         """
         body = self._post("/v1/locate", {"q": place})
+        # `data_at_this_cell` is a capability briefing, not a band list: on
+        # every cell sampled it is a 19 KB object whose siblings describe
+        # algorithm recipes, GPU availability and unmaterialised cube slots.
+        # Only `live_bands_by_topic` answers the question this tool asks.
+        # A responder that sends a bare list is taken at its word.
+        inventory = body.get("data_at_this_cell")
+        if isinstance(inventory, dict):
+            inventory = inventory.get("live_bands_by_topic")
         return {
             "cell64": body.get("cell64"),
             "place_label": body.get("place_label"),
             "centre": body.get("centre"),
             "disambiguation_required": body.get("disambiguation_required"),
             "alternatives": body.get("alternatives"),
-            "bands_available_here": body.get("data_at_this_cell"),
+            "bands_available_here": inventory,
             "advice": body.get("advice"),
         }
 
@@ -130,9 +184,12 @@ class EmemToolSpec(BaseToolSpec):
 
         Args:
             place: A place name, "lat,lng", or a cell64 address from `locate`.
-            bands: Measurement names, e.g. ["copdem30m.elevation_mean"]. Omit
-                to let the responder choose what it holds for this place. Call
-                `locate` first if you need to know what is available.
+            bands: Measurement names, e.g. ["copdem30m.elevation_mean"]. Name
+                the ones the question needs. Omitting this returns everything
+                the responder holds at the cell, which at Bengaluru is 103
+                facts and about 50 KB, most of it citations for bands nobody
+                asked about. Call `locate` first and pick from
+                `bands_available_here` rather than omitting this.
             band_help: Include each band's description, interpretation and
                 pitfalls. Off by default because it is verbose; turn it on when
                 the band is unfamiliar and you need to interpret the number
@@ -144,10 +201,16 @@ class EmemToolSpec(BaseToolSpec):
         body = self._post("/v1/recall", request)
 
         facts = [self._trim_fact(f, band_help) for f in body.get("facts") or []]
+        # `resolved_from.cell` describes how the name was matched: label, lat,
+        # lng, confidence. It carries no address, and it is absent entirely
+        # when `place` was already a cell64. The address lives on the facts,
+        # which all share it. Reading it off `resolved_from` returned None on
+        # every live call while the fixture supplied a `cell64` there.
         resolved = (body.get("resolved_from") or {}).get("cell") or {}
+        cell = next((f["cell"] for f in facts if f.get("cell")), None)
         return {
             "place_label": resolved.get("label"),
-            "cell": resolved.get("cell64") or resolved.get("cell"),
+            "cell": cell or resolved.get("cell64") or resolved.get("cell"),
             "facts": facts,
             "cite": [f["cite"] for f in facts if f.get("cite")],
             # Passed through whole, and it must stay that way. The signature

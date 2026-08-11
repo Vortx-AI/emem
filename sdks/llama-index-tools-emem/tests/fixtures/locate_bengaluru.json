@@ -1,0 +1,801 @@
+{
+ "_capture": {
+  "captured_at": "2026-08-11T09:23:05Z",
+  "origin": "https://emem.dev",
+  "path": "/v1/locate",
+  "request": {
+   "q": "12.971899,77.593665"
+  }
+ },
+ "advice": "Place names map to a single cell at ~10 m \u00d7 ~10 m square resolution at the equator (matching S1/S2 native pitch). For point features (peaks, towers), use `neighborhood_cells` to fan out across the immediate ~9 cells. For wide features (canyons, basins, regions, countries), `polygon_bbox` carries the actual extent and `polygon_sample_cells` is a 64-cell grid sample inside it, query those to find the data. **`data_at_this_cell` lists every band you can recall here, grouped by topic, read it BEFORE concluding emem can't answer.**",
+ "agent_hint": {
+  "alias_accepted": "cell64",
+  "explanation": "Field name in request bodies is `cell` (or `cell64` as serde alias). The string format is named cell64. Two different things: `cell` is the slot, cell64 is what goes in it, like a `mode: String` field where strings are UTF-8.",
+  "request_field_name": "cell",
+  "value_format": "cell64 string (four base-65,536 bigrams joined by '.')"
+ },
+ "bbox_deg": {
+  "max_lat": 12.971941457720504,
+  "max_lng": 77.5937074646252,
+  "min_lat": 12.9718556269911,
+  "min_lng": 77.59362163391626
+ },
+ "cell": "defi.zb493.xuqA.zcb5f",
+ "cell64": "defi.zb493.xuqA.zcb5f",
+ "centre": {
+  "lat_deg": 12.971898542355802,
+  "lng_deg": 77.59366454927073
+ },
+ "data_at_this_cell": {
+  "_capabilities_hint": "GET /v1/capabilities for the live extensions[] snapshot. `algorithm_availability[<key>].available_now == false` means the algorithm's `inference.required_extension` is not in the sidecar's current extensions[] (typically GPU off / sidecar down). Use a CPU/scalar alternative for the same topic, or surface an honest `gpu_unavailable` to the user.",
+  "_pointer_to_algorithms": "GET /v1/algorithms for the full content-addressed registry of 168 composition recipes (flood_risk, walkability, embedding_novelty, carbon-MRV, SDG indicators, etc.) used by `algorithms_for_topic` below. Cite the algorithm key + algorithms_cid in the receipt.",
+  "_purpose": "Topic-grouped list of every band you can recall at this cell, plus the algorithm recipes that compose those bands into named scores. Read this BEFORE concluding the responder doesn't have data on a topic, and BEFORE inventing a synthesis formula in your own reasoning.",
+  "_source": "Driven from the content-addressed topic registry (topics-v0.json, 27 topics). `live_bands_by_topic` filters each topic's declared bands against this responder's wired materializers; `algorithms_for_topic` is verbatim from the registry. Topics absent from `live_bands_by_topic` have all their bands declared-but-not-wired here, see `declared_but_no_materializer_at_this_responder`.",
+  "algorithm_availability": {
+   "anomaly_zscore@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "aqi_class@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "aquaculture_pond_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "bare_soil_class@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "bathymetry_stumpf_log_ratio@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "bikeability_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "biodiversity_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "built_up_from_ndbi@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "burn_likelihood_from_nbr@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "burn_severity_from_dnbr@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "canopy_chlorophyll_ndre@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "carbon.drought_carbon_stress@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "carbon_sink_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "clay_archetype_match@1": {
+    "available_now": false,
+    "required_extension": "clay-v1.5"
+   },
+   "clay_prithvi_tessera_triple_consensus@1": {
+    "available_now": false,
+    "required_extension": "clay-v1.5"
+   },
+   "clay_temporal_change@1": {
+    "available_now": false,
+    "required_extension": "clay-v1.5"
+   },
+   "coastal_erosion_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "coastal_proximity@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "crop_archetype_embedding_match@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "crop_loss_event_assessment@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "crop_stress_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "crop_water_stress_index_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "crop_yield_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "cross_modal_s1_s2_consistency@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "embedding_change_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "embedding_cosine@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "embedding_l2_distance@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "embedding_temporal_change_year@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "eudr_compliance@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "fapar_ndvi_myneni@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "flood_extent_sar_threshold@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "flood_history_class@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "flood_risk@2": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "gdd_phenology@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "green_space_access@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "harvest_date_detection@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "heat_equation_2d@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "heat_health_risk@2": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "heat_index@2": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "heat_vulnerability_index@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "insurance_premium_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "jepa_temporal_predictor@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "lai_modified_simple_ratio_s2@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "land_degradation_trend@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "landslide_post_event_sar_dnn@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "livability_index@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "methane_plume_swir_anomaly@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "multi_peril_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "multimodal_change_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "n_uptake_ndre@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "noise_exposure_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "outdoor_comfort_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "parametric_trigger@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "physical_climate_risk_index@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "place_archetype_match@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "precip_intensity_class@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "prithvi_archetype_match@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "prithvi_cafe_flood_segmentation@1": {
+    "available_now": false,
+    "required_extension": "prithvi-eo-2.0"
+   },
+   "prithvi_canola_yield_frozen_encoder@1": {
+    "available_now": false,
+    "required_extension": "prithvi-eo-2.0"
+   },
+   "prithvi_temporal_change@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "prithvi_tessera_ensemble_change@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "property_climate_risk_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "region_similarity@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "residue_burn_multisensor@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "rice_methane_awd_modeled@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "route_flood_exposure@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "ruggedness_index@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "rusle_soil_erosion@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "sar_coherence_change_proxy@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "slope_from_dem_neighborhood@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "snow_likelihood_from_ndsi@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "soc_change_credit@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "soc_estimate_s2_dem@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "soil_moisture_sar@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "soil_salinity_index@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "solar_pv_likelihood@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "sowing_date_detection@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "spatial_volatility_index@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "spi_meteorological_drought@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "topo_position_index@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "trend_strength@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "typed_stress_attribution@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "urban_density_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "vegetation_class_from_ndvi@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "vineyard_terroir_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "walkability_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "water_chl_proxy_blue_green@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "water_consensus@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "water_likelihood_from_vv@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "water_turbidity_red_band@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "wave_equation_1d@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "weather_summary@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "wetland_binary_s1_s2_dem@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "wildfire_burn_intensity_dnbr_finetune@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "wildfire_exposure_score@1": {
+    "available_now": true,
+    "required_extension": null
+   },
+   "wind_chill@1": {
+    "available_now": true,
+    "required_extension": null
+   }
+  },
+  "algorithms_for_topic": {
+   "agriculture": [
+    "crop_yield_proxy@1",
+    "vineyard_terroir_score@1",
+    "crop_stress_score@1",
+    "typed_stress_attribution@1",
+    "n_uptake_ndre@1",
+    "sowing_date_detection@1",
+    "harvest_date_detection@1",
+    "gdd_phenology@1",
+    "crop_water_stress_index_proxy@1",
+    "crop_archetype_embedding_match@1",
+    "prithvi_canola_yield_frozen_encoder@1"
+   ],
+   "analytics": [
+    "spatial_volatility_index@1",
+    "trend_strength@1",
+    "anomaly_zscore@1",
+    "sar_coherence_change_proxy@1",
+    "methane_plume_swir_anomaly@1",
+    "landslide_post_event_sar_dnn@1",
+    "cross_modal_s1_s2_consistency@1"
+   ],
+   "built_up_human_geography": [
+    "built_up_from_ndbi@1",
+    "urban_density_score@1",
+    "noise_exposure_proxy@1",
+    "solar_pv_likelihood@1"
+   ],
+   "carbon_credits": [
+    "soc_change_credit@1",
+    "eudr_compliance@1",
+    "rice_methane_awd_modeled@1",
+    "carbon_sink_score@1"
+   ],
+   "elevation_global_topobathy": [
+    "wave_equation_1d@1"
+   ],
+   "esg": [
+    "carbon_sink_score@1",
+    "biodiversity_proxy@1",
+    "physical_climate_risk_index@1"
+   ],
+   "fire_burn_severity": [
+    "burn_likelihood_from_nbr@1",
+    "burn_severity_from_dnbr@1",
+    "wildfire_exposure_score@1",
+    "residue_burn_multisensor@1",
+    "wildfire_burn_intensity_dnbr_finetune@1"
+   ],
+   "flood_history_long_term": [
+    "flood_history_class@1"
+   ],
+   "flood_risk_composite": [
+    "flood_risk@2",
+    "route_flood_exposure@1"
+   ],
+   "flood_water_event_window": [
+    "water_consensus@1",
+    "water_likelihood_from_vv@1",
+    "flood_extent_sar_threshold@1",
+    "wetland_binary_s1_s2_dem@1",
+    "prithvi_cafe_flood_segmentation@1"
+   ],
+   "foundation_embedding": [
+    "embedding_cosine@1",
+    "embedding_l2_distance@1",
+    "embedding_change_score@1",
+    "region_similarity@1",
+    "place_archetype_match@1",
+    "embedding_temporal_change_year@1",
+    "multimodal_change_score@1",
+    "prithvi_archetype_match@1",
+    "prithvi_temporal_change@1",
+    "prithvi_tessera_ensemble_change@1",
+    "clay_archetype_match@1",
+    "clay_temporal_change@1",
+    "clay_prithvi_tessera_triple_consensus@1",
+    "cross_modal_s1_s2_consistency@1"
+   ],
+   "parametric_insurance": [
+    "parametric_trigger@1",
+    "spi_meteorological_drought@1",
+    "crop_loss_event_assessment@1",
+    "carbon.drought_carbon_stress@1",
+    "physical_climate_risk_index@1"
+   ],
+   "public_health": [
+    "heat_vulnerability_index@1",
+    "aqi_class@1"
+   ],
+   "real_estate": [
+    "property_climate_risk_score@1",
+    "insurance_premium_proxy@1",
+    "coastal_erosion_proxy@1",
+    "multi_peril_score@1"
+   ],
+   "snow": [
+    "snow_likelihood_from_ndsi@1"
+   ],
+   "soil_bare": [
+    "bare_soil_class@1"
+   ],
+   "soil_intelligence": [
+    "soil_moisture_sar@1",
+    "soc_estimate_s2_dem@1",
+    "soil_salinity_index@1",
+    "rusle_soil_erosion@1",
+    "land_degradation_trend@1"
+   ],
+   "topography": [
+    "slope_from_dem_neighborhood@1",
+    "ruggedness_index@1",
+    "topo_position_index@1",
+    "coastal_proximity@1"
+   ],
+   "urban_livability": [
+    "walkability_score@1",
+    "bikeability_score@1",
+    "green_space_access@1",
+    "outdoor_comfort_score@1",
+    "livability_index@1"
+   ],
+   "vegetation_condition": [
+    "vegetation_class_from_ndvi@1",
+    "crop_stress_score@1",
+    "jepa_temporal_predictor@1",
+    "lai_modified_simple_ratio_s2@1",
+    "fapar_ndvi_myneni@1",
+    "canopy_chlorophyll_ndre@1"
+   ],
+   "water_quality": [
+    "bathymetry_stumpf_log_ratio@1",
+    "water_chl_proxy_blue_green@1",
+    "water_turbidity_red_band@1",
+    "aquaculture_pond_proxy@1"
+   ],
+   "weather_now": [
+    "heat_index@2",
+    "heat_health_risk@2",
+    "wind_chill@1",
+    "outdoor_comfort_score@1",
+    "precip_intensity_class@1",
+    "weather_summary@1",
+    "heat_equation_2d@1"
+   ]
+  },
+  "declared_but_no_materializer_at_this_responder": {
+   "_authoritative_list": "GET /v1/bands, every band entry now carries a `materializer:{kind:'live'|'declared_no_connector', ...}` field. Filter on kind=='declared_no_connector' for the canonical, code-derived set.",
+   "_meaning": "Bands reserved in the cube manifest but with no live connector at this responder. Recall returns empty (existing attestations only, no upstream fetch).",
+   "_note_on_cube_family_roots": "Most unwired keys are cube FAMILY-ROOT slots whose SCALAR children are wired (e.g. `koppen` root unwired but `koppen.major_class` live; `surface_water` cube key reserved but `surface_water.recurrence` answers the flood-history question). Use /v1/materializers for the per-scalar wired list.",
+   "_note_on_foundation_models_at_this_responder": "Four foundation embeddings are wired at this responder. `geotessera` (Tessera v1, 128-D, 10 m grid, annual) is the default similarity surface. `prithvi_eo2` (IBM-NASA Prithvi-EO-2.0-300M-TL, 1024-D fact value carried in the 384-D cube slot at offset 894, 30 m chip / 6.7 km receptive field, scene-aware) anchors algorithms that need a learned ViT representation rather than a contrastive embedding. `clay_v1` (Made With Clay v1.5, 1024-D fact value in the 384-D cube slot at offset 199, 10 m chip / 2.56 km receptive field, wavelength-conditioned) is the finer-resolution sibling. `galileo` (NASA Harvest Galileo Base / Tiny, 768-D or 192-D pooled embedding, 30 m \u00d7 8\u00d78 chip / 240 m receptive field; variant set by EMEM_GALILEO_VARIANT) is the small-footprint multi-modal foundation surfaced via the sidecar's /predict/galileo_embed. All three GPU-only foundation bands sign honest Absence with reason=gpu_unavailable when the sidecar is unreachable, no CPU fallback because the embedding's kernel-order accumulation would differ."
+  },
+  "for_temporal_questions": "For 'last N years' questions, materializers return one fact at the latest available tslot. To get a series, call `emem_recall` repeatedly for past tslots only if the band's tempo is `slow`/`static` (which means one fact covers the period). For `fast`/`medium` tempo bands, history requires the responder to have already seeded past tslots, call `emem_trajectory` to enumerate what's there, do NOT assume historical lookback materializes on demand.",
+  "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands, they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe, apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data, be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
+  "live_bands_by_topic": {
+   "agriculture": [
+    "indices.ndvi",
+    "indices.evi",
+    "indices.savi",
+    "indices.ndmi",
+    "indices.ndre",
+    "indices.ndti",
+    "modis.ndvi_mean",
+    "modis.lai_8day",
+    "modis.gpp_8day",
+    "power.t2m",
+    "power.t2m_min",
+    "power.t2m_max",
+    "power.precip",
+    "sentinel1_raw"
+   ],
+   "analytics": [
+    "geotessera",
+    "modis.ndvi_mean",
+    "indices.ndvi",
+    "s2.B11",
+    "s2.B12"
+   ],
+   "built_up_human_geography": [
+    "indices.ndbi",
+    "overture.buildings.count",
+    "overture.places.count",
+    "overture.transportation.road_length_m"
+   ],
+   "carbon_credits": [
+    "soilgrids.soc_0_30cm",
+    "soilgrids.bdod_0_30cm",
+    "indices.ndvi",
+    "indices.ndwi",
+    "sentinel1_raw",
+    "hansen.tree_cover_2000",
+    "hansen.loss_year",
+    "modis.gpp_8day",
+    "modis.burned_area_monthly"
+   ],
+   "elevation_global_topobathy": [
+    "gmrt.topobathy_mean"
+   ],
+   "elevation_land_only": [
+    "copdem30m.elevation_mean"
+   ],
+   "esg": [
+    "indices.ndvi",
+    "modis.gpp_8day",
+    "modis.burned_area_monthly",
+    "hansen.loss_year",
+    "esa_worldcover.lc_2021",
+    "cams.pm25",
+    "cams.no2"
+   ],
+   "fire_burn_severity": [
+    "indices.nbr"
+   ],
+   "flood_history_long_term": [
+    "surface_water.recurrence"
+   ],
+   "flood_risk_composite": [
+    "surface_water.recurrence",
+    "copdem30m.elevation_mean",
+    "sentinel1_raw"
+   ],
+   "flood_water_event_window": [
+    "indices.ndwi",
+    "indices.mndwi",
+    "sentinel1_raw"
+   ],
+   "foundation_embedding": [
+    "geotessera",
+    "geotessera.multi_year",
+    "geotessera.bin128",
+    "prithvi_eo2",
+    "clay_v1"
+   ],
+   "nightlights": [
+    "nightlights.dmsp_ols_avg_dn"
+   ],
+   "optical_raw_reflectance": [
+    "s2.B02",
+    "s2.B03",
+    "s2.B04",
+    "s2.B08",
+    "s2.B11",
+    "s2.B12"
+   ],
+   "parametric_insurance": [
+    "power.precip",
+    "era5.precip",
+    "era5.t2m",
+    "weather.temperature_2m",
+    "weather.precipitation_mm",
+    "indices.ndvi",
+    "indices.nbr",
+    "indices.ndwi",
+    "sentinel1_raw",
+    "surface_water.recurrence"
+   ],
+   "public_health": [
+    "cams.pm25",
+    "cams.pm10",
+    "cams.no2",
+    "cams.o3",
+    "cams.so2",
+    "cams.co",
+    "cams.aod_550",
+    "modis.lst_day_8day",
+    "modis.lst_night_8day",
+    "weather.temperature_2m",
+    "weather.relative_humidity_2m"
+   ],
+   "radar_all_weather_sar": [
+    "sentinel1_raw"
+   ],
+   "real_estate": [
+    "surface_water.recurrence",
+    "copdem30m.elevation_mean",
+    "indices.ndvi",
+    "modis.lst_day_8day",
+    "indices.urban_canopy_index",
+    "overture.transportation.road_length_m"
+   ],
+   "scene_classification": [
+    "s2.scl"
+   ],
+   "snow": [
+    "indices.ndsi"
+   ],
+   "soil_bare": [
+    "indices.bsi"
+   ],
+   "soil_intelligence": [
+    "soilgrids.soc_0_30cm",
+    "soilgrids.phh2o_0_30cm",
+    "soilgrids.clay_0_30cm",
+    "soilgrids.sand_0_30cm",
+    "soilgrids.bdod_0_30cm",
+    "soilgrids.nitrogen_0_30cm",
+    "indices.bsi",
+    "s2.B11",
+    "s2.B12",
+    "sentinel1_raw",
+    "copdem30m.elevation_mean"
+   ],
+   "topography": [
+    "copdem30m.elevation_mean"
+   ],
+   "urban_livability": [
+    "indices.urban_canopy_index",
+    "indices.ndvi",
+    "modis.lst_day_8day",
+    "overture.places.count",
+    "overture.transportation.road_length_m"
+   ],
+   "vegetation_condition": [
+    "indices.ndvi",
+    "indices.evi",
+    "indices.savi",
+    "indices.ndmi",
+    "modis.ndvi_mean"
+   ],
+   "water_quality": [
+    "s2.B02",
+    "s2.B03",
+    "s2.B04",
+    "indices.ndwi"
+   ],
+   "weather_now": [
+    "weather.temperature_2m",
+    "weather.cloud_cover",
+    "weather.precipitation_mm",
+    "weather.wind_speed_10m"
+   ]
+  },
+  "visual_surfaces": {
+   "cell_geojson": "GET /v1/cells/{cell64}/geojson, polygon hexagon for any GIS / map renderer",
+   "cell_recall_geojson": "GET /v1/cells/{cell64}/recall_geojson?bands=..., properties carry every fact value the responder has, ready to style",
+   "rgb_scene_png": "GET /v1/cells/{cell64}/scene.png?max_cloud=20  (or MCP `emem_cell_scene_rgb`), true-colour Sentinel-2 L2A 256\u00d7256 thumbnail"
+  }
+ },
+ "disambiguation_required": false,
+ "lat_input": 12.971899,
+ "lng_input": 77.593665,
+ "localized_names": null,
+ "neighborhood_cells": [
+  "defi.zb493.xuqA.zcb5f",
+  "defi.zb493.xuxU.zcb5f",
+  "defi.zb493.xuje.zcb5f",
+  "defi.zb493.xuqA.zcb60",
+  "defi.zb493.xuqA.zcb5e",
+  "defi.zb493.xuxU.zcb60",
+  "defi.zb493.xuxU.zcb5e",
+  "defi.zb493.xuje.zcb60",
+  "defi.zb493.xuje.zcb5e"
+ ],
+ "next": [
+  "POST /v1/recall  {\"cell\": \"<cell64>\", \"bands\": [...]}",
+  "POST /v1/find_similar",
+  "POST /v1/compare",
+  "GET  /v1/cells/{cell64}/info",
+  "GET  /v1/grid_info , actual vs spec-target resolution"
+ ],
+ "overture_division": null,
+ "place_label": null,
+ "polygon_bbox": null,
+ "polygon_geojson": null,
+ "polygon_sample_cells": null,
+ "selected": {
+  "cell64": "defi.zb493.xuqA.zcb5f",
+  "class": null,
+  "class_mismatch": false,
+  "confidence_reason": "direct_lat_lng",
+  "importance": null,
+  "is_high_confidence": true,
+  "label": null,
+  "lat": 12.971899,
+  "lng": 77.593665,
+  "rank": 0,
+  "source": "direct",
+  "type": null
+ },
+ "via": "direct"
+}

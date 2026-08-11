@@ -44,17 +44,32 @@ verifies against your own.
 | `resolve_token` | Resolve an `emem:fact:` token that arrived from somewhere else |
 | `verify_receipt` | Check a receipt's signature against the responder's published key |
 
-## Two things worth knowing
+## Three things worth knowing
 
 **Results are trimmed, except the receipt.** A raw recall for one band is about
 5 KB, mostly band documentation written for a human reading the API. That is
 dropped, and `recall(..., band_help=True)` brings it back when the agent needs
 to interpret an unfamiliar band rather than just report it.
 
+Two fields are trimmed harder, both because of what they measured at
+`https://emem.dev`. `locate`'s `data_at_this_cell` is a 19 KB briefing on what
+the responder can do, not a band list; only its `live_bands_by_topic` answers
+"what can I read here", and passing the topic map instead of the briefing took
+the tool result from 20,058 characters to 3,712. A fact's `value` is normally
+under 100 characters, but the embedding bands return vectors: at Bengaluru,
+seven of them were 131,246 of a 162,365-character result. A value over 512
+characters is replaced by its length, its first few elements and the citation
+that resolves the whole thing.
+
 The receipt is passed through whole. As of receipt preimage v2 the signature
 covers the inclusion proof, so a receipt with any field removed does not raise
 an error, it verifies as `signature_valid: false`. A tool that trimmed it would
 report honest data as forged.
+
+**Name the bands you need.** Omitting `bands` returns everything the responder
+holds at the cell. At Bengaluru that is 103 facts and about 50 KB, most of it
+citations for bands nobody asked about. Call `locate` first and pick from
+`bands_available_here`.
 
 **Verification is per-responder.** `signature_valid: true` proves that this
 responder signed those bytes. It does not prove the measurement is correct, and
@@ -65,4 +80,15 @@ no network consensus is involved.
 ```bash
 pip install -e ".[dev]"
 pytest tests
+```
+
+`tests/fixtures/` holds verbatim response bodies written by
+`tests/capture_fixtures.py`, not by hand. `tests/test_live_contract.py` replays
+each fixture's recorded request against the live origin and fails if a key the
+fixture claims has stopped arriving; it skips when nothing answers, and a skip
+means the shapes were not checked on that run.
+
+```bash
+python3 tests/capture_fixtures.py                          # re-capture
+EMEM_URL=http://localhost:5051 pytest tests/test_live_contract.py
 ```
