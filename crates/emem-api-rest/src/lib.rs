@@ -1481,10 +1481,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/temporal_route",
             post(post_temporal_route).get(get_temporal_route),
         )
-        .route("/mcp", get(mcp_discover).post(mcp_jsonrpc))
+        .route("/mcp", get(mcp_get).post(mcp_jsonrpc))
         // Same server, same dispatch; the only difference is how much of
         // the catalog tools/list advertises. See MCP_CORE_ENDPOINT_TIER.
-        .route("/mcp/full", get(mcp_discover).post(mcp_jsonrpc_full))
+        .route("/mcp/full", get(mcp_get).post(mcp_jsonrpc_full))
         // A2A v1.2 Task adapter, accepts either a strict A2A JSON-RPC
         // `message/send` envelope or the friendlier `{skill, args}` shape,
         // dispatches to the underlying MCP tool, and returns an A2A
@@ -17437,6 +17437,71 @@ async fn post_verify_receipt(
     let sig = ed25519_dalek::Signature::from_bytes(&r.signature.0);
     let signature_valid = pk.verify_strict(&msg, &sig).is_ok();
 
+    // ── Reshaped in transit, or forged? Both arrive as `signature_valid:
+    // false`, and reporting both as `signature_invalid` sends an integrator
+    // hunting an attacker when their own serialiser dropped a field. v2 binds
+    // the inclusion proof, so a receipt an SDK summarised or re-keyed fails
+    // exactly like a tampered one.
+    //
+    // Shape alone cannot decide it. A v2 receipt is ALLOWED to carry no proof
+    // — facts older than the proof tree sign an explicit ABSENT marker via
+    // `emem_attest::merkle_binding_v2(None)` — so "no merkle_proof" is not by
+    // itself a fault, and saying it was would be a new false verdict in place
+    // of the old one. What decides it is rebuilding the receipt under v2 with
+    // the inclusion proof THIS responder recorded for the receipt's first
+    // fact, and re-checking the same signature. If that verifies, the signed
+    // body was never touched and only the two segments that define v2 moved.
+    //
+    // Exactly two fields reach here: dropping any of the other fourteen is a
+    // 400 from the deserialiser. Both are v2's own: `merkle_proof`, and
+    // `preimage_version`, whose absence deserialises to 0 and silently sends
+    // the rebuild down the v0 branch — the worse of the two, because the
+    // inclusion proof still walks and the response then reports a valid proof
+    // beside a signature it calls forged.
+    //
+    // This never accepts. `valid` and `signature_valid` stay false whatever it
+    // finds, so it is not a way back to the v1 downgrade: a receipt tampered
+    // anywhere else fails the restored rebuild too and stays a mismatch, and a
+    // deliberate downgrade is named and still refused. It is silent when this
+    // responder does not hold the fact, which is the honest answer for a third
+    // party's receipt.
+    let reshaped_segment: Option<&'static str> = if signature_valid {
+        None
+    } else {
+        r.fact_cids
+            .first()
+            .and_then(|c| s.storage.proof_for_cid(c))
+            .filter(|p| {
+                let restored = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
+                    Some((&p.root, p.leaf_index, p.path.as_slice(), p.version)),
+                ));
+                let restored_msg = emem_attest::receipt_preimage_v2(
+                    &r.request_id,
+                    &r.served_at,
+                    scope_hex.as_deref(),
+                    as_of_hex.as_deref(),
+                    edges_hex.as_deref(),
+                    manifest_hex_opt.as_deref(),
+                    field_hex.as_deref(),
+                    &r.primitive,
+                    r.cells.iter().map(|c| c.as_str()),
+                    r.fact_cids.iter().map(|c| c.as_str()),
+                    &restored,
+                );
+                pk.verify_strict(&restored_msg, &sig).is_ok()
+            })
+            .map(|_| {
+                // A receipt that reaches here was signed under v2. If it no
+                // longer says so, the version field is the altered segment
+                // whatever else moved with it; otherwise it is the proof.
+                if r.preimage_version < emem_attest::PREIMAGE_V2 {
+                    "preimage_version"
+                } else {
+                    "merkle_proof"
+                }
+            })
+    };
+
     // ── Optional facts cross-check (2026-05-31, advisory). When the caller
     // passes the `facts` they intend to rely on, recompute each one's content
     // id and report whether it is among the cids the receipt signs. This is
@@ -17485,12 +17550,12 @@ async fn post_verify_receipt(
     // it. Swapping a proof between two real receipts reproduced that exactly.
     //
     // The conjunction is completed below, once the proof has been walked.
-    // What it still cannot catch, stated rather than implied: the signature
-    // does not cover `merkle_proof`, so a proof REMOVED in transport leaves
-    // `merkle_proof_valid: null` and is indistinguishable from a receipt that
-    // never had one. Detecting that needs the proof bound into the signed
-    // preimage, which is a preimage_version bump and a migration, tracked in
-    // docs/audit-repro-2026-08-02.md under P0-4.
+    // The gap this comment used to record — a proof removed in transport
+    // being indistinguishable from a receipt that never had one — closed
+    // when v2 pulled the proof into the signed preimage. What v2 costs is
+    // that a receipt is byte-for-byte or nothing, which is why the failure
+    // is classified above rather than reported as one undifferentiated
+    // `signature_invalid`.
     let reason: Option<&str> = if !signature_valid {
         Some("signature_invalid")
     } else {
@@ -17594,14 +17659,70 @@ async fn post_verify_receipt(
     // A proof that was walked and failed makes the receipt invalid, not
     // merely annotated.
     let valid = signature_valid && merkle_proof_valid != Some(false);
-    let reason: Option<&str> = match (signature_valid, merkle_proof_valid) {
-        (false, _) => Some("signature_invalid"),
-        (true, Some(false)) => Some("merkle_proof_invalid"),
+    let reason: Option<&str> = match (signature_valid, merkle_proof_valid, reshaped_segment) {
+        (false, _, Some(_)) => Some("receipt_reshaped_after_signing"),
+        (false, _, None) => Some("signature_invalid"),
+        (true, Some(false), _) => Some("merkle_proof_invalid"),
         _ => reason,
+    };
+    // The remedy, spelled out, because the whole point of separating these
+    // two failures is that they need different actions from the reader.
+    // `receipt_reshaped_after_signing` is a positive finding, never a
+    // fallback: it is only reached when the same signature verifies over the
+    // same receipt with this responder's recorded proof restored.
+    let failure_detail: Option<String> = match (reason, reshaped_segment) {
+        (Some("receipt_reshaped_after_signing"), Some(field)) => Some(format!(
+            "This receipt's signed body is intact: the same signature verifies once the receipt \
+             is rebuilt under preimage_version 2 with the inclusion proof this responder recorded \
+             for {}. What changed after signing is `{}`{}. v2 binds both the proof and the version \
+             that selects the rule, which is what stops a proof being stripped in transit; the \
+             cost is that a receipt is byte-for-byte or nothing and any reshaping invalidates it \
+             by design. If a serialiser reshaped the receipt, fix it and re-verify the \
+             responder's original bytes rather than hunting a forger. If the segment was \
+             rewritten deliberately, that is the downgrade v2 exists to close. Either way this \
+             receipt as presented is NOT valid and must not be relied on.",
+            r.fact_cids
+                .first()
+                .map(|c| c.as_str())
+                .unwrap_or("its first fact"),
+            field,
+            match field {
+                "preimage_version" => format!(
+                    ": it reads {} here, and a receipt that reads below 2 is rebuilt without the \
+                     segment binding the proof. Note the inclusion proof can still walk to its \
+                     root in this state, so a valid `merkle_proof_valid` beside an invalid \
+                     signature is this failure, not a contradiction",
+                    r.preimage_version
+                ),
+                _ =>
+                    if r.merkle_proof.is_none() {
+                        ": it is absent".to_string()
+                    } else {
+                        ": it is not the proof that was signed".to_string()
+                    },
+            },
+        )),
+        (Some("signature_invalid"), _) => Some(
+            "The recomputed preimage does not match what the signature covers. Rebuild under the \
+             rule this receipt's own `preimage_version` names (GET /v1/verifier_spec), and check \
+             that nothing between the responder and here reshaped the receipt: under \
+             preimage_version 2 receipts are byte-for-byte, and dropping or rewriting any bound \
+             field, `merkle_proof` and `preimage_version` included, invalidates the signature by \
+             design."
+                .to_string(),
+        ),
+        (Some("merkle_proof_invalid"), _) => Some(
+            "The signature is valid but the inclusion proof does not walk to its declared root. \
+             The receipt is a genuine signed statement whose attestation-tree anchor is wrong; \
+             drop it."
+                .to_string(),
+        ),
+        _ => None,
     };
     Ok(Json(json!({
         "valid": valid,
         "reason": reason,
+        "failure_detail": failure_detail,
         "signature_valid": signature_valid,
         // Advisory. null when no facts supplied; true = every supplied fact's
         // recomputed cid is in the receipt (confirmed); false = inconclusive.
@@ -19458,6 +19579,47 @@ struct JsonRpcReq {
 /// We return a self-describing payload so a human or agent that hits the
 /// URL learns the transport, the protocol version, the tool names, and a
 /// pasteable `initialize` body, without having to read source.
+/// GET on the MCP endpoint, split by what the client asked for.
+///
+/// Streamable HTTP gives a GET here exactly one meaning: open an SSE stream
+/// the server can push messages down. A server with no such messages "MUST
+/// return HTTP 405 Method Not Allowed", and answering 200 with a JSON body
+/// is neither of the two things a stream-opening client can handle — it
+/// waits on a stream that will never frame, or it treats a discovery
+/// document as a malformed event.
+///
+/// This responder is stateless: it issues no `Mcp-Session-Id`, holds no
+/// per-client state between POSTs, and therefore has nothing to send
+/// unprompted. Holding a connection open per client to emit nothing would
+/// cost sockets and tell a client to keep waiting, so 405 is the honest
+/// answer and the spec's own.
+///
+/// A GET that does not ask for `text/event-stream` is not an MCP stream
+/// open at all — it is a browser, a scanner, or a human with curl — and
+/// still gets the discovery document it came for.
+async fn mcp_get(State(s): State<AppState>, headers: HeaderMap) -> Response {
+    let wants_sse = headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| a.to_ascii_lowercase().contains("text/event-stream"));
+    if wants_sse {
+        return (
+            StatusCode::METHOD_NOT_ALLOWED,
+            [(axum::http::header::ALLOW, "POST, OPTIONS")],
+            Json(json!({
+                "error": "sse_stream_not_offered",
+                "message": "This MCP endpoint is a stateless responder: it issues no Mcp-Session-Id and has no server-initiated messages, so it offers no SSE stream on GET. Per MCP Streamable HTTP that is a 405. Send JSON-RPC over POST to this same URL; responses come back as application/json.",
+                "endpoint": "/mcp",
+                "method": "POST",
+                "discovery": "GET this URL without `Accept: text/event-stream` for the discovery document.",
+                "spec": "https://modelcontextprotocol.io/specification/2025-06-18/basic/transports",
+            })),
+        )
+            .into_response();
+    }
+    mcp_discover(State(s)).await.into_response()
+}
+
 async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
     let pubkey = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
@@ -19472,7 +19634,7 @@ async fn mcp_discover(State(s): State<AppState>) -> Json<JsonValue> {
     );
     Json(json!({
         "schema": "emem.mcp.discover.v1",
-        "transport": "MCP Streamable HTTP (2025-03-26) over HTTPS on the hosted instance: single endpoint, POST for client→server JSON-RPC, GET for this discovery doc",
+        "transport": "MCP Streamable HTTP (2025-03-26) over HTTPS on the hosted instance: single endpoint, POST for client→server JSON-RPC, GET for this discovery doc. Stateless responder: no Mcp-Session-Id, no server-initiated messages, so a GET with `Accept: text/event-stream` is answered 405 Method Not Allowed rather than an SSE stream that would never frame.",
         "endpoint": "/mcp",
         "method": "POST",
         "content_type": "application/json",
@@ -23936,7 +24098,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/facts/{cid}":       {"get":{"summary":"fact dereference by CID (immutable, ETag-tagged)","operationId":"emem_fetch","tags":["fetch","get_fact"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_etag,"304":json_unchanged,"404":json_not_found}}},
             "/v1/fetch":             {"post":{"summary":"REST mirror of MCP `emem_fetch`. Resolve a fact by `{cid}` OR materialize `{cell, band[, tslot]}` (cell may be place name).","operationId":"emem_fetch_post","tags":["fetch"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FetchReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): recompute preimage BLAKE3 from {request_id, served_at, primitive, cells[], fact_cids[]} and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): rebuild the canonical preimage under the rule the receipt's own `preimage_version` names and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server. Pass the receipt EXACTLY as it was returned: preimage_version 2 binds every field it covers, including `merkle_proof` and `preimage_version` itself, so a reshaped receipt fails the same way a forged one does. Those two are the only omissions that reach a signature failure rather than a 400. When this responder can prove which of the two it is, `reason` is `receipt_reshaped_after_signing` rather than `signature_invalid` and `failure_detail` names the field. Neither ever returns `valid: true`.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
@@ -23954,7 +24116,8 @@ fn openapi_spec() -> JsonValue {
             "/v1/a2a/tasks/{id}/cancel": {"post":{"summary":"cancel an async task","operationId":"emem_a2a_task_cancel","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"required":false,"description":"No body. The task is named by the path parameter; declared explicitly so the spec states the emptiness rather than omitting the field.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/a2a/skills":        {"get":{"summary":"find a skill in one call","operationId":"emem_a2a_skills","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"free-text query over skill ids and descriptions"}],"responses":{"200":json_ok}}},
             "/v1/inbox":             {"post":{"summary":"read-side mailbox: the notes addressed to an attester, newest first. Read-only; it does not accept mail, it reports what was written to the shared memory naming you.","operationId":"emem_inbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["to"],"properties":{"to":{"type":"string","description":"attester pubkey or its 8-char shortcode"},"limit":{"type":"integer","minimum":1,"description":"default 20"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
-            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0 (Streamable HTTP). tools/list here returns the 16-tool core surface; /mcp/full returns all 107. tools/call dispatches any of the 107 by name at either endpoint.","operationId":"mcp_jsonrpc","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{"description":"request id; omit for a notification"},"method":{"type":"string","description":"initialize | tools/list | tools/call | resources/list | resources/read | prompts/list"},"params":{"type":"object","description":"method-specific; for tools/call it is {name, arguments}"}}}}}},"responses":{"200":json_ok}}},
+            "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0 (Streamable HTTP). tools/list here returns the 16-tool core surface; /mcp/full returns all 107. tools/call dispatches any of the 107 by name at either endpoint.","operationId":"mcp_jsonrpc","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{"description":"request id; omit for a notification"},"method":{"type":"string","description":"initialize | tools/list | tools/call | resources/list | resources/read | prompts/list"},"params":{"type":"object","description":"method-specific; for tools/call it is {name, arguments}"}}}}}},"responses":{"200":json_ok}},
+                                      "get":{"summary":"Discovery document for the MCP endpoint (transport, protocol versions, tool names, client configs). This responder is stateless — no Mcp-Session-Id, no server-initiated messages — so a GET carrying `Accept: text/event-stream`, i.e. a Streamable HTTP stream open, is answered 405 Method Not Allowed as the transport spec requires, with `Allow: POST, OPTIONS`. Every other GET gets the discovery document.","operationId":"mcp_discover","responses":{"200":json_ok,"405":{"description":"no SSE stream is offered at this endpoint; use POST"}}}},
             // High-traffic endpoints that were previously discoverable
             // only via /v1/discover or the agent_card. OpenAI Custom GPT
             // and ChatGPT plugin pickers ignore endpoints not in
@@ -24160,7 +24323,7 @@ fn openapi_spec() -> JsonValue {
                 "FactCid":         {"type":"string","description":"Content id of a fact: base32-nopad-lowercase encoding of `blake3(canonical_cbor(fact))`, the FULL 32-byte digest with no truncation. Always 52 characters, alphabet `[a-z2-7]`. A cid of any other length is a damaged citation, not a shorter address: /v1/memory_token/resolve rejects it as `fact_cid_malformed_length` rather than guessing. Note that `entity_cid` and `bundle_cid` are NOT this shape; both truncate to 16 bytes (26 characters) and hash an identity anchor or a citation list rather than a complete body.","pattern":"^[a-z2-7]{52}$","minLength":52,"maxLength":52,"example":"qtv2bco56qw4pmlohk56dotoxyl3atmnjpmzrijj2kazw2mj57oq"},
                 "PubKey":          {"type":"string","description":"Ed25519 32-byte public key, base32-nopad-lowercase encoded (52 chars). Returned in receipts and `/.well-known/emem.json`.","example":"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"},
                 "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the age of the stalest source cited (null when undatable, never 0 as a stand-in), `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number"},"latency_p99_ms":{"type":"number"},"source_freshness_s":{"type":["integer","null"],"description":"Age of the STALEST source this response cites: now minus the earliest captured_at across the returned facts' sources. null when nothing in the response carries a dated source, which is the honest answer for a primitive that reads no observation. Was a hardcoded 0 until 2026-08-05, so a 2021 DEM tile reported as 0 s old; a null here means unknown, never fresh."},"was_cached":{"type":"boolean"}}},
-                "Receipt":         {"type":"object","description":"Ed25519-signed receipt over the canonical preimage of (request_id, served_at, primitive, cells, fact_cids). The browser-side verifier at /verify reconstructs this preimage from the receipt fields alone, no callback to the issuer. NOTE: the preimage covers ONLY those five fields. The caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` are NOT signed, a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt`, `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when None.","properties":{"index":{"type":"integer"},"siblings":{"type":"array","items":{"type":"string"}}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
+                "Receipt":         {"type":"object","description":"Ed25519-signed receipt. The browser-side verifier at /verify reconstructs the preimage from the receipt fields alone, no callback to the issuer. **A receipt is byte-for-byte or nothing.** Current receipts carry `preimage_version: 2`, whose preimage binds request_id, served_at, primitive, cells, fact_cids AND, when present, the scope / as_of / edges / source_versions / field digests and the `merkle_proof` segment. Reshaping a receipt — dropping a field an SDK considers redundant, re-keying it, summarising it, round-tripping it through a lossy model — invalidates the signature BY DESIGN, and the result is indistinguishable on the wire from tampering. Store and forward the responder's exact bytes. POST /v1/verify_receipt names which of the two it is where it can prove the difference (`reason: receipt_reshaped_after_signing` with a `failure_detail`). What is NOT signed: the caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` — a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt`, `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when the cited facts pre-date the proof tree; under preimage_version 2 that absence is itself signed (an explicit ABSENT marker), so it is a statement rather than a gap. Do not strip this field: v2 binds it into the signature and removing it makes an authentic receipt report `signature_valid: false`.","required":["leaf_index","path","root"],"properties":{"leaf_index":{"type":"integer","description":"u32 leaf index in the canonical-sorted batch."},"path":{"type":"array","items":{"type":"array","items":{"type":"integer"},"description":"32-byte sibling hash as a byte array"},"description":"Sibling hashes leaf→root."},"root":{"type":"array","items":{"type":"integer"},"description":"The expected 32-byte batch root as a byte array."},"version":{"type":"integer","description":"Merkle hashing rule: 0 (omitted) = legacy unprefixed, 1 = RFC 6962-style prefixed."}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
                 "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},

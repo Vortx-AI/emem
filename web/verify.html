@@ -1313,7 +1313,12 @@ async function verifyAndRender(receiptIn){
       // paper over a broken client. It is surfaced as its own state.
       result = { ...server, browserInconclusive: true, verifierDrift: true };
     } else {
-      result = { ...result, serverConfirmed: server.ok === false };
+      // Keep the server's body. Both verifiers agree the signature is bad,
+      // but only the responder can tell a receipt RESHAPED in transit from
+      // one that was tampered with, because only it holds the inclusion
+      // proof it recorded and can put it back to see whether the rest of
+      // the receipt still verifies. This page has no such handle.
+      result = { ...result, serverConfirmed: server.ok === false, serverBody: server.body };
     }
   }
   renderReceipt(receipt, result);
@@ -1358,14 +1363,45 @@ async function verifyAndRender(receiptIn){
       'the signer is <code>' + escapeHtml((receipt.responder_pubkey_b32 || '').slice(0, 16)) + '…</code> over ' +
       ((receipt.fact_cids || []).length) + ' fact CID' + ((receipt.fact_cids || []).length === 1 ? '' : 's') +
       how + vtag);
+  } else if (result.serverBody && result.serverBody.reason === 'receipt_reshaped_after_signing') {
+    // Not tamper, and saying "tamper" here is the failure this branch was
+    // added to stop. The responder put back the inclusion proof it recorded
+    // for this receipt's first fact and the SAME signature verified, which
+    // means the signed body was never touched and only the proof segment
+    // moved. Under preimage v2 the proof is inside the signature — that is
+    // what stops a proof being stripped in transit — so a receipt is
+    // byte-for-byte or nothing, and a pipeline that reshapes one produces
+    // exactly this. The receipt as pasted is still NOT valid.
+    setStatus('unverified',
+      'receipt was reshaped after signing · not tamper',
+      escapeHtml(result.serverBody.failure_detail
+        || 'The responder restored the inclusion proof it recorded and the same signature '
+         + 'verified, so the signed body is intact and only the segments preimage v2 binds '
+         + 'were altered after signing. Fix whatever reshaped the receipt and verify the '
+         + 'responder\'s original bytes.')
+      + vtag);
   } else {
     const confirmed = result.serverConfirmed
       ? 'Both your browser and the responder\'s verifier reject this signature. '
       : '';
+    // A v2 receipt is ALLOWED to carry no proof (facts older than the proof
+    // tree sign an explicit ABSENT marker), so "no merkle_proof" is not by
+    // itself a fault and this page must not report it as one. What it can
+    // fairly do is name the likeliest innocent cause before the caller goes
+    // hunting an attacker.
+    const missingSegment = (receipt.preimage_version === undefined) ? 'preimage_version'
+                         : (pv >= 2 && !receipt.merkle_proof) ? 'merkle_proof'
+                         : null;
+    const reshapeHint = missingSegment
+      ? ' This receipt carries no <code>' + missingSegment + '</code>. preimage v2 binds both the '
+        + 'inclusion proof and the version that selects the rule, so if anything between the '
+        + 'responder and here dropped that field, that alone produces this result on data nobody '
+        + 'tampered with. Re-verify the responder\'s original bytes before concluding forgery.'
+      : '';
     setStatus('fail',
       'receipt did NOT verify · tamper detected',
       confirmed + 'the signature does not match a blake3 digest of the canonical preimage. ' +
-      (result.error ? '<code>' + escapeHtml(result.error) + '</code>' : 'check that responder_pubkey_b32, sig_b32, and the cells/fact_cids arrays are byte-identical to what the responder signed.'));
+      (result.error ? '<code>' + escapeHtml(result.error) + '</code>' : 'check that responder_pubkey_b32, sig_b32, and the cells/fact_cids arrays are byte-identical to what the responder signed.') + reshapeHint);
   }
 }
 

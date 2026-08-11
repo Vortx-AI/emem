@@ -1152,4 +1152,61 @@ mod v1_wire_anchor {
             "ce4ab6af99f35f02f5228db976c5ed31b66895474f9f18a7ddad241b6a0606be"
         );
     }
+
+    /// Restoring a receipt's real proof rescues a receipt whose proof was
+    /// dropped, and ONLY that receipt.
+    ///
+    /// `/v1/verify_receipt` uses this to tell a serialiser that reshaped a
+    /// receipt apart from an attacker that tampered with one, because both
+    /// arrive as a failed signature and calling both "forged" teaches an
+    /// agent to distrust the thing that was provable. The distinction is
+    /// only safe if restoring the proof cannot rescue anything else, so
+    /// that is what this pins: same body + real proof reproduces the signed
+    /// digest; same body + no proof does not; a body altered anywhere else
+    /// does not, with the real proof back in place.
+    #[test]
+    fn restoring_a_proof_rescues_only_an_untouched_body() {
+        let root = [0xAAu8; 32];
+        let path = [[0x11u8; 32], [0x22u8; 32]];
+        let real = hexlo(&merkle_binding_v2(Some((&root, 5u32, &path[..], 1u8))));
+        let absent = hexlo(&merkle_binding_v2(None));
+        let signed = |primitive: &str, cid: &str, merkle: &str| {
+            receipt_preimage_v2(
+                "RID",
+                "2026-06-12T00:00:00Z",
+                None,
+                None,
+                None,
+                None,
+                None,
+                primitive,
+                ["cellA"],
+                [cid],
+                merkle,
+            )
+        };
+        let original = signed("emem.recall", "fc1", &real);
+        assert_eq!(
+            signed("emem.recall", "fc1", &real),
+            original,
+            "restoring the recorded proof must reproduce the signed digest"
+        );
+        assert_ne!(
+            signed("emem.recall", "fc1", &absent),
+            original,
+            "a dropped proof must not hash like the proof it replaced"
+        );
+        // The two that keep this from becoming a downgrade: a body tampered
+        // anywhere else stays broken even with the true proof restored.
+        assert_ne!(
+            signed("emem.evolve", "fc1", &real),
+            original,
+            "restoring the proof must not rescue an altered primitive"
+        );
+        assert_ne!(
+            signed("emem.recall", "fc2", &real),
+            original,
+            "restoring the proof must not rescue an altered fact cid"
+        );
+    }
 }

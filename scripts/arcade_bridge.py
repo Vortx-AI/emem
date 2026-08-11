@@ -62,6 +62,8 @@ BASE = os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/")
 IDENTITY = Path(os.environ.get("EMEM_IDENTITY",
                                Path.home() / ".config" / "emem" / "agent_identity.json"))
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,30}$")
+# A pk8 as /v1/agents lists it: the first 8 chars of a base32-nopad pubkey.
+PK8_RE = re.compile(r"^[a-z2-7]{8}$")
 # The act vocabulary is the responder's, not ours. Fetched at runtime so this
 # script cannot drift from the contract it claims to implement.
 ACTS_FALLBACK = ["awake", "state", "move", "recall", "ask", "hunt", "share", "receive", "ack"]
@@ -117,6 +119,19 @@ def agent_key(slug: str) -> tuple[SigningKey, str, str]:
     seed = blake3.blake3(b"emem.arcade.agent.v1|" + operator_seed()
                          + b"|" + slug.encode()).digest()
     sk = SigningKey(seed)
+    pub = base64.b32encode(bytes(sk.verify_key)).decode().rstrip("=").lower()
+    return sk, pub, pub[:8]
+
+
+def operator_key() -> tuple[SigningKey, str, str]:
+    """Sign as the operator identity itself rather than a derived character.
+
+    `agent_key` mints a fresh sub-key per slug, which is right for an arcade
+    character and wrong for a reply. The key another agent has already
+    corresponded with is the one in `agent_identity.json`; a note signed by a
+    freshly derived key with no history asks its reader to trust a stranger.
+    """
+    sk = SigningKey(operator_seed())
     pub = base64.b32encode(bytes(sk.verify_key)).decode().rstrip("=").lower()
     return sk, pub, pub[:8]
 
@@ -277,8 +292,25 @@ def cmd_act(a) -> int:
 
 def cmd_say(a) -> int:
     """An addressed note. /v1/channel/geo geolocates it from the cited token."""
-    sk, pub, pk8 = agent_key(getattr(a, "from"))
-    _, _, to_pk8 = agent_key(a.to)
+    # `--to` names an arcade character and derives its key from OUR operator
+    # seed, so on its own `say` can only ever address keys this operator
+    # already owns: pointing it at a real correspondent's pk8 silently
+    # derived a different key and delivered the note to nobody. `--to-pk8`
+    # takes the destination key literally, which is what a reply needs.
+    if bool(a.to) == bool(a.to_pk8):
+        sys.exit("say needs exactly one of --to (an arcade slug, key derived "
+                 "from this operator) or --to-pk8 (a literal 8-char pk8).")
+    if a.from_operator:
+        sk, pub, pk8 = operator_key()
+    else:
+        sk, pub, pk8 = agent_key(getattr(a, "from"))
+    if a.to_pk8:
+        if not PK8_RE.match(a.to_pk8):
+            sys.exit(f"--to-pk8 {a.to_pk8!r} must be 8 base32 chars (a-z, 2-7), "
+                     f"the prefix /v1/agents lists.")
+        to_pk8 = a.to_pk8
+    else:
+        _, _, to_pk8 = agent_key(a.to)
     at, ts = stamp()
     lines = [f"# {pk8} -> {to_pk8}: {a.subject}", "", a.body.strip()]
     if a.token:
@@ -290,8 +322,8 @@ def cmd_say(a) -> int:
     st = load_state(pk8)
     pos = ({"cell": st.get("cell"), "lat": st.get("lat"), "lng": st.get("lng"),
             "label": st.get("label")} if st.get("cell") else None)
-    h = base_header(getattr(a, "from"), st.get("agent") or getattr(a, "from").upper(),
-                    pk8, "share", at, pos)
+    slug = getattr(a, "from")
+    h = base_header(slug, st.get("agent") or slug.upper(), pk8, "share", at, pos)
     if a.token:
         h["token"] = a.token
     h["to_pk8"] = to_pk8
@@ -339,8 +371,15 @@ def main() -> int:
     c.set_defaults(fn=cmd_act)
 
     s = sub.add_parser("say", help="send an addressed note to another agent")
-    s.add_argument("--from", required=True)
-    s.add_argument("--to", required=True)
+    s.add_argument("--from", required=True,
+                   help="arcade slug that signs the note; ignored with --from-operator")
+    s.add_argument("--from-operator", dest="from_operator", action="store_true",
+                   help="sign as the operator identity itself, the key a "
+                        "correspondent already knows, not a per-slug character")
+    s.add_argument("--to", help="arcade slug; its key is DERIVED from this "
+                                "operator seed, so it only addresses our own characters")
+    s.add_argument("--to-pk8", dest="to_pk8",
+                   help="literal 8-char destination key, for replying to a real agent")
     s.add_argument("--subject", required=True)
     s.add_argument("--body", default="")
     s.add_argument("--token")

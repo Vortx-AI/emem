@@ -759,7 +759,7 @@ Failure → write rejected. The HTTP layer surfaces this as the
 | `fact_cids` | `Vec<FactCid>` | every fact CID returned. For `emem.memory_file`, `fact_cids[0]` is the new `file_cid`; for `emem.memory_bundle`, the spatial `fact_cids` cited inside the bundle in citation order |
 | `as_of` | `Option<AsOfReceipt>` | `{valid_time?: u64, transaction_time?: ISO8601}`. Present only when at least one bi-temporal bound was set on the read; absent for current-state reads so pre-bi-temporal receipts deserialise byte-identically |
 | `schema_cid` | `SchemaCid` | active CDDL profile |
-| `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted; omitted from JSON when None |
+| `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted; omitted from JSON when None. Bound into the signature from `preimage_version: 2` on, so do not strip it (see §7.3.1) |
 | `responder` | `AttesterKey` | ed25519 pubkey, `[u8; 32]` |
 | `responder_key_epoch` | `KeyEpoch` | `u32` rotation counter |
 | `responder_pubkey_b32` | `String` | base32-nopad-lowercase of `responder`; appended at REST-serialization time so JSON consumers don't need to re-encode the bytes |
@@ -945,7 +945,52 @@ came from the declared attester.
 If the cited facts pre-date the proof tree (ephemeral run, or facts
 written before `persist_fact_proofs` shipped), `merkle_proof` is
 absent. The receipt is still a valid signed statement; only the
-attestation-tree anchor is missing.
+attestation-tree anchor is missing. Under v2 that absence is itself
+signed: `merkle_binding_v2(None)` hashes an explicit ABSENT marker, so "I have no proof" is a statement the responder made, not a gap an
+intermediary can create.
+
+### 7.3.1 A receipt is byte-for-byte or nothing
+
+The v2 binding has a cost worth stating plainly, because integrators
+meet it as a bug report rather than as a design note.
+
+Since v2 covers the proof, and v1 already covered every other field
+listed in §7.1, **a receipt cannot be reshaped and still verify.** An
+SDK that drops `merkle_proof` because it looks redundant, re-keys a
+field, summarises the envelope, or round-trips it through anything
+lossy produces `signature_valid: false` on data nobody tampered with.
+That is not a defect in the verifier; it is the same property that
+stops an intermediary stripping a proof in transit, seen from the
+other side. Store and forward the responder's exact bytes.
+
+Only two omissions actually reach a signature failure. Dropping any of
+the other fourteen receipt fields is refused by the deserialiser with a
+400 `invalid_argument`, and dropping `responder_pubkey_b32` or
+`signature_b32` changes nothing because each duplicates a byte-array
+field. The two that fall through are v2's own:
+
+- `merkle_proof`, which v2 binds, so its removal changes the preimage.
+- `preimage_version`, which deserialises to `0` when absent and so
+  silently selects the v0 rule. This is the worse of the two: the
+  inclusion proof is untouched and still walks to its root, so the
+  response reports `merkle_proof_valid: true` beside a signature it
+  calls invalid. That pairing is this failure, not a contradiction.
+
+The failure is worth distinguishing because it is indistinguishable on
+the wire from real tampering, and a false "forged" is more expensive
+than a missed one: it teaches an agent to distrust the one thing that
+was provable. `POST /v1/verify_receipt` names which it is *where it can
+prove the difference*. When the responder still holds the receipt's
+first fact, it rebuilds the receipt under v2 with the inclusion proof
+it recorded, re-checks the same signature, and if that verifies it
+reports `reason:
+receipt_reshaped_after_signing` with a `failure_detail` instead of
+`signature_invalid`. It never returns `valid: true` for such a receipt,
+and a body altered anywhere else fails the restored rebuild too, so the
+distinction is not a way back to the v1 downgrade
+(`crates/emem-attest/src/lib.rs::restoring_a_proof_rescues_only_an_untouched_body`
+pins that). An offline verifier holds no recorded proof and cannot make
+the distinction at all; `web/verify.html` says so rather than guessing.
 
 ### 7.4 Offline verification (Python)
 

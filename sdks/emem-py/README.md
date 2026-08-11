@@ -120,15 +120,27 @@ first.
 
 Every non-introspection response carries a `receipt` block with:
 
-- `responder_pubkey` (ed25519 base32-nopad-lowercase)
-- `signature_b32` (ed25519 over the canonical CBOR preimage)
-- `merkle_root` (BLAKE3 over the fact CIDs)
+- `responder_pubkey_b32` (ed25519 base32-nopad-lowercase)
+- `signature_b32` (ed25519 over the BLAKE3 preimage digest)
+- `preimage_version` (which rule signed it; read it, do not assume)
+- `merkle_proof` (inclusion proof for `fact_cids[0]`, when one was recorded)
 - `fact_cids[]` (the BLAKE3 CIDs of every fact returned)
 
 To cite an answer: quote `receipt.fact_cids[0]` and the responder pubkey.
 The signature can be verified offline against the public key at
 `https://emem.dev/.well-known/emem.json`; no callback to the responder is
 required.
+
+**Pass the receipt on whole.** `ememdev` returns it verbatim and you should
+store and forward it the same way. From `preimage_version: 2` the signature
+covers the inclusion proof as well as every other field it binds, which is
+what stops an intermediary stripping the proof in transit. The cost is that
+a receipt is byte-for-byte or nothing: drop `merkle_proof` because it looks
+redundant, re-key a field, or summarise the envelope, and it comes back
+`signature_valid: false` on data nobody tampered with — indistinguishable
+from forgery. `POST /v1/verify_receipt` reports `reason:
+receipt_reshaped_after_signing` instead of `signature_invalid` when the
+responder can prove that is what happened, but it never accepts the receipt.
 
 ## License
 

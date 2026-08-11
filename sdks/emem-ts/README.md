@@ -46,13 +46,22 @@ console.log(facts);
 
 Every non-introspection response carries a `receipt` with:
 
-- `responder_pubkey` (ed25519 base32-nopad-lowercase)
-- `signature_b32` (ed25519 over the canonical CBOR preimage)
-- `merkle_root` (BLAKE3 over the fact CIDs)
+- `responder_pubkey_b32` (ed25519 base32-nopad-lowercase)
+- `signature_b32` (ed25519 over the BLAKE3 preimage digest)
+- `preimage_version` (which rule signed it; read it, do not assume)
+- `merkle_proof` (inclusion proof for `fact_cids[0]`, when one was recorded)
 - `fact_cids[]`
 
 Cite `receipt.fact_cids[0]` and the responder pubkey. Verify offline
 against the public key at `https://emem.dev/.well-known/emem.json`.
+
+**Pass the receipt on whole.** From `preimage_version: 2` the signature
+covers the inclusion proof as well as the fields it already bound, which is
+what stops an intermediary stripping the proof in transit. The cost is that
+a receipt is byte-for-byte or nothing: dropping `merkle_proof`, re-keying a
+field, or reshaping the envelope returns `signature_valid: false` on data
+nobody tampered with, which is indistinguishable from forgery. Do not
+destructure a receipt and rebuild it; keep the object the responder sent.
 
 ## License
 
