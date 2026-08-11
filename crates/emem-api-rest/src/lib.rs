@@ -20530,6 +20530,257 @@ static FULL_CATALOG_BYTES: std::sync::LazyLock<usize> = std::sync::LazyLock::new
     serde_json::to_string(&all).map(|s| s.len()).unwrap_or(0)
 });
 
+/// What a `tools/list` request selected: a discovery tier, or a bundle.
+///
+/// This used to be an untyped `&str` tier plus a separate bundle string,
+/// and the cursor carried only the tier. So paging a bundle handed the
+/// client a *different* set of tools than it asked for, and a bundle that
+/// fitted in one page still advertised more. Making the selection one
+/// value that the cursor round-trips is what stops those two bugs at the
+/// source rather than patching each symptom.
+struct ToolSelection {
+    /// Cursor form, round-tripped verbatim: `core`, `extended`, `all`, or
+    /// `bundle:<name>`. Bundle names are `[a-z_0-9]+`, so `@` remains an
+    /// unambiguous separator for the page index.
+    key: String,
+    /// What to call this selection in `_discovery.showing` / `_meta`.
+    label: String,
+    /// A *curated* selection: hand-picked, meant to be read whole, and
+    /// small enough to be. These are never split while they fit under the
+    /// hard cap. Enumerations (`extended`, `all`) page normally.
+    curated: bool,
+    tools: Vec<&'static emem_mcp::ToolDescriptor>,
+}
+
+fn tool_selection(tier: &str, bundle: &str) -> ToolSelection {
+    if !bundle.is_empty() {
+        // An unknown bundle yields nothing, so it fails visibly rather
+        // than silently falling back to a different surface.
+        return ToolSelection {
+            key: format!("bundle:{bundle}"),
+            label: bundle.to_string(),
+            curated: true,
+            tools: emem_mcp::tools_in_bundle(bundle),
+        };
+    }
+    ToolSelection {
+        key: tier.to_string(),
+        label: tier.to_string(),
+        curated: tier == "core",
+        tools: emem_mcp::tools_at_tier(tier),
+    }
+}
+
+/// One page of `tools/list`.
+///
+/// Three decisions used to live here independently and contradict each
+/// other; they are now derived from one measured fact.
+///
+/// The fact: an AWS-hosted client rejects bodies over 102,400 bytes, and
+/// kept rejecting ours when our largest page was 79,496 bytes with 22,904
+/// bytes of apparent headroom. 79,496 x 4/3 = 105,995, so the host is
+/// counting a base64-wrapped body. That single number explains both
+/// budgets below, and it is why they are not one budget:
+///
+///   102,400 x 3/4 = 76,800  the largest raw body that survives wrapping.
+///   MAX_BYTES = 68,000      descriptor budget under that, leaving the
+///                           JSON-RPC envelope and `_meta` room. Nothing
+///                           we emit ever exceeds this.
+///   PAGE_BYTES = 45,000     what we aim for when *enumerating*, since
+///                           45,000 x 4/3 = 60,000 is known-accepted and
+///                           an extra round trip costs nothing but a
+///                           round trip.
+///
+/// The invariant that was missing: a client that never sends a cursor
+/// must receive the advertised profile *whole*. Commit c0b896b halved
+/// PAGE_BYTES for good reason and, with no test tying page one to the
+/// advertised profile, silently split the 16-tool core profile across two
+/// pages. Every non-paginating client (directory scanners, Smithery, most
+/// cold-connect handshakes) then saw 12 tools while the same body's
+/// `_meta` announced a core of 16. A response that states two different
+/// numbers about itself is unusable; `mcp_core_profile_arrives_whole`
+/// below now fails the build instead.
+fn mcp_tools_list(params: Option<&JsonValue>, default_tier: &str) -> JsonValue {
+    let param_str = |k: &str| -> &str {
+        params
+            .and_then(|p| p.get(k))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    };
+    let requested_tier = param_str("tier");
+    let requested_bundle = param_str("bundle");
+    let cursor = param_str("cursor");
+
+    // A cursor is `<selection>@<index>`. The legacy `tier:<name>` forms
+    // still resolve, so a client holding a cursor minted by an older
+    // build is not stranded.
+    let (cursor_key, cursor_index) = match cursor.rsplit_once('@') {
+        Some((k, i)) => (k, i.parse::<usize>().unwrap_or(0)),
+        None => match cursor {
+            "tier:extended" => ("extended", 0),
+            "tier:core" => ("core", 0),
+            _ => ("", 0),
+        },
+    };
+
+    // An explicit `tier`/`bundle` always wins over the endpoint default.
+    // Absent both, the cursor names the selection; absent all three, the
+    // endpoint's own default applies.
+    let (tier, bundle) = if !requested_bundle.is_empty() || !requested_tier.is_empty() {
+        (requested_tier, requested_bundle)
+    } else if let Some(b) = cursor_key.strip_prefix("bundle:") {
+        ("", b)
+    } else if matches!(cursor_key, "core" | "extended" | "all") {
+        (cursor_key, "")
+    } else {
+        (default_tier, "")
+    };
+    let tier = if tier.is_empty() { default_tier } else { tier };
+    let sel = tool_selection(tier, bundle);
+
+    // An index is only meaningful against the list it was minted from. If
+    // the client pinned a different selection with an explicit param, the
+    // carried index names nothing here, so start over rather than slice a
+    // list the number was never about.
+    let start = if cursor_key == sel.key {
+        cursor_index
+    } else {
+        0
+    };
+
+    let descriptors: Vec<JsonValue> = sel.tools.iter().map(|t| mcp_tool_descriptor(t)).collect();
+    let selection_size = descriptors.len();
+    let total = emem_mcp::TOOLS.len();
+
+    let page_bytes: usize = std::env::var("EMEM_MCP_LIST_BUDGET_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(45_000);
+    let max_bytes: usize = std::env::var("EMEM_MCP_LIST_MAX_BYTES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(68_000);
+    // A curated selection gets the whole ceiling so it arrives in one
+    // piece; an enumeration gets the small page. `.max` keeps a curated
+    // page from being *smaller* than an enumeration page if an operator
+    // tunes only one of the two.
+    let budget = if sel.curated {
+        max_bytes.max(page_bytes)
+    } else {
+        page_bytes
+    };
+
+    let mut page: Vec<JsonValue> = Vec::new();
+    let mut used = 0usize;
+    for t in descriptors.iter().skip(start) {
+        // +2 for the comma and the array framing this element adds.
+        let cost = serde_json::to_string(t).map(|s| s.len()).unwrap_or(0) + 2;
+        if !page.is_empty() && used + cost > budget {
+            break;
+        }
+        used += cost;
+        page.push(t.clone());
+    }
+    let next_index = start + page.len();
+    let more = next_index < selection_size;
+
+    // The cursor carries the selection, so a continuation always resumes
+    // the same list. The chain ends when that list is exhausted: no
+    // handoff to another tier. The old code handed every finished `core`
+    // reader on to `tier:extended`, which meant a client that asked for
+    // the 16-tool loop was walked through all 107 whether it wanted them
+    // or not, and a client that kept its `{"tier":"core"}` param while
+    // paginating looped forever (the param out-ranked the cursor, so
+    // `tier:extended` reset it to page one of core). Clients that want
+    // everything ask for it: `{"tier":"all"}` at either endpoint, or
+    // /mcp/full.
+    let next_cursor = if more {
+        Some(format!("{}@{}", sel.key, next_index))
+    } else {
+        None
+    };
+
+    let core_n = emem_mcp::tools_at_tier("core").len();
+    let extended_n = emem_mcp::tools_at_tier("extended").len();
+
+    // Built from what this response actually contains. The `all` branch
+    // used to read "Showing all 107 tools" on a 14-tool page, which is
+    // the same class of lie as the count mismatch above.
+    let hint = if more || start > 0 {
+        format!(
+            "Page: tools {}-{} of {} in profile '{}' ({} registered in total). {} Every tool is callable by name via tools/call at either endpoint whether or not it is listed here; call emem_tools to map the surface without loading it.",
+            start + 1,
+            next_index,
+            selection_size,
+            sel.label,
+            total,
+            if more {
+                "Pass the returned nextCursor for the next page."
+            } else {
+                "This is the last page."
+            },
+        )
+    } else if sel.label == "all" {
+        format!(
+            "Showing all {total} tools. Pass {{\"tier\":\"core\"}} or connect to /mcp for the {core_n}-tool core loop instead."
+        )
+    } else if !bundle.is_empty() {
+        format!(
+            "Showing all {selection_size} tools in the '{}' bundle, of {total} registered. Pass {{\"tier\":\"all\"}} or connect to /mcp/full to list every tool.",
+            sel.label
+        )
+    } else {
+        format!(
+            "Showing the complete {selection_size}-tool {} profile. This endpoint defaults to the {default_tier} profile. The other {} tools are not hidden: every one dispatches by name via tools/call at either endpoint, and {{\"tier\":\"all\"}} or /mcp/full lists them. Call emem_tools to map the surface without loading it.",
+            sel.label,
+            total - selection_size,
+        )
+    };
+
+    let mut result = json!({
+        "tools": page,
+        // `_meta` is the MCP-standard slot for server-defined data,
+        // reverse-DNS namespaced. Requested by the SaSame Protocol
+        // Observatory (Vortx-AI/emem#9) so a longitudinal monitor can
+        // tell an intentional profile choice from tool-surface drift.
+        // `_discovery` below predates it and stays for back-compat.
+        //
+        // `profiles` now lists `extended` too: the server has always been
+        // willing to answer `showing: "extended"`, so leaving it out of
+        // the profile table made `profiles[showing]` undefined for a
+        // client trying to check exactly the thing this table is for.
+        "_meta": {
+            "dev.emem/profile":         sel.label,
+            "dev.emem/profile_default": default_tier,
+            "dev.emem/profile_size":    selection_size,
+            "dev.emem/tools_shown":     page.len(),
+            "dev.emem/tools_total":     total,
+            "dev.emem/profiles": {
+                "core":     core_n,
+                "extended": extended_n,
+                "all":      total,
+            },
+        },
+        "_discovery": {
+            "total_tools":   total,
+            "showing":       sel.label,
+            "showing_count": page.len(),
+            // What the selected profile holds in full. Equal to
+            // `showing_count` exactly when this response is complete,
+            // which is the check a client should make instead of
+            // comparing against a table it has to look up.
+            "profile_count": selection_size,
+            "hint": hint,
+        },
+    });
+    if let Some(c) = next_cursor {
+        if let Some(map) = result.as_object_mut() {
+            map.insert("nextCursor".into(), json!(c));
+        }
+    }
+    result
+}
+
 fn mcp_instructions(default_tier: &str) -> String {
     let mut s = String::with_capacity(4096);
     s.push_str(MCP_PREAMBLE);
@@ -20812,165 +21063,10 @@ async fn mcp_jsonrpc_inner(
             // `/mcp` advertises the core loop, `/mcp/full` the whole
             // catalog. See MCP_CORE_ENDPOINT_TIER for why, including the
             // earlier attempt this supersedes. An explicit {"tier": ...}
-            // always wins over the endpoint default, so `/mcp` with
-            // {"tier":"all"} is still the full 88. tools/call dispatches by
-            // name against ALL tools at either endpoint regardless of tier.
-            let requested_tier = req
-                .params
-                .as_ref()
-                .and_then(|p| p.get("tier"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let cursor_tier = req
-                .params
-                .as_ref()
-                .and_then(|p| p.get("cursor"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let effective_tier = if !requested_tier.is_empty() {
-                requested_tier
-            } else if cursor_tier == "tier:extended" {
-                "extended"
-            } else if cursor_tier == "tier:core" {
-                "core"
-            // A byte-paged cursor is `<tier>@<index>`. The legacy `tier:<name>`
-            // forms above still resolve, so a client holding an old cursor is
-            // not stranded by this change.
-            } else if matches!(
-                cursor_tier.split_once('@').map(|(t, _)| t),
-                Some("core") | Some("extended") | Some("all")
-            ) {
-                cursor_tier
-                    .split_once('@')
-                    .map(|(t, _)| t)
-                    .unwrap_or(default_tier)
-            } else {
-                default_tier
-            };
-            // `{"bundle": "robotics"}` registers exactly the tools that job
-            // needs, which is the honest middle between 14 and 89: a host
-            // that knows what it is doing should not have to choose between
-            // a loop it has outgrown and a catalog it will never use. An
-            // unknown bundle name yields nothing, so it fails visibly
-            // rather than silently falling back to a different surface.
-            let requested_bundle = req
-                .params
-                .as_ref()
-                .and_then(|p| p.get("bundle"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let tools = if requested_bundle.is_empty() {
-                emem_mcp::tools_at_tier(effective_tier)
-            } else {
-                emem_mcp::tools_in_bundle(requested_bundle)
-            };
-            let all_tool_json: Vec<JsonValue> =
-                tools.iter().map(|t| mcp_tool_descriptor(t)).collect();
-            let total = emem_mcp::TOOLS.len();
-
-            // Page by BYTES, not by tier.
-            //
-            // An AWS-hosted client reported "MCP server response exceeds
-            // maximum allowed size of 102400 bytes" and it was right:
-            // /mcp/full serialised to 288,002 bytes for 107 tools, 2.8x the
-            // cap, so the full surface could not be listed at all from that
-            // host. The tier cursor did not save it either. Paging was
-            // TIER-shaped, so a client walking the cursor correctly got
-            // page 1 of 16 tools at 61,380 bytes and then page 2 of 91 tools
-            // at 227,496 bytes, still 2.2x over. Both all-107 paths returned
-            // nextCursor:null, telling the client "this is everything" in a
-            // body it could not accept.
-            //
-            // So a page now ends when the next descriptor would breach the
-            // budget. The core tier is 61,380 bytes for 16 tools and is
-            // under the budget, so it still arrives whole and its cursor
-            // still reads `tier:extended`: nothing a working client does
-            // today changes. Only the pages that were too big get split.
-            // Budget halved from 80,000 to 45,000 after the reporting host still
-            // saw the cap with every page of ours measurably under it. Our
-            // largest page was 79,496 bytes, leaving 22,904 of headroom under
-            // 102,400, and a host that wraps the body (SSE framing, a request
-            // record, base64) counts bytes we cannot see. The ceiling is the
-            // client's total, not ours. More pages cost a round trip each and
-            // nothing else; a page the client refuses costs the whole catalog.
-            let budget: usize = std::env::var("EMEM_MCP_LIST_BUDGET_BYTES")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(45_000);
-            let start: usize = cursor_tier
-                .rsplit_once('@')
-                .and_then(|(_, i)| i.parse().ok())
-                .unwrap_or(0);
-            let mut tool_json: Vec<JsonValue> = Vec::new();
-            let mut used = 0usize;
-            for t in all_tool_json.iter().skip(start) {
-                // +2 for the comma and the array framing this element adds.
-                let cost = serde_json::to_string(t).map(|s| s.len()).unwrap_or(0) + 2;
-                if !tool_json.is_empty() && used + cost > budget {
-                    break;
-                }
-                used += cost;
-                tool_json.push(t.clone());
-            }
-            let next_index = start + tool_json.len();
-            let more_in_tier = next_index < all_tool_json.len();
-            // The hint is built from what this request actually did. It
-            // used to be a fixed string claiming "the full catalog is
-            // returned by default" and "{\"tier\":\"core\"} for just the 10
-            // essentials": both false once /mcp defaulted to core and the
-            // loop grew past 10. It was shipping that way on prod.
-            let core_n = emem_mcp::tools_at_tier("core").len();
-            let hint = if effective_tier == "all" {
-                format!(
-                    "Showing all {total} tools. Pass {{\"tier\":\"core\"}} or connect to /mcp for the {core_n}-tool core loop instead."
-                )
-            } else {
-                format!(
-                    "Showing {} of {total} tools (profile: {effective_tier}). This endpoint defaults to the {default_tier} profile. Nothing is hidden: every tool is callable by name via tools/call at either endpoint, standard cursor pagination from here returns the rest, and /mcp/full advertises all {total} up front. Call emem_tools to map the surface without loading it.",
-                    tool_json.len()
-                )
-            };
-            let mut result = json!({
-                "tools": tool_json,
-                // `_meta` is the MCP-standard slot for server-defined data,
-                // reverse-DNS namespaced. Requested by the SaSame Protocol
-                // Observatory (Vortx-AI/emem#9) so a longitudinal monitor can
-                // tell an intentional profile choice from tool-surface drift.
-                // `_discovery` below predates it and stays for back-compat.
-                "_meta": {
-                    "dev.emem/profile":        effective_tier,
-                    "dev.emem/profile_default": default_tier,
-                    "dev.emem/tools_shown":    tool_json.len(),
-                    "dev.emem/tools_total":    total,
-                    "dev.emem/profiles": {
-                        "core": core_n,
-                        "all":  total,
-                    },
-                },
-                "_discovery": {
-                    "total_tools":  total,
-                    "showing":      effective_tier,
-                    "showing_count": tool_json.len(),
-                    "hint": hint,
-                },
-            });
-            // Cursor order: finish the current tier's pages first, then hand
-            // core readers on to extended. Only the genuinely last page omits
-            // nextCursor, because a null cursor is a promise that there is
-            // nothing more.
-            let next_cursor = if more_in_tier {
-                Some(format!("{effective_tier}@{next_index}"))
-            } else if effective_tier == "core" {
-                Some("tier:extended".to_string())
-            } else {
-                None
-            };
-            if let Some(c) = next_cursor {
-                if let Some(map) = result.as_object_mut() {
-                    map.insert("nextCursor".into(), json!(c));
-                }
-            }
-            Ok(result)
+            // or {"bundle": ...} always wins over the endpoint default.
+            // tools/call dispatches by name against ALL tools at either
+            // endpoint regardless of what this listed.
+            Ok(mcp_tools_list(req.params.as_ref(), default_tier))
         }
         "tools/call" => {
             // The MCP spec (2025-03-26 and later) requires `tools/call`
@@ -62159,6 +62255,215 @@ mod s2_surface_class {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- tools/list paging -------------------------------------------
+    //
+    // These exist because commit c0b896b halved the page budget for a good
+    // reason and split the advertised core profile in half as a side
+    // effect, and nothing failed. Every assertion below is one a naive
+    // client makes implicitly.
+
+    /// Bytes a client actually receives for one page, envelope included.
+    fn list_bytes(v: &JsonValue) -> usize {
+        serde_json::to_string(&json!({"jsonrpc":"2.0","id":1,"result":v}))
+            .map(|s| s.len())
+            .unwrap_or(0)
+    }
+
+    /// Walk the cursor exactly as a paginating client does: carry the
+    /// cursor forward, carry the original params forward too (clients do
+    /// both), and stop only when nextCursor is absent.
+    fn walk_list(default_tier: &str, params: JsonValue) -> (Vec<String>, usize, usize) {
+        let mut names: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut pages = 0usize;
+        let mut bytes = 0usize;
+        loop {
+            let mut p = params.clone();
+            if let (Some(map), Some(c)) = (p.as_object_mut(), cursor.as_ref()) {
+                map.insert("cursor".into(), json!(c));
+            }
+            let r = mcp_tools_list(Some(&p), default_tier);
+            pages += 1;
+            bytes += list_bytes(&r);
+            assert!(
+                list_bytes(&r) <= 76_800,
+                "page {pages} of {params} is {} bytes, over the wrapped-body ceiling",
+                list_bytes(&r)
+            );
+            for t in r["tools"].as_array().expect("tools array") {
+                names.push(t["name"].as_str().expect("tool name").to_string());
+            }
+            match r.get("nextCursor").and_then(|c| c.as_str()) {
+                Some(c) => cursor = Some(c.to_string()),
+                None => break,
+            }
+            assert!(pages < 40, "cursor for {params} does not terminate");
+        }
+        (names, pages, bytes)
+    }
+
+    /// THE regression test. A client that never sends a cursor must get
+    /// the entire advertised core profile, and the response must not state
+    /// two different numbers about itself.
+    #[test]
+    fn mcp_core_profile_arrives_whole_on_page_one() {
+        let r = mcp_tools_list(None, MCP_CORE_ENDPOINT_TIER);
+        let core_n = emem_mcp::tools_at_tier("core").len();
+        let shown = r["tools"].as_array().expect("tools").len();
+        assert_eq!(
+            shown, core_n,
+            "page one of /mcp must be the whole core profile"
+        );
+        assert_eq!(r["_discovery"]["showing_count"], json!(core_n));
+        assert_eq!(r["_discovery"]["profile_count"], json!(core_n));
+        assert_eq!(r["_meta"]["dev.emem/profiles"]["core"], json!(core_n));
+        assert_eq!(r["_meta"]["dev.emem/tools_shown"], json!(core_n));
+        assert!(
+            r.get("nextCursor").is_none(),
+            "a complete core page must not promise more; got {:?}",
+            r.get("nextCursor")
+        );
+        assert!(
+            list_bytes(&r) <= 76_800,
+            "core page is {} bytes, over the wrapped-body ceiling",
+            list_bytes(&r)
+        );
+    }
+
+    /// `_discovery` and `_meta` describe the same response, so wherever
+    /// they overlap they must agree, on every selection either endpoint
+    /// can produce.
+    #[test]
+    fn mcp_list_envelope_never_contradicts_itself() {
+        for (tier_default, params) in [
+            (MCP_CORE_ENDPOINT_TIER, json!({})),
+            (MCP_FULL_ENDPOINT_TIER, json!({})),
+            (MCP_CORE_ENDPOINT_TIER, json!({"tier": "all"})),
+            (MCP_FULL_ENDPOINT_TIER, json!({"tier": "core"})),
+            (MCP_CORE_ENDPOINT_TIER, json!({"tier": "extended"})),
+            (MCP_CORE_ENDPOINT_TIER, json!({"bundle": "robotics"})),
+        ] {
+            let r = mcp_tools_list(Some(&params), tier_default);
+            let shown = r["tools"].as_array().expect("tools").len();
+            assert_eq!(
+                r["_discovery"]["showing_count"],
+                json!(shown),
+                "showing_count disagrees with the tools array for {params}"
+            );
+            assert_eq!(
+                r["_meta"]["dev.emem/tools_shown"],
+                json!(shown),
+                "_meta tools_shown disagrees with the tools array for {params}"
+            );
+            assert_eq!(
+                r["_discovery"]["showing"], r["_meta"]["dev.emem/profile"],
+                "profile name disagrees between _discovery and _meta for {params}"
+            );
+            assert_eq!(
+                r["_discovery"]["profile_count"], r["_meta"]["dev.emem/profile_size"],
+                "profile size disagrees between _discovery and _meta for {params}"
+            );
+            // A complete response says so by omitting the cursor, and an
+            // incomplete one never claims to be showing the whole profile.
+            let complete = r.get("nextCursor").is_none()
+                && shown == r["_discovery"]["profile_count"].as_u64().unwrap_or(0) as usize;
+            let hint = r["_discovery"]["hint"].as_str().expect("hint");
+            if !complete {
+                assert!(
+                    !hint.contains("Showing all"),
+                    "partial page claims to show everything for {params}: {hint}"
+                );
+            }
+            // A tier response must be checkable against the profile table.
+            if let Some(n) = r["_meta"]["dev.emem/profiles"]
+                .get(r["_discovery"]["showing"].as_str().unwrap_or(""))
+            {
+                assert_eq!(
+                    n, &r["_discovery"]["profile_count"],
+                    "profiles table disagrees with profile_count for {params}"
+                );
+            }
+        }
+    }
+
+    /// The chain ends where the client's request ends. Core must not walk
+    /// a client into the other 91 tools, and no selection may loop.
+    #[test]
+    fn mcp_cursor_chain_terminates_and_stays_in_its_selection() {
+        let all_n = emem_mcp::TOOLS.len();
+        let core_n = emem_mcp::tools_at_tier("core").len();
+
+        let (names, pages, _) = walk_list(MCP_CORE_ENDPOINT_TIER, json!({}));
+        assert_eq!(pages, 1, "/mcp default must be one round trip");
+        assert_eq!(names.len(), core_n);
+
+        // This is the loop that used to spin forever: the tier param
+        // out-ranked the handed-off cursor and reset it to page one.
+        let (names, pages, _) = walk_list(MCP_FULL_ENDPOINT_TIER, json!({"tier": "core"}));
+        assert_eq!(pages, 1, "/mcp/full {{tier:core}} must be one round trip");
+        assert_eq!(names.len(), core_n);
+
+        for (d, p) in [
+            (MCP_FULL_ENDPOINT_TIER, json!({})),
+            (MCP_CORE_ENDPOINT_TIER, json!({"tier": "all"})),
+        ] {
+            let (names, _, _) = walk_list(d, p.clone());
+            let uniq: std::collections::BTreeSet<_> = names.iter().collect();
+            assert_eq!(names.len(), uniq.len(), "duplicate tools walking {p}");
+            assert_eq!(uniq.len(), all_n, "walking {p} must reach every tool");
+        }
+    }
+
+    /// A bundle is a selection like any other: paging one must not hand
+    /// back tools from a different list, and a bundle that fits must not
+    /// advertise more.
+    #[test]
+    fn mcp_bundle_paging_stays_in_the_bundle() {
+        for (name, _, _) in emem_mcp::TOOL_BUNDLES {
+            let want: Vec<String> = emem_mcp::tools_in_bundle(name)
+                .iter()
+                .map(|t| t.name.to_string())
+                .collect();
+            assert!(!want.is_empty(), "bundle {name} is empty");
+            let (got, _, _) = walk_list(MCP_CORE_ENDPOINT_TIER, json!({"bundle": name}));
+            assert_eq!(got, want, "walking bundle {name} returned a different set");
+            let r = mcp_tools_list(Some(&json!({"bundle": name})), MCP_CORE_ENDPOINT_TIER);
+            assert_eq!(
+                r["_discovery"]["showing"],
+                json!(name),
+                "bundle {name} reports the wrong profile name"
+            );
+        }
+    }
+
+    /// Legacy cursors minted by earlier builds must still resolve, and a
+    /// cursor whose index belongs to another selection must not be used to
+    /// slice this one.
+    #[test]
+    fn mcp_cursor_legacy_and_mismatched_forms_are_safe() {
+        let ext_n = emem_mcp::tools_at_tier("extended").len();
+        let r = mcp_tools_list(
+            Some(&json!({"cursor": "tier:extended"})),
+            MCP_CORE_ENDPOINT_TIER,
+        );
+        assert_eq!(r["_discovery"]["showing"], json!("extended"));
+        assert_eq!(r["_discovery"]["profile_count"], json!(ext_n));
+
+        // Index minted against `core`, presented with an explicit
+        // `tier:all`: the number names nothing in the new list, so the
+        // page starts at the beginning rather than skipping 12 tools.
+        let r = mcp_tools_list(
+            Some(&json!({"tier": "all", "cursor": "core@12"})),
+            MCP_CORE_ENDPOINT_TIER,
+        );
+        let first = r["tools"][0]["name"].as_str().expect("first tool");
+        assert_eq!(
+            first,
+            emem_mcp::TOOLS[0].name,
+            "mismatched cursor skipped tools"
+        );
+    }
 
     /// The phenology advisory is the guard against the silent "4 prospered /
     /// 0 stressed" bug: a seasonal diff across different days-of-year must
