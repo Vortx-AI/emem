@@ -1347,16 +1347,19 @@ without touching REST.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 94 cost about 210 KB of every conversation whether or not it
+connect. All 107 cost about 288 KB of every conversation whether or not it
 ever touches Earth observation. So `POST /mcp` advertises the 16 tools of
-the core loop, about 39 KB, and `POST /mcp/full` advertises all 107.
+the core loop in a single page, about 66 KB, and `POST /mcp/full`
+advertises all 107. Both byte figures were measured on the wire on
+2026-08-11 and move whenever a tool description is edited; re-measure
+rather than quote.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
 107 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure
-mode of a 204 KB dump is the same conclusion reached for a different
+mode of a 288 KB dump is the same conclusion reached for a different
 reason: the agent stops reading.
 
 `emem_tools` is itself core and maps the rest. With no arguments it

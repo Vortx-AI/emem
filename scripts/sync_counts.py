@@ -907,6 +907,99 @@ def scan_prose() -> list[str]:
     return hits
 
 
+# Byte figures for the two tools/list surfaces, as published in prose.
+#
+# These are not counts, so `PROSE_CLAIMS` cannot see them, and they drifted
+# across SIX surfaces before anyone noticed: README, agents.md, intro.md,
+# mcp-directory.md, integrations.md and the whitepaper variously claimed
+# 39/51 KB core and 204/210/266 KB full, against 66 and 288 measured on the
+# wire 2026-08-11. A descriptor edit moves them, which is exactly why a human
+# never re-measures: nothing was watching, and the numbers read as facts.
+#
+# Tolerance is wide on purpose. The claim being defended is "core is a
+# fraction of full", not a byte count, and a check that reddens because
+# somebody improved a tool description gets switched off. It fails only when
+# a published figure is off by more than half, which is what "stale" looks
+# like here.
+MCP_BYTES_TOLERANCE = 0.5
+MCP_BYTES_CLAIMS = [
+    # (file, regex capturing the KB figure, which surface it describes)
+    ("README.md", r"core loop in one page, about (\d+) KB of context", "core"),
+    ("README.md", r"all 107 descriptors costs about (\d+) KB", "full"),
+    ("docs/agents.md", r"in one page \(about\s+(\d+) KB of descriptors\)", "core"),
+    ("docs/agents.md", r"advertises all 107 \(about (\d+) KB over 7", "full"),
+    ("docs/intro.md", r"carries about (\d+) KB of descriptors instead of (?:\d+) KB", "core"),
+    ("docs/intro.md", r"instead of (\d+) KB", "full"),
+    ("docs/mcp-directory.md", r"in a single page \(about (\d+) KB\)", "core"),
+    ("docs/mcp-directory.md", r"the full 107 cost about (\d+) KB", "full"),
+    ("docs/integrations.md", r"registers about (\d+) KB of descriptors", "core"),
+    ("docs/integrations.md", r"rather than about (\d+) KB for all 107", "full"),
+    ("docs/whitepaper.md", r"All 107 cost about (\d+) KB", "full"),
+    ("docs/whitepaper.md", r"core loop in a single page, about (\d+) KB", "core"),
+]
+
+
+def measure_mcp_list_bytes(responder: str) -> dict | None:
+    """Whole HTTP body of a no-cursor tools/list on /mcp, and of every page of
+    /mcp/full. The body is what the host measures, so that is what is compared
+    against the prose."""
+    import urllib.request
+
+    def page(path, cursor=None):
+        body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                "params": {} if cursor is None else {"cursor": cursor}}
+        req = urllib.request.Request(
+            responder + path, data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json",
+                     "Accept": "application/json, text/event-stream"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read()
+        return raw, json.loads(raw)["result"]
+
+    try:
+        raw, res = page("/mcp")
+        if res.get("nextCursor"):
+            return None  # core split across pages; a different check owns that
+        core = len(raw)
+        total, cursor, pages = 0, None, 0
+        while True:
+            raw, res = page("/mcp/full", cursor)
+            total += len(raw)
+            pages += 1
+            cursor = res.get("nextCursor")
+            if not cursor or pages > 20:
+                break
+        return {"core": core, "full": total}
+    except Exception:
+        return None
+
+
+def verify_mcp_byte_claims(responder: str) -> list[str]:
+    measured = measure_mcp_list_bytes(responder)
+    if measured is None:
+        # Unreachable, or core is paginated. Neither is this check's business,
+        # and reporting a live figure as drift when the responder was simply
+        # down is how a gate earns a reputation for crying wolf.
+        return []
+    hits = []
+    for rel, pat, which in MCP_BYTES_CLAIMS:
+        f = REPO / rel
+        if not f.exists():
+            hits.append(f"{rel}: named in MCP_BYTES_CLAIMS but missing")
+            continue
+        m = re.search(pat, f.read_text(encoding="utf-8"))
+        if not m:
+            hits.append(f"{rel}: the {which} byte claim no longer matches its "
+                        f"pattern; the prose moved and this check went blind.")
+            continue
+        claimed_kb = int(m.group(1))
+        real_kb = measured[which] / 1024
+        if abs(claimed_kb - real_kb) > real_kb * MCP_BYTES_TOLERANCE:
+            hits.append(f"{rel}: claims ~{claimed_kb} KB for the {which} "
+                        f"tools/list surface; measured {real_kb:.0f} KB live.")
+    return hits
+
+
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "--show"
 
@@ -929,6 +1022,8 @@ def main() -> int:
         problems = drift[:]
         problems += write_agent(check_only=True)
         problems += scan_prose()
+        problems += verify_mcp_byte_claims(
+            os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/"))
         if problems:
             print("DRIFT DETECTED:")
             for p in problems:

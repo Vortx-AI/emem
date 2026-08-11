@@ -37,8 +37,11 @@ server. Call `emem_tools` to search the rest or fetch one tool's schema.
 
 ## Manual config
 
-Works in Cline, Claude Code, Claude Desktop, Cursor, and any Streamable HTTP
-MCP client:
+Two shapes, and they are not interchangeable. Everything else about the server
+is identical: same endpoint, same 107 tools, no key.
+
+**Cline, Claude Code, Claude Desktop, Cursor** and most Streamable HTTP hosts
+use `mcpServers`:
 
 ```json
 {
@@ -49,6 +52,33 @@ MCP client:
     }
   }
 }
+```
+
+**VS Code and GitHub Copilot** use `servers`, in `.vscode/mcp.json` or the
+profile opened by the **MCP: Open User Configuration** command:
+
+```json
+{
+  "servers": {
+    "emem": {
+      "type": "http",
+      "url": "https://emem.dev/mcp"
+    }
+  }
+}
+```
+
+Pasting the wrong key is silent: the file parses, the server never loads, and
+nothing reports why. If you are an agent writing this config for a user, read
+which editor they are in before choosing the key. In VS Code the tools also
+only appear in Copilot Chat's **Agent** mode; Ask mode is the default and shows
+none, which looks identical to a broken config.
+
+VS Code can also install it without a config file at all, because emem is in
+the GitHub MCP Registry: search `@mcp emem` in the Extensions view, or run
+
+```bash
+code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'
 ```
 
 ## Client libraries (optional)

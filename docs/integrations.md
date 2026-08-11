@@ -424,10 +424,32 @@ four lines:
 ```
 
 That endpoint advertises the 16 core tools from `tools/list`, so the host
-registers about 39 KB of descriptors rather than 210 KB for all 107. The rest
+registers about 66 KB of descriptors rather than about 288 KB for all 107. The rest
 stay callable by name, and `emem_tools` searches them or returns one tool's
 schema on demand. Use `https://emem.dev/mcp/full` instead to register the
 whole catalog.
+
+**VS Code and GitHub Copilot use a different key.** The config lives in
+`.vscode/mcp.json` (or the profile behind **MCP: Open User Configuration**),
+and the top-level key is `servers`, not `mcpServers`:
+
+```json
+{
+  "servers": {
+    "emem": {
+      "type": "http",
+      "url": "https://emem.dev/mcp"
+    }
+  }
+}
+```
+
+The wrong key fails silently: valid JSON, no server, no error. emem is also in
+the GitHub MCP Registry, so VS Code can install it with no file at all, by
+searching `@mcp emem` in the Extensions view or running
+`code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'`.
+Tools then appear in Copilot Chat's **Agent** mode only; Ask mode is the
+default and shows none.
 
 Hosts without native Streamable HTTP (older releases) speak stdio
 through the `mcp-remote` bridge:

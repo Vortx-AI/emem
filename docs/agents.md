@@ -237,6 +237,7 @@ require no keys.
 
 | Client | Config |
 |---|---|
+| VS Code / GitHub Copilot | `.vscode/mcp.json`: `{ "servers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }`. Note `servers`, NOT `mcpServers`: the wrong key parses and loads nothing. Or search `@mcp emem` in the Extensions view, since emem is in the GitHub MCP Registry. Tools appear in Copilot Chat's **Agent** mode only |
 | Claude Code | `.mcp.json`: `{ "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }` |
 | Cursor 0.42+ | `.cursor/mcp.json`: `{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }` |
 | Claude Desktop | Same JSON in `claude_desktop_config.json` (macOS / Linux / Windows paths) |
@@ -599,8 +600,9 @@ without historical fetch return `status: "present_only"`; check
 
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
-`tools/list` at `/mcp` advertises the 16 tools of the loop (about 51 KB of
-descriptors); `/mcp/full` advertises all 107 (about 266 KB), and
+`tools/list` at `/mcp` advertises the 16 tools of the loop in one page (about
+66 KB of descriptors); `/mcp/full` advertises all 107 (about 288 KB over 7
+pages), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of
 tier, so a tool absent from your list is still callable and the narrower

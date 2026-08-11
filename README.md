@@ -16,7 +16,9 @@
 
 [Watch a multi-agent run](https://www.youtube.com/watch?v=fE_vj7sJ2W0) · [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
 
-**Add it to your agent now.** Install from the [GitHub MCP Registry](https://github.com/mcp/Vortx-AI/emem), or paste into `.mcp.json` (Claude Code, Cursor, Cline):
+**Add it to your agent now.**
+In **VS Code / GitHub Copilot**, search `@mcp emem` in the Extensions view, or [install in one click](https://vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D).
+In **Claude Code, Cursor, Cline**, paste into `.mcp.json`:
 `{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}`
 &nbsp;·&nbsp; Python `pip install ememdev` &nbsp;·&nbsp; TypeScript `npm i @vortxai/emem` &nbsp;·&nbsp; or `curl` the REST API. **Reads need no key, no account, no signup.**
 
@@ -330,15 +332,52 @@ below. No key, no account.
 
 ## Use it in two minutes
 
-Reading needs no key, no account, no signup.
+Reading needs no key, no account, no signup. One endpoint,
+`https://emem.dev/mcp`, and every host below reaches the same 107 tools.
 
-**MCP** (Claude Code, Claude Desktop, Cursor, Cline; drop into `.mcp.json`):
+### VS Code and GitHub Copilot
+
+emem is in the [GitHub MCP Registry](https://github.com/mcp/Vortx-AI/emem),
+so it installs from inside the editor. Open the **Extensions** view and search
+`@mcp emem`, or click:
+
+[![Install in VS Code](https://img.shields.io/badge/Install%20in-VS%20Code-0098FF?logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/Install%20in-VS%20Code%20Insiders-24bfa5?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+
+To write the config yourself, put this in `.vscode/mcp.json` (or run
+**MCP: Open User Configuration** for every workspace):
+
+```json
+{ "servers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }
+```
+
+**VS Code uses `servers`. Claude Code and Cursor use `mcpServers`.** The two
+config shapes are not interchangeable, and pasting the wrong one is silent:
+the file parses, the server never loads, and nothing says why. If emem does
+not appear, check that key first.
+
+Then open Copilot Chat and switch it to **Agent** mode. MCP tools are not
+available in Ask mode, which is the default, so a correct config still shows
+no tools until you switch. Ask it *"what is the elevation in Bengaluru, and
+give me the token so I can verify it"*.
+
+From a terminal instead:
+
+```bash
+code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'
+```
+
+### Claude Code, Claude Desktop, Cursor, Cline
+
+Drop into `.mcp.json`:
 
 ```jsonc
 { "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }
 ```
 
-**REST** (any language):
+Claude Code, in one line: `claude mcp add --transport http emem https://emem.dev/mcp`
+
+### REST (any language)
 
 ```bash
 CELL=$(curl -s -X POST https://emem.dev/v1/locate \
@@ -356,7 +395,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 
 Reads need no key, and four moves cover most sessions.
 
-**Connect to `https://emem.dev/mcp`.** It advertises the 16 tools of the core loop, about 51 KB of context, not the whole catalog. That is deliberate: loading all 107 descriptors costs about 266 KB whether or not the session touches Earth observation. `tools/call` still dispatches all 107 by name at either endpoint, so a tool missing from your list is still callable, and `/mcp/full` registers everything up front when you want it. Do not know which tool? Call `emem_tools`, which returns the loop and a menu in about 6 KB, filterable by the shape of the answer you need.
+**Connect to `https://emem.dev/mcp`.** It advertises the 16 tools of the core loop in one page, about 66 KB of context, not the whole catalog. That is deliberate: loading all 107 descriptors costs about 288 KB whether or not the session touches Earth observation. (Measured on the wire 2026-08-11; descriptor prose changes, so treat both as approximate and re-measure rather than quote.) `tools/call` still dispatches all 107 by name at either endpoint, so a tool missing from your list is still callable, and `/mcp/full` registers everything up front when you want it. Do not know which tool? Call `emem_tools`, which returns the loop and a menu in about 6 KB, filterable by the shape of the answer you need.
 
 **Ground a place, then cite it.** `emem_locate` maps a place to its `cell64`, `emem_recall` returns the signed facts there, and `emem_memory_token` composes them into one handle. **Hand it to another agent**, and they call `emem_memory_token_resolve` on that line, get the byte-identical fact, and `emem_verify_receipt` checks the signature without trusting you or the server. That is the whole claim, and the only one worth making.
 
