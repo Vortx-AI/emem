@@ -56,7 +56,7 @@ A key that starts with `/` is taken as a literal absolute path and is
 left alone, which is how you reach outside your own root. Writing into
 another key's namespace is refused with a 403. Without a signing key the
 root stays `/memories` and writes go out unattested. See
-[docs/memory.md](https://emem.dev/docs/memory.md) for the wire format.
+[docs/memory.html](https://emem.dev/docs/memory.html) for the wire format.
 
 `EmemSigner` is public if you drive the memory tools yourself and need
 the same `attester` block:

@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llama-index-tools-emem"
+version = "2.1.0"
+description = "llama-index tools emem integration"
+authors = [{ name = "Vortx AI Private Limited", email = "avijeet@vortx.ai" }]
+requires-python = ">=3.10,<4.0"
+readme = "README.md"
+# The rest of emem is Apache-2.0 and this package matches it. LlamaIndex's
+# monorepo is MIT and their integration packages follow suit, so a maintainer
+# may ask for MIT as a condition of merging. That is a one-line change and an
+# owner's decision, not a contributor's, so it is left as-is here rather than
+# relicensed pre-emptively.
+license = "Apache-2.0"
+maintainers = [{ name = "avijeetsingh1" }]
+dependencies = [
+    "llama-index-core>=0.13.0,<0.15",
+    "httpx>=0.27,<1.0",
+]
+
+[project.urls]
+Homepage = "https://emem.dev"
+Repository = "https://github.com/Vortx-AI/emem"
+Issues = "https://github.com/Vortx-AI/emem/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.11",
+    "respx>=0.21",
+]
+
+[tool.codespell]
+check-filenames = true
+check-hidden = true
+skip = "*.csv,*.html,*.json,*.jsonl,*.pdf,*.txt,*.ipynb"
+
+[tool.hatch.build.targets.sdist]
+include = ["llama_index/"]
+exclude = ["**/BUILD"]
+
+[tool.hatch.build.targets.wheel]
+include = ["llama_index/"]
+exclude = ["**/BUILD"]
+
+[tool.llamahub]
+contains_example = false
+import_path = "llama_index.tools.emem"
+
+[tool.llamahub.class_authors]
+EmemToolSpec = "avijeetsingh1"
+
+[tool.mypy]
+disallow_untyped_defs = true
+exclude = ["_static", "build", "examples", "notebooks", "venv"]
+ignore_missing_imports = true
+python_version = "3.10"

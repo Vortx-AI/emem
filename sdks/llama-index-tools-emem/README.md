@@ -1,0 +1,68 @@
+# LlamaIndex Tools Integration: emem
+
+Signed, content-addressed facts about physical places, as LlamaIndex tools.
+
+Every value comes back with an `emem:fact:` token. The token resolves to the
+byte-identical signed record later, in another session or another process, and
+verifies against the responder's published key. So an agent can cite what it
+read, and whoever receives the answer can check it without trusting the agent
+that wrote it.
+
+Reads need no key and no account.
+
+## Install
+
+```bash
+pip install llama-index-tools-emem
+```
+
+## Usage
+
+```python
+from llama_index.tools.emem import EmemToolSpec
+from llama_index.core.agent.workflow import FunctionAgent
+from llama_index.llms.openai import OpenAI
+
+agent = FunctionAgent(
+    tools=EmemToolSpec().to_tool_list(),
+    llm=OpenAI(model="gpt-4.1-mini"),
+)
+
+await agent.run("How high is Bengaluru, and cite the fact you used.")
+```
+
+Point it at your own node with `EmemToolSpec(base_url="http://localhost:5051")`
+or the `EMEM_URL` environment variable. A receipt minted on the public node
+verifies against your own.
+
+## Tools
+
+| Tool | Purpose |
+|---|---|
+| `locate` | Resolve a place name to its canonical `cell64` address and list what is readable there |
+| `recall` | Read signed measurements at a place, each with a citation token |
+| `resolve_token` | Resolve an `emem:fact:` token that arrived from somewhere else |
+| `verify_receipt` | Check a receipt's signature against the responder's published key |
+
+## Two things worth knowing
+
+**Results are trimmed, except the receipt.** A raw recall for one band is about
+5 KB, mostly band documentation written for a human reading the API. That is
+dropped, and `recall(..., band_help=True)` brings it back when the agent needs
+to interpret an unfamiliar band rather than just report it.
+
+The receipt is passed through whole. As of receipt preimage v2 the signature
+covers the inclusion proof, so a receipt with any field removed does not raise
+an error, it verifies as `signature_valid: false`. A tool that trimmed it would
+report honest data as forged.
+
+**Verification is per-responder.** `signature_valid: true` proves that this
+responder signed those bytes. It does not prove the measurement is correct, and
+no network consensus is involved.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+pytest tests
+```

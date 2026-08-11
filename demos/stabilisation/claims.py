@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -76,9 +77,66 @@ def widest_tools_page(endpoint: str = "/mcp/full") -> str:
         seen.add(cursor)
 
 
+def dead_sdk_doc_links() -> str:
+    """Every emem.dev URL a shipped SDK points a user at, fetched from the live
+    site. A package's Documentation link is a promise made to someone who has
+    already installed it, and neither pip nor npm ever re-checks it: the 2.1.0
+    release of emem-langmem shipped a Documentation URL that had never resolved,
+    and nothing anywhere went red. Docs render as .html, so a /docs/*.md URL is
+    the shape that 404s. Reports the dead ones by name, because a bare count
+    tells you something broke without telling you what to fix."""
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+    urls: set[str] = set()
+    for sub in ("sdks", "python", "integrations"):
+        for dirpath, dirnames, names in os.walk(os.path.join(root, sub)):
+            dirnames[:] = [d for d in dirnames
+                           if d not in {"node_modules", ".venv", "dist", "target"}]
+            for n in names:
+                if not n.endswith((".toml", ".md", ".json", ".py", ".ts", ".js")):
+                    continue
+                try:
+                    with open(os.path.join(dirpath, n), encoding="utf-8") as fh:
+                        text = fh.read()
+                except (OSError, UnicodeDecodeError):
+                    continue
+                urls.update(re.findall(r"https://emem\.dev/[A-Za-z0-9/._#-]+", text))
+    dead = []
+    for u in sorted(urls):
+        target = u.split("#", 1)[0].rstrip(".,)")
+        try:
+            req = urllib.request.Request(target, method="HEAD")
+            with urllib.request.urlopen(req, timeout=30) as r:
+                status = r.status
+        except urllib.error.HTTPError as e:
+            status = e.code
+        except OSError:
+            # A network fault is not a dead link. Say so rather than
+            # reporting a false positive that someone then "fixes".
+            return "unreachable: could not reach the responder"
+        # Only 404 and 410 mean gone. A POST-only route answers 405 to the HEAD
+        # this probe sends, and /v1/ask does exactly that while serving 200 to
+        # the method it documents — counting that as dead is how a claim earns
+        # a reputation for crying wolf and gets switched off.
+        if status in (404, 410):
+            dead.append(target)
+    if not dead:
+        return f"0 dead of {len(urls)}"
+    return f"{len(dead)} dead of {len(urls)}: " + ", ".join(dead)
+
+
 # --------------------------------------------------------------------------- #
 
 CLAIMS = [
+    {
+        "id": "sdk_doc_links_resolve",
+        "claim": "Every emem.dev URL a shipped SDK points a user at resolves. "
+                 "Docs render as .html; a /docs/*.md URL 404s, and a published "
+                 "package's dead Documentation link is invisible to pip, to npm "
+                 "and to the test suite.",
+        "how": "collect every emem.dev URL under sdks/, python/ and "
+               "integrations/, HEAD each one, name the dead",
+        "probe": lambda c: dead_sdk_doc_links(),
+    },
     {
         "id": "fact_cid_is_52_chars",
         "claim": "A fact_cid is 52 characters: a 256-bit blake3 in base32-nopad.",
