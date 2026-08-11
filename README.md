@@ -17,11 +17,9 @@
 
 [Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8) · [Use it in two minutes](#use-it-in-two-minutes) · [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md)
 
-**Add it to your agent now.**
-In **VS Code / GitHub Copilot**, click the button above, or search `@mcp emem` in the Extensions view.
-In **Claude Code, Cursor, Cline**, paste into `.mcp.json`:
-`{"mcpServers":{"emem":{"type":"http","url":"https://emem.dev/mcp"}}}`
-&nbsp;·&nbsp; Python `pip install ememdev` &nbsp;·&nbsp; TypeScript `npm i @vortxai/emem` &nbsp;·&nbsp; or `curl` the REST API. **Reads need no key, no account, no signup.**
+**One endpoint, `https://emem.dev/mcp`. Reads need no key, no account, no signup.**
+Click the **VS Code** button above, or see [Use it in two minutes](#use-it-in-two-minutes)
+for Claude Code, Cursor, Cline, REST, Python and TypeScript.
 
 </div>
 
@@ -342,11 +340,9 @@ Reading needs no key, no account, no signup. One endpoint,
 
 ### VS Code and GitHub Copilot
 
-Because emem is in the GitHub MCP Registry it installs from inside the editor.
-Open the **Extensions** view and search `@mcp emem`, or click:
-
-[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
-[![Install in VS Code Insiders](https://img.shields.io/badge/VS%20Code%20Insiders-Install%20emem-24bfa5?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D&quality=insiders)
+Because emem is in the GitHub MCP Registry it installs from inside the editor:
+open the **Extensions** view and search `@mcp emem`, or use the **VS Code**
+button at the top of this page.
 
 To write the config yourself, put this in `.vscode/mcp.json` (or run
 **MCP: Open User Configuration** for every workspace):
