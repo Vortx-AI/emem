@@ -342,7 +342,8 @@ pub async fn memory_contradictions(
                 schemes: p.sources.iter().map(|s| s.scheme.clone()).collect(),
             })
             .collect();
-        if same_attester && (!include_same_attester_sources || !is_provider_substitution(&providers))
+        if same_attester
+            && (!include_same_attester_sources || !is_provider_substitution(&providers))
         {
             continue;
         }
@@ -1423,7 +1424,10 @@ mod tests {
     fn changed_provider_is_a_provider_substitution() {
         assert!(is_provider_substitution(&[
             pr("open_meteo_copdem90m@1", &["open_meteo"]),
-            pr("copernicus_dem_30m_aws_pixel@1", &["copernicus.dem.30m.aws"]),
+            pr(
+                "copernicus_dem_30m_aws_pixel@1",
+                &["copernicus.dem.30m.aws"]
+            ),
         ]));
     }
 
@@ -1434,8 +1438,14 @@ mod tests {
     #[test]
     fn same_provider_resigning_is_not_a_provider_substitution() {
         assert!(!is_provider_substitution(&[
-            pr("copernicus_dem_30m_aws_pixel@1", &["copernicus.dem.30m.aws"]),
-            pr("copernicus_dem_30m_aws_pixel@1", &["copernicus.dem.30m.aws"]),
+            pr(
+                "copernicus_dem_30m_aws_pixel@1",
+                &["copernicus.dem.30m.aws"]
+            ),
+            pr(
+                "copernicus_dem_30m_aws_pixel@1",
+                &["copernicus.dem.30m.aws"]
+            ),
         ]));
     }
 

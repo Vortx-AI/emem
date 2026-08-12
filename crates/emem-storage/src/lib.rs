@@ -1508,7 +1508,6 @@ fn scan_scope_index(
     Ok(out)
 }
 
-
 /// Resolve each `(key, current_cid)` pair to the latest fact satisfying a
 /// transaction-time bound, considering the key's WHOLE recorded history.
 ///

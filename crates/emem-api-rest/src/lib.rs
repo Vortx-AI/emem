@@ -18012,11 +18012,7 @@ async fn translog_head_cached(s: &AppState) -> Result<(u64, [u8; 32]), ApiError>
         // typed 501 rather than inventing an answer here.
         None => u64::MAX,
     };
-    if let Some(hit) = cache
-        .read()
-        .ok()
-        .and_then(|c| sth_cache_hit(*c, current))
-    {
+    if let Some(hit) = cache.read().ok().and_then(|c| sth_cache_hit(*c, current)) {
         return Ok(hit);
     }
     // Miss: walk the log and rebuild. Blocking work on the sled/disk path,
@@ -19245,7 +19241,11 @@ fn record_drop(dropped: &mut Vec<JsonValue>, field: &str, mut stub: JsonValue) {
             // against `_kept` to learn how much is missing; letting it shrink
             // would quietly say "nothing is missing".
             if let Some(first_len) = existing["stub"]["_len"].as_u64() {
-                if stub.get("_len").and_then(|v| v.as_u64()).is_some_and(|n| n < first_len) {
+                if stub
+                    .get("_len")
+                    .and_then(|v| v.as_u64())
+                    .is_some_and(|n| n < first_len)
+                {
                     stub["_len"] = json!(first_len);
                 }
             }
@@ -19333,8 +19333,8 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
             // A scalar under the floor is sacrificed last, not never: see
             // NEVER_DROP_SCALAR_BYTES. Collections are never protected —
             // they are what overflows a budget in the first place.
-            let protected =
-                !matches!(v, JsonValue::Array(_) | JsonValue::Object(_)) && cost <= NEVER_DROP_SCALAR_BYTES;
+            let protected = !matches!(v, JsonValue::Array(_) | JsonValue::Object(_))
+                && cost <= NEVER_DROP_SCALAR_BYTES;
             (k.clone(), cost, protected)
         })
         .collect();
@@ -72262,7 +72262,9 @@ mod slimmer_degrade_tests {
     fn truncation_keeps_the_handle_the_call_exists_to_produce() {
         let (slim, note) = mcp_slim_inner_to_budget(big_bundle(256), 24_000);
         assert!(
-            note["omitted_fields"].as_array().is_some_and(|a| !a.is_empty()),
+            note["omitted_fields"]
+                .as_array()
+                .is_some_and(|a| !a.is_empty()),
             "test is not exercising the truncation path"
         );
         assert_eq!(
@@ -72270,7 +72272,13 @@ mod slimmer_degrade_tests {
             json!("emem:bundle:c7xvf7twq4aqk6ay7bf6jdl5ui"),
             "the minted token was dropped: the call returned success with nothing to cite"
         );
-        for k in ["bundle_cid", "members", "resolved", "signed_at", "responder_pubkey_b32"] {
+        for k in [
+            "bundle_cid",
+            "members",
+            "resolved",
+            "signed_at",
+            "responder_pubkey_b32",
+        ] {
             assert!(
                 !slim[k].is_null(),
                 "small scalar `{k}` dropped while a 256-element array was kept"
@@ -72294,7 +72302,10 @@ mod slimmer_degrade_tests {
             json!("/v1/memory_bundle/emem%3Abundle%3Ac7xvf7twq4aqk6ay7bf6jdl5ui"),
             "must dereference the token, not re-run 256 recalls for identical bytes"
         );
-        assert!(fetch["body"].is_null(), "a GET pointer must not carry a body");
+        assert!(
+            fetch["body"].is_null(),
+            "a GET pointer must not carry a body"
+        );
     }
 
     /// The floor is an ordering rule, not a veto. A payload made entirely of
@@ -72309,7 +72320,10 @@ mod slimmer_degrade_tests {
         }
         let (slim, _) = mcp_slim_inner_to_budget(JsonValue::Object(m), 8_000);
         let n = serde_json::to_string(&slim).unwrap().len();
-        assert!(n <= 8_000, "protected scalars were treated as undroppable: {n} bytes");
+        assert!(
+            n <= 8_000,
+            "protected scalars were treated as undroppable: {n} bytes"
+        );
     }
 }
 
@@ -72860,7 +72874,11 @@ mod sth_cache_tests {
             "one append must invalidate: serving the old root here would sign a stale tree"
         );
         assert_eq!(sth_cache_hit(cached, 0), None);
-        assert_eq!(sth_cache_hit(None, 1_096_727), None, "a cold cache must rebuild");
+        assert_eq!(
+            sth_cache_hit(None, 1_096_727),
+            None,
+            "a cold cache must rebuild"
+        );
     }
 
     /// A cached head and a freshly-walked head must produce byte-identical
@@ -72930,8 +72948,14 @@ mod manifest_key_order_tests {
         plain.sort_unstable();
         let mut rfc = keys;
         rfc.sort_unstable_by_key(|k| (k.len(), *k));
-        assert_eq!(plain, ["bands_cid", "registry_cid", "schema_cid", "sources_cid"]);
-        assert_eq!(rfc, ["bands_cid", "schema_cid", "sources_cid", "registry_cid"]);
+        assert_eq!(
+            plain,
+            ["bands_cid", "registry_cid", "schema_cid", "sources_cid"]
+        );
+        assert_eq!(
+            rfc,
+            ["bands_cid", "schema_cid", "sources_cid", "registry_cid"]
+        );
         assert_ne!(
             plain, rfc,
             "if these agree, the spec's warning is obsolete and should be removed"

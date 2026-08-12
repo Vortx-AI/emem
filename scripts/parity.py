@@ -351,6 +351,25 @@ def compare(case, mcp, rest):
     """(category, detail) for one case."""
     (mcp_ok, mcp_body), (rest_ok, rest_body) = mcp, rest
 
+    # A connection that never completed is not a refusal, and comparing it to
+    # anything is comparing to nothing. Before this, `unreachable` fell through
+    # to the ordinary verdicts and got scored BOTH WAYS WRONG on 2026-08-11:
+    # one side unreachable read as ONLY_ERR, a divergence the product does not
+    # have, exiting 1; and BOTH sides unreachable read as BOTH_ERR, which is a
+    # PASS, so ten cases "had parity" because neither endpoint answered. Two
+    # silences agreeing is not agreement, and it is the worse of the two
+    # because it is green.
+    #
+    # ci.yml already has the right handling for this and could never reach it:
+    # both the parity and route-truth steps map exit 2 to a warning, and the
+    # only exit 2 here was a failure to enumerate tools up front. A responder
+    # that answers the enumeration and then goes away mid-run, which is what a
+    # deploy looks like from outside, produced a red build blaming the product.
+    unreachable = [w for w, (ok, body) in (("mcp", mcp), ("rest", rest))
+                   if not ok and body.get("code") == "unreachable"]
+    if unreachable:
+        return "UNREACHABLE", f"{'+'.join(unreachable)} did not answer at all"
+
     if not mcp_ok and not rest_ok:
         mc, rc = mcp_body.get("code"), rest_body.get("code")
         if mc == rc:
@@ -674,9 +693,13 @@ def main():
                     break
                 seen.append(facts_of(body))
             if seen is None:
+                cat = ("UNREACHABLE" if (body or {}).get("code") == "unreachable"
+                       else "BOTH_ERR")
                 rows.append({"case": name, "tool": tool, "path": path,
-                             "category": "BOTH_ERR",
-                             "detail": "refused; nothing to compare"})
+                             "category": cat,
+                             "detail": ("rest did not answer at all"
+                                        if cat == "UNREACHABLE"
+                                        else "refused; nothing to compare")})
             elif all(x == seen[0] for x in seen):
                 rows.append({"case": name, "tool": tool, "path": path,
                              "category": "MATCH",
@@ -690,6 +713,7 @@ def main():
                                        f"inputs that never changed"})
 
     bad = [r for r in rows if r["category"] in FAILING]
+    unreachable_rows = [r for r in rows if r["category"] == "UNREACHABLE"]
 
     if a.json:
         print(json.dumps({"origin": origin, "rows": rows,
@@ -702,7 +726,10 @@ def main():
         by_cat = {}
         for r in rows:
             by_cat[r["category"]] = by_cat.get(r["category"], 0) + 1
-        print(f"\n{len(rows) - len(bad)} of {len(rows)} cases have parity")
+        scored = len(rows) - len(unreachable_rows)
+        print(f"\n{scored - len(bad)} of {scored} cases have parity"
+              + (f" ({len(unreachable_rows)} not scored: no answer)"
+                 if unreachable_rows else ""))
         print("  " + "  ".join(f"{k}={v}" for k, v in sorted(by_cat.items())))
         if bad:
             if any(r["category"] != "INPUT_DRIFT" for r in bad):
@@ -714,6 +741,18 @@ def main():
                       "name resolved to a different polygon between the calls.")
             for r in bad:
                 print(f"  {r['case']}: {r['detail']}")
+    # Order matters. An unreachable responder is reported BEFORE any verdict,
+    # because a run that could not reach production has not tested production
+    # and must not be read as either a pass or a failure of it. Exit 2 is the
+    # code ci.yml already maps to a warning.
+    if unreachable_rows:
+        print(f"\nparity: {len(unreachable_rows)} of {len(rows)} cases could not "
+              f"reach {origin}, so parity was NOT asserted this run.",
+              file=sys.stderr)
+        for r in unreachable_rows[:5]:
+            print(f"  {r['case']}: {r['detail']}", file=sys.stderr)
+        return 2
+
     return 1 if bad else 0
 
 

@@ -225,9 +225,7 @@ impl Server {
     /// §4.2.1 computes a different digest and rejects every valid receipt.
     /// The rule is frozen by every receipt ever signed; the spec documents
     /// it and `manifest_hex_is_btreemap_order_not_rfc8949` pins it.
-    pub fn manifest_versions_blake3_hex(
-        versions: &BTreeMap<String, String>,
-    ) -> Option<String> {
+    pub fn manifest_versions_blake3_hex(versions: &BTreeMap<String, String>) -> Option<String> {
         if versions.is_empty() {
             return None;
         }

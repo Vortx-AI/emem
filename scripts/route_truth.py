@@ -214,7 +214,7 @@ def main():
                 continue
             advertised.setdefault(u, set()).add(rel)
 
-    dead = []
+    dead, unreachable = [], []
     for u in sorted(advertised):
         path = u[len("https://emem.dev"):].split("?")[0] or "/"
         verb = methods.get(path, "GET")
@@ -230,8 +230,25 @@ def main():
             code = fetch_status(u)
         else:
             code, _ = fetch(u, verb, {} if verb == "POST" else None, timeout=12)
-        if code == 404 or code == 405 or code == 0:
+        # 0 is `fetch`'s sentinel for "the connection never completed", not an
+        # HTTP status. It used to be lumped in with 404/405 as dead, which
+        # meant a runner that could not reach the origin reported EVERY
+        # advertised route as an overclaim. That is what CI printed on
+        # 2026-08-11: twenty-two lines of "advertised but 0" including
+        # /v1/recall and /verify, the two routes the whole product stands on.
+        # If those were really 404 nothing would work, so the output refuted
+        # itself and still exited 1 against the product.
+        #
+        # A route that answers 404 or 405 is a real overclaim: we connected,
+        # and the thing we advertise is not there. A route we could not reach
+        # tells us nothing about the route. Only the first is a finding.
+        if code in (404, 405):
             dead.append((u, code, sorted(advertised[u])))
+        elif code == 0:
+            unreachable.append(u)
+    if unreachable:
+        print(f"\n  ---- {len(unreachable)} of {len(advertised)} advertised URLs "
+              f"could not be reached at all; route truth NOT asserted this run")
     print(f"\n  {'ok  ' if not dead else 'FAIL'} {len(advertised)} emem.dev URLs "
           f"advertised in {len(surfaces)} machine surfaces, {len(dead)} dead")
     for u, c, where in dead:
@@ -252,6 +269,17 @@ def main():
           f"{PAGE}, {len(unmarked)} without a source marker")
     for h in unmarked[:5]:
         fails.append("unmarked block: " + re.sub(r"<[^>]+>", " ", h).strip()[:60])
+
+    # Reported before any finding: a run that could not reach the origin has
+    # not checked the origin, and must read as neither pass nor fail of it.
+    # Exit 2 is the code ci.yml already maps to a warning for exactly this.
+    if unreachable:
+        print(f"\nroute truth: could not reach {len(unreachable)} advertised URLs "
+              f"at {origin}, so nothing was asserted about them this run.",
+              file=sys.stderr)
+        for u in unreachable[:5]:
+            print(f"  {u}", file=sys.stderr)
+        return 2
 
     if fails:
         print("\nA route shown where it does not run teaches a reader that the page "
