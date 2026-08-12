@@ -287,6 +287,17 @@ jobs:
       # review; this holds the mechanical floor.
       - name: doc lint
         run: python3 scripts/doc_lint.py
+      # `include_str!` makes a repo file a BUILD input, and the Dockerfile
+      # copies selectively, so adding an include in Rust can break the image
+      # build from a file nobody edited. server.json did exactly that on
+      # 2026-08-11: the release compile failed 1422 seconds in, thirteen
+      # stages deep, with an error naming the include and not the missing
+      # COPY. This is the same question answered from static text in about a
+      # second, in the fast lane, before anything is built. It also catches
+      # the nastier half, where a COPY exists and .dockerignore excludes the
+      # file anyway, which is the trap that shipped two empty SDK wheels.
+      - name: every compile-time include reaches the image
+        run: python3 scripts/docker_context.py
       # actionlint validates the workflow files against the real Actions
       # schema. A duplicate `fail-fast:` once slipped past `yaml.safe_load`,
       # which keeps the last of two silently, and GitHub refused the file:

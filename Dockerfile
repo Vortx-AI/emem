@@ -59,6 +59,13 @@ COPY examples/ examples/
 COPY claude-skills/ claude-skills/
 # Root-level markdown is include_str!'d directly by emem-api-rest.
 # Without these the build fails with `couldn't read PRIVACY.md`.
+# server.json is include_str!()d by crates/emem-api-rest at COMPILE time (it
+# is served at /.well-known/ for the MCP registries), so it is a build input
+# and not just a repo file. It was added to the source on 2026-08-11 and not
+# here, which broke the image build 23 minutes in with a missing-file error
+# nothing in the fast lane could have caught. scripts/docker_context.py now
+# cross-checks every escaping include against this COPY list; keep them in step.
+COPY server.json ./
 COPY PRIVACY.md TERMS.md SUPPORT.md SECURITY.md ./
 
 # Render the /docs/ mdbook site. The post-build `rm` drops
