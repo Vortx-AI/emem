@@ -20948,6 +20948,38 @@ fn latency_of(tool: &str) -> Option<JsonValue> {
 /// initialize instructions is a measurement of what this build actually
 /// sends, not a number somebody typed once and stopped updating.
 fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
+    let mut d = mcp_tool_descriptor_raw(t);
+    // Optional means OMITTED, not present-and-null.
+    //
+    // `json!` renders `None` as JSON `null`, so every tool without an
+    // outputSchema advertised `"outputSchema": null`, and every tool without a
+    // measured latency advertised `"dev.emem/observed_latency": null`. Both
+    // fields are optional in the spec and in our own stated intent (the
+    // comment on the latency field literally says "Absent until measured"),
+    // and a strict client reads null as "the wrong TYPE was sent" rather than
+    // "this was not sent".
+    //
+    // mcpevals.ai rejected the WHOLE tools/list over it on 2026-08-11, twelve
+    // errors of the form `expected object, received null` at
+    // `tools[N].outputSchema`, so the server could not be evaluated at all.
+    // Every host we test against tolerated it, which is why it survived: a
+    // validator built from the schema is stricter than every consumer we had.
+    //
+    // Pruned by name rather than by walking the tree, because a JSON Schema
+    // may contain a MEANINGFUL null (`"default": null`, `"enum": [null]`) and
+    // a recursive strip would silently corrupt a caller's contract.
+    if let Some(obj) = d.as_object_mut() {
+        if obj.get("outputSchema").is_some_and(JsonValue::is_null) {
+            obj.remove("outputSchema");
+        }
+        if let Some(meta) = obj.get_mut("_meta").and_then(|m| m.as_object_mut()) {
+            meta.retain(|_, v| !v.is_null());
+        }
+    }
+    d
+}
+
+fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
     json!({
         "name": t.name,
         "title": t.title,
@@ -62893,6 +62925,60 @@ mod s2_surface_class {
 
 #[cfg(test)]
 mod tests {
+
+    /// No advertised tool descriptor carries an explicit JSON `null`.
+    ///
+    /// mcpevals.ai refused to evaluate this server at all on 2026-08-11: its
+    /// validator types `outputSchema` as an optional OBJECT, and we sent
+    /// `null` for the 96 of 107 tools that do not declare one, so it reported
+    /// twelve `expected object, received null` errors on the first page and
+    /// stopped. Nothing else caught it, because every host we test against
+    /// treats a null optional as absent, and our own conformance script only
+    /// checked tools that DO declare a schema.
+    ///
+    /// Asserted over the whole catalog rather than the core page, and over
+    /// every key rather than the two that were wrong, because the defect is
+    /// `json!` rendering `None` as `null` and that applies to the next
+    /// optional field somebody adds.
+    #[test]
+    fn no_advertised_descriptor_field_is_an_explicit_null() {
+        fn nulls(v: &JsonValue, path: &str, out: &mut Vec<String>) {
+            match v {
+                JsonValue::Object(m) => {
+                    for (k, val) in m {
+                        let p = format!("{path}.{k}");
+                        if val.is_null() {
+                            out.push(p);
+                        } else if k != "inputSchema" && k != "outputSchema" {
+                            // A JSON Schema may legitimately carry `null` as a
+                            // VALUE (`"default": null`), so the two schema
+                            // subtrees are checked for presence, not scanned.
+                            nulls(val, &p, out);
+                        }
+                    }
+                }
+                JsonValue::Array(a) => {
+                    for (i, val) in a.iter().enumerate() {
+                        nulls(val, &format!("{path}[{i}]"), out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for t in emem_mcp::tools_at_tier("all") {
+            let d = mcp_tool_descriptor(t);
+            nulls(&d, t.name, &mut found);
+        }
+        assert!(
+            found.is_empty(),
+            "{} advertised descriptor fields are an explicit null; optional \
+             means omitted, and a strict client reads null as the wrong type: \
+             {:?}",
+            found.len(),
+            &found[..found.len().min(8)]
+        );
+    }
     use super::*;
 
     // ---- tools/list paging -------------------------------------------
