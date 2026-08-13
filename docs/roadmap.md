@@ -196,10 +196,43 @@ while the honest status stays visible:
   role.
 
 **The keystone is one change: letting a fact be keyed by an
-`emem:entity:` identity instead of a cell64.** It touches the canonical
-index, the receipt preimage and the storage key, so it is a major, not
-something to slip into a minor. Nothing above it should be built until
-it lands, and nothing above it is claimed to work in the meantime.
+`emem:entity:` identity instead of a cell64.** When this section was
+first written it said that change "touches the canonical index, the
+receipt preimage and the storage key, so it is a major". That was
+asserted from memory of the design rather than read off the code, and it
+is wrong on all three counts:
+
+- `CanonicalKey.cell` is a `String`. It is never decoded.
+- the receipt preimage hashes cells through `seg_list`, a length-prefixed
+  list of opaque strings, so a subject that is not a cell64 changes no
+  bytes of the construction
+- the storage key is `cell_bytes || 0 || band_bytes || 0 || tslot_be`, a
+  byte concatenation that never parses the subject
+
+The record layer is therefore already subject-agnostic, and that is now a
+test rather than a claim: `the_record_layer_does_not_require_the_subject_
+to_be_a_place` writes an `emem:entity:` identity and a cell64 into one
+store and recalls both, verbatim. Correcting this against ourselves
+matters, because "it is a major" is what postpones work, and a wrong
+estimate that postpones is more expensive than one that hurries.
+
+What is actually left is smaller and lives at the edges, not the core:
+
+1. **A subject validator.** Nothing today decides whether a subject
+   string is a well-formed cell64, a well-formed `emem:entity:`
+   identity, or junk. The read path guards this for GEOCODING
+   (`is_dotted_cell_junk` stops `not.a.cell` reaching the fuzzy
+   geocoder), which is a different question from what a write may key.
+2. **Write admission tied to the profile.** A write should be accepted
+   in the `entity.cid` address space only under a profile that declares
+   it, which is what the `address_space` field now makes checkable.
+3. **Typed refusals on geo-only reads.** `cells_in_bbox`, polygon recall
+   and `cell_geojson` are meaningless for a subject with no latitude and
+   must refuse with a typed error naming the address space, rather than
+   surfacing a decode failure that reads like corruption.
+
+None of that is a preimage change, so it is a minor. The claim that it
+was a major stood for exactly one commit.
 
 What ships today that a new substrate would use unchanged: the
 multi-writer attest endpoint (`POST /v1/attest`, ed25519 envelope over a

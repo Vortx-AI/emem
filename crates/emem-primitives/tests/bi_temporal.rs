@@ -569,3 +569,72 @@ async fn legacy_receipt_round_trips_without_as_of() {
         "as_of must be skipped from JSON when None"
     );
 }
+
+/// Can a fact be recorded about a subject that is not a place?
+///
+/// The roadmap called this a major, and the commit that named it said it
+/// "moves the canonical index, the receipt preimage and the storage key". That
+/// was asserted rather than measured, and it is wrong on all three counts:
+///
+///   - `CanonicalKey.cell` is a `String`, not a decoded cell64
+///   - the receipt preimage hashes cells with `seg_list`, a length-prefixed
+///     list of opaque strings
+///   - the storage key is `cell_bytes || 0 || band_bytes || 0 || tslot_be`,
+///     a byte concatenation that never parses the cell
+///
+/// So the record layer is already subject-agnostic, and this pins that as a
+/// property rather than as a reading of the source. What it does NOT establish,
+/// and must not be inferred from it: nothing here validates or resolves a
+/// non-geographic subject, and no write path admits one. The geo assumption
+/// lives at the read and resolve edges (place geocoding, cell64 decode, bbox
+/// and polygon scans), which is a smaller and far less alarming place for it to
+/// live than the storage core.
+///
+/// The point is to stop the estimate drifting again. If keying a fact by an
+/// identity ever DOES require touching the index, the preimage or the key
+/// encoder, this fails and the cost gets revisited on evidence.
+#[tokio::test]
+async fn the_record_layer_does_not_require_the_subject_to_be_a_place() {
+    let storage = Arc::new(MemStorage::new());
+    // An `emem:entity:` identity in the subject position, beside an ordinary
+    // cell64 in the same store, so the two cannot collide and the index is
+    // shown to carry both.
+    let entity = "emem:entity:zzzzn5rk3wubxsbnrpxevbtqha";
+    let place = "defi.zb294.qokO.xAxe";
+    storage.insert_scalar(entity, "code.cyclomatic_complexity", 100, T1, 7.0);
+    storage.insert_scalar(place, "copdem30m.elevation_mean", 100, T1, 915.0);
+    let srv = test_server(storage);
+
+    for (subject, band, want) in [
+        (entity, "code.cyclomatic_complexity", 7.0),
+        (place, "copdem30m.elevation_mean", 915.0),
+    ] {
+        let req = RecallReq {
+            cell: subject.into(),
+            bands: Some(vec![band.into()]),
+            tslot: None,
+            as_of_tslot: None,
+            as_of_signed_at: None,
+            scope: None,
+            include: None,
+            provenance: None,
+        };
+        let resp = recall(&req, &srv)
+            .await
+            .expect("recall must not require a geographic subject");
+        assert_eq!(resp.facts.len(), 1, "{subject}");
+        match &resp.facts[0] {
+            Fact::Primary(p) => {
+                assert_eq!(
+                    p.cell, subject,
+                    "the subject must round-trip verbatim, not be normalised toward a cell64"
+                );
+                match &p.value {
+                    CborValue::Float(f) => assert!((f - want).abs() < 1e-9, "{subject}"),
+                    other => panic!("{subject}: unexpected value {other:?}"),
+                }
+            }
+            other => panic!("{subject}: expected a primary, got {other:?}"),
+        }
+    }
+}
