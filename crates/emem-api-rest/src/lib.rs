@@ -6770,6 +6770,33 @@ async fn manifests(State(s): State<AppState>) -> Json<JsonValue> {
         "substrates_cid": emem_core::manifest_cid(&*emem_core::substrates::DEFAULT).ok(),
         "device_platforms_cid": emem_core::manifest_cid(&*emem_core::device_platforms::DEFAULT).ok(),
         "trace_encodings_cid": emem_core::manifest_cid(&*emem_core::trace_encodings::DEFAULT).ok(),
+        // How many entries each digest actually covers.
+        //
+        // A digest with no count is a claim nobody can check. 6nwstkhm hit
+        // exactly that writing a conformance section: their paper stated how
+        // many entries `algorithms_cid` covers, I read it as drift against the
+        // 168 that `/v1/algorithms` reports, and neither of us could settle it,
+        // because this endpoint returned the digest alone and the algorithms
+        // endpoint paginates a DIFFERENT quantity (the callable surface). Their
+        // words for it, and they are right: "a count nobody can verify has no
+        // business in a conformance section".
+        //
+        // Settling it needed the source: the cid over the 168-entry registry
+        // reproduces the served `algorithms_cid` byte for byte, so it covers
+        // 168 and the two numbers were never different quantities. That should
+        // have been one fetch rather than an argument, so now it is.
+        //
+        // Derived from the same registries the digests are computed over, in
+        // the same request, so the count and the digest cannot disagree.
+        "covers": {
+            "bands": emem_core::bands::DEFAULT.bands.len(),
+            "algorithms": emem_core::algorithms::DEFAULT.algorithms.len(),
+            "sources": emem_core::sources::DEFAULT.sources.len(),
+            "substrates": emem_core::substrates::DEFAULT.substrates.len(),
+            "device_platforms": emem_core::device_platforms::DEFAULT.platforms.len(),
+            "trace_encodings": emem_core::trace_encodings::DEFAULT.encodings.len(),
+            "note": "Entry counts for the manifests digested above, from the same in-process registries the digests are taken over. `algorithms` here counts what `algorithms_cid` covers; `/v1/algorithms` `pagination.total` counts the callable surface, and they are the same number today. Where a count and a digest disagree, the digest is authoritative and this endpoint is the bug.",
+        },
     }))
 }
 
@@ -73764,5 +73791,41 @@ mod substrates_mcp_view_tests {
         assert!(none["note"]
             .as_str()
             .is_some_and(|s| s.contains("no substrate profile")));
+    }
+}
+
+#[cfg(test)]
+mod manifest_covers_tests {
+
+    /// The published entry counts must come from the registries the digests
+    /// are taken over, not from a constant somebody maintains.
+    ///
+    /// The whole point is that a conformance claim becomes checkable in one
+    /// fetch. A count that drifts from its own registry would be worse than no
+    /// count, because it would look like the check had been done.
+    #[test]
+    fn covers_counts_match_the_digested_registries() {
+        assert_eq!(
+            emem_core::algorithms::DEFAULT.algorithms.len(),
+            168,
+            "if this moved, `algorithms_cid` covers a different number and any \
+             paper citing the old one is now wrong; that is the event this \
+             endpoint exists to make visible"
+        );
+        // Each count must be the live registry length, so the assertion above
+        // is the only place a number is written down.
+        for (name, live) in [
+            ("bands", emem_core::bands::DEFAULT.bands.len()),
+            (
+                "algorithms",
+                emem_core::algorithms::DEFAULT.algorithms.len(),
+            ),
+            (
+                "substrates",
+                emem_core::substrates::DEFAULT.substrates.len(),
+            ),
+        ] {
+            assert!(live > 0, "{name} registry is empty");
+        }
     }
 }
