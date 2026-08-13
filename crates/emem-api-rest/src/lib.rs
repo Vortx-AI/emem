@@ -17112,6 +17112,95 @@ fn manifest_golden_vector_hex() -> String {
     emem_storage::Server::manifest_versions_blake3_hex(&m).unwrap_or_default()
 }
 
+/// A complete `emem.os_trace.v1` trace this responder accepts, with the
+/// intermediate digests exposed so a device maker can diff their
+/// canonicalisation against ours field by field.
+///
+/// This is option 3 of the three unblocks dpwotikn offered, and the one they
+/// called smallest: "a single known-good trace fixture that the responder
+/// accepts, we can derive the constructions from one worked example". A worked
+/// example beats prose here because the two failure modes they hit are both
+/// invisible in a field list. `prev_digest` is skipped when None, so it never
+/// appears in a trace that omits it, and the root is over chain order rather
+/// than sorted order, which no schema can express.
+///
+/// Built by `build_and_sign_v1`, the same constructor a device calls, and then
+/// VERIFIED here by the same `emem_trace::verify` the write path runs. If the
+/// two ever disagree this function returns the disagreement instead of a
+/// fixture, because a golden vector that stopped being golden is worse than
+/// none: it teaches a builder the wrong thing with our name on it.
+fn trace_golden_vector() -> JsonValue {
+    use emem_trace::schema::{DeviceIdentity, EmittedOutput, OsTrace, TraceSegment};
+    // A fixed secret so the fixture is byte-stable across responders and
+    // restarts. It signs nothing but this example and is published with it.
+    let signing = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+    let device = DeviceIdentity {
+        device_key: emem_core::AttesterKey(signing.verifying_key().to_bytes()),
+        key_epoch: emem_core::KeyEpoch(0),
+        substrate_profile: "observatory.telescope.v1".into(),
+        platform: "jetson-orin-nx".into(),
+        os: "Linux 6.8.0".into(),
+        kernel: "6.8.0-generic".into(),
+        boot_id: "00000000-0000-0000-0000-000000000001".into(),
+    };
+    let seg = |layer: emem_core::substrates::TraceLayerKind, start: u64, end: u64| TraceSegment {
+        layer,
+        seq: 0,
+        clock_start_ns: start,
+        clock_end_ns: end,
+        event_count: 1_000,
+        log_digest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+        prev_digest: None,
+        encoding: "linux.ftrace.v1".into(),
+    };
+    use emem_core::substrates::TraceLayerKind as L;
+    // All six layers `observatory.telescope.v1` requires. A fixture that
+    // covered only some would verify the chain and then fail on coverage,
+    // which is a different rejection than the one it exists to explain.
+    let segments = vec![
+        seg(L::Syscall, 1_000, 1_500),
+        seg(L::Scheduler, 1_500, 2_000),
+        seg(L::Memory, 2_000, 2_500),
+        seg(L::SensorBus, 2_500, 3_000),
+        seg(L::Signal, 3_000, 3_500),
+        seg(L::Storage, 3_500, 4_000),
+    ];
+    let outputs = vec![EmittedOutput {
+        payload_digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
+        band: None,
+        emitted_at_ns: 3_200,
+        layer: L::Signal,
+    }];
+    let trace = match OsTrace::build_and_sign_v1(device, 1_000, 4_000, segments, outputs, &signing)
+    {
+        Ok(t) => t,
+        Err(e) => return json!({ "error": format!("fixture could not be built: {e}") }),
+    };
+    // The fixture must survive the real verifier, not just the real builder.
+    let profile = emem_core::substrates::DEFAULT.lookup("observatory.telescope.v1");
+    let verdict = match profile {
+        Some(p) => {
+            let r = emem_trace::verify::verify_os_trace(&trace, p, None);
+            json!({ "verdict": format!("{:?}", r.verdict), "reasons": r.reasons.len() })
+        }
+        None => json!({ "verdict": "profile_missing" }),
+    };
+    json!({
+        "note": "Signed by a published throwaway key so the bytes are stable and reproducible. Rebuild it with emem_trace::schema::OsTrace::build_and_sign_v1 and every digest below must match.",
+        "self_check": verdict,
+        "trace": serde_json::to_value(&trace).unwrap_or(JsonValue::Null),
+        "intermediates": {
+            "device_digest_b32": trace.device.digest().map(|d| emem_trace::schema::render_digest(&d)).unwrap_or_default(),
+            "segment_digests_b32_in_chain_order": trace.segments.iter()
+                .map(|sg| sg.digest().map(|d| emem_trace::schema::render_digest(&d)).unwrap_or_default())
+                .collect::<Vec<_>>(),
+            "trace_root_b32": trace.trace_root.clone(),
+            "signature_preimage_b32": trace.preimage().map(|d| emem_trace::schema::render_digest(&d)).unwrap_or_default(),
+            "trace_cid": trace.trace_cid().unwrap_or_default(),
+        },
+    })
+}
+
 async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
     use crate::corpus_state_stats_tag as cst;
     use crate::operator_attestation_tag as oat;
@@ -17331,6 +17420,60 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 "verification": "ed25519_dalek verify_strict; the endorser_key signs. The platform's trust anchor (kind ed25519_pk_blake3, in GET /v1/device_platforms) commits to blake3 of that endorser key.",
             },
         ],
+        // The DEVICE-side construction. Every other block here describes
+        // something this responder signs; this one describes what a device
+        // must sign for its trace to be admitted, which is the only signed
+        // family a third party has to PRODUCE rather than check.
+        //
+        // dpwotikn, building a telescope pipeline against
+        // `observatory.telescope.v1`, hit `chain_broken(seq 1-5)` +
+        // `signature_invalid` on a trace that verified under their own
+        // canonicalisation, and stopped rather than brute-force the digest
+        // construction. They were right to stop, and right that the spec was
+        // missing: the registry pins device profiles as "for device makers to
+        // build against" while the thing to build against existed only in
+        // this responder's rejection messages.
+        //
+        // Their reconstruction, recovered from validation errors, listed the
+        // segment fields as layer/seq/clock_start_ns/clock_end_ns/
+        // event_count/log_digest/encoding. `prev_digest` is absent from that
+        // list, and it is the field the chain is made of. It could not be
+        // discovered by probing because it is
+        // `skip_serializing_if = "Option::is_none"`, so a trace without it
+        // round-trips silently, and because the parser ignores unknown
+        // fields, so guessing the name teaches nothing. Segment 0 passes
+        // (no predecessor), segments 1..n fail: exactly the reported symptom.
+        "os_trace_v1_device_side": {
+            "schema": "emem.os_trace.v1",
+            "who_signs": "the DEVICE key, not this responder. Verified by emem-trace; a profile's required layers come from GET /v1/substrates.",
+            "chain_link": {
+                "field": "segments[i].prev_digest",
+                "rule": "base32-nopad-lowercase of blake3(canonical_cbor(segments[i-1])), and ABSENT on segments[0]",
+                "trap": "the segment digest is taken over the segment record INCLUDING its own prev_digest, which is what makes the digests a chain rather than a list. Omitting the field is not an empty chain, it is a broken one: segment 0 verifies and every later segment reports chain_broken.",
+                "seq": "segments[i].seq must equal i",
+            },
+            "trace_root": {
+                "rule": "emem_attest::merkle_root_v1 over [blake3(canonical_cbor(segment))] in CHAIN order",
+                "trap": "chain order, NOT sorted order. The attestation batch root sorts its leaves; this one must not, because prev_digest already fixes the order and sorting would let a reordered capture keep its root.",
+                "encoding": "base32-nopad-lowercase in the `trace_root` field",
+            },
+            "signature_preimage": {
+                "rule": "ed25519 over emem_attest::os_trace_preimage_v1, the same domain-separated tagged length-prefixed stream as every other family here",
+                "domain": "os_trace",
+                "segments": [
+                    {"tag": emem_attest::os_trace_tag::SCHEMA, "name": "schema", "bytes": "the literal \"emem.os_trace.v1\""},
+                    {"tag": emem_attest::os_trace_tag::DEVICE, "name": "device", "bytes": "blake3(canonical_cbor(device identity block)), 32 bytes, NOT the device block inline"},
+                    {"tag": emem_attest::os_trace_tag::PROFILE, "name": "substrate_profile", "bytes": "the profile id from GET /v1/substrates"},
+                    {"tag": emem_attest::os_trace_tag::WINDOW, "name": "window", "bytes": "u64-LE window_start_ns || u64-LE window_end_ns, 16 bytes"},
+                    {"tag": emem_attest::os_trace_tag::TRACE_ROOT, "name": "trace_root", "bytes": "the 32 raw root bytes, decoded from base32, not the rendered string"},
+                    {"tag": emem_attest::os_trace_tag::OUTPUTS, "name": "outputs", "bytes": "list segment: each output's payload_digest as its base32 STRING"},
+                    {"tag": emem_attest::os_trace_tag::PREV_TRACE, "name": "prev_trace_cid", "bytes": "appended ONLY when present, so a stream head hashes byte-identically to a pre-chain trace"},
+                ],
+                "verification": "ed25519_dalek verify_strict, so a malleated signature is refused: it would verify while changing trace_cid, minting a second token for one trace.",
+            },
+            "trace_cid": "base32(blake3(canonical_cbor(whole signed trace))), the same rule facts use",
+            "golden_vector": trace_golden_vector(),
+        },
         "notes": "Every object this responder signs uses one rule: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream. Each segment table above is serialized from the compiled tag constants, so this spec cannot drift from the signer. Two constructions sit outside that rule and both are listed here rather than hidden: the legacy v0 receipt, which is verify-only for pre-cutover receipts and is never emitted, and memory_write under `caller_signed_objects`, which the caller signs rather than the responder.",
     }))
 }
@@ -73062,5 +73205,62 @@ mod manifest_key_order_tests {
             src.contains("manifest_hex_key_order"),
             "verifier_spec must carry the key-order block with the golden vector"
         );
+    }
+}
+
+#[cfg(test)]
+mod trace_spec_tests {
+    use super::*;
+
+    /// The published device-side fixture must pass the verifier it documents.
+    ///
+    /// A golden vector that stopped being golden is worse than none: it
+    /// teaches a device maker the wrong construction with our name on it, and
+    /// they will trust it over their own working code, because we published
+    /// it. dpwotikn stopped rather than guess at this construction; the least
+    /// we owe the next builder is that the worked example is checked by the
+    /// same code that will judge their trace.
+    #[test]
+    fn the_published_trace_fixture_verifies() {
+        let v = trace_golden_vector();
+        assert!(v.get("error").is_none(), "fixture failed to build: {v:?}");
+        assert_eq!(
+            v["self_check"]["verdict"], "Admit",
+            "the fixture we publish as known-good is rejected by our own verifier: {:?}",
+            v["self_check"]
+        );
+        assert_eq!(v["self_check"]["reasons"], 0);
+
+        // The two things a field list cannot express, and which are exactly
+        // what the reported chain_broken came from.
+        let segs = v["trace"]["segments"].as_array().expect("segments");
+        assert!(segs.len() >= 3, "need enough segments to show a chain");
+        assert!(
+            segs[0].get("prev_digest").is_none(),
+            "segment 0 must OMIT prev_digest, not carry null"
+        );
+        let digests = v["intermediates"]["segment_digests_b32_in_chain_order"]
+            .as_array()
+            .expect("intermediates");
+        for i in 1..segs.len() {
+            assert_eq!(
+                segs[i]["prev_digest"],
+                digests[i - 1],
+                "segment {i} must link to the digest of segment {}",
+                i - 1
+            );
+        }
+        for k in [
+            "device_digest_b32",
+            "trace_root_b32",
+            "signature_preimage_b32",
+        ] {
+            assert!(
+                v["intermediates"][k]
+                    .as_str()
+                    .is_some_and(|s| !s.is_empty()),
+                "{k} must be published so a builder can diff it"
+            );
+        }
     }
 }

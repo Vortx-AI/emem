@@ -270,7 +270,14 @@ fn canonical_digest<T: Serialize>(v: &T) -> Result<[u8; 32], TraceBuildError> {
 
 /// Render a 32-byte digest the way every emem CID renders: base32
 /// no-pad, lowercase.
-pub(crate) fn render_digest(d: &[u8; 32]) -> String {
+/// base32-nopad-lowercase of a 32-byte digest: the rendering used for
+/// `prev_digest`, `trace_root` and `trace_cid`.
+///
+/// Public so `/v1/verifier_spec` can publish a device-side golden vector with
+/// its intermediate digests exposed. A device maker who cannot see the
+/// intermediates can only diff a pass/fail, which is what left dpwotikn
+/// guessing at the chain construction.
+pub fn render_digest(d: &[u8; 32]) -> String {
     BASE32_NOPAD.encode(d).to_lowercase()
 }
 
