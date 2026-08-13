@@ -1109,6 +1109,67 @@ impl Manifest for AlgorithmRegistry {
                     a.key
                 )));
             }
+            // Every declared parameter must declare where it came from.
+            //
+            // `flood_risk@2` carried two parameters and documented one. The
+            // cited neighbour explained a 5 m threshold against the Copernicus
+            // DEM product spec; `dem_agreement_penalty: 0.5` sat beside it
+            // with nothing, and a reader scanning the block sees a well-sourced
+            // entry and a number, and does not naturally ask which is which.
+            // dpwotikn named the mechanism from outside on 2026-08-13: "one
+            // parameter earned its citation, the neighbour inherited its
+            // credibility by adjacency."
+            //
+            // It was not one algorithm. Eleven of nineteen parameters across
+            // seven algorithms were bare, every one of them next to a
+            // documented sibling. So the fix is the rule rather than the
+            // entries: a parameter with no `basis` cannot load.
+            //
+            // `basis` is deliberately three-valued and one of the values is an
+            // admission. `literature` cites a source. `fitted` owes an
+            // estimator, a corpus and a held-out score. `operational_default`
+            // says out loud that somebody chose the number, which is the
+            // honest label for most of these and is worth more than silence,
+            // because silence is what let them read as derived.
+            if let Some(params) = &a.parameters {
+                let lf = a.learned_from.as_ref().and_then(|v| v.as_object());
+                for k in params.keys() {
+                    let entry = lf.and_then(|m| m.get(k)).and_then(|v| v.as_object());
+                    let basis = entry.and_then(|e| e.get("basis")).and_then(|v| v.as_str());
+                    match basis {
+                        Some("literature") | Some("operational_default") => {}
+                        Some("fitted") => {
+                            for owed in ["estimator", "corpus_cid", "held_out"] {
+                                if !entry.is_some_and(|e| e.contains_key(owed)) {
+                                    return Err(ManifestError::Invalid(format!(
+                                        "{}: parameter {k} declares basis `fitted` but omits \
+                                         `{owed}`. A fitted constant that cannot say what it was \
+                                         fitted with, on what, and how it scored out of sample is \
+                                         an asserted number wearing a method's clothes.",
+                                        a.key
+                                    )));
+                                }
+                            }
+                        }
+                        Some(other) => {
+                            return Err(ManifestError::Invalid(format!(
+                                "{}: parameter {k} declares unknown basis `{other}`; expected \
+                                 literature, fitted, or operational_default",
+                                a.key
+                            )));
+                        }
+                        None => {
+                            return Err(ManifestError::Invalid(format!(
+                                "{}: parameter {k} has no `learned_from` entry with a `basis`. \
+                                 Every number in a published algorithm must say whether it was \
+                                 cited, fitted, or simply chosen; an undocumented parameter beside \
+                                 a documented one inherits credibility it never earned.",
+                                a.key
+                            )));
+                        }
+                    }
+                }
+            }
             if !["scalar", "classification", "vector"].contains(&a.output.kind.as_str()) {
                 return Err(ManifestError::Invalid(format!(
                     "algorithm {}: output.kind must be scalar|classification|vector, got {}",
@@ -3003,5 +3064,68 @@ mod tests {
         let isa = ((0.20_f64 + 0.10) / 0.40).clamp(0.0, 1.0);
         let expected = 41.0 * dndvi * isa;
         assert!(approx(v, expected, 1e-6));
+    }
+}
+
+#[cfg(test)]
+mod parameter_basis_tests {
+    use super::*;
+
+    /// No published parameter may be silent about where it came from.
+    ///
+    /// The failure this prevents is not a wrong number, it is an
+    /// undocumented one standing next to a well-sourced one. A reader scans
+    /// the block, sees a citation, and carries that confidence across to the
+    /// neighbour. Eleven of nineteen parameters were in that position when
+    /// this was written.
+    #[test]
+    fn every_parameter_declares_a_basis() {
+        let mut counts = std::collections::BTreeMap::new();
+        for a in &DEFAULT.algorithms {
+            let Some(params) = &a.parameters else {
+                continue;
+            };
+            let lf = a.learned_from.as_ref().and_then(|v| v.as_object());
+            for k in params.keys() {
+                let basis = lf
+                    .and_then(|m| m.get(k))
+                    .and_then(|v| v.as_object())
+                    .and_then(|e| e.get("basis"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| panic!("{}: parameter {k} has no basis", a.key));
+                *counts.entry(basis.to_string()).or_insert(0usize) += 1;
+            }
+        }
+        assert!(!counts.is_empty(), "the registry should declare parameters");
+        // The admission has to be usable, or the rule just teaches everyone to
+        // write `literature` and move on.
+        assert!(
+            counts.contains_key("operational_default"),
+            "most of these numbers were chosen rather than derived; if none says \
+             so, the basis field has become a formality: {counts:?}"
+        );
+    }
+
+    /// `fitted` owes three things, and the registry refuses it without them.
+    #[test]
+    fn a_fitted_basis_owes_its_estimator_corpus_and_held_out_score() {
+        for a in &DEFAULT.algorithms {
+            let Some(lf) = a.learned_from.as_ref().and_then(|v| v.as_object()) else {
+                continue;
+            };
+            for (k, e) in lf {
+                let Some(obj) = e.as_object() else { continue };
+                if obj.get("basis").and_then(|v| v.as_str()) != Some("fitted") {
+                    continue;
+                }
+                for owed in ["estimator", "corpus_cid", "held_out"] {
+                    assert!(
+                        obj.contains_key(owed),
+                        "{}: {k} is fitted but omits {owed}",
+                        a.key
+                    );
+                }
+            }
+        }
     }
 }

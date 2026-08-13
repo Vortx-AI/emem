@@ -535,7 +535,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <a id="7-tamper-provenance" class="anchor-alias"></a>
       <h2><span class="num">7</span>Tamper-provenance</h2>
       <p>A signature proves who attested a value and that the bytes have not changed. It says nothing about how the value came to exist. A satellite radiance, an index recomputed from that radiance, a neural encoder's embedding, and a human cartographer's judgement are all equally signable and are not equally checkable. Collapsing them into one trust surface would be the interesting lie: everything looks verified, so nothing is.</p>
-      <p>Every band therefore declares a <strong>tamper-provenance class</strong> (<code>crates/emem-core/src/bands.rs:64</code>). There are six.</p>
+      <p>Every band therefore declares a <strong>tamper-provenance class</strong> (<code>crates/emem-core/src/bands.rs:64</code>). There are seven.</p>
       <div class="tbl-wrap"><table class="t">
         <thead><tr>
         <th>class</th>
@@ -546,6 +546,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tbody>
         <tr><td><code>direct_sensor</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>5</td></tr>
         <tr><td><code>deterministic_index</code></td><td><code>recomputable_from_source</code></td><td>yes</td><td>4</td></tr>
+        <tr><td><code>estimator</code></td><td><code>rerunnable_from_signed_inputs</code></td><td>no</td><td>3</td></tr>
         <tr><td><code>attested_execution</code></td><td><code>verified_execution_trace</code></td><td>no</td><td>3</td></tr>
         <tr><td><code>model_output</code></td><td><code>signed_model_checkpoint</code></td><td>no</td><td>2</td></tr>
         <tr><td><code>human_curated</code></td><td><code>attester_only</code></td><td>no</td><td>1</td></tr>
