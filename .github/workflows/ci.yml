@@ -13,7 +13,24 @@ permissions:
 # wedged job (see the macOS cache note below) never keeps burning a runner
 # after it has been superseded.
 concurrency:
-  group: ci-${{ github.ref }}
+  # On main the group is per-COMMIT, which is what actually stops main runs
+  # being cancelled. `cancel-in-progress: false` was believed to do that and
+  # does not: it protects a RUNNING run, and GitHub's documented behaviour for
+  # the group is that "when a new job or workflow run is queued, any existing
+  # pending job or workflow run in the same group is canceled and replaced".
+  # So while one main run was in progress, the next push queued behind it and
+  # the push after that evicted it before a single job started.
+  #
+  # Observed on 2026-08-13: the ci runs for b7a353a and 2ed6962 both ended
+  # `cancelled` with total_count 0 jobs, 12 minutes after being created, on
+  # branch main, with cancel-in-progress already false. This is the failure the
+  # comment below was written to prevent, still happening, because the fix
+  # addressed the wrong half of the mechanism.
+  #
+  # Per-commit groups on main never collide, so nothing queues and nothing is
+  # evicted: every commit gets a conclusive run. Branches keep one group per
+  # ref so a rapid iteration still cancels its own superseded runs.
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   # Cancel superseded runs on branches and PRs, never on main.
   #
   # On a branch this saves an hour of runners when you push three times

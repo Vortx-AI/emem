@@ -117,6 +117,100 @@ pub(crate) fn covered_vintages(stack: &[f32], dim: usize) -> Vec<Vec<f32>> {
 /// Why `agreement` must not be read as consensus. Rides the response as
 /// `gate_calibration` so an agent sees the limit in-band rather than having
 /// to measure the encoders itself, which is how it was found.
+/// The measured per-encoder change distribution, machine-readable.
+///
+/// `GATE_CALIBRATION_NOTE` has carried these numbers as prose since the gate
+/// was found to be uncalibrated. Prose is enough for a human to know not to
+/// trust the vote; it is not enough for a caller to DO anything, which is what
+/// dpwotikn pointed out reciprocally after our own caveat changed how they
+/// built their detector:
+///
+///   "report per-encoder calibrated thresholds rather than one shared 0.15, or
+///    expose the per-encoder change distribution so a caller can calibrate.
+///    A vote over incomparable scales is worse than exposing the scales."
+///
+/// We cannot honestly ship calibrated thresholds: that needs a labelled
+/// change corpus this responder does not have, and a fitted number without the
+/// corpus behind it is the same overclaim in a new place. Exposing the scales
+/// costs nothing and is already measured, so that is what ships. A caller can
+/// now normalise each encoder's `change` against its own observed span instead
+/// of against a threshold borrowed from a spectral index.
+///
+/// Measured over 8 maximally dissimilar chips. `n` is small and stated rather
+/// than hidden; treat the spans as indicative, not as a calibration.
+const ENCODER_SCALES: &[(&str, f64, f64, f64)] = &[
+    // (encoder, cosine_min, cosine_max, sd)
+    ("clay_v1", 0.11, 0.95, 0.204),
+    ("prithvi_eo2", 0.88, 0.99, 0.030),
+];
+
+/// `ENCODER_SCALES` as JSON, plus what the gate does to each encoder given its
+/// span. The derived field is the one that matters: it says, per encoder,
+/// whether the shared gate is reachable at all.
+pub(crate) fn encoder_scale_block(gate: f64) -> JsonValue {
+    let rows: Vec<JsonValue> = ENCODER_SCALES
+        .iter()
+        .map(|(name, lo, hi, sd)| {
+            // d = 1 - cos, so the largest d comes from the SMALLEST cosine.
+            let d_max = 1.0 - lo;
+            let d_min = 1.0 - hi;
+            json!({
+                "encoder": name,
+                "cosine_observed": {"min": lo, "max": hi, "sd": sd},
+                "change_d_observed": {"min": d_min, "max": d_max},
+                "can_reach_gate": d_max > gate,
+                "note": if d_max > gate {
+                    "this encoder's change can exceed the shared gate, so its vote is reachable"
+                } else {
+                    "this encoder's change CANNOT exceed the shared gate at any observed input, \
+                     so it never votes and every verdict is decided without it"
+                },
+            })
+        })
+        .collect();
+    json!({
+        "measured_over_chips": 8,
+        "gate_applied": gate,
+        "encoders": rows,
+        // The honest companion to the scales, and the more important half.
+        //
+        // dpwotikn's own consensus experiment failed because its three views
+        // were "three functions of one view, not three views", and they
+        // credited ours with working because Clay, Prithvi and Tessera are
+        // independently trained models of the same ground. Checked against the
+        // band registry, that framing is more generous than the truth: Clay
+        // v1.5 and Prithvi EO-2.0 both embed the SAME Sentinel-2 L2A chip.
+        // Different architectures, different training runs, one input.
+        //
+        // So they cannot disagree about anything the input got wrong. A cloud
+        // mask error, an atmospheric-correction artefact, a processing-baseline
+        // shift or an acquisition-geometry change moves both together, and the
+        // ensemble reports agreement. Agreement among models reading one chip
+        // is evidence about the models, not about the ground.
+        //
+        // Tessera is the only partially independent member: it fuses Sentinel-1
+        // radar with the optical, and radar sees through the cloud that breaks
+        // the optical. Since Prithvi can never clear the gate, `two_of_three`
+        // in practice means Clay plus Tessera, which is the one pairing with
+        // any real independence in it. That is luck rather than design.
+        "independence": {
+            "sentinel2_l2a": ["clay_v1", "prithvi_eo2", "geotessera"],
+            "adds_sentinel1_radar": ["geotessera"],
+            "caveat": "Clay and Prithvi embed the same Sentinel-2 L2A pixels, so they share every \
+                       failure mode of that input and their agreement is not independent evidence. \
+                       Only Tessera reads a second physical sensor. Independence has to come from \
+                       the data path, not from the number of models.",
+        },
+        "how_to_use": "Normalise each encoder's `change` against its own observed span rather than \
+                       comparing raw values to one threshold. The spans differ by an order of \
+                       magnitude in sd, so a shared gate is not a shared decision.",
+        "why_not_calibrated_thresholds": "A fitted per-encoder threshold needs a labelled corpus of \
+                                          known change and known no-change, which this responder \
+                                          does not have. Publishing fitted numbers without it would \
+                                          be the same overclaim in a new place.",
+    })
+}
+
 pub(crate) const GATE_CALIBRATION_NOTE: &str = "uncalibrated_per_encoder: \
 consensus_threshold is Healey et al. 2018's LandTrendr gate for SPECTRAL \
 change, applied unchanged to cosine distances in three embedding spaces that \
@@ -584,6 +678,7 @@ pub async fn triple_consensus(
             // gate to reason about, so it owes them the same caveat as the
             // computed path.
             "gate_calibration": GATE_CALIBRATION_NOTE,
+            "encoder_scales": encoder_scale_block(gate),
             "honest_note": honest_note,
             "responder_pubkey_b32": pubkey,
             "receipt": receipt,
@@ -1083,5 +1178,67 @@ mod tests {
             term.abs() < 1e-12,
             "greening must not raise an alert, got {term}"
         );
+    }
+}
+
+#[cfg(test)]
+mod encoder_scale_tests {
+    use super::*;
+
+    /// The block must say, per encoder, whether the shared gate is reachable.
+    ///
+    /// The whole point is that a caller reading only `agreement` gets a
+    /// systematically wrong answer while a caller reading the scales gets a
+    /// right one. If `can_reach_gate` ever silently became true for the
+    /// deployed Prithvi checkpoint, the response would start claiming a vote
+    /// is available that arithmetic says is not.
+    #[test]
+    fn the_scale_block_names_the_encoder_that_cannot_vote() {
+        let b = encoder_scale_block(0.15);
+        let rows = b["encoders"].as_array().expect("encoders");
+        let get = |name: &str| {
+            rows.iter()
+                .find(|r| r["encoder"] == name)
+                .unwrap_or_else(|| panic!("{name} missing"))
+                .clone()
+        };
+        // Prithvi's cosine floor is 0.88, so its d tops out at 0.12 < 0.15.
+        let p = get("prithvi_eo2");
+        assert_eq!(p["can_reach_gate"], false);
+        assert!((p["change_d_observed"]["max"].as_f64().unwrap() - 0.12).abs() < 1e-9);
+        // Clay's floor is 0.11, so its d reaches 0.89 and clears the gate.
+        let c = get("clay_v1");
+        assert_eq!(c["can_reach_gate"], true);
+
+        // The independence caveat must name Clay and Prithvi as sharing one
+        // input. If this is ever dropped, the response goes back to implying
+        // that three models agreeing is three witnesses, when two of them read
+        // the same pixels and cannot disagree about what those pixels got
+        // wrong.
+        let ind = &b["independence"];
+        let shared = ind["sentinel2_l2a"].as_array().expect("sentinel2_l2a");
+        for who in ["clay_v1", "prithvi_eo2"] {
+            assert!(
+                shared.iter().any(|v| v == who),
+                "{who} reads Sentinel-2 L2A and the response must say so"
+            );
+        }
+        assert_eq!(
+            ind["adds_sentinel1_radar"].as_array().map(|a| a.len()),
+            Some(1),
+            "exactly one member reads a second physical sensor"
+        );
+
+        // Lower the gate under Prithvi's ceiling and it becomes reachable:
+        // the block is computed from the gate in force, not hardcoded.
+        let low = encoder_scale_block(0.05);
+        let p2 = low["encoders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["encoder"] == "prithvi_eo2")
+            .unwrap()
+            .clone();
+        assert_eq!(p2["can_reach_gate"], true);
     }
 }
