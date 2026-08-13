@@ -30537,6 +30537,16 @@ fn entity_extract_bbox(body: &JsonValue) -> Option<[f64; 4]> {
     Some([g("min_lng")?, g("min_lat")?, g("max_lng")?, g("max_lat")?])
 }
 
+/// The `cell64` slot for an entity that is not anywhere.
+///
+/// Not a real cell and deliberately not decodable as one: it fails
+/// `is_cell64_shape`, so any code that tries to treat a sky pointing or a
+/// commit as a place gets a typed refusal instead of a plausible location off
+/// the coast of Africa. It never enters the identity, because
+/// `compute_entity_cid` uses the external anchor alone whenever one is
+/// present.
+pub(crate) const NON_GEOGRAPHIC_CELL: &str = "emem:nowhere";
+
 /// Resolve an entity anchor to a cell64 plus provenance (GERS/OSM/geometry).
 /// A bare cell64 is decoded to its centre without a geocode; otherwise the
 /// standard locate cascade runs (place or lat/lng).
@@ -30700,8 +30710,43 @@ async fn post_entity(
     if req.label.trim().is_empty() {
         return Err(entity_bad_arg("entity requires a non-empty `label`"));
     }
-    let loc =
-        entity_locate_rich(req.place.as_deref(), req.lat, req.lng, req.cell.as_deref()).await?;
+    // A subject with a non-geographic anchor is located by the anchor, not by
+    // the planet. `entity.cid` is declared in the substrate registry as the
+    // address space for subjects that have no latitude, and until this branch
+    // existed nothing could mint one: `entity_locate_rich` demanded a place, a
+    // lat/lng or a cell, so the address space we advertised had no door.
+    //
+    // `compute_entity_cid` already ignores the cell whenever an external
+    // anchor is present (the `ext` branch of its preimage), so the identity
+    // this produces is the anchor alone and the placeholder cell below never
+    // reaches it. The placeholder exists because `Entity` carries a `cell64`
+    // for recall, and it is the responder's own sentinel rather than a real
+    // place, so nobody reads it as one.
+    let anchored_off_planet = req
+        .external_ids
+        .as_ref()
+        .and_then(|e| e.anchor.as_deref())
+        .map(|a| !a.trim().is_empty())
+        .unwrap_or(false)
+        && req.place.is_none()
+        && req.lat.is_none()
+        && req.lng.is_none()
+        && req.cell.is_none();
+
+    let loc = if anchored_off_planet {
+        LocatedRich {
+            cell64: NON_GEOGRAPHIC_CELL.to_string(),
+            point: [0.0, 0.0],
+            bbox: None,
+            geojson: None,
+            gers: None,
+            osm: None,
+            label: None,
+            via: "anchor".to_string(),
+        }
+    } else {
+        entity_locate_rich(req.place.as_deref(), req.lat, req.lng, req.cell.as_deref()).await?
+    };
 
     let mut ext = req.external_ids.clone().unwrap_or_default();
     if ext.gers.is_none() {
@@ -73262,5 +73307,72 @@ mod trace_spec_tests {
                 "{k} must be published so a builder can diff it"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod non_geographic_entity_tests {
+    use emem_primitives::entity::{compute_entity_cid, ExternalIds};
+
+    /// Two observers who bucket the same orbit must mint the same identity.
+    ///
+    /// This is the property dpwotikn asked the address space for, and the
+    /// reason their proposal quantises orbital elements instead of carrying
+    /// exact ones: "two observers who disagree slightly on the orbit still
+    /// resolve to the same bucket and their facts become comparable rather
+    /// than merely adjacent". Adjacent facts about one object are two records;
+    /// a shared identity makes them one subject with two witnesses, which is
+    /// what contradiction scoring needs to say anything at all.
+    #[test]
+    fn one_bucket_is_one_identity_regardless_of_observer() {
+        let anchored = |a: &str| ExternalIds {
+            anchor: Some(a.to_string()),
+            ..Default::default()
+        };
+        // Same bucket, different observers, different labels and kinds: the
+        // anchor alone decides, so the identity converges.
+        let a = compute_entity_cid(
+            "rso",
+            "unknown object",
+            "vifa.dowe.gaga.teca",
+            &anchored("orb:s550.i053.o120.p07"),
+        );
+        let b = compute_entity_cid(
+            "satellite",
+            "OBJ-2024-117",
+            "defi.zb294.qokO.xAxe",
+            &anchored("orb:s550.i053.o120.p07"),
+        );
+        assert_eq!(a, b, "one bucket must be one subject, whoever saw it");
+
+        // A neighbouring bucket is a different subject. If this ever collapses,
+        // every object in a shell becomes one identity and the substrate is
+        // useless in the other direction.
+        let c = compute_entity_cid(
+            "rso",
+            "unknown object",
+            "vifa.dowe.gaga.teca",
+            &anchored("orb:s550.i053.o120.p08"),
+        );
+        assert_ne!(a, c, "adjacent buckets must stay distinct subjects");
+
+        // The cell is genuinely not in the identity for an anchored subject.
+        let d = compute_entity_cid(
+            "rso",
+            "unknown object",
+            super::NON_GEOGRAPHIC_CELL,
+            &anchored("orb:s550.i053.o120.p07"),
+        );
+        assert_eq!(a, d, "an anchored identity must not depend on any cell");
+    }
+
+    /// The placeholder must not pass as a place.
+    ///
+    /// If it decoded, a sky pointing would silently acquire a latitude and a
+    /// consumer would plot a satellite on a map of the Atlantic.
+    #[test]
+    fn the_nowhere_cell_is_not_a_cell() {
+        assert!(!emem_codec::is_cell64_shape(super::NON_GEOGRAPHIC_CELL));
+        assert!(emem_codec::address_space_of_subject(super::NON_GEOGRAPHIC_CELL).is_none());
     }
 }

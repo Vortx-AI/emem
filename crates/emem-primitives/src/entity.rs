@@ -53,12 +53,42 @@ pub struct ExternalIds {
     /// Wikidata QID, e.g. `"Q44440"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wikidata: Option<String>,
+    /// A scheme-tagged anchor for a subject that is **not a place**, as
+    /// `"<scheme>:<id>"`: `"sky:4096.12345678"`, `"orb:s550.i053.o120.p07"`,
+    /// `"git:<commit>/<path>"`, `"ckpt:<digest>"`.
+    ///
+    /// The three anchors above it are geographic registries, and every one of
+    /// them presumes the subject is somewhere. GERS divides the Earth's
+    /// surface, OSM maps it, Wikidata will happily identify a satellite but
+    /// only some of them. A telescope's TARGET, a file at a commit and a model
+    /// checkpoint have no entry in any of the three, which left the whole
+    /// `entity.cid` address space with no way to mint an identity: `/v1/entity`
+    /// demanded a place, a lat/lng or a cell, and a subject with no latitude
+    /// has none of them.
+    ///
+    /// dpwotikn found the shape of this from outside while proposing three
+    /// namespaces for a space substrate, and the argument that carries is
+    /// theirs: the anchor should be QUANTISED, not exact, so "two observers
+    /// who disagree slightly on the orbit still resolve to the same bucket and
+    /// their facts become comparable rather than merely adjacent". That is the
+    /// whole purpose of a shared identity, and it is why this is a free-form
+    /// string the caller composes deterministically rather than a number we
+    /// round for them: only the contributor knows what the right bucket width
+    /// is for its instrument.
+    ///
+    /// Ranked last, so a subject that DOES have a geographic registry entry
+    /// keeps converging on it. This is for subjects the others cannot name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
 }
 
 impl ExternalIds {
     /// True when no external anchor is present.
     pub fn is_empty(&self) -> bool {
-        self.gers.is_none() && self.osm.is_none() && self.wikidata.is_none()
+        self.gers.is_none()
+            && self.osm.is_none()
+            && self.wikidata.is_none()
+            && self.anchor.is_none()
     }
 
     /// The single strongest external anchor, tagged with its scheme:
@@ -79,6 +109,13 @@ impl ExternalIds {
         }
         if let Some(w) = non_empty(&self.wikidata) {
             return Some(format!("wikidata:{w}"));
+        }
+        // Already scheme-tagged by the caller, so it is used verbatim rather
+        // than prefixed: the caller owns the namespace, and a second prefix
+        // would make `sky:...` into `anchor:sky:...` and split the identity of
+        // a subject two contributors agreed on.
+        if let Some(a) = non_empty(&self.anchor) {
+            return Some(a);
         }
         None
     }
@@ -296,6 +333,7 @@ mod tests {
             gers: None,
             osm: Some("way/717919508".into()),
             wikidata: None,
+            anchor: None,
         };
         let a = compute_entity_cid("bridge", "Golden Gate Bridge", "defi.zb5ae.hepE.kasI", &ext);
         let b = compute_entity_cid("highway", "golden gate", "defi.zb5ae.hepE.kasI", &ext);
@@ -308,6 +346,7 @@ mod tests {
             gers: Some("08abc".into()),
             osm: Some("way/1".into()),
             wikidata: Some("Q1".into()),
+            anchor: None,
         };
         assert_eq!(ext.best(), Some("gers:08abc".into()));
     }
@@ -359,6 +398,7 @@ mod tests {
             gers: Some("08abc".into()),
             osm: Some("way/717919508".into()),
             wikidata: None,
+            anchor: None,
         };
         let e = Entity {
             schema: default_entity_schema(),
