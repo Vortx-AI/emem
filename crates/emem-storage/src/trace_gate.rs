@@ -216,7 +216,7 @@ impl TraceGate {
                  GET /v1/device_platforms lists the whitelist"
                 ))
             })?;
-        if !platform.serves(profile.contributor_class) {
+        if !platform.serves(&profile.contributor_class) {
             return Err(StorageError::AttestationInvalid(format!(
                 "os_trace gate: platform {platform_id} does not serve the {:?} contributor \
                  class that profile {profile_id} requires",

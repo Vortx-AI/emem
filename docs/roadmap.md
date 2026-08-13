@@ -141,12 +141,65 @@ it supports.
   set. Until it does, it is a feature with no number, and the honest
   description of it in any paper is "provided" rather than "effective".
 
-### Next substrates: everything that observes a location
+### Next substrates: and the address space that gates all of them
 
 Satellite Earth observation is the first substrate because its data is
 open, global, and already keyed by location. The protocol requirement
 for any other substrate is the same pair: a canonical address and a
-signing key. Location stays the first key throughout.
+signing key.
+
+**The second half of that pair is done and the first half is not, and
+until 2026-08-11 the registry did not say so.** The signing key
+generalises completely: content addressing, the receipt, the append-only
+log, bi-temporal bounds, contradiction scoring and the token grammar do
+not care what the subject is. The ADDRESS does not generalise at all.
+Every fact is keyed by `CanonicalKey { cell, band, tslot }` where `cell`
+is a cell64, a 64-bit quantisation of latitude and longitude, so a fact
+can only be recorded about a place. A file at a commit, a table at a
+schema version, a model at a checkpoint and a span in an execution trace
+have no latitude, and no amount of signing machinery gives them one.
+
+That is why the README's "Earth is the substrate, not the subject" needs
+reading carefully. It is true of the record, the receipt and the token
+grammar. It is not true of the address, and the address is the part
+everything else hangs from.
+
+So every profile now declares an `address_space`, and the registry
+refuses to load a profile that is `active` on one this build cannot key
+a fact by. `geo.cell64` is the only address space with a write path
+today. `entity.cid` names a subject that is not a place, using the
+`emem:entity:` identity that already ships (mint, resolve and link are
+core tools) but that a fact cannot yet be keyed by. Five profiles are
+pinned on it as candidates, so builders can write against a fixed shape
+while the honest status stays visible:
+
+- **`space.deep.v1`**: a telescope SITE has a cell; the thing it looks
+  at does not. The cleanest statement of the gap, on an instrument we
+  already model.
+- **`code.repository.v1`**: a file or symbol at a commit. Admitted by
+  recomputability exactly as the Earth archives are, and the fit is
+  closer than it looks: git is already content-addressed. What emem adds
+  over git is the half git does not do, a signed reading ABOUT the code
+  at that address, contradiction when two analysers disagree, and a
+  bi-temporal answer to what we believed about this function in May.
+- **`data.table.v1`**: a table or column at a schema version. The
+  readings are the statistics teams already compute and cannot defend:
+  null rate, cardinality, freshness lag, today passed around as
+  screenshots. Recomputable only against an immutable snapshot.
+- **`model.checkpoint.v1`**: a model at a checkpoint. Every encoder
+  record already pins its checkpoint so a model swap cannot pose as
+  change in the world; here the model is the subject and an eval score
+  is the reading. Two labs quoting one benchmark are usually quoting
+  two.
+- **`exec.trace.v1`**: a span, as the subject rather than the evidence.
+  Same verifier and same required layers as a device trace, inverted
+  role.
+
+**The keystone is one change: letting a fact be keyed by an
+`emem:entity:` identity instead of a cell64.** It touches the canonical
+index, the receipt preimage and the storage key, so it is a major, not
+something to slip into a minor. Nothing above it should be built until
+it lands, and nothing above it is claimed to work in the meantime.
 
 What ships today that a new substrate would use unchanged: the
 multi-writer attest endpoint (`POST /v1/attest`, ed25519 envelope over a
@@ -173,8 +226,9 @@ of drift anchor: device claims are contradiction-scored against it,
 tension is surfaced rather than dropped, and the full design plus the
 wiring steps live in `docs/plans/encoder-substrates.md`.
 
-Candidate substrates, in the order the machinery favours them, each
-now pinned as a profile in the registry:
+Candidate substrates that DO observe a location, in the order the
+machinery favours them, each pinned as a profile in the registry and all
+of them on `geo.cell64`:
 
 - **CCTV and fixed sensors.** A camera or gauge is the simplest case: a
   fixed location, a stream of observations, one key. Its readings land

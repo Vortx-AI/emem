@@ -28,28 +28,175 @@ use crate::manifest::{Manifest, ManifestError, MANIFEST_SUBSTRATE_REG};
 
 const SUBSTRATES_V0_JSON: &str = include_str!("../data/substrates-v0.json");
 
-/// The class of machine contributing observations under a profile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ContributorClass {
+/// The class of contributor writing observations under a profile.
+///
+/// **Open on purpose, unlike [`AdmissionRule`].** This was a closed enum of
+/// nine physical device classes, so declaring a substrate that is not a
+/// camera, gauge or robot meant editing Rust and shipping a build. That is
+/// backwards: a contributor class is DESCRIPTIVE. Nothing enforces anything
+/// on the strength of it; it names who is writing and lets a reader filter.
+/// The registry is data, and a purely descriptive field in a data registry
+/// has no business being a compile-time closed set.
+///
+/// [`AdmissionRule`] is the opposite case and stays closed, because each rule
+/// there is an ENFORCEMENT PATH. A registry that could name a new admission
+/// rule could advertise evidence handling that no code performs, which is a
+/// worse failure than a recompile: it reads as a checked property and is not
+/// one. When the two look symmetric, ask what breaks if the value is unknown.
+/// An unknown contributor class is a label nobody recognises. An unknown
+/// admission rule is an unguarded door.
+///
+/// The constants below are the classes this build knows by name. They are
+/// conveniences for call sites, not a closed set: any string in the registry
+/// is a valid class.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ContributorClass(String);
+
+impl ContributorClass {
     /// Orbital imaging or sounding platform (or its public archive).
-    Satellite,
+    pub const SATELLITE: &'static str = "satellite";
     /// Ground or space telescope observing from a fixed site cell.
-    Telescope,
+    pub const TELESCOPE: &'static str = "telescope";
     /// Laboratory or field microscope; grain reaches into microns.
-    Microscope,
+    pub const MICROSCOPE: &'static str = "microscope";
     /// Fixed surveillance or monitoring camera.
-    Cctv,
+    pub const CCTV: &'static str = "cctv";
     /// Handheld phone or wearable with cameras and sensors.
-    Mobile,
+    pub const MOBILE: &'static str = "mobile";
     /// Mobile robot or robot fleet member.
-    Robot,
+    pub const ROBOT: &'static str = "robot";
     /// Uncrewed aerial vehicle flying survey paths.
-    Drone,
+    pub const DRONE: &'static str = "drone";
     /// Meter, turbine, pipeline or plant-floor machine.
-    IndustrialMachine,
+    pub const INDUSTRIAL_MACHINE: &'static str = "industrial_machine";
     /// Fixed gauge or single-purpose environmental sensor.
-    FixedSensor,
+    pub const FIXED_SENSOR: &'static str = "fixed_sensor";
+
+    /// Wrap a class name. Any non-empty string is valid.
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// The wire name.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ContributorClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<&str> for ContributorClass {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl PartialEq<str> for ContributorClass {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+/// How subjects under a profile are ADDRESSED.
+///
+/// This is the field the registry was missing, and its absence was the
+/// protocol's largest unstated assumption. Every fact is keyed by
+/// `CanonicalKey { cell, band, tslot }`, where `cell` is a cell64: a 64-bit
+/// quantisation of latitude and longitude. So a fact could only ever be
+/// recorded ABOUT A PLACE, while the README said "Earth is the substrate, not
+/// the subject" and "nothing in the record, receipt, or token grammar is
+/// satellite-specific".
+///
+/// Both halves of that are true and they do not add up to the conclusion
+/// people drew from them. The record, the receipt and the token grammar are
+/// genuinely substrate-neutral: BLAKE3 over canonical CBOR, an ed25519
+/// receipt, an RFC 6962 log, bi-temporal bounds and contradiction scoring do
+/// not care what the subject is. The ADDRESS is not neutral, and the address
+/// is the part that has to exist before any of the rest can hang off it. A
+/// file at a commit, a table at a schema version, a model at a checkpoint and
+/// a span in an execution trace have no latitude.
+///
+/// Declaring it turns an assumption into a checked property: a profile now
+/// states how its subjects are named, unknown spaces are rejected at load,
+/// and [`Self::has_write_path`] is what stops a profile going `active` on an
+/// address space this build cannot actually key a fact by.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AddressSpace(String);
+
+impl AddressSpace {
+    /// A place. The subject is a cell64, and two agents resolving the same
+    /// place get the same 64 bits. The founding address space, and the only
+    /// one with a write path today.
+    pub const GEO_CELL64: &'static str = "geo.cell64";
+    /// A named object that is not a place: the subject is an
+    /// `emem:entity:<entity_cid>` identity minted from a canonical anchor.
+    /// Identity, co-reference and linking already ship (`emem_entity`,
+    /// `emem_entity_resolve`, `emem_entity_link`); what does NOT ship is
+    /// keying a FACT by one, because `CanonicalKey.cell` is a cell64 string.
+    /// That is the single change every non-geographic substrate waits on.
+    pub const ENTITY_CID: &'static str = "entity.cid";
+
+    /// Every address space this build understands. Closed, and closed for the
+    /// same reason [`AdmissionRule`] is: each entry is a resolver in code, so
+    /// a registry able to name a new one could advertise addressing that
+    /// nothing implements.
+    pub const KNOWN: &'static [&'static str] = &[Self::GEO_CELL64, Self::ENTITY_CID];
+
+    /// Wrap an address-space name.
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
+
+    /// The wire name.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether this build has a resolver for it.
+    pub fn is_known(&self) -> bool {
+        Self::KNOWN.contains(&self.0.as_str())
+    }
+
+    /// Whether a fact can actually be KEYED in this address space today.
+    ///
+    /// Deliberately narrower than [`Self::is_known`]. We understand what an
+    /// `entity.cid` subject is and can mint, resolve and link one; we cannot
+    /// yet store a fact against one, because the canonical index takes a
+    /// cell64. Keeping the two questions apart is what lets the registry
+    /// carry an honest roadmap instead of a promise: a profile may be
+    /// declared, pinned and built against while its write path is still shut.
+    pub fn has_write_path(&self) -> bool {
+        self.0 == Self::GEO_CELL64
+    }
+}
+
+impl std::fmt::Display for AddressSpace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The grain a substrate measures at, in a unit the substrate chooses.
+///
+/// `grain_min_m` / `grain_max_m` are metres and stay correct for everything
+/// that observes a location. They say nothing useful about a codebase, whose
+/// finest grain is a line and coarsest a repository, so a profile off the
+/// geographic address space declares its own unit here instead of writing
+/// lines into a field named `_m`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Grain {
+    /// Unit name: `line`, `row`, `span`, `parameter`, `object`, ...
+    pub unit: String,
+    /// Finest grain, in `unit`.
+    pub min: f64,
+    /// Coarsest grain, in `unit`.
+    pub max: f64,
 }
 
 /// One layer of a device's OS execution trace. A substrate profile lists
@@ -120,10 +267,20 @@ pub struct SubstrateProfile {
     pub status: ProfileStatus,
     /// Admission rule — the load-bearing field.
     pub admission: AdmissionRule,
-    /// Finest measurement grain, meters (microscopes reach `1e-7`).
-    pub grain_min_m: f64,
+    /// How subjects under this profile are addressed. Load-bearing, and
+    /// required: see [`AddressSpace`] for why it had to become explicit.
+    pub address_space: AddressSpace,
+    /// Finest measurement grain, meters (microscopes reach `1e-7`). Present
+    /// only for substrates that measure across physical space.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grain_min_m: Option<f64>,
     /// Coarsest measurement grain, meters.
-    pub grain_max_m: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grain_max_m: Option<f64>,
+    /// Grain in a non-metric unit, for substrates that do not measure across
+    /// physical space. Exactly one of this or the metre pair is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grain: Option<Grain>,
     /// Natural tempo class of the substrate's observations.
     pub tempo: String,
     /// Trace layers a device MUST capture. Empty when the admission rule
@@ -212,10 +369,63 @@ impl Manifest for SubstrateRegistry {
                     p.id
                 )));
             }
-            if !(p.grain_min_m > 0.0 && p.grain_min_m <= p.grain_max_m) {
+            // Exactly one grain statement, and it must be well formed. A
+            // profile with neither says nothing about what it resolves; one
+            // with both can be read two ways, and two readings of a number is
+            // how a number stops being checkable.
+            match (p.grain_min_m, p.grain_max_m, p.grain.as_ref()) {
+                (Some(lo), Some(hi), None) => {
+                    if !(lo > 0.0 && lo <= hi) {
+                        return Err(ManifestError::Invalid(format!(
+                            "{}: grain range must satisfy 0 < min <= max",
+                            p.id
+                        )));
+                    }
+                }
+                (None, None, Some(g)) => {
+                    if g.unit.trim().is_empty() || !(g.min > 0.0 && g.min <= g.max) {
+                        return Err(ManifestError::Invalid(format!(
+                            "{}: grain needs a unit and 0 < min <= max",
+                            p.id
+                        )));
+                    }
+                }
+                _ => {
+                    return Err(ManifestError::Invalid(format!(
+                        "{}: declare grain EITHER as grain_min_m/grain_max_m \
+                         (substrates that measure across physical space) OR as \
+                         grain {{unit,min,max}}, never both and never neither",
+                        p.id
+                    )));
+                }
+            }
+            // An address space this build cannot resolve is a subject nobody
+            // can name, so it is rejected rather than carried.
+            if !p.address_space.is_known() {
                 return Err(ManifestError::Invalid(format!(
-                    "{}: grain range must satisfy 0 < min <= max",
-                    p.id
+                    "{}: unknown address space {}; known: {:?}",
+                    p.id,
+                    p.address_space,
+                    AddressSpace::KNOWN
+                )));
+            }
+            // The rule that makes `candidate` mean something enforceable.
+            //
+            // A profile may be pinned for builders on an address space whose
+            // write path is shut; it may NOT claim to be shipping on one. The
+            // registry is served publicly and read as a capability list, so
+            // without this an `active` profile on `entity.cid` would advertise
+            // ingest that cannot physically happen: `CanonicalKey.cell` is a
+            // cell64 and there is nowhere to put the fact. This is the same
+            // overclaim the route-truth gate exists to stop, one layer down,
+            // and it is checked here rather than in a script because the
+            // registry must not even LOAD in that state.
+            if p.status == ProfileStatus::Active && !p.address_space.has_write_path() {
+                return Err(ManifestError::Invalid(format!(
+                    "{}: status is active on address space {}, which has no \
+                     write path in this build; a profile whose subjects cannot \
+                     be keyed must stay `candidate`",
+                    p.id, p.address_space
                 )));
             }
             if !KNOWN_PROVENANCE.contains(&p.provenance_class.as_str()) {
@@ -301,16 +511,66 @@ mod tests {
         assert_eq!(r.drift_anchors().count(), 1);
     }
 
+    /// Nothing is admitted on its own word.
+    ///
+    /// This used to read "every profile except `earth.satellite.v0` requires a
+    /// trace", which was the right invariant expressed as an id exemption, and
+    /// it held only while exactly one profile was archive-admitted. A codebase
+    /// at a commit and a table at a snapshot are recomputable in exactly the
+    /// sense the Earth archives are (git is content-addressed; a snapshot is
+    /// immutable), so they are archive-admitted too, and the id test failed
+    /// them for being a second example of a category it already allowed.
+    ///
+    /// The invariant is per-profile, not per-id: every profile is admitted by
+    /// re-fetchability OR by execution trace, and a trace-admitted profile
+    /// names its layers and cannot anchor the record it is scored against.
     #[test]
-    fn every_device_profile_requires_a_trace() {
+    fn nothing_is_admitted_on_its_own_word() {
         for p in &DEFAULT.substrates {
-            if p.id == "earth.satellite.v0" {
-                continue;
+            match p.admission {
+                AdmissionRule::OsTraceRequired => {
+                    assert!(!p.required_trace_layers.is_empty(), "{}", p.id);
+                    assert!(!p.drift_anchor, "{}", p.id);
+                }
+                AdmissionRule::ArchiveRecomputable => {
+                    assert!(p.required_trace_layers.is_empty(), "{}", p.id);
+                }
             }
-            assert_eq!(p.admission, AdmissionRule::OsTraceRequired, "{}", p.id);
-            assert!(!p.required_trace_layers.is_empty(), "{}", p.id);
-            assert!(!p.drift_anchor, "{}", p.id);
         }
+    }
+
+    /// The address space is declared, resolvable, and honest about ingest.
+    ///
+    /// `active` on an address space with no write path would advertise ingest
+    /// that cannot physically happen, because `CanonicalKey.cell` is a cell64
+    /// and a subject with no latitude has nowhere to be keyed. The registry
+    /// refuses to load in that state; this pins it as a property rather than
+    /// leaving it to the loader nobody reads.
+    #[test]
+    fn every_profile_declares_a_resolvable_address_space() {
+        let mut off_grid = 0;
+        for p in &DEFAULT.substrates {
+            assert!(p.address_space.is_known(), "{}: {}", p.id, p.address_space);
+            if p.status == ProfileStatus::Active {
+                assert!(
+                    p.address_space.has_write_path(),
+                    "{} is active on {}, which cannot key a fact in this build",
+                    p.id,
+                    p.address_space
+                );
+            }
+            if p.address_space.as_str() != AddressSpace::GEO_CELL64 {
+                off_grid += 1;
+                assert_eq!(p.status, ProfileStatus::Candidate, "{}", p.id);
+                assert!(p.grain.is_some(), "{}: needs a non-metric grain", p.id);
+                assert!(p.grain_min_m.is_none(), "{}: metres are meaningless", p.id);
+            }
+        }
+        assert!(
+            off_grid > 0,
+            "the registry should carry the substrates that have no latitude; \
+             if this fires, they were dropped rather than shipped"
+        );
     }
 
     #[test]
@@ -331,7 +591,7 @@ mod tests {
     #[test]
     fn micron_grain_is_representable() {
         let m = DEFAULT.lookup("lab.microscope.v1").expect("microscope");
-        assert!(m.grain_min_m < 1e-6);
+        assert!(m.grain_min_m.expect("microscope grain is metric") < 1e-6);
     }
 
     #[test]

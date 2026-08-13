@@ -217,8 +217,8 @@ pub struct DevicePlatform {
 
 impl DevicePlatform {
     /// Whether the platform can serve a given contributor class.
-    pub fn serves(&self, class: ContributorClass) -> bool {
-        self.contributor_classes.contains(&class)
+    pub fn serves(&self, class: &ContributorClass) -> bool {
+        self.contributor_classes.contains(class)
     }
 
     /// Whether the platform recognises a capture encoding.
@@ -342,10 +342,10 @@ impl DevicePlatformRegistry {
     }
 
     /// Platforms that can serve a given contributor class.
-    pub fn platforms_for_class(
-        &self,
-        class: ContributorClass,
-    ) -> impl Iterator<Item = &DevicePlatform> {
+    pub fn platforms_for_class<'a>(
+        &'a self,
+        class: &'a ContributorClass,
+    ) -> impl Iterator<Item = &'a DevicePlatform> {
         self.platforms.iter().filter(move |p| p.serves(class))
     }
 
@@ -388,7 +388,7 @@ mod tests {
         assert_eq!(orin.root_of_trust, RootOfTrust::TcgDiceX509);
         assert_eq!(orin.device_key_kind, DeviceKeyKind::DiceAlias);
         assert!(orin.measured_boot);
-        assert!(orin.serves(ContributorClass::Robot));
+        assert!(orin.serves(&ContributorClass::new(ContributorClass::ROBOT)));
         assert!(orin.recognizes_encoding("nvidia.nsys.v1"));
     }
 
@@ -473,7 +473,9 @@ mod tests {
 
     #[test]
     fn platforms_for_class_finds_orin_for_robot() {
-        let n = DEFAULT.platforms_for_class(ContributorClass::Robot).count();
+        let n = DEFAULT
+            .platforms_for_class(&ContributorClass::new(ContributorClass::ROBOT))
+            .count();
         assert!(n >= 1);
     }
 

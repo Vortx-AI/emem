@@ -458,7 +458,7 @@ The whole admission surface is content-addressed and public, so an enrollment pi
 
 | Registry | What it pins | Live |
 |---|---|---|
-| substrate profiles | ten machine classes, satellite to microscope, each with its required trace layers | [`/v1/substrates`](https://emem.dev/v1/substrates) |
+| substrate profiles | fifteen contributor classes, satellite to microscope to codebase, each with its admission rule, address space and required trace layers | [`/v1/substrates`](https://emem.dev/v1/substrates) |
 | device platforms | 16 platforms in six families, each anchored to a hardware root of trust (TCG DICE, IEEE 802.1AR, TPM 2.0, Arm PSA) under the IETF RATS architecture | [`/v1/device_platforms`](https://emem.dev/v1/device_platforms) |
 | trace encodings | which capture toolchains a trace may name and how each tracer's own integrity is established, the trace of the trace | [`/v1/trace_encodings`](https://emem.dev/v1/trace_encodings) |
 
