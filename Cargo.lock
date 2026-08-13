@@ -2757,6 +2757,7 @@ dependencies = [
  "ed25519-dalek",
  "emem-attest",
  "emem-cache",
+ "emem-codec",
  "emem-core",
  "emem-fact",
  "emem-fetch",

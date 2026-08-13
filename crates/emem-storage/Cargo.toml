@@ -7,6 +7,7 @@ description = "Composite storage: cache + fetch + materializer + attestation log
 
 [dependencies]
 emem-core     = { workspace = true }
+emem-codec    = { workspace = true }
 emem-fact     = { workspace = true }
 emem-cache    = { workspace = true }
 emem-fetch    = { workspace = true }

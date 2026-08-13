@@ -1748,7 +1748,47 @@ fn persist_fact_proofs(
 /// recomputed root matches `att.batch_root` before checking the
 /// signature — so a forged root or a tampered fact is caught regardless
 /// of version.
+/// Every fact's subject must belong to a known address space.
+///
+/// `verify_attestation` checked the CBOR, the duplicate leaves, the merkle
+/// root and the signature, and never looked at the subject. Since
+/// `CanonicalKey.cell` is a `String` and the storage key is its raw bytes, a
+/// correctly signed batch could key a fact at `"hello"`, at `""`, or at a
+/// truncated cell64, and it would be accepted, indexed and appended to the
+/// log. The signature makes it attributable, not addressable.
+///
+/// That is worse than an ordinary bad write. The log is append-only, so a
+/// fact at a subject nothing can resolve is a permanent row no citation can
+/// ever reach: it cannot be recalled by place, it cannot be dereferenced, and
+/// it still counts in every corpus total. The check has to happen before the
+/// append, because afterwards there is no operation that removes it.
+///
+/// Deliberately permissive about WHICH space. A subject may be a place or an
+/// `emem:entity:` identity, because the record layer genuinely carries both
+/// (see `the_record_layer_does_not_require_the_subject_to_be_a_place`). What
+/// it may not be is neither. Tying a write to the address space its substrate
+/// profile declares is the next step and belongs with the profile, not here.
+fn verify_fact_subjects(att: &Attestation) -> Result<(), StorageError> {
+    for f in &att.facts {
+        let subject = match f {
+            Fact::Primary(p) => p.cell.as_str(),
+            Fact::Absence(n) => n.cell.as_str(),
+            Fact::Derivative(d) => d.cell.as_str(),
+        };
+        if emem_codec::address_space_of_subject(subject).is_none() {
+            return Err(StorageError::AttestationInvalid(format!(
+                "fact subject {subject:?} belongs to no address space: expected a \
+                 cell64 (four dot-separated alphabet symbols) or an \
+                 emem:entity: identity. The log is append-only, so a fact at an \
+                 unresolvable subject could never be recalled or dereferenced."
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn verify_attestation(att: &Attestation) -> Result<(), StorageError> {
+    verify_fact_subjects(att)?;
     let mut leaves: Vec<[u8; 32]> = Vec::with_capacity(att.facts.len() + att.edges.len());
     for f in &att.facts {
         let mut buf = Vec::new();
@@ -1835,6 +1875,54 @@ mod multi_attester_tests {
     use emem_attest::merkle_root;
     use emem_core::{AttesterKey, KeyEpoch, Signature};
     use emem_fact::{Attestation, Derivation, Fact, PrimaryFact, RegistryCid, SchemaCid, Source};
+
+    /// A correctly signed batch is still refused when its subject addresses
+    /// nothing.
+    ///
+    /// This is the ordering that matters: subjects are checked BEFORE the
+    /// merkle root and the signature, because every one of these batches is
+    /// validly signed. The signature proves who wrote it, which is a different
+    /// question from whether the thing written can ever be read back, and for
+    /// an append-only log the second question has no second chance.
+    #[test]
+    fn a_signed_fact_at_an_unaddressable_subject_is_refused() {
+        let pk = [7u8; 32];
+        for bad in [
+            "",                                    // no subject at all
+            "hello",                               // a word
+            "not.a.cell",                          // dotted junk
+            "defi.zb294.qokO",                     // a truncated cell64
+            "emem:fact:defi.zb294.qokO.xAxe:abcd", // a handle, not a subject
+        ] {
+            let (att, _) = build_signed(vec![mk_ndvi_fact(bad, 100, 0.5, pk)], [3u8; 32]);
+            let err = verify_attestation(&att).expect_err(&format!(
+                "{bad:?} must not be admitted to an append-only log"
+            ));
+            let msg = err.to_string();
+            assert!(
+                msg.contains("belongs to no address space"),
+                "{bad:?}: refused for the wrong reason: {msg}"
+            );
+        }
+    }
+
+    /// The subject check must not cost the writers we already have.
+    ///
+    /// Every fact in the corpus is at a cell64, so a check that rejected one
+    /// would take the whole archive write path down. The identity case is here
+    /// too because the record layer carries it and a validator that refused it
+    /// would silently re-close the address space the registry just opened.
+    #[test]
+    fn real_subjects_still_write() {
+        let pk = [7u8; 32];
+        for good in [
+            "defi.zb294.qokO.xAxe",
+            "emem:entity:zzzzn5rk3wubxsbnrpxevbtqha",
+        ] {
+            let (att, _) = build_signed(vec![mk_ndvi_fact(good, 100, 0.5, pk)], [3u8; 32]);
+            verify_attestation(&att).unwrap_or_else(|e| panic!("{good:?} must write: {e}"));
+        }
+    }
 
     fn build_signed(facts: Vec<Fact>, secret: [u8; 32]) -> (Attestation, [u8; 32]) {
         let registry_cid = "test-registry";
