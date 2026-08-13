@@ -956,7 +956,7 @@ pub struct RasterBundleReq {
 async fn resolve_raster_member(
     token: &str,
     s: &AppState,
-) -> Result<(String, String, u64, String, String), ApiError> {
+) -> Result<(String, String, u64, String, String, String), ApiError> {
     let (aoi, band, tslot, derivation_cid) = parse_raster_token(token).map_err(bad_request)?;
     let facts = s
         .storage
@@ -998,7 +998,15 @@ async fn resolve_raster_member(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    Ok((derivation_cid, band, tslot, aoi, artifact_cid))
+    // The member's own signed record is anchored at its AOI centre cell, and
+    // that cell is what a bundle should inherit. Returned so the bundle stops
+    // inventing a subject out of the aoi_cid.
+    let member_cell = fact_json
+        .get("cell")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    Ok((derivation_cid, band, tslot, aoi, artifact_cid, member_cell))
 }
 
 /// `blake3(canonical_cbor([member derivation cids..., purpose]))` — content-
@@ -1033,7 +1041,8 @@ pub async fn raster_bundle(req: RasterBundleReq, s: &AppState) -> Result<JsonVal
     let mut member_dcids: Vec<String> = Vec::with_capacity(req.tokens.len());
     let mut parent_cids: Vec<FactCid> = Vec::with_capacity(req.tokens.len());
     for token in &req.tokens {
-        let (dcid, band, tslot, aoi, artifact_cid) = resolve_raster_member(token, s).await?;
+        let (dcid, band, tslot, aoi, artifact_cid, member_cell) =
+            resolve_raster_member(token, s).await?;
         members.push(json!({
             "token": token,
             "derivation_cid": dcid,
@@ -1041,6 +1050,7 @@ pub async fn raster_bundle(req: RasterBundleReq, s: &AppState) -> Result<JsonVal
             "tslot": tslot,
             "aoi_cid": aoi,
             "artifact_cid": artifact_cid,
+            "cell": member_cell,
         }));
         parent_cids.push(FactCid::new(dcid.clone()));
         member_dcids.push(dcid);
@@ -1057,12 +1067,34 @@ pub async fn raster_bundle(req: RasterBundleReq, s: &AppState) -> Result<JsonVal
         "note": "a signed manifest binding N emem:raster: field tokens; bundle_cid content-addresses the ordered membership. Resolve to rebind every member and refuse an altered set. Each member resolves and re-derives independently.",
     });
     let signed_at = emem_storage::server::iso8601_now();
-    // Anchor the bundle at the first member's aoi centre cell for a stable handle.
+    // Anchor the bundle at the first member's AOI centre cell for a stable
+    // handle. This read `aoi_cid` until 2026-08-13, which is the blake3 of the
+    // bbox and not a cell at all, so every bundle was keyed at a subject
+    // nothing could resolve: not recallable by place, not dereferenceable, and
+    // silently so, because the storage key is just the string's bytes. The
+    // comment already said "centre cell"; only the code disagreed.
+    //
+    // 4b43rrtd reported the mint failing outright after the write path started
+    // validating subjects. The validator was right and this was the caller
+    // that was wrong, which is why the fix is here rather than a widening of
+    // what counts as an address.
     let anchor_cell = members
         .first()
-        .and_then(|m| m.get("aoi_cid").and_then(|v| v.as_str()))
-        .map(|a| a.to_string())
-        .unwrap_or_default();
+        .and_then(|m| m.get("cell").and_then(|v| v.as_str()))
+        .unwrap_or_default()
+        .to_string();
+    if !emem_codec::looks_like_cell64(&anchor_cell) {
+        return Err(conflict(format!(
+            "member {} carries no usable centre cell ({anchor_cell:?}), so this bundle has no \
+             address to be minted at. Re-derive the member with band_raster and retry; a bundle \
+             keyed at a subject nobody can resolve is worse than a refused mint, because the log \
+             is append-only.",
+            members
+                .first()
+                .and_then(|m| m.get("token").and_then(|v| v.as_str()))
+                .unwrap_or("<first>")
+        )));
+    }
     let derivation_fact = DerivativeFact {
         cell: anchor_cell.clone(),
         band: "field.raster_bundle".to_string(),

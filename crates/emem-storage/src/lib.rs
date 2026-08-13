@@ -614,6 +614,16 @@ impl StorageError {
             StorageError::UnknownBand(_) => ErrorCode::BandNotInRegistry,
             StorageError::Cbor(_) => ErrorCode::CanonicalEncodingDivergence,
             StorageError::Io(_) => ErrorCode::Internal,
+            // A subject refusal is not a signature refusal. They are the same
+            // variant underneath, so the message is what distinguishes them,
+            // and a caller reading only the code was told to check their key
+            // when their key was never the problem.
+            StorageError::AttestationInvalid(m) if m.contains("belongs to no address space") => {
+                ErrorCode::UnaddressableSubject
+            }
+            StorageError::AttestationInvalid(m) if m.contains("address space") => {
+                ErrorCode::UnaddressableSubject
+            }
             StorageError::AttestationInvalid(_) => ErrorCode::BadSignature,
             StorageError::MaterializeMiss(_) => ErrorCode::CidNotFound,
             StorageError::Protocol { code, .. } => *code,
@@ -3130,5 +3140,32 @@ mod trace_gate_tests {
             .enroll_attested(&dk_b32, "lab.microscope.v1", "nvidia.jetson-orin", &att)
             .expect_err("orin does not serve microscope");
         assert!(err.to_string().contains("does not serve"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod subject_error_code_tests {
+    use super::*;
+
+    /// A subject refusal must not present as a signature refusal.
+    ///
+    /// 4b43rrtd hit this from outside on 2026-08-13: `raster_bundle` returned
+    /// `bad_signature`, so they went looking at signing, and their signature
+    /// was never the problem. Both refusals are `AttestationInvalid`
+    /// underneath, so the wire code was the only thing a caller could act on
+    /// and it pointed the wrong way.
+    #[test]
+    fn an_unaddressable_subject_is_not_reported_as_a_bad_signature() {
+        let subject = StorageError::AttestationInvalid(
+            "fact subject \"abc\" belongs to no address space: expected a cell64".into(),
+        );
+        assert_eq!(subject.wire_code(), ErrorCode::UnaddressableSubject);
+
+        // A genuine signature failure must keep its own code, or the fix has
+        // simply moved the confusion in the other direction.
+        let sig = StorageError::AttestationInvalid(
+            "merkle root mismatch: computed=aa declared=bb".into(),
+        );
+        assert_eq!(sig.wire_code(), ErrorCode::BadSignature);
     }
 }

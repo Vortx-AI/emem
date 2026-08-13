@@ -54,6 +54,16 @@ pub enum ErrorCode {
     ClaimUndecidable,
     /// Signature verification failed.
     BadSignature,
+    /// A fact's subject belongs to no address space, so the write is refused.
+    ///
+    /// Distinct from [`Self::BadSignature`] because the two send a debugger in
+    /// opposite directions and one of them wasted somebody's afternoon:
+    /// 4b43rrtd reported `raster_bundle` failing with `bad_signature` on
+    /// 2026-08-13 and reasonably went looking at signing, when their signature
+    /// was fine and the subject was a bbox digest rather than an address.
+    /// Every subject-validation refusal came out as a signature error because
+    /// both are `AttestationInvalid` underneath.
+    UnaddressableSubject,
     /// Merkle inclusion proof did not validate.
     BadMerkleProof,
     /// Two implementations produced byte-different canonical CBOR (protocol violation upstream).

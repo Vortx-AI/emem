@@ -2987,6 +2987,11 @@ impl From<StorageError> for ApiError {
             | ErrorCode::RegistryCidUnknown
             | ErrorCode::NoGeocoderMatch => StatusCode::NOT_FOUND,
             ErrorCode::BadSignature | ErrorCode::BadMerkleProof => StatusCode::UNPROCESSABLE_ENTITY,
+            // 400, not 422: the request is malformed rather than
+            // semantically unprocessable. A caller cannot fix an
+            // unaddressable subject by retrying; they have to send a
+            // different subject.
+            ErrorCode::UnaddressableSubject => StatusCode::BAD_REQUEST,
             ErrorCode::Unauthorized | ErrorCode::AttesterRevoked => StatusCode::UNAUTHORIZED,
             ErrorCode::PrivacyRefused | ErrorCode::LevelTooLow => StatusCode::FORBIDDEN,
             ErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
@@ -9303,6 +9308,8 @@ fn errors_payload() -> JsonValue {
          "Inspect the fact via /v1/recall, the value may be missing, the wrong type, or NaN. Tighten your claim or pre-filter before /v1/verify."),
         ("bad_signature",                "ed25519 signature failed to verify",
          "Re-sign with the correct preimage. /v1/verify_receipt's response includes `preimage_blake3_hex` so you can debug locally."),
+        ("unaddressable_subject",        "a fact's subject belongs to no address space, so the write is refused before the log",
+         "The subject must be a cell64 (four dot-separated alphabet symbols) or an emem:entity: identity. Your signature is NOT the problem: this used to surface as bad_signature and sent debuggers at their keys. The log is append-only, so a fact at a subject nothing resolves could never be recalled or dereferenced, which is why it is refused rather than stored."),
         ("bad_merkle_proof",             "Merkle inclusion proof is malformed or doesn't reach the batch_root",
          "Re-build the proof from the canonical-sorted leaf list; verify `leaf_index` is correct."),
         ("canonical_encoding_divergence","CBOR you sent isn't deterministic per RFC 8949 §4.2.1",
