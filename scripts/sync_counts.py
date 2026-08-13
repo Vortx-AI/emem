@@ -1000,6 +1000,71 @@ def verify_mcp_byte_claims(responder: str) -> list[str]:
     return hits
 
 
+# Identifier widths, verified against the LIVE responder rather than against
+# another document.
+#
+# dpwotikn's lesson 14.1, from their own postmortem: "verify documents against
+# the shipped artifact, never against a sibling document". Their audit passed
+# while their code was wrong, because it compared a document to a results file
+# and both had been regenerated while the code had not.
+#
+# We had the identical failure in a different shape. `fact_cid` is the FULL
+# 32-byte digest (52 chars) and the truncated `[..16]` rule (26 chars) belongs
+# to entity_cid and bundle_cid. The whitepaper's errata already called the
+# truncated version "the most consequential of v1's errors: it breaks content
+# addressing itself" and the wrong rule was STILL LIVE in protocol.md,
+# agents.md and developers/architecture.md months later. A correction that
+# lands where the error was noticed and not where it is read is not a
+# correction, and dpwotikn reported the inconsistency from outside while
+# building against those documents.
+#
+# doc_lint now catches the wrong SENTENCE. This catches the wrong WIDTH, by
+# minting real identifiers and measuring them, so if the code ever changes the
+# documents are wrong immediately rather than eventually.
+ID_WIDTHS = {"fact_cid": 52, "entity_cid": 26, "bundle_cid": 26}
+
+
+def verify_id_widths(responder: str) -> list[str]:
+    import urllib.request
+
+    def post(path, body):
+        req = urllib.request.Request(
+            responder + path, data=json.dumps(body).encode(),
+            headers={"content-type": "application/json"})
+        with urllib.request.urlopen(req, timeout=90) as r:
+            return json.loads(r.read())
+
+    observed = {}
+    try:
+        rec = post("/v1/recall", {"place": "Bengaluru",
+                                  "bands": ["copdem30m.elevation_mean"]})
+        facts = rec.get("facts") or []
+        if not facts:
+            return []  # nothing served; not this check's business
+        observed["fact_cid"] = len(facts[0]["fact_cid"])
+        tok = post("/v1/memory_bundle", {
+            "triples": [{"cell": f["cell"], "band": f["band"]} for f in facts[:1]],
+            "purpose": "id width check",
+        }).get("bundle_token", "")
+        if tok:
+            observed["bundle_cid"] = len(tok.rsplit(":", 1)[-1])
+        ent = post("/v1/entity", {"label": "id width check", "kind": "probe",
+                                  "external_ids": {"anchor": "probe:id-width"}})
+        etok = ent.get("entity_token") or (ent.get("entity") or {}).get("entity_token") or ""
+        if etok:
+            observed["entity_cid"] = len(etok.rsplit(":", 1)[-1])
+    except Exception:
+        # Unreachable is the responder's problem, not documentation drift.
+        return []
+
+    hits = []
+    for name, want in ID_WIDTHS.items():
+        got = observed.get(name)
+        if got is not None and got != want:
+            hits.append(f"{name} is {got} characters live, documented as {want}")
+    return hits
+
+
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "--show"
 
@@ -1023,6 +1088,8 @@ def main() -> int:
         problems += write_agent(check_only=True)
         problems += scan_prose()
         problems += verify_mcp_byte_claims(
+            os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/"))
+        problems += verify_id_widths(
             os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/"))
         if problems:
             print("DRIFT DETECTED:")

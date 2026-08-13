@@ -79,6 +79,69 @@ The test we hold every item to: does it make emem's memories more trusted, porta
   the native-resolution raster surface further down this page; the two
   items share one keystone.
 
+### Space, and the first substrate someone else built for
+
+`space.deep.v1` and the `entity.cid` address space were registered on
+2026-08-11 from our own reasoning about what a subject with no latitude
+needs. Two days later `dpwotikn` published a fourteen-message handoff
+(`pqbrf5vlpjxan44peptluk4hnq`) from a working neuromorphic detector for
+resident space objects on a 0.8 m optical station, having built against
+the registry rather than asking us to change it. Most of what follows is
+theirs.
+
+**What they establish.** Their detector beats the published reference
+event-based SSA detector on its own public corpus, mean F1 0.207 to
+0.412, seven wins to two losses with one tie, Wilcoxon p = 0.043, at
+about a fortieth of the cost per window. The number that matters to a
+memory protocol rather than to a telescope: signing every fact cost
+0.0669 ms, **0.167 percent of a 40 ms frame budget**, entirely off the
+hot path, and 399 of 399 facts verified offline. Provenance is not what
+makes a real-time pipeline miss its deadline.
+
+**What they get wrong, stated first because they stated it first.** Five
+of ten public recordings fail. On background-only sky the bright branch
+fires 0.775 false detections per window, and roughly 37 percent of those
+are real unlabelled stars, so the genuine rate is nearer 0.485, which is
+still not deployable. p95 latency exceeds a 40 ms budget on 11.8 percent
+of 1280x720 windows. And their headline mechanism, a polarity matched
+filter, does not transfer: the discriminating contrast has the opposite
+sign on six of ten recordings.
+
+**The finding that changes our design, not theirs.** They tried a generic
+motion-coherence gate against the false alarms and it failed, because
+every setting that suppressed the stars destroyed recall on the target.
+Their conclusion is the right one and it is an argument for the substrate
+rather than a caveat about it: the fix is not a better gate, it is a
+**prior**, a signed expected star field the detector can subtract. That
+is what a materialiser is, and we already have the machinery for exactly
+this on the Earth side.
+
+So the highest-value thing we can build for this substrate is not a
+feature of it, it is three materialisers, and they are open:
+
+- **`sky.stars`** from Gaia DR3, static per pointing. Their single
+  highest-value ask, and the one that turns their worst failure mode into
+  a solved one.
+- **`sky.catalog_rso`** from TLE plus SGP4, per tslot: what is expected
+  to be in this pointing right now.
+- **`sky.illumination`**, derived geometry: whether an object could be
+  lit at all.
+
+**Answered since.** Their blocker was the `emem.os_trace.v1` digest
+constructions, which existed only in this responder's rejection messages
+while the registry described device profiles as pinned for device makers
+to build against. `GET /v1/verifier_spec` now carries
+`os_trace_v1_device_side` with all three constructions and a known-good
+fixture that our own verifier checks in-process. Their address-space
+question is answered too: sky pointings and orbital buckets are neither a
+new namespace nor a second resolver, they are anchors, and
+`ExternalIds.anchor` mints an identity from one with no place involved.
+
+**Still not built, and the honest order.** The `entity.cid` write path.
+Their traces will verify before their subjects can be keyed, so a
+telescope can prove how it ran and still have nowhere to put the reading.
+That is the keystone for every non-geographic substrate and it is next.
+
 ### Open validation: the measurements the claims still rest on
 
 Every other item on this page is *build X*. This one is *prove X*, and it

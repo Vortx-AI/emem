@@ -148,12 +148,59 @@ def stale_exemptions() -> list[str]:
     return out
 
 
+# `fact_cid` is the FULL 32-byte blake3 digest, 52 base32 characters. The
+# truncated `[..16]` rule (26 characters) belongs to `entity_cid` and
+# `bundle_cid`, which anchor a reference rather than binding a whole body.
+#
+# This is checked because the wrong rule already shipped, was corrected in the
+# whitepaper's errata as "the most consequential of v1's errors: it breaks
+# content addressing itself", and was STILL LIVE in protocol.md and agents.md
+# for months afterwards. A correction that lands where the error was noticed
+# and not where it is read is not a correction. dpwotikn reported the widths
+# as inconsistent across our documents on 2026-08-13, from outside, while
+# building against them.
+#
+# An implementer who follows the truncated rule computes an id that can never
+# match a real fact_cid: every lookup misses and every signature check fails,
+# looking like a corrupt corpus rather than a wrong sentence.
+# Matches only a line that DEFINES fact_cid as truncated. `fact_cid` appearing
+# inside another construction that is legitimately truncated is not a finding:
+# the bundle preimage lists fact_cids and then truncates the BUNDLE digest to
+# 16 bytes, which is correct and would be a false positive. A lint that cries
+# wolf on a correct line gets switched off, and then it is not protecting the
+# incorrect one either.
+FACT_CID_TRUNCATION = re.compile(
+    r"(?:fact_?cid|FactCid)\s*=[^\n]*\[\.\.16\]",
+    re.I,
+)
+
+
+def check_fact_cid_width(text: str, rel: str) -> list[str]:
+    hits = []
+    for i, line in enumerate(text.split("\n"), 1):
+        if "entity_cid" in line or "bundle_cid" in line:
+            continue  # the truncated rule is correct for those two
+        if FACT_CID_TRUNCATION.search(line):
+            hits.append(
+                f"{rel}:{i}: fact_cid described as truncated `[..16]`. It is the "
+                f"full 32-byte digest, 52 characters; `[..16]` is entity_cid and "
+                f"bundle_cid. A reader following this computes an id that can "
+                f"never match."
+            )
+    return hits
+
+
 def main() -> int:
     problems: list[str] = stale_exemptions()
     for f in prose_files():
         rel = f.relative_to(REPO).as_posix()
         raw = f.read_text(encoding="utf-8")
         prose = strip_code(raw)
+
+        # Checked on the RAW text, not the prose: the wrong rule shipped inside
+        # a fenced code block in protocol.md, which is exactly where a reader
+        # copies it from, and strip_code would have hidden it.
+        problems.extend(check_fact_cid_width(raw, rel))
 
         dashes = len(DASH.findall(prose))
         cap = LEGACY_DASHES.get(rel, 0)

@@ -95,8 +95,13 @@ exposes the `Storage` trait that primitives program against.
 
 ## Invariants
 
-- **CID rule.** `FactCid = base32_nopad_lower(blake3(canonical_cbor(fact))[..16])`.
-  No code path produces a CID through any other rule.
+- **CID rule.** `FactCid = base32_nopad_lower(blake3(canonical_cbor(fact)))`,
+  the full 32-byte digest, 52 characters. It is **not** truncated; `[..16]`
+  (26 characters) is the `entity_cid` and `bundle_cid` rule, which anchor a
+  reference rather than binding a whole body. The line above claimed the
+  truncated rule until 2026-08-13, alongside "no code path produces a CID
+  through any other rule", which made a wrong rule sound exhaustively
+  enforced.
 - **Receipt rule.** Every primitive response carries a `Receipt` with
   an ed25519 signature over the canonical preimage. Empty `cells` /
   `fact_cids` lists still emit their trailing field separator so a

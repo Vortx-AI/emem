@@ -10823,6 +10823,11 @@ impl LatLngQ {
                     },
                 ));
             }
+            // A subject in another address space is refused by name before
+            // the decode, so it never reads as a malformed cell64.
+            if let Some(e) = geo_only_refusal(c) {
+                return Err(e);
+            }
             let ll = emem_codec::latlng_from_cell64(c).map_err(|e| {
                 ApiError(
                     StatusCode::BAD_REQUEST,
@@ -30546,6 +30551,43 @@ fn entity_extract_bbox(body: &JsonValue) -> Option<[f64; 4]> {
 /// `compute_entity_cid` uses the external anchor alone whenever one is
 /// present.
 pub(crate) const NON_GEOGRAPHIC_CELL: &str = "emem:nowhere";
+
+/// The refusal a geographic operation owes a subject that is not a place.
+///
+/// `cells_in_bbox`, polygon recall and `cell_geojson` all decode a cell64 into
+/// latitude and longitude, which is meaningless for an `emem:entity:` subject:
+/// a sky pointing, a commit and a model checkpoint have no coordinates. The
+/// decode already fails and already returns a typed `invalid_cell`, so nothing
+/// here is unsafe. What it says is wrong: "is not a decodable cell64" reads as
+/// corruption, and a caller who just minted a perfectly good identity is told
+/// their id is malformed.
+///
+/// Naming the address space turns a dead end into a direction. The subject is
+/// fine; the OPERATION does not apply to it, and the caller needs to know
+/// which of those two it is looking at before deciding whether to fix their id
+/// or pick a different call.
+fn geo_only_refusal(subject: &str) -> Option<ApiError> {
+    let space = emem_codec::address_space_of_subject(subject)?;
+    if space.as_str() == emem_core::substrates::AddressSpace::GEO_CELL64 {
+        return None;
+    }
+    Some(ApiError(
+        StatusCode::BAD_REQUEST,
+        ErrorBody {
+            code: ErrorCode::InvalidCell,
+            message: format!(
+                "{subject:?} is a well-formed subject in the {space} address space, which has no \
+                 latitude, so this geographic operation does not apply to it. The subject is not \
+                 malformed; the call is the wrong one. Recall by subject works; bbox, polygon and \
+                 geojson are geo.cell64 only."
+            ),
+            details: Some(serde_json::json!({
+                "subject_address_space": space.as_str(),
+                "operation_requires": emem_core::substrates::AddressSpace::GEO_CELL64,
+            })),
+        },
+    ))
+}
 
 /// Resolve an entity anchor to a cell64 plus provenance (GERS/OSM/geometry).
 /// A bare cell64 is decoded to its centre without a geocode; otherwise the

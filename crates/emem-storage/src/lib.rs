@@ -733,6 +733,39 @@ impl Storage for MaterializingStorage {
             Some(gate) => gate.check(att, trace)?,
             None => None,
         };
+        // A profile declares the address space its subjects live in, and this
+        // is the one place a write knows which profile it is writing under.
+        //
+        // `verify_fact_subjects` already refuses a subject that addresses
+        // nothing at all. That check cannot tell a place from an identity,
+        // deliberately, because the record layer carries both. This one can,
+        // because an enrolled device told us what it is: a telescope writing
+        // its readings at a cell64 has confused the site it stands on with the
+        // target it observed, and a codebase profile writing at a cell64 has
+        // confused a repository with a place. Both produce facts that verify,
+        // resolve and mean the wrong thing, which no signature catches.
+        //
+        // Scoped to writes where the profile is KNOWN, which today is enrolled
+        // devices. The archive writers carry no enrolment and are unaffected;
+        // guessing a profile for them in order to enforce something would be
+        // inventing the fact we are trying to check.
+        if let Some(profile) = admitted_profile.as_ref() {
+            for f in &att.facts {
+                let subject = match f {
+                    Fact::Primary(p) => p.cell.as_str(),
+                    Fact::Absence(n) => n.cell.as_str(),
+                    Fact::Derivative(d) => d.cell.as_str(),
+                };
+                if !emem_codec::subject_admitted_by(&profile.address_space, subject) {
+                    return Err(StorageError::AttestationInvalid(format!(
+                        "profile {} writes in address space {}, but subject {subject:?} is not in \
+                         it. A subject that addresses something ELSE still verifies and still \
+                         resolves; it just answers a different question than the one asked.",
+                        profile.id, profile.address_space
+                    )));
+                }
+            }
+        }
         let cids = self.put_attestation(att).await?;
         let admitted = match (admitted_profile, trace, &self.trace_gate) {
             (Some(profile), Some(trace), Some(gate)) => {

@@ -1314,7 +1314,9 @@ Check `/v1/data_availability` before picking a tslot or backfill window.
 
    ### Receipts are immutable
 
-`fact_cid = base32_nopad(blake3(canonical_cbor(fact))[..16])`. Same fact
+`fact_cid = base32_nopad_lowercase(blake3(canonical_cbor(fact)))`, the full
+32-byte digest as 52 characters, NOT truncated. (`entity_cid` and
+`bundle_cid` are the truncated ones, `[..16]` and 26 characters.) Same fact
 at two responders produces byte-identical CBOR and the same CID.
 Re-encoding the fact body changes the CID and the original signature
 stops verifying. Always fetch by CID through `/v1/fetch` or

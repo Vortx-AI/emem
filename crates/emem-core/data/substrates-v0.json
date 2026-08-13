@@ -317,9 +317,24 @@
    ],
    "drift_anchor": false,
    "provenance_class": "direct_sensor",
-   "bands": [],
-   "declared_lineage": [],
-   "_note": "A telescope SITE has a cell; the thing it looks at does not. observatory.telescope.v1 addresses the site and is therefore geo.cell64. This profile addresses the TARGET, which is why it is the first profile in the registry that cannot use a cell64 at all: there is no latitude of a body that is not on this planet. It is the cleanest statement of the address gap, because the instrument is one we already model."
+   "bands": [
+    "nvs.event_count",
+    "nvs.event_density",
+    "nvs.polarity_ratio",
+    "nvs.photometric_mag_proxy",
+    "nvs.angular_velocity_px_s",
+    "nvs.extent_px",
+    "nvs.regime"
+   ],
+   "declared_lineage": [
+    "sensor.model",
+    "optics.aperture_m",
+    "integration_window_ns",
+    "event_mask.version",
+    "router.regime",
+    "catalog.tle_epoch"
+   ],
+   "_note": "A telescope SITE has a cell; the thing it looks at does not. observatory.telescope.v1 addresses the site and is geo.cell64. This profile addresses the TARGET, and is the clearest case for entity.cid: there is no latitude of a body that is not on this planet. Subjects are anchored, not located: `sky:<nside>.<pix>` for a pointing and `orb:s<shell>.i<inc>.o<raan>.p<slot>` for an object, both QUANTISED on purpose so two observers who disagree slightly still resolve to one subject rather than two adjacent ones. The bands and that anchor design come from dpwotikn's fourteen-message handoff (`pqbrf5vlpjxan44peptluk4hnq`), a working neuromorphic RSO detector on a 0.8 m station. Read their failures before building on it: five of ten public recordings fail, the bright branch fires 0.775 false detections per window on background-only sky, p95 exceeds a 40 ms budget on 11.8 percent of 1280x720 windows, and their headline polarity matched filter does not transfer, the discriminating contrast having the opposite sign on six of ten recordings. What DID hold is the part that matters to a memory protocol: signed provenance cost 0.167 percent of the frame budget entirely off the hot path, and 399 of 399 facts verified offline. Absence is first-class here rather than exceptional: for a geostationary search, `observed and nothing there` is the normal result, not an error."
   },
   {
    "id": "code.repository.v1",

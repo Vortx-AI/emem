@@ -276,13 +276,30 @@ prefix; full collision resistance requires the full 32-byte CID.
 `FactCid` is a string newtype (cid.rs:25). The construction is
 
 ```text
-FactCid = base32_nopad_lowercase( blake3( canonical_cbor(fact) )[..16] )
+FactCid = base32_nopad_lowercase( blake3( canonical_cbor(fact) ) )
 ```
 
-16 bytes = 128 bits → 26 base32 characters. Mutating any field of the
-fact changes its CBOR bytes and therefore its FactCid; the round-trip
-test at `crates/emem-fact/tests/round_trip.rs` (CBOR → decode →
-re-encode → byte-equal) pins this.
+The **full 32-byte digest**, which is 52 base32 characters. It is not
+truncated, and the difference is not cosmetic: a reader who truncates
+computes an identifier that can never match a real `fact_cid`, so every
+lookup misses and every signature check fails, in a way that looks like a
+corrupt corpus rather than a wrong rule.
+
+This page said `[..16]` until 2026-08-13, and so did the agent guide. The
+whitepaper's own errata already called that the most consequential error
+in the v1 draft, and it was still live in two other documents, which is
+the failure this repo keeps finding: a correction lands where it was
+noticed and not where it is read. `dpwotikn` reported the widths as
+inconsistent across our documents while building a telescope pipeline,
+and they were right.
+
+The truncated rule is real but belongs to two other identifiers:
+`entity_cid` and `bundle_cid` are `blake3(...)[..16]`, 26 characters,
+because they anchor a reference rather than binding a whole body.
+
+Mutating any field of the fact changes its CBOR bytes and therefore its
+FactCid; the round-trip test at `crates/emem-fact/tests/round_trip.rs`
+(CBOR → decode → re-encode → byte-equal) pins this.
 
 The same recipe constructs the other newtypes from `cid.rs:25-34`:
 `RegistryCid`, `SchemaCid`, `ReasonCid`, `BatchCid`, `CoverageCid`.

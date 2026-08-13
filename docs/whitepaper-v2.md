@@ -1138,9 +1138,9 @@ wants a different ontology recompiles. The module's own header claims a
 hot-swap capability that does not exist in the code, and §16 records
 that.
 
-### 10.2 Beyond satellites: the device substrate
+### 10.2 Beyond satellites: devices, and subjects that are not places
 
-Any observer with a location and a signing key can join the same attest,
+Any observer with a signing key and an address can join the same attest,
 recall, cite, verify path. `POST /v1/attest` is the multi-writer endpoint
 that ships today. What also ships now is the machinery that admits a
 *device* (a robot, telescope, microscope, drone, or operator satellite)
@@ -1168,6 +1168,31 @@ whose one-time physical reading no third party can recompute:
   integrity is established (the "trace of the trace"). The write gate on
   `POST /v1/attest_traced` admits a device fact only when its trace
   verifies and every fact's payload is bound in it.
+**The address, which is the half that did not generalise.** Every fact is
+keyed by `CanonicalKey { cell, band, tslot }` where `cell` is a cell64, a
+quantisation of latitude and longitude, so for most of this protocol's
+life a fact could only be recorded about a PLACE. A telescope's target, a
+file at a commit, a table at a schema version and a model at a checkpoint
+have no latitude, and no amount of signing machinery gives them one. The
+record, the receipt and the token grammar were always neutral; the
+address was not, and it is the part everything else hangs from.
+
+Since 2026-08-11 each profile declares an `address_space`, and the
+registry refuses to load a profile that is `active` on one this build
+cannot key a fact by. `geo.cell64` is a place. `entity.cid` is a subject
+that is not one, named by a scheme-tagged anchor rather than located: a
+HEALPix pointing, a quantised orbital bucket, a commit. The anchor is
+quantised on purpose, so two observers who disagree slightly about an
+orbit resolve to one subject with two witnesses rather than two adjacent
+records that contradiction scoring cannot compare.
+
+The record layer turned out to already carry either, which is a test
+rather than a claim: the canonical index holds a `String`, the receipt
+preimage hashes cells as opaque length-prefixed strings, and the storage
+key is their bytes. What is not built is the write path, so a device on a
+non-geographic profile can prove how it ran and still have nowhere to put
+the reading. That is why those five profiles are `candidate`.
+
 - The evidence is citeable and resolvable: `emem:trace:<trace_cid>` and
   `emem:attestation:<attestation_cid>` (`POST /v1/trace_resolve`), and the
   resulting fact carries the `attested_execution` provenance class (§7).
