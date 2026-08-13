@@ -127,6 +127,32 @@ feature of it, it is three materialisers, and they are open:
 - **`sky.illumination`**, derived geometry: whether an object could be
   lit at all.
 
+**The prior art, from their own adversarial review.** They ran three
+reviews specifically to find what is not new and adopted all three
+verdicts, which is worth carrying because it protects our framing as much
+as theirs. Event-based SSA is a populated field (Cohen et al. 2019;
+Afshar et al. 2020, IEEE Sensors Journal 20(24):15117-15132, who also
+published the EBSSA corpus their detector is scored on). Cryptographic
+provenance for space data is not new either: NASA stated the
+auditable-provenance requirement in 2019 (Murakami et al., AIAA SciTech).
+
+The fact in that review most relevant to this protocol: **the CCSDS
+Tracking Data Message, which carries tracking observations between
+operators, defines no signature, digest or provenance field** (CCSDS
+503.0-B-2 Cor. 1, 2020). That is the gap a signed substrate addresses,
+and it is a real standard rather than an argument. They also warn against
+a conflation we should avoid making: CCSDS 355.0-B-2 SDLS is link-layer
+security and is not data provenance, so it must never be cited as prior
+art for it.
+
+Their surviving claim is narrow and correctly worded, and we adopt their
+wording rather than a broader one: the first provenance chain reaching
+the raw sensor window rather than stopping at the reduced observation,
+and the first applied to neuromorphic event data. They also retracted a
+"without trusting the producer" claim after a review found it false at
+the capture boundary, which is the same boundary our own device gate
+stops at.
+
 **Answered since.** Their blocker was the `emem.os_trace.v1` digest
 constructions, which existed only in this responder's rejection messages
 while the registry described device profiles as pinned for device makers
@@ -205,7 +231,21 @@ it supports.
   of which encoders moved, and one worked example cannot make it more.
   The quadratic-mean ensemble is likewise a choice and not a derivation;
   with components on different scales it is dominated by Clay.
-- **Accuracy, measured separately from verifiability.** The grounding
+- **Accuracy, measured separately from verifiability.** Independently
+  corroborated from outside on 2026-08-13, which is why it stays first.
+  dpwotikn, scoring a detector in a wholly different domain, put it in
+  their own documents rather than waiting for a reviewer: "verifiability
+  improves none of the accuracy metrics. It is pure overhead on detection
+  performance, justified only on multi-party trust grounds." That is the
+  same finding as ours, reached from the other side, and it means the gap
+  is a property of what signing does rather than a quibble about how we
+  measured. Their framing of the boundary is also sharper than ours and
+  worth borrowing: a chain proves "this pipeline signed these bytes and
+  nobody altered them since", and does not prove "these bytes came off
+  that sensor". Closing the second is exactly what `os_trace_required`
+  admission is for, and is why a device substrate cannot be admitted on a
+  software key.
+ The grounding
   comparison scores whether an answer carries a resolvable `fact_cid`. A
   model with no tools cannot produce one by construction, so that result
   establishes that emem supplies checkable output and CANNOT establish

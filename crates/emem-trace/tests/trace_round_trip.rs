@@ -4,7 +4,7 @@
 use ed25519_dalek::SigningKey;
 
 use emem_core::key::{AttesterKey, KeyEpoch};
-use emem_core::substrates::{SubstrateRegistry, TraceLayerKind, DEFAULT};
+use emem_core::substrates::{AdmissionRule, SubstrateRegistry, TraceLayerKind, DEFAULT};
 use emem_trace::{
     verify_os_trace, DeviceIdentity, EmittedOutput, OsTrace, RejectReason, TraceSegment, Verdict,
 };
@@ -239,10 +239,33 @@ fn every_candidate_profile_in_the_registry_is_verifiable() {
     // trace covering exactly a profile's required layers admits.
     let sk = signing_key();
     let registry: &SubstrateRegistry = &DEFAULT;
+    let mut trace_admitted = 0;
+    let mut archive_admitted = 0;
     for profile in &registry.substrates {
-        if profile.id == "earth.satellite.v0" {
+        // Iterate on the PROPERTY, not on an id.
+        //
+        // This skipped `earth.satellite.v0` by name, which was the right
+        // invariant written as an exemption and held only while exactly one
+        // profile was archive-admitted. Adding a codebase at a commit, a table
+        // at a schema version and a model at a checkpoint, all recomputable
+        // and none of them device-borne, made the loop build a trace out of
+        // zero required layers and panic on `build: Empty`.
+        //
+        // A profile admitted by re-fetchability has no execution trace to
+        // verify, by design. Asserting that positively is better than skipping
+        // it, because "no layers" is exactly what the registry's own
+        // validation demands of an archive profile and a test that skipped
+        // them would not notice if one grew some.
+        if profile.admission != AdmissionRule::OsTraceRequired {
+            archive_admitted += 1;
+            assert!(
+                profile.required_trace_layers.is_empty(),
+                "{}: archive-admitted profiles must require no trace layers",
+                profile.id
+            );
             continue;
         }
+        trace_admitted += 1;
         let segments: Vec<TraceSegment> = profile
             .required_trace_layers
             .iter()
@@ -267,4 +290,14 @@ fn every_candidate_profile_in_the_registry_is_verifiable() {
             report.reasons
         );
     }
+    // Both arms must actually run. If the registry ever drifts to all-one-kind
+    // this test would keep passing while covering half of what it claims.
+    assert!(
+        trace_admitted > 0,
+        "no trace-admitted profile was exercised"
+    );
+    assert!(
+        archive_admitted > 0,
+        "no archive-admitted profile was exercised"
+    );
 }

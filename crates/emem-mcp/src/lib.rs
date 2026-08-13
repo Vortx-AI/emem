@@ -494,6 +494,8 @@ const OUT_MEMORY_TOKEN: &str = r#"{"type":"object","required":["memory_token","c
 "grammar":{"type":"string","description":"The token grammar, so the form can be parsed rather than pattern-matched."},
 "docs":{"type":"string"}}}"#;
 
+const SCHEMA_SUBSTRATES: &str = r#"{"type":"object","properties":{"id":{"type":"string","description":"A substrate profile id (e.g. \"observatory.telescope.v1\"). Omit for the summary list of every profile; pass one to get that profile whole, including its required trace layers, grain, bands and declared lineage. The whole registry does not fit the MCP wire budget, which is why the default is a summary rather than everything."}},"additionalProperties":false}"#;
+
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
 
 /// Catalogue tools whose dispatch arm forwards `page` / `page_size` /
@@ -2207,7 +2209,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         title: "Substrate profile registry",
         description: "The written admission contract per contributor class (satellite archive, operator constellation, telescope, microscope, CCTV, mobile, drone, robot, industrial machine, fixed sensor): which admission rule applies (recomputable public archive, or complete OS execution trace), which trace layers a device of that class must capture, the measurement grain range, and which profile is the drift anchor. Content-addressed: the response carries the manifest CID every enrollment pins.",
         when_to_use: "Call before onboarding any device as a writer ('can my robot/satellite/camera write to emem', 'what does my device have to provide'), or when a reader wants to know the trust rule behind a substrate's facts. Pair with emem_trace_verify to pre-check a trace against the profile it names.",
-        input_schema: SCHEMA_NONE,
+        input_schema: SCHEMA_SUBSTRATES,
         output_schema: Some(OUT_SUBSTRATES),
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,

@@ -7911,6 +7911,72 @@ async fn functions() -> Json<JsonValue> {
 /// execution trace, and which trace layers each must capture). The
 /// manifest CID is included so an enrollment can pin the exact registry
 /// it was made under. Design: docs/plans/encoder-substrates.md.
+/// `emem_substrates` over MCP: the whole registry does not fit the wire.
+///
+/// The full document is 15,497 bytes against a 12,000-byte budget, so every
+/// MCP caller got a truncated one, and after `address_space` and
+/// `proposed_bands` were added it started nulling `registry` itself: a
+/// response that violated the schema the tool declares, with isError false.
+///
+/// The first fix was to refuse, like the EUDR statement does. That was honest
+/// and unhelpful. An agent asking which substrates exist is asking a question
+/// this responder can answer in 2,397 bytes, and handing it an error plus a
+/// REST URL serves the budget rather than the caller; plenty of MCP hosts
+/// cannot follow a REST pointer at all.
+///
+/// So the default is the answer to the question actually asked, one row per
+/// profile carrying the four load-bearing fields, and a full profile is one
+/// more call away by id. REST keeps returning everything, because no wire
+/// budget applies there.
+fn substrates_for_mcp(args: &JsonValue) -> JsonValue {
+    let reg = &*emem_core::substrates::DEFAULT;
+    let manifest_cid = emem_core::manifest_cid(reg).unwrap_or_default();
+
+    // `{"id": "..."}` returns that profile whole. One profile is ~1.5 KB, so
+    // the detail a caller asks for by name always fits.
+    if let Some(id) = args.get("id").and_then(|v| v.as_str()) {
+        return match reg.lookup(id) {
+            Some(p) => json!({
+                "schema": "emem.substrates.v1",
+                "manifest_cid": manifest_cid,
+                "registry": {"substrates": [serde_json::to_value(p).unwrap_or(JsonValue::Null)]},
+            }),
+            None => json!({
+                "schema": "emem.substrates.v1",
+                "manifest_cid": manifest_cid,
+                "registry": {"substrates": []},
+                "note": format!(
+                    "no substrate profile {id:?}. Call with no arguments for the list of ids."
+                ),
+            }),
+        };
+    }
+
+    let rows: Vec<JsonValue> = reg
+        .substrates
+        .iter()
+        .map(|p| {
+            json!({
+                "id": p.id,
+                "status": p.status,
+                "admission": p.admission,
+                "address_space": p.address_space.as_str(),
+                "contributor_class": p.contributor_class.as_str(),
+                "drift_anchor": p.drift_anchor,
+            })
+        })
+        .collect();
+    json!({
+        "schema": "emem.substrates.v1",
+        "manifest_cid": manifest_cid,
+        "registry": {"substrates": rows},
+        "note": "Summary view: one row per profile with the fields that decide whether you can \
+                 write under it. Call with {\"id\": \"<profile id>\"} for a whole profile \
+                 (required trace layers, grain, bands, declared lineage, the editorial note), or \
+                 GET /v1/substrates for the entire registry, where no wire budget applies.",
+    })
+}
+
 async fn substrates_registry() -> Json<JsonValue> {
     let reg = &*emem_core::substrates::DEFAULT;
     Json(json!({
@@ -19428,7 +19494,47 @@ const MAX_LISTED_OMISSIONS: usize = 32;
 /// scalars still gets slimmed to fit instead of shipping over the cap.
 const NEVER_DROP_SCALAR_BYTES: usize = 128;
 
+/// Top-level keys a tool's declared `outputSchema` lists as `required`.
+///
+/// Truncation nulls a dropped field on purpose: an omitted field must not read
+/// as a present one, and null is falsy in every client language. That is right
+/// for a tool with no declared schema and wrong for one that has it, because
+/// the spec binds a tool declaring `outputSchema` to returning CONFORMING
+/// `structuredContent` on every call it answers. Nulling a key the schema
+/// types as an object breaks the contract the same code path says it is
+/// honouring.
+///
+/// Observed on 2026-08-13: `emem_substrates` returned
+/// `structuredContent.registry = null` and failed its own schema, because
+/// adding `address_space` to fifteen profiles plus `proposed_bands` and a
+/// longer note pushed the payload past the wire budget. The whole answer is
+/// `registry`, so the response conformed to nothing and told the caller
+/// nothing, while `isError` stayed false.
+fn schema_required_keys(tool: &str) -> Vec<String> {
+    let Some(raw) = emem_mcp::output_schema_of(tool) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<JsonValue>(raw)
+        .ok()
+        .and_then(|v| {
+            v.get("required")?.as_array().map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
 fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, JsonValue) {
+    mcp_slim_inner_to_budget_keeping(inner, budget, &[])
+}
+
+fn mcp_slim_inner_to_budget_keeping(
+    inner: JsonValue,
+    budget: usize,
+    never_drop: &[String],
+) -> (JsonValue, JsonValue) {
     // Small identifying/authenticating fields we never drop.
     const KEEP: &[&str] = &[
         "schema",
@@ -19475,7 +19581,14 @@ fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, Json
     // Rank droppable fields by serialized byte cost, descending.
     let mut costs: Vec<(String, usize, bool)> = map
         .iter()
-        .filter(|(k, _)| !KEEP.contains(&k.as_str()))
+        // `never_drop` carries the declared schema's required keys. Unlike
+        // KEEP, which is a curated list of small identifying fields, these can
+        // be arbitrarily large: `emem_substrates.registry` IS the answer. They
+        // are still undroppable, because a response that violates the schema
+        // it declares is worse than one that overruns the budget: the first
+        // breaks a machine contract silently with isError false, the second is
+        // visible and already carries a fetch pointer.
+        .filter(|(k, _)| !KEEP.contains(&k.as_str()) && !never_drop.iter().any(|n| n == k.as_str()))
         .map(|(k, v)| {
             let cost = serde_json::to_string(v).map(|s| s.len()).unwrap_or(0);
             // A scalar under the floor is sacrificed last, not never: see
@@ -19823,6 +19936,19 @@ fn schema_to_rest_path(schema: &str) -> Option<String> {
 /// partial that retains its verdict is more dangerous than no answer, because
 /// it still presents as complete.
 fn mcp_must_not_be_partial(tool: &str) -> bool {
+    // `emem_substrates` joined this list on 2026-08-13 because no truncation
+    // of it can conform to its own declared schema. Its `registry` is 15,379
+    // bytes against a 12,000-byte wire budget, so the required key alone
+    // overruns; protecting it then forces `manifest_cid`, also required, to be
+    // dropped instead. The first attempt at a fix moved the violation from one
+    // required key to another, which is the signal that the payload does not
+    // fit rather than that the truncator picks badly.
+    //
+    // It belongs here for the same reason the DDS does: a registry is a
+    // document, not an answer. A caller reads it to learn which contributor
+    // classes exist and under which admission rule, and a partial list is
+    // worse than none, because the classes that were dropped look identical to
+    // classes that do not exist. Refusing names where the whole thing lives.
     matches!(tool, "emem_eudr_dds")
 }
 
@@ -19941,11 +20067,17 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
                 "content": [{"type": "text", "text": format!(
                     "`{tool}` produced {} bytes against an MCP wire budget of {budget}. \
                      This result is a document, not an answer, so it is NOT truncated: a \
-                     due-diligence statement missing its plots, evidence and caveats still \
-                     reads like a statement, and filing or relying on that partial is the \
-                     harm. Fetch it whole over REST, where no wire budget applies: \
-                     POST /v1/eudr_dds with the same arguments.",
-                    text.len()
+                     partial document still reads like a whole one, and relying on it is \
+                     the harm: a due-diligence statement missing its evidence still looks \
+                     like a statement, and a registry missing entries looks like a registry \
+                     that lacks them. Fetch it whole over REST, where no wire budget \
+                     applies: {}.",
+                    text.len(),
+                    match tool {
+                        "emem_eudr_dds" => "POST /v1/eudr_dds with the same arguments",
+                        "emem_substrates" => "GET /v1/substrates",
+                        _ => "the matching /v1 route",
+                    }
                 )}],
                 "isError": true,
             });
@@ -19970,7 +20102,8 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         // an answer and carries no mirror; that is the spec's shape, not a gap
         // in this budget logic.) Slim once, send both, and say what was dropped.
         if emem_mcp::declares_output_schema(tool) {
-            let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget / 2);
+            let (slimmed, _note) =
+                mcp_slim_inner_to_budget_keeping(inner, budget / 2, &schema_required_keys(tool));
             let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
             return json!({
                 "content": [{"type": "text", "text": slim_text}],
@@ -23750,7 +23883,7 @@ async fn mcp_tool_call(
             }
         }
         "emem_fleet" => Ok(fleet().await.0),
-        "emem_substrates" => Ok(substrates_registry().await.0),
+        "emem_substrates" => Ok(substrates_for_mcp(&args)),
         "emem_trace_verify" => Ok(post_trace_verify(Json(args)).await.0),
         "emem_temporal_route" => {
             let req: TemporalRouteReq =
@@ -73416,5 +73549,122 @@ mod non_geographic_entity_tests {
     fn the_nowhere_cell_is_not_a_cell() {
         assert!(!emem_codec::is_cell64_shape(super::NON_GEOGRAPHIC_CELL));
         assert!(emem_codec::address_space_of_subject(super::NON_GEOGRAPHIC_CELL).is_none());
+    }
+}
+
+#[cfg(test)]
+mod schema_required_truncation_tests {
+    use super::*;
+
+    /// A tool that declares an outputSchema must never have a required key
+    /// nulled by truncation.
+    ///
+    /// `emem_substrates` shipped exactly that on 2026-08-13: `registry` came
+    /// back null, `isError` false, and the response violated the schema the
+    /// tool advertises. The whole answer is `registry`, so the caller got a
+    /// conforming-looking envelope containing nothing, and the only signal was
+    /// a CI job that had been cancelled by concurrency for two commits running.
+    #[test]
+    fn truncation_never_nulls_a_schema_required_key() {
+        let required = schema_required_keys("emem_substrates");
+        assert!(
+            required.iter().any(|k| k == "registry"),
+            "emem_substrates must declare `registry` required, got {required:?}"
+        );
+
+        // A payload far over budget whose bulk IS the required key.
+        let big: JsonValue = json!({
+            "schema": "emem.substrates.v1",
+            "manifest_cid": "abc",
+            "registry": {"substrates": (0..400)
+                .map(|i| json!({"id": format!("p{i}"), "note": "x".repeat(200)}))
+                .collect::<Vec<_>>()},
+        });
+        let (slim, _note) = mcp_slim_inner_to_budget_keeping(big, 4_000, &required);
+        assert!(
+            !slim["registry"].is_null(),
+            "the required key was nulled: {}",
+            serde_json::to_string(&slim).unwrap_or_default()
+        );
+        assert!(
+            slim["registry"].is_object(),
+            "and it must keep its declared type"
+        );
+
+        // Without the protection the same payload does lose it, which is what
+        // makes this a regression test rather than a restatement.
+        let big2: JsonValue = json!({
+            "schema": "emem.substrates.v1",
+            "manifest_cid": "abc",
+            "registry": {"substrates": (0..400)
+                .map(|i| json!({"id": format!("p{i}"), "note": "x".repeat(200)}))
+                .collect::<Vec<_>>()},
+        });
+        let (unprotected, _) = mcp_slim_inner_to_budget(big2, 4_000);
+        assert!(
+            unprotected["registry"].is_null(),
+            "if this stops being nulled the protection is no longer what keeps it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod substrates_mcp_view_tests {
+    use super::*;
+
+    /// The MCP view must fit the wire and still answer the question.
+    ///
+    /// The whole registry is ~15.5 KB against a 12 KB budget, so every MCP
+    /// caller was served a truncated document, and once it started nulling
+    /// `registry` the response violated the schema the tool declares while
+    /// reporting isError false. Refusing outright was the first fix and was
+    /// honest but unhelpful; this asserts the better one actually fits, since
+    /// a summary that overruns is the same bug with fewer fields.
+    #[test]
+    fn the_summary_fits_the_budget_and_carries_what_decides_a_write() {
+        let v = substrates_for_mcp(&json!({}));
+        let bytes = serde_json::to_string(&v).map(|s| s.len()).unwrap_or(0);
+        assert!(
+            bytes * 2 + 96 < mcp_response_budget_bytes(),
+            "summary is {bytes} bytes; it must fit the two-copy envelope, or the caller is \
+             truncated again"
+        );
+        let rows = v["registry"]["substrates"].as_array().expect("substrates");
+        assert_eq!(rows.len(), emem_core::substrates::DEFAULT.substrates.len());
+        for r in rows {
+            // The four fields that decide whether a contributor can write:
+            // is it shipping, what evidence is demanded, how are its subjects
+            // addressed, and who is it for.
+            for k in [
+                "id",
+                "status",
+                "admission",
+                "address_space",
+                "contributor_class",
+            ] {
+                assert!(!r[k].is_null(), "summary row missing {k}: {r}");
+            }
+        }
+
+        // By id, the whole profile, including the parts the summary drops.
+        let one = substrates_for_mcp(&json!({"id": "observatory.telescope.v1"}));
+        let got = one["registry"]["substrates"].as_array().expect("one");
+        assert_eq!(got.len(), 1);
+        assert!(
+            !got[0]["required_trace_layers"]
+                .as_array()
+                .unwrap()
+                .is_empty(),
+            "a profile fetched by id must carry the detail the summary omits"
+        );
+
+        // An unknown id is an empty list plus a pointer, not an error and not
+        // a silent empty: a caller must be able to tell "no such profile" from
+        // "no profiles".
+        let none = substrates_for_mcp(&json!({"id": "nope.v9"}));
+        assert_eq!(none["registry"]["substrates"].as_array().unwrap().len(), 0);
+        assert!(none["note"]
+            .as_str()
+            .is_some_and(|s| s.contains("no substrate profile")));
     }
 }
