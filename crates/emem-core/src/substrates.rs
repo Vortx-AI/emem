@@ -358,9 +358,10 @@ pub struct SubstrateRegistry {
 /// Wire names of the provenance classes a profile may declare. Kept as a
 /// string list (not the enum) so the registry validates without pulling
 /// the band ontology into every loader.
-const KNOWN_PROVENANCE: [&str; 6] = [
+const KNOWN_PROVENANCE: [&str; 7] = [
     "direct_sensor",
     "deterministic_index",
+    "estimator",
     "attested_execution",
     "model_output",
     "human_curated",

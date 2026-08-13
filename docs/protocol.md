@@ -478,8 +478,14 @@ derive_parent_cell_mismatch`. Unvalidated parents would be fake lineage,
 which is worse than none: it would let a token's ancestry *look* like it
 terminates in signed measurements when it terminates in nothing.
 
-**2. The provenance class must be a caller class.** `model_output` or
-`human_curated`, declared by the caller and validated by the responder.
+**2. The provenance class must be a caller class.** `model_output`,
+`human_curated`, or `estimator`, declared by the caller and validated by
+the responder. `estimator` is for a quantity FITTED from data that a
+third party holding your signed inputs, your named estimator and your
+seed would reproduce exactly; it is admissible here for the same reason
+`model_output` is, because the responder records what you declared rather
+than vouching for it, and it tells a reader something `model_output`
+cannot: that reproduction is possible at all.
 `direct_sensor` and `deterministic_index` are refused with `400
 derive_provenance_class_refused`. Those two classes assert
 tamper-evidence (a sensor produced this, or anyone can recompute it

@@ -62,9 +62,24 @@ pub const DERIVE_PATH: &str = "/v1/derive";
 /// under a class that asserts otherwise: `direct_sensor` claims a sensor
 /// produced it, and `deterministic_index` claims anyone can recompute it
 /// from the cited raw source. Both would be the responder vouching for a
-/// stranger's arithmetic. The caller declares which of these two honest
-/// classes applies; the responder validates membership and nothing more.
-pub const CALLER_PROVENANCE_CLASSES: &[&str] = &["model_output", "human_curated"];
+/// stranger's arithmetic. The caller declares which of these honest classes
+/// applies; the responder validates membership and nothing more.
+///
+/// `estimator` joined on 2026-08-13 and is the reason that class exists at
+/// all. A quantity FITTED from data and re-runnable from signed inputs plus a
+/// named estimator plus a seed is not a model output, and this endpoint is
+/// exactly where such a thing gets registered: the caller computed it, the
+/// responder cannot recompute it, and the caller declares what kind of thing
+/// it is. Without it here the class would exist and nobody could use it, which
+/// is the worse half of a feature, because the vocabulary would advertise a
+/// capability the write path refuses.
+///
+/// It is admissible for the same reason `model_output` is: the responder
+/// vouches for nothing, it records what the caller declared. The difference is
+/// what a READER learns. `model_output` says do not expect to reproduce this.
+/// `estimator` says you can, if you hold the inputs and the estimator, and
+/// that is a materially different instruction.
+pub const CALLER_PROVENANCE_CLASSES: &[&str] = &["model_output", "human_curated", "estimator"];
 
 /// Whether `class` is one a caller may declare on a derivation.
 pub fn is_caller_provenance_class(class: &str) -> bool {
@@ -371,5 +386,49 @@ mod tests {
         assert!(!is_caller_provenance_class("direct_sensor"));
         assert!(!is_caller_provenance_class("deterministic_index"));
         assert!(!is_caller_provenance_class("unclassified"));
+    }
+}
+
+#[cfg(test)]
+mod caller_class_tests {
+    use super::*;
+
+    /// The vocabulary and the write path must agree on what a caller may say.
+    ///
+    /// `estimator` was added to `ProvenanceClass` before it was added here, so
+    /// for one commit the class existed, the OpenAPI enum advertised it, and
+    /// `/v1/derive` refused it. That is the worse half of a feature: a
+    /// capability list promising something the write path declines. This pins
+    /// both directions so the two lists cannot drift apart again.
+    #[test]
+    fn a_caller_may_declare_exactly_the_classes_the_responder_cannot_vouch_for() {
+        for ok in ["model_output", "human_curated", "estimator"] {
+            assert!(is_caller_provenance_class(ok), "{ok} must be declarable");
+        }
+        // These assert tamper-evidence about a value the responder never saw.
+        for refused in ["direct_sensor", "deterministic_index"] {
+            assert!(
+                !is_caller_provenance_class(refused),
+                "{refused} must stay responder-only: it claims recomputability \
+                 for arithmetic this responder did not perform"
+            );
+        }
+        // Every declarable class must be a real class, or the refusal message
+        // offers a caller something the band ontology will later reject.
+        let known: Vec<&str> = vec![
+            emem_core::bands::ProvenanceClass::DirectSensor.as_str(),
+            emem_core::bands::ProvenanceClass::DeterministicIndex.as_str(),
+            emem_core::bands::ProvenanceClass::Estimator.as_str(),
+            emem_core::bands::ProvenanceClass::AttestedExecution.as_str(),
+            emem_core::bands::ProvenanceClass::ModelOutput.as_str(),
+            emem_core::bands::ProvenanceClass::HumanCurated.as_str(),
+            emem_core::bands::ProvenanceClass::Unclassified.as_str(),
+        ];
+        for c in CALLER_PROVENANCE_CLASSES {
+            assert!(
+                known.contains(c),
+                "{c} is offered to callers but is not a ProvenanceClass"
+            );
+        }
     }
 }

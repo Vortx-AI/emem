@@ -163,6 +163,31 @@ question is answered too: sky pointings and orbital buckets are neither a
 new namespace nor a second resolver, they are anchors, and
 `ExternalIds.anchor` mints an identity from one with no place involved.
 
+**Shipped from their C1.** `provenance_class: estimator` now exists as
+declarable vocabulary: a quantity FITTED from data and re-runnable, which
+is the gap between `deterministic_index` (a closed formula that
+reproduces bit-for-bit) and `model_output` (trained weights that do not
+reproduce at all). A fitted threshold, a per-sensor background rate or an
+estimated operating point is neither, and registering them as
+`model_output` discards re-runnability, which is the property worth
+publishing. No shipped band was relabelled into it, asserted by a test,
+because nothing in the Earth corpus is a fitted-but-re-runnable quantity
+and adopting it now would be renaming facts to fit a new word.
+
+I told them this was not a same-day change because it would move
+`bands_cid`, which every receipt commits to. Measured, the cid is
+byte-identical: the manifest hashes the registry DATA, an unused variant
+appears nowhere in it, and the real cost was four exhaustive match arms
+in one file. That is the third cost in this section I asserted from the
+shape of the design rather than reading it, so the cid is now pinned by a
+test: a future class that genuinely does move it is a wire change, and
+that is where it gets noticed.
+
+Still owed by the class: a band claiming it owes its estimator id, its
+input fact cids and its seed, or it is `model_output` with a better name.
+The structure carrying those three is theirs to shape, by their own
+offer, and is the only thing between the class and a usable block.
+
 **Still not built, and the honest order.** The `entity.cid` write path.
 Their traces will verify before their subjects can be keyed, so a
 telescope can prove how it ran and still have nowhere to put the reading.

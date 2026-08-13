@@ -64,6 +64,28 @@ pub enum BandFamily {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProvenanceClass {
+    /// A quantity FITTED from data, and re-runnable: reproducible from
+    /// signed inputs plus a named estimator plus a seed.
+    ///
+    /// The gap between [`Self::DeterministicIndex`] and [`Self::ModelOutput`].
+    /// An index is a closed formula over cited pixels and reproduces
+    /// bit-for-bit; a model output came from trained weights and does not
+    /// reproduce at all. A fitted threshold, a per-sensor background rate, an
+    /// estimated operating point: none of those is a formula, and calling
+    /// them model output throws away the one property worth publishing, which
+    /// is that a third party holding the same signed inputs and the same
+    /// estimator gets the same number.
+    ///
+    /// Argued for by dpwotikn on 2026-08-13, from a telescope pipeline whose
+    /// background rate, one-sided-versus-two-sided choice and union-versus-
+    /// single decision are each fitted and each exactly re-runnable:
+    /// "registering the lot as model_output discards the one property worth
+    /// publishing, which is re-runnability".
+    ///
+    /// A band in this class owes its estimator id, its input fact cids and its
+    /// seed. Without those it is [`Self::ModelOutput`] wearing a better name,
+    /// which is worse than the honest label.
+    Estimator,
     /// Direct instrument reading, no algorithm and no model in the path
     /// (e.g. Copernicus DEM elevation, Sentinel-2 L2A reflectance,
     /// Sentinel-1 RTC backscatter, DMSP/VIIRS nightlights). Tamper-evident:
@@ -137,6 +159,10 @@ impl ProvenanceClass {
     pub fn tamper_evidence(self) -> &'static str {
         match self {
             Self::DirectSensor | Self::DeterministicIndex => "recomputable_from_source",
+            // Re-runnable rather than recomputable: same inputs and same
+            // estimator give the same answer, but you need the estimator, not
+            // just the formula and the source.
+            Self::Estimator => "rerunnable_from_signed_inputs",
             Self::AttestedExecution => "verified_execution_trace",
             Self::ModelOutput => "signed_model_checkpoint",
             Self::HumanCurated | Self::Unclassified => "attester_only",
@@ -153,6 +179,9 @@ impl ProvenanceClass {
         match self {
             Self::DirectSensor => 5,
             Self::DeterministicIndex => 4,
+            // Below a closed formula, above a device reading: it reproduces,
+            // but only for someone who also holds the estimator and the seed.
+            Self::Estimator => 3,
             Self::AttestedExecution => 3,
             Self::ModelOutput => 2,
             Self::HumanCurated => 1,
@@ -165,6 +194,7 @@ impl ProvenanceClass {
         match self {
             Self::DirectSensor => "direct_sensor",
             Self::DeterministicIndex => "deterministic_index",
+            Self::Estimator => "estimator",
             Self::AttestedExecution => "attested_execution",
             Self::ModelOutput => "model_output",
             Self::HumanCurated => "human_curated",
@@ -182,6 +212,15 @@ impl ProvenanceClass {
     pub fn caution(self) -> Option<&'static str> {
         match self {
             Self::DirectSensor | Self::DeterministicIndex => None,
+            Self::Estimator => Some(
+                "fitted quantity: re-runnable, not recomputable. The same signed \
+                 inputs under the same named estimator and seed reproduce it \
+                 exactly, so a third party can re-run rather than trust it, but \
+                 the FIT itself carries the choices of whoever made it: the \
+                 basis it was fitted on, and whether it was validated \
+                 out-of-sample. Check the estimator's held-out score before \
+                 treating the number as general.",
+            ),
             Self::AttestedExecution => Some(
                 "device reading: trusted through its verified OS execution trace \
                  and the device's platform attestation, not through recomputation. \
@@ -640,5 +679,63 @@ mod tests {
         assert_eq!(idx["opera_dist"].dims, 2);
         assert_eq!(idx["reserved"].offset, 1751);
         assert_eq!(idx["reserved"].dims, 41);
+    }
+}
+
+#[cfg(test)]
+mod provenance_vocabulary_tests {
+    use super::*;
+
+    /// Adding a provenance class must not move `bands_cid`.
+    ///
+    /// I told a contributor that adding one "moves a content-addressed
+    /// manifest that every signature commits to", and therefore that the
+    /// blocker was versioning. Measured, that is wrong: the cid is
+    /// blake3(canonical_cbor(the registry DATA)), an unused variant appears
+    /// nowhere in the serialization, and the cid before and after adding
+    /// `Estimator` is byte-identical. The real cost was four exhaustive match
+    /// arms in this file.
+    ///
+    /// That was the third time in one session I stated a cost from the shape
+    /// of the design instead of measuring it, so this pins the property rather
+    /// than the belief. If a future class DOES move the cid, that is a real
+    /// wire change and this test is where it gets noticed, before the claim
+    /// gets made again.
+    #[test]
+    fn the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary() {
+        assert_eq!(
+            crate::manifest_cid(&*DEFAULT).expect("bands manifest serializes"),
+            "mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra",
+            "bands_cid moved. Every receipt commits to this value, so a change \
+             here breaks verification for facts already signed. If a band's \
+             provenance_class genuinely changed, that is a wire change and needs \
+             a version, not a new constant here."
+        );
+    }
+
+    /// `estimator` is declarable and no shipped band claims it yet.
+    ///
+    /// The class exists because a fitted-but-re-runnable quantity is neither a
+    /// closed formula nor a trained model. Nothing in the Earth corpus is one,
+    /// so adopting it now would be relabelling facts to fit a new word. It is
+    /// vocabulary a contributor can declare, not a reclassification.
+    #[test]
+    fn estimator_is_available_and_unclaimed() {
+        assert_eq!(ProvenanceClass::Estimator.as_str(), "estimator");
+        assert!(
+            ProvenanceClass::Estimator.caution().is_some(),
+            "a fitted class owes a caution"
+        );
+        assert_eq!(
+            ProvenanceClass::Estimator.tamper_evidence(),
+            "rerunnable_from_signed_inputs"
+        );
+        assert!(
+            DEFAULT
+                .bands
+                .iter()
+                .all(|b| b.provenance_class != ProvenanceClass::Estimator),
+            "no shipped band should have been relabelled into the new class"
+        );
     }
 }

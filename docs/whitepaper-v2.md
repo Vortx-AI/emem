@@ -714,12 +714,13 @@ and are not equally checkable. Collapsing them into one trust surface
 would be the interesting lie: everything looks verified, so nothing is.
 
 Every band therefore declares a **tamper-provenance class**
-(`crates/emem-core/src/bands.rs:64`). There are six.
+(`crates/emem-core/src/bands.rs:64`). There are seven.
 
 | class | `tamper_evidence` | deterministic | rank |
 |---|---|---|---|
 | `direct_sensor` | `recomputable_from_source` | yes | 5 |
 | `deterministic_index` | `recomputable_from_source` | yes | 4 |
+| `estimator` | `rerunnable_from_signed_inputs` | no | 3 |
 | `attested_execution` | `verified_execution_trace` | no | 3 |
 | `model_output` | `signed_model_checkpoint` | no | 2 |
 | `human_curated` | `attester_only` | no | 1 |
