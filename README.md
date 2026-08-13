@@ -596,7 +596,7 @@ Writes are isolated even though reads are not: `/memories/by_attester/<pubkey8>/
 | see it work in ten minutes | [Ten minutes to a verified, shareable fact](docs/tutorials/first-verified-memory.md) |
 | understand how it works, with live consoles | [emem.dev/how-it-works](https://emem.dev/how-it-works) |
 | wire your agent in | [the agent handbook](https://emem.dev/agents.md), then the [agent section](#if-you-are-an-agent) above |
-| read the full API | [/openapi.json](https://emem.dev/openapi.json) (155 paths under /v1/*), [/mcp](https://emem.dev/mcp) (107 tools), the [wire spec](https://emem.dev/spec.md) |
+| read the full API | [/openapi.json](https://emem.dev/openapi.json) (156 paths under /v1/*), [/mcp](https://emem.dev/mcp) (107 tools), the [wire spec](https://emem.dev/spec.md) |
 | check the trust model, formally | [the whitepaper](https://emem.dev/whitepaper) ([source](docs/whitepaper-v2.md)), [the formal model](docs/model.md), the [verifier spec](https://emem.dev/v1/verifier_spec) |
 | build agent-to-agent on it | [emem.dev/a2a](https://emem.dev/a2a): the standard, the curriculum, the contacts registry; the protocol card at [/.well-known/agent-card.json](https://emem.dev/.well-known/agent-card.json) |
 | pick a use case in your industry | [emem.dev/solutions](https://emem.dev/solutions) |

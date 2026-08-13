@@ -1315,7 +1315,7 @@ them attributes a change, which is exactly the §10.3 gap.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **155 documented REST paths under `/v1/*`** (161 total
+`0.0.0.0:5051`): **156 documented REST paths under `/v1/*`** (162 total
 in OpenAPI) and **107 MCP tools (16 core, 91 extended)**.
 
 Discovery on first contact:
