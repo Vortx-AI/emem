@@ -193,6 +193,37 @@ Their traces will verify before their subjects can be keyed, so a
 telescope can prove how it ran and still have nowhere to put the reading.
 That is the keystone for every non-geographic substrate and it is next.
 
+### Every number in a published algorithm says where it came from
+
+Added 2026-08-13 after dpwotikn, reading `/v1/algorithms` to build
+against it, noticed that `flood_risk@2` documents
+`dem_agreement_threshold_m` against the Copernicus DEM product spec and
+leaves `dem_agreement_penalty` bare. Their name for the mechanism is the
+useful part: "one parameter earned its citation, the neighbour inherited
+its credibility by adjacency."
+
+It was not one algorithm. Eleven of nineteen parameters were bare, across
+seven, every one of them beside a documented sibling, including four in
+the triple-consensus entry.
+
+Every parameter now declares a `basis` and the registry refuses to load
+without one. `literature` cites a source. `fitted` owes an `estimator`, a
+`corpus_cid` and a `held_out` score, and is refused without all three,
+because a fitted constant that cannot say what it was fitted with, on
+what, and how it scored out of sample is an asserted number wearing a
+method's clothes. `operational_default` says out loud that somebody chose
+the number.
+
+Most of ours are the third, and a test asserts that admission stays in
+use, because a rule where everyone writes `literature` is a rule that has
+stopped working. The honest position is that this registry contains more
+chosen numbers than derived ones, and that is now legible instead of
+implied.
+
+`fitted` is unused by us on purpose. Nothing in the Earth corpus is a
+fitted-but-re-runnable quantity, so claiming the basis would be renaming
+facts to fit a new word; it is vocabulary for a contributor who has one.
+
 ### One field, three vocabularies
 
 A substrate profile's `bands` list is source names. The bands manifest is
@@ -241,7 +272,30 @@ it supports.
   the addressing scheme measurably changes recall latency at all. The
   honest position today is that cell64 loses to H3 on both equal-area
   and token economy, and buys decode-free prefix locality in exchange.
-- **Per-encoder calibration for the change gate.** `triple_consensus`
+- **Per-encoder calibration for the change gate, aimed at the wrong axis.**
+  Corrected on 2026-08-13 by a result from outside. dpwotikn proved, on
+  their own substrate and twice by different routes, that **a scalar
+  nuisance parameter relocates a threshold and can never reorder the
+  candidates**: ranking by Poisson significance was identical to ranking
+  by raw count, and their polarity statistic is affine in the assumed
+  background rate. They then confirmed it constructively, by replacing a
+  per-window scalar rate with a per-bin rate learned causally from each
+  bin's own history, which was the first change of theirs to move recall
+  without paying precision.
+  So a per-encoder threshold buys exactly one of the two things this item
+  was asking for. It RELOCATES each encoder's decision boundary, which
+  fixes the fact that the deployed Prithvi checkpoint can never clear
+  0.15 and therefore never votes. It cannot improve discrimination within
+  an encoder, because reordering requires the nuisance parameter to vary
+  across the things being compared. This item had those two goods
+  conflated under the single word "calibration".
+  What survives is larger than what was written: a threshold that varies
+  per CONTEXT rather than per encoder, per cell or season or land cover,
+  learned causally. The labelled corpus is still needed for the
+  relocation half; the discrimination half needs a different shape
+  entirely.
+  The original text follows, since it is still correct about the
+  relocation half. `triple_consensus`
   votes each encoder's cosine delta against one threshold, 0.15, borrowed
   from Healey et al. 2018's LandTrendr gate for spectral change. The
   embedding spaces do not share a scale: over 8 maximally dissimilar
