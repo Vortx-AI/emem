@@ -10340,9 +10340,23 @@ fn resolve_provenance_filter(
     deterministic: Option<bool>,
 ) -> Result<Option<Vec<String>>, String> {
     use emem_core::bands::ProvenanceClass as Pc;
-    const ALL: [Pc; 6] = [
+    // Every class the ontology defines, not every class currently in use.
+    //
+    // `estimator` was added to `ProvenanceClass` and to `/v1/derive` on
+    // 2026-08-13 and NOT here, so `provenance: ["estimator"]` was refused with
+    // `invalid_argument` while `/v1/derive` happily accepted the same word.
+    // That is the third time in one day a class shipped into some surfaces and
+    // not the one that validates against a closed list, and 6nwstkhm found it
+    // from outside while re-measuring their own paper against the responder.
+    //
+    // Filtering for a class with no facts must return zero facts, never a 400.
+    // A caller building a device-aware pipeline has to be able to ask for
+    // `attested_execution` before any device has written one, or they cannot
+    // write the query until the day the data arrives.
+    const ALL: [Pc; 7] = [
         Pc::DirectSensor,
         Pc::DeterministicIndex,
+        Pc::Estimator,
         Pc::AttestedExecution,
         Pc::ModelOutput,
         Pc::HumanCurated,
@@ -10364,9 +10378,11 @@ fn resolve_provenance_filter(
                     }
                     None => {
                         return Err(format!(
-                            "unknown provenance class {s:?}: accepted values are \
-                             direct_sensor, deterministic_index, attested_execution, \
-                             model_output, human_curated, unclassified"
+                            "unknown provenance class {s:?}: accepted values are {}",
+                            ALL.iter()
+                                .map(|c| c.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
                         ));
                     }
                 }
@@ -10434,9 +10450,19 @@ mod provenance_filter_tests {
     fn deterministic_false_folds_to_the_non_recomputable_classes() {
         // attested_execution joins the non-recomputable set: a device
         // reading is tamper-evident through its trace, not re-derivable.
+        //
+        // `estimator` joins it too, and the distinction is worth stating
+        // because the class exists to name it. A fitted quantity is
+        // RE-RUNNABLE, not RECOMPUTABLE: a third party holding the same signed
+        // inputs, the same named estimator and the same seed reproduces it
+        // exactly, but they need all three, where `deterministic_index` needs
+        // only the cited source and a published formula. `deterministic: true`
+        // means "I can recompute this from what you cited", and an estimator
+        // cannot honour that, so it folds to the other side.
         assert_eq!(
             resolve_provenance_filter(None, Some(false)),
             Ok(Some(vec![
+                "estimator".to_string(),
                 "attested_execution".to_string(),
                 "model_output".to_string(),
                 "human_curated".to_string(),
@@ -25025,7 +25051,7 @@ fn openapi_spec() -> JsonValue {
         },
         "components": {
             "schemas": {
-                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied before the receipt is signed, so the receipt covers exactly the returned facts."},"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only classes any third party can recompute from the cited raw source (direct_sensor, deterministic_index); false keeps the rest. Composable with `provenance` (intersection)."}}},
+                "RecallReq":       {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string"},"bands":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound."},"as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},"scope":{"type":"object","description":"Optional multi-tenant scope {user_id, agent_id, run_id, org_id}. When at least one field is set the recall is filtered to facts written under the same four-tuple and the receipt binds the scope. Omit for the global recall.","properties":{"user_id":{"type":"string"},"agent_id":{"type":"string"},"run_id":{"type":"string"},"org_id":{"type":"string"}}},"provenance":{"type":"array","items":{"type":"string","enum":["direct_sensor","deterministic_index","estimator","attested_execution","model_output","human_curated","unclassified"]},"description":"Tamper-provenance filter: return only facts whose band's provenance class is in this list. Applied before the receipt is signed, so the receipt covers exactly the returned facts."},"deterministic":{"type":"boolean","description":"Sugar over `provenance`: true keeps only classes any third party can recompute from the cited raw source (direct_sensor, deterministic_index); false keeps the rest. Composable with `provenance` (intersection)."}}},
                 "QueryRegionReq":  {"type":"object","description":"Either `geometry` (cell64 or 'cells:c1,c2,...') or `bbox` ([west, south, east, north] WGS-84 degrees) is required. When `bbox` is given the responder samples it to up to `max_cells` cells (default 256, max 1024) and runs the canonical primitive over the cell list.","properties":{"geometry":{"type":"string","description":"cell64 or `cells:c1,c2,...`"},"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4,"description":"[west, south, east, north] in WGS-84 degrees (longitude first)"},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":256,"description":"Cap on cells sampled from `bbox`. Ignored when `geometry` is supplied."},"bands":{"type":"array","items":{"type":"string"}},"agg":{"type":"string","enum":["mean","median","p90","vector_centroid"]}}},
                 "CompareReq":      {"type":"object","required":["a","b"],"properties":{"a":{"type":"string"},"b":{"type":"string"},"family":{"type":"string"}}},
                 "FindSimilarReq":  {"type":"object","required":["key"],"properties":{"key":{"type":"string","description":"cell64 (look up that cell's vector) or 'inline:[x,y,...]' literal vector"},"k":{"type":"integer","minimum":1,"maximum":1000,"default":10},"band":{"type":"string","default":"geotessera","description":"Vector band to scan. Default geotessera (128-D, int8+scale upstream → decoded f32 over the wire). Pass `geotessera.bin128` (or any band's `.bin128` sibling, plus `mode:\"hamming\"`) for the binary fast path."},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"],"default":"cosine","description":"Scoring mode. `cosine` (default) is fp32 over the full vector. `hamming` is sign-bit popcount over the binary sibling band, ~1000× faster scan, ~65% recall@10 alone. `hamming_then_rerank` triages with Hamming then re-ranks the top 4·k by cosine, matches cosine precision at ~16× less work."}}},
@@ -73827,5 +73853,42 @@ mod manifest_covers_tests {
         ] {
             assert!(live > 0, "{name} registry is empty");
         }
+    }
+}
+
+#[cfg(test)]
+mod provenance_filter_completeness_tests {
+    use emem_core::bands::ProvenanceClass as Pc;
+
+    /// Every class the ontology defines must be filterable.
+    ///
+    /// `estimator` shipped into `ProvenanceClass` and `/v1/derive` and not into
+    /// this filter, so `/v1/recall` refused with `invalid_argument` a word
+    /// `/v1/derive` accepted in the same deploy. Found from outside by
+    /// 6nwstkhm re-measuring their paper. The pattern it belongs to is the one
+    /// worth pinning: a closed list that validates user input, sitting in a
+    /// different file from the enum it is supposed to mirror.
+    #[test]
+    fn the_recall_filter_accepts_every_defined_provenance_class() {
+        for c in [
+            Pc::DirectSensor,
+            Pc::DeterministicIndex,
+            Pc::Estimator,
+            Pc::AttestedExecution,
+            Pc::ModelOutput,
+            Pc::HumanCurated,
+            Pc::Unclassified,
+        ] {
+            let got = super::resolve_provenance_filter(Some(&[c.as_str().to_string()]), None);
+            assert!(
+                got.is_ok(),
+                "{} is a defined class and must be filterable, not a 400: {:?}",
+                c.as_str(),
+                got.err()
+            );
+        }
+        // And an actually-unknown class still fails, or the fix has simply
+        // removed the validation instead of completing it.
+        assert!(super::resolve_provenance_filter(Some(&["not_a_class".into()]), None).is_err());
     }
 }
