@@ -1475,7 +1475,11 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
             f"public: {len(notes)} notes, {edges} of them answering another. "
             f"Every message addressable, every citation checked.")
 
+    # Machine marker for the next build's degradation guard. Prose moves; this
+    # does not, and it is the only thing standing between a slow responder and
+    # a published page that lost half its notes.
     head = f"""<!doctype html>
+<!--emem:notes={len(notes)}-->
 <html lang=en>
 <head>
 <meta charset=utf-8>
@@ -1678,7 +1682,7 @@ def main() -> int:
     built_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     md = build_markdown(notes, cites)
     page = build_html(notes, cites, built_at)
-    print(f"\n{len(notes)} notes, "
+    print(f"\n{len(notes):,} notes, "
           f"{notes[0]['signed_at'][:10]} to {notes[-1]['signed_at'][:10]}")
     print(f"  markdown {len(md):,} chars   html {len(page):,} chars")
     if PROBLEMS:
@@ -1766,6 +1770,51 @@ def main() -> int:
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(text)
         tmp.replace(path)
+
+    # Never replace a good transcript with a worse one.
+    #
+    # This script degrades gracefully when the responder is slow: a namespace
+    # that times out is reported in PROBLEMS and the page says so honestly.
+    # That is right, and it is not enough, because the script then exits 0 and
+    # writes the degraded page anyway. `redeploy.sh` guards this with
+    # `|| echo "keeping the previous transcript"`, which only fires on a
+    # NONZERO exit, so the guard has never once fired and the comment above it
+    # describes behaviour that does not exist.
+    #
+    # It shipped on 2026-08-13. Deploys running back to back meant one deploy's
+    # channel build ran while the previous restart was still settling;
+    # `/v1/agents` and two namespaces timed out; the published page lost every
+    # note from the two most active attesters, including that day's replies,
+    # and said so in a banner nobody was watching for. 398 notes became a
+    # roster read out of a config file.
+    #
+    # So the rule is comparative rather than absolute: a build that carries
+    # materially fewer notes than the page already on disk is a degraded read,
+    # not a shrinking channel. Notes are append-only in practice, so a real
+    # drop of more than a tenth is a failure to read, and the honest response
+    # is to keep what we have and exit nonzero so the deploy's own guard can
+    # finally do its job.
+    # An explicit machine marker, not a phrase scraped out of prose. The first
+    # version of this guard parsed "N notes, YYYY-MM-DD" and matched nothing,
+    # so `prev_notes` stayed 0 and the guard skipped itself: a check that
+    # cannot read its own input is not a check, it is a comment that compiles.
+    channel = REPO / "web" / "channel.html"
+    prev_notes = 0
+    if channel.exists():
+        m = re.search(r"<!--emem:notes=(\d+)-->", channel.read_text())
+        if m:
+            prev_notes = int(m.group(1))
+    if prev_notes and len(notes) < prev_notes * 0.9:
+        print(
+            f"  REFUSING to write: this build read {len(notes)} notes against "
+            f"{prev_notes} already published, a {100 - 100 * len(notes) // prev_notes}% drop. "
+            f"Notes do not disappear, so this is a failed read and not a smaller "
+            f"channel. Keeping the published transcript.",
+            file=sys.stderr,
+        )
+        for p in PROBLEMS:
+            print(f"    {p}", file=sys.stderr)
+        return 1
 
     write_atomic(REPO / "docs" / "collaboration-log.md", md)
     write_atomic(REPO / "web" / "channel.html", page)
