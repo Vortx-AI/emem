@@ -170,22 +170,39 @@ pub(crate) fn pairwise_diversity(vectors: &[Vec<f32>]) -> Option<f64> {
 /// `(1/k) Σ cos(centre, n_i)` over the neighbours that share a finite
 /// cosine with the centre. Returns `(consistency, k_used)`; `None` when no
 /// neighbour shares a finite cosine.
-pub(crate) fn neighbour_consistency(
+/// The mean, the count, AND the per-neighbour cosines it was reduced from.
+///
+/// The per-neighbour values were computed and thrown away. dpwotikn pointed at
+/// this from outside while designing over our primitives: "any caller who wants
+/// to know WHERE the inconsistency lies, rather than how much there is, has to
+/// recompute the whole neighbourhood."
+///
+/// Their reason for caring is a result rather than a preference. They proved
+/// that whether a nuisance parameter can REORDER candidates, rather than merely
+/// move a threshold, is governed by its log-gradient over the axis the
+/// candidates are compared along, and is exactly zero where that field is flat.
+/// So a scalar reduction tells a caller the magnitude of an inconsistency and
+/// says nothing about whether it can change a decision; only the spread across
+/// neighbours does. Discarding the eight values keeps the half that cannot act.
+///
+/// Returned in cosine order matching the neighbour order the caller can
+/// reconstruct, so a reader can see which direction the cell disagrees in
+/// rather than only that it disagrees.
+pub(crate) fn neighbour_consistency_detailed(
     centre: &[f32],
     neighbours: &[Vec<f32>],
-) -> Option<(f64, usize)> {
-    let mut sum = 0.0f64;
-    let mut k = 0usize;
+) -> Option<(f64, usize, Vec<f64>)> {
+    let mut per: Vec<f64> = Vec::with_capacity(neighbours.len());
     for n in neighbours {
         if let Some(c) = cosine_finite(centre, n) {
-            sum += c as f64;
-            k += 1;
+            per.push(c as f64);
         }
     }
-    if k == 0 {
+    if per.is_empty() {
         None
     } else {
-        Some((sum / k as f64, k))
+        let k = per.len();
+        Some((per.iter().sum::<f64>() / k as f64, k, per))
     }
 }
 
@@ -671,10 +688,10 @@ pub async fn neighborhood_consistency(
 
     let result = centre
         .as_ref()
-        .and_then(|c| neighbour_consistency(c, &neighbour_vecs));
+        .and_then(|c| neighbour_consistency_detailed(c, &neighbour_vecs));
 
     match result {
-        Some((consistency, k)) => Ok(json!({
+        Some((consistency, k, per_neighbour)) => Ok(json!({
             "schema": "emem.neighborhood_consistency.v1",
             "algorithm_key": "embedding_neighborhood_consistency@1",
             "cell": centre_cell,
@@ -684,6 +701,16 @@ pub async fn neighborhood_consistency(
             "consistency": consistency,
             "outlier_score": 1.0 - consistency,
             "n_neighbours_used": k,
+            // The values the mean was reduced from. A scalar says how much a
+            // cell disagrees with its surroundings; only the spread says
+            // whether that disagreement is one edge or eight, which is the
+            // difference between a boundary and an anomaly.
+            "per_neighbour_cosine": per_neighbour,
+            "per_neighbour_spread": per_neighbour
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max)
+                - per_neighbour.iter().cloned().fold(f64::INFINITY, f64::min),
             "formula": "consistency = (1/k) Σ cosine(centre, neighbour_i); outlier_score = 1 − consistency",
             "citation": citation,
             "honest_note": "Mean cosine of the cell's GeoTessera embedding against its 8 immediate cell64 neighbours (Tobler's First Law). High consistency = the cell blends into its surroundings; high outlier_score = it stands out (an edge, a new clearing, a built patch in farmland).",
@@ -818,7 +845,8 @@ mod tests {
     fn neighbour_consistency_extremes() {
         let centre = unit(0.3, 32);
         let same = vec![centre.clone(); 8];
-        let (cons, k) = neighbour_consistency(&centre, &same).unwrap();
+        let (cons, k, per) = neighbour_consistency_detailed(&centre, &same).unwrap();
+        assert_eq!(per.len(), k, "one cosine per counted neighbour");
         assert_eq!(k, 8);
         assert!(
             (cons - 1.0).abs() < 1e-5,
@@ -829,7 +857,7 @@ mod tests {
         centre2[0] = 1.0;
         let mut ortho = vec![0.0f32; 8];
         ortho[1] = 1.0;
-        let (cons2, _k) = neighbour_consistency(&centre2, &[ortho]).unwrap();
+        let (cons2, _k, _per2) = neighbour_consistency_detailed(&centre2, &[ortho]).unwrap();
         assert!(cons2.abs() < 1e-6, "orthogonal → 0, got {cons2}");
     }
 
