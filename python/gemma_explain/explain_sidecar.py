@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-emem Gemma-4 "explain" sidecar — an OPTIONAL, clearly-UNSIGNED natural-language
-layer over emem's signed facts.
+emem "explain" sidecar — an OPTIONAL, clearly-UNSIGNED natural-language layer
+over emem's signed facts.
 
 Why this exists
 ---------------
@@ -11,39 +11,38 @@ byte-stable and re-verifiable offline. That property is non-negotiable and this
 sidecar does NOT touch it.
 
 This service is a separate process. It READS an emem /v1/ask response (the
-signed facts + the deterministic answer) and asks Gemma-4-12B to phrase it for a
-non-expert. The model never invents numbers — it only rewords the ones emem
-already signed. The output is explicitly marked `signed: false`; the signed
-artifact remains the emem receipt, not this prose. Nothing here writes a fact,
-mints a CID, or signs anything.
+signed facts + the deterministic answer) and rewords it for a non-expert. The
+model never invents numbers — it only rephrases the ones emem already signed.
+The output is explicitly marked `signed: false`; the signed artifact remains the
+emem receipt, not this prose.
 
-Gemma-4 12B is the embedding-first VALIDATION emem cites (encoder-free, June
-2026); here it is used purely as a reasoner over already-signed facts.
+As of 2026-06-21 this NO LONGER loads a model locally. It forwards to the geo.qa
+LLM serving stack (OpenAI-compatible /v1/chat/completions), which hosts the
+shared, eviction-managed GPU models. This frees ~8GB of VRAM on the shared card
+(the local Gemma copy is gone) and keeps the explain layer running. The HTTP
+contract to emem-server is unchanged: POST /explain {ask} -> {explanation, ...}.
 
 Run
 ---
-    /home/ubuntu/memory-injection/.venv/bin/python explain_sidecar.py
+    python explain_sidecar.py
     # GET  /health
     # POST /explain   {"ask": <emem /v1/ask response JSON>}  ->  {explanation, ...}
 
-Env: EMEM_EXPLAIN_BIND (default 127.0.0.1:5071), EMEM_EXPLAIN_MODEL
-(default google/gemma-4-12B-it), EMEM_EXPLAIN_MAX_TOKENS (default 160).
+Env: EMEM_EXPLAIN_BIND (default 127.0.0.1:5071), EMEM_EXPLAIN_MAX_TOKENS (160),
+     GEOQA_BASE_URL (default http://127.0.0.1:8100),
+     GEOQA_API_KEY (required — a geo.qa API key),
+     EMEM_EXPLAIN_GEOQA_MODEL (default qwen2.5-7b — fast + always-resident; set
+       terraground-gemma-12b for the geo-tuned model, at the cost of base-swap latency).
 """
-import os, json, time, threading
+import os, json, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib import request as _req, error as _err
 
-MODEL = os.environ.get("EMEM_EXPLAIN_MODEL", "google/gemma-4-12B-it")
 BIND = os.environ.get("EMEM_EXPLAIN_BIND", "127.0.0.1:5071")
-MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "112"))
-
-_tok = None
-_model = None
-_lock = threading.Lock()
-# The GPU is shared (jepa + other sidecars) and runs near full. Two concurrent
-# generations would each claim KV cache with almost no headroom and OOM — which
-# surfaces to the user as the explain layer being "non-responsive". Serialise
-# generation so concurrent clicks queue instead of fighting for VRAM.
-_gen_lock = threading.Lock()
+MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "160"))
+GEOQA_BASE = os.environ.get("GEOQA_BASE_URL", "http://127.0.0.1:8100").rstrip("/")
+GEOQA_KEY = os.environ.get("GEOQA_API_KEY", "")
+GEOQA_MODEL = os.environ.get("EMEM_EXPLAIN_GEOQA_MODEL", "qwen2.5-7b")
 
 SYSTEM = (
     "You explain emem's SIGNED Earth-observation facts to a non-expert. "
@@ -52,28 +51,6 @@ SYSTEM = (
     "not measured rather than guessing; (4) do not claim this explanation is "
     "signed — the signed artifact is emem's receipt, this is plain commentary."
 )
-
-
-def _load():
-    global _tok, _model
-    if _model is not None:
-        return
-    with _lock:
-        if _model is not None:
-            return
-        import torch
-        from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
-        t0 = time.time()
-        bnb = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_quant_type="nf4",
-        )
-        _tok = AutoTokenizer.from_pretrained(MODEL)
-        _model = AutoModelForCausalLM.from_pretrained(
-            MODEL, quantization_config=bnb, device_map="cuda:0", torch_dtype=torch.bfloat16
-        )
-        print(f"[explain] loaded {MODEL} (4-bit) in {time.time()-t0:.0f}s", flush=True)
 
 
 def _digest_ask(ask: dict) -> str:
@@ -92,30 +69,34 @@ def _digest_ask(ask: dict) -> str:
 
 
 def explain(ask: dict) -> dict:
-    import torch
-    _load()
+    if not GEOQA_KEY:
+        return {"error": "GEOQA_API_KEY not configured for the explain sidecar", "signed": False}
     facts = _digest_ask(ask)
-    msgs = [{"role": "user", "content": SYSTEM + "\n\nSigned facts:\n" + facts}]
-    inputs = _tok.apply_chat_template(
-        msgs, add_generation_prompt=True, return_tensors="pt", return_dict=True
-    ).to("cuda:0")
-    n_in = inputs["input_ids"].shape[1]
+    payload = json.dumps({
+        "model": GEOQA_MODEL,
+        "messages": [{"role": "system", "content": SYSTEM},
+                     {"role": "user", "content": "Signed facts:\n" + facts}],
+        "max_tokens": MAX_TOKENS, "temperature": 0.0, "stream": False,
+    }).encode()
+    r = _req.Request(GEOQA_BASE + "/v1/chat/completions", data=payload, method="POST",
+                     headers={"X-API-Key": GEOQA_KEY, "Content-Type": "application/json"})
     t0 = time.time()
-    # One generation at a time on the shared GPU (see _gen_lock), then release
-    # the KV cache so the next request starts with headroom rather than OOMing.
-    with _gen_lock:
-        with torch.no_grad():
-            out = _model.generate(**inputs, max_new_tokens=MAX_TOKENS, do_sample=False)
-        text = _tok.decode(out[0][n_in:], skip_special_tokens=True).strip()
-        del out, inputs
-        torch.cuda.empty_cache()
+    try:
+        with _req.urlopen(r, timeout=120) as resp:
+            data = json.loads(resp.read())
+    except _err.HTTPError as e:
+        return {"error": f"geo.qa serving {e.code}: {e.read().decode(errors='replace')[:200]}", "signed": False}
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"geo.qa serving unavailable: {e}", "signed": False}
+    text = ((data.get("choices") or [{}])[0].get("message", {}) or {}).get("content", "").strip()
     return {
         "explanation": text,
         "signed": False,
-        "disclaimer": "Generated by Gemma-4-12B from emem's already-signed facts. "
+        "disclaimer": "Generated by the geo.qa LLM stack from emem's already-signed facts. "
         "This prose is NOT signed and is not a fact — verify the emem receipt "
         "(fact_cids / signature) for the ground truth it rewords.",
-        "model": MODEL,
+        "model": GEOQA_MODEL,
+        "via": "geoqa /v1/chat/completions",
         "source_routed_to": ask.get("routed_to"),
         "source_signed_fact_count": len(ask.get("fact_cids") or []),
         "latency_ms": round((time.time() - t0) * 1000),
@@ -133,7 +114,8 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send(200, {"ok": True, "model": MODEL, "loaded": _model is not None, "signed_output": False})
+            self._send(200, {"ok": True, "model": GEOQA_MODEL, "backend": "geoqa",
+                             "geoqa_base": GEOQA_BASE, "key_configured": bool(GEOQA_KEY), "signed_output": False})
         else:
             self._send(404, {"error": "POST /explain or GET /health"})
 
@@ -154,8 +136,7 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     host, port = BIND.split(":")
-    print(f"[explain] loading model…", flush=True)
-    _load()
+    print(f"[explain] thin client -> geo.qa {GEOQA_BASE} (model {GEOQA_MODEL}); no local GPU", flush=True)
     srv = ThreadingHTTPServer((host, int(port)), H)
     print(f"[explain] serving on http://{BIND}  (POST /explain, GET /health)", flush=True)
     srv.serve_forever()
