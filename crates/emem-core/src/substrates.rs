@@ -303,9 +303,26 @@ pub struct SubstrateProfile {
     /// orthogonal: this says how a value was produced, the admission
     /// rule says why the record believes the producer.
     pub provenance_class: String,
-    /// Band keys or family prefixes this substrate writes.
+    /// Band keys or family prefixes this substrate writes **today**. Every
+    /// entry must resolve in the bands manifest; the registry refuses to load
+    /// otherwise.
     #[serde(default)]
     pub bands: Vec<String>,
+    /// Bands a candidate profile INTENDS to write, which do not exist yet.
+    ///
+    /// Split out from `bands` on 2026-08-13 after I put seven `nvs.*` keys
+    /// from a contributor's proposal into `bands` on `space.deep.v1`. Nothing
+    /// validated them, so the registry advertised seven bands that resolve
+    /// nowhere: an agent reading `/v1/substrates` would have seen a capability
+    /// list and got nothing back from every one of them.
+    ///
+    /// That is the overclaim this repo keeps finding in its own prose, in a
+    /// machine-readable surface where it is worse, because a capability list
+    /// is read by programs that do not hedge. A proposal is a real and useful
+    /// thing to publish; it just must not be published in the field that means
+    /// "this works".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposed_bands: Vec<String>,
     /// Lineage metadata keys the substrate's sources publish about how
     /// a product was made (for the Earth archives: the SAFE manifest's
     /// processing history, STAC properties like `s2:processing_baseline`
@@ -428,6 +445,38 @@ impl Manifest for SubstrateRegistry {
                     p.id, p.address_space
                 )));
             }
+            // A declared band must exist. `provenance_class` was validated
+            // against a known set and `bands` was not, so a profile could name
+            // any string and the registry would serve it as capability.
+            // Two vocabularies meet here and only one of them is the
+            // manifest key. A profile lists what a READER would ask for
+            // (`copdem30m`, the source-scoped prefix that appears in
+            // `scalar_keys`), while the manifest is keyed by slot
+            // (`cop_dem`). Validating against the wrong one rejects the
+            // entire shipped registry, which is what the first version of
+            // this check did before the tests caught it.
+            // NOT validated against the bands manifest, and the reason is
+            // worth recording because three attempts to do it each rejected
+            // the shipped registry.
+            //
+            // This field lists SOURCE names; the manifest is keyed by SLOT.
+            // The Earth profile declares `esa_worldcover`, which fills the
+            // `landcover` band; `sentinel2`, where the key is `sentinel2_raw`;
+            // and `copdem30m`, where the key is `cop_dem` and that spelling
+            // appears only inside `scalar_keys`. Equality, prefix, and
+            // scalar-key matching all fail on at least one real entry. The two
+            // vocabularies are related by the materialiser that maps one to
+            // the other, not by string surgery, and pinning them together is a
+            // rename across every profile rather than something to bolt on
+            // here. It is on the roadmap as its own item.
+            //
+            // The honest consequence: an invented band name in `bands` is NOT
+            // caught by this loader. What is caught is the case that actually
+            // occurred, a proposal published as a capability, and it is caught
+            // by construction rather than by validation: `proposed_bands`
+            // exists so a candidate profile has somewhere truthful to put the
+            // bands it intends, and the check below refuses a proposal that
+            // has already shipped, which is the direction that goes stale.
             if !KNOWN_PROVENANCE.contains(&p.provenance_class.as_str()) {
                 return Err(ManifestError::Invalid(format!(
                     "{}: unknown provenance class {}",

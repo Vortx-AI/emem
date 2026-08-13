@@ -142,6 +142,31 @@ Their traces will verify before their subjects can be keyed, so a
 telescope can prove how it ran and still have nowhere to put the reading.
 That is the keystone for every non-geographic substrate and it is next.
 
+### One field, three vocabularies
+
+A substrate profile's `bands` list is source names. The bands manifest is
+keyed by slot. `earth.satellite.v0` declares `esa_worldcover`, which
+fills the `landcover` band; `sentinel2`, where the key is
+`sentinel2_raw`; and `copdem30m`, where the key is `cop_dem` and that
+spelling appears only inside `scalar_keys`. Equality, prefix and
+scalar-key matching each reject at least one real entry, so nothing
+validates this field and an invented band name in it would be served as
+capability.
+
+Found on 2026-08-13 while trying to add exactly that validation, after
+putting seven proposed `nvs.*` keys into the field on `space.deep.v1` and
+noticing that a program reading `/v1/substrates` would have taken them
+for a capability list and got nothing from every one of them. The
+immediate fix was `proposed_bands`, so a candidate profile has a truthful
+place for bands it intends. The check is still missing.
+
+Closing it properly means deciding which vocabulary the field speaks and
+renaming across every profile, or publishing the source-to-slot map the
+materialisers already embody so the two can be checked against each
+other. The second is more useful: that map exists in code today and
+nowhere a reader can fetch it, which is the same shape as the os_trace
+spec that cost a device maker a week.
+
 ### Open validation: the measurements the claims still rest on
 
 Every other item on this page is *build X*. This one is *prove X*, and it

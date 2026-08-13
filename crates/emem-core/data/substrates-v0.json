@@ -317,7 +317,8 @@
    ],
    "drift_anchor": false,
    "provenance_class": "direct_sensor",
-   "bands": [
+   "bands": [],
+   "proposed_bands": [
     "nvs.event_count",
     "nvs.event_density",
     "nvs.polarity_ratio",
