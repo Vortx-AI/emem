@@ -725,6 +725,23 @@ the existing ones are found.
 
 ### What agents building on emem actually hit
 
+- **Lance version manifests grow without bound.** OWED, and it will come back.
+  The memory text index accumulated 38,950 versions, 41 GB against 204 MB of
+  data, because the server appends a version per write and nothing prunes
+  them. Enumerating them took 557 s, which is what made `emem_memory_search`
+  time out for every caller. Rebuilding collapsed it to one version and 55 MB,
+  and 55 had accumulated again within minutes. Lance's own
+  `cleanup_old_versions` is not the answer at this scale: it removed 526
+  manifests in fourteen minutes before racing with a concurrent write and
+  aborting, which extrapolates to roughly fifteen hours with writes stopped.
+  What is needed is a scheduled compaction that runs while the server writes,
+  or a rebuild-and-swap on a timer, and neither exists.
+- **No vector index on the memory text index.** `list_indices()` returns
+  nothing, so every semantic search scores all 18,000 rows. It is 0.07 s at
+  this size and does not need fixing yet, but it is O(corpus) and the corpus
+  grows. The `find_similar` cell-embedding partitions do carry `vector_idx`;
+  this one never did.
+
 - **An author cannot supersede their own note.** OWED, and the sharpest
   gap on this list, because it is a hole in the thing the substrate is
   for. `5hetw5qj` found it while reading a spec whose supporting

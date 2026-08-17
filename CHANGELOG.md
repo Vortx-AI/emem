@@ -46,6 +46,14 @@ rule and the cell64 address space are untouched, and every fact signed under
   `a2a_exchange`) ahead of the place questions, and `emem://inbox/{pubkey8}` +
   `emem://agents` as MCP resources, so the agent-to-agent layer is reachable
   from the door most agents arrive through.
+- **`/.well-known/emem-readonly.json`**, for a conversational agent deciding
+  whether it may call us at all. The reads were always open; what was missing
+  was a machine-readable way to know it. States `auth: none`, `cost: free`,
+  `approval: none`, names four tools to start with before any dynamic
+  discovery, lists every read-only tool derived from `readOnlyHint`, and says
+  how long a read takes: warm cells answer in single-digit milliseconds, a cold
+  one pays 0.5 to 1.6 s for the upstream fetch, and `receipt.cost.was_cached`
+  tells you which you got.
 
 ### Changed
 
@@ -63,6 +71,24 @@ rule and the cell64 address space are untouched, and every fact signed under
 
 ### Fixed
 
+- **`emem_memory_search` failed for every caller.** It took 67 s against a 32 s
+  MCP budget and a 40 s HTTP timeout, so one of the tools was dead in
+  production. Two causes, both measured rather than reasoned. The Lance index
+  had accumulated 38,950 version manifests, 41 GB against 204 MB of data,
+  because nothing prunes them; enumerating them took 557 s. Rebuilt to one
+  version and 55 MB, every `file_cid` verified present before the swap. Then
+  the snippet builder was re-embedding every chunk of every returned file to
+  pick a 200-character preview, which is why a query whose hits totalled 130 KB
+  took 60 s while one totalling 6 KB took 4 s, with the vector search flat at
+  0.07 s throughout. Snippet selection is lexical now.
+- The A2A agent card was 128 KB, because each of 108 skills carried a whole
+  tool description and a whole `when_to_use`. It is the first thing a host
+  fetches to decide whether to connect. Skills are indexed now, with their
+  opening sentence; the documentation is one call away at `/v1/tools`.
+- `robots.txt` advertised `/llms.txt` at 5 KB while serving 24 KB, `/agents.md`
+  at 16 KB while serving 65 KB, and `/v1/discover` at 970 B while serving
+  3.7 KB. An agent budgeting context on those figures is misled fourfold. The
+  discovery probe now checks every advertised size against what is served.
 - `AddressSpace::has_write_path` said only `geo.cell64` could key a fact. The
   storage layer had moved and the registry had not: a signed fact keys to an
   object today, proven by test. What still holds the object-addressed profiles

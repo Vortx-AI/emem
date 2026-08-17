@@ -5545,12 +5545,26 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 emem_mcp::ToolCategory::Introspect => "introspect",
                 emem_mcp::ToolCategory::Plan => "plan",
             };
+            // Short form in the card, full text in the catalogue.
+            //
+            // Every skill carried its whole tool description and its whole
+            // when_to_use, averaging 1,141 bytes across 108 skills, so the
+            // card came to 128 KB. That is the largest single thing a
+            // discovering agent is handed, and two outside reviews named it as
+            // an adoption barrier: a host fetches the card to decide whether
+            // to connect, and pays for documentation it has not asked for yet.
+            //
+            // Nothing is hidden. Every skill is still listed with its id, name
+            // and tags, so an agent knows exactly what exists; the sentence
+            // that says what it is for is kept, and the rest is one call away
+            // at /v1/tools, which returns a single tool's schema and a runnable
+            // example on demand. That is what emem_tools is for.
             json!({
                 "id":          t.name,
                 "name":        t.title,
-                "description": t.description,
+                "description": first_sentence(t.description, 200),
                 "tags":        [cat, t.level],
-                "examples":    [t.when_to_use],
+                "examples":    [first_sentence(t.when_to_use, 160)],
             })
         })
         .collect();
@@ -5559,7 +5573,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // Compliant against https://a2a-protocol.org/dev/specification/
         "protocolVersion":    "1.2.0",
         "name":               "emem",
-        "description":        "emem is shared, verifiable memory for AI agents: every place has one address, every observation is one signed fact, and any agent can check any answer offline, with no key, no account, and no trust in us required. It stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap): one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:<entity_cid>), so different models reason from the same world object instead of divergent descriptions. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. Bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys.",
+        "description":        EMEM_DESCRIPTION,
         // The card's primary `url` must accept the A2A envelope itself.
         // It used to point at /mcp (a JSON-RPC MCP endpoint), so a spec
         // client POSTing message/send landed on a surface that speaks a
@@ -21088,6 +21102,32 @@ async fn a2a_reason_compose(
 /// with the emem response as a `data` artifact part, A2A clients on
 /// Vertex Agent Builder / Microsoft Copilot Studio import this without
 /// any extra adapter on their side.
+/// The opening sentence of a description, for surfaces that index rather than
+/// document. Falls back to a hard character cut when there is no sentence
+/// break, and never splits a UTF-8 character.
+fn first_sentence(s: &str, cap: usize) -> String {
+    let s = s.trim();
+    let end = s
+        .char_indices()
+        .take_while(|(i, _)| *i <= cap)
+        .filter(|(_, c)| *c == '.')
+        .map(|(i, _)| i + 1)
+        .last();
+    match end {
+        Some(e) if e >= 40 => s[..e].to_string(),
+        _ if s.chars().count() <= cap => s.to_string(),
+        _ => {
+            let cut = s
+                .char_indices()
+                .map(|(i, _)| i)
+                .take_while(|i| *i <= cap)
+                .last()
+                .unwrap_or(0);
+            format!("{}...", s[..cut].trim_end())
+        }
+    }
+}
+
 /// The A2A endpoint. `message/stream` is answered as SSE; everything else is
 /// the ordinary JSON-RPC response.
 ///
@@ -64556,6 +64596,46 @@ mod tests {
                 .is_err(),
             "an inbox with no owner must refuse rather than answer for everyone"
         );
+    }
+
+    /// The A2A card is what a host reads to decide whether to connect, so its
+    /// size is a barrier before it is a document.
+    ///
+    /// It reached 128 KB by embedding each tool's whole description and whole
+    /// when_to_use across 108 skills. Two outside reviews named it. Every
+    /// skill is still listed, with id, name and tags, so nothing is hidden;
+    /// what moved is the documentation, which is one call away at /v1/tools.
+    #[tokio::test]
+    async fn the_agent_card_indexes_skills_rather_than_documenting_them() {
+        let Json(card) = well_known_agent_card(State(test_app_state())).await;
+        let skills = card["skills"].as_array().expect("skills");
+        assert_eq!(
+            skills.len(),
+            emem_mcp::TOOLS.len(),
+            "every tool must still appear; trimming is about length, not coverage"
+        );
+        let bytes = serde_json::to_string(&card).expect("card").len();
+        assert!(
+            bytes < 60_000,
+            "the agent card is {bytes} bytes; it is the first thing a host \
+             fetches and 128 KB is why two reviewers called it an adoption \
+             barrier"
+        );
+        for s in skills {
+            let d = s["description"].as_str().unwrap_or_default();
+            assert!(
+                !d.is_empty(),
+                "{}: a skill with no description is an id nobody can act on",
+                s["id"]
+            );
+            assert!(
+                d.chars().count() <= 205,
+                "{}: description is {} chars; the card indexes, /v1/tools \
+                 documents",
+                s["id"],
+                d.chars().count()
+            );
+        }
     }
 
     /// The read-only profile must list exactly what the server enforces.
