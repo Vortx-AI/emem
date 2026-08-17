@@ -23125,14 +23125,18 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
         if pk8.is_empty() {
             return Err((-32602, "emem://inbox/{pubkey8}: name whose inbox".into()));
         }
-        let v = mcp_tool_call("emem_inbox", json!({"to": pk8}), s)
-            .await
-            .or_else(|_| -> Result<JsonValue, (i64, String)> {
-                Ok(json!({
-                    "_note": "read the mailbox with POST /v1/inbox {\"to\":\"<pubkey8>\"}",
-                    "to": pk8,
-                }))
-            })?;
+        let v = post_inbox(
+            State(s.clone()),
+            EmemJson(InboxReq {
+                to: pk8.to_string(),
+                since: None,
+                limit: None,
+                include_broadcast: None,
+            }),
+        )
+        .await
+        .map(|Json(v)| v)
+        .map_err(|e| (-32603, e.1.message))?;
         return Ok(json!({
             "uri": uri, "mimeType": "application/json",
             "text": serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
@@ -64451,6 +64455,43 @@ mod tests {
 
     /// THE regression test. A client that never sends a cursor must get
     /// the entire advertised core profile, and the response must not state
+    /// A declared resource must return the thing, not directions to it.
+    ///
+    /// `emem://inbox/{pubkey8}` shipped calling a tool named `emem_inbox`
+    /// that does not exist, with a fallback that returned a note saying "read
+    /// the mailbox with POST /v1/inbox". The fallback fired every time. The
+    /// resource was advertised, opened without error, and contained a pointer
+    /// instead of mail, which is the same defect as one that cannot be opened
+    /// at all and harder to notice, because nothing fails.
+    #[tokio::test]
+    async fn the_inbox_resource_returns_mail_and_not_a_pointer_to_it() {
+        let s = test_app_state();
+        let c = mcp_read_resource_dynamic("emem://inbox/k572x7go", &s)
+            .await
+            .expect("the inbox resource must open");
+        let text = c["text"].as_str().expect("resource text");
+        let body: JsonValue = serde_json::from_str(text).expect("inbox is JSON");
+
+        // The shape the real handler returns. A fallback stub has none of it.
+        assert!(
+            body.get("messages").is_some() || body.get("count").is_some(),
+            "the inbox resource returned no mailbox shape, so it is a stub: {}",
+            &text[..text.len().min(160)]
+        );
+        assert!(
+            !text.contains("read the mailbox with"),
+            "the resource is handing back instructions instead of the mailbox"
+        );
+
+        // Naming nobody is a refusal, not an empty inbox.
+        assert!(
+            mcp_read_resource_dynamic("emem://inbox/", &s)
+                .await
+                .is_err(),
+            "an inbox with no owner must refuse rather than answer for everyone"
+        );
+    }
+
     /// One description, on every surface, and the root has one at all.
     ///
     /// Ten surfaces carried ten hand-written paraphrases of the same idea and
