@@ -21522,7 +21522,17 @@ fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
 /// worse failure than not declaring it: the host has already allocated
 /// the space and told the user something is coming.
 fn ui_meta_for(name: &str) -> JsonValue {
-    const FACT_RETURNING: &[&str] = &["emem_recall", "emem_at", "emem_ask"];
+    // Only what has been checked to carry a renderable `facts` array on the
+    // wire. `emem_at` and `emem_ask` were in this list on the strength of
+    // their names and are not: `at` aggregates without emitting `facts`, and
+    // `ask` carries `facts_summary` (a count and a set of band names) unless
+    // asked for `facts_full`. The card renders `facts[0]`, so both would have
+    // drawn the empty panel the doc comment above warns about, on the two
+    // tools a host is most likely to call.
+    //
+    // Widening this list means measuring the response first, not reasoning
+    // from the tool's title.
+    const FACT_RETURNING: &[&str] = &["emem_recall"];
     if FACT_RETURNING.contains(&name) {
         json!({
             "resourceUri": MCP_APP_FACT_CARD_URI,
