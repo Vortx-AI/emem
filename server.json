@@ -59,6 +59,12 @@
       "auth": "No account, API key or OAuth token is required, and none is issued. Reads are unauthenticated and every stored memory is world-readable. Writes are unauthenticated but not anonymous: the MCP write surface (emem_memory_create, emem_memory_str_replace, emem_memory_insert, emem_memory_delete, emem_memory_rename) and the REST attestation endpoints (POST /v1/attest, POST /v1/challenge) each require an ed25519 `attester` binding over a blake3 preimage of (verb, path, body_hash). Writes under /memories/by_attester/<pubkey8>/ are accepted only from the key whose shortcode matches; elsewhere the first attester to create a path owns it and only that key may change it; and a legacy record carrying no persisted attester is frozen, refused to every key including the operator's, because no key can prove ownership of it. Cross-key writes return 403 memory_namespace_violation.",
       "dataHandling": "Agent-written memory files persist and are world-readable by default. Entries written with kind: vault are AEAD-sealed against other callers, but the key derives from this responder's own ed25519 secret, so the operator can read vault plaintext; encrypt client-side if that matters. emem_memory_delete unlinks the path from the index but the content-addressed blob and prior versions remain, because the write log is append-only and an issued receipt must stay verifiable. See https://emem.dev/privacy for what is stored, for how long, how to enumerate your own files, and how to request operator erasure.",
       "originAllowlist": "EMEM_ALLOWED_ORIGINS env var (comma-separated) flips CORS from `*` to a strict allowlist with Vary: Origin"
+    },
+    "staysCurrentAt": {
+      "capabilityManifest": "https://emem.dev/.well-known/emem-manifest.json",
+      "readOnlyProfile": "https://emem.dev/.well-known/emem-readonly.json",
+      "capabilityIndex": "https://emem.dev/v1/intents",
+      "note": "Poll the capability manifest instead of copying counts into a listing. It carries server_version, protocol_version, tool_count by tier and capability_manifest_cid, derived from the live registries on every request. An unchanged cid means nothing moved and the catalogue need not be re-read."
     }
   },
   "packages": [
