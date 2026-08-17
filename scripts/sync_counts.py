@@ -52,9 +52,9 @@ CANON = {
     # reasoning tier (emem_reason) included: the
     # catalog tool is core because /mcp advertises the loop rather than
     # the full surface, so one visible tool must describe the rest.
-    "mcp_tools": 107,
+    "mcp_tools": 108,
     "mcp_core": 16,
-    "mcp_extended": 91,
+    "mcp_extended": 92,
     "algorithms": 168,
     "rest_paths_v1": 157,            # documented /v1/* paths in OpenAPI
     "rest_paths_openapi_total": 163,  # all paths in OpenAPI

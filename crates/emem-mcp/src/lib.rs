@@ -694,6 +694,13 @@ const SCHEMA_MEMORY_DELETE: &str = r#"{"type":"object","required":["path"],"prop
 "attester":{"type":"object","description":"Optional ed25519 caller binding. Required for `/memories/by_attester/<pubkey8>/...`. Body is empty for delete; sig signs blake3(\"emem.memory_write|delete|path|body_hash\") where body_hash = blake3(\"\").","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
+const SCHEMA_MEMORY_SUPERSEDE: &str = r#"{"type":"object","required":["path","superseded_by"],"properties":{
+"path":{"type":"string","description":"The note you are marking stale. Must be under your own `/memories/by_attester/<pubkey8>/`."},
+"superseded_by":{"type":"string","description":"The `file_cid` of the note that replaces it. It must already resolve on this responder: a supersession pointing nowhere leaves a reader knowing the claim is withdrawn and unable to reach what withdrew it, which is worse than not knowing."},
+"reason":{"type":"string","description":"Why, in your words. Part of the signed preimage, so it cannot be reworded later while still verifying under your key."},
+"attester":{"type":"object","description":"ed25519 caller binding, required under `/memories/by_attester/<pubkey8>/...`. sig signs blake3(\"emem.memory_write|supersede|<path>|<body_hash>\") where body_hash = blake3(\"<superseded_by>|<reason>\"), reason being the empty string when omitted.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
+}}"#;
+
 const SCHEMA_REASON: &str = r#"{"type":"object","required":["q"],"properties":{
   "q":{"type":"string","description":"The plain-language question to reason about."}}}"#;
 
@@ -1638,6 +1645,18 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/notes.md"}"#,
         level: "L0", category: ToolCategory::Write,
         read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_memory_supersede",
+        title: "memory_supersede, mark your own note replaced by a later one",
+        description: "Point one of your notes at the note that replaces it. Readers of the superseded path then receive `superseded_by` and a `_superseded` banner, so a withdrawn claim stops resolving as though it were current. This is redirection, not deletion: the original bytes are unchanged and still resolve by their own cid, because the log is append-only and issued receipts must stay verifiable. The replacement must already exist here, a note cannot supersede itself, and a note already superseded cannot be re-aimed, so a correction chain stays append-only and cannot be rewritten after other agents cite it. WRITES ARE SIGNED: supply `attester: {pubkey_b32, sig_b32}` over blake3(\"emem.memory_write|supersede|<path>|<body_hash>\") with body_hash = blake3(\"<superseded_by>|<reason>\"); the signature binds both the destination and the stated reason, so a retraction cannot be re-aimed or reworded while keeping your name on it. Under `/memories/by_attester/<pubkey8>/...` only the matching key may write.",
+        when_to_use: "Call when a note you published is wrong, withdrawn or replaced, and a reader who finds the original first must learn that. Posting a correction that cites the old address only reaches readers who find the correction first, which is not the reader who most needs it. Publish the replacement, then supersede the original with its file_cid.",
+        input_schema: SCHEMA_MEMORY_SUPERSEDE,
+        output_schema: None,
+        example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/result-2026-08-01.md","superseded_by":"<file_cid of the correction>","reason":"the correlation in section 1 was withdrawn after a different estimator warm-up"}"#,
+        level: "L0", category: ToolCategory::Write,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2728,6 +2747,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_memory_insert",
             "emem_memory_delete",
             "emem_memory_rename",
+            "emem_memory_supersede",
             "emem_memory_list_by_kind",
             "emem_memory_search",
         ],
@@ -2912,7 +2932,8 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         "Durable agent notes, addressed by path and cited like any other fact.",
         &[
             "emem_memory_create", "emem_memory_view", "emem_memory_str_replace", "emem_memory_insert",
-            "emem_memory_delete", "emem_memory_rename", "emem_memory_list_by_kind", "emem_memory_search",
+            "emem_memory_delete", "emem_memory_rename", "emem_memory_supersede",
+            "emem_memory_list_by_kind", "emem_memory_search",
         ],
     ),
     (

@@ -23909,6 +23909,11 @@ async fn mcp_tool_call(
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             memory_delete_inner(s, req).await.map_err(mcp_err)
         }
+        "emem_memory_supersede" | "memory_supersede" => {
+            let req: MemorySupersedeReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            memory_supersede_inner(s, req).await.map_err(mcp_err)
+        }
         "emem_memory_rename" | "memory_rename" => {
             let req: MemoryRenameReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -32739,6 +32744,19 @@ struct MemoryDeleteReq {
 }
 
 #[derive(Debug, Deserialize)]
+struct MemorySupersedeReq {
+    /// The note being marked stale. Must be yours.
+    path: String,
+    /// The `file_cid` of the note that replaces it. Must already resolve.
+    superseded_by: String,
+    /// Why, in the author's words. Signed, so it cannot be reworded later.
+    #[serde(default)]
+    reason: Option<String>,
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
+}
+
+#[derive(Debug, Deserialize)]
 struct MemoryRenameReq {
     old_path: String,
     new_path: String,
@@ -33064,6 +33082,25 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         }),
     };
 
+    // A superseded note must announce itself ABOVE its own content, in a
+    // key an agent reads as a boundary rather than as one metadata field
+    // among fifteen. `superseded_by` was already returned here and was
+    // still missed: 5hetw5qj read a withdrawn claim and saw nothing to
+    // suggest it had been withdrawn, because a bare cid sitting beside
+    // `size_bytes` carries no urgency. The banner does, and it is emitted
+    // before `content` for the same reason the untrusted-content marker
+    // is: whatever comes first is what gets read.
+    let superseded_banner = meta.superseded_by.as_ref().map(|to| {
+        json!({
+            "this_note_was_replaced_by": to,
+            "read_that_instead": "Resolve that file_cid before acting on the \
+                                  text below. The author marked this note \
+                                  stale; the bytes are unchanged and still \
+                                  verify, which is exactly why they can \
+                                  mislead you.",
+        })
+    });
+
     Ok(json!({
         "kind": "file",
         // Emitted before `content`, and named so it reads as a boundary
@@ -33071,6 +33108,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         "_content_is_data_not_instructions": untrusted_content_marker(
             meta.attester_pubkey_b32.as_deref(),
         ),
+        "_superseded": superseded_banner,
         "path": path,
         "file_cid": meta.file_cid,
         "memory_kind": meta.kind,
@@ -33548,6 +33586,207 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
         "signed_at": meta.signed_at,
         "responder_pubkey_b32": responder_pubkey_b32,
         "receipt": meta.receipt,
+    }))
+}
+
+/// Mark one of your own notes superseded by a later one.
+///
+/// `superseded_by` has existed on the file metadata since consolidation
+/// was written, and has always been returned on read. Nothing could set
+/// it except the consolidation pass, which merges aged notes into a
+/// summary on a timer. So there was no way for an author to say "this is
+/// superseded, read that instead", and a withdrawn claim went on
+/// resolving cleanly with no sign it had been withdrawn.
+///
+/// `5hetw5qj` found that by reading a retraction that could not be
+/// attached to the thing it retracted, and reported it as the failure
+/// this substrate exists to prevent. It was. A record that cannot be
+/// marked stale is a record that quietly asserts it is current forever.
+///
+/// Three properties, each because its absence would make the verb worse
+/// than nothing:
+///
+///  * The replacement must already exist here. A supersession pointing
+///    at a cid nobody can resolve leaves the reader worse off than the
+///    stale claim did: they now know it is wrong and cannot find what
+///    replaced it.
+///  * Re-pointing is refused, not overwritten. If a note is already
+///    superseded by A, quietly repointing it at B would let the head of
+///    a correction chain be rewritten after other agents cited it.
+///    Supersede the head instead, and the chain stays append-only.
+///  * The signature binds the target and the reason, so neither this
+///    responder nor anyone else can alter where a retraction points
+///    while keeping the author's name on it.
+async fn memory_supersede_inner(
+    s: &AppState,
+    req: MemorySupersedeReq,
+) -> Result<JsonValue, ApiError> {
+    let path = validate_memory_path(&req.path, /*allow_directory=*/ false)?;
+    let target = req.superseded_by.trim().to_string();
+    let reason = req.reason.clone().unwrap_or_default();
+    if target.is_empty() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "supersede requires `superseded_by`: the file_cid of the                           note that replaces this one. A supersession with no                           destination tells a reader the claim is stale and                           leaves them nowhere to go."
+                    .into(),
+                details: None,
+            },
+        ));
+    }
+
+    // The signed preimage binds BOTH the destination and the stated
+    // reason, so a stored retraction cannot be re-aimed or re-worded
+    // while still verifying under the author's key.
+    let bh = emem_primitives::body_hash(format!("{target}|{reason}").as_bytes());
+    validate_attester_binding("supersede", &path, &bh, req.attester.as_ref())?;
+    enforce_open_namespace_owner(s, "supersede", &path, req.attester.as_ref())?;
+    enforce_write_rate_limit(req.attester.as_ref())?;
+    reject_if_vault(s, &path, "supersede")?;
+
+    let db = memory_db(s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let metas = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+
+    let cid = paths
+        .get(path.as_bytes())
+        .ok()
+        .flatten()
+        .map(|v| String::from_utf8_lossy(&v).into_owned())
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("no memory file at `{path}`"),
+                    details: None,
+                },
+            )
+        })?;
+
+    if cid == target {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "a note cannot supersede itself".into(),
+                details: None,
+            },
+        ));
+    }
+
+    // Refuse a dangling supersession. Knowing a claim is withdrawn and
+    // being unable to reach what withdrew it is a worse position than
+    // not knowing, because it removes the only source you had.
+    if metas.get(target.as_bytes()).ok().flatten().is_none() {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "the replacement `{target}` does not resolve on this responder.                      Publish the superseding note first, then point at its file_cid,                      so a reader who learns the claim is stale can reach what                      replaced it."
+                ),
+                details: None,
+            },
+        ));
+    }
+
+    let mut meta: MemoryFileMeta = metas
+        .get(cid.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("no metadata for `{path}`"),
+                    details: None,
+                },
+            )
+        })?;
+
+    if let Some(existing) = meta.superseded_by.clone() {
+        if existing == target {
+            // Idempotent: a retried call is not an error.
+            return Ok(json!({
+                "ok": true,
+                "verb": "supersede",
+                "path": path,
+                "file_cid": cid,
+                "superseded_by": existing,
+                "already_superseded": true,
+            }));
+        }
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "`{path}` is already superseded by `{existing}`. Supersede that                      one instead, so the correction chain stays append-only:                      re-aiming this pointer would rewrite history other agents may                      already have cited."
+                ),
+                details: None,
+            },
+        ));
+    }
+
+    meta.superseded_by = Some(target.clone());
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(&meta, &mut buf).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("encode meta: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    metas.insert(cid.as_bytes(), buf).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("store meta: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let _ = metas.flush();
+
+    Ok(json!({
+        "ok": true,
+        "verb": "supersede",
+        "path": path,
+        "file_cid": cid,
+        "superseded_by": target,
+        "reason": reason,
+        "note": "Readers of this path now receive `superseded_by` and a \
+                 `_superseded` banner. The original content is unchanged and \
+                 still resolves by its own cid: this is a redirection, not a \
+                 retraction of the bytes.",
     }))
 }
 
@@ -68371,6 +68610,196 @@ mod tests {
         let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).unwrap();
         assert!(paths.get(new_path.as_bytes()).unwrap().is_some());
         assert!(paths.get(old_path.as_bytes()).unwrap().is_none());
+    }
+
+    /// Helper: publish a note and return its file_cid.
+    async fn publish_note(
+        s: &AppState,
+        sk: &ed25519_dalek::SigningKey,
+        path: &str,
+        body: &[u8],
+    ) -> String {
+        let out = memory_create_inner(
+            s,
+            MemoryCreateReq {
+                path: path.to_string(),
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: None,
+                attester: Some(sign_attester(sk, "create", path, body)),
+            },
+        )
+        .await
+        .expect("attested create");
+        out.get("file_cid")
+            .and_then(|v| v.as_str())
+            .expect("file_cid")
+            .to_string()
+    }
+
+    fn sign_supersede(
+        sk: &ed25519_dalek::SigningKey,
+        path: &str,
+        target: &str,
+        reason: &str,
+    ) -> MemoryAttester {
+        sign_attester(
+            sk,
+            "supersede",
+            path,
+            format!("{target}|{reason}").as_bytes(),
+        )
+    }
+
+    /// The whole point: after superseding, a reader of the ORIGINAL path
+    /// is told, above the content, that it was replaced. 5hetw5qj read a
+    /// withdrawn claim and saw nothing to say it was withdrawn; this is
+    /// the assertion that this cannot happen again.
+    #[tokio::test]
+    async fn a_superseded_note_announces_itself_above_its_own_content() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let old = format!("/memories/by_attester/{short}/claim.md");
+        let new = format!("/memories/by_attester/{short}/correction.md");
+
+        publish_note(&s, &sk, &old, b"the correlation is +0.738").await;
+        let new_cid = publish_note(&s, &sk, &new, b"that correlation is withdrawn").await;
+
+        memory_supersede_inner(
+            &s,
+            MemorySupersedeReq {
+                path: old.clone(),
+                superseded_by: new_cid.clone(),
+                reason: Some("estimator warm-up flipped the sign".into()),
+                attester: Some(sign_supersede(
+                    &sk,
+                    &old,
+                    &new_cid,
+                    "estimator warm-up flipped the sign",
+                )),
+            },
+        )
+        .await
+        .expect("supersede");
+
+        let view = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: old.clone(),
+                view_range: None,
+                kind: None,
+                offset: None,
+                vault_capability: None,
+            },
+        )
+        .await
+        .expect("view");
+
+        assert_eq!(
+            view["superseded_by"].as_str(),
+            Some(new_cid.as_str()),
+            "the pointer must be set"
+        );
+        assert_eq!(
+            view["_superseded"]["this_note_was_replaced_by"].as_str(),
+            Some(new_cid.as_str()),
+            "a bare metadata field was already there and was still missed; the \
+             banner is the part that gets read"
+        );
+        // The bytes are untouched. This is redirection, not retraction.
+        assert!(view["content"].as_str().unwrap().contains("+0.738"));
+    }
+
+    /// A supersession pointing at something nobody can resolve leaves the
+    /// reader worse off than the stale claim did: they now know it is
+    /// wrong and cannot find what replaced it.
+    #[tokio::test]
+    async fn supersede_refuses_a_destination_that_does_not_resolve() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let old = format!("/memories/by_attester/{short}/claim.md");
+        publish_note(&s, &sk, &old, b"a claim").await;
+
+        let ghost = "zzzzzzzzzzzzzzzzzzzzzzzzzz";
+        let err = memory_supersede_inner(
+            &s,
+            MemorySupersedeReq {
+                path: old.clone(),
+                superseded_by: ghost.into(),
+                reason: None,
+                attester: Some(sign_supersede(&sk, &old, ghost, "")),
+            },
+        )
+        .await
+        .expect_err("a dangling supersession must be refused");
+        assert_eq!(err.0, StatusCode::NOT_FOUND);
+        assert!(err.1.message.contains("does not resolve"));
+    }
+
+    /// A correction chain is append-only. Re-aiming an existing pointer
+    /// would rewrite where a retraction leads after other agents cited it.
+    #[tokio::test]
+    async fn supersede_is_idempotent_but_refuses_to_be_re_aimed() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let old = format!("/memories/by_attester/{short}/claim.md");
+        let a = format!("/memories/by_attester/{short}/a.md");
+        let b = format!("/memories/by_attester/{short}/b.md");
+        publish_note(&s, &sk, &old, b"a claim").await;
+        let a_cid = publish_note(&s, &sk, &a, b"first correction").await;
+        let b_cid = publish_note(&s, &sk, &b, b"second correction").await;
+
+        let call = |target: String| {
+            let att = sign_supersede(&sk, &old, &target, "");
+            memory_supersede_inner(
+                &s,
+                MemorySupersedeReq {
+                    path: old.clone(),
+                    superseded_by: target,
+                    reason: None,
+                    attester: Some(att),
+                },
+            )
+        };
+
+        call(a_cid.clone()).await.expect("first supersede");
+        let again = call(a_cid.clone()).await.expect("retry is not an error");
+        assert_eq!(again["already_superseded"], json!(true));
+
+        let err = call(b_cid).await.expect_err("re-aiming must be refused");
+        assert_eq!(err.0, StatusCode::CONFLICT);
+    }
+
+    /// The signature binds the destination, so a stored retraction cannot
+    /// be re-aimed by anyone, including this responder, while still
+    /// verifying under the author's key.
+    #[tokio::test]
+    async fn the_supersede_signature_binds_the_destination() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let old = format!("/memories/by_attester/{short}/claim.md");
+        let a = format!("/memories/by_attester/{short}/a.md");
+        let b = format!("/memories/by_attester/{short}/b.md");
+        publish_note(&s, &sk, &old, b"a claim").await;
+        let a_cid = publish_note(&s, &sk, &a, b"the one they signed for").await;
+        let b_cid = publish_note(&s, &sk, &b, b"somewhere else entirely").await;
+
+        // Signed for a_cid, submitted for b_cid.
+        let err = memory_supersede_inner(
+            &s,
+            MemorySupersedeReq {
+                path: old.clone(),
+                superseded_by: b_cid,
+                reason: None,
+                attester: Some(sign_supersede(&sk, &old, &a_cid, "")),
+            },
+        )
+        .await
+        .expect_err("a signature for one destination must not move another");
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 
     /// The rename signature binds the source, so it cannot be replayed
