@@ -1020,7 +1020,7 @@ const SCHEMA_BORING_LATLNG: &str = r#"{"type":"object","properties":{
 "lat":{"type":"number","description":"WGS-84 latitude. Paired with `lng`. Use when you already have coordinates."},
 "lng":{"type":"number","description":"WGS-84 longitude. Paired with `lat`."},
 "band":{"type":"string","description":"Optional single band override, replaces the endpoint's default band set with this one."},
-"bands":{"type":"string","description":"Optional CSV of band keys, replaces the endpoint's default band set."},
+"bands":{"type":["string","array"],"items":{"type":"string"},"description":"Band keys, replacing the endpoint's default set. Accepts either a JSON array like [\"indices.ndvi\",\"era5.t2m\"] or a CSV string like \"indices.ndvi,era5.t2m\". The array form is what emem_recall takes, so the same shape works on both and an agent does not have to learn two conventions."},
 "tslot":{"type":"integer","description":"Optional tslot offset (band-tempo-relative)."},
 "n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon fan-out width. `n_cells: 1` = point at centroid. Defaults vary per endpoint (1 for /v1/at, 16 for single-band endpoints)."},
 "include":{"type":"array","items":{"type":"string","enum":["value_per_cell","geojson","scene_thumbs"]},"description":"Opt-in heavy response sections. Default response omits per-cell arrays to stay under MCP's 25 KB cap. Name specific sections to include them."},

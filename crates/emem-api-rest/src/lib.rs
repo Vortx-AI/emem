@@ -1275,6 +1275,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/harness/protocol", get(get_harness_protocol))
         .route("/v1/intents", get(get_intents))
         .route("/.well-known/agent-intent.json", get(get_agent_intent))
+        .route(
+            "/.well-known/emem-manifest.json",
+            get(get_capability_manifest),
+        )
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
@@ -4191,6 +4195,60 @@ async fn get_intents() -> Json<JsonValue> {
 /// `/.well-known/` and would never think to call `/v1/intents`.
 async fn get_agent_intent() -> Json<JsonValue> {
     Json(intents::agent_intent_document())
+}
+
+/// The tuple a directory listing can poll, so a stale entry is the
+/// directory's choice rather than our omission.
+///
+/// Two outside reviews reported the same thing on the same day: public
+/// listings quote older tool counts and versions while the responder has
+/// moved. That is our discoverability bug even though the stale copy lives
+/// somewhere else, because an agent reading a registry entry believes it.
+///
+/// Everything here is derived at request time from the same registries the
+/// responder answers from. There is no hand-maintained copy to drift: if a
+/// tool lands, `tool_count` moves on the next request without anyone
+/// remembering to update a listing.
+///
+/// `capability_manifest_cid` is the content address of the tool surface
+/// itself, so a directory can cheaply tell "unchanged" from "I should
+/// re-read" without diffing 108 descriptors.
+async fn get_capability_manifest() -> Json<JsonValue> {
+    let tools = emem_mcp::TOOLS;
+    // Address the surface by what it IS, so the digest moves when a tool's
+    // name or shape moves and not when unrelated prose is edited.
+    let mut surface: Vec<String> = tools
+        .iter()
+        .map(|t| format!("{}\u{1f}{}\u{1f}{}", t.name, t.tier, t.input_schema))
+        .collect();
+    surface.sort();
+    let digest = blake3::hash(surface.join("\u{1e}").as_bytes());
+    let manifest_cid = data_encoding::BASE32_NOPAD
+        .encode(digest.as_bytes())
+        .to_lowercase();
+    Json(json!({
+        "schema": "emem.capability_manifest.v1",
+        "server_version": env!("CARGO_PKG_VERSION"),
+        "protocol_version": MCP_LATEST_VERSION,
+        "protocol_versions_supported": MCP_SUPPORTED_VERSIONS,
+        "tool_count": tools.len(),
+        "tool_count_by_tier": {
+            "core": emem_mcp::tools_at_tier("core").len(),
+            "extended": emem_mcp::tools_at_tier("extended").len(),
+        },
+        "capability_manifest_cid": manifest_cid,
+        "mcp_url": "https://emem.dev/mcp",
+        "mcp_full_url": "https://emem.dev/mcp/full",
+        "capability_discovery_tool": "emem_tools",
+        "intents_url": "/v1/intents",
+        "agent_intent_url": "/.well-known/agent-intent.json",
+        // The tuple a directory can poll instead of transcribing counts that
+        // then go stale in someone else's listing.
+        "capability_manifest_url": "/.well-known/emem-manifest.json",
+        "canonical_discovery": "/.well-known/emem.json",
+        "reads_need_no_key": true,
+        "note": "Derived from the live registries on every request; there is no cached copy here to go stale. A directory that polls this and finds `capability_manifest_cid` unchanged can skip re-reading the catalogue. `last_changed` is deliberately absent rather than guessed: this responder does not record when the tool surface last moved, and a fabricated timestamp is worse than none. Compare the cid instead.",
+    }))
 }
 
 /// `/arcade`, a self-contained pixel-globe game that plays the whole emem
@@ -10844,6 +10902,29 @@ async fn post_recall(
 // sub-cell silent dedupe at the boring API surface.
 // =============================================================
 
+/// Accept `bands` as a CSV string or as a list of strings, normalising to the
+/// CSV form the boring handlers already parse.
+///
+/// A list is joined rather than the handlers being taught about lists, so
+/// there is one parse path downstream and no second place for the two shapes
+/// to diverge.
+fn bands_csv_or_list<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum CsvOrList {
+        Csv(String),
+        List(Vec<String>),
+    }
+    Ok(match Option::<CsvOrList>::deserialize(d)? {
+        None => None,
+        Some(CsvOrList::Csv(s)) => Some(s),
+        Some(CsvOrList::List(v)) => Some(v.join(",")),
+    })
+}
+
 #[derive(Deserialize, Default)]
 struct LatLngQ {
     /// Optional so the query can fall back to `place` (free-text place
@@ -10876,7 +10957,22 @@ struct LatLngQ {
     cell: Option<String>,
     #[serde(default)]
     band: Option<String>,
-    #[serde(default)]
+    /// A CSV of band keys, or a JSON array of them.
+    ///
+    /// Both, because the surface said both and meant one. Thirteen tools take
+    /// `bands`: five (`emem_recall`, `recall_polygon`, `query_region`,
+    /// `recall_many`, `temporal_route`) declare an array, and eight of these
+    /// boring endpoints declared a CSV string. An agent that learned the
+    /// convention from `emem_recall`, which is the tool the guide sends it to
+    /// first, then called `emem_at` with the same shape and got
+    /// `invalid type: sequence, expected a string` from serde. That error
+    /// names a Rust type, not a fix, and it arrives after the agent has
+    /// already decided this is the right tool.
+    ///
+    /// Accepting both rather than migrating to the array is deliberate: CSV
+    /// callers exist, the log is append-only, and breaking a caller to tidy a
+    /// type is a worse trade than carrying one deserializer.
+    #[serde(default, deserialize_with = "bands_csv_or_list")]
     bands: Option<String>,
     #[serde(default)]
     tslot: Option<u64>,
@@ -21360,7 +21456,7 @@ fn iso8601_now_utc() -> String {
 ///
 /// What emem is. Editorial framing, so it is prose; the loop that follows
 /// it is not, and is serialized from `emem_mcp::CORE_LOOP`.
-const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents: an external identity layer that stops referential drift. One place, one content-addressed address (cell64); one observation, one signed fact (fact_cid); one object, one citeable identity (emem:entity:<entity_cid>). Hand another agent an emem:fact: token and you both read the same signed bytes, verified offline with no shared trust, instead of two paraphrases of one observation. An emem:entity: token is weaker: it is hashed from an anchor, not from the whole record, so treat it as a shared reference rather than shared bytes. Tokens pin the wording; when the wording holds and the readout still moves, emem_change_attribution reports why, term by term, with fact ids. The numeric split of that delta is roadmap, not shipped.";
+const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents. It stops two agents using different words for the same thing.\nOne place has one address (cell64). One observation has one signed fact (fact_cid). One object has one identity (emem:entity:<cid>).\nGive another agent an emem:fact: token. You both read the same signed bytes. Either of you can verify them offline. Neither has to trust the other.\nAn emem:entity: token is weaker. It is hashed from an anchor, not from the whole record. Treat it as a shared reference, not as shared bytes.\nTokens pin the words. If the words hold and the number still moves, emem_change_attribution says why, term by term, with fact ids. The numeric split of that delta is roadmap, not shipped.";
 
 /// The `initialize` instructions an MCP host puts in front of the model.
 ///
@@ -21822,6 +21918,21 @@ fn mcp_tools_list(params: Option<&JsonValue>, default_tier: &str) -> JsonValue {
 
 fn mcp_instructions(default_tier: &str) -> String {
     let mut s = String::with_capacity(4096);
+    // The capability warning goes FIRST, and says what it is rather than
+    // explaining a context budget.
+    //
+    // It used to sit at byte 3,122 of 3,852, phrased as a cost note: "this
+    // endpoint advertises the 16 loop tools, not all 108: the full catalog
+    // costs about 280 KB". True, at the end, in the register of an
+    // optimisation. Two outside reviews independently reported the same
+    // failure: an agent sees the listed tools and concludes those ARE emem's
+    // capabilities, then hallucinates parameters for the ones it cannot see.
+    //
+    // A host puts this string in front of the model once, at connect, and
+    // may truncate it. Whatever must survive that has to be at the top.
+    s.push_str(
+        "READ FIRST: the tools you can see are NOT all of emem. They are a small loop, chosen to keep your context small.\nCall emem_tools to see the rest, search it, or get one tool's schema and a working example.\ntools/call runs ANY tool by name, listed or not. A tool missing from your list is not missing from the server. Look it up instead of guessing its arguments.\n\n",
+    );
     s.push_str(MCP_PREAMBLE);
     s.push_str("\n\nThe loop, in order:\n");
     for (step, tool, why) in emem_mcp::CORE_LOOP {
@@ -21832,7 +21943,7 @@ fn mcp_instructions(default_tier: &str) -> String {
     // Both said the same thing to the same reader in the same payload.
     // The count of vendor hook shapes was written out ("two") and is now
     // named by kind, because a number in prose is a claim nobody re-checks.
-    s.push_str("\nEach fact's provenance block says how the value was produced; model_output and human_curated carry an in-band caution. Writing is the other half: memory_* file verbs store durable agent notes you cite like any other fact, and emem_derive registers a value YOU computed over parent facts under your own ed25519 key, returning an emem:fact: token with its lineage back to signed measurements. A derivation stays out of everyone else's default reads until you hand the token over. Both are signed writes: send one unsigned and the 401 returns the exact digest to sign.\n\nStep 8 is ADVISORY here: it blocks nothing, and a citation this responder does not hold is an allow rather than a deny, because that is indistinguishable from one minted elsewhere. Branch on the `fix` field, not the prose: refresh_token, remove_reference, contact_admin, cite_observation. To enforce, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure for a node of your own: it checkpoints MCP, OpenAI, CloudEvents, OPA and vendor agent hooks, signs every verdict and logs it for offline audit.\n\n");
+    s.push_str("\nEvery fact carries a provenance block saying how the value was made. model_output and human_curated carry a caution in the same payload.\nYou can write, not just read. memory_* verbs store durable notes you cite like any fact. emem_derive registers a value YOU computed over parent facts, signed with your key, and returns an emem:fact: token whose lineage ends in signed measurements. Your derivation stays out of other agents' reads until you hand them the token. Both are signed writes: send one unsigned and the 401 gives you the exact digest to sign.\n\nStep 8 is ADVISORY. It blocks nothing. A citation this responder does not hold is an allow rather than a deny, because that looks identical to one minted somewhere else. Branch on the `fix` field, not the prose: refresh_token, remove_reference, contact_admin, cite_observation. To enforce, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure for a node of your own. It checkpoints MCP, OpenAI, CloudEvents, OPA and vendor agent hooks, signs every verdict, and logs it for offline audit.\n\n");
 
     let total = emem_mcp::TOOLS.len();
     let core = emem_mcp::tools_at_tier("core").len();
@@ -21842,7 +21953,7 @@ fn mcp_instructions(default_tier: &str) -> String {
     let full_kb = (*FULL_CATALOG_BYTES as f64 / 1024.0 / 10.0).round() as usize * 10;
     match default_tier {
         "core" => s.push_str(&format!(
-            "This endpoint advertises the {core} loop tools, not all {total}: the full catalog costs about {full_kb} KB of your context. The other {} populate the memory (Earth observation, search, embedding, transparency log); none are hidden, tools/call dispatches any of them by name. emem_tools maps the whole surface with no arguments, searches it with q, and with name returns one tool's input schema and a runnable example. emem_ask answers a question about a place in one call; /mcp/full registers all {total}. No API keys for reads. Peer agents: /.well-known/mcp.json carries the a2a block, POST /v1/inbox is your mailbox once you hold a key, GET /v1/agents the roster, and /.well-known/agent-card.json runs every tool as an A2A skill, sync or async.",
+            "The {core} listed here are a loop; the other {} carry the memory itself (Earth observation, search, embedding, transparency log) and cost about {full_kb} KB if listed. emem_ask answers a question about a place in one call. /mcp/full holds all {total} but SERVES THEM IN PAGES behind nextCursor, which most hosts ignore, so connecting there shows one page: use emem_tools to see the surface rather than switching endpoint. No API keys for reads. Peer agents: /.well-known/mcp.json carries the a2a block, POST /v1/inbox is your mailbox once you hold a key, GET /v1/agents the roster, and /.well-known/agent-card.json runs every tool as an A2A skill, sync or async.",
             total - core
         )),
         _ => s.push_str(&format!(
@@ -25051,7 +25162,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"string","description":"base32-nopad-lc 32-byte attester pubkey"},"signature":{"type":"string","description":"base32-nopad-lc ed25519 signature over blake3(batch_root||registry_cid||schema_cid)"},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
             // meant the agent-to-agent front door the .well-known descriptor
@@ -63954,6 +64065,104 @@ mod tests {
 
     /// THE regression test. A client that never sends a cursor must get
     /// the entire advertised core profile, and the response must not state
+    /// An agent must be told, before anything else, that what it can see is
+    /// not everything there is.
+    ///
+    /// Two independent outside reviews reported the same failure on the same
+    /// day: an agent lists the tools on its connection and concludes those are
+    /// emem's capabilities, then invents arguments for the ones it cannot see.
+    /// The information was already present, at byte 3,122 of 3,852, phrased as
+    /// a context-budget note. A host shows this string once, at connect, and
+    /// may truncate it; anything that must survive that belongs at the top.
+    #[test]
+    fn the_instructions_lead_with_what_the_tool_list_does_not_show() {
+        for tier in [MCP_CORE_ENDPOINT_TIER, MCP_FULL_ENDPOINT_TIER] {
+            let s = mcp_instructions(tier);
+            let head = &s[..600.min(s.len())];
+            assert!(
+                head.contains("NOT all of emem"),
+                "{tier}: the capability warning is not in the first 600 bytes"
+            );
+            assert!(
+                head.contains("emem_tools"),
+                "{tier}: the warning must name the tool that fixes it, or it is \
+                 a problem statement with no next step"
+            );
+            // The claim that /mcp/full hands over the whole catalogue was true
+            // of the intent and false of the wire: it pages behind a cursor
+            // most hosts ignore.
+            assert!(
+                !s.contains("/mcp/full registers all"),
+                "{tier}: still claims /mcp/full serves the whole catalogue in \
+                 one response; it paginates"
+            );
+        }
+    }
+
+    /// The documented shape of `/v1/attest` must be the shape it accepts.
+    ///
+    /// It documented `attester` and `signature` as base32 strings, which is
+    /// the spelling every other surface here uses, and rejected them with
+    /// `invalid type: string, expected an array of length 32`. Anyone
+    /// following the reference on the hardest endpoint we have, the signed
+    /// write path, got a 400 naming a serde type. `batch_root` on the same
+    /// endpoint had already been corrected and even warns that a hex string
+    /// is not accepted; these two were missed in that pass.
+    #[test]
+    fn the_attest_schema_documents_the_bytes_it_actually_takes() {
+        let doc = openapi_spec();
+        let props = doc["paths"]["/v1/attest"]["post"]["requestBody"]["content"]
+            ["application/json"]["schema"]["properties"]
+            .clone();
+        for (field, len) in [("attester", 32u64), ("signature", 64u64)] {
+            let f = &props[field];
+            assert_eq!(
+                f["type"], "array",
+                "{field} is [u8; {len}] on the wire; documenting it as a string \
+                 sends every reader into a 400"
+            );
+            assert_eq!(f["minItems"], json!(len), "{field}");
+            assert_eq!(f["maxItems"], json!(len), "{field}");
+        }
+        // The one that was already right, asserted so a future tidy-up cannot
+        // quietly reintroduce the same defect on the third field.
+        assert_eq!(props["batch_root"]["type"], "array");
+    }
+
+    /// `bands` means the same thing on every tool, so it must accept the same
+    /// shape on every tool.
+    ///
+    /// Thirteen tools take it: five declared an array and eight a CSV string.
+    /// An agent that learned the array form from `emem_recall`, which is where
+    /// the guide sends it first, called `emem_at` the same way and got
+    /// `invalid type: sequence, expected a string`. That message names a Rust
+    /// type rather than a fix, and it lands after the agent has already
+    /// chosen the tool.
+    #[test]
+    fn bands_accepts_both_the_array_and_the_csv_form() {
+        let from_list: LatLngQ = serde_json::from_value(json!({
+            "place": "Bengaluru",
+            "bands": ["indices.ndvi", "era5.t2m"],
+        }))
+        .expect("a list of bands must deserialize");
+        assert_eq!(from_list.bands.as_deref(), Some("indices.ndvi,era5.t2m"));
+
+        let from_csv: LatLngQ = serde_json::from_value(json!({
+            "place": "Bengaluru",
+            "bands": "indices.ndvi,era5.t2m",
+        }))
+        .expect("the CSV form must keep working; callers exist");
+        assert_eq!(from_csv.bands.as_deref(), Some("indices.ndvi,era5.t2m"));
+
+        // Both shapes normalise to one string, so there is a single parse path
+        // downstream and no second place for them to diverge.
+        assert_eq!(from_list.bands, from_csv.bands);
+
+        let absent: LatLngQ =
+            serde_json::from_value(json!({"place": "Bengaluru"})).expect("bands stays optional");
+        assert!(absent.bands.is_none());
+    }
+
     /// A tool that declares a view must declare one this responder can
     /// actually open. SEP-1865 has hosts prefetch the template before the
     /// tool runs, so a `ui.resourceUri` nothing answers is not a late

@@ -948,7 +948,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
       <a class="tf-card" href="/reference#token-bundle"><div class="tf-pre">emem:bundle:</div><div class="tf-what">A signed set of facts, pulled in one round trip.</div><div class="tf-shape">a set</div></a>
       <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:raster:</div><div class="tf-what">A native-resolution field over an area, the array a world model reads.</div><div class="tf-shape">a field</div></a>
       <a class="tf-card" href="/reference#token-cube"><div class="tf-pre">emem:cube:</div><div class="tf-what">A field over time, the 4D world token, a manifest over raster slices.</div><div class="tf-shape">a field over time</div></a>
-      <a class="tf-card" href="/reference#token-rasterset"><div class="tf-pre">emem:rasterset:</div><div class="tf-what">Several fields as one re-derivable set, so a whole scene travels as one handle.</div><div class="tf-shape">a set of fields</div></a>
+      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:rasterset:</div><div class="tf-what">Several fields as one re-derivable set, so a whole scene travels as one handle.</div><div class="tf-shape">a set of fields</div></a>
       <a class="tf-card" href="/v1/substrates"><div class="tf-pre">emem:trace:</div><div class="tf-what">One verified OS execution trace: how a machine ran when it produced its reading.</div><div class="tf-shape">an execution</div></a>
       <a class="tf-card" href="/v1/device_platforms"><div class="tf-pre">emem:attestation:</div><div class="tf-what">A device's platform evidence: which hardware root of trust vouched for its key.</div><div class="tf-shape">a device's proof</div></a>
     </div>
@@ -1433,7 +1433,7 @@ html,body{overflow-x:clip}
     <div class="latent-cards cols4">
       <a class="lcard" href="/verify"><span class="lc-k">receipts</span><span class="lc-t">Every answer carries an ed25519 receipt that verifies offline against the published key</span><span class="lc-go">verify one &rarr;</span></a>
       <a class="lcard" href="/v1/log/sth"><span class="lc-k">append-only</span><span class="lc-t">An RFC 6962 transparency log: pin a signed head, prove it only ever grew, enumerate what it holds</span><span class="lc-go">pin a head &rarr;</span></a>
-      <a class="lcard" href="/reference#provenance"><span class="lc-k">provenance</span><span class="lc-t">Five classes say how much each fact claims, from measured to attested execution; <code>deterministic:true</code> keeps only what you can recompute</span><span class="lc-go">the classes &rarr;</span></a>
+      <a class="lcard" href="/reference#provenance"><span class="lc-k">provenance</span><span class="lc-t">Seven classes say how much each fact claims, from a direct sensor reading to a model output, with five of them in use on bands today; <code>deterministic:true</code> keeps only what you can recompute</span><span class="lc-go">the classes &rarr;</span></a>
       <a class="lcard" href="/how-it-works"><span class="lc-k">no overwrites</span><span class="lc-t">Later records supersede; disagreement between writers is kept and scored, never averaged away</span><span class="lc-go">how &rarr;</span></a>
     </div>
     <div class="go" style="margin-top:1.2rem"><a href="/whitepaper">the whitepaper &rarr;</a><a href="/v1/verifier_spec">the verifier spec, generated from the running code &rarr;</a></div>
