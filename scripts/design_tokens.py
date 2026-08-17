@@ -107,6 +107,26 @@ EXEMPT = {
     # the reason above is the reason.
     "arcade.html": "a 3D game canvas, not a document page: type is sized "
                    "against the WebGL stage and the palette is its night sky",
+    # Not a page on this origin. mcp-fact-card.html is an MCP Apps view
+    # (SEP-1865): it is handed to a HOST over JSON-RPC and rendered inside the
+    # host's sandboxed iframe, under a CSP the host builds. It CANNOT link
+    # /tokens.css, because that default is `connect-src 'none'` and the fetch
+    # would fail silently, leaving the user a half-drawn panel.
+    #
+    # So the four things this gate checks are not available to it: it cannot
+    # link the shared file, cannot request the families, and must therefore
+    # carry its own palette and sizes inline. Holding it to the document scale
+    # would mean inlining our numbers as literals anyway, which is the same
+    # drift with our values in it.
+    #
+    # The narrow claim, so this entry does not become the "generated, do not
+    # look" reasoning the note above rejects: the card still defines a full
+    # light and dark palette on :root, still answers prefers-color-scheme, and
+    # `the_fact_card_asks_the_network_for_nothing` in emem-api-rest asserts it
+    # requests nothing external. It is held to a standard, a different one.
+    "mcp-fact-card.html": "an MCP Apps view rendered in a host's sandboxed "
+                          "iframe under connect-src 'none', so it cannot link "
+                          "/tokens.css and must inline its own scale",
 }
 
 
