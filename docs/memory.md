@@ -202,7 +202,13 @@ on boot is idempotent via content-hash check.
 
 The response always carries `via`:
 
-- `lance_ann`: IVF_PQ cosine via the partition
+- `lance_scan`: cosine over the vectors Lance already holds. Exhaustive, not
+  indexed: this dataset carries no vector index, so every query scores all of
+  it. Measured 2.2 s over 18,269 rows against 0.06 s to open the dataset, so
+  the cost is the scan and not the I/O. It was called `lance_ann` and claimed
+  IVF_PQ here, which told anyone reading a slow query that the indexed path was
+  already in use. The `find_similar` cell-embedding partitions DO carry
+  `vector_idx`; this one does not.
 - `brute_force_fallback`: inline embed + linear scan (when
   `EMEM_DISABLE_LANCE=1`, the model isn't loaded, or the partition is
   empty / unreachable)

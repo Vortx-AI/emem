@@ -201,9 +201,21 @@ pub struct MemorySearchResp {
     /// Total number of files in the index — answers "did the index
     /// even have anything to look at".
     pub corpus_size: usize,
-    /// Path taken to produce these hits. `"lance_ann"` is the fast
-    /// path; `"brute_force_fallback"` runs when Lance is disabled or
-    /// empty and we re-embed in-process.
+    /// Path taken to produce these hits.
+    ///
+    /// `"lance_scan"` reads the stored vectors out of Lance and scores them
+    /// there. `"brute_force_fallback"` re-embeds every file in-process when
+    /// Lance is disabled or empty.
+    ///
+    /// It was called `lance_ann` and that was wrong in a way an operator
+    /// would act on: ANN means an approximate index, and this dataset carries
+    /// no index at all. `ds.list_indices()` returns nothing, so `nearest`
+    /// scans all 18,269 vectors on every query, measured at 2.2 s against
+    /// 0.06 s to open the dataset. Both paths here are exhaustive; the
+    /// difference is that one avoids re-embedding, not that one is indexed.
+    ///
+    /// Naming it `ann` told anyone reading a slow query that the fast path
+    /// was already in use and the problem lay elsewhere.
     pub via: String,
     /// Whether the BGE model is currently loaded on this responder.
     /// `false` plus an empty `hits` list is the honest "model not
@@ -426,7 +438,7 @@ pub fn memory_source() -> Option<Arc<dyn MemoryFileSource>> {
 /// Strategy:
 /// 1. Embed the query (`embed_query` adds BGE's retrieval prefix).
 /// 2. If the Lance index is installed and not disabled by env, run knn
-///    against it (`via = "lance_ann"`).
+///    against it (`via = "lance_scan"`; exhaustive, not indexed).
 /// 3. Otherwise — or when the index returns nothing — iterate the
 ///    `MemoryFileSource`, embed each file inline, score, return top-k
 ///    (`via = "brute_force_fallback"`).
@@ -480,7 +492,7 @@ pub async fn memory_search(
                 )
                 .await?;
             if !res.is_empty() {
-                via = "lance_ann".into();
+                via = "lance_scan".into();
                 hits = build_hits_from_indexed(res, &source, &embedder, &query_vec).await;
             }
         }

@@ -255,7 +255,7 @@ async fn hydrate_and_search_round_trip() {
     assert!(resp.corpus_size >= 3);
     assert!(matches!(
         resp.via.as_str(),
-        "lance_ann" | "brute_force_fallback"
+        "lance_scan" | "brute_force_fallback"
     ));
 }
 
