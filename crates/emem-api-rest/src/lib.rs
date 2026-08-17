@@ -19495,6 +19495,25 @@ fn mcp_spawn_task(
 /// partial; a caller that ignores it still gets valid JSON and a coherent
 /// prefix, which is strictly better than valid-looking JSON cut mid-token.
 fn budget_resource_content(mut c: JsonValue) -> JsonValue {
+    // A `ui://` view is exempt, and has to be. The wire budget exists because
+    // a tool result is loaded into the MODEL's context, where every byte
+    // competes with the conversation. A SEP-1865 view is not: the host
+    // prefetches it and renders it in a sandboxed iframe, and the model never
+    // sees it.
+    //
+    // Truncating one does not save context, it produces a broken document.
+    // The fact card was cut at 6,530 bytes of 51,362, mid-file, immediately
+    // before its crypto bundle, leaving an unterminated <script>. A host would
+    // have drawn a blank panel and nothing on this side would have said why:
+    // `resources/read` answered 200, the JSON was well formed, and the Rust
+    // test asserting the card carries a verifier passed, because it measured
+    // the constant in memory rather than the bytes on the wire.
+    if c.get("uri")
+        .and_then(|u| u.as_str())
+        .is_some_and(|u| u.starts_with("ui://"))
+    {
+        return c;
+    }
     let budget = mcp_response_budget_bytes();
     let full_len = match c.get("text").and_then(|t| t.as_str()) {
         Some(t) => t.len(),
@@ -63945,6 +63964,53 @@ mod tests {
             );
         }
         assert!(declared > 0, "the view binding vanished");
+    }
+
+    /// The card must arrive whole through the same function `resources/read`
+    /// puts it through.
+    ///
+    /// The test above asserts the card carries a verifier, and it passed while
+    /// production served 6,530 bytes of a 51,362-byte document, cut mid-file
+    /// immediately before the crypto bundle, because it measured the constant
+    /// in memory rather than the bytes on the wire. The wire budget exists to
+    /// protect the MODEL's context; a view never enters it. Truncating one
+    /// saves nothing and yields an unterminated <script>, which a host renders
+    /// as a blank panel with no error anywhere on this side.
+    #[test]
+    fn the_card_is_not_truncated_on_the_way_out() {
+        let full = &*MCP_APP_FACT_CARD_HTML;
+        let served = budget_resource_content(json!({
+            "uri":      MCP_APP_FACT_CARD_URI,
+            "mimeType": MCP_APP_MIME,
+            "text":     full,
+        }));
+        assert!(
+            served.get("_emem_truncation").is_none(),
+            "the view was truncated; a host would receive a broken document"
+        );
+        let text = served["text"].as_str().expect("text");
+        assert_eq!(
+            text.len(),
+            full.len(),
+            "the view lost {} bytes on the way out",
+            full.len().saturating_sub(text.len())
+        );
+        // The tail is what a cut removes first, and the tail is where the
+        // script closes.
+        assert!(
+            text.trim_end().ends_with("</script>"),
+            "the served view does not end with a closed script tag"
+        );
+        // An ordinary resource must still be budgeted, or this exemption has
+        // quietly disabled the protection for everything.
+        let big = "x".repeat(mcp_response_budget_bytes() * 2);
+        let ordinary = budget_resource_content(json!({
+            "uri": "emem://something", "mimeType": "text/plain", "text": big,
+        }));
+        assert!(
+            ordinary.get("_emem_truncation").is_some(),
+            "the ui:// exemption leaked to ordinary resources"
+        );
     }
 
     /// The card has to survive `connect-src 'none'`, which SEP-1865 hosts
