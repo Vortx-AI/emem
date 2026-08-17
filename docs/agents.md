@@ -10,25 +10,25 @@
 
 **USE emem WHEN**
 
-- Memory another agent can read and trust without trusting me
-- Hand another agent a claim it can check instead of a sentence it has to believe
-- Two agents to mean the same object when they say the same word
-- Verify a claim someone handed me
-- Know whether my sources disagree before I answer
-- Check my own draft is grounded before I send it
-- Hand work to another agent across a trust boundary
-- Know what is actually true at a place
-- Compare places, or find the ones like this one
+- Memory two agents can both trust
+- A citeable handle for a fact
+- One identity for a thing, across agents
+- Check a claim another agent gave you
+- Find where sources disagree
+- Gate your own draft before sending
+- Hand work across a trust boundary
+- Signed observations at a place
+- Compare places, or find similar ones
 
 **DO NOT USE emem WHEN**
 
-- **Memory that is private to me.** There are no owner-scoped reads. Instead: Self-host with /v1/guard/selfhost, or keep private state in your own store and publish only the claims you want checkable.
-- **Participate without managing signing keys.** Writing requires an ed25519 key you hold and a per-verb preimage you sign; there is no server-side signing route, and there should not be. Instead: Read freely: every read path is open and needs no key, no token and no account.
+- **Memory only you can read.** There are no owner-scoped reads. Instead: Self-host with /v1/guard/selfhost, or keep private state in your own store and publish only the claims you want checkable.
+- **Take part without holding a key.** Writing requires an ed25519 key you hold and a per-verb preimage you sign; there is no server-side signing route, and there should not be. Instead: Read freely: every read path is open and needs no key, no token and no account.
 
 **PARTLY**
 
-- **State that survives context compaction.** There is no private per-session checkpoint.
-- **Write memory over plain HTTP, without an MCP client.** Reads are fully available over REST, writes are not: emem_memory_create, insert, str_replace, rename and delete are MCP-only and have no REST twin.
+- **State that outlives your context window.** There is no private per-session checkpoint.
+- **Write without an MCP client.** Reads are fully available over REST, writes are not: emem_memory_create, insert, str_replace, rename and delete are MCP-only and have no REST twin.
 
 **FIRST CALL**
 
@@ -41,15 +41,15 @@ emem_recall           # facts at a place, signed, with a receipt
 
 | you need | call |
 |---|---|
-| Memory another agent can read and trust without trusting me | `emem_recall` |
-| Hand another agent a claim it can check instead of a sentence it has to believe | `emem_memory_token` |
-| Two agents to mean the same object when they say the same word | `emem_entity` |
-| Verify a claim someone handed me | `emem_verify_receipt` |
-| Know whether my sources disagree before I answer | `emem_memory_contradictions` |
-| Check my own draft is grounded before I send it | `emem_guard_verdict` |
-| Hand work to another agent across a trust boundary | `emem_memory_bundle` |
-| Know what is actually true at a place | `emem_locate` |
-| Compare places, or find the ones like this one | `emem_compare` |
+| Memory two agents can both trust | `emem_recall` |
+| A citeable handle for a fact | `emem_memory_token` |
+| One identity for a thing, across agents | `emem_entity` |
+| Check a claim another agent gave you | `emem_verify_receipt` |
+| Find where sources disagree | `emem_memory_contradictions` |
+| Gate your own draft before sending | `emem_guard_verdict` |
+| Hand work across a trust boundary | `emem_memory_bundle` |
+| Signed observations at a place | `emem_locate` |
+| Compare places, or find similar ones | `emem_compare` |
 
 **MCP**  `https://emem.dev/mcp` (16-tool core loop) · `https://emem.dev/mcp/full` (everything)
 
