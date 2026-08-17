@@ -141,7 +141,7 @@ pub const INTENTS: &[Intent] = &[
         instead: "",
         tool: "emem_memory_token",
         rest: "POST /v1/memory_token",
-        first_call: "POST /v1/memory_token {\"fact_cid\":\"<cid from a recall>\"}",
+        first_call: "POST /v1/memory_token {\"cell\":\"<cell64 from the recall>\",\"fact_cid\":\"<fact_cid from the recall>\"}",
         verify: "Hand the token to a different agent, or to a fresh context. POST /v1/memory_token/resolve returns the byte-identical body. Same bytes on both sides is the whole property.",
     },
     Intent {

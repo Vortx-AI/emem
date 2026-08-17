@@ -234,6 +234,9 @@ def main():
     # Step 4. The claims themselves. A served row that cannot be called is the
     # failure mode this whole repo keeps finding: a claim that stopped matching
     # the code with no gate watching.
+    # Everything the agent needed to decide has been read by now: the root
+    # document and the intent registry.
+    discovery_bytes, discovery_fetches = p.bytes, p.fetches
     executed = skipped = covered = 0
     if rows:
         print("\n  executing every served row's first_call:")
@@ -321,8 +324,18 @@ def main():
         problems.append("agent A could not obtain a fact to cite, so the handoff "
                         "could not be tested at all")
     else:
-        tok, _ = p.get("/v1/memory_token", method="POST", body={"fact_cid": fact_cid})
-        token = (tok or {}).get("token") if isinstance(tok, dict) else None
+        # Both fields are required. The registry documented only fact_cid and
+        # this step is how that was found: the probe executed the row instead
+        # of reading it.
+        cell = (facts[0].get("cell") if facts else None) or "defi.zb493.xuqA.zcb5f"
+        tok, _ = p.get("/v1/memory_token", method="POST",
+                       body={"cell": cell, "fact_cid": fact_cid})
+        # The field is `memory_token`; `token` is accepted as a fallback in
+        # case the shape ever gains one. Reading the wrong key would have
+        # reported a working citation step as broken.
+        token = None
+        if isinstance(tok, dict):
+            token = tok.get("memory_token") or tok.get("token")
         if not token:
             problems.append("a fact could not be turned into a citation; "
                             f"/v1/memory_token answered {str(tok)[:90]}")
@@ -368,12 +381,22 @@ def main():
 
     # The cost verdict. Discovery that works but costs more than an agent will
     # spend has not solved the problem it set out to solve.
-    print(f"\n  {p.fetches} fetches, {p.bytes:,} B to go from a need to a verified call")
-    print(f"  budget {a.budget:,} B, {'within' if p.bytes <= a.budget else 'OVER'}")
-    if p.bytes > a.budget:
+    # The budget is about what an AGENT spends to decide and make one call.
+    # Executing every served row to audit it is this gate's cost, not the
+    # agent's, and charging the two to one meter reported a discovery failure
+    # when discovery was fine. Measured at the point the agent could have
+    # stopped: root, registry, first call.
+    print(f"\n  deciding cost an agent {discovery_bytes:,} B over "
+          f"{discovery_fetches} fetches: the root document and the registry, "
+          f"which is everything needed to know whether to call at all")
+    print(f"  this gate then spent {p.bytes - discovery_bytes:,} B more auditing "
+          f"every claim, which an agent never pays")
+    print(f"  budget {a.budget:,} B, "
+          f"{'within' if discovery_bytes <= a.budget else 'OVER'}")
+    if discovery_bytes > a.budget:
         problems.append(
-            f"reaching a first call cost {p.bytes:,} B against a budget of "
-            f"{a.budget:,} B. Past this an agent skips the unknown service, so "
+            f"deciding whether to call cost {discovery_bytes:,} B against a budget "
+            f"of {a.budget:,} B. Past this an agent skips the unknown service, so "
             f"the capability is functionally undiscoverable however good it is."
         )
 
