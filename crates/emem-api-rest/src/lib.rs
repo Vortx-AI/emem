@@ -5659,7 +5659,7 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             "https://registry.modelcontextprotocol.io/v0/servers?search=emem",
         ],
         "version":     env!("CARGO_PKG_VERSION"),
-        "description": "Shared, verifiable memory for AI agents: one canonical, citeable identity per place (cell64), fact (fact_cid), and object (emem:entity:), so different models reason from the same world object, not divergent descriptions. Content-addressed and signed; every read returns an ed25519 receipt. No API keys for L0/L1.",
+        "description": EMEM_DESCRIPTION,
         "homepage":    "https://emem.dev",
         "documentation": format!("{origin}/agents.md"),
         "icon":        format!("{origin}/favicon.svg"),
@@ -6784,6 +6784,11 @@ async fn well_known(State(s): State<AppState>) -> Response {
         "agent_card_a2a_url": "/.well-known/agent-card.json",
         "mcp_descriptor_url": "/.well-known/mcp.json",
         "agents_md_url": "/agents.md",
+        // The root document said where every door was and never what emem is.
+        // An agent told to start here learned only that we have many URLs.
+        "name": "emem",
+        "description": EMEM_DESCRIPTION,
+        "one_line": EMEM_LEAD,
         "llms_txt_url": "/llms.txt",
         // Read before the rest of this file. Every other key here answers
         // "where is it", which presupposes the reader already decided to use
@@ -9618,7 +9623,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     Json(json!({
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
-        "purpose": "Shared, verifiable memory for AI agents: a vendor-neutral, citeable identity layer that stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap). Every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), every object to one citeable identity (emem:entity:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt any agent verifies offline.",
+        "purpose": EMEM_DESCRIPTION,
         // Read this FIRST. The fastest path from zero to a signed answer.
         // `discover_first` below builds the full mental model; this block
         // is the 3-call shortcut a fresh agent should try before anything
@@ -21579,6 +21584,36 @@ fn iso8601_now_utc() -> String {
 ///
 /// What emem is. Editorial framing, so it is prose; the loop that follows
 /// it is not, and is serialized from `emem_mcp::CORE_LOOP`.
+/// The one sentence, and the only place it is written.
+///
+/// Ten surfaces described emem in ten different ways and most of them ended
+/// "Grounded in signed Earth observation", which is true and is not the
+/// point. A directory reading any of them concluded this was an
+/// Earth-observation server, and agents that need shared state between them
+/// never recognised what they were looking at.
+///
+/// What emem is: agents working together in the real world need one record
+/// they can all point at. What makes that possible is provenance, so a claim
+/// arrives with how it was produced and a signature anyone checks. Earth
+/// observation is where that record is populated from today, which is a fact
+/// about the corpus and not about the protocol.
+///
+/// Written once here and referenced everywhere else, because the previous
+/// arrangement was ten hand-maintained paraphrases of one idea, and
+/// paraphrase is the failure this project exists to prevent.
+pub const EMEM_LEAD: &str =
+    "emem is shared memory for AI agents working together in the real world.";
+
+/// The lead plus how it works, for any surface with room for a paragraph.
+pub const EMEM_DESCRIPTION: &str =
+    "emem is shared memory for AI agents working together in the real world. \
+One agent writes down what it observed. Another agent reads the same bytes, not a summary of them. \
+Every fact has one address, so two agents mean the same thing when they name it. \
+Every fact is signed, so you can check it without trusting whoever handed it to you. \
+Every fact says how it was produced, so you know what it is worth. \
+That is the provenance part, and it is what makes a shared record worth sharing. \
+Reads need no key and no account.";
+
 const MCP_PREAMBLE: &str = "emem is shared, verifiable memory for AI agents. It stops two agents using different words for the same thing.\nOne place has one address (cell64). One observation has one signed fact (fact_cid). One object has one identity (emem:entity:<cid>).\nGive another agent an emem:fact: token. You both read the same signed bytes. Either of you can verify them offline. Neither has to trust the other.\nAn emem:entity: token is weaker. It is hashed from an anchor, not from the whole record. Treat it as a shared reference, not as shared bytes.\nTokens pin the words. If the words hold and the number still moves, emem_change_attribution says why, term by term, with fact ids. The numeric split of that delta is roadmap, not shipped.";
 
 /// The `initialize` instructions an MCP host puts in front of the model.
@@ -25403,7 +25438,7 @@ fn openapi_spec() -> JsonValue {
         "info": {
             "title": "emem",
             "version": env!("CARGO_PKG_VERSION"),
-            "description": "Shared, verifiable memory for AI agents: one canonical, citeable identity per place (cell64), observation (fact_cid), and object (emem:entity:), so different models reason from the same world object instead of divergent descriptions. Grounded in signed Earth observation; every read returns an ed25519 receipt. cell × band × tslot.",
+            "description": EMEM_DESCRIPTION,
             "license": { "name": "Apache-2.0" }
         },
         "servers": servers,
@@ -64385,6 +64420,56 @@ mod tests {
 
     /// THE regression test. A client that never sends a cursor must get
     /// the entire advertised core profile, and the response must not state
+    /// One description, on every surface, and the root has one at all.
+    ///
+    /// Ten surfaces carried ten hand-written paraphrases of the same idea and
+    /// most ended "Grounded in signed Earth observation", so a directory
+    /// reading any of them concluded this is an Earth-observation server.
+    /// Worse, `/.well-known/emem.json` is the document an agent is told to
+    /// read first and it had no description field at all: forty-two keys,
+    /// thirty of them URLs, and nothing saying what the URLs are for.
+    #[tokio::test]
+    async fn every_surface_leads_with_the_same_sentence() {
+        // The root must SAY something, not only point.
+        // Returns a Response rather than Json, so read the body as a client does.
+        let resp = well_known(State(test_app_state())).await;
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .expect("read the well-known body");
+        let root: JsonValue = serde_json::from_slice(&bytes).expect("well-known is JSON");
+        assert_eq!(
+            root["description"],
+            json!(EMEM_DESCRIPTION),
+            "the canonical discovery document must carry the canonical description"
+        );
+        assert_eq!(root["one_line"], json!(EMEM_LEAD));
+
+        // The lead is about agents working together, not about Earth. Earth is
+        // where the record is populated from, which belongs further down.
+        let lead = EMEM_LEAD.to_lowercase();
+        assert!(
+            lead.contains("shared memory") && lead.contains("agents"),
+            "the lead sentence stopped being about shared memory between agents"
+        );
+        assert!(
+            !lead.contains("earth") && !lead.contains("satellite") && !lead.contains("geospatial"),
+            "the lead sentence names Earth observation, which is the corpus \
+             rather than the protocol, and is what made every directory file \
+             us under Earth observation: {EMEM_LEAD}"
+        );
+
+        // And it stays plain. Long sentences cost context on every connect and
+        // read less exactly.
+        for sentence in EMEM_DESCRIPTION.split(". ") {
+            assert!(
+                sentence.split_whitespace().count() <= 26,
+                "this sentence is {} words; keep them short so an agent parses \
+                 the intent rather than the grammar: {sentence:?}",
+                sentence.split_whitespace().count()
+            );
+        }
+    }
+
     /// What a host lists first is what emem appears to BE.
     ///
     /// The prompt catalogue was ten entries and every one a question about a
