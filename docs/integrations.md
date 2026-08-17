@@ -424,7 +424,7 @@ four lines:
 ```
 
 That endpoint advertises the 16 core tools from `tools/list`, so the host
-registers about 66 KB of descriptors rather than about 288 KB for all 107. The rest
+registers about 66 KB of descriptors rather than about 288 KB for all 108. The rest
 stay callable by name, and `emem_tools` searches them or returns one tool's
 schema on demand. Use `https://emem.dev/mcp/full` instead to register the
 whole catalog.

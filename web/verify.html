@@ -552,97 +552,58 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <div class=toast id=toast></div>
 
+<!-- The verifier itself: blake3, ed25519 and the emem preimage encoders. The
+     MCP Apps fact card compiles this same file in, so there is one
+     transcription of the emem-attest rules rather than two. -->
+<script src="/emem-verify-core.js"></script>
 <script type="module">
 //==============================================================================
 // emem.dev/verify — receipt, authorship, and fact verifier
-// (noble-ed25519 + noble-blake3 via esm.sh, pinned versions). The agora
+// (noble-ed25519 + noble-blake3, bundled into /emem-verify-core.js). The agora
 // runs the same T1 authorship check from the same source of truth,
 // /v1/verifier_spec. One page: prove it in front of the user.
 //==============================================================================
 
-// ── crypto libs (pinned) ────────────────────────────────────────────────────
-let nobleEd = null, nobleBlake3 = null, nobleStatus = 'pending';
-const nobleReady = (async () => {
-  const timeout = new Promise(res => setTimeout(() => res('timeout'), 4000));
-  const tryImport = (async () => {
-    const [ed, blake3] = await Promise.all([
-      import('https://esm.sh/@noble/curves@1.6.0/ed25519'),
-      import('https://esm.sh/@noble/hashes@1.5.0/blake3'),
-    ]);
-    return { ed, blake3 };
-  })();
-  try {
-    const r = await Promise.race([tryImport, timeout]);
-    if (r === 'timeout') { nobleStatus = 'fallback'; return; }
-    nobleEd = r.ed.ed25519;
-    nobleBlake3 = r.blake3.blake3;
-    nobleStatus = 'ok';
-    // Validate the JS canonical-CBOR + v1-preimage encoders against
-    // vectors emitted by the Rust signer. If ANY mismatch, the browser
-    // path could only produce a wrong digest and false "tamper" — so we
-    // disable it and let the page verify via /v1/verify_receipt instead.
-    if (!selfTestEncoders()) {
-      nobleStatus = 'fallback';
-      console.warn('[verify] JS encoder self-test failed; falling back to /v1/verify_receipt');
-    }
-  } catch (e) {
-    nobleStatus = 'fallback';
-    console.warn('[verify] crypto libs unavailable, falling back to /v1/verify_receipt:', e);
-  }
-})();
+// ── crypto + encoders ───────────────────────────────────────────────────────
+// Loaded from /emem-verify-core.js, which this page used to carry inline and
+// the MCP Apps fact card now also uses. One transcription of the emem-attest
+// preimage rules, not two: a second copy is a second thing to keep in step
+// with the Rust signer, and the drift would be silent, because a wrong
+// encoder computes a wrong digest and a wrong digest reads as a forged
+// receipt rather than as a bug.
+//
+// The libraries are bundled into that file rather than imported from a CDN.
+// This page worked either way; the card cannot, because a SEP-1865 host
+// applies `connect-src 'none'` and a runtime import would fail silently.
+const _core = globalThis.ememVerifyInternals || null;
+const nobleEd     = _core && _core.ed;
+const nobleBlake3 = _core && _core.blake3;
+// Same rule as before: if the encoders disagree with the vectors the Rust
+// signer emitted, this page must not compute digests locally at all. It falls
+// back to /v1/verify_receipt rather than reporting a mismatch it caused.
+let nobleStatus = (_core && globalThis.ememVerify.selfTest()) ? 'ok' : 'fallback';
+if (nobleStatus !== 'ok') {
+  console.warn('[verify] local encoders unavailable or failed self-test; using /v1/verify_receipt');
+}
+const nobleReady = Promise.resolve();
+const b32decode = _core && _core.b32decode;
+const hex = _core && _core.hex;
+const u8 = _core && _core.u8;
+const RT = _core && _core.RT;
+const MT = _core && _core.MT;
+const manifestHex = _core && _core.manifestHex;
+const edgesHex = _core && _core.edgesHex;
+const scopeHex = _core && _core.scopeHex;
+const asOfHex = _core && _core.asOfHex;
+const fieldHex = _core && _core.fieldHex;
+const merkleBindingV2Hex = _core && _core.merkleBindingV2Hex;
+const buildPreimageV1Bytes = _core && _core.buildPreimageV1Bytes;
+const buildPreimageV0Bytes = _core && _core.buildPreimageV0Bytes;
+const buildPreimageBytes = _core && _core.buildPreimageBytes;
+const buildPreimageDisplay = _core && _core.buildPreimageDisplay;
+const _sigBytes = _core && _core.sigBytes;
+const _pubBytes = _core && _core.pubBytes;
 
-// Ground-truth vectors from the Rust signer (emem-fact / emem-attest).
-// Regenerate if the canonical encodings ever change.
-const CBOR_VECTORS = {
-  // blake3(canonical_cbor(BTreeMap{bands_cid:bbb,registry_cid:rrr,schema_cid:sss,sources_cid:ooo}))
-  manifestHex: 'de14467c03ed214d08ad536ba2923fed93dfd1d2af63c74d1b08131b00ea3915',
-  // blake3(canonical_cbor(["e1","e2"]))
-  edgesHex: '5a27c406ddc3b90b10c07edd1c0902a4901ede4c0efc48d6d792c92f85d8cca6',
-  // blake3(canonical_cbor(Scope{user_id:u1,run_id:r9}))
-  scopeHex: '6306e69a1f2e0df252a01f76785440c4f3d0704b3872a01bda85446256e8d45c',
-  // blake3(canonical_cbor(AsOfReceipt{valid_time:1767225600,transaction_time:"2026-05-29T00:00:00Z"}))
-  asOfHex: '89593e75f23de38f21e520b65c8b86a032cd83f48335bbf95cb7b2b7debbc994',
-  // receipt_preimage_v1("RID","2026-06-12T00:00:00Z",Some(aa),None,Some(bb),Some(cc),"emem.recall",[cellA,cellB],[fc1])
-  preimageV1: '96562b90bf1a74063fff3807a56f98a162b188bd7ac08fea74147606bcbb67b1',
-};
-function selfTestEncoders(){
-  try {
-    const m = manifestHex({ source_versions: { bands_cid:'bbb', registry_cid:'rrr', schema_cid:'sss', sources_cid:'ooo' } });
-    if (m !== CBOR_VECTORS.manifestHex) return false;
-    const e = edgesHex({ edge_cids: ['e2','e1'] });
-    if (e !== CBOR_VECTORS.edgesHex) return false;
-    const s = scopeHex({ scope: { user_id:'u1', run_id:'r9' } });
-    if (s !== CBOR_VECTORS.scopeHex) return false;
-    const a = asOfHex({ as_of: { valid_time:1767225600, transaction_time:'2026-05-29T00:00:00Z' } });
-    if (a !== CBOR_VECTORS.asOfHex) return false;
-    // The preimage vector uses literal segment hex (aa/bb/cc), not derived
-    // digests, so rebuild it with the segment hex injected directly. This
-    // exercises the tagging + length-prefix layout end-to-end.
-    const preStub = buildPreimageV1WithHex('RID','2026-06-12T00:00:00Z','aa',null,'bb','cc','emem.recall',['cellA','cellB'],['fc1']);
-    if (hex(nobleBlake3(preStub)) !== CBOR_VECTORS.preimageV1) return false;
-    return true;
-  } catch (e) {
-    console.warn('[verify] encoder self-test threw:', e);
-    return false;
-  }
-}
-// Test-only: build a v1 preimage from already-computed segment hex strings.
-function buildPreimageV1WithHex(reqId, servedAt, sh, ah, eh, mh, primitive, cells, cids){
-  const out = [];
-  const dom = _enc.encode('emem.preimage.v1\x00');
-  for (let i=0;i<dom.length;i++) out.push(dom[i]);
-  const d = _enc.encode('receipt'); u32le(d.length, out); for (let i=0;i<d.length;i++) out.push(d[i]);
-  v1Seg(RT.REQUEST_ID, reqId, out);
-  v1Seg(RT.SERVED_AT, servedAt, out);
-  if (sh) v1Seg(RT.SCOPE, sh, out);
-  if (ah) v1Seg(RT.AS_OF, ah, out);
-  if (eh) v1Seg(RT.EDGES, eh, out);
-  if (mh) v1Seg(RT.MANIFEST, mh, out);
-  v1Seg(RT.PRIMITIVE, primitive, out);
-  v1SegList(RT.CELLS, cells, out);
-  v1SegList(RT.FACT_CIDS, cids, out);
-  return u8(out);
-}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -674,293 +635,6 @@ function setStatus(kind, text, sub){
 
 // base32-nopad-lowercase decoder. Same alphabet emem uses everywhere
 // (RFC 4648 a-z2-7). Returns a Uint8Array.
-const B32A = 'abcdefghijklmnopqrstuvwxyz234567';
-function b32decode(s){
-  s = s.toLowerCase().replace(/=+$/, '');
-  const out = new Uint8Array(Math.floor(s.length * 5 / 8));
-  let bits = 0, value = 0, idx = 0;
-  for (const c of s) {
-    const i = B32A.indexOf(c);
-    if (i < 0) throw new Error('bad base32 char: ' + c);
-    value = (value << 5) | i;
-    bits += 5;
-    if (bits >= 8) {
-      out[idx++] = (value >>> (bits - 8)) & 0xff;
-      bits -= 8;
-    }
-  }
-  return out.slice(0, idx);
-}
-
-// ── Minimal canonical-CBOR encoder ──────────────────────────────────────────
-// Reproduces ciborium's output for the four shapes the preimage needs:
-// definite-length text strings, unsigned ints (shortest form), a
-// definite array of text, and a definite map of string→string in a given
-// key order. Validated at load time against vectors emitted by the Rust
-// signer (see CBOR_VECTORS / selfTestCbor); if a vector mismatches, the
-// browser path disables itself and the page verifies via the server.
-const _enc = new TextEncoder();
-function cborHead(major, n, out){
-  const mt = major << 5;
-  if (n < 24) { out.push(mt | n); }
-  else if (n < 0x100) { out.push(mt | 24, n & 0xff); }
-  else if (n < 0x10000) { out.push(mt | 25, (n>>>8)&0xff, n&0xff); }
-  else if (n < 0x100000000) { out.push(mt | 26, (n>>>24)&0xff,(n>>>16)&0xff,(n>>>8)&0xff,n&0xff); }
-  else {
-    // 64-bit: split via BigInt for values beyond 2^32 (e.g. far-future tslot).
-    const b = BigInt(n);
-    out.push(mt | 27);
-    for (let s = 56n; s >= 0n; s -= 8n) out.push(Number((b >> s) & 0xffn));
-  }
-}
-function cborText(str, out){
-  const b = _enc.encode(str);
-  cborHead(3, b.length, out);
-  for (let i=0;i<b.length;i++) out.push(b[i]);
-}
-function cborUint(n, out){ cborHead(0, n, out); }
-function cborArrayText(arr, out){
-  cborHead(4, arr.length, out);
-  for (const s of arr) cborText(s, out);
-}
-// Map with keys emitted in the EXACT order supplied (caller pre-sorts to
-// match the server's BTreeMap iteration order).
-function cborMapStr(pairs, out){
-  cborHead(5, pairs.length, out);
-  for (const [k,v] of pairs){ cborText(k, out); cborText(v, out); }
-}
-function u8(arr){ return new Uint8Array(arr); }
-function hex(u8a){ let s=''; for (let i=0;i<u8a.length;i++) s+=u8a[i].toString(16).padStart(2,'0'); return s; }
-
-// blake3 → lowercase hex of canonical CBOR of source_versions (BTreeMap,
-// key-sorted). Returns null for an empty map so the segment is omitted.
-function manifestHex(receipt){
-  const sv = receipt.source_versions || {};
-  const keys = Object.keys(sv).sort();
-  if (keys.length === 0) return null;
-  const out = [];
-  cborMapStr(keys.map(k => [k, String(sv[k])]), out);
-  return hex(nobleBlake3(u8(out)));
-}
-// blake3 hex of canonical CBOR of the SORTED edge-cid string list. null when empty.
-function edgesHex(receipt){
-  const eds = (receipt.edge_cids || []).map(String).slice().sort();
-  if (eds.length === 0) return null;
-  const out = []; cborArrayText(eds, out);
-  return hex(nobleBlake3(u8(out)));
-}
-// blake3 hex of canonical CBOR of a non-empty Scope (declaration order:
-// user_id, agent_id, run_id, org_id; absent fields omitted). null when empty.
-function scopeHex(receipt){
-  const sc = receipt.scope; if (!sc) return null;
-  const pairs = [];
-  for (const k of ['user_id','agent_id','run_id','org_id'])
-    if (sc[k] != null) pairs.push([k, String(sc[k])]);
-  if (pairs.length === 0) return null;
-  const out = []; cborMapStr(pairs, out);
-  return hex(nobleBlake3(u8(out)));
-}
-// blake3 hex of canonical CBOR of a bounded AsOfReceipt (valid_time:u64,
-// transaction_time:string; absent fields omitted). null when unbounded.
-function asOfHex(receipt){
-  const a = receipt.as_of; if (!a) return null;
-  const pairs = [];
-  const out = [];
-  let n = 0;
-  if (a.valid_time != null) n++;
-  if (a.transaction_time != null) n++;
-  if (n === 0) return null;
-  cborHead(5, n, out);
-  if (a.valid_time != null){ cborText('valid_time', out); cborUint(a.valid_time, out); }
-  if (a.transaction_time != null){ cborText('transaction_time', out); cborText(String(a.transaction_time), out); }
-  return hex(nobleBlake3(u8(out)));
-}
-
-// ── v1 preimage (preimage_version >= 1) ─────────────────────────────────────
-// PreimageV1: blake3( "emem.preimage.v1\x00" || u32le(len(domain)) || domain
-//   || seg* ), where each fixed segment is  tag(1) || u32le(len) || bytes  and
-//   each list segment is  tag(1) || u32le(count) || (u32le(len)||bytes)* .
-// Mirrors emem-attest::receipt_preimage_v1 byte-for-byte.
-const RT = { REQUEST_ID:1, SERVED_AT:2, SCOPE:3, AS_OF:4, EDGES:5, MANIFEST:6, PRIMITIVE:7, CELLS:8, FACT_CIDS:9,
-             FIELD:10, MERKLE:11 };
-// Sub-preimage tags for the v2 merkle binding (emem-attest::merkle_tag).
-const MT = { ROOT:1, LEAF_INDEX:2, PATH:3, RULE_VERSION:4, ABSENT:5 };
-function u32le(n, out){ out.push(n&0xff,(n>>>8)&0xff,(n>>>16)&0xff,(n>>>24)&0xff); }
-function v1Seg(tag, str, out){
-  const b = _enc.encode(str); out.push(tag); u32le(b.length, out);
-  for (let i=0;i<b.length;i++) out.push(b[i]);
-}
-function v1SegList(tag, arr, out){
-  out.push(tag); u32le(arr.length, out);
-  for (const s of arr){ const b=_enc.encode(s); u32le(b.length,out); for (let i=0;i<b.length;i++) out.push(b[i]); }
-}
-// Raw-byte segment (the merkle sub-preimage binds hashes, not strings).
-function v1SegBytes(tag, bytes, out){
-  out.push(tag); u32le(bytes.length, out);
-  for (let i=0;i<bytes.length;i++) out.push(bytes[i]);
-}
-
-// Accept the three shapes a 32-byte hash arrives in over the wire: a JSON
-// array of octets (serde's default for [u8;32]), lowercase hex, or base32.
-function _bytesOf(v){
-  if (Array.isArray(v)) return new Uint8Array(v);
-  if (typeof v === 'string') {
-    if (/^[0-9a-fA-F]+$/.test(v) && v.length % 2 === 0) {
-      const o = new Uint8Array(v.length/2);
-      for (let i=0;i<o.length;i++) o[i] = parseInt(v.substr(i*2,2),16);
-      return o;
-    }
-    try { return b32decode(v); } catch(_) {}
-  }
-  return new Uint8Array(0);
-}
-
-// blake3 hex of the field binding — emem-attest::field_binding_v1. A tagged
-// sub-preimage over (aoi_cid, derivation_cid), not CBOR like scope/as_of.
-// Absent on ordinary receipts; present on field responses.
-function fieldHex(receipt){
-  const f = receipt.field; if (!f) return null;
-  const out = [];
-  const dom = _enc.encode('emem.preimage.v1\x00');
-  for (let i=0;i<dom.length;i++) out.push(dom[i]);
-  const d = _enc.encode('field'); u32le(d.length, out); for (let i=0;i<d.length;i++) out.push(d[i]);
-  v1Seg(1, f.aoi_cid || '', out);
-  v1Seg(2, f.derivation_cid || '', out);
-  return hex(nobleBlake3(u8(out)));
-}
-
-// Mirrors emem-attest::merkle_binding_v2. Returns the lowercase-hex digest
-// that the receipt's MERKLE segment carries.
-//
-// A receipt with no proof hashes an explicit ABSENT marker rather than
-// skipping the segment. That asymmetry is the entire mechanism: if absence
-// were encoded by omission, a proof deleted in transit would hash the same
-// as a receipt that never had one, and stripping would stay invisible —
-// which is the v1 behaviour this replaces.
-function merkleBindingV2Hex(receipt){
-  const out = [];
-  const dom = _enc.encode('emem.preimage.v1\x00');
-  for (let i=0;i<dom.length;i++) out.push(dom[i]);
-  const d = _enc.encode('merkle'); u32le(d.length, out); for (let i=0;i<d.length;i++) out.push(d[i]);
-  const p = receipt.merkle_proof;
-  if (!p) {
-    v1SegBytes(MT.ABSENT, [], out);
-  } else {
-    v1SegBytes(MT.ROOT, _bytesOf(p.root), out);
-    const li = []; u32le(Number(p.leaf_index) || 0, li);
-    v1SegBytes(MT.LEAF_INDEX, li, out);
-    const path = [];
-    for (const h of (p.path || [])) { const b = _bytesOf(h); for (let i=0;i<b.length;i++) path.push(b[i]); }
-    v1SegBytes(MT.PATH, path, out);
-    v1SegBytes(MT.RULE_VERSION, [Number(p.version) || 0], out);
-  }
-  return hex(nobleBlake3(u8(out)));
-}
-
-function buildPreimageV1Bytes(receipt){
-  const out = [];
-  const dom = _enc.encode('emem.preimage.v1\x00'); // 17 bytes incl NUL
-  for (let i=0;i<dom.length;i++) out.push(dom[i]);
-  const d = _enc.encode('receipt'); u32le(d.length, out); for (let i=0;i<d.length;i++) out.push(d[i]);
-  v1Seg(RT.REQUEST_ID, receipt.request_id || '', out);
-  v1Seg(RT.SERVED_AT,  receipt.served_at  || '', out);
-  const sh = scopeHex(receipt);    if (sh)  v1Seg(RT.SCOPE, sh, out);
-  const ah = asOfHex(receipt);     if (ah)  v1Seg(RT.AS_OF, ah, out);
-  const eh = edgesHex(receipt);    if (eh)  v1Seg(RT.EDGES, eh, out);
-  const mh = manifestHex(receipt); if (mh)  v1Seg(RT.MANIFEST, mh, out);
-  v1Seg(RT.PRIMITIVE, receipt.primitive || '', out);
-  v1SegList(RT.CELLS, receipt.cells || [], out);
-  v1SegList(RT.FACT_CIDS, receipt.fact_cids || [], out);
-  // FIELD then MERKLE, in that order — both are appended after FACT_CIDS
-  // so a receipt lacking them hashes identically to one signed before the
-  // tags existed. Order is load-bearing, not cosmetic.
-  const fh = fieldHex(receipt);    if (fh)  v1Seg(RT.FIELD, fh, out);
-  if (Number(receipt.preimage_version) >= 2) {
-    v1Seg(RT.MERKLE, merkleBindingV2Hex(receipt), out);
-  }
-  return u8(out);
-}
-
-// ── v0 legacy preimage (preimage_version absent/0) ──────────────────────────
-// request_id | served_at | [scope|][as_of|][edges|][manifest|] primitive |
-//   (cell ',')* | (cid ',')*  — '|'-joined, each list element trailed by ','.
-function buildPreimageV0Bytes(receipt){
-  const parts = [];
-  const push = s => parts.push(_enc.encode(s));
-  push(receipt.request_id || ''); push('|');
-  push(receipt.served_at  || ''); push('|');
-  const sh = scopeHex(receipt);    if (sh) { push(sh); push('|'); }
-  const ah = asOfHex(receipt);     if (ah) { push(ah); push('|'); }
-  const eh = edgesHex(receipt);    if (eh) { push(eh); push('|'); }
-  const mh = manifestHex(receipt); if (mh) { push(mh); push('|'); }
-  push(receipt.primitive || ''); push('|');
-  for (const c of (receipt.cells || []))     { push(c); push(','); }
-  push('|');
-  for (const c of (receipt.fact_cids || [])) { push(c); push(','); }
-  let len = 0; for (const p of parts) len += p.length;
-  const out = new Uint8Array(len);
-  let o = 0; for (const p of parts) { out.set(p, o); o += p.length; }
-  return out;
-}
-
-// Version dispatch — what the responder actually signed.
-function buildPreimageBytes(receipt){
-  return (Number(receipt.preimage_version) >= 1)
-    ? buildPreimageV1Bytes(receipt)
-    : buildPreimageV0Bytes(receipt);
-}
-
-// A readable rendering of the preimage for the receipt card. v1 is a
-// binary, tagged, length-prefixed stream (not a printable string), so we
-// show its labelled segment list; v0 shows the literal '|'-joined string.
-function buildPreimageDisplay(receipt){
-  if (Number(receipt.preimage_version) >= 1){
-    const segs = [];
-    segs.push(`domain="receipt"`);
-    segs.push(`request_id=${receipt.request_id || ''}`);
-    segs.push(`served_at=${receipt.served_at || ''}`);
-    const sh = scopeHex(receipt);    if (sh) segs.push(`scope=${sh}`);
-    const ah = asOfHex(receipt);     if (ah) segs.push(`as_of=${ah}`);
-    const eh = edgesHex(receipt);    if (eh) segs.push(`edges=${eh}`);
-    const mh = manifestHex(receipt); if (mh) segs.push(`manifest=${mh}`);
-    segs.push(`primitive=${receipt.primitive || ''}`);
-    segs.push(`cells=[${(receipt.cells || []).join(', ')}]`);
-    segs.push(`fact_cids=[${(receipt.fact_cids || []).join(', ')}]`);
-    return 'v1 · blake3(domain-separated, length-prefixed segments):\n  ' + segs.join('\n  ');
-  }
-  const scopeSeg    = (() => { const h = scopeHex(receipt);    return h ? h + '|' : ''; })();
-  const asOfSeg     = (() => { const h = asOfHex(receipt);     return h ? h + '|' : ''; })();
-  const edgesSeg    = (() => { const h = edgesHex(receipt);    return h ? h + '|' : ''; })();
-  const manifestSeg = (() => { const h = manifestHex(receipt); return h ? h + '|' : ''; })();
-  const cells = (receipt.cells || []).join(',') + ',';
-  const cids  = (receipt.fact_cids || []).join(',') + ',';
-  return `${receipt.request_id || ''}|${receipt.served_at || ''}|${scopeSeg}${asOfSeg}${edgesSeg}${manifestSeg}${receipt.primitive || ''}|${cells}|${cids}`;
-}
-
-// Receipts come over the wire with the signature as a 64-element byte
-// array (`signature`) and the pubkey as either a 32-byte array
-// (`responder`) or the base32 string (`responder_pubkey_b32`). Older /
-// CBOR-canonical encodings may also carry `sig_b32` / `signature_b32`.
-// Accept all four shapes so a verifier never silently rejects a valid
-// receipt because the wire format normalised differently than the
-// caller expected.
-function _sigBytes(receipt){
-  if (Array.isArray(receipt.signature)) return new Uint8Array(receipt.signature);
-  if (typeof receipt.signature === 'string') {
-    try { return b32decode(receipt.signature); } catch(_) {}
-  }
-  if (receipt.sig_b32)       return b32decode(receipt.sig_b32);
-  if (receipt.signature_b32) return b32decode(receipt.signature_b32);
-  return null;
-}
-function _pubBytes(receipt){
-  if (Array.isArray(receipt.responder)) return new Uint8Array(receipt.responder);
-  if (receipt.responder_pubkey_b32) return b32decode(receipt.responder_pubkey_b32);
-  if (typeof receipt.responder === 'string') {
-    try { return b32decode(receipt.responder); } catch(_) {}
-  }
-  return null;
-}
 
 async function verifyReceiptInBrowser(receipt){
   await nobleReady;
@@ -1293,8 +967,8 @@ async function verifyAndRender(receiptIn){
       + 'The responder\'s own endpoint reports the signature as <strong>'
       + (server.ok === true ? 'valid' : server.ok === false ? 'INVALID' : 'unknown')
       + '</strong>, but that is the signer vouching for itself and is not proof. '
-      + 'The libraries load from esm.sh; if it is blocked here, retry on a network that allows it, '
-      + 'or verify offline with the recipe below, which depends on nothing this page serves.');
+      + 'The check runs in your browser from /emem-verify-core.js; if that did not load, '
+      + 'reload, or verify offline with the recipe below, which depends on nothing this page serves.');
     return;
   } else if (result.via === 'browser' && result.ok !== true) {
     // The browser computed a non-match. Before declaring tamper, cross-check

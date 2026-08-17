@@ -191,8 +191,8 @@ new attestations land:
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface documents 157 paths under
-`/v1/*` (163 total in `/openapi.json`), 107 MCP tools (16 core, 91 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 107), 19 static MCP
+`/v1/*` (163 total in `/openapi.json`), 108 MCP tools (16 core, 92 extended, with
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 108), 19 static MCP
 resources + 8 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
@@ -216,7 +216,7 @@ Four discovery URLs for agent onboarding:
 | Resource | Live count |
 |---|---|
 | REST paths (OpenAPI) | 163 documented, 157 under `/v1/*` |
-| MCP tools | 107 (16 core / 91 extended) |
+| MCP tools | 107 (16 core / 92 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
 | MCP resources | 19 static + 8 URI templates |
@@ -604,7 +604,7 @@ without historical fetch return `status: "present_only"`; check
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
 `tools/list` at `/mcp` advertises the 16 tools of the loop in one page (about
-66 KB of descriptors); `/mcp/full` advertises all 107 (about 288 KB over 7
+66 KB of descriptors); `/mcp/full` advertises all 108 (about 288 KB over 7
 pages), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of

@@ -835,6 +835,7 @@ pub fn router(state: AppState) -> Router {
         // decide. /verify?receipt=<base64> is also supported so an agent
         // can share a one-click verifiable link.
         .route("/verify", get(serve_verify_html))
+        .route("/emem-verify-core.js", get(serve_verify_core_js))
         .route("/scoreboard", get(serve_scoreboard_html))
         .route("/card", get(serve_card_html))
         .route("/a2a", get(serve_a2a_html))
@@ -4407,6 +4408,14 @@ async fn serve_temporal_md() -> Response {
 }
 async fn serve_nav_css() -> Response {
     text_response("text/css; charset=utf-8", NAV_CSS)
+}
+/// The browser verifier, shared by `/verify` and the MCP Apps fact card.
+///
+/// Served rather than inlined into the page so there is exactly one copy of
+/// the emem-attest preimage rules in the tree. The card cannot fetch it, so
+/// it gets the same bytes spliced in at startup.
+async fn serve_verify_core_js() -> Response {
+    text_response("text/javascript; charset=utf-8", EMEM_VERIFY_CORE_JS)
 }
 async fn serve_tokens_css() -> Response {
     text_response("text/css; charset=utf-8", TOKENS_CSS)

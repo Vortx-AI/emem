@@ -322,6 +322,12 @@ PROSE_CLAIMS = (
     # only what a pattern here was watching.
     ("rest_paths_v1", r"(\d{2,4})\s+(?:documented\s+)?/v1\s+paths"),
     ("rest_paths_v1", r"(\d{2,4})\s+paths\s+under\s*/v1"),
+    # Both of these sat on /reference reading 122 against a live 157 while the
+    # gate reported no drift, because it matches phrasings and neither phrasing
+    # was listed. A number the gate cannot see is a number that only moves when
+    # somebody happens to read the page.
+    ("rest_paths_v1", r"(\d{2,4})\s+documented\s+paths\s+under\s*/v1"),
+    ("rest_paths_v1", r"(\d{2,4})\s+documented\s+under\s*/v1"),
     ("rest_paths_v1", r"(\d{2,4})\s+documented\s+REST\s+paths\s+under\s*/v1"),
     # "144 documented, 138 under /v1/*": the first number is the whole OpenAPI
     # document, the second is the /v1 subset, so they bind to different keys.
@@ -925,16 +931,16 @@ MCP_BYTES_TOLERANCE = 0.5
 MCP_BYTES_CLAIMS = [
     # (file, regex capturing the KB figure, which surface it describes)
     ("README.md", r"core loop in one page, about (\d+) KB of context", "core"),
-    ("README.md", r"all 107 descriptors costs about (\d+) KB", "full"),
+    ("README.md", r"all " + str(CANON["mcp_tools"]) + r" descriptors costs about (\d+) KB", "full"),
     ("docs/agents.md", r"in one page \(about\s+(\d+) KB of descriptors\)", "core"),
-    ("docs/agents.md", r"advertises all 107 \(about (\d+) KB over 7", "full"),
+    ("docs/agents.md", r"advertises all " + str(CANON["mcp_tools"]) + r" \(about (\d+) KB over 7", "full"),
     ("docs/intro.md", r"carries about (\d+) KB of descriptors instead of (?:\d+) KB", "core"),
     ("docs/intro.md", r"instead of (\d+) KB", "full"),
     ("docs/mcp-directory.md", r"in a single page \(about (\d+) KB\)", "core"),
-    ("docs/mcp-directory.md", r"the full 107 cost about (\d+) KB", "full"),
+    ("docs/mcp-directory.md", r"the full " + str(CANON["mcp_tools"]) + r" cost about (\d+) KB", "full"),
     ("docs/integrations.md", r"registers about (\d+) KB of descriptors", "core"),
-    ("docs/integrations.md", r"rather than about (\d+) KB for all 107", "full"),
-    ("docs/whitepaper.md", r"All 107 cost about (\d+) KB", "full"),
+    ("docs/integrations.md", r"rather than about (\d+) KB for all " + str(CANON["mcp_tools"]) + r"", "full"),
+    ("docs/whitepaper.md", r"All " + str(CANON["mcp_tools"]) + r" cost about (\d+) KB", "full"),
     ("docs/whitepaper.md", r"core loop in a single page, about (\d+) KB", "core"),
 ]
 

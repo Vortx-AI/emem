@@ -421,4 +421,34 @@ root.ememVerify = {
   selfTest: selfTestEncoders,
   blake3Hex: function (bytes) { return hex(nobleBlake3(bytes)); },
 };
+
+// The pieces emem.dev/verify draws its explanation from. That page does not
+// only report a verdict, it shows the preimage segment by segment, so it
+// needs the encoders themselves rather than the one-call entry point above.
+//
+// Exported so that page can DELETE its own copy. Two transcriptions of one
+// preimage rule is two things to keep in step with emem-attest, and the drift
+// would be silent: the second copy would compute a wrong digest and report a
+// sound receipt as forged.
+root.ememVerifyInternals = {
+  ed: nobleEd,
+  blake3: nobleBlake3,
+  b32decode: b32decode,
+  hex: hex,
+  u8: u8,
+  RT: RT,
+  MT: MT,
+  manifestHex: manifestHex,
+  edgesHex: edgesHex,
+  scopeHex: scopeHex,
+  asOfHex: asOfHex,
+  fieldHex: fieldHex,
+  merkleBindingV2Hex: merkleBindingV2Hex,
+  buildPreimageV1Bytes: buildPreimageV1Bytes,
+  buildPreimageV0Bytes: buildPreimageV0Bytes,
+  buildPreimageBytes: buildPreimageBytes,
+  buildPreimageDisplay: buildPreimageDisplay,
+  sigBytes: _sigBytes,
+  pubBytes: _pubBytes,
+};
 })(typeof globalThis !== "undefined" ? globalThis : this);

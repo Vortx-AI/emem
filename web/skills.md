@@ -394,8 +394,8 @@ that gates auto-loading.
   the loop that the rest of the surface serves: ground a place, cite the fact
   as `emem:fact:<cell64>:<fact_cid>`, hand that line to another agent, and let
   them resolve it to the identical signed bytes and check the receipt without
-  trusting you. 107 tools in total (16 core, 91 extended);
-  `https://emem.dev/mcp/full` advertises all 107, and `tools/call` reaches every
+  trusting you. 108 tools in total (16 core, 92 extended);
+  `https://emem.dev/mcp/full` advertises all 108, and `tools/call` reaches every
   tool by name from either, so the narrower list costs no capability. Call
   `emem_tools` to map the surface, filter it by the shape of the answer you
   need (`{"shape":"raster"}`) or by job (`{"bundle":"robotics"}`), or fetch one

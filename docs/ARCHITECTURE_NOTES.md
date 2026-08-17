@@ -227,14 +227,14 @@ write path from scratch.
 - Canonical catalog: `pub const TOOLS: &[ToolDescriptor]` in
   `crates/emem-mcp/src/lib.rs:716`; `ToolDescriptor` struct at :31-68 (name,
   title, description, when_to_use, input_schema, level, category, four MCP
-  hint flags, tier). 107 tools: 16 core, 91 extended. Helpers: `lookup`
+  hint flags, tier). 108 tools: 16 core, 92 extended. Helpers: `lookup`
   (:1738), `tools_at_level` (:1743), `tools_at_tier` (:1792).
 - JSON-RPC dispatch and the REST mirror live in emem-api-rest
   (`mcp_jsonrpc` at `crates/emem-api-rest/src/lib.rs:14875`, `mcp_tool_call`
   at :16177).
 - Two endpoints, one dispatcher: `/mcp` (`mcp_jsonrpc`) advertises the core
   tier from `tools/list`, `/mcp/full` (`mcp_jsonrpc_full` at :14883)
-  advertises all 107. Both funnel into `mcp_jsonrpc_inner` (:14891) with a
+  advertises all 108. Both funnel into `mcp_jsonrpc_inner` (:14891) with a
   different `default_tier`; see `MCP_CORE_ENDPOINT_TIER` (:14869) for why the
   split exists and which earlier `nextCursor` attempt it supersedes. An
   explicit `{"tier":...}` beats the endpoint default, and `tools/call`
@@ -252,7 +252,7 @@ write path from scratch.
 
 ## Counts, and what guards them
 
-`scripts/sync_counts.py --check` verifies the canonical counts (107 tools,
+`scripts/sync_counts.py --check` verifies the canonical counts (108 tools,
 157 /v1 paths, 46 sources, 43 slots, 129 wired bands, 168 algorithms, 27
 topics, 18 crates) against the registries and the live responder. CI runs it
 (`.github/workflows/ci.yml`, "prose counts match the responder"); it warns

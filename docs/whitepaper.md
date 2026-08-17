@@ -1316,7 +1316,7 @@ them attributes a change, which is exactly the §10.3 gap.
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
 `0.0.0.0:5051`): **157 documented REST paths under `/v1/*`** (163 total
-in OpenAPI) and **107 MCP tools (16 core, 91 extended)**.
+in OpenAPI) and **108 MCP tools (16 core, 92 extended)**.
 
 Discovery on first contact:
 
@@ -1347,15 +1347,15 @@ without touching REST.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 107 cost about 288 KB of every conversation whether or not it
+connect. All 108 cost about 288 KB of every conversation whether or not it
 ever touches Earth observation. So `POST /mcp` advertises the 16 tools of
 the core loop in a single page, about 66 KB, and `POST /mcp/full`
-advertises all 107. Both byte figures were measured on the wire on
+advertises all 108. Both byte figures were measured on the wire on
 2026-08-11 and move whenever a tool description is edited; re-measure
 rather than quote.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
-107 by name at either endpoint**, and an explicit
+108 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure
@@ -1755,7 +1755,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §17: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 107 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §17: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 108 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §17: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 18.2 Claims in v1's supporting material this document withdraws
