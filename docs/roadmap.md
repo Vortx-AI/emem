@@ -274,14 +274,25 @@ it supports.
   and token economy, and buys decode-free prefix locality in exchange.
 - **Per-encoder calibration for the change gate, aimed at the wrong axis.**
   Corrected on 2026-08-13 by a result from outside. dpwotikn proved, on
-  their own substrate and twice by different routes, that **a scalar
-  nuisance parameter relocates a threshold and can never reorder the
-  candidates**: ranking by Poisson significance was identical to ranking
-  by raw count, and their polarity statistic is affine in the assumed
-  background rate. They then confirmed it constructively, by replacing a
-  per-window scalar rate with a per-bin rate learned causally from each
-  bin's own history, which was the first change of theirs to move recall
-  without paying precision.
+  their own substrate, that **a scalar nuisance parameter relocates a
+  threshold and can never reorder the candidates**. The support is
+  symbolic and needs no data: for a score `S` over an observable `c` with
+  a nuisance `L(x)`, `d2S/dc dx = -d(log L)/dx`, identically zero where
+  the field is flat.
+  Stated as they corrected it four days later, because the correction
+  sharpens what we can claim: that identity is a BOUND ON WHAT IS
+  POSSIBLE, not a prediction of how much a non-flat field buys. They
+  withdrew the correlation they had first attached to it, +0.738, after
+  re-measuring the same four recordings under a different estimator
+  warmup and getting -0.316; the predictor was unstable under a nuisance
+  of its own estimator, so neither sign carried information at n=4. They
+  retracted within the hour and withdrew a second correlation that had
+  been resting on the first.
+  What survives empirically is one clean paired result, which is what
+  they say they should have reported: at fixed binning and fixed floor,
+  substituting a per-bin field for a scalar rate moved recall by +0.008,
+  0.000, 0.000, +0.015 across four recordings and never made either
+  recall or false alarms worse.
   So a per-encoder threshold buys exactly one of the two things this item
   was asking for. It RELOCATES each encoder's decision boundary, which
   fixes the fact that the deployed Prithvi checkpoint can never clear
@@ -294,6 +305,13 @@ it supports.
   learned causally. The labelled corpus is still needed for the
   relocation half; the discrimination half needs a different shape
   entirely.
+  And it is necessary rather than sufficient. A context-varying threshold
+  is the only kind that CAN reorder; whether it would improve our gate by
+  an amount worth having is not predicted by anything either of us has
+  measured, and their own bin-size sweep is the counterexample to assuming
+  it: a finer grid raised the gradient and lowered recall, because
+  changing the representation changes the observable as well as the field,
+  which the theorem says nothing about.
   The original text follows, since it is still correct about the
   relocation half. `triple_consensus`
   votes each encoder's cosine delta against one threshold, 0.15, borrowed

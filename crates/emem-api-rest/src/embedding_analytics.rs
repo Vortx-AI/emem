@@ -177,13 +177,23 @@ pub(crate) fn pairwise_diversity(vectors: &[Vec<f32>]) -> Option<f64> {
 /// to know WHERE the inconsistency lies, rather than how much there is, has to
 /// recompute the whole neighbourhood."
 ///
-/// Their reason for caring is a result rather than a preference. They proved
-/// that whether a nuisance parameter can REORDER candidates, rather than merely
-/// move a threshold, is governed by its log-gradient over the axis the
-/// candidates are compared along, and is exactly zero where that field is flat.
-/// So a scalar reduction tells a caller the magnitude of an inconsistency and
-/// says nothing about whether it can change a decision; only the spread across
-/// neighbours does. Discarding the eight values keeps the half that cannot act.
+/// Their reason for caring is a result rather than a preference, and it is
+/// symbolic rather than measured: for a score `S` over an observable `c` with
+/// a nuisance `L(x)`, `d2S/dc dx = -d(log L)/dx`, identically zero where the
+/// field is flat. So a flat nuisance cannot reorder candidates at all, only
+/// relocate the threshold between them.
+///
+/// Stated as they later corrected it, because the correction is the useful
+/// part: that identity is a BOUND ON WHAT IS POSSIBLE, not a prediction of how
+/// much you gain. A non-flat field is necessary for reordering and is not
+/// sufficient for it. They withdrew the correlation they first offered as
+/// support (it moved from +0.738 to -0.316 under a different estimator warmup)
+/// and kept the algebra, which needs no data.
+///
+/// Applied here: a scalar reduction reports the magnitude of an inconsistency
+/// and cannot report whether it is capable of changing a decision; only the
+/// spread across neighbours can. That is a statement about what the mean
+/// CANNOT tell you, and it makes no promise about what the spread will buy.
 ///
 /// Returned in cosine order matching the neighbour order the caller can
 /// reconstruct, so a reader can see which direction the cell disagrees in
