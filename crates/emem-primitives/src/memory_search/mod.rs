@@ -465,14 +465,27 @@ pub async fn memory_search(
     let embedder = global_embedder().map_err(MemorySearchError::Embed)?;
     let query_vec = embedder.embed_query(q)?;
 
-    // Resolve the corpus size + the source we'll need either way (for
-    // snippet fetches or for the brute-force fallback).
+    // The source is needed either way, for snippet fetches. The full LISTING
+    // is not, and eagerly building it is what made this endpoint unusable.
+    //
+    // `list_all()` enumerates every file in the memory store, 18,313 of them
+    // here, and it ran on EVERY query, including the ones the Lance path
+    // answers in 70 ms, purely so `corpus_size` could be reported. The Lance
+    // path never reads `summaries`: `build_hits_from_indexed` takes the
+    // source and fetches only the k files it actually hit. Measured before
+    // this change: 3.3 s to 65 s per query against 0.07 s for the vector
+    // search itself, and the variance tracked the store rather than the
+    // query, which is the tell that the cost was not in the search.
+    //
+    // So the listing is deferred to the one branch that needs it. The count
+    // comes from the index when the fast path answers, which is the same
+    // number by construction: the index has one row per indexed file.
     let source = memory_source();
-    let summaries: Vec<MemoryFileSummary> = match &source {
-        Some(s) => s.list_all().await.unwrap_or_default(),
-        None => Vec::new(),
-    };
-    let corpus_size = summaries.len();
+    let mut summaries: Vec<MemoryFileSummary> = Vec::new();
+    // Set by whichever branch answers. The fast path reads it off the index
+    // with count_rows, measured at 0.01 s; the fallback already has the
+    // listing in hand.
+    let mut corpus_size = 0usize;
 
     // Try the Lance fast-path.
     let lance_disabled = crate::lance_index::lance_disabled();
@@ -493,6 +506,7 @@ pub async fn memory_search(
                 .await?;
             if !res.is_empty() {
                 via = "lance_scan".into();
+                corpus_size = idx.stats().await.rows as usize;
                 hits = build_hits_from_indexed(res, &source, &embedder, &query_vec).await;
             }
         }
@@ -501,6 +515,13 @@ pub async fn memory_search(
     if hits.is_empty() {
         // Brute-force scan: embed every file in the source, score
         // against the query, return top-k. Filters apply as we go.
+        //
+        // This is the only branch that needs the full listing, so this is
+        // where it is paid for.
+        if let Some(s) = &source {
+            summaries = s.list_all().await.unwrap_or_default();
+        }
+        corpus_size = summaries.len();
         let mut scored: Vec<(MemoryFileSummary, f32, String)> = Vec::new();
         for s in &summaries {
             if let Some(ref want) = req.kind {
