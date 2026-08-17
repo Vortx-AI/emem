@@ -40,6 +40,10 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# What a full debug rebuild of the workspace costs, measured rather than
+# guessed: target/debug reached 18 GB across the four suites below.
+BUILD_HEADROOM_GB = 24.0
+
 # (label, argv, needs_network, slow)
 # Ordered cheapest-first so a broken tree fails in seconds rather than minutes.
 CHECKS = [
@@ -96,6 +100,31 @@ def main() -> int:
     local_node = os.path.expanduser("~/.local/node/bin")
     if os.path.isdir(local_node):
         env["PATH"] = local_node + os.pathsep + env["PATH"]
+
+    # A check that can take production down is not a safe check.
+    #
+    # The four cargo suites rebuild target/debug to about 18 GB. On 2026-08-17
+    # this box had 19 GB free, the rebuild consumed it, sled hit ENOSPC
+    # mid-snapshot, and emem.dev crash-looped eighteen times with a corrupt
+    # snapshot file. The release checker caused the outage it exists to
+    # prevent shipping.
+    #
+    # So it now looks before it builds. Too little headroom is UNPROVEN, not a
+    # pass and not a failure: nothing was found wrong, and nothing was checked
+    # either, and running anyway would risk the live store to find out.
+    free_gb = shutil.disk_usage(REPO).free / 1e9
+    needs_build = any(
+        argv[0] == "cargo" for _, argv, _, slow in CHECKS if not (a.quick and slow)
+    )
+    if needs_build and free_gb < BUILD_HEADROOM_GB:
+        print(f"  ??   rust suites need about {BUILD_HEADROOM_GB:.0f} GB of build "
+              f"space and this volume has {free_gb:.1f} GB free.")
+        print(f"       Refusing to build: the live store shares this volume, and "
+              f"filling it is how emem.dev went down on 2026-08-17.")
+        print(f"       Reclaim with: rm -rf {os.path.join(REPO, 'target/debug')}")
+        print(f"       (never `cargo clean`, which also removes the running "
+              f"release binary)")
+        return 2
 
     passed, failed, unproven, skipped = [], [], [], []
     print("release check\n")
