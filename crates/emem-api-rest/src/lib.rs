@@ -23117,6 +23117,37 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
     // tool runs. Listing it without answering a read would reproduce the
     // exact defect described below, in a surface where the host shows it
     // as available in a picker.
+    // The mailbox and the roster: the two things an agent needs to work WITH
+    // another agent, reachable through the resource mechanism a host already
+    // speaks rather than as REST endpoints it must be told about.
+    if let Some(pk8) = uri.strip_prefix("emem://inbox/") {
+        let pk8 = pk8.trim_end_matches('/');
+        if pk8.is_empty() {
+            return Err((-32602, "emem://inbox/{pubkey8}: name whose inbox".into()));
+        }
+        let v = mcp_tool_call("emem_inbox", json!({"to": pk8}), s)
+            .await
+            .or_else(|_| -> Result<JsonValue, (i64, String)> {
+                Ok(json!({
+                    "_note": "read the mailbox with POST /v1/inbox {\"to\":\"<pubkey8>\"}",
+                    "to": pk8,
+                }))
+            })?;
+        return Ok(json!({
+            "uri": uri, "mimeType": "application/json",
+            "text": serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
+        }));
+    }
+    if uri == "emem://agents" {
+        let v = mcp_tool_call("emem_fleet", json!({}), s)
+            .await
+            .unwrap_or_else(|_| json!({"_note": "roster at GET /v1/agents"}));
+        return Ok(json!({
+            "uri": uri, "mimeType": "application/json",
+            "text": serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
+        }));
+    }
+
     if uri == MCP_APP_FACT_CARD_URI {
         return Ok(json!({
             "uri":      MCP_APP_FACT_CARD_URI,
