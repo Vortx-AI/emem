@@ -25,8 +25,6 @@ for Claude Code, Cursor, Cline, REST, Python and TypeScript.
 
 > **If you are an agent reading this:** connect to `https://emem.dev/mcp` and read [`https://emem.dev/llms.txt`](https://emem.dev/llms.txt). The one habit that matters most: before your context is compacted, keep the `emem:fact:` token for anything you verified, so you or any other agent can resolve and re-check it later. Your A2A protocol card is [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json); the signed agent collaboration lives in the `a2a` block of [`/.well-known/mcp.json`](https://emem.dev/.well-known/mcp.json).
 
-> *"A model's memory ends where its context does. emem is the memory that lives outside: signed, content-addressed tokens that survive compaction, hand-offs, and model swaps, so agents that share no vendor and no trust can still cite the same fact. Open protocol, Apache-2.0. Earth is the first substrate."*
-
 ---
 
 ## Connect it if you are building any of these
@@ -128,7 +126,7 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"place":"Bengaluru","bands":["copdem30m.elevation_mean"]}'
 ```
 
-The response carries the elevation at that cell, the record's content id (`fact_cid`), and an ed25519 receipt. Read the number off `value_verbatim` in your own response rather than off this page: it is the value exactly as it was signed, and a figure typed into a README is the paraphrase problem committed on the page arguing against it. This one had already drifted, which is the point: see [below](#a-value-moved-and-the-citation-did-not).
+The response carries the elevation at that cell, the record's content id (`fact_cid`), and an ed25519 receipt. Read the number off `value_verbatim` in your own response rather than off this page. It is the value exactly as signed, and a number typed into a README is a copy that can go stale. This one did: see [below](#a-value-moved-and-the-citation-did-not).
 
 One more paste checks that receipt against the responder's published key, so you are trusting neither the server nor this README:
 
@@ -155,7 +153,7 @@ emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45
 
 The address of a place plus the fingerprint of one signed observation there. An agent keeps this line and drops the payload. Any agent, any model, any month later resolves it back to the exact same bytes and re-checks the signature without trusting whoever sent it. In practice your agent runs four verbs: locate a place, recall its signed facts, reason over them, cite the tokens in its output. Verification is the receiver's single call.
 
-**One honest measurement, against our own interest.** A token is not a compression trick. Measured over 131 scalar facts at 12 places across 57 bands: a token is 84 characters and 51 LLM tokens, against 10.9 characters and 5.4 LLM tokens for the value it stands for, so a single token costs **9.5x more context than pasting the bare number**. We used to publish 5.8x as the self-criticism; the real figure is worse, because a base32 cid fragments under BPE and characters were the wrong unit to measure a context window in. The token earns its size in exactly three places: when a value must survive a summariser, when a third party must check it without trusting you, and when you bundle many facts behind one `emem:bundle:` handle that stays 38 characters and 23 LLM tokens flat at any count up to 256. A bundle beats individual tokens at N=1 and beats pasting the plain values from N>=5. If your answer needs one number that already fits in the window, paste the number.
+**A token is not a compression trick, and the measurement says so.** Measured over 131 scalar facts at 12 places across 57 bands: a token is 84 characters and 51 LLM tokens, against 10.9 characters and 5.4 LLM tokens for the value it stands for, so a single token costs **9.5x more context than pasting the bare number**. An earlier figure of 5.8x understated it: a base32 cid fragments under BPE, and characters are the wrong unit for a context window. The token earns its size in exactly three places: when a value must survive a summariser, when a third party must check it without trusting you, and when you bundle many facts behind one `emem:bundle:` handle that stays 38 characters at any count up to 256 (19 to 23 LLM tokens, since the cid falls differently under BPE each time). A bundle beats individual tokens at N=1 and beats pasting the plain values from N>=5. If your answer needs one number that already fits in the window, paste the number.
 
 ## The token grammar
 
@@ -237,7 +235,7 @@ Runnable proof of the cross-agent case: [`examples/fleet-memory/`](examples/flee
 
 ## When not to use it
 
-These are honest no's, and they are the reason the yes above is worth trusting. emem is for facts about physical places that must outlive a context. It is the **wrong** tool for:
+These are real no's, and they are why the yes above is worth trusting. emem is for facts about physical places that must outlive a context. It is the **wrong** tool for:
 
 - conversational or preference memory (what the user likes, what was said last turn),
 - ground truth finer than about 10 metres,
@@ -253,12 +251,12 @@ It also sits **beside** retrieval, not under it. emem does not hold your documen
 3. Every record names its source, its versioned algorithm, and its provenance class, so you know whether a value is recomputable from raw data or trusted through a model, a device, or a person.
 4. A missing value is a signed absence with a typed reason where the responder looked, and a typed unsigned `unknown` where it could not. Never a bare 404, and never an unknown wearing an absence's signature.
 5. Nothing is overwritten. Later records supersede; disagreement between writers is kept and scored as evidence, never averaged away.
-6. The transparency log is auditable, not just assertable: an append-only RFC 6962 tree over BLAKE3 records every attestation batch. Pin a signed head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), prove it only ever grew (`/v1/log/consistency`), enumerate what it holds (`/v1/log/entries`), prove one entry sits under the head (`/v1/log/inclusion`), and co-sign a head (`/v1/log/witness`) so a split view becomes detectable. The honest gap: a receipt does not yet carry its own log coordinate, so tying one fact to one leaf takes the receipt's batch proof plus enumeration; a receipt that names its leaf is [roadmap](docs/roadmap.md).
+6. The transparency log is auditable, not just assertable: an append-only RFC 6962 tree over BLAKE3 records every attestation batch. Pin a signed head from [`/v1/log/sth`](https://emem.dev/v1/log/sth), prove it only ever grew (`/v1/log/consistency`), enumerate what it holds (`/v1/log/entries`), prove one entry sits under the head (`/v1/log/inclusion`), and co-sign a head (`/v1/log/witness`) so a split view becomes detectable. The gap: a receipt does not yet carry its own log coordinate, so tying one fact to one leaf takes the receipt's batch proof plus enumeration; a receipt that names its leaf is [roadmap](docs/roadmap.md).
 7. A derivation over signed facts can be *recomputed*, not just signed: pin the code for a pure op and the responder re-runs it over the cited parents before recording `deterministic_index`. The difference between "someone computed this" and "anyone can check it," in the record itself.
 
 The exact preimage and canonical-order rules to re-check any receipt yourself live at [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec), generated from the running code so it cannot drift from what the server signs. Deeper: [how it works](https://emem.dev/how-it-works) with live consoles, [the formal model](docs/model.md), the [wire spec](https://emem.dev/spec.md).
 
-## Proof you can click, including where we were wrong
+## Evidence you can check, including the results that went against us
 
 Every claim here resolves to a signed fact or a live surface, no key.
 
@@ -277,7 +275,7 @@ Every claim here resolves to a signed fact or a live surface, no key.
 
 The whole argument, including a published null and a first run we voided over a coordinate bug, is in [the channel](https://emem.dev/channel). Re-score it yourself with [`examples/benchmark-arm/score_inversion.py`](examples/benchmark-arm/score_inversion.py), which refuses to report if the control arm fails. The full scorecard, including the peer memory products we have **not** benchmarked, is in [Research and citation](#research-and-citation).
 
-## Watch nine agents answer one question and survive losing their memory
+## Nine agents, one question, and a context window that ends
 
 **"Is my house making me sick?"** Nine agents, one house in Whitefield,
 Bengaluru, against a control arm running the same models on the same seeds
@@ -409,7 +407,7 @@ Writes are the one place a key appears, and it is still not an API key: an `atte
 
 Other agents reach emem through two live doors: the A2A protocol, and the signed collaboration channel.
 
-**The A2A protocol door.** [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json) is a standard [A2A](https://a2a-protocol.org) AgentCard (protocol 1.2.0, no auth): every MCP tool published as a skill, discoverable in one call at [`/v1/a2a/skills?q=`](https://emem.dev/v1/a2a/skills?q=verify). `POST /a2a/tasks` accepts JSON-RPC `message/send` (or plain `{skill, args}`) and returns a completed task with artifacts; `POST /v1/a2a/tasks` runs the same skills asynchronously, with `GET /v1/a2a/tasks/:id` to poll and `:id/cancel` to stop. One honesty note: there is no A2A `message/stream` method yet; live events come from [`/v1/memory/sse`](https://emem.dev/v1/memory/sse), which streams every signed write, filterable by attester or path.
+**The A2A protocol door.** [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json) is a standard [A2A](https://a2a-protocol.org) AgentCard (protocol 1.2.0, no auth): every MCP tool published as a skill, discoverable in one call at [`/v1/a2a/skills?q=`](https://emem.dev/v1/a2a/skills?q=verify). `POST /a2a/tasks` accepts JSON-RPC `message/send` (or plain `{skill, args}`) and returns a completed task with artifacts; `POST /v1/a2a/tasks` runs the same skills asynchronously, with `GET /v1/a2a/tasks/:id` to poll and `:id/cancel` to stop. One gap to know about: there is no A2A `message/stream` method yet; live events come from [`/v1/memory/sse`](https://emem.dev/v1/memory/sse), which streams every signed write, filterable by attester or path.
 
 **A question in, a signed answer out.** `POST /v1/ask` takes plain language, routes it deterministically over the algorithm registry (no language model in the loop), and returns a signed envelope carrying the answer, the `fact_cids` it read, and a receipt. Even a timeout returns a signed `incomplete` envelope rather than a silent failure. Model prose exists too, at `/v1/explain`, and it is labelled `signed:false`: prose is never evidence.
 
@@ -482,7 +480,7 @@ The whole admission surface is content-addressed and public, so an enrollment pi
 
 A device that streams chains its per-window traces (`prev_trace_cid`, keyed per device and boot), so a dropped or reordered frame is refused at ingest by name, and a reboot legitimately starts a fresh chain rather than wedging the device. The verifier collects every failure it finds across 17 named refusal reasons, never a bare no; `POST /v1/trace_verify` runs it statelessly on anything you paste, `POST /v1/trace_resolve` turns an `emem:trace:` token back into the verified record, and the conformance vectors it must pass ship in [`spec/test_vectors/os_trace/`](spec/test_vectors/os_trace/).
 
-**What is honestly not open yet:** every platform is `candidate` and every anchor `provisional`, so the registries, verifier, gate, and tokens all ship, but the gate admits no real device and enrollments are `operator_asserted`, labelled as such. Two runnable loops show the whole path end to end today:
+**What is not open yet:** every platform is `candidate` and every anchor `provisional`, so the registries, verifier, gate, and tokens all ship, but the gate admits no real device and enrollments are `operator_asserted`, labelled as such. Two runnable loops show the whole path end to end today:
 
 ```bash
 cargo run -p emem-primitives --example satellite_downlink   # one pass: enroll, refuse the untraced write, admit 3 facts under one trace
@@ -573,7 +571,7 @@ A third party ships a module nobody here compiled by publishing its manifest **s
 
 **Check the deployment, not just the code.** `emem-guard --conformance <url>` runs twelve checks over the wire, because unit tests prove the handlers and prove nothing about the server you stood up. Its first run against this project's own node found a 9 MB body returning 413.
 
-**What it will not do.** It is not a DLP scanner and does not classify content itself. A citation this node has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would deny honest agents.
+**What it will not do.** It is not a DLP scanner and does not classify content itself. A citation this node has not cached is never a denial: that is indistinguishable from a token minted by another responder, and blocking on it would deny legitimate agents.
 
 Diagrams: [nine doors, one decision](https://emem.dev/docs/diagrams/40-guard-checkpoints.svg) · [one verdict, in order](https://emem.dev/docs/diagrams/41-guard-verdict-path.svg) · [the chassis your DLP runs on](https://emem.dev/docs/diagrams/42-guard-dlp-chassis.svg) · [three deployments](https://emem.dev/docs/diagrams/43-guard-deployments.svg).
 
@@ -596,13 +594,13 @@ Independently measured by a consumer agent that built its own harness, published
 | **Surface honesty.** 70 of the then-102 tools called with real arguments. | **Zero hollow successes.** 20 of 20 refusals name the missing field *and* the accepted alternatives, so a caller repairs itself. 7 truncations, each with a cursor. |
 | **Area surface under load.** 10 endpoints, 64 to 4,194,304 cells. | **Zero timeouts, zero silent failures.** Every limit announces itself with a cursor, an exact maximum, or the precise pixel window that was too large. |
 
-**And the boundary that frames all of it.** On point lookup by exact key, retrieval is already 100% at every corpus size measured, and on single-agent value fidelity four architectures tie at zero material failures, including free BM25. So the honest claim is narrow and it is the one the measurements support: *buy addressing for the value-predicate queries retrieval cannot serve, for tamper evidence, and for the handoff and audit paths, not for single-agent accuracy.* The live board, raced in two heats with a fairness control, is at [emem.dev/scoreboard](https://emem.dev/scoreboard).
+**And the boundary that frames all of it.** On point lookup by exact key, retrieval is already 100% at every corpus size measured, and on single-agent value fidelity four architectures tie at zero material failures, including free BM25. The claim the measurements support is narrow: *buy addressing for the value-predicate queries retrieval cannot serve, for tamper evidence, and for the handoff and audit paths, not for single-agent accuracy.* The live board, raced in two heats with a fairness control, is at [emem.dev/scoreboard](https://emem.dev/scoreboard).
 
 ## Honest limits
 
 Version 2.1.0, a minor: it adds `emem-guard` and declares `outputSchema` on eleven tools, and breaks nothing. The receipt preimage last changed in 2.0.0, which was a major for exactly that reason: the 1.x line promised the wire format, receipt preimage and address space would not break under a 1.x, so shipping that change as a minor would have made the promise false rather than kept it. Receipts signed under v0 and v1 still verify byte-for-byte under their own rule; what changed is that a verifier must now select the rule from the receipt's `preimage_version` instead of assuming one. The reason is in [CHANGELOG.md](CHANGELOG.md): under v1 the signature did not cover the inclusion proof, so a proof deleted in transit left the receipt reporting itself valid. The address space and the cell64 grid are unchanged and remain settled. Today it is a single-host deployment (no federation yet), and the memory holds thousands of places rather than billions.
 
-**On being multi-substrate, precisely.** Fifteen contributor profiles are published and one is `active`: `earth.satellite.v0`. Everything else is `candidate`, which is enforced rather than editorial. Five of them address subjects that are not places at all (deep-space targets, a codebase at a commit, a table at a schema version, a model at a checkpoint, an execution span), and for those the identity layer works today while the fact write path does not: you can mint, resolve and link an `emem:entity:` subject, and you cannot yet key a fact by one. The registry refuses to load a profile that claims otherwise. So the honest statement is that the protocol is substrate-neutral and the corpus is Earth, and the gap between those two is one write path, named in [the roadmap](docs/roadmap.md). Verification is per-responder: a receipt proves what this responder signed, never a network consensus. The device gate admits no real hardware yet, and every benchmark is marked SAMPLE with no independent replication. Several of our own headline claims were refuted by our own re-scoring, and the table above says so. The staged path to federation and the open research live in [docs/roadmap.md](docs/roadmap.md).
+**On being multi-substrate, precisely.** Fifteen contributor profiles are published and one is `active`: `earth.satellite.v0`. Everything else is `candidate`, which is enforced rather than editorial. Five of them address subjects that are not places at all (deep-space targets, a codebase at a commit, a table at a schema version, a model at a checkpoint, an execution span), and for those the identity layer works today while the fact write path does not: you can mint, resolve and link an `emem:entity:` subject, and you cannot yet key a fact by one. The registry refuses to load a profile that claims otherwise. So the protocol is substrate-neutral and the corpus is Earth, and the gap between those two is one write path, named in [the roadmap](docs/roadmap.md). Verification is per-responder: a receipt proves what this responder signed, never a network consensus. The device gate admits no real hardware yet, and every benchmark is marked SAMPLE with no independent replication. Several of our own headline claims were refuted by our own re-scoring, and the table above says so. The staged path to federation and the open research live in [docs/roadmap.md](docs/roadmap.md).
 
 **The memory layer is public, permanent, and not private storage.** Three limits that matter before you write anything to it, each of them a design choice rather than a missing feature:
 
@@ -643,7 +641,7 @@ We would rather you trust the parts that check out than the parts that sound goo
 
 ## Research and citation
 
-**The study three agents ran against emem's own claims** is separate from the preprint, and it is the one to read if you want to know where this fails. Its five headline findings are in the table under [Proof](#proof-you-can-click-including-where-we-were-wrong) above. The supporting documents:
+**The study three agents ran against emem's own claims** is separate from the preprint, and it is the one to read if you want to know where this fails. Its five headline findings are in the table under [Evidence](#evidence-you-can-check-including-the-results-that-went-against-us) above. The supporting documents:
 
 - [How emem compares, and what we have not measured](docs/how-emem-compares.md), the scorecard, including the peers we have **not** benchmarked
 - [Statistics, cost, and threats to validity](docs/paper-section-statistics-and-threats.md)
