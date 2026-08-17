@@ -1,0 +1,205 @@
+<!--
+  ui://emem/fact-card, an MCP Apps view (SEP-1865, extension
+  io.modelcontextprotocol/ui, Final 2026-01-26).
+
+  Why this exists
+  ---------------
+  emem's whole argument is that a claim should be checkable instead of
+  paraphrased. The chain used to end like this:
+
+      responder -> signed fact + ed25519 receipt -> agent -> a sentence -> human
+
+  Every hop but the last carries a content address. The last one is prose the
+  agent wrote, and nobody can check prose. That is the exact failure this
+  protocol exists to prevent, surviving at the final step because it was the
+  one step we never instrumented.
+
+  What this card does NOT do, deliberately
+  ----------------------------------------
+  It does not print a green tick. A card that renders "verified" is a picture
+  of verification drawn by the party whose claim is in question, and it is
+  strictly worse than the raw JSON: it looks stronger while being harder to
+  check, because a reader can inspect a content address and cannot inspect a
+  tick.
+
+  Full verification means rebuilding the canonical preimage under the rule
+  named by the receipt's own `preimage_version`, hashing it with blake3, and
+  checking ed25519 against the responder key. blake3 is not in WebCrypto, and
+  the MCP Apps sandbox sets `connect-src 'none'` by default, so a card cannot
+  fetch a hash library at runtime. Until that library is vendored INTO this
+  file, this card states what it is: a faithful rendering of what the
+  responder sent, plus the two ways to check it that do not require trusting
+  this card or the agent that displayed it.
+
+  So the honest job here is to make checking cheap, not to do the checking and
+  report success.
+-->
+<style>
+  :root {
+    --bg: #ffffff; --fg: #14181f; --muted: #5b6472; --line: #e3e7ee;
+    --accent: #1c4ed8; --code-bg: #f5f7fa; --warn-bg: #fff8e6; --warn-line: #e8d9a8;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1117; --fg: #e6e9ef; --muted: #9aa4b2; --line: #232a35;
+      --accent: #7ea2ff; --code-bg: #161b23; --warn-bg: #241f12; --warn-line: #4a3f22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1117; --fg: #e6e9ef; --muted: #9aa4b2; --line: #232a35;
+    --accent: #7ea2ff; --code-bg: #161b23; --warn-bg: #241f12; --warn-line: #4a3f22;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 14px; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .card { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .head { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .band { font-weight: 600; letter-spacing: .01em; }
+  .value { font-size: 30px; font-weight: 650; line-height: 1.15; margin: 6px 0 2px; }
+  .unit { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .where { color: var(--muted); font-size: 13px; }
+  dl { margin: 0; padding: 12px 14px; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; }
+  dt { color: var(--muted); font-size: 12px; text-transform: lowercase; }
+  dd { margin: 0; font-size: 12.5px; word-break: break-all; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre {
+    margin: 0; padding: 10px 12px; background: var(--code-bg); border-radius: 7px;
+    font-size: 11.5px; overflow-x: auto; white-space: pre; border: 1px solid var(--line);
+  }
+  .check { padding: 12px 14px; border-top: 1px solid var(--line); }
+  .note {
+    background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 7px;
+    padding: 9px 11px; font-size: 12.5px; margin-bottom: 10px;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
+  a.btn, button.btn {
+    font: inherit; font-size: 12.5px; padding: 6px 11px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--bg); color: var(--accent);
+    text-decoration: none; display: inline-block;
+  }
+  a.btn:hover, button.btn:hover { border-color: var(--accent); }
+  h3 { margin: 0 0 7px; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .empty { color: var(--muted); padding: 18px 4px; font-size: 13px; }
+</style>
+
+<div id="root"><div class="empty">Waiting for a fact from the tool call.</div></div>
+
+<script>
+(function () {
+  var ORIGIN = "https://emem.dev";
+  var root = document.getElementById("root");
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // The host hands the result over postMessage; there is no network here.
+  // `connect-src 'none'` is the default under SEP-1865 and this card does not
+  // ask for an exception, so everything below is rendered from bytes the host
+  // already delivered.
+  function render(result) {
+    var facts = (result && (result.facts || (result.structuredContent || {}).facts)) || [];
+    var receipt = (result && (result.receipt || (result.structuredContent || {}).receipt)) || null;
+    if (!facts.length) {
+      root.innerHTML = '<div class="empty">No signed fact in this result.</div>';
+      return;
+    }
+    var f = facts[0];
+    var pubkey = (receipt && receipt.responder_pubkey_b32) || f.signer_pubkey_b32 || "";
+    var pv = receipt && receipt.preimage_version;
+
+    // The value verbatim is what was signed. `value` may be a rounded or
+    // reformatted twin, and showing the rounded one beside a content address
+    // that commits to the exact one is how a card starts lying quietly.
+    var shown = f.value_verbatim != null ? f.value_verbatim : f.value;
+
+    var verifyUrl = ORIGIN + "/verify";
+    var cmd =
+      "curl -s -X POST " + ORIGIN + "/v1/verify_receipt \\\n" +
+      "  -H 'content-type: application/json' \\\n" +
+      "  -d '{\"receipt\": <the receipt object, exactly as returned>}'";
+    var resolveCmd =
+      "curl -s -X POST " + ORIGIN + "/v1/memory_token/resolve \\\n" +
+      "  -H 'content-type: application/json' \\\n" +
+      "  -d '{\"token\":\"" + (f.memory_token || "emem:fact:<cid>") + "\"}'";
+
+    root.innerHTML =
+      '<div class="card">' +
+        '<div class="head">' +
+          '<div class="band">' + esc(f.band || "fact") + "</div>" +
+          '<div class="value">' + esc(shown) +
+            (f.unit ? ' <span class="unit">' + esc(f.unit) + "</span>" : "") +
+          "</div>" +
+          '<div class="where">' + esc(f.cell || "") +
+            (f.tslot != null ? " &middot; tslot " + esc(f.tslot) : "") +
+            (f.signed_at ? " &middot; signed " + esc(String(f.signed_at).slice(0, 19)) : "") +
+          "</div>" +
+        "</div>" +
+        "<dl>" +
+          "<dt>fact_cid</dt><dd><code>" + esc(f.fact_cid || "") + "</code></dd>" +
+          "<dt>signer</dt><dd><code>" + esc(pubkey) + "</code></dd>" +
+          (f.memory_token ? "<dt>token</dt><dd><code>" + esc(f.memory_token) + "</code></dd>" : "") +
+          (pv != null ? "<dt>preimage</dt><dd>version " + esc(pv) + "</dd>" : "") +
+          (f.privacy_class ? "<dt>provenance</dt><dd>" + esc(f.privacy_class) + "</dd>" : "") +
+        "</dl>" +
+        '<div class="check">' +
+          '<div class="note"><strong>This card has not verified anything.</strong> ' +
+          "It shows what the responder returned. Verifying means rebuilding the " +
+          "canonical preimage under the rule <code>preimage_version</code> names, " +
+          "hashing it with blake3 and checking ed25519 against the signer above. " +
+          "blake3 is not available in this sandbox, so the check belongs to you, " +
+          "not to this card." +
+          "</div>" +
+          "<h3>check it in your own browser</h3>" +
+          "<pre>" + esc(cmd) + "</pre>" +
+          "<h3>or resolve the address back to the signed bytes</h3>" +
+          "<pre>" + esc(resolveCmd) + "</pre>" +
+          '<div class="row">' +
+            '<a class="btn" href="' + verifyUrl + '" target="_blank" rel="noopener">' +
+              "open the offline verifier</a>" +
+            '<button class="btn" id="copyj">copy the raw result</button>' +
+          "</div>" +
+        "</div>" +
+      "</div>";
+
+    var btn = document.getElementById("copyj");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        var text = JSON.stringify(result, null, 1);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () {
+            btn.textContent = "copied";
+          }, function () {
+            btn.textContent = "copy blocked";
+          });
+        } else {
+          btn.textContent = "copy unavailable";
+        }
+      });
+    }
+  }
+
+  // SEP-1865 delivers the tool result as a host notification. Accept both the
+  // notification shape and a bare result so the card is testable by opening it
+  // and posting a message by hand.
+  window.addEventListener("message", function (ev) {
+    var d = ev.data;
+    if (!d || typeof d !== "object") return;
+    if (d.method === "ui/notifications/tool-result") {
+      var p = d.params || {};
+      render(p.result || p.structuredContent || p);
+    } else if (d.facts) {
+      render(d);
+    }
+  });
+
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ jsonrpc: "2.0", method: "ui/initialized" }, "*");
+  }
+})();
+</script>

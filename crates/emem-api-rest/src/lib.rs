@@ -21474,8 +21474,39 @@ fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
             // agent can budget before it calls rather than discovering the
             // cost by timing out. Absent until measured; never a guess.
             "dev.emem/observed_latency": latency_of(t.name),
+            // MCP Apps (SEP-1865). Nested `ui.resourceUri`, not the flat
+            // `ui/resourceUri`, which the extension deprecates and removes
+            // before GA. Present only on tools that actually return signed
+            // facts for the card to render: a view attached to a tool whose
+            // result it cannot display is a blank panel where a host
+            // expected an interface.
+            "ui": ui_meta_for(t.name),
         },
     })
+}
+
+/// The MCP Apps view a tool declares, if any.
+///
+/// Only the fact-returning reads. The card renders `facts[0]` with its
+/// content address and signing key, so a tool returning a catalog, a
+/// verdict or a proof would hand it nothing to draw. Declaring the view
+/// anyway would satisfy the schema and produce an empty panel, which is a
+/// worse failure than not declaring it: the host has already allocated
+/// the space and told the user something is coming.
+fn ui_meta_for(name: &str) -> JsonValue {
+    const FACT_RETURNING: &[&str] = &["emem_recall", "emem_at", "emem_ask"];
+    if FACT_RETURNING.contains(&name) {
+        json!({
+            "resourceUri": MCP_APP_FACT_CARD_URI,
+            // Both audiences: the model still receives the JSON result it
+            // reasons over, and the person gets the rendered card. The
+            // point is not to replace the model's view of the fact but to
+            // stop the human's view being a sentence about it.
+            "visibility": ["model", "app"],
+        })
+    } else {
+        JsonValue::Null
+    }
 }
 
 /// Byte size of a full `tools/list` descriptor array, measured once.
@@ -22022,6 +22053,35 @@ async fn mcp_jsonrpc_inner(
                             "list":   {},
                             "cancel": {},
                             "requests": { "tools": { "call": {} } },
+                        }),
+                    );
+                }
+            }
+            // MCP Apps (SEP-1865, extension id io.modelcontextprotocol/ui,
+            // Final 2026-01-26). The extensions map is a 2025-11-25 feature,
+            // so this needs no migration to 2026-07-28: the apps extension
+            // negotiates over the initialize handshake that revision still
+            // has.
+            //
+            // Why emem serves a view at all. Every hop of a recall carries a
+            // content address until the last one, where the agent writes a
+            // sentence about the fact for a person to read. Prose is the one
+            // link in that chain nobody can check, which is the failure this
+            // protocol exists to prevent, surviving at the step we never
+            // instrumented. A rendered card closes it.
+            //
+            // Advertised only at 2025-11-25 and only because a `ui://`
+            // resource is actually served and a tool actually points at it;
+            // an extension declared without a view behind it is the same
+            // defect as a route in the OpenAPI document that 404s.
+            if negotiated == "2025-11-25" {
+                if let Some(obj) = capabilities.as_object_mut() {
+                    obj.insert(
+                        "extensions".into(),
+                        json!({
+                            "io.modelcontextprotocol/ui": {
+                                "mimeTypes": [MCP_APP_MIME],
+                            }
                         }),
                     );
                 }
@@ -22656,8 +22716,30 @@ fn mcp_read_resource(uri: &str) -> Result<JsonValue, (i64, String)> {
 /// the new `memory://emem/...` registry + corpus_stats anchors. Returned
 /// under `resources/list` so an MCP host sees every always-on resource
 /// in one round-trip.
+/// The one mime type SEP-1865 admits in its MVP. Other content types are
+/// reserved, so serving anything else here would be a private dialect
+/// wearing the extension's name.
+const MCP_APP_MIME: &str = "text/html;profile=mcp-app";
+
+/// The fact card's resource URI. `ui://` is reserved by the extension for
+/// exactly this, which is what lets a host tell a view apart from an
+/// ordinary resource and sandbox it accordingly.
+const MCP_APP_FACT_CARD_URI: &str = "ui://emem/fact-card";
+
+/// The card itself, baked in at compile time like every other web asset
+/// here. It has to be self-contained: SEP-1865 hosts default to
+/// `connect-src 'none'`, and this card declares no CSP exception, so a
+/// runtime fetch of anything at all would simply fail.
+const MCP_APP_FACT_CARD_HTML: &str = include_str!("../../../web/mcp-fact-card.html");
+
 fn mcp_full_resources() -> Vec<JsonValue> {
     let mut out = mcp_static_resources();
+    out.push(json!({
+        "uri":         MCP_APP_FACT_CARD_URI,
+        "name":        "signed fact card",
+        "mimeType":    MCP_APP_MIME,
+        "description": "An MCP Apps view for a signed fact: the value as it was signed, its content address, the signing key, and the two ways to check it that do not require trusting the card or the agent showing it. It deliberately does not render a verification tick, because a tick drawn by the responder is a picture of verification rather than the thing.",
+    }));
     for r in emem_mcp::RESOURCES {
         out.push(json!({
             "uri":         r.uri,
@@ -22692,6 +22774,21 @@ fn mcp_full_resource_templates() -> Vec<JsonValue> {
 /// - `memory://emem/fact/<cid>`        → signed fact body
 /// - `memory://emem/bundle/<token>`    → signed memory-bundle envelope
 async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue, (i64, String)> {
+    // The MCP Apps view. Served before anything else because it is
+    // stateless and a host fetches it ahead of the call it decorates:
+    // SEP-1865 has tools declare their template up front precisely so a
+    // host can prefetch, cache and security-review the HTML before any
+    // tool runs. Listing it without answering a read would reproduce the
+    // exact defect described below, in a surface where the host shows it
+    // as available in a picker.
+    if uri == MCP_APP_FACT_CARD_URI {
+        return Ok(json!({
+            "uri":      MCP_APP_FACT_CARD_URI,
+            "mimeType": MCP_APP_MIME,
+            "text":     MCP_APP_FACT_CARD_HTML,
+        }));
+    }
+
     // Two `emem://` templates need storage, so they are answered here
     // rather than falling through to the stateless reader below.
     //
@@ -63790,6 +63887,83 @@ mod tests {
 
     /// THE regression test. A client that never sends a cursor must get
     /// the entire advertised core profile, and the response must not state
+    /// A tool that declares a view must declare one this responder can
+    /// actually open. SEP-1865 has hosts prefetch the template before the
+    /// tool runs, so a `ui.resourceUri` nothing answers is not a late
+    /// failure, it is a broken panel in a picker the user is looking at.
+    #[test]
+    fn every_declared_view_is_a_resource_we_actually_serve() {
+        let listed: std::collections::HashSet<String> = mcp_full_resources()
+            .iter()
+            .filter_map(|r| r["uri"].as_str().map(str::to_string))
+            .collect();
+        let mut declared = 0;
+        for t in emem_mcp::TOOLS {
+            let ui = ui_meta_for(t.name);
+            let Some(uri) = ui.get("resourceUri").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            declared += 1;
+            assert!(
+                listed.contains(uri),
+                "{} declares the view {uri}, which resources/list does not carry",
+                t.name
+            );
+            assert!(
+                uri.starts_with("ui://"),
+                "{uri} must use the ui:// scheme the extension reserves, or a \
+                 host cannot tell a view from an ordinary resource and will not \
+                 sandbox it"
+            );
+        }
+        assert!(declared > 0, "the view binding vanished");
+    }
+
+    /// The card has to survive `connect-src 'none'`, which SEP-1865 hosts
+    /// apply by default and which this card claims no exception to. A
+    /// stylesheet link, a script src, a fetch or a dynamic import would all
+    /// be blocked at runtime, and the failure would appear as a blank or
+    /// half-drawn panel rather than as an error anyone here would see.
+    ///
+    /// Checked as text rather than by loading it, because there is no
+    /// browser in this test and the property is syntactic: the card must
+    /// not ASK for the network. A plain <a href> is fine, that is a
+    /// navigation the user chooses, not a request the card makes.
+    #[test]
+    fn the_fact_card_asks_the_network_for_nothing() {
+        let html = MCP_APP_FACT_CARD_HTML;
+        for forbidden in [
+            "<script src",
+            "<script  src",
+            "rel=stylesheet",
+            "rel=\"stylesheet\"",
+            "fetch(",
+            "XMLHttpRequest",
+            "new WebSocket",
+            "@import",
+            "importScripts",
+        ] {
+            assert!(
+                !html.contains(forbidden),
+                "the card contains {forbidden:?}; under connect-src 'none' that \
+                 fails silently in the host and the user sees a broken panel"
+            );
+        }
+        // A dynamic import of a remote module is the subtle one: it reads as
+        // ordinary JS and is blocked exactly like a fetch.
+        assert!(
+            !html.contains("import(\"http") && !html.contains("import('http"),
+            "the card dynamically imports a remote module"
+        );
+        assert!(
+            html.contains("has not verified"),
+            "the card must state that it has not verified the fact. A card that \
+             drops that line is asserting verification it did not perform, which \
+             is worse than showing raw JSON: it looks stronger and is harder to \
+             check."
+        );
+    }
+
     /// two different numbers about itself.
     #[test]
     fn mcp_core_profile_arrives_whole_on_page_one() {
@@ -71940,6 +72114,18 @@ mod tests {
             // never serve it. The invariant this test defends still holds for
             // the arcade, by a different route.
             .filter(|c| *c != "ARCADE_HTML")
+            // MCP_APP_FACT_CARD_HTML is not a page this origin serves. It is an
+            // MCP Apps resource (SEP-1865) handed to a host over JSON-RPC and
+            // rendered inside the HOST's sandboxed iframe, under a CSP the host
+            // constructs. Our own page CSP never applies to it, and adding it to
+            // served_html_pages() would push its inline-script hashes into the
+            // header of every page that does not serve it.
+            //
+            // The invariant this test defends still holds for the card, by a
+            // stricter route: `the_fact_card_asks_the_network_for_nothing`
+            // asserts it needs no external resource at all, which is what the
+            // host's default `connect-src 'none'` requires.
+            .filter(|c| *c != "MCP_APP_FACT_CARD_HTML")
             .filter(|c| !listed.contains(*c))
             .collect();
         assert!(
