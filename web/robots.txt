@@ -6,13 +6,26 @@
 User-agent: *
 Allow: /
 
-# Bootstrap surfaces for agents (token-cheap, machine-readable):
-#   /v1/discover                 — 970 B typed bootstrap
-#   /llms.txt                    — agent contract (5 KB)
-#   /agents.md                   — full integration guide (16 KB)
-#   /openapi.json                — OpenAPI 3.1 schema
-#   /.well-known/agent-card.json — A2A v0.2
-#   /.well-known/mcp.json        — MCP server descriptor
-#   /mcp                         — MCP Streamable HTTP
+# Bootstrap surfaces for agents, cheapest first. Sizes are measured, and are
+# the reason to read them in this order rather than all of them.
+#
+#   /.well-known/emem-readonly.json  ~2 KB   may I call this? no key, no cost,
+#                                            no approval, and how long a read takes
+#   /.well-known/emem-manifest.json  ~1 KB   version, tool count, capability cid
+#   /.well-known/emem.json           ~4 KB   what emem is, and every other door
+#   /v1/intents                      ~12 KB  need -> capability -> tool, including
+#                                            the needs emem does NOT serve
+#   /.well-known/agent-intent.json   ~9 KB   the same index for a crawler
+#   /v1/discover                     ~4 KB   typed bootstrap
+#   /llms.txt                        ~24 KB  the agent contract in prose
+#   /openapi.json                    ~330 KB OpenAPI 3.1, every routed path
+#   /agents.md                       ~65 KB  full integration guide
+#   /.well-known/agent-card.json     ~128 KB A2A card, every tool as a skill
+#   /.well-known/mcp.json            ~15 KB  MCP server descriptor
+#   /mcp                             MCP Streamable HTTP (16-tool core loop)
+#
+# Reads need no key, no account and no approval. Every read returns an
+# ed25519 receipt you can verify offline, so calling costs one round trip and
+# commits you to nothing.
 
 Sitemap: https://emem.dev/sitemap.xml

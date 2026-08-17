@@ -385,6 +385,37 @@ def main():
                     notes.append("the resolved citation carried no receipt for B to "
                                  "verify; B has the bytes but not the proof")
 
+    # Step 6. robots.txt advertises the bootstrap surfaces with their sizes,
+    # cheapest first, so an agent can decide what to read on a budget. Those
+    # figures drifted badly: llms.txt was advertised at 5 KB and served 24 KB,
+    # agents.md at 16 KB and served 65 KB, /v1/discover at 970 B and served
+    # 3.7 KB. An agent that budgets on the advertised number and receives four
+    # times it learns not to trust the surface, which is worse than not
+    # advertising a size at all.
+    print("\n  the sizes robots.txt advertises, against what is served:")
+    robots, _ = p.get("/robots.txt")
+    if isinstance(robots, str):
+        for m in re.finditer(r"^#\s+(/\S+)\s+~?([\d.]+)\s*(KB|B)\b", robots, re.M):
+            path, num, unit = m.group(1), float(m.group(2)), m.group(3)
+            claimed = num * 1000 if unit == "KB" else num
+            body, code = p.get(path)
+            if not isinstance(code, int) or not (200 <= code < 300):
+                problems.append(
+                    f"robots.txt points an agent at {path}, which answers {code}"
+                )
+                continue
+            actual = p.trail[-1][2]
+            ratio = actual / claimed if claimed else 0
+            ok = 0.5 <= ratio <= 2.0
+            print(f"    {'ok  ' if ok else 'FAIL'} {path:<34} "
+                  f"claimed {claimed/1000:.0f} KB, served {actual/1000:.0f} KB")
+            if not ok:
+                problems.append(
+                    f"robots.txt advertises {path} at about {claimed/1000:.0f} KB and "
+                    f"it serves {actual/1000:.0f} KB. An agent budgeting context on "
+                    f"that figure is misled by {ratio:.1f}x."
+                )
+
     # The cost verdict. Discovery that works but costs more than an agent will
     # spend has not solved the problem it set out to solve.
     # The budget is about what an AGENT spends to decide and make one call.
