@@ -22730,7 +22730,26 @@ const MCP_APP_FACT_CARD_URI: &str = "ui://emem/fact-card";
 /// here. It has to be self-contained: SEP-1865 hosts default to
 /// `connect-src 'none'`, and this card declares no CSP exception, so a
 /// runtime fetch of anything at all would simply fail.
-const MCP_APP_FACT_CARD_HTML: &str = include_str!("../../../web/mcp-fact-card.html");
+const MCP_APP_FACT_CARD_TEMPLATE: &str = include_str!("../../../web/mcp-fact-card.html");
+
+/// blake3 + ed25519 + the emem preimage encoders, as one self-contained
+/// script. Shared with `emem.dev/verify`, which loads the same file over
+/// HTTP; the card cannot, so it gets it spliced in at startup.
+///
+/// One algorithm, two deliveries. A second copy of the preimage rules would
+/// be a second thing to keep in step with emem-attest, and the failure would
+/// be silent: a drifted encoder computes a wrong digest, and a wrong digest
+/// reads as a forged receipt rather than as a bug.
+const EMEM_VERIFY_CORE_JS: &str = include_str!("../../../web/emem-verify-core.js");
+
+/// The card with its verifier spliced in.
+///
+/// Done once at startup rather than per read: it is a static concatenation,
+/// and `resources/read` is on the path a host calls before every tool result
+/// it renders.
+static MCP_APP_FACT_CARD_HTML: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    MCP_APP_FACT_CARD_TEMPLATE.replace("/*EMEM_VERIFY_CORE*/", EMEM_VERIFY_CORE_JS)
+});
 
 fn mcp_full_resources() -> Vec<JsonValue> {
     let mut out = mcp_static_resources();
@@ -22785,7 +22804,7 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
         return Ok(json!({
             "uri":      MCP_APP_FACT_CARD_URI,
             "mimeType": MCP_APP_MIME,
-            "text":     MCP_APP_FACT_CARD_HTML,
+            "text":     &*MCP_APP_FACT_CARD_HTML,
         }));
     }
 
@@ -63931,7 +63950,7 @@ mod tests {
     /// navigation the user chooses, not a request the card makes.
     #[test]
     fn the_fact_card_asks_the_network_for_nothing() {
-        let html = MCP_APP_FACT_CARD_HTML;
+        let html: &str = &MCP_APP_FACT_CARD_HTML;
         for forbidden in [
             "<script src",
             "<script  src",
@@ -63955,12 +63974,37 @@ mod tests {
             !html.contains("import(\"http") && !html.contains("import('http"),
             "the card dynamically imports a remote module"
         );
+        // The card now verifies for real, so the invariant moves: it may show
+        // a tick, but only on the verifier's own verdict. These assert the
+        // three states stay distinguishable. A build where a rejected
+        // signature or a failed self-test could render as a pass is the one
+        // failure mode that matters here, because a wrong tick is read and a
+        // wrong body is not.
         assert!(
-            html.contains("has not verified"),
-            "the card must state that it has not verified the fact. A card that \
-             drops that line is asserting verification it did not perform, which \
-             is worse than showing raw JSON: it looks stronger and is harder to \
-             check."
+            html.contains("ememVerify.verifyReceipt"),
+            "the card must call the verifier rather than assert a verdict"
+        );
+        assert!(
+            html.contains("signature_rejected") && html.contains("self_test_failed"),
+            "a rejected signature and a failed self-test must render as \
+             different states; collapsing them lets a broken build look like a \
+             forgery, or a forgery look like a broken build"
+        );
+        assert!(
+            html.contains("v.ok ?"),
+            "the tick must be conditional on the verifier's own ok flag"
+        );
+
+        // The verifier itself has to be spliced in, or every card falls back
+        // to \"the verifier did not load\" and quietly stops checking.
+        let served = &*MCP_APP_FACT_CARD_HTML;
+        assert!(
+            !served.contains("/*EMEM_VERIFY_CORE*/"),
+            "the splice marker survived, so the card ships with no verifier"
+        );
+        assert!(
+            served.contains("ememVerify") && served.len() > 40_000,
+            "the spliced card is too small to contain blake3 and ed25519"
         );
     }
 
@@ -72125,7 +72169,8 @@ mod tests {
             // stricter route: `the_fact_card_asks_the_network_for_nothing`
             // asserts it needs no external resource at all, which is what the
             // host's default `connect-src 'none'` requires.
-            .filter(|c| *c != "MCP_APP_FACT_CARD_HTML")
+            .filter(|c| *c != "MCP_APP_FACT_CARD_TEMPLATE")
+            .filter(|c| *c != "EMEM_VERIFY_CORE_JS")
             .filter(|c| !listed.contains(*c))
             .collect();
         assert!(

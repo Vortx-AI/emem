@@ -535,6 +535,22 @@ jobs:
       # that assert what a component is CURRENTLY doing had none, and they rot
       # more quietly, because a count invites checking and "X is untrained
       # today" reads as settled background.
+      # Pinned rather than relying on whatever the runner image happens to
+      # ship: this step is a cryptography check, and "it worked on the old
+      # default node" is not a property to leave to the image.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # The browser verifier is the code that tells a person whether a signed
+      # fact is genuine. Two ways it fails: it accepts nothing (loud), or it
+      # accepts everything / rejects sound receipts (silent, and the second
+      # tells users their real data was forged). So the suite asserts both
+      # directions against a pinned production receipt, including the stripped
+      # inclusion proof that preimage_version 2 exists to catch.
+      - name: the browser verifier accepts what is genuine and refuses forgeries
+        run: node scripts/verify_core_test.cjs
+
       - name: state a document asserts is the state we are in
         run: |
           set +e
