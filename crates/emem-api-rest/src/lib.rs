@@ -5505,12 +5505,18 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "documentationUrl":   format!("{origin}/agents.md"),
         "iconUrl":            format!("{origin}/favicon.svg"),
         "capabilities": {
-            // Sweep F3: declare only what a stock client can actually call.
-            // message/stream is not implemented (live events are the SSE
-            // surfaces, which are NOT the A2A streaming method), and Task
-            // objects carry no history array, so both are false, the same
-            // honesty pushNotifications already had.
-            "streaming":            false,
+            // Sweep F3's rule still stands: declare only what a stock client
+            // can actually call. `streaming` is now true because
+            // `message/stream` answers as SSE on the same endpoint, emitting
+            // the task lifecycle as A2A frames. It was false for a long time
+            // and correctly so: pointing an A2A runtime at /v1/memory/sse
+            // would have handed it a signed memory feed with a different
+            // envelope, no task id to correlate on, and no terminal event.
+            //
+            // stateTransitionHistory stays false: Task objects still carry no
+            // history array, and pushNotifications stays false because
+            // nothing here calls a client back.
+            "streaming":            true,
             "pushNotifications":    false,
             "stateTransitionHistory": false,
             // Extension field: where the async task lifecycle lives. The
@@ -21011,7 +21017,124 @@ async fn a2a_reason_compose(
 /// with the emem response as a `data` artifact part, A2A clients on
 /// Vertex Agent Builder / Microsoft Copilot Studio import this without
 /// any extra adapter on their side.
-async fn post_a2a_task(
+/// The A2A endpoint. `message/stream` is answered as SSE; everything else is
+/// the ordinary JSON-RPC response.
+///
+/// Streaming used to be absent and the card said so, which was honest and
+/// still left A2A runtimes without the one operation their event loops are
+/// built around. They had to fall back to /v1/memory/sse, which is a signed
+/// memory feed and not the A2A method: different envelope, different
+/// lifecycle, no task id to correlate against.
+///
+/// The work underneath is the same synchronous call `message/send` makes.
+/// That is not a shortcut being hidden: A2A asks for the task lifecycle to
+/// arrive as events, not for the work to be incremental, so a fast skill
+/// legitimately produces submitted, artifact, completed in quick succession.
+/// A failing skill emits a `failed` status rather than a completed one.
+async fn post_a2a_task(State(s): State<AppState>, body: axum::body::Bytes) -> Response {
+    let is_stream = serde_json::from_slice::<JsonValue>(&body)
+        .ok()
+        .and_then(|v| {
+            v.get("method")
+                .and_then(|m| m.as_str())
+                .map(|m| m == "message/stream")
+        })
+        .unwrap_or(false);
+    if is_stream {
+        return a2a_message_stream(s, body).await;
+    }
+    match a2a_task_json(State(s), body).await {
+        Ok(j) => j.into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Run the request through the ordinary `message/send` path and report its
+/// lifecycle as A2A SSE frames.
+async fn a2a_message_stream(s: AppState, body: axum::body::Bytes) -> Response {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+
+    let mut v: JsonValue = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return a2a_bad_request(&format!("a2a: request body is not valid JSON: {e}"))
+                .into_response()
+        }
+    };
+    let rpc_id = v.get("id").cloned().unwrap_or(JsonValue::Null);
+    // Same shape as the async task ids: a blake3 of the clock and a counter,
+    // so two streams opened in the same millisecond do not collide.
+    static A2A_STREAM_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = A2A_STREAM_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut h = blake3::Hasher::new();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    h.update(&now.to_le_bytes());
+    h.update(&seq.to_le_bytes());
+    let task_id = format!("a2a-{}", &h.finalize().to_hex().to_string()[..26]);
+    let context_id = v
+        .get("params")
+        .and_then(|p| p.get("message"))
+        .and_then(|m| m.get("contextId"))
+        .and_then(|c| c.as_str())
+        .map(String::from)
+        .unwrap_or_else(|| task_id.clone());
+
+    // One code path, not two. The stream delegates to the same handler
+    // `message/send` uses, so skill resolution, grounding refusals, the sync
+    // budget and the signing all behave identically. A second implementation
+    // here would be a second thing to keep correct.
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("method".into(), json!("message/send"));
+    }
+    let rewritten = axum::body::Bytes::from(v.to_string());
+    let outcome = a2a_task_json(State(s), rewritten).await;
+
+    let (final_state, payload) = match outcome {
+        Ok(Json(j)) => match j.get("error") {
+            Some(err) => ("failed", err.clone()),
+            None => ("completed", j.get("result").cloned().unwrap_or(j)),
+        },
+        Err(e) => (
+            "failed",
+            json!({"schema": "emem.error.v1", "message": e.1.message}),
+        ),
+    };
+
+    let frame = |result: JsonValue| {
+        Event::default().data(json!({"jsonrpc": "2.0", "id": rpc_id, "result": result}).to_string())
+    };
+    let events: Vec<Result<Event, std::convert::Infallible>> = vec![
+        Ok(frame(json!({
+            "kind": "status-update",
+            "taskId": task_id, "contextId": context_id,
+            "status": {"state": "working"},
+            "final": false,
+        }))),
+        Ok(frame(json!({
+            "kind": "artifact-update",
+            "taskId": task_id, "contextId": context_id,
+            "artifact": {
+                "artifactId": format!("{task_id}-1"),
+                "parts": [{"kind": "data", "data": payload}],
+            },
+            "lastChunk": true,
+        }))),
+        Ok(frame(json!({
+            "kind": "status-update",
+            "taskId": task_id, "contextId": context_id,
+            "status": {"state": final_state},
+            "final": true,
+        }))),
+    ];
+    Sse::new(futures_util::stream::iter(events))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+async fn a2a_task_json(
     State(s): State<AppState>,
     body: axum::body::Bytes,
 ) -> Result<Json<JsonValue>, ApiError> {
@@ -21333,9 +21456,9 @@ async fn post_a2a_task(
             -32601,
             format!("method `{other}` is not implemented here"),
             json!({"schema": "emem.error.v1",
-                   "supported": ["message/send", "tasks/get", "tasks/cancel"],
+                   "supported": ["message/send", "message/stream", "tasks/get", "tasks/cancel"],
                    "async": "/v1/a2a/tasks",
-                   "note": "message/stream is deliberately absent and the card says streaming:false; live events are /v1/memory/sse, which is not the A2A streaming method"}),
+                   "note": "message/stream answers as SSE. /v1/memory/sse is a different thing: a signed memory feed, not the A2A method."}),
         ),
 
         // ── friendly shape: bare result, no JSON-RPC envelope (sweep F6) ──
@@ -64065,6 +64188,34 @@ mod tests {
 
     /// THE regression test. A client that never sends a cursor must get
     /// the entire advertised core profile, and the response must not state
+    /// The card may claim streaming only while the method answers.
+    ///
+    /// `capabilities.streaming` was false for a long time and correctly so:
+    /// message/stream was absent, and the nearest thing, /v1/memory/sse, is a
+    /// signed memory feed with a different envelope, no task id to correlate
+    /// on and no terminal event. An A2A runtime pointed at it would have
+    /// waited forever for a `final: true` that never comes.
+    ///
+    /// Now it answers, so the flag is true. This pins the pair together: if
+    /// the method is ever removed, the card must go back to false in the same
+    /// change, because a capability advertised and not served is worse than
+    /// one never advertised. The host has already built its event loop.
+    #[tokio::test]
+    async fn the_card_claims_streaming_only_while_the_method_exists() {
+        let Json(card) = well_known_agent_card(State(test_app_state())).await;
+        let caps = &card["capabilities"];
+        assert_eq!(
+            caps["streaming"],
+            json!(true),
+            "message/stream is implemented; the card must say so"
+        );
+        // The two that remain false, asserted so they are not swept true by
+        // proximity: nothing here calls a client back, and Task objects still
+        // carry no history array.
+        assert_eq!(caps["pushNotifications"], json!(false));
+        assert_eq!(caps["stateTransitionHistory"], json!(false));
+    }
+
     /// An agent must be told, before anything else, that what it can see is
     /// not everything there is.
     ///
