@@ -190,8 +190,8 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface documents 156 paths under
-`/v1/*` (162 total in `/openapi.json`), 107 MCP tools (16 core, 91 extended, with
+port 5051. The live surface documents 157 paths under
+`/v1/*` (163 total in `/openapi.json`), 107 MCP tools (16 core, 91 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 107), 19 static MCP
 resources + 8 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
@@ -215,7 +215,7 @@ Four discovery URLs for agent onboarding:
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 162 documented, 156 under `/v1/*` |
+| REST paths (OpenAPI) | 163 documented, 157 under `/v1/*` |
 | MCP tools | 107 (16 core / 91 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
@@ -528,15 +528,18 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | POST | `/v1/heat_solve` | `{cell, hours_ahead?, diffusivity_m2_per_s?}` |
 | POST | `/v1/wave_solve` | `{coastal_cell, offshore_height_m, period_s, n_offshore_cells?}` |
 | POST | `/v1/jepa_predict` | `{cell, band?, lookback_months?, forecast_horizon_months?}` |
-| POST | `/v1/jepa_predict_v2` | `{cell}` |
+| POST | `/v1/jepa_predict_v2` | `{cell, target_month?}` |
 
 `heat_solve` and `wave_solve` are explicit-FD solvers (CFL-stable).
 `jepa_predict` is a closed-form AR(2) NDVI predictor with fixed
-coefficients. `jepa_predict_v2` is **untrained today**; a metadata-only
-`is_trained()` check short-circuits to a last-attested-vintage identity
-baseline. The receipt carries `via: short_circuit_untrained` and
-`untrained_baseline`. Read `model.honesty_warnings` from the response
-before relying on the output.
+coefficients. `jepa_predict_v2` is **trained, and measurably worse than
+persistence**: the receipt carries `NEGATIVE_SKILL`
+(skill_vs_persistence -0.0638) and every band is served
+`via: persistence_fallback_negative_skill`, so the value you get back is
+the last observed one. `untrained_baseline` is a different warning, for
+the zero-init sentinel, and does not fire while the head is trained.
+Read `model.honesty_warnings` from the response before relying on the
+output.
 
    #### Runtime algorithm endpoints
 
@@ -751,10 +754,12 @@ VIIRS, SRTM, DW, WC, LandScan, location) is present but **only the S2
 modality is wired** today; the rest are zero-masked. Do not claim full
 multimodal coverage.
 
-The JEPA v2 dynamics head is untrained. Inference short-circuits via a
-metadata-only `is_trained()` check before any ONNX or sidecar call and
-returns the last attested vintage as an identity baseline. Receipt
-carries `via: short_circuit_untrained` and `untrained_baseline`. Treat
+The JEPA v2 dynamics head is trained and does not beat persistence.
+The receipt carries `NEGATIVE_SKILL` (skill_vs_persistence -0.0638)
+and every band returns `via: persistence_fallback_negative_skill`, the
+last attested vintage. The `is_trained()` short-circuit, whose receipt
+carries `via: short_circuit_untrained` and `untrained_baseline`, only
+fires if the head is rolled back to the zero-init sentinel. Treat
 the output as a no-op.
 
 Tessera (`geotessera`, 128-D annual) is consumed as an upstream

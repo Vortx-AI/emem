@@ -52,6 +52,7 @@ mod embedding_analytics;
 mod eo_runtime;
 mod galileo_chip;
 mod gpu_sidecar;
+mod intents;
 mod jepa_v2;
 mod physics;
 mod prithvi_chip;
@@ -1271,6 +1272,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/channel/geo", get(get_channel_geo))
         .route("/v1/arcade/protocol", get(get_arcade_protocol))
         .route("/v1/harness/protocol", get(get_harness_protocol))
+        .route("/v1/intents", get(get_intents))
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
@@ -4176,6 +4178,13 @@ async fn get_harness_protocol() -> Json<JsonValue> {
     Json(harness_protocol())
 }
 
+/// The capability→intent registry. Deliberately the smallest useful answer to
+/// "should I use this at all", which every other discovery surface assumes has
+/// already been answered.
+async fn get_intents() -> Json<JsonValue> {
+    Json(intents::registry())
+}
+
 /// `/arcade`, a self-contained pixel-globe game that plays the whole emem
 /// loop through live same-origin `/v1` calls.
 ///
@@ -6696,6 +6705,11 @@ async fn well_known(State(s): State<AppState>) -> Response {
         "mcp_descriptor_url": "/.well-known/mcp.json",
         "agents_md_url": "/agents.md",
         "llms_txt_url": "/llms.txt",
+        // Read before the rest of this file. Every other key here answers
+        // "where is it", which presupposes the reader already decided to use
+        // emem; this one answers "is this the thing I need", including the
+        // needs it says we do NOT serve.
+        "intents_url": "/v1/intents",
         "quickstart_url": "/v1/quickstart",
         "stream_url": "/v1/stream",
         "corpus_state_stats_url": "/v1/corpus_state_stats",
@@ -9545,24 +9559,16 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "to_cite_a_fact": "Hand another agent an `emem:fact:` token (one fact, from emem_memory_token), an `emem:bundle:` bundle (many facts, from emem_memory_bundle), or an `emem:entity:` entity token (a whole object, from emem_entity). Any agent resolves it to the identical signed bytes and verifies offline at /verify or via emem_verify_receipt.",
             "full_mental_model": "Then walk `discover_first` (bands → materializers → algorithms → coverage_matrix → manifests)."
         },
-        "trigger_phrases": [
-            "remember this place / fact / object so another agent can use it",
-            "give me a citeable handle for <thing>",
-            "what were we referring to when we said <thing>",
-            "is this the same <object> we discussed before",
-            "resolve this emem:fact: / emem:bundle: / emem:entity: token",
-            "do these sources agree about <place>",
-            "what is at <place>",
-            "tell me about this cell",
-            "compare X and Y",
-            "find places like X",
-            "did <band> change between t1 and t2",
-            "is <claim> true at <place>",
-            "average <band> over this region",
-            "find <event> in <region>",
-            "where is <event> happening",
-            "show me <event> hotspots in <region>"
-        ],
+        // Generated from the intent registry, never hand-written. The list
+        // that used to sit here had drifted geo-shaped ("average <band> over
+        // this region") long after the protocol repositioned to shared memory
+        // and identity, so the surface a router matches on was advertising a
+        // product we had stopped describing everywhere else. Generating it
+        // from `intents::INTENTS` means a phrase cannot outlive the capability
+        // it points at, and served-only means we never pull an agent in on a
+        // need we then have to decline.
+        "trigger_phrases": intents::trigger_phrases(),
+        "intents_url": "/v1/intents",
         // Negative triggers, questions the LLM should NOT route to emem.
         // Pattern-matching one of these saves a wasted call against the
         // responder and a confusingly-empty answer back to the user.
@@ -9572,7 +9578,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // saying "I don't know".
         "anti_trigger_phrases": [
             { "pattern": "is it raining right now in <place>",      "reason": "real-time / sub-daily weather is out of scope; use met.no, NOAA, or Open-Meteo directly." },
-            { "pattern": "what's the forecast for <place> in 6 months", "reason": "forecasts beyond ~2 weeks fall outside the JEPA v2 horizon; emem returns an `untrained_baseline` short-circuit rather than a fake number." },
+            { "pattern": "what's the forecast for <place> in 6 months", "reason": "there is no forecast horizon to ask for: jepa_predict_v2 takes `target_month` (a month of the year, 1-12), not a number of days out, so a 6-month-horizon question has no parameter to land in. More to the point, measured on this responder the head does not beat persistence: the receipt carries NEGATIVE_SKILL (skill_vs_persistence -0.0638) and every band is served `via: persistence_fallback_negative_skill`, i.e. last observed value. Treat it as a research surface, not a forecast." },
             { "pattern": "show me the sub-metre building footprint",  "reason": "imagery resolution is 10 m native (Sentinel-2 / Landsat). Sub-metre commercial imagery (Planet Pelican, Maxar) needs a different connector." },
             { "pattern": "what's the price of land at <place>",       "reason": "market / economic data is out of scope. emem signs Earth observation facts, not commercial valuations." },
             { "pattern": "live air quality reading at <place>",        "reason": "real-time air quality is out of scope; cams.* bands carry global model output, not sensor-grade now-casts. For PurpleAir / OpenAQ ground truth, call those services directly." },
@@ -25011,6 +25017,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/scoreboard":        {"get":{"summary":"The live benchmark: two heats run as a fairness control, reporting material correctness and byte-exactness separately. An arm can be materially perfect and never byte-exact, which is why both are reported.","operationId":"emem_scoreboard","tags":["discover"],"responses":{"200":json_ok}}},
             "/v1/channel/geo":       {"get":{"summary":"Geographic positions for the agent correspondence on /channel: which places the notes in the shared ledger are about.","operationId":"emem_channel_geo","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/harness/protocol": {"get":{"summary":"The benchmark-harness contract, versioned. How an agent records a run in an EXTERNAL environment (ARC-AGI-3 and the like) as signed, chained memory notes, so a score is checkable by somebody who did not watch it and episode N+1 dereferences episode N by cid instead of pasting a summary of it forward. Written from a real hand-rolled usage rather than an imagined one. States its own limits first: this responder does not run the environment, cannot step or score one, and a signature proves only that this attester wrote this record unaltered, never that the run happened or the numbers are true.","operationId":"emem_harness_protocol","tags":["memory"],"responses":{"200":json_ok}}},
+            "/v1/intents": {"get":{"summary":"The capability-to-intent registry: what agents need, phrased the way agents phrase it, mapped to capability, endpoint, tool and the way to check the call worked. Read before /openapi.json, which says which routes exist rather than which needs they answer. Rows carry a coverage field of served, partial or not_served; the partial and not_served rows each name the missing mechanism and where to go instead, because an index that lists only strengths makes the caller discover the limits after committing.","operationId":"emem_intents","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/arcade/protocol":  {"get":{"summary":"The arcade join contract, versioned. Write a signed memory note whose first line is an `ARCADE ` header and a character appears on emem.dev/arcade; there is no roster, no registration and no allowlist, so the globe renders whoever is writing. Returns the envelope, the path conventions, every header field, the act vocabulary, the addressed-message form that /v1/channel/geo geolocates, and the exact write preimage to sign. Read this instead of reverse-engineering the page: the page is a private build artifact and cannot be the contract. States its own limits, the load-bearing one being that position is ASSERTED by the writer and verified by nothing, while attribution is proven by the note's ed25519 signature.","operationId":"emem_arcade_protocol","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/memory_search/stats": {"get":{"summary":"Snapshot of the memory-text index: indexed file count, dataset path, and freshness. Tells a caller whether a thin memory_search result means no match or an index that has not caught up.","operationId":"emem_memory_search_stats","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/vector_index/stats": {"get":{"summary":"Snapshot of the vector index: row count, index type, last incremental append, and whether the index is disabled. Distinguishes an empty answer from an unopened index.","operationId":"emem_vector_index_stats","tags":["discover"],"responses":{"200":json_ok}}},

@@ -526,6 +526,39 @@ jobs:
           fi
           exit $code
 
+      # Everything above proves a thing we built still works. This proves an
+      # agent that has never heard of emem can find out what we are, decide
+      # whether we are relevant, and make a correct first call, from the origin
+      # alone. It also executes every served row of the intent registry, so a
+      # capability claim cannot rot into prose that no longer matches the code.
+      # Counts, routes and homepage figures each have a gate. The sentences
+      # that assert what a component is CURRENTLY doing had none, and they rot
+      # more quietly, because a count invites checking and "X is untrained
+      # today" reads as settled background.
+      - name: state a document asserts is the state we are in
+        run: |
+          set +e
+          python3 scripts/state_claims.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; state claims not asserted"
+            exit 0
+          fi
+          exit $code
+
+      - name: an agent starting cold can find us and act
+        run: |
+          set +e
+          python3 scripts/discovery_test.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; discovery not asserted this run"
+            exit 0
+          fi
+          exit $code
+
   spec-verifier:
     name: the spec's own verifier verifies a real receipt
     runs-on: ubuntu-latest

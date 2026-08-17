@@ -191,8 +191,20 @@ def check_fact_cid_width(text: str, rel: str) -> list[str]:
 
 
 def main() -> int:
+    # "clean over 0 files" is a pass, and it is the most misleading pass this
+    # script can emit: nothing was read, so nothing was cleared. A rename of
+    # docs/, a glob change, or running from the wrong directory all produce it,
+    # and each looks identical to a genuinely clean tree in CI. Exit 2 means
+    # the gate could not run, which is the honest verdict when it read nothing.
+    files = list(prose_files())
+    if not files:
+        print("doc-lint: found no prose files to check. This repo has dozens, "
+              "so the glob is wrong or the working directory is. Reporting "
+              "'clean' here would certify files nobody opened.", file=sys.stderr)
+        return 2
+
     problems: list[str] = stale_exemptions()
-    for f in prose_files():
+    for f in files:
         rel = f.relative_to(REPO).as_posix()
         raw = f.read_text(encoding="utf-8")
         prose = strip_code(raw)

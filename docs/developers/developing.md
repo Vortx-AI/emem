@@ -232,10 +232,12 @@ The Rust server reads `EMEM_SIDECAR_SOCK` (default
 `EMEM_SIDECAR_TIMEOUT_MS` (default 5000 ms), and
 `EMEM_SIDECAR_VRAM_BUDGET_GB` (binary default 10; the deployed user
 unit overrides to 20 to seat all four encoders co-resident) for fan-out.
-JEPA v2 is currently untrained: the endpoint short-circuits to a
-last-attested-vintage identity baseline, the receipt carries
-`via: short_circuit_untrained` and `untrained_baseline`, and there is
-no silent in-process fallback. Galileo (variant selectable via
+JEPA v2 is trained and loses to persistence: the receipt carries
+`NEGATIVE_SKILL` (skill_vs_persistence -0.0638) and every band is
+served `via: persistence_fallback_negative_skill`, so the value is the
+last observed one. There is no silent in-process fallback. The
+`short_circuit_untrained` / `untrained_baseline` pair belongs to the
+zero-init sentinel and does not fire while the head is trained. Galileo (variant selectable via
 `EMEM_GALILEO_VARIANT`, default `base`) is wired for the S2 modality
 only — S1, ERA5, TC, VIIRS, SRTM, Dynamic World, WorldCover, LandScan,
 and location channels are zero-masked at inference. Sidecar

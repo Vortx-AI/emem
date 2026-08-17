@@ -346,12 +346,17 @@ directly.
   user systemd unit; the Rust server reads `EMEM_SIDECAR_SOCK` (default
   `%t/emem/jepa_sidecar.sock` ⇒
   `/run/user/<UID>/emem/jepa_sidecar.sock`).
-- JEPA v2 is untrained today. The endpoint short-circuits via
-  `is_trained()` against a metadata-only `OnceLock`, returns the
-  last-attested-vintage identity baseline, and labels the receipt
+- JEPA v2 is trained, and does not beat persistence. The
+  `is_trained()` short-circuit described below no longer fires; what
+  fires instead is `NEGATIVE_SKILL` (skill_vs_persistence -0.0638),
+  and every band comes back `via: persistence_fallback_negative_skill`,
+  i.e. the last observed value. The receipt also carries
+  `training_synthetic_fraction=1.00`, because the head was fit on
+  synthesised seasonality: this responder has too little multi-tslot
+  history to train end-to-end. Still do not describe
+  `/v1/jepa_predict_v2` as a working dynamics head. If the model is
+  ever rolled back to the zero-init sentinel, the receipt reverts to
   `via: short_circuit_untrained` with `untrained_baseline: true`.
-  Do not describe `/v1/jepa_predict_v2` as a working dynamics head
-  until the training run lands.
 - Galileo (variant selectable via `EMEM_GALILEO_VARIANT`, default `base`) has only the S2 modality wired today; S1, ERA5, TC,
   VIIRS, SRTM, Dynamic World, WorldCover, LandScan, and the location
   channels are zero-masked at inference. The multimodal scaffold is

@@ -134,6 +134,26 @@ def main() -> int:
     patterns = ignore_patterns()
     show = "--list" in sys.argv
 
+    # A gate that finds nothing to check reports success, and success is
+    # exactly the wrong answer: it has not verified that every include is in
+    # the image, it has failed to find the includes. This one is regex over
+    # source text, so it goes quiet the moment the pattern stops matching --
+    # a new include macro, a crates/ move, a vendored path. Silence then reads
+    # as a pass forever, which is the failure this whole script exists to
+    # prevent, turned on the script itself. Exit 2 is "could not run", the
+    # same code openapi_coverage uses when it parses zero routes.
+    if not needed:
+        print("docker-context: found no compile-time includes escaping their "
+              "crate, which this repo certainly has. The pattern stopped "
+              "matching, so this gate is measuring nothing and cannot tell you "
+              "the image is complete.", file=sys.stderr)
+        return 2
+    if not sources:
+        print("docker-context: parsed no COPY sources from the Dockerfile, so "
+              "every include would look uncovered. Refusing to report either "
+              "way.", file=sys.stderr)
+        return 2
+
     problems: list[str] = []
     for rel in sorted(needed):
         why = None
