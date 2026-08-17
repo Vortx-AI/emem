@@ -30,6 +30,11 @@ Categories
               A pass: the verdict-bearing fields survived. MCP carrying MORE
               than REST is never this, it is a DIVERGE.
   BOTH_ERR    both refused, with the same error code. Parity holds.
+  FILTER_CLOSED  both doors agreed, and the agreement is the bug: a row marked
+              `must_return` came back refused (or 200 with no facts). Parity
+              cannot see a filter that broke CLOSED, because two paths that
+              reject everything agree perfectly. Only an assertion that
+              something still comes THROUGH can see it.
   ONLY_ERR    one refused and the other answered. The real divergence signal.
   DIVERGE     both answered, and the facts differ beyond tolerance
   TOLERANCE   both answered and agree within EPSILON but not exactly
@@ -41,7 +46,7 @@ Categories
 Exit codes
 ----------
   0  every case is MATCH, BOTH_ERR or TOLERANCE
-  1  any ONLY_ERR, DIVERGE or INPUT_DRIFT
+  1  any ONLY_ERR, DIVERGE, INPUT_DRIFT or FILTER_CLOSED
   2  the harness could not run (responder unreachable, bad arguments)
 
 Usage
@@ -92,7 +97,7 @@ CONCURRENCY = 6
 # answers about two different polygons is a defect whichever component owns it;
 # it is a category of its own so the report accuses the geocoder instead of the
 # transports, not so that it can be waved through.
-FAILING = ("ONLY_ERR", "DIVERGE", "INPUT_DRIFT")
+FAILING = ("ONLY_ERR", "DIVERGE", "INPUT_DRIFT", "FILTER_CLOSED")
 
 # Fields that legitimately differ per call. Excluding them is what makes the
 # comparison about the ANSWER rather than about the envelope.
@@ -118,13 +123,19 @@ class Case:
     """One (tool, REST path, args) triple and how to compare it."""
 
     def __init__(self, name, tool, path, args, tolerance=False, shape_only=False,
-                 method="POST"):
+                 method="POST", must_return=False):
         self.name = name
         self.tool = tool
         self.path = path
         self.args = args
         self.tolerance = tolerance
         self.shape_only = shape_only
+        # Parity alone cannot see a filter that broke CLOSED. Both doors would
+        # refuse together, and BOTH_ERR is a pass here by design (rule 2). For
+        # a row whose whole point is that a filter lets something through, an
+        # identical refusal on both paths is the bug, not the agreement. Set
+        # this and BOTH_ERR is scored FILTER_CLOSED instead of parity.
+        self.must_return = must_return
         # The REST twin's verb. Not uniform: some reads are GET with a query
         # string and some are POST with a body, and calling one as the other
         # returns 405, which would look like a divergence and is not.
@@ -147,7 +158,19 @@ CASES = [
          {"cell": CELL, "bands": ["weather.temperature_2m"],
           "provenance": ["direct_sensor"]}),
     Case("recall/deterministic-keeps-sensor", "emem_recall", "/v1/recall",
-         {"cell": CELL, "bands": ["copdem30m.elevation_mean"], "deterministic": True}),
+         {"cell": CELL, "bands": ["copdem30m.elevation_mean"], "deterministic": True},
+         must_return=True),
+    # The allowlist row above only proves the filter can REFUSE. A filter that
+    # broke closed and rejected every class would keep that row green, because
+    # both doors would refuse together and BOTH_ERR reads as parity. This is
+    # the same shape as the showcase result where agreement rewarded drift.
+    # So: one row where the allowlist must let a fact THROUGH. cop_dem is
+    # provenance_class direct_sensor in the band manifest, so an allowlist of
+    # direct_sensor has to keep it; if this ever flips to BOTH_ERR the filter
+    # has broken closed and the refusal row will not tell you.
+    Case("recall/provenance-keeps-sensor", "emem_recall", "/v1/recall",
+         {"cell": CELL, "bands": ["copdem30m.elevation_mean"],
+          "provenance": ["direct_sensor"]}, must_return=True),
     Case("state/fingerprint", "emem_state", "/v1/state", {"cell": CELL}),
     Case("bands/catalog", "emem_bands", "/v1/bands", {}, shape_only=True,
          method="GET"),
@@ -372,6 +395,14 @@ def compare(case, mcp, rest):
 
     if not mcp_ok and not rest_ok:
         mc, rc = mcp_body.get("code"), rest_body.get("code")
+        # Scored before the agreement checks on purpose. This row exists to
+        # prove a filter still passes something; two doors agreeing to refuse
+        # is the failure it was written to catch, so it must not be allowed to
+        # reach the BOTH_ERR branch and be counted as parity.
+        if case.must_return:
+            return ("FILTER_CLOSED",
+                    f"both refused ({mc}) a case that must return facts: "
+                    f"{str(rest_body.get('message') or mc)[:90]}")
         if mc == rc:
             return "BOTH_ERR", f"both refused: {mc}"
         # The MCP surface renders a refusal as `tool error (-N): <the REST
@@ -453,6 +484,14 @@ def compare(case, mcp, rest):
 
     mf, rf = facts_of(mcp_body), facts_of(rest_body)
     if not mf and not rf:
+        # A must_return row that answers 200 with an empty fact list has failed
+        # in the same way as one that refused: the filter matched nothing. The
+        # shape fallback below would score it MATCH, which is the vacuous pass
+        # this flag exists to refuse.
+        if case.must_return:
+            return ("FILTER_CLOSED",
+                    "both answered but returned no facts for a case that must "
+                    "return facts")
         # No facts either side: fall back to shape so the row still asserts
         # something rather than passing vacuously.
         ms, rs = shape_of(mcp_body), shape_of(rest_body)
