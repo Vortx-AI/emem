@@ -69,6 +69,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -402,7 +403,9 @@ def compare(case, mcp, rest):
         if case.must_return:
             return ("FILTER_CLOSED",
                     f"both refused ({mc}) a case that must return facts: "
-                    f"{str(rest_body.get('message') or mc)[:90]}")
+                    # 90 chars cut this mid-token at "(m", losing the class
+                    # name, which is the half a reader acts on.
+                    f"{str(rest_body.get('message') or mc)[:150]}")
         if mc == rc:
             return "BOTH_ERR", f"both refused: {mc}"
         # The MCP surface renders a refusal as `tool error (-N): <the REST
@@ -780,6 +783,30 @@ def main():
                       "name resolved to a different polygon between the calls.")
             for r in bad:
                 print(f"  {r['case']}: {r['detail']}")
+
+    # Say WHICH case failed somewhere a reader without a token can see it.
+    #
+    # On 2026-08-17 this job failed on one commit and passed on the next with a
+    # byte-identical script, so the failure was non-deterministic and the only
+    # record of which case diverged was the job log. Logs need an authenticated
+    # token; `/repos/{o}/{r}/check-runs/{id}/annotations` does not, and answered
+    # 200 to an anonymous request. Ours carried one line: "Process completed
+    # with exit code 1", because nothing here ever emitted an annotation.
+    #
+    # A workflow command on stdout becomes an annotation. That is the whole
+    # fix: the verdict travels out of the log and into a surface that anyone
+    # auditing emem can read, which matters more here than in most projects,
+    # since the agents who check our claims cannot read our logs either.
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        def _ann(line):
+            # A newline or a stray :: would split one annotation into two, or
+            # swallow the rest of the detail.
+            return str(line).replace("\r", " ").replace("\n", " ").replace("::", " ")
+        for r in bad + unreachable_rows:
+            level = "warning" if r["category"] == "UNREACHABLE" else "error"
+            print(f"::{level} title=parity {_ann(r['category'])}::"
+                  f"{_ann(r['case'])}: {_ann(r['detail'])}")
+
     # Order matters. An unreachable responder is reported BEFORE any verdict,
     # because a run that could not reach production has not tested production
     # and must not be read as either a pass or a failure of it. Exit 2 is the
