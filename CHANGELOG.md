@@ -7,6 +7,82 @@ to verify.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-17
+
+The release that made the agent surface usable without a human deciding which
+document to read. Nothing here changes the wire format: receipts, the preimage
+rule and the cell64 address space are untouched, and every fact signed under
+2.1.0 verifies unchanged.
+
+### Added
+
+- **An intent registry.** `/v1/intents` maps what an agent needs, in the
+  agent's own words, to the capability, the endpoint and how to check the call
+  worked. Rows carry `served`, `partial` or `not_served`, and the four that are
+  not fully served name the missing mechanism and where to go instead. An index
+  that lists only strengths makes the caller discover the limits after
+  committing.
+- `/.well-known/agent-intent.json`, the same table shaped for a crawler that
+  walks well-known paths, with unserved rows carried as `provider: null`.
+- `/.well-known/emem-manifest.json`: `server_version`, `protocol_version`,
+  `tool_count` by tier and a `capability_manifest_cid` over the tool surface,
+  derived per request so a directory listing can stop going stale.
+- **`emem_memory_supersede`.** An author can mark their own note replaced.
+  `superseded_by` existed on the metadata and was only ever set by an automatic
+  consolidation pass, so a substrate whose argument is that stale claims should
+  not propagate had no way to mark a claim stale. Reads now carry a
+  `_superseded` banner above the content.
+- **A2A `message/stream`.** SSE on the same endpoint, emitting the task
+  lifecycle. `capabilities.streaming` was false and honestly so; it is true now
+  because the method answers.
+- **The MCP Apps fact card** (`ui://emem/fact-card`, SEP-1865), which verifies
+  the receipt in the reader's own browser with no network: blake3 and ed25519
+  compiled in, because a host applies `connect-src 'none'`.
+- **Local verification in the Python SDK.** `verify_receipt` was a POST to
+  `/v1/verify_receipt`, which asks the responder whether the responder is
+  honest. It now rebuilds the preimage and checks the signature in-process, and
+  reports `verified_locally`, a field a server can never send.
+- Collaboration prompts (`shared_fact`, `verify_claim`, `carry_state`,
+  `a2a_exchange`) ahead of the place questions, and `emem://inbox/{pubkey8}` +
+  `emem://agents` as MCP resources, so the agent-to-agent layer is reachable
+  from the door most agents arrive through.
+
+### Changed
+
+- One description, written once. Ten surfaces carried ten paraphrases and most
+  ended "Grounded in signed Earth observation", so directories filed emem under
+  Earth observation. The lead is now shared memory for agents working together;
+  Earth is the substrate the record is populated from, further down the page.
+- The MCP instructions open by saying the listed tools are NOT the complete
+  capability set, and are rewritten in short sentences. That paid for a new
+  warning block and still came in under the byte ceiling.
+- The core tool list renders in the order the loop teaches, so the first
+  capability shown is `emem_entity` rather than `emem_locate`.
+- `bands` accepts an array as well as a CSV string on the eight tools that took
+  only CSV.
+
+### Fixed
+
+- `AddressSpace::has_write_path` said only `geo.cell64` could key a fact. The
+  storage layer had moved and the registry had not: a signed fact keys to an
+  object today, proven by test. What still holds the object-addressed profiles
+  at `candidate` is that they declare no bands.
+- `/v1/attest` documented `attester` and `signature` as base32 strings while
+  taking byte arrays, so the reference sent readers into a 400 on the signed
+  write path.
+- The intent registry documented `/v1/memory_token` without its required `cell`
+  and `/v1/memory_bundle` with `fact_cids` instead of `triples`. Both were
+  written from what the call ought to look like rather than from what it
+  answers, and both were found by executing the rows instead of reading them.
+- The MCP wire budget truncated the fact card at 6,530 bytes of 51,362, leaving
+  an unterminated `<script>`. `ui://` resources are exempt: a view never enters
+  the model's context, so truncating one saves nothing and breaks the document.
+- Four homepage cards linked to `/reference` anchors that did not exist, and the
+  provenance class count was stated as five where seven are defined.
+- Five documents said the JEPA v2 head was untrained. It is trained and loses to
+  persistence, so the receipt carries `NEGATIVE_SKILL` rather than
+  `untrained_baseline`, and a reader looking for the old warning found nothing.
+
 ## [2.1.0] - 2026-08-10
 
 ![emem 2.1.0](web/release-2.1.0.png)

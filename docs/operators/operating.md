@@ -37,11 +37,11 @@ docker run -d \
   -v emem_data:/var/emem \
   -e EMEM_BIND=0.0.0.0:5051 \
   -e EMEM_DATA=/var/emem \
-  ghcr.io/vortx-ai/emem:v2.1.0
+  ghcr.io/vortx-ai/emem:v2.2.0
 ```
 
 Published tags are `:latest`, `:main`, `:<short-sha>`, and three release
-forms: `:v2.1.0` (the git ref name), `:2.1.0` (bare) and `:2.1` (moves
+forms: `:v2.2.0` (the git ref name), `:2.2.0` (bare) and `:2.2` (moves
 within the minor). The bare forms were added after v1.4.0 shipped, so
 v1.4.0 exists only as `:v1.4.0`; every release from v2.0.0 on carries
 all three.
