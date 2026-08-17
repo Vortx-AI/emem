@@ -212,7 +212,7 @@ pub const INTENTS: &[Intent] = &[
         instead: "",
         tool: "emem_guard_verdict",
         rest: "POST /v1/guard/verdict",
-        first_call: "POST /v1/guard/verdict {\"text\":\"<your draft>\"}",
+        first_call: "POST /v1/guard/verdict {\"text\":\"The elevation near Bengaluru is 918.0 m.\"}",
         verify: "Send a draft with a deliberately broken token and confirm it denies, then the corrected one and confirm it allows. A gate you have not tried to fool is not a gate. Read `action` and `clearance` as separate fields.",
     },
     Intent {

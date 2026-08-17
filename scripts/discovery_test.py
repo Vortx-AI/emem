@@ -76,6 +76,17 @@ COLD_NEEDS = [
 # What the root discovery document has to answer for an agent to decide at
 # all. Endpoint lists are not enough: they tell a reader where the doors are
 # while assuming it already chose to come in.
+# Tools the end-to-end handoff below actually calls. A registry row whose
+# first_call is prose is still checked if its tool appears here.
+CHAIN_COVERS = {
+    "emem_recall",
+    "emem_memory_token",
+    "emem_memory_token_resolve",
+    "emem_verify_receipt",
+    "emem_locate",
+    "emem_memory_bundle",
+}
+
 ROOT_MUST_ANSWER = {
     "identity": ("protocol", "vendor", "name"),
     "version": ("version",),
@@ -223,7 +234,7 @@ def main():
     # Step 4. The claims themselves. A served row that cannot be called is the
     # failure mode this whole repo keeps finding: a claim that stopped matching
     # the code with no gate watching.
-    executed = skipped = 0
+    executed = skipped = covered = 0
     if rows:
         print("\n  executing every served row's first_call:")
         for r in rows:
@@ -231,8 +242,31 @@ def main():
                 continue
             call = parse_first_call(r.get("first_call", ""))
             if not call:
-                skipped += 1
-                notes.append(f"{r['need'][:44]}: first_call is prose, not executed")
+                # Not every row is one call. Some are honestly two steps
+                # ("resolve the token, then verify the receipt"), and some
+                # carry a <placeholder> only a prior result can fill. Those
+                # are not unchecked: the handoff chain below runs recall,
+                # memory_token, resolve and verify_receipt end to end against
+                # the live responder.
+                #
+                # Reporting them as "not executed" was accurate and misleading
+                # at once, because it read as five unverified claims when the
+                # chain already covers four of the tools they name. A gate that
+                # overstates its own gaps gets discounted the same way one that
+                # hides them does.
+                tool = r.get("tool", "")
+                if tool in CHAIN_COVERS:
+                    covered += 1
+                    notes.append(f"{r['need'][:44]}: exercised by the handoff "
+                                 f"chain rather than as a standalone call")
+                else:
+                    skipped += 1
+                    problems.append(
+                        f"the registry claims {r['need'][:44]!r} is served, and "
+                        f"nothing checks it: its first_call is prose and no chain "
+                        f"step exercises {tool or 'its tool'}. A served row that "
+                        f"cannot be executed is a claim with no evidence behind it."
+                    )
                 continue
             method, path, body = call
             before = p.bytes
@@ -294,6 +328,16 @@ def main():
                             f"/v1/memory_token answered {str(tok)[:90]}")
         else:
             print(f"    ok   agent A minted a citation          {token}")
+            bundle, _ = p.get("/v1/memory_bundle", method="POST",
+                              body={"fact_cids": [fact_cid]})
+            btok = (bundle or {}).get("token") if isinstance(bundle, dict) else None
+            if btok:
+                print(f"    ok   and collapsed it to a bundle       {btok}")
+            else:
+                problems.append(
+                    "a fact could not be bundled; multi-fact handoff would cost "
+                    "one address per fact instead of one 38-character handle"
+                )
             # Agent B. A different Probe object: no shared state, no cookies,
             # nothing carried over but the token string itself.
             b = Probe(a.origin)
@@ -337,7 +381,8 @@ def main():
         print("\n  not executed (reported, never silently passed):")
         for n in notes:
             print(f"    - {n}")
-    print(f"  executed {executed} served rows, {skipped} unparseable")
+    print(f"  executed {executed} served rows directly, {covered} covered by the "
+          f"handoff chain, {skipped} neither")
 
     if a.json:
         print(json.dumps({"origin": p.origin, "bytes": p.bytes,
