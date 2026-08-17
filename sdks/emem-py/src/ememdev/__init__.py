@@ -29,8 +29,11 @@ Quick start:
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from .client import AsyncClient, Client, EmemError, EmemHTTPError
+from .verify import Verdict, verify_receipt_offline
 
 __all__ = [
+    "verify_receipt_offline",
+    "Verdict",
     "AsyncClient",
     "Client",
     "EmemError",

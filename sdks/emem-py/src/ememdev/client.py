@@ -377,7 +377,37 @@ class Client:
         receipt: Mapping[str, Any],
         *,
         pubkey_b32: str | None = None,
+        offline: bool = True,
     ) -> Any:
+        """Check a receipt.
+
+        Offline by default, because the alternative is asking the responder
+        whether the responder is honest. This method used to do only that: a
+        POST to `/v1/verify_receipt`, which is a useful endpoint and is not
+        verification. The crypto to do it here was already a dependency, used
+        to sign writes, and nothing pointed it at reads.
+
+        `offline=False` keeps the old behaviour for callers who want the
+        responder's opinion as a second signal, or who installed without the
+        `signing` extra.
+        """
+        if offline:
+            from .verify import verify_receipt_offline
+
+            v = verify_receipt_offline(receipt)
+            return {
+                "valid": v.ok,
+                "state": v.state,
+                "why": v.why,
+                "digest_hex": v.digest_hex,
+                "signer_pubkey_b32": v.signer_b32,
+                "preimage_version": v.preimage_version,
+                # Set HERE, after this process did the arithmetic. A responder
+                # can never send this field: a server asserting that its own
+                # signature is good is the thing offline verification exists to
+                # remove.
+                "verified_locally": v.ok,
+            }
         return self._post("/v1/verify_receipt", _verify_receipt_body(receipt, pubkey_b32))
 
     def hunt(
@@ -1227,7 +1257,22 @@ class AsyncClient:
         receipt: Mapping[str, Any],
         *,
         pubkey_b32: str | None = None,
+        offline: bool = True,
     ) -> Any:
+        """Check a receipt. Offline by default; see the sync twin."""
+        if offline:
+            from .verify import verify_receipt_offline
+
+            v = verify_receipt_offline(receipt)
+            return {
+                "valid": v.ok,
+                "state": v.state,
+                "why": v.why,
+                "digest_hex": v.digest_hex,
+                "signer_pubkey_b32": v.signer_b32,
+                "preimage_version": v.preimage_version,
+                "verified_locally": v.ok,
+            }
         return await self._post("/v1/verify_receipt", _verify_receipt_body(receipt, pubkey_b32))
 
     async def hunt(

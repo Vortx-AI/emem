@@ -174,7 +174,11 @@ WIRE_PARITY_CASES: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = [
     ("health", (), {}),
     # extended (v0.0.8)
 ("at", (), {}),
-    ("verify_receipt", ({'x': 1},), {}),
+    # offline=False on purpose: this suite compares the HTTP request the sync
+    # and async clients emit, and verify_receipt now checks locally by default,
+    # which emits none. The wire path still exists for callers who want the
+    # responder's opinion, and this is what pins its shape.
+    ("verify_receipt", ({'x': 1},), {'offline': False}),
     ("hunt", ('x',), {}),
     ("eudr_dds", ([{"plot_id": "p1"}],), {}),
     ("attest", ({'x': 1}, 'x', 'x'), {}),
