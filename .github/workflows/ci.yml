@@ -563,6 +563,22 @@ jobs:
           fi
           exit $code
 
+      # The agent guide's first screen is what an agent routes on. It is
+      # generated from the responder's own intent registry, so a hand edit or
+      # a new intent that never reached the guide shows up here rather than in
+      # an agent picking a tool for a need we stopped serving.
+      - name: the agent guide's first screen matches the registry
+        run: |
+          set +e
+          python3 scripts/gen_decision_layer.py --check --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; decision layer not asserted"
+            exit 0
+          fi
+          exit $code
+
       - name: an agent starting cold can find us and act
         run: |
           set +e

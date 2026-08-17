@@ -2628,6 +2628,84 @@ mod trace_gate_tests {
         MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage")
     }
 
+    /// A signed attestation whose subject is an object, not a place, through
+    /// the real sled-backed store rather than an in-memory shim.
+    ///
+    /// `the_record_layer_does_not_require_the_subject_to_be_a_place` shows
+    /// recall works for an entity subject, but it inserts through a test
+    /// double. This one goes the whole way: build the fact, merkle it, sign
+    /// it, put it through `put_attestation`, and read it back by its own
+    /// content address. If the write path were geographic anywhere along that
+    /// route, this is where it would show.
+    ///
+    /// Why it matters beyond the code: the substrate registry declares five
+    /// profiles on `entity.cid` (a codebase, a table, a model checkpoint, an
+    /// execution trace, deep space) and holds every one at `candidate`,
+    /// because `AddressSpace::has_write_path` says only `geo.cell64` can key
+    /// a fact. That was true when it was written. This asserts what is true
+    /// now, so the claim moves on evidence rather than on optimism.
+    #[tokio::test]
+    async fn a_signed_fact_can_be_keyed_to_an_object_rather_than_a_place() {
+        let storage = ephemeral();
+        let secret = [7u8; 32];
+        let signing = SigningKey::from_bytes(&secret);
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(signing.verifying_key().as_bytes());
+
+        // A codebase, not a place. Nothing here decodes as a cell64.
+        let subject = "emem:entity:zzzzn5rk3wubxsbnrpxevbtqha";
+        let fact = Fact::Primary(PrimaryFact {
+            cell: subject.into(),
+            band: "indices.ndvi".into(),
+            tslot: 12,
+            value: ciborium::Value::Float(42.0),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "test".into(),
+                id: "repo-scan".into(),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "test@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: SchemaCid::new("test-schema"),
+            signer: AttesterKey(pk),
+            signed_at: "2026-08-17T00:00:00Z".into(),
+            served_via: None,
+        });
+
+        let att = build_signed(vec![fact], secret);
+        let cids = storage
+            .put_attestation(&att)
+            .await
+            .expect("a signed fact about an object must be storable");
+        assert_eq!(cids.len(), 1, "the attestation stored no fact");
+
+        let back = storage
+            .get_facts_many(std::slice::from_ref(&cids[0]))
+            .await
+            .expect("fetch by content address")
+            .into_iter()
+            .next()
+            .flatten()
+            .expect("the fact must be retrievable by its own cid");
+        match back {
+            Fact::Primary(p) => assert_eq!(
+                p.cell, subject,
+                "the subject must round-trip verbatim rather than be coerced \
+                 toward a place"
+            ),
+            other => panic!("expected a primary, got {other:?}"),
+        }
+    }
+
     fn mk_fact(value: f64, signer_pk: [u8; 32]) -> Fact {
         Fact::Primary(PrimaryFact {
             cell: "damO.zb000.xUti.zde78".into(),

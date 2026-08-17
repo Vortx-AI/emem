@@ -70,6 +70,14 @@ pub struct Intent {
     /// Other phrasings of the same need. A router matching on any of these
     /// should land on the same row.
     pub also: &'static [&'static str],
+    /// The label a human-facing summary uses, chosen rather than derived.
+    ///
+    /// The decision layer in the agent guide first picked the shortest alias
+    /// and produced "persistent Earth state" and a bare "provenance" as the
+    /// headline for two rows, which is both unclear and the geo-first framing
+    /// this table exists to correct. A display label is content; deriving it
+    /// from string length picks whichever alias happens to be terse.
+    pub short: &'static str,
     /// What emem calls the thing. Second, deliberately: our vocabulary is
     /// only useful once the need has been recognised.
     pub capability: &'static str,
@@ -100,9 +108,13 @@ pub const INTENTS: &[Intent] = &[
         need: "I need memory another agent can read and trust without trusting me",
         also: &[
             "I need shared memory across agents",
+            "persistent Earth state",
+            "satellite evidence for a location",
+            "what was observed here",
             "I need persistent memory between sessions",
             "I need a memory my whole fleet can read",
         ],
+        short: "Memory two agents can both trust",
         capability: "signed, content-addressed shared memory",
         coverage: Coverage::Yes,
         why: "",
@@ -118,7 +130,11 @@ pub const INTENTS: &[Intent] = &[
             "I need a citeable handle for this fact",
             "I need my citation to survive leaving this conversation",
             "I need cross-agent provenance",
+            "provenance",
+            "pass evidence to another agent",
+            "can another agent verify this",
         ],
+        short: "A citeable handle for a fact",
         capability: "emem:fact: / emem:bundle: tokens over signed bytes",
         coverage: Coverage::Yes,
         why: "",
@@ -134,7 +150,10 @@ pub const INTENTS: &[Intent] = &[
             "I need a canonical identity for this thing",
             "I need to stop referential drift",
             "is this the same object we discussed before",
+            "remember this location",
+            "cross-agent referential consistency",
         ],
+        short: "One identity for a thing, across agents",
         capability: "entity identity (emem:entity:<entity_cid>)",
         coverage: Coverage::Yes,
         why: "",
@@ -151,6 +170,7 @@ pub const INTENTS: &[Intent] = &[
             "somebody gave me a token, is it genuine",
             "I need to audit what another agent told me",
         ],
+        short: "Check a claim another agent gave you",
         capability: "offline receipt verification against an append-only log",
         coverage: Coverage::Yes,
         why: "",
@@ -165,8 +185,10 @@ pub const INTENTS: &[Intent] = &[
         also: &[
             "do these sources agree",
             "I need to detect drift between attesters",
+            "agents disagree about this place",
             "which of these two numbers is right",
         ],
+        short: "Find where sources disagree",
         capability: "contradiction detection at one address",
         coverage: Coverage::Yes,
         why: "",
@@ -183,6 +205,7 @@ pub const INTENTS: &[Intent] = &[
             "I need to stop myself hallucinating a number",
             "does every citation in this still resolve",
         ],
+        short: "Gate your own draft before sending",
         capability: "grounding gate over a draft",
         coverage: Coverage::Yes,
         why: "",
@@ -199,6 +222,7 @@ pub const INTENTS: &[Intent] = &[
             "the next agent has no context, how do I brief it",
             "I need to pass state between agents",
         ],
+        short: "Hand work across a trust boundary",
         capability: "bundle tokens plus a read-side mailbox",
         coverage: Coverage::Yes,
         why: "",
@@ -215,6 +239,7 @@ pub const INTENTS: &[Intent] = &[
             "I need grounded environmental data",
             "did <band> change between t1 and t2",
         ],
+        short: "Signed observations at a place",
         capability: "signed Earth-observation facts at a canonical address",
         coverage: Coverage::Yes,
         why: "",
@@ -229,11 +254,13 @@ pub const INTENTS: &[Intent] = &[
         also: &[
             "compare X and Y",
             "find places like X",
+            "find similar places",
             "average <band> over this region",
             "find <event> in <region>",
             "where is <event> happening",
             "show me <event> hotspots in <region>",
         ],
+        short: "Compare places, or find similar ones",
         capability: "comparison, similarity search and region aggregation over signed facts",
         coverage: Coverage::Yes,
         why: "",
@@ -250,6 +277,7 @@ pub const INTENTS: &[Intent] = &[
             "I need to remember this after I am compacted",
             "I need durable scratch memory for myself",
         ],
+        short: "State that outlives your context window",
         capability: "durable notes plus a bundle token you carry forward",
         coverage: Coverage::Partial,
         why: "There is no private per-session checkpoint. /openapi.json routes no session, checkpoint or compaction endpoint, and a write lands in /memories/by_attester/<your pk8>/ which is world-readable. What works is the durable half: write the note, take a token, and dereference it after compaction. What does not work is privacy, and automatic capture, which you must do yourself before the window ends.",
@@ -266,6 +294,7 @@ pub const INTENTS: &[Intent] = &[
             "my runtime does not speak MCP",
             "can I curl a write",
         ],
+        short: "Write without an MCP client",
         capability: "memory write verbs",
         coverage: Coverage::Partial,
         why: "Reads are fully available over REST, writes are not: emem_memory_create, insert, str_replace, rename and delete are MCP-only and have no REST twin. /openapi.json lists no write path, so a client that only speaks HTTP can read everything and write nothing.",
@@ -282,6 +311,7 @@ pub const INTENTS: &[Intent] = &[
             "nobody else should see this",
             "I need per-tenant isolation",
         ],
+        short: "Memory only you can read",
         capability: "",
         coverage: Coverage::No,
         why: "There are no owner-scoped reads. Every note and fact written here is readable by anyone, by design: the protocol's value is that a third party can check a claim without trusting the writer, and that property is incompatible with a private read. Writes are namespace-scoped to your key, which controls who may WRITE where, not who may read.",
@@ -298,6 +328,7 @@ pub const INTENTS: &[Intent] = &[
             "can the server sign for me",
             "I need zero-setup writes",
         ],
+        short: "Take part without holding a key",
         capability: "",
         coverage: Coverage::No,
         why: "Writing requires an ed25519 key you hold and a per-verb preimage you sign; there is no server-side signing route, and there should not be. A signature the responder could produce on your behalf would attest nothing about you, which would make every downstream verification meaningless.",
@@ -318,6 +349,7 @@ pub fn registry() -> JsonValue {
         .map(|i| {
             let mut row = json!({
                 "need": i.need,
+                "short": i.short,
                 "also_phrased": i.also,
                 "capability": i.capability,
                 "coverage": i.coverage.as_str(),
@@ -374,6 +406,108 @@ pub fn registry() -> JsonValue {
             "mcp": "/mcp (16-tool core loop), /mcp/full (the rest)",
         },
     })
+}
+
+/// The same table in the shape a discovery crawler expects: capability first,
+/// with the situations that should route to it.
+///
+/// A separate rendering, not a separate source. The measured problem with
+/// this responder's discovery was never that it lacked surfaces, it was that
+/// it had six of them totalling half a megabyte and no single answer to
+/// "should I use this at all". Adding a seventh hand-written file would make
+/// that worse; this one is `registry()` reshaped, so the two cannot disagree.
+///
+/// Unserved rows are carried through as `provider: null` with the reason
+/// attached. A crawler that indexes only the positive rows still gets a
+/// correct index; one that reads everything learns where not to send an agent,
+/// which is the more useful fact and the one an advertisement would omit.
+pub fn agent_intent_document() -> JsonValue {
+    let caps: Vec<JsonValue> = INTENTS
+        .iter()
+        .map(|i| {
+            let mut when: Vec<&str> = vec![i.need];
+            when.extend_from_slice(i.also);
+            let mut row = json!({
+                "intent": intent_slug(i.need),
+                "capability": i.capability,
+                "when": when,
+                "provider": if i.coverage == Coverage::No { JsonValue::Null }
+                            else { json!("emem") },
+                "coverage": i.coverage.as_str(),
+            });
+            let m = row.as_object_mut().expect("object");
+            if i.coverage != Coverage::Yes {
+                m.insert("why_not".into(), json!(i.why));
+                m.insert("use_instead".into(), json!(i.instead));
+            }
+            if !i.tool.is_empty() {
+                m.insert("tool".into(), json!(i.tool));
+            }
+            if !i.first_call.is_empty() {
+                m.insert("first_call".into(), json!(i.first_call));
+            }
+            row
+        })
+        .collect();
+    json!({
+        "schema": "emem.agent_intent.v1",
+        "provider": {
+            "name": "emem",
+            "what": "Shared, verifiable memory for AI agents. One place, one content-addressed address; one observation, one signed fact; one object, one citeable identity. Every read returns an ed25519 receipt any agent verifies offline, without trusting the responder.",
+            "mcp": "https://emem.dev/mcp",
+            "reads_need_no_key": true,
+            "intents_url": "/v1/intents",
+        },
+        "note": "Generated from the same table as /v1/intents. Rows with a null provider are needs emem does NOT serve, kept here with the reason, because an index that lists only strengths makes a caller discover the limits after committing.",
+        "capabilities": caps,
+    })
+}
+
+/// A stable machine key for a need, derived from the need itself so it cannot
+/// be assigned inconsistently by hand.
+fn intent_slug(need: &str) -> String {
+    let mut s = String::new();
+    for w in need
+        .to_lowercase()
+        .split_whitespace()
+        .filter(|w| {
+            !matches!(
+                *w,
+                "i" | "need"
+                    | "to"
+                    | "a"
+                    | "the"
+                    | "that"
+                    | "for"
+                    | "of"
+                    | "it"
+                    | "can"
+                    | "so"
+                    | "at"
+                    | "in"
+                    | "my"
+                    | "me"
+                    | "another"
+                    | "and"
+                    | "or"
+                    | "is"
+                    | "are"
+                    | "with"
+                    | "without"
+            )
+        })
+        .take(4)
+    {
+        let cleaned: String = w.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        if cleaned.is_empty() {
+            continue;
+        }
+        if !s.is_empty() {
+            s.push('_');
+        }
+        s.push_str(&cleaned);
+    }
+    s
 }
 
 /// The phrasings a router should treat as "consider emem". Generated from the
@@ -469,6 +603,35 @@ mod intents_test {
             assert!(
                 !n.contains("emem_"),
                 "{}: the need must not name our tool; the tool is the answer, not the question",
+                i.need
+            );
+        }
+    }
+
+    /// Every row owes a display label, and it has to be short enough to scan.
+    /// The decision layer is generated from these; a missing or sprawling one
+    /// makes the guide's first screen a wall of prose, which is the failure
+    /// that screen exists to fix.
+    #[test]
+    fn every_intent_has_a_scannable_label() {
+        for i in INTENTS {
+            assert!(
+                !i.short.is_empty(),
+                "{}: no display label; the decision layer would fall back to \
+                 the matching sentence",
+                i.need
+            );
+            assert!(
+                i.short.len() <= 44,
+                "{}: label {:?} is {} chars; a table of these stops being \
+                 scannable past about 44",
+                i.need,
+                i.short,
+                i.short.len()
+            );
+            assert!(
+                !i.short.starts_with("I need"),
+                "{}: the label is the summary form, not the matching form",
                 i.need
             );
         }

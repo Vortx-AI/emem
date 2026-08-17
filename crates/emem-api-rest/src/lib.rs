@@ -1274,6 +1274,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/arcade/protocol", get(get_arcade_protocol))
         .route("/v1/harness/protocol", get(get_harness_protocol))
         .route("/v1/intents", get(get_intents))
+        .route("/.well-known/agent-intent.json", get(get_agent_intent))
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
@@ -4186,6 +4187,12 @@ async fn get_intents() -> Json<JsonValue> {
     Json(intents::registry())
 }
 
+/// The intent registry at a well-known path, for a crawler that walks
+/// `/.well-known/` and would never think to call `/v1/intents`.
+async fn get_agent_intent() -> Json<JsonValue> {
+    Json(intents::agent_intent_document())
+}
+
 /// `/arcade`, a self-contained pixel-globe game that plays the whole emem
 /// loop through live same-origin `/v1` calls.
 ///
@@ -6719,6 +6726,9 @@ async fn well_known(State(s): State<AppState>) -> Response {
         // emem; this one answers "is this the thing I need", including the
         // needs it says we do NOT serve.
         "intents_url": "/v1/intents",
+        // The same registry shaped for a crawler that walks /.well-known/ and
+        // would never think to call a /v1 path.
+        "agent_intent_url": "/.well-known/agent-intent.json",
         "quickstart_url": "/v1/quickstart",
         "stream_url": "/v1/stream",
         "corpus_state_stats_url": "/v1/corpus_state_stats",

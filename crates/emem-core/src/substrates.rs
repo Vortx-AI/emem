@@ -165,14 +165,25 @@ impl AddressSpace {
 
     /// Whether a fact can actually be KEYED in this address space today.
     ///
-    /// Deliberately narrower than [`Self::is_known`]. We understand what an
-    /// `entity.cid` subject is and can mint, resolve and link one; we cannot
-    /// yet store a fact against one, because the canonical index takes a
-    /// cell64. Keeping the two questions apart is what lets the registry
-    /// carry an honest roadmap instead of a promise: a profile may be
-    /// declared, pinned and built against while its write path is still shut.
+    /// Both spaces can. That was not always true: this returned `geo.cell64`
+    /// only, because the canonical index was believed to require a cell64.
+    /// It does not. `CanonicalKey.cell` is an opaque `String` that the storage
+    /// layer concatenates without parsing, `verify_fact_subjects` accepts an
+    /// `emem:entity:` subject, and
+    /// `a_signed_fact_can_be_keyed_to_an_object_rather_than_a_place` puts a
+    /// signed attestation about a codebase through the real sled-backed store
+    /// and reads it back by content address with the subject verbatim.
+    ///
+    /// The claim was corrected on evidence rather than on intent, and it was
+    /// UNDER-claiming: the record layer had moved and this had not. That
+    /// direction is worth naming, because a stale conservative gate looks
+    /// exactly like a considered one.
+    ///
+    /// What still keeps the object-addressed profiles at `candidate` is not
+    /// the write path. It is that they declare no bands, so there is nothing
+    /// to measure at those subjects; see the `bands` rule in [`validate`].
     pub fn has_write_path(&self) -> bool {
-        self.0 == Self::GEO_CELL64
+        self.0 == Self::GEO_CELL64 || self.0 == Self::ENTITY_CID
     }
 }
 
@@ -438,6 +449,20 @@ impl Manifest for SubstrateRegistry {
             // overclaim the route-truth gate exists to stop, one layer down,
             // and it is checked here rather than in a script because the
             // registry must not even LOAD in that state.
+            // A substrate with no bands measures nothing. Until the address
+            // space check below stopped being wrong, it was the accidental
+            // guard here: every object-addressed profile declares `bands: []`
+            // and was held back by its address space rather than by its empty
+            // vocabulary. Removing that gate without this one would have let a
+            // profile advertise itself as live capability while carrying no
+            // way to say anything at all.
+            if p.status == ProfileStatus::Active && p.bands.is_empty() {
+                return Err(ManifestError::Invalid(format!(
+                    "{}: status is active with no declared bands; a substrate \
+                     that measures nothing cannot be live capability",
+                    p.id
+                )));
+            }
             if p.status == ProfileStatus::Active && !p.address_space.has_write_path() {
                 return Err(ManifestError::Invalid(format!(
                     "{}: status is active on address space {}, which has no \
@@ -596,6 +621,37 @@ mod tests {
     /// and a subject with no latitude has nowhere to be keyed. The registry
     /// refuses to load in that state; this pins it as a property rather than
     /// leaving it to the loader nobody reads.
+    /// The rule that replaced the address-space gate as the thing actually
+    /// holding object-addressed profiles back. If this ever stops firing, a
+    /// substrate can advertise itself as live while declaring no way to
+    /// measure anything at its subjects.
+    #[test]
+    fn an_active_profile_must_declare_something_to_measure() {
+        for p in &DEFAULT.substrates {
+            if p.status == ProfileStatus::Active {
+                assert!(
+                    !p.bands.is_empty(),
+                    "{}: active with no bands; live capability with no \
+                     vocabulary is a claim with nothing behind it",
+                    p.id
+                );
+            }
+        }
+    }
+
+    /// Both address spaces can key a fact now. Asserted so the registry
+    /// cannot quietly drift back to under-claiming after the storage layer
+    /// already proved otherwise.
+    #[test]
+    fn an_object_is_as_addressable_as_a_place() {
+        assert!(AddressSpace::new(AddressSpace::GEO_CELL64).has_write_path());
+        assert!(
+            AddressSpace::new(AddressSpace::ENTITY_CID).has_write_path(),
+            "emem-storage proves a signed fact keys to an entity subject; a \
+             registry that says otherwise under-reports what the protocol does"
+        );
+    }
+
     #[test]
     fn every_profile_declares_a_resolvable_address_space() {
         let mut off_grid = 0;

@@ -80,7 +80,8 @@ ROOT_MUST_ANSWER = {
     "identity": ("protocol", "vendor", "name"),
     "version": ("version",),
     "what_it_is_for": ("summary", "purpose", "description", "intents_url"),
-    "where_to_start": ("intents_url", "quickstart_url", "agent_card_url"),
+    "where_to_start": ("intents_url", "agent_intent_url", "quickstart_url",
+                       "agent_card_url"),
 }
 
 
