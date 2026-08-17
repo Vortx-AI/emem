@@ -20,7 +20,7 @@ Allow: /
 #   /llms.txt                        ~24 KB  the agent contract in prose
 #   /openapi.json                    ~330 KB OpenAPI 3.1, every routed path
 #   /agents.md                       ~65 KB  full integration guide
-#   /.well-known/agent-card.json     ~128 KB A2A card, every tool as a skill
+#   /.well-known/agent-card.json     ~51 KB  A2A card, every tool as a skill
 #   /.well-known/mcp.json            ~15 KB  MCP server descriptor
 #   /mcp                             MCP Streamable HTTP (16-tool core loop)
 #
