@@ -229,7 +229,7 @@ pub const INTENTS: &[Intent] = &[
         instead: "",
         tool: "emem_memory_bundle",
         rest: "POST /v1/memory_bundle",
-        first_call: "POST /v1/memory_bundle {\"fact_cids\":[\"<cid>\",\"<cid>\"]}",
+        first_call: "POST /v1/memory_bundle {\"triples\":[{\"cell\":\"defi.zb493.xuqA.zcb5f\",\"band\":\"copdem30m.elevation_mean\"}]}",
         verify: "One bundle token is 38 characters at any count up to 256. Resolve it from a context that never saw the originals; if the receiving agent can reconstruct the facts, the boundary held.",
     },
     Intent {

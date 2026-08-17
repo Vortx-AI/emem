@@ -341,9 +341,15 @@ def main():
                             f"/v1/memory_token answered {str(tok)[:90]}")
         else:
             print(f"    ok   agent A minted a citation          {token}")
+            # Bundles compose from (cell, band) addresses, not from cids you
+            # already hold: each triple runs through the recall path. The
+            # registry documented fact_cids and nothing had executed it.
+            band = (facts[0].get("band") if facts else None) or "copdem30m.elevation_mean"
             bundle, _ = p.get("/v1/memory_bundle", method="POST",
-                              body={"fact_cids": [fact_cid]})
-            btok = (bundle or {}).get("token") if isinstance(bundle, dict) else None
+                              body={"triples": [{"cell": cell, "band": band}]})
+            btok = None
+            if isinstance(bundle, dict):
+                btok = bundle.get("bundle_token") or bundle.get("token")
             if btok:
                 print(f"    ok   and collapsed it to a bundle       {btok}")
             else:
