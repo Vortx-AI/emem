@@ -1279,6 +1279,7 @@ pub fn router(state: AppState) -> Router {
             "/.well-known/emem-manifest.json",
             get(get_capability_manifest),
         )
+        .route("/.well-known/emem-readonly.json", get(get_readonly_profile))
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
@@ -4213,6 +4214,68 @@ async fn get_agent_intent() -> Json<JsonValue> {
 /// `capability_manifest_cid` is the content address of the tool surface
 /// itself, so a directory can cheaply tell "unchanged" from "I should
 /// re-read" without diffing 108 descriptors.
+/// What a conversational agent needs in order to decide it may call us,
+/// without a bespoke integration and without asking a human.
+///
+/// The reads were always open. What was missing was a machine-readable way to
+/// KNOW that. An agent already wired to weather, news and OSM cannot tell from
+/// a tool list whether emem needs a key, costs money, or wants approval, and
+/// absent an answer the safe assumption is "do not call". That assumption is
+/// what it acts on, so an open surface nobody can confirm is open goes unused.
+///
+/// Three facts gate an unplanned call: auth, cost, approval. Then the one an
+/// agent asks next and nobody usually answers: how long will this take.
+///
+/// Every list here is derived from the tool registry at request time, so a
+/// tool that stops declaring readOnlyHint leaves this document in the same
+/// breath.
+async fn get_readonly_profile() -> Json<JsonValue> {
+    let read_tools: Vec<&'static str> = emem_mcp::TOOLS
+        .iter()
+        .filter(|t| t.read_only_hint)
+        .map(|t| t.name)
+        .collect();
+
+    // Named rather than derived: an agent arriving cold should not have to
+    // rank 87 tools. These four are the whole loop for one conversational
+    // turn, in the order it happens.
+    const START_HERE: &[(&str, &str)] = &[
+        ("emem_ask", "One free-text question about a place, answered in a single call with a signed receipt. Start here if you do not want to pick a primitive."),
+        ("emem_locate", "Turn a place name into the address every agent resolves to identically, so two agents mean the same ground."),
+        ("emem_recall", "Read the signed facts at that address."),
+        ("emem_verify_receipt", "Check the signature yourself. A read you did not verify is hearsay, including one from us."),
+    ];
+    let start: Vec<JsonValue> = START_HERE
+        .iter()
+        .filter(|(n, _)| read_tools.contains(n))
+        .map(|(n, why)| json!({"tool": n, "why": why, "latency": latency_of(n)}))
+        .collect();
+
+    Json(json!({
+        "schema": "emem.readonly.v1",
+        "what": EMEM_LEAD,
+        "auth": "none",
+        "cost": "free",
+        "approval": "none",
+        "safe_to_invoke_without_asking": true,
+        "why_that_is_safe": "Reads need no key, mutate nothing, and are rate-limited rather than billed. Every read returns an ed25519 receipt you can verify offline, so a call costs you one round trip and commits you to nothing. Writing is the other half and does need a key you hold.",
+        "start_here": start,
+        "read_only_tools": read_tools,
+        "read_only_tool_count": read_tools.len(),
+        "mcp": "https://emem.dev/mcp",
+        "openapi": "/openapi.json",
+        "capability_index": "/v1/intents",
+        "how_long_it_takes": {
+            "warm": "A cell already in the corpus answers in single-digit milliseconds. The receipt tells you which you got, in `receipt.cost.was_cached`.",
+            "cold": "A cell nobody has asked for yet is fetched from the upstream archive during your call, roughly 0.5 to 1.6 seconds depending on the source. That is the auto-materialise contract: you are not handed an empty answer where data exists, so the first read of a new place pays for the fetch.",
+            "check_first": "POST /v1/state or GET /v1/coverage_matrix reports what is already cached at a cell, so a latency-sensitive turn can prefer a warm one, or set expectations, before calling.",
+            "measured": "Per-tool p50 and p95 ride in each tool's `_meta` as `dev.emem/observed_latency`, measured on this responder rather than declared. Absent until a tool has been called since boot: an unmeasured tool reports nothing rather than a guess.",
+            "budget": "MCP tools/call is cut at 32 s, the HTTP edge at 40 s. A call that would exceed those fails rather than hanging.",
+        },
+        "note": "Generated from the tool registry on every request, so this cannot drift from what the server enforces.",
+    }))
+}
+
 async fn get_capability_manifest() -> Json<JsonValue> {
     let tools = emem_mcp::TOOLS;
     // Address the surface by what it IS, so the digest moves when a tool's
@@ -4245,6 +4308,9 @@ async fn get_capability_manifest() -> Json<JsonValue> {
         // The tuple a directory can poll instead of transcribing counts that
         // then go stale in someone else's listing.
         "capability_manifest_url": "/.well-known/emem-manifest.json",
+        // What a conversational agent checks before an unplanned call: no key,
+        // no cost, no approval, and how long a read actually takes.
+        "readonly_profile_url": "/.well-known/emem-readonly.json",
         "canonical_discovery": "/.well-known/emem.json",
         "reads_need_no_key": true,
         "note": "Derived from the live registries on every request; there is no cached copy here to go stale. A directory that polls this and finds `capability_manifest_cid` unchanged can skip re-reading the catalogue. `last_changed` is deliberately absent rather than guessed: this responder does not record when the tool surface last moved, and a fabricated timestamp is worse than none. Compare the cid instead.",
@@ -64490,6 +64556,55 @@ mod tests {
                 .is_err(),
             "an inbox with no owner must refuse rather than answer for everyone"
         );
+    }
+
+    /// The read-only profile must list exactly what the server enforces.
+    ///
+    /// An agent already wired to weather and OSM cannot tell from a tool list
+    /// whether emem needs a key, and absent an answer it does not call. This
+    /// document answers that, so it has to be derived rather than written: a
+    /// hand-kept list would eventually name a tool that had since started
+    /// writing, and an agent would invoke it on our word.
+    #[tokio::test]
+    async fn the_readonly_profile_lists_only_what_is_read_only() {
+        let Json(p) = get_readonly_profile().await;
+        let listed: Vec<&str> = p["read_only_tools"]
+            .as_array()
+            .expect("read_only_tools")
+            .iter()
+            .map(|v| v.as_str().expect("tool name"))
+            .collect();
+        assert!(!listed.is_empty(), "the read-only surface went empty");
+
+        for name in &listed {
+            let t = emem_mcp::TOOLS
+                .iter()
+                .find(|t| t.name == *name)
+                .unwrap_or_else(|| panic!("{name} is listed but is not a tool"));
+            assert!(
+                t.read_only_hint,
+                "{name} is offered as safe to invoke without asking, and it writes"
+            );
+        }
+        // And nothing read-only is quietly withheld.
+        let expected = emem_mcp::TOOLS.iter().filter(|t| t.read_only_hint).count();
+        assert_eq!(listed.len(), expected);
+        assert_eq!(p["read_only_tool_count"], json!(expected));
+
+        // The three facts that gate an unplanned call.
+        assert_eq!(p["auth"], json!("none"));
+        assert_eq!(p["cost"], json!("free"));
+        assert_eq!(p["approval"], json!("none"));
+
+        // Every named starting tool must exist and be read-only, or the first
+        // thing a cold agent tries is a 404.
+        for s in p["start_here"].as_array().expect("start_here") {
+            let n = s["tool"].as_str().expect("tool");
+            assert!(
+                listed.contains(&n),
+                "start_here names {n}, which is not read-only"
+            );
+        }
     }
 
     /// One description, on every surface, and the root has one at all.

@@ -507,7 +507,7 @@ pub async fn memory_search(
             if !res.is_empty() {
                 via = "lance_scan".into();
                 corpus_size = idx.stats().await.rows as usize;
-                hits = build_hits_from_indexed(res, &source, &embedder, &query_vec).await;
+                hits = build_hits_from_indexed(res, &source, q).await;
             }
         }
     }
@@ -555,7 +555,7 @@ pub async fn memory_search(
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
         scored.truncate(k);
         for (s, sim, text) in scored {
-            let snippet = best_snippet(&text, &embedder, &query_vec);
+            let snippet = best_snippet(&text, q);
             hits.push(MemorySearchHit {
                 path: s.path,
                 file_cid: s.file_cid,
@@ -586,8 +586,7 @@ pub async fn memory_search(
 async fn build_hits_from_indexed(
     rows: Vec<(IndexedRow, f32)>,
     source: &Option<Arc<dyn MemoryFileSource>>,
-    embedder: &Arc<TextEmbedder>,
-    query_vec: &[f32],
+    query: &str,
 ) -> Vec<MemorySearchHit> {
     let mut out = Vec::with_capacity(rows.len());
     for (row, sim) in rows {
@@ -603,7 +602,7 @@ async fn build_hits_from_indexed(
         let snippet = if text.is_empty() {
             String::new()
         } else {
-            best_snippet(&text, embedder, query_vec)
+            best_snippet(&text, query)
         };
         out.push(MemorySearchHit {
             path: row.path,
@@ -631,7 +630,21 @@ async fn build_hits_from_indexed(
 ///    in the query (case-folded substring); if none, centre on the
 ///    middle of the chunk. Wrap the result with `[...]` ellipses when
 ///    we trimmed the start/end of the chunk.
-fn best_snippet(text: &str, embedder: &Arc<TextEmbedder>, query_vec: &[f32]) -> String {
+/// Pick the 200 characters of a hit worth showing.
+///
+/// This used to embed EVERY chunk of every returned file to choose one, which
+/// is neural inference paid for a preview. It dominated the endpoint: a query
+/// whose ten hits totalled 130 KB took 60 s, one whose hits totalled 6 KB took
+/// 4 s, while the vector search underneath was a flat 0.07 s either way. The
+/// cost tracked the bytes returned rather than the question asked.
+///
+/// Ranking is already done by then: the index chose these files and their
+/// similarity is in the response. All this decides is which window of an
+/// already-chosen document to quote, and term overlap answers that well enough
+/// to be worth none of that time. Scoring is the same Okapi-ish shape the
+/// lexical retriever uses, without the IDF pass, because there is one document
+/// here and no corpus to weight against.
+fn best_snippet(text: &str, query: &str) -> String {
     let trimmed = text.trim_start_matches('\u{feff}'); // strip BOM if present
     let total_chars = trimmed.chars().count();
     if total_chars == 0 {
@@ -644,16 +657,28 @@ fn best_snippet(text: &str, embedder: &Arc<TextEmbedder>, query_vec: &[f32]) -> 
     if chunks.is_empty() {
         return truncate_chars(trimmed, SNIPPET_WINDOW);
     }
-    // Score chunks against the query.
+    // Score chunks by how much of the query they actually contain.
+    let terms: Vec<String> = query
+        .split(|c: char| !(c.is_alphanumeric() || c == '.' || c == '-'))
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_matches('.').to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
     let mut best_idx = 0usize;
     let mut best_score = f32::MIN;
     for (i, c) in chunks.iter().enumerate() {
-        if let Ok(v) = embedder.embed_document(c) {
-            let s = cosine(query_vec, &v);
-            if s > best_score {
-                best_score = s;
-                best_idx = i;
-            }
+        let lower = c.to_lowercase();
+        // Longer chunks are not better merely for containing more words, so
+        // the count is damped by length the way BM25 damps by document length.
+        let hits: f32 = terms
+            .iter()
+            .map(|term| lower.matches(term.as_str()).count() as f32)
+            .sum();
+        let len = (lower.chars().count() as f32).max(1.0);
+        let s = hits / (1.0 + (len / 400.0));
+        if s > best_score {
+            best_score = s;
+            best_idx = i;
         }
     }
     let chunk = &chunks[best_idx];
