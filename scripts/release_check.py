@@ -116,15 +116,20 @@ def main() -> int:
     needs_build = any(
         argv[0] == "cargo" for _, argv, _, slow in CHECKS if not (a.quick and slow)
     )
-    if needs_build and free_gb < BUILD_HEADROOM_GB:
-        print(f"  ??   rust suites need about {BUILD_HEADROOM_GB:.0f} GB of build "
-              f"space and this volume has {free_gb:.1f} GB free.")
-        print(f"       Refusing to build: the live store shares this volume, and "
-              f"filling it is how emem.dev went down on 2026-08-17.")
-        print(f"       Reclaim with: rm -rf {os.path.join(REPO, 'target/debug')}")
-        print(f"       (never `cargo clean`, which also removes the running "
-              f"release binary)")
-        return 2
+    # Below the headroom, the rust suites are delegated to CI rather than run
+    # here. That is not a concession, it is the better place for them: CI
+    # builds on a clean machine that shares no volume with a live sled store,
+    # and it already runs these four on every push. Rebuilding 18 GB locally
+    # to re-verify what CI verified is what created the hazard.
+    delegate_rust = needs_build and free_gb < BUILD_HEADROOM_GB
+    if delegate_rust:
+        CHECKS[:] = [c for c in CHECKS if c[1][0] != "cargo"]
+        print(f"note: {free_gb:.1f} GB free, below the {BUILD_HEADROOM_GB:.0f} GB a "
+              f"debug rebuild needs.")
+        print(f"      The rust suites are delegated to CI, which runs them on a "
+              f"machine that does not share a volume with the live store.")
+        print(f"      Filling this volume is how emem.dev went down on "
+              f"2026-08-17, mid-snapshot, while this checker was running.\n")
 
     passed, failed, unproven, skipped = [], [], [], []
     print("release check\n")
@@ -181,6 +186,11 @@ def main() -> int:
     if skipped:
         print(f"\n{len(skipped)} check(s) were skipped by a flag. Run without "
               f"--offline/--quick before bumping.")
+        return 2
+    if delegate_rust:
+        print("\nEvery surface checkable here passed. The rust suites were NOT "
+              "run locally; confirm CI is green for this commit before bumping, "
+              "because this run did not check them.")
         return 2
     print("\nFit to bump: every surface that could contradict the version "
           "number was executed, and none did.")
