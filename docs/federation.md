@@ -100,10 +100,29 @@ This is the recommended first build; see §6.
 
 ### 4b: Write sharding (break the single-writer ceiling)
 
-Shard the write path by `cell64` prefix. The grid is **Hilbert-ordered**,
-so a contiguous `cell64` prefix range is a contiguous patch of Earth: a
-node that owns a prefix range owns a spatially coherent region, and its
-sled write load + spatial locality are both bounded.
+Shard the write path by `cell64` prefix. **The premise this plan used to
+rest on is false and the plan needs re-deriving before anyone builds it.**
+
+It said the grid is Hilbert-ordered, so a contiguous prefix range is a
+contiguous patch of Earth. The active codec is 21 bits of latitude by 22
+of longitude, and a Hilbert curve requires equal-bit axes, which
+`crates/emem-codec/src/geo.rs` states plainly: "Hilbert locality at the
+cell-key level is dropped here". Only the bigram ALPHABET is
+Hilbert-ordered.
+
+Measured against the live responder rather than argued: from one origin,
+a neighbour 10 m north and a cell 1 km north share the SAME two leading
+bigrams of four. A neighbour 10 m east shares three. So prefix depth
+separates the longitude axis from the latitude axis and carries no
+information about distance along latitude, which is exactly the property
+a spatial shard would need.
+
+What survives: prefix ranges still partition the space disjointly, so
+sharding by prefix still gives N parallel single-writers, which was the
+load-bearing half. What does not survive is "spatially coherent region":
+a node owning a prefix range owns a set of cells that is not a patch, so
+any argument about locality of upstream fetches, tile reuse or cache
+warmth has to be re-derived or dropped.
 
 - Each node owns one or more `cell64` prefix ranges; writes for a cell go
   to its owner (or are forwarded there). N owners ⇒ N parallel

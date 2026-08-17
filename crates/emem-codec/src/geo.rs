@@ -2,8 +2,13 @@
 //!
 //! emem's cell64 layout encodes a 64-bit cell ID with the leading bits
 //! reserved for `mode | resolution | base | path`. This codec maps a
-//! WGS-84 (lat, lng) pair onto a packed (lat_q, lng_q) Hilbert-ordered
-//! cell key.
+//! WGS-84 (lat, lng) pair onto a packed (lat_q, lng_q) cell key.
+//!
+//! NOT Hilbert-ordered at the cell-key level, despite what this line said
+//! until 2026-08-13: it claimed a "Hilbert-ordered cell key" eight lines
+//! above the Locality section stating that Hilbert locality at that level is
+//! dropped. One file, two answers, and the wrong one was the one people
+//! quoted into docs/federation.md as the basis for a sharding design.
 //!
 //! ## Resolution
 //!
@@ -646,5 +651,50 @@ mod tests {
         let (empty, te) = cells_in_bbox(mn_la, mn_ln, mx_la, mx_ln, total, 10);
         assert!(empty.is_empty());
         assert_eq!(te, total);
+    }
+}
+
+#[cfg(test)]
+mod prefix_locality_tests {
+    use super::*;
+
+    /// A cell64 prefix does not measure distance, and the docs must not say it
+    /// does.
+    ///
+    /// `docs/federation.md` built a write-sharding design on "the grid is
+    /// Hilbert-ordered, so a contiguous prefix range is a contiguous patch of
+    /// Earth", and `docs/quickstart.md` told newcomers that "neighbours share
+    /// string prefixes". Both were false: the active codec is 21 bits of
+    /// latitude by 22 of longitude and a Hilbert curve requires equal-bit
+    /// axes, which the Locality section of this file has always said.
+    ///
+    /// This asserts the property the prose got wrong, in the direction that
+    /// matters: a near neighbour along latitude shares no more leading
+    /// structure than a far one. If a future codec DOES buy that locality,
+    /// this test fails and the docs can be rewritten on evidence.
+    #[test]
+    fn prefix_depth_does_not_measure_distance_along_latitude() {
+        let shared = |a: &str, b: &str| {
+            a.split('.')
+                .zip(b.split('.'))
+                .take_while(|(x, y)| x == y)
+                .count()
+        };
+        let at = |lat: f64, lng: f64| cell64_from_latlng(lat, lng);
+        let origin = at(12.9716, 77.5946);
+        let near = at(12.9716 + 0.00009, 77.5946); // ~10 m north
+        let far = at(12.9716 + 0.009, 77.5946); // ~1 km north
+
+        assert_ne!(
+            origin, near,
+            "10 m must land in a different cell at ~9.5 m pitch"
+        );
+        assert_eq!(
+            shared(&origin, &near),
+            shared(&origin, &far),
+            "a 10 m neighbour and a 1 km neighbour share the same prefix depth, \
+             so prefix depth carries no distance information along latitude. \
+             origin={origin} near={near} far={far}"
+        );
     }
 }

@@ -442,6 +442,15 @@ Or skip the menu: `emem_ask` takes a plain-language question and returns a signe
 
 ## The world drifts too
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=-6C2R8ufJq0">
+    <img src="web/video-substrate.png" width="820"
+         alt="Video: the emem tech stack. Concentric hexagonal rings of digits contracting toward a centre. Click to watch on YouTube." />
+  </a>
+</p>
+
+<p align="center"><a href="https://www.youtube.com/watch?v=-6C2R8ufJq0"><b>The Earth substrate, end to end</b></a></p>
+
 There is a second kind of drift, and the substrate is built for it. In language, a paraphrase mutates while the world stands still, and the token pins it; that is everything above. In the world, the reference stands still but the signal at it moves, and not every move is the world. Between two visits to one address, the observed change is a sum:
 
 ```
@@ -453,8 +462,13 @@ The world changed; the instrument changed; the pixels moved; the model changed; 
 ## Direct from the device
 
 <p align="center">
-  <img src="docs/diagrams/39-orbit-to-ground-trust.svg" width="760" alt="Orbit to ground: the open archive is admitted by recomputability and serves as the drift anchor; an operator's own satellite, and every other machine that watches the world, is admitted only when its output is bound inside a complete, signed OS execution trace; the trust gate names every failure it finds; the shared memory holds one signed fact per observation." />
+  <a href="https://www.youtube.com/watch?v=hbBdkXkXgt4">
+    <img src="web/video-encoders.png" width="820"
+         alt="Video: encoders as instruments. An astronaut looks at a lit object through a visor. Click to watch on YouTube." />
+  </a>
 </p>
+
+<p align="center"><a href="https://www.youtube.com/watch?v=hbBdkXkXgt4"><b>Encoders are instruments, and instruments drift</b></a></p>
 
 The rule for machines is one sentence: **a device is respected as a contributor and never believed on its word alone.** The open satellite archive earns admission by recomputability, anyone can re-fetch the cited source and recompute the value, and that makes it the drift anchor device claims are scored against. Every other machine that watches the world, an operator's own spacecraft, a robot, a drone, a CCTV camera, a microscope at 100-nanometre grain, is admitted only when its output digest is bound inside a complete, signed OS execution trace (`emem.os_trace.v1`): syscalls, scheduler, memory, sensor bus, energy, thermal, and the on-device inference that produced the readout. Facts admitted this way carry the `attested_execution` provenance class.
 
@@ -490,6 +504,15 @@ docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest   # or: cargo run --release
 The signing key is your node's identity: mount a volume for `EMEM_DATA` before you hand out receipts you care about. `:latest` is right for trying it; for anything long-lived pin the digest rather than any tag, because a tag can be moved or deleted and a digest cannot. Release tags are also published as `:v2.1.0`, `:2.1.0` and `:2.1`. Full guide: [docs/self-host.md](docs/self-host.md). Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks.md)): warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node, cold materialize 0.5 to 1.6 s depending on the upstream.
 
 ## emem-guard: a yes/no gate for claims about the world
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=ajGu5IovxIM">
+    <img src="web/video-emem-guard.png" width="820"
+         alt="Video: emem-guard. Lit paths converging across a dark hexagonal grid toward a single gate. Click to watch on YouTube." />
+  </a>
+</p>
+
+<p align="center"><a href="https://www.youtube.com/watch?v=ajGu5IovxIM"><b>Watch the gate refuse a claim</b></a></p>
 
 Anthropic's [Inference hooks](https://platform.claude.com/docs/en/manage-claude/inference-hooks) hold every governed prompt for an allow or deny verdict from a server your organisation runs, before the model sees it. The named destinations are DLP vendors, and they all evaluate content: does this text carry a card number, a secret, a classified marking. None of them can evaluate whether a claim about the physical world still holds, because none of them hold signed observations of it.
 

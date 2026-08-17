@@ -114,8 +114,12 @@ async fn main() -> anyhow::Result<()> {
 ## What you just did
 
 1. `POST /v1/locate` resolved a place name to a **cell64**, a 64-bit
-   address for a ~9.55 m × 9.55 m square on WGS-84. Hilbert-ordered, so
-   neighbours share string prefixes.
+   address for a ~9.55 m × 9.55 m square on WGS-84. Adjacent cells often
+   share leading bigrams, but do not rely on it: prefix depth does not
+   measure distance. From one origin, a cell 10 m north and a cell 1 km
+   north share the same two leading bigrams of four. For real
+   neighbourhoods use `neighborhood_cells` from the same `/v1/locate`
+   response.
 2. `POST /v1/recall` returned a **signed fact** at that cell: value,
    unit, upstream provenance, fact CID, and an Ed25519 receipt.
 3. The same call from anywhere on the planet now returns the same bytes
