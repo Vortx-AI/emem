@@ -250,6 +250,78 @@ def main():
                     f"first_call {method} {path} answered {code}: {msg}"
                 )
 
+    # Step 5. The half of the bar that discovery alone does not reach.
+    #
+    # An outside review put it plainly: the goal is not "an agent can use
+    # emem", it is that an agent which never heard of emem can discover it,
+    # call it, VERIFY what it got, CITE it, and hand that citation to a second
+    # agent which resolves and verifies it independently. Everything above
+    # stops at the call. A protocol whose whole argument is that a claim
+    # survives leaving the conversation has to be tested leaving the
+    # conversation.
+    #
+    # The second agent here is a fresh session with no memory of the first:
+    # it is handed the token string and nothing else, exactly as it would
+    # arrive over a channel.
+    print("\n  the handoff, which is what the protocol is for:")
+    fact_cid = None
+    recall, code = p.get("/v1/recall", method="POST",
+                         body={"place": "Bengaluru",
+                               "bands": ["copdem30m.elevation_mean"]})
+    if isinstance(recall, dict):
+        facts = recall.get("facts") or []
+        if facts:
+            fact_cid = facts[0].get("fact_cid")
+            receipt = recall.get("receipt")
+            print(f"    ok   agent A recalled a fact           {fact_cid}")
+            if receipt:
+                v, _ = p.get("/v1/verify_receipt", method="POST",
+                             body={"receipt": receipt})
+                good = isinstance(v, dict) and v.get("valid") is True
+                print(f"    {'ok  ' if good else 'FAIL'} agent A verified the receipt")
+                if not good:
+                    problems.append("agent A could not verify the receipt it was handed")
+            else:
+                problems.append("the recall carried no receipt, so nothing could be verified")
+    if not fact_cid:
+        problems.append("agent A could not obtain a fact to cite, so the handoff "
+                        "could not be tested at all")
+    else:
+        tok, _ = p.get("/v1/memory_token", method="POST", body={"fact_cid": fact_cid})
+        token = (tok or {}).get("token") if isinstance(tok, dict) else None
+        if not token:
+            problems.append("a fact could not be turned into a citation; "
+                            f"/v1/memory_token answered {str(tok)[:90]}")
+        else:
+            print(f"    ok   agent A minted a citation          {token}")
+            # Agent B. A different Probe object: no shared state, no cookies,
+            # nothing carried over but the token string itself.
+            b = Probe(a.origin)
+            got, _ = b.get("/v1/memory_token/resolve", method="POST",
+                           body={"token": token})
+            resolved = isinstance(got, dict) and (got.get("fact") or got.get("facts")
+                                                  or got.get("value") is not None)
+            print(f"    {'ok  ' if resolved else 'FAIL'} agent B resolved it cold "
+                  f"({b.bytes:,} B, knowing only the token)")
+            if not resolved:
+                problems.append("a second agent could not resolve the citation the "
+                                "first one handed it, which is the property the "
+                                "whole protocol exists to provide")
+            else:
+                rec_b = got.get("receipt") if isinstance(got, dict) else None
+                if rec_b:
+                    v2, _ = b.get("/v1/verify_receipt", method="POST",
+                                  body={"receipt": rec_b})
+                    ok2 = isinstance(v2, dict) and v2.get("valid") is True
+                    print(f"    {'ok  ' if ok2 else 'FAIL'} agent B verified it "
+                          f"without trusting agent A")
+                    if not ok2:
+                        problems.append("the second agent resolved the citation but "
+                                        "could not verify it")
+                else:
+                    notes.append("the resolved citation carried no receipt for B to "
+                                 "verify; B has the bytes but not the proof")
+
     # The cost verdict. Discovery that works but costs more than an agent will
     # spend has not solved the problem it set out to solve.
     print(f"\n  {p.fetches} fetches, {p.bytes:,} B to go from a need to a verified call")
