@@ -1346,12 +1346,25 @@ document.querySelectorAll('.cp').forEach(function(b){
   var rows; try { rows = JSON.parse(src.textContent); } catch (e) { return; }
   if (!rows.length) return;
   var esc = function(s){ var n = document.createElement('span'); n.textContent = String(s == null ? '' : s); return n.innerHTML; };
+  // A value may arrive as a string. High-precision readings are sent as text
+  // because a JSON number rounds away the digits that distinguish them, so a
+  // numeric comparison has to coerce first or it sees nothing to compare. The
+  // first version filtered for typeof === 'number', found none in the one
+  // group that mattered, computed a spread of zero and printed
+  // "differing by 0" under a heading reading contradiction.
+  var num = function(v){
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(v.trim())) return parseFloat(v);
+    return null;
+  };
   var fmt = function(v){
     if (Array.isArray(v)) {
       var head = v.slice(0, 2).map(function(x){ return typeof x === 'number' ? x.toFixed(3) : String(x); });
       return esc('[' + head.join(', ') + (v.length > 2 ? ', \u2026' : '') + ']');
     }
-    if (typeof v !== 'number') return esc(String(v).slice(0, 24));
+    var n = num(v);
+    if (n === null) return esc(String(v).slice(0, 24));
+    v = n;
     var a = Math.abs(v);
     return (a >= 1000 || a === 0 || a >= 0.01) ? v.toFixed(a >= 100 ? 1 : 4).replace(/\.?0+$/, '') : v.toExponential(2);
   };
@@ -1392,11 +1405,18 @@ document.querySelectorAll('.cp').forEach(function(b){
           g.verdict = 'agreed';
           g.detail = Object.keys(agents).length + ' agents, same window, identical value';
         } else if (!same) {
-          var nums = o.map(function(x){ return x.v; }).filter(function(v){ return typeof v === 'number'; });
-          var spread = nums.length > 1 ? Math.abs(Math.max.apply(null, nums) - Math.min.apply(null, nums)) : 0;
+          var nums = o.map(function(x){ return num(x.v); }).filter(function(v){ return v !== null; });
+          var spread = nums.length > 1 ? Math.abs(Math.max.apply(null, nums) - Math.min.apply(null, nums)) : null;
           g.verdict = 'contradicts';
-          g.detail = o.length + ' readings in one window, differing by ' +
-            (spread && spread < 1e-6 ? spread.toExponential(1) : fmt(spread));
+          if (spread === null) {
+            g.detail = o.length + ' readings in one window, and they are not the same';
+          } else if (spread === 0) {
+            g.verdict = 'agreed';
+            g.detail = o.length + ' readings, identical to the last bit, written differently';
+          } else {
+            g.detail = o.length + ' readings in one window, differing by ' +
+              (spread < 1e-6 ? spread.toExponential(1) : fmt(spread));
+          }
         }
       });
       if (g.verdict === 'single' && g.obs.length > 1) {
