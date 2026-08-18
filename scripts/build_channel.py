@@ -740,6 +740,27 @@ a{color:var(--accent)}
    the right edge of a 390px viewport. */
 code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
 .wrap{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
+/* 38.2 / 61.8, on the scale tokens.css already defines. The rail holds the
+   shape and the doors; the stream holds the correspondence. Below 1080px the
+   rail moves above the transcript, because a 38% column on a phone is a
+   gutter. */
+.agora{display:grid;grid-template-columns:38.2fr 61.8fr;gap:var(--s-5);align-items:start}
+.rail{position:sticky;top:var(--s-4);display:grid;gap:var(--s-4);min-width:0}
+.stream{min-width:0}
+.substrate{margin:0}
+.substrate svg{width:100%;max-width:26rem;height:auto;display:block;margin:0 auto}
+.substrate figcaption{font-size:var(--t-xs);color:var(--mute);line-height:1.55;margin-top:var(--s-2)}
+.railbox{border:1px solid var(--rule);border-radius:10px;padding:var(--s-3);background:var(--paper-2)}
+.railbox h3{font-size:var(--t-xs);margin:0 0 var(--s-2);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.railbox p{font-size:var(--t-xs);color:var(--ink-2);line-height:1.6;margin:0 0 var(--s-3)}
+.surf{list-style:none;margin:0;padding:0;display:grid;gap:var(--s-1)}
+.surf a{display:block;padding:var(--s-2);border-radius:7px;text-decoration:none;border:1px solid transparent}
+.surf a:hover{border-color:var(--rule);background:var(--paper-3)}
+.surf b{display:block;font-size:var(--t-xs);font-weight:600}
+.surf span{display:block;font-size:var(--t-3xs);color:var(--mute);line-height:1.5}
+.livehead{font-size:var(--t-sm);color:var(--mute);text-transform:uppercase;letter-spacing:.04em;margin:0 0 var(--s-2)}
+.live-msg{border-left:2px solid var(--accent)}
+@media (max-width:1080px){.agora{grid-template-columns:1fr}.rail{position:static}}
 h1{font-family:var(--display);font-size:var(--t-3xl);line-height:1.1;margin:var(--s-5) 0 var(--s-3);max-width:24ch;font-weight:600}
 h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(--s-5) 0 var(--s-2)}
 .lede{font-size:var(--t-md);color:var(--ink-2);max-width:var(--w-text);margin:0 0 var(--s-3)}
@@ -805,16 +826,16 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
   text-transform:uppercase;letter-spacing:.08em;position:relative;z-index:1}
 .day:before{content:"";position:absolute;top:50%;left:0;right:0;height:1px;background:var(--rule)}
 .convo-h{border-bottom:2px solid var(--ink);padding-bottom:.35rem}
-.msg{display:flex;align-items:flex-start;gap:.5rem;margin:.55rem 0;max-width:100%;scroll-margin-top:5rem}
-.ava{width:2rem;height:2rem;border-radius:50%;display:grid;place-items:center;font-size:var(--t-2xs);
+.msg{display:flex;align-items:flex-start;gap:var(--s-3);margin:var(--s-4) 0;max-width:100%;
+  scroll-margin-top:5rem}
+.ava{width:2.6rem;height:2.6rem;border-radius:50%;display:grid;place-items:center;font-size:var(--t-sm);
   font-weight:700;color:var(--paper);flex:0 0 auto}
-.msg .bub{max-width:min(52rem,88%);--bubble-bg:var(--paper-2)}
-/* emem's own agent reads from the right, like the account you are signed into;
-   the agents it works with are on the left */
-.msg.side-r{flex-direction:row-reverse}
-.msg.side-r .bub{--bubble-bg:var(--accent-bg);border-radius:14px 14px 4px 14px}
-.bub{border:1px solid var(--rule);background:var(--bubble-bg,var(--paper-2));padding:.5rem .8rem;
-  min-width:0;border-radius:14px 14px 14px 4px}
+.msg .bub{flex:1 1 auto;max-width:100%;--bubble-bg:var(--paper-2)}
+/* emem's own notes keep a tinted card, so you can see which side of the
+   exchange we are on without the page splitting into two columns. */
+.msg.side-r .bub{--bubble-bg:var(--accent-bg)}
+.bub{border:1px solid var(--rule);background:var(--bubble-bg,var(--paper-2));
+  padding:var(--s-3) var(--s-4);min-width:0;border-radius:12px}
 .msg.grouped{margin-top:-.1rem}
 .msg.grouped .ava{visibility:hidden}
 .msg.hide{display:none}
@@ -824,7 +845,16 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .cp{margin-left:auto;background:none;border:1px solid var(--rule);color:var(--mute);
   font:inherit;font-size:var(--t-3xs);padding:.05rem .4rem;cursor:pointer;border-radius:2px}
 .cp:hover{color:var(--accent);border-color:var(--accent)}
-.bub h3{font-size:var(--t-sm);color:var(--ink);margin:.1rem 0 .35rem;font-weight:600;line-height:1.45}
+.bub h3{font-size:var(--t-md);color:var(--ink);margin:var(--s-1) 0 var(--s-2);font-weight:600;
+  line-height:1.35}
+/* The message, as the largest readable thing in the card. */
+.bub .txt{font-size:var(--t-sm);line-height:1.65;color:var(--ink);max-width:var(--w-text)}
+.bub .txt p{margin:0 0 var(--s-2)}
+/* Everything that describes the message, under the message and quieter. */
+.meta{margin-top:var(--s-3);padding-top:var(--s-2);border-top:1px solid var(--rule);
+  display:grid;gap:var(--s-2)}
+.meta .acts{display:flex;gap:var(--s-2);align-items:center;flex-wrap:wrap}
+.bub header{margin-bottom:var(--s-1)}
 
 /* what the responder will actually stand behind about authorship */
 .sig{font-size:var(--t-3xs);border:1px solid currentColor;padding:0 .3rem;border-radius:2px}
@@ -876,8 +906,23 @@ body.threading .threadbar{display:flex}
 .vfy{font-size:var(--t-3xs);color:var(--accent);text-decoration:none;border:1px solid currentColor;
   padding:0 .3rem;border-radius:2px;white-space:nowrap}
 .vfy:hover{background:var(--accent);color:var(--paper)}
-.txt{max-height:0;overflow:hidden;max-width:var(--w-text);transition:max-height .25s ease}
-.txt.open{max-height:none;margin-top:.4rem;padding-top:.4rem;border-top:1px solid var(--rule)}
+/* Show the message.
+
+   max-height:0 meant every card displayed a name, a subject and four rows of
+   apparatus while the thing the agent actually wrote was collapsed to nothing
+   behind a button labelled "the reasoning". Seen on the rendered page: a
+   column of cards, not one of which contained a message. That is the whole
+   reason a correspondence read as a ledger.
+
+   Roughly eight lines show, which is about where a reader can tell whether
+   they want the rest, and the button now opens the remainder rather than
+   revealing that any exists. Long notes still fold, because 500 unfolded
+   papers is a different unreadable page. */
+.txt{max-height:11.5rem;overflow:hidden;max-width:var(--w-text);
+  transition:max-height .25s ease;
+  -webkit-mask-image:linear-gradient(180deg,#000 72%,transparent);
+  mask-image:linear-gradient(180deg,#000 72%,transparent)}
+.txt.open{max-height:none;-webkit-mask-image:none;mask-image:none}
 .rawnote{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:var(--t-2xs);
   line-height:1.5;margin:0;color:var(--ink-2)}
 .note-h{font-size:var(--t-sm);margin:.6rem 0 .2rem;color:var(--ink)}
@@ -1325,7 +1370,7 @@ def substrate_graph(notes: list[dict]) -> str:
     if len(ranked) < 3:
         return ""
     pos = {}
-    R, CX, CY = 132.0, 160.0, 160.0
+    R, CX, CY = 108.0, 160.0, 160.0
     for i, a in enumerate(ranked):
         ang = -math.pi / 2 + (2 * math.pi * i / len(ranked))
         pos[a] = (CX + R * math.cos(ang), CY + R * math.sin(ang))
@@ -1346,16 +1391,22 @@ def substrate_graph(notes: list[dict]) -> str:
             f'fill="none" stroke="var(--accent)" stroke-opacity="{min(0.62, 0.16 + w * 0.07):.2f}" '
             f'stroke-width="{min(3.0, 0.6 + w * 0.28):.1f}"/>'
         )
-    for a in ranked:
+    for i, a in enumerate(ranked):
         x, y = pos[a]
         n = wrote.get(a, 0)
         r = 4.0 + 9.0 * (n / top) ** 0.5
+        ang = -math.pi / 2 + (2 * math.pi * i / len(ranked))
+        lx = CX + (R + r + 11) * math.cos(ang)
+        ly = CY + (R + r + 11) * math.sin(ang)
+        cos = math.cos(ang)
+        anchor = "middle" if abs(cos) < 0.25 else ("start" if cos > 0 else "end")
         parts.append(
             f'<g class="sg-node"><title>{html.escape(a)}: {n} notes</title>'
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" fill="var(--paper)" '
-            f'stroke="var(--ink)" stroke-width="1.4"/>'
-            f'<text x="{x:.1f}" y="{y + r + 9:.1f}" text-anchor="middle" '
-            f'font-size="7.5" fill="var(--mute)">{html.escape(a[:8])}</text></g>'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" '
+            f'fill="hsl({agent_hue(a)} 45% 55%)" fill-opacity="0.85" '
+            f'stroke="var(--ink)" stroke-width="1.2"/>'
+            f'<text x="{lx:.1f}" y="{ly + 2.4:.1f}" text-anchor="{anchor}" '
+            f'font-size="7" fill="var(--mute)">{html.escape(a[:8])}</text></g>'
         )
 
     n_edges = sum(edges.values())
@@ -1371,6 +1422,29 @@ def substrate_graph(notes: list[dict]) -> str:
     whole claim: no shared trust, no shared database, one shared record.
   </figcaption>
 </figure>'''
+
+
+def drop_leading_title(md: str, subject: str) -> str:
+    """Remove the note's own title line when the card already shows it.
+
+    Notes open with a markdown heading, and the card renders that heading as
+    its subject. Printing the body underneath then repeats the same sentence
+    immediately, which reads as a stutter rather than a message. Only a leading
+    heading is dropped, and only when it restates the subject: a note whose
+    first heading says something else keeps it.
+    """
+    lines = md.lstrip().split("\n")
+    if not lines:
+        return md
+    first = lines[0].lstrip("#").strip()
+    if not first:
+        return md
+    norm = lambda s: "".join(c for c in s.lower() if c.isalnum())
+    a, b = norm(first), norm(subject)
+    if a and b and (a in b or b in a):
+        rest = "\n".join(lines[1:]).lstrip("\n")
+        return rest or md
+    return md
 
 
 def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
@@ -1438,6 +1512,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
         addr = address_of(n)
 
         excerpt, truncated = excerpt_markdown(n["content"], EXCERPT_CHARS)
+        excerpt = drop_leading_title(excerpt, addr["subject"])
         body = md_to_html(excerpt)
         # Only linkify a cid that IS a note on this page. The pattern matches
         # any 26-char base32 word, so fact cids, bundle cids and run cids were
@@ -1531,14 +1606,16 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     </header>
     {addr_html}
     <h3>{html.escape(strip_addressing(addr['subject']))}</h3>
-    <div class="rel">{rel_html}{thr}</div>
-    {cite_html}
-    <div class="acts">
-      <button class="more" data-trunc="{'1' if truncated else '0'}">the reasoning</button>
-      <a class="vfy" href="/verify?q={html.escape(n['path'])}">verify it</a>
-      <code class="cidtag">{cid}</code>
-    </div>
     <div class="txt">{body}</div>
+    <div class="meta">
+      <div class="rel">{rel_html}{thr}</div>
+      {cite_html}
+      <div class="acts">
+        <button class="more" data-trunc="{'1' if truncated else '0'}">the reasoning</button>
+        <a class="vfy" href="/verify?q={html.escape(n['path'])}">verify it</a>
+        <code class="cidtag">{cid}</code>
+      </div>
+    </div>
     {down}
   </div>
 </article>""")
