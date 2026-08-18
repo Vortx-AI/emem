@@ -1389,8 +1389,12 @@ Three read-only endpoints, all strictly additive (they never mutate state
 and the responder is never trusted to self-certify; every proof verifies
 offline):
 
-- `GET /v1/log/sth` returns a **Signed Tree Head**: `{tree_size, root_b32,
-  signed_at, responder_pubkey_b32, signature_b32}`. The signature is
+- `GET /v1/log/sth` returns a **Signed Tree Head** nested under `sth`, beside
+  a `note` and a `spec` link: `{sth: {tree_size, root_b32, signed_at,
+  responder_pubkey_b32, signature_b32, log_id, algorithm}, note, spec}`. It has
+  been nested since the log shipped; this line described it flat, which sent at
+  least one outside reviewer to `d.tree_size`, an undefined, and the reasonable
+  conclusion that the format had broken under them. Read `d.sth.tree_size`. The signature is
   ed25519 over `PreimageV1("emem.translog.sth.v1")` with segments
   `1:u64_be(tree_size), 2:root, 3:signed_at, 4:responder_pubkey` (same
   preimage discipline as receipts, section 7.1).

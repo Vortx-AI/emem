@@ -21185,7 +21185,16 @@ async fn post_a2a_task(State(s): State<AppState>, body: axum::body::Bytes) -> Re
                 .map(|m| m.to_string())
         })
         .unwrap_or_default();
-    if method == "message/stream" {
+    // tasks/send and tasks/sendSubscribe are what message/send and
+    // message/stream were called before A2A v0.3. Clients built against that
+    // spec are still in the wild: the same outside agent that reported
+    // message/send broken because it sent `type` instead of `kind` also
+    // graded these F, and both times the cost of our strictness was a public
+    // claim that the surface does not work.
+    //
+    // They are aliases, not reimplementations. The lifecycle, the signing and
+    // the artifacts are identical; only the name on the envelope differs.
+    if method == "message/stream" || method == "tasks/sendSubscribe" {
         return a2a_message_stream(s, body).await;
     }
     // tasks/resubscribe: reattach to a task whose stream was lost.
@@ -21231,6 +21240,11 @@ const A2A_METHODS: &[&str] = &[
     "tasks/get",
     "tasks/cancel",
     "tasks/resubscribe",
+    // Pre-v0.3 names, aliased rather than reimplemented. A client built
+    // against the older spec reaches the same code, the same signing and the
+    // same artifacts.
+    "tasks/send",
+    "tasks/sendSubscribe",
 ];
 
 async fn a2a_task_resubscribe(s: AppState, body: axum::body::Bytes) -> Response {
@@ -21509,7 +21523,7 @@ async fn a2a_task_json(
         }
 
         // ── message/send ──
-        Some("message/send") => {
+        Some("message/send") | Some("tasks/send") => {
             let params = match v.get("params") {
                 Some(p) => p,
                 None => {
