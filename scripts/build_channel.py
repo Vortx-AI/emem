@@ -759,6 +759,7 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
   background:var(--paper)}
 .grp.contradicts{border-left-color:var(--vermilion)}
 .grp.agreed{border-left-color:var(--accent)}
+.grp.tolerance{border-left-color:var(--highlight)}
 .grp.overtime{border-left-color:var(--rule-strong)}
 .grp.single{border-left-color:var(--rule)}
 .ghead{display:flex;gap:var(--s-2);align-items:baseline;flex-wrap:wrap;margin-bottom:var(--s-1)}
@@ -1495,8 +1496,17 @@ document.querySelectorAll('.cp').forEach(function(b){
             g.verdict = 'agreed';
             g.detail = o.length + ' readings, identical to the last bit, written differently';
           } else {
-            g.detail = o.length + ' readings in one window, differing by ' +
-              (spread < 1e-6 ? spread.toExponential(1) : fmt(spread));
+            var mag = Math.max.apply(null, nums.map(Math.abs));
+            var ulps = mag > 0 ? spread / (mag * Number.EPSILON) : Infinity;
+            if (ulps <= 4) {
+              g.verdict = 'tolerance';
+              g.detail = o.length + ' readings, ' +
+                (ulps < 1.05 ? '1' : ulps.toFixed(1)) +
+                ' ULP apart, inside the published 4-ULP window for reductions';
+            } else {
+              g.detail = o.length + ' readings in one window, differing by ' +
+                (spread < 1e-6 ? spread.toExponential(1) : fmt(spread));
+            }
           }
         }
       });
@@ -1526,17 +1536,18 @@ document.querySelectorAll('.cp').forEach(function(b){
       });
     }, 0);
 
-    var rank = {contradicts: 0, agreed: 1, overtime: 2, single: 3};
+    var rank = {contradicts: 0, agreed: 1, tolerance: 2, overtime: 3, single: 4};
     list.sort(function(a, b){ return (rank[a.verdict] - rank[b.verdict]) || (b.obs.length - a.obs.length); });
 
     var label = {contradicts: 'contradiction', agreed: 'independently agreed',
+                 tolerance: 'recompute, within tolerance',
                  overtime: 'changed over time', single: 'one reading'};
     var out = list.map(function(g){
       return '<div class="grp ' + g.verdict + '">' +
         '<div class="ghead"><b>' + esc(g.band) + '</b> <code>' + esc(g.cell) + '</code>' +
         '<span class="gv">' + label[g.verdict] + (g.detail ? ' \u00b7 ' + esc(g.detail) : '') + '</span></div>' +
         g.obs.map(function(o){
-          var exact = (g.verdict === 'contradicts');
+          var exact = (g.verdict === 'contradicts' || g.verdict === 'tolerance');
           return '<div class="deskrow' + (exact ? ' exact' : '') + '">' +
             '<div class="dv">' + (exact ? esc(String(o.v)) : fmt(o.v)) + '</div>' +
             '<div class="dm"><span>' + (o.w ? 'window ' + esc(o.w) : 'no window declared') + '</span></div>' +
@@ -1551,9 +1562,11 @@ document.querySelectorAll('.cp').forEach(function(b){
 
     var nContra = list.filter(function(g){ return g.verdict === 'contradicts'; }).length;
     var nAgree = list.filter(function(g){ return g.verdict === 'agreed'; }).length;
+    var nTol = list.filter(function(g){ return g.verdict === 'tolerance'; }).length;
     host.innerHTML = out + '<p class="mute deskfoot">' + valued + ' of ' + rows.length +
       ' citations still resolve to a value, over ' + list.length + ' cell and band pairs. ' +
-      nAgree + ' agreed on independently, ' + nContra + ' contradict inside one time window. ' +
+      nAgree + ' agreed on independently, ' + nContra + ' contradict inside one time window' +
+      (nTol ? ', ' + nTol + ' differ only by a recompute inside the published 4-ULP window' : '') + '. ' +
       'The rest are bundles, entities and cells, which name things rather than measure them.</p>';
     host.removeAttribute('data-live-list');
   }).catch(function(){
