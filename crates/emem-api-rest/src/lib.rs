@@ -251,6 +251,10 @@ const ART_PANELS: &[(&str, &str)] = &[
         include_str!("../../../web/art/world-mithila.svg"),
     ),
     (
+        "hero-two-agents.svg",
+        include_str!("../../../web/art/hero-two-agents.svg"),
+    ),
+    (
         "device-to-agent.svg",
         include_str!("../../../web/art/device-to-agent.svg"),
     ),

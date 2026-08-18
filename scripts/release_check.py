@@ -54,6 +54,8 @@ CHECKS = [
     ("every unit that runs is in the repo",
      ["python3", "scripts/units_tracked.py"], False, False),
     ("design tokens", ["python3", "scripts/design_tokens.py"], False, False),
+    # A drawing a page links to and the responder does not serve.
+    ("linked art is served", ["python3", "scripts/art_registered.py"], False, False),
     ("openapi describes every routed path",
      ["python3", "scripts/openapi_coverage.py"], False, False),
     ("counts match the responder", ["python3", "scripts/sync_counts.py", "--check"],
