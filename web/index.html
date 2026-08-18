@@ -626,8 +626,10 @@ a{color:var(--accent)}
 .plate-min:hover{border-color:var(--accent);color:var(--accent)}
 .hero-cartouche .plate.collapsed{padding:.45rem .55rem}
 .plate.collapsed .ask-bar{margin-top:0}
-.hero-cartouche main{counter-reset:chapter}
-.kicker{counter-increment:chapter;font-size:var(--t-xs);letter-spacing:.22em;text-transform:uppercase;color:var(--vermilion)}
+body{counter-reset:chapter}
+section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
+.kicker{counter-increment:chapter}
+.hero-cartouche .kicker{font-size:var(--t-xs);letter-spacing:.22em;text-transform:uppercase;color:var(--vermilion)}
 .kicker::before{content:counter(chapter,decimal-leading-zero) " ";color:var(--accent);font-variant-numeric:tabular-nums}
 .hero-cartouche h1{font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.07;letter-spacing:-.02em;margin:.25rem 0 .45rem;color:var(--ink);font-weight:600}
 .hero-cartouche h1 .accent{color:var(--accent)}
