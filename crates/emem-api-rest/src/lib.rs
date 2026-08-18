@@ -5627,6 +5627,25 @@ async fn a2a_async_tasks_spec() -> Json<JsonValue> {
             "-32602": "Invalid params. `data` carries what was missing and what is accepted.",
             "taxonomy": format!("{origin}/v1/errors")
         },
+        // A client that followed the URI knows the endpoints and not how to call
+        // them. Handing it four URLs and no request shape sends it back to
+        // guessing, which is the same dead end as the 404 one step later.
+        "request": {
+            "create": {
+                "method": "POST",
+                "content_type": "application/json",
+                "body": { "skill": "<skill id from the card, or /v1/a2a/skills?q=>", "args": "<object, that skill's arguments>" },
+                "required": ["skill"],
+                "example": { "skill": "emem_elevation", "args": { "query": "Uluru, Australia" } },
+                "note": "This surface is keyed by skill, not by an A2A Message. To send \
+                         a Message instead, use message/send or message/stream at the \
+                         card's `url`, which take the standard A2A shape."
+            },
+            "get":    { "method": "GET",  "body": null },
+            "cancel": { "method": "POST", "body": null },
+            "returns": "A task object carrying `id` and `status.state`. Poll `get` until \
+                        `status.state` is terminal; the artifacts arrive on the task."
+        },
         "artifacts": "Task artifacts are the same signed objects message/send returns: \
                       every answer carries an ed25519 receipt that verifies offline against \
                       the published key, with no account and no callback.",
