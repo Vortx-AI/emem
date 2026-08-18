@@ -411,8 +411,7 @@ def main() -> int:
     sk = None
     if a.post:
         from nacl.signing import SigningKey
-        sk = SigningKey(base64.b32decode(ident["seed_b32"].upper() + "="
-                                         * ((8 - len(ident["seed_b32"]) % 8) % 8)))
+        sk = SigningKey(bytes.fromhex(ident["seed_hex"]))
 
     if a.note:
         notes = [{"path": a.note, "from": "direct"}]

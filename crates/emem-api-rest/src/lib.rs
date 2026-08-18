@@ -33115,7 +33115,7 @@ fn validate_attester_binding(
         }
         Some(att) => {
             match emem_primitives::verify_attester(verb, path, body_hash, att) {
-                AttestationVerdict::Ok => Ok(()),
+                AttestationVerdict::Ok => replay_guard(verb, path, att),
                 AttestationVerdict::BadPubkey => Err(ApiError(
                     StatusCode::UNAUTHORIZED,
                     ErrorBody {
@@ -33486,6 +33486,79 @@ fn synth_memory_receipt(
 /// One tree is enough: `Tree::flush` is `self.context.pagecache.flush()` and
 /// the pagecache belongs to the Db, so flushing any tree fsyncs all of them.
 /// Call sites that flushed five trees in a row were doing five whole-database
+/// Refuse a signature that has already been used.
+///
+/// The write preimage is `blake3("emem.memory_write|" || verb || "|" || path
+/// || "|" || body_hash)` and carries no nonce, no timestamp and no tslot. That
+/// is deliberate and frozen: clients sign against it today, and changing the
+/// bytes would invalidate every signer at once. It also means a valid
+/// signature is valid forever, which an outside reviewer reported and I
+/// reproduced exactly:
+///
+///   delete /memories/consensus/threat-model.md with a fresh signature -> ok
+///   create the same path again                                        -> ok
+///   replay the FIRST delete signature, unchanged                      -> ok
+///
+/// The file was destroyed twice by one authorisation. For `create` the replay
+/// is close to harmless, since the body hash is in the preimage and re-writing
+/// identical bytes changes nothing. For `delete` and `str_replace` it is a
+/// real capability: capture one signature off the wire and you can keep
+/// applying it to whatever occupies that path later.
+///
+/// So the wire format stays and the responder remembers instead. A signature
+/// is a one-time authorisation for one write; presented twice, the second is
+/// refused. That is the property the missing nonce was supposed to provide,
+/// obtained without asking every existing client to change.
+///
+/// Only the destructive verbs are guarded. `create` is left replayable on
+/// purpose: it is idempotent by construction, retries after a dropped
+/// connection are normal and honest, and refusing them would break working
+/// clients to prevent a harm that does not exist.
+fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiError> {
+    if !matches!(verb, "delete" | "str_replace" | "rename" | "supersede") {
+        return Ok(());
+    }
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<[u8; 32]>>> =
+        std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+
+    let mut h = blake3::Hasher::new();
+    h.update(b"emem.replay.v1|");
+    h.update(att.pubkey_b32.as_bytes());
+    h.update(b"|");
+    h.update(att.sig_b32.as_bytes());
+    let key = *h.finalize().as_bytes();
+
+    let mut guard = match seen.lock() {
+        Ok(g) => g,
+        // A poisoned lock must not become an open door.
+        Err(e) => e.into_inner(),
+    };
+    if !guard.insert(key) {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            ErrorBody {
+                code: ErrorCode::BadSignature,
+                message: format!(
+                    "memory_signature_replayed: this exact signature has already \
+                     authorised a `{verb}`. A write signature is single-use here. \
+                     Sign the operation again: the preimage carries no nonce, so \
+                     an identical request produces an identical signature and the \
+                     responder cannot tell your retry from someone else's replay."
+                ),
+                details: Some(json!({
+                    "code": "memory_signature_replayed",
+                    "verb": verb,
+                    "path": path,
+                    "why": "The write preimage is blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash) and has no nonce or timestamp, so a captured signature stays valid forever. Destructive verbs are therefore single-use per signature.",
+                    "create_is_exempt": "create is idempotent and stays replayable, so an honest retry after a dropped connection still works.",
+                })),
+            },
+        ));
+    }
+    Ok(())
+}
+
 /// fsyncs for the durability of one.
 fn flush_off_runtime(tree: &sled::Tree) {
     let t = tree.clone();
@@ -64942,6 +65015,42 @@ mod tests {
                 e["uri"]
             );
         }
+    }
+
+    /// A destructive write signature must not work twice.
+    ///
+    /// Reproduced against the live responder before this existed: delete a
+    /// path, recreate it, replay the FIRST delete signature unchanged, and it
+    /// deleted the new file too. One authorisation, two destructions. The
+    /// preimage carries no nonce and is frozen, so the responder remembers
+    /// instead.
+    #[test]
+    fn a_destructive_signature_is_single_use() {
+        let att = MemoryAttester {
+            pubkey_b32: "k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia".into(),
+            sig_b32: "replaytestsignature".into(),
+        };
+        let p = "/memories/by_attester/k572x7go/replay-unit-test.md";
+        assert!(
+            replay_guard("delete", p, &att).is_ok(),
+            "first use must pass"
+        );
+        assert!(
+            replay_guard("delete", p, &att).is_err(),
+            "the same signature authorised a second delete"
+        );
+
+        // create stays replayable: it is idempotent, and an honest retry after
+        // a dropped connection must not be punished.
+        let c = MemoryAttester {
+            sig_b32: "createsig".into(),
+            ..att.clone()
+        };
+        assert!(replay_guard("create", p, &c).is_ok());
+        assert!(
+            replay_guard("create", p, &c).is_ok(),
+            "create must stay retryable"
+        );
     }
 
     /// message/send must read the part spellings clients actually send.

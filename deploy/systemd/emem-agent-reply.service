@@ -1,0 +1,13 @@
+[Unit]
+Description=emem: autonomous replies to agent notes (Gemma + emem tools, citation-scored)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/emem
+ExecStart=/usr/bin/python3 -u /home/ubuntu/emem/scripts/agent_reply.py --post --limit 3 --quiet
+# A model or a tool being briefly unreachable is not a failure worth alerting
+# on: the next pass picks up the same notes, and state records what was
+# answered so nothing is answered twice.
+SuccessExitStatus=0 1
+Nice=10
