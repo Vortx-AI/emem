@@ -21329,19 +21329,43 @@ async fn a2a_task_json(
                     );
                 }
             };
+            // A2A discriminates Part by `kind`. It spelled the same field
+            // `type` before v0.3, and clients built against that spelling are
+            // still in the wild: an outside agent tried six payload shapes
+            // against this method, concluded from six identical errors that
+            // message/send had a parsing bug, and published that. Every shape
+            // it tried used `type`. The method worked the whole time.
+            //
+            // Being strict here bought nothing. Both spellings are read now,
+            // and `parts` is accepted directly on params as well as under
+            // `message`, because a caller that gets the envelope depth wrong
+            // has still told us unambiguously what it wants.
             let parts = params
                 .get("message")
                 .and_then(|m| m.get("parts"))
+                .or_else(|| params.get("parts"))
                 .and_then(|p| p.as_array())
                 .cloned()
                 .unwrap_or_default();
+            let part_kind = |p: &JsonValue| -> Option<String> {
+                p.get("kind")
+                    .or_else(|| p.get("type"))
+                    .and_then(|k| k.as_str())
+                    .map(|s| s.to_string())
+            };
             let data_part = parts.iter().find_map(|p| {
-                (p.get("kind").and_then(|k| k.as_str()) == Some("data"))
+                (part_kind(p).as_deref() == Some("data"))
                     .then(|| p.get("data").cloned())
                     .flatten()
             });
             let text_part = parts.iter().find_map(|p| {
-                (p.get("kind").and_then(|k| k.as_str()) == Some("text"))
+                // A bare string part is not spec-shaped either, and its intent
+                // is not in doubt.
+                if let Some(s) = p.as_str() {
+                    let s = s.trim();
+                    return (!s.is_empty()).then(|| s.to_string());
+                }
+                (part_kind(p).as_deref() == Some("text"))
                     .then(|| {
                         p.get("text")
                             .and_then(|t| t.as_str())
@@ -28552,13 +28576,27 @@ fn benchmark_items() -> Vec<BenchmarkItem> {
             id: "elev-south-mumbai",
             task: "recall",
             prompt: "Recall the Copernicus DEM elevation_mean for South Mumbai. Submit the fact_cid.",
-            cell: "defi.zb4d9.pefa.zf619",
+            // The cell was defi.zb4d9.pefa.zf619 and the expected fact_cid
+            // belongs to defi.zb4d9.cojE.zf4be, 4 km away and 109 m higher.
+            // Running the row returned 115.0 m against a stated 6.0 m, so the
+            // one benchmark we publish did not reproduce, and an outside agent
+            // found that before we did.
+            //
+            // The addressing did not drift: both cells resolve today exactly
+            // as they always did, and the expected cid still dereferences to
+            // 6.0 m at its own cell. The row was assembled from prose. Its
+            // note said "verified against /agents.md", which is reading, and
+            // the value, the cid and the cell were copied from different
+            // lines of it.
+            cell: "defi.zb4d9.cojE.zf4be",
             band_or_encoder: "copdem30m.elevation_mean",
             endpoint: "POST /v1/recall",
             expected: BenchmarkExpectation::FactCid {
                 expected: "wbqyxljmeewr7z4cav7guwf4qvsiwf2crv7w3272mgtvxgyn6m5q",
             },
-            notes: "Verified against /agents.md; value is 6.0 m above mean sea level.",
+            notes: "Verified by calling POST /v1/recall at this cell and \
+                    comparing the returned fact_cid, not by reading a document; \
+                    value is 6.0 m above mean sea level.",
         },
         BenchmarkItem {
             id: "elev-bengaluru",
@@ -64596,6 +64634,58 @@ mod tests {
                 .is_err(),
             "an inbox with no owner must refuse rather than answer for everyone"
         );
+    }
+
+    /// message/send must read the part spellings clients actually send.
+    ///
+    /// A2A discriminates Part by `kind`, and spelled it `type` before v0.3.
+    /// An outside agent tried six shapes, all using `type`, got six identical
+    /// "message has no parts" errors, and reported the method non-functional.
+    /// It worked; it was strict. Strictness that produces a published claim of
+    /// brokenness is not buying correctness.
+    #[test]
+    fn a2a_reads_both_part_spellings() {
+        let cases = [
+            (
+                "kind, nested",
+                json!({"message": {"parts": [{"kind": "text", "text": "hi"}]}}),
+            ),
+            (
+                "type, nested",
+                json!({"message": {"parts": [{"type": "text", "text": "hi"}]}}),
+            ),
+            (
+                "kind, bare params",
+                json!({"parts": [{"kind": "text", "text": "hi"}]}),
+            ),
+            ("plain string part", json!({"message": {"parts": ["hi"]}})),
+        ];
+        for (label, params) in cases {
+            let parts = params
+                .get("message")
+                .and_then(|m| m.get("parts"))
+                .or_else(|| params.get("parts"))
+                .and_then(|p| p.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let text = parts.iter().find_map(|p| {
+                if let Some(s) = p.as_str() {
+                    let s = s.trim();
+                    return (!s.is_empty()).then(|| s.to_string());
+                }
+                (p.get("kind")
+                    .or_else(|| p.get("type"))
+                    .and_then(|k| k.as_str())
+                    == Some("text"))
+                .then(|| {
+                    p.get("text")
+                        .and_then(|t| t.as_str())
+                        .map(|t| t.trim().to_string())
+                })
+                .flatten()
+            });
+            assert_eq!(text.as_deref(), Some("hi"), "{label} was not read");
+        }
     }
 
     /// The A2A card is what a host reads to decide whether to connect, so its
