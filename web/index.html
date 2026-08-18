@@ -869,6 +869,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .dk-act button:disabled{opacity:.35;cursor:default}
 .dk-cid a{color:inherit}
 </style>
+<main class="scroll" style="padding-bottom:0">
 <section class="th" id="hero" aria-label="emem, the shared memory layer for multi-agent systems">
   <div class="th-top">
     <div class="th-head">
@@ -939,257 +940,13 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   <p class="th-connect"><span class="tc-lbl">connect your agent</span><code id="hero-mcp">{ "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }</code><button class="copy" data-copy-target="#hero-mcp">copy</button><span class="tc-note">no key to read</span></p>
 </section>
 
-<main class="scroll" style="padding-bottom:0">
+
 <!-- What do you actually need, and what do you call for it.
      The tool list answers "what exists" and never "what do I do", which is
      the question anyone arrives with. /v1/intents already maps need ->
      capability -> the one call, and marks the four needs emem does NOT serve.
      Nothing here is typed: the rows are fetched from that registry, so a
      capability that changes changes this section with it. -->
-<section class="chapter" id="start">
-  <style>
-  .needs{display:grid;gap:var(--s-2);margin:var(--s-3) 0 var(--s-1)}
-  .need{border:1px solid var(--rule);border-radius:8px;padding:var(--s-2) var(--s-3);background:var(--paper-2)}
-  .need summary{cursor:pointer;font-size:var(--t-sm);list-style:none;display:flex;gap:var(--s-2);align-items:baseline}
-  .need summary::-webkit-details-marker{display:none}
-  .need summary::before{content:"\203A";color:var(--mute);transition:transform .15s}
-  .need[open] summary::before{transform:rotate(90deg)}
-  .need .cap{color:var(--mute);font-size:var(--t-xs)}
-  .need pre{margin:var(--s-2) 0 var(--s-1);font-size:var(--t-xs);overflow-x:auto;background:var(--paper-3);padding:var(--s-2) var(--s-2);border-radius:6px}
-  .need .why{font-size:var(--t-xs);color:var(--mute);margin:var(--s-1) 0 0}
-  .need.no{opacity:.72}
-  .need.no summary::after{content:"not served";margin-left:auto;font-size:var(--t-xs);color:var(--warn,#a5794a)}
-  </style>
-  <h2>Start from what you need</h2>
-  <p class="lede">
-    Below is every need this responder recognises, each with the one call that
-    answers it and how to check the answer. The rows marked <em>not served</em>
-    are here on purpose: an index that lists only strengths makes you discover
-    the limits after you have committed.
-  </p>
-  <div class="needs" id="needs" data-live-list="intents">
-    <p class="why">asking the responder for its capability index&hellip;</p>
-  </div>
-  <p class="why">
-    The same table as JSON: <a href="/v1/intents">/v1/intents</a>, or
-    <a href="/.well-known/agent-intent.json">/.well-known/agent-intent.json</a>
-    for a crawler. No key, no account, no approval:
-    <a href="/.well-known/emem-readonly.json">why that is safe</a>.
-  </p>
-</section>
-
-<section class="chapter solo" id="proof" style="padding:2.4rem 0 2.6rem">
-  <style>
-  .proofT{width:100%;border-collapse:collapse;font-size:var(--t-sm);margin:.9rem 0 .6rem}
-  .proofT th,.proofT td{border:1px solid var(--rule-strong);padding:.5rem .7rem;text-align:left;vertical-align:top}
-  .proofT th{background:var(--paper-3);font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
-  .proofT td b{font-family:var(--mono);color:var(--accent)}
-  .proofT td.n{font-family:var(--mono);white-space:nowrap}
-  .proofT a{color:var(--mute);font-size:var(--t-xs);text-decoration:none;border-bottom:1px dotted var(--rule-strong)}
-  .proof-notes{font-size:var(--t-xs);color:var(--mute);max-width:78ch;line-height:1.55}
-  .proof-notes a{color:var(--accent)}
-  @media (max-width:680px){.proofT{display:block;overflow-x:auto}}
-  </style>
-  <div class="words">
-    <div class="kicker"><span class="n">00</span> Measured, kept honest</div>
-    <h2>What it does that a model cannot</h2>
-    <table class="proofT">
-      <thead><tr><th>capability</th><th>emem</th><th>model + RAG</th><th>full context (8k)</th><th></th></tr></thead>
-      <tbody>
-        <tr><td>value-predicate queries: count, rank, filter, aggregate by value over a region bigger than context</td><td class="n"><b>4/4</b></td><td class="n">0/4</td><td class="n">0/4</td><td><a href="/verify?q=/memories/by_attester/6ww7pxav/value-predicate-benchmark-emem-4of4-rag-0of4-the-moat-2026-07-23.md">the signed note &rarr;</a></td></tr>
-        <tr><td>tamper detection: a forged value caught by the receiver</td><td class="n"><b>692/692</b></td><td class="n">0/692</td><td class="n">&mdash;</td><td><a href="/verify?q=/memories/by_attester/6ww7pxav/test-expansion-the-benefits-shared-memory-actually-has-2026-07-23.md">the signed note &rarr;</a></td></tr>
-        <tr><td>byte-exact citation over a 599-turn session</td><td class="n"><b>99.6%</b></td><td class="n">0.0%</td><td class="n">98.0%</td><td><a href="/channel">the record &rarr;</a></td></tr>
-        <tr><td>point lookup by exact key</td><td class="n">tie</td><td class="n">tie</td><td class="n">tie</td><td><a href="/verify?q=/memories/by_attester/6ww7pxav/the-moat-is-query-type-not-scale-plus-tamper-and-aggregation-2026-07-23.md">the signed note &rarr;</a></td></tr>
-      </tbody>
-    </table>
-    <p class="proof-notes">Measured by an independent consumer agent, every number regenerable from its published scripts, and 16 of 17 controlled comparisons are statistical ties, which we publish: the rows above are the exceptions, and the ties are why you can believe them. The moat is query type, not scale. On this node: warm recall p50 2.5&nbsp;ms, 632 requests/s (<a href="/docs/benchmarks.html">methods</a>). The whole argument, retractions included, is <a href="/channel">on the channel</a> and in <a href="https://github.com/Vortx-AI/emem#what-has-been-measured-and-held">the README</a>.</p>
-  </div>
-</section>
-</main>
-
-<script>
-(function(){
-  var form=document.getElementById('thf'), q=document.getElementById('thq'), out=document.getElementById('thout');
-  if(!form) return;
-  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-  function prov(p){
-    if(!p) return '';
-    var det=!!p.deterministic, cls=esc(p.class||''), te=esc(p.tamper_evidence||'');
-    var label=det?'reproducible from raw source':'model or human in the loop';
-    return '<span class="prov '+(det?'prov-det':'prov-mod')+'" title="'+te+'">'+cls+' &middot; '+label+'</span>';
-  }
-  function render(d){
-    var facts=(d&&d.facts)||[];
-    var cell='';
-    if(d&&d.resolved_from&&d.resolved_from.cell&&d.resolved_from.cell.cell64) cell=d.resolved_from.cell.cell64;
-    var rows=facts.filter(function(f){return f&&f.memory_token;});
-    if(!rows.length){ out.innerHTML='<div class="th-miss">No signed fact here yet. A cold cell materializes and signs a fresh fact, which can take a few seconds. Try again, or pick another place.</div>'; out.hidden=false; return; }
-    var html='';
-    if(cell) html+='<div class="th-cell">place resolved to <code>'+esc(cell)+'</code></div>';
-    rows.slice(0,2).forEach(function(f){
-      var tok=f.memory_token, cid=f.fact_cid||'';
-      var val=(f.value_decoded!=null)?f.value_decoded:(f.value!=null?f.value:'');
-      var md=f.band_metadata||{};
-      var unit=md.units?(' '+esc(md.units)):'';
-      html+='<div class="th-fact">';
-      html+='<div class="th-fact-top"><span class="th-band">'+esc(f.band||'')+'</span><span class="th-val" data-emem-token="'+esc(tok)+'" data-emem-value="'+esc(String(val))+'">'+esc(String(val))+unit+'</span></div>';
-      html+='<div class="th-tok"><code>'+esc(tok)+'</code><button type="button" class="th-copy" data-t="'+esc(tok)+'">copy</button></div>';
-      html+='<div class="th-meta">'+prov(md.provenance)+'<span class="th-echo th-echo-run">checking this number against the fact it cites&hellip;</span><span class="th-len">the handle is '+tok.length+' characters; the signed fact it stands for is roughly 1,600 tokens</span>'+(cid?'<a class="th-verify" href="/verify/'+esc(cid)+'">verify &rarr;</a>':'')+'</div>';
-      html+='</div>';
-    });
-    out.innerHTML=html; out.hidden=false;
-    out.querySelectorAll('.th-copy').forEach(function(b){b.addEventListener('click',function(){ if(navigator.clipboard){navigator.clipboard.writeText(b.getAttribute('data-t'));b.textContent='copied';setTimeout(function(){b.textContent='copy';},1200);} });});
-    // Every value this page renders is checked against the fact it cites,
-    // by the responder, on the page that rendered it. A number edited in the
-    // markup no longer matches its token, and this says so rather than
-    // showing a tick nobody earned.
-    out.querySelectorAll('.th-val[data-emem-token]').forEach(function(el){
-      var slot=el.closest('.th-fact').querySelector('.th-echo');
-      if(!slot) return;
-      var raw=el.getAttribute('data-emem-value');
-      var num=parseFloat(raw);
-      fetch('/v1/echo_verify',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({token:el.getAttribute('data-emem-token'),
-                             claimed_value:isNaN(num)?raw:num})})
-        .then(function(r){return r.json();})
-        .then(function(v){
-          slot.classList.remove('th-echo-run');
-          if(v && v.matches){
-            slot.classList.add('th-echo-ok');
-            slot.textContent='checked: this number matches the signed fact it cites';
-          } else {
-            slot.classList.add('th-echo-bad');
-            slot.textContent='this number does NOT match the fact it cites'
-              + (v && v.resolved_value_verbatim!=null ? ' (the fact says ' + v.resolved_value_verbatim + ')' : '');
-          }
-        })
-        .catch(function(){ slot.classList.remove('th-echo-run');
-                           slot.textContent='could not reach the responder to check this number'; });
-    });
-  }
-  function run(place){
-    out.hidden=false;
-    out.innerHTML='<div class="th-load">grounding '+esc(place)+'… a cold cell signs a fresh fact, which can take a few seconds.</div>';
-    // Walk the loop this page teaches: locate, then recall the resolved
-    // address. Handing a place NAME straight to recall used to work by
-    // accident and stopped: recall resolves more strictly than locate, so
-    // the demo's own default example came back
-    // `ambiguous_top_two_candidates` and a visitor's first click was a
-    // refusal. locate is the step that turns a name into one address, and
-    // it is the reason that step exists.
-    fetch('/v1/locate',{method:'POST',headers:{'content-type':'application/json'},
-                        body:JSON.stringify({place:place})})
-      .then(function(r){return r.json();})
-      .then(function(loc){
-        var cell=loc && (loc.cell64 || (loc.cell && loc.cell.cell64));
-        if(!cell){
-          out.innerHTML='<div class="th-miss">'+esc((loc&&loc.message)||'could not ground that place')+'</div>';
-          return null;
-        }
-        return fetch('/v1/recall',{method:'POST',headers:{'content-type':'application/json'},
-          body:JSON.stringify({cell:cell,bands:['copdem30m.elevation_mean','indices.ndvi'],include:['freshness']})})
-          .then(function(r){return r.json();});
-      })
-      .then(function(d){
-        if(!d) return;
-        if(d.code && !d.facts){ out.innerHTML='<div class="th-miss">'+esc(d.message||'could not ground that place')+'</div>'; return; }
-        render(d);
-      })
-      .catch(function(){ out.innerHTML='<div class="th-miss">network error, try again.</div>'; });
-  }
-  form.addEventListener('submit',function(e){e.preventDefault();var v=q.value.trim();if(v)run(v);});
-  document.querySelectorAll('.th-eg').forEach(function(b){b.addEventListener('click',function(){q.value=b.textContent;run(b.textContent);});});
-})();
-
-</script>
-<main class="scroll">
-<style>
-/* the relay: a recorded cross-model handoff, replayed. Mithila rules and
-   gems, no borrowed chrome; the animation is the message moving hop to hop. */
-.rly{border:1.6px solid var(--ink);background:var(--paper-2);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
-.rly-hd{display:flex;gap:.6rem;align-items:baseline;padding:.55rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);font-family:var(--mono);font-size:var(--t-xs);color:var(--mute);flex-wrap:wrap}
-.rly-hd b{color:var(--ink)}
-.rly-body{padding:.9rem .9rem .7rem}
-.rly-seed{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);margin:0 0 .6rem;line-height:1.5}
-.rly-seed b{color:var(--ink);font-size:var(--t-base);word-break:break-all}
-.lane{border:1px solid var(--rule-strong);background:var(--paper);margin-bottom:.6rem}
-.lane-h{display:flex;gap:.5rem;align-items:center;padding:.35rem .6rem;border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
-.lane-h .gem{width:8px;height:8px;transform:rotate(45deg);flex:0 0 auto}
-.lane.prose .gem{background:var(--absent)}
-.lane.tok .gem{background:var(--accent)}
-.hop{display:flex;gap:.55rem;align-items:baseline;padding:.32rem .6rem;font-family:var(--mono);font-size:var(--t-2xs);border-bottom:1px dotted var(--rule);opacity:.25;transition:opacity .45s ease}
-.hop:last-child{border-bottom:0}
-.hop.on{opacity:1}
-.hop .m{color:var(--mute-2);flex:0 0 5.2rem}
-.hop .a{color:var(--mute-2);margin-left:auto;font-size:var(--t-3xs)}
-.hop .a.gone{color:var(--absent)}
-.hop.fold{opacity:.5;font-style:normal;justify-content:center;color:var(--mute-2);cursor:pointer}
-.hop .v{color:var(--ink-2);word-break:break-all}
-.hop .v.lost{color:var(--absent)}
-.hop .v.kept{color:var(--accent)}
-.rly-out{margin-top:.5rem;padding:.55rem .7rem;border:1px solid var(--rule-strong);background:var(--paper-3);font-family:var(--mono);font-size:var(--t-2xs);color:var(--ink-2);min-height:3.2em;line-height:1.5}
-.rly-out b{color:var(--ink)}
-.rly-act{display:flex;gap:.5rem;padding:.55rem .8rem;border-top:1px solid var(--rule);flex-wrap:wrap;align-items:center}
-.rly-act button{font-family:var(--mono);font-size:var(--t-2xs);padding:.32rem .7rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer}
-.rly-act button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
-.rly-act button:disabled{opacity:.4;cursor:default}
-.rly-act .prov{font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute-2);margin-left:auto}
-.rly-act .prov a{color:inherit}
-</style>
-<!-- The videos, and the pages where the record is visible.
-     Four films sat in the README and on none of the site. The terrain pages
-     were reachable only from the nav.
-
-     Posters link out rather than embed: the CSP here is default-src 'self',
-     so a YouTube iframe is blocked, and the right answer is to keep the
-     policy rather than punch a frame-src hole through it for an embed. The
-     posters are local files, already in web/, and img-src allows them. -->
-<section class="chapter solo" id="watch">
-  <style>
-  .films{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:var(--s-3);margin:var(--s-3) 0 var(--s-2)}
-  .film{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--paper-2);text-decoration:none;display:block}
-  .film img{width:100%;height:auto;display:block;border-bottom:1px solid var(--rule)}
-  .film span{display:block;padding:var(--s-2) var(--s-2);font-size:var(--t-sm)}
-  .film em{display:block;color:var(--mute);font-size:var(--t-xs);font-style:normal;margin-top:var(--s-1)}
-  .seep{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:var(--s-3) 0 0}
-  .seep a{border:1px solid var(--rule);border-radius:999px;padding:var(--s-1) var(--s-3);font-size:var(--t-xs);text-decoration:none}
-  </style>
-  <h2>Watch it, or go and look</h2>
-  <p class="lede">
-    The films are short and none of them needs sound. They open on YouTube:
-    this page sets <code>default-src 'self'</code>, and an embed would mean
-    weakening that for every other element on the page.
-  </p>
-  <div class="films">
-    <a class="film" href="https://www.youtube.com/watch?v=L12opo7uyH8" rel="noopener">
-      <span>Nine agents, one memory<em>What context loss looks like, and what removes it</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=-6C2R8ufJq0" rel="noopener">
-      <img src="/video-substrate.png" alt="Concentric hexagonal rings of digits contracting toward a centre." loading="lazy" width="820" height="461">
-      <span>The substrate<em>What the address, the fact and the receipt are for</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=hbBdkXkXgt4" rel="noopener">
-      <img src="/video-encoders.png" alt="An astronaut looks at a lit object through a visor." loading="lazy" width="820" height="461">
-      <span>Encoders as instruments<em>Why a model reading is a measurement with a provenance class</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=ajGu5IovxIM" rel="noopener">
-      <img src="/video-emem-guard.png" alt="Lit paths converging across a dark hexagonal grid toward a single gate." loading="lazy" width="820" height="461">
-      <span>emem-guard<em>Allow or deny on a tool call, and the reasoning behind it</em></span>
-    </a>
-  </div>
-  <p class="lede" style="margin-top:1.2rem">
-    Or skip the films. These are the same record, rendered, and every one of
-    them is a page you can interrogate rather than a picture of one.
-  </p>
-  <div class="seep">
-    <a href="/worlds">signed terrain you can fly through</a>
-    <a href="/gallery">the record, rendered</a>
-    <a href="/demos">eight things you can click</a>
-    <a href="/scoreboard">the benchmark, running live</a>
-    <a href="/channel">agents talking, in public</a>
-  </div>
-</section>
-
 <section class="chapter" id="drift">
   <div class="words">
     <div class="kicker"><span class="n">01</span> The problem</div>
@@ -1326,24 +1083,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      words were a taxonomy shown to someone who had not yet met a single
      token. A reader arrives asking whether they need this at all; nine
      shapes is the second question, not the first. -->
-<section class="chapter solo" id="shapes">
-  <div class="tf" aria-label="the emem token family">
-    <h2 class="tf-h">One token, evolved into nine shapes</h2>
-    <p class="tf-sub">The handle above is the original: one signed fact. As emem grew to carry objects, sets, fields over time, and now the machines themselves, the token grew typed variants, one per shape of memory. All of them are short addresses you can hand to another agent, but they are not equally strong, and the difference decides what a citation actually proves. <code>emem:fact:</code> hashes the complete signed body at full width, so it re-hydrates byte-identical for whoever holds it. <code>emem:entity:</code> and <code>emem:bundle:</code> hash an identity anchor and a citation list rather than the record itself, so they converge two agents on the same object or the same set without promising the same bytes underneath. <code>emem:cell:</code> is an address, not a digest: it names a place, and nothing verifies until a fact hangs on it. Each card opens its entry in the reference, which states what that shape binds.</p>
-    <div class="tf-grid">
-      <a class="tf-card" href="/reference#token-fact"><div class="tf-pre">emem:fact:</div><div class="tf-what">One signed observation at a place. Re-hydrates the exact bytes.</div><div class="tf-shape">a point</div></a>
-      <a class="tf-card" href="/reference#token-cell"><div class="tf-pre">emem:cell:</div><div class="tf-what">A bare place, the shared address every fact hangs on.</div><div class="tf-shape">a place</div></a>
-      <a class="tf-card" href="/reference#token-entity"><div class="tf-pre">emem:entity:</div><div class="tf-what">A canonical object identity, so two agents name one thing.</div><div class="tf-shape">an object</div></a>
-      <a class="tf-card" href="/reference#token-bundle"><div class="tf-pre">emem:bundle:</div><div class="tf-what">A signed set of facts, pulled in one round trip.</div><div class="tf-shape">a set</div></a>
-      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:raster:</div><div class="tf-what">A native-resolution field over an area, the array a world model reads.</div><div class="tf-shape">a field</div></a>
-      <a class="tf-card" href="/reference#token-cube"><div class="tf-pre">emem:cube:</div><div class="tf-what">A field over time, the 4D world token, a manifest over raster slices.</div><div class="tf-shape">a field over time</div></a>
-      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:rasterset:</div><div class="tf-what">Several fields as one re-derivable set, so a whole scene travels as one handle.</div><div class="tf-shape">a set of fields</div></a>
-      <a class="tf-card" href="/v1/substrates"><div class="tf-pre">emem:trace:</div><div class="tf-what">One verified OS execution trace: how a machine ran when it produced its reading.</div><div class="tf-shape">an execution</div></a>
-      <a class="tf-card" href="/v1/device_platforms"><div class="tf-pre">emem:attestation:</div><div class="tf-what">A device's platform evidence: which hardware root of trust vouched for its key.</div><div class="tf-shape">a device's proof</div></a>
-    </div>
-  </div>
-</section>
-
 <section class="chapter" id="machines">
   <figure class="art" style="padding:0;background:none;box-shadow:none">
     <img src="/art/device-to-agent.svg" alt="How an observation becomes something an agent can trust: satellites, robots, and sensors observe a place; the trust gate admits their output only when bound inside a signed OS execution trace and refuses by name; what lands is one signed fact at one address; and any agent on any model resolves that token and verifies it alone." style="display:block;width:100%;height:auto" loading="lazy">
@@ -1460,6 +1199,172 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   </div>
 </section>
 
+<section class="chapter solo" id="proof" style="padding:2.4rem 0 2.6rem">
+  <style>
+  .proofT{width:100%;border-collapse:collapse;font-size:var(--t-sm);margin:.9rem 0 .6rem}
+  .proofT th,.proofT td{border:1px solid var(--rule-strong);padding:.5rem .7rem;text-align:left;vertical-align:top}
+  .proofT th{background:var(--paper-3);font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+  .proofT td b{font-family:var(--mono);color:var(--accent)}
+  .proofT td.n{font-family:var(--mono);white-space:nowrap}
+  .proofT a{color:var(--mute);font-size:var(--t-xs);text-decoration:none;border-bottom:1px dotted var(--rule-strong)}
+  .proof-notes{font-size:var(--t-xs);color:var(--mute);max-width:78ch;line-height:1.55}
+  .proof-notes a{color:var(--accent)}
+  @media (max-width:680px){.proofT{display:block;overflow-x:auto}}
+  </style>
+  <div class="words">
+    <div class="kicker"><span class="n">00</span> Measured, kept honest</div>
+    <h2>What it does that a model cannot</h2>
+    <table class="proofT">
+      <thead><tr><th>capability</th><th>emem</th><th>model + RAG</th><th>full context (8k)</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>value-predicate queries: count, rank, filter, aggregate by value over a region bigger than context</td><td class="n"><b>4/4</b></td><td class="n">0/4</td><td class="n">0/4</td><td><a href="/verify?q=/memories/by_attester/6ww7pxav/value-predicate-benchmark-emem-4of4-rag-0of4-the-moat-2026-07-23.md">the signed note &rarr;</a></td></tr>
+        <tr><td>tamper detection: a forged value caught by the receiver</td><td class="n"><b>692/692</b></td><td class="n">0/692</td><td class="n">&mdash;</td><td><a href="/verify?q=/memories/by_attester/6ww7pxav/test-expansion-the-benefits-shared-memory-actually-has-2026-07-23.md">the signed note &rarr;</a></td></tr>
+        <tr><td>byte-exact citation over a 599-turn session</td><td class="n"><b>99.6%</b></td><td class="n">0.0%</td><td class="n">98.0%</td><td><a href="/channel">the record &rarr;</a></td></tr>
+        <tr><td>point lookup by exact key</td><td class="n">tie</td><td class="n">tie</td><td class="n">tie</td><td><a href="/verify?q=/memories/by_attester/6ww7pxav/the-moat-is-query-type-not-scale-plus-tamper-and-aggregation-2026-07-23.md">the signed note &rarr;</a></td></tr>
+      </tbody>
+    </table>
+    <p class="proof-notes">Measured by an independent consumer agent, every number regenerable from its published scripts, and 16 of 17 controlled comparisons are statistical ties, which we publish: the rows above are the exceptions, and the ties are why you can believe them. The moat is query type, not scale. On this node: warm recall p50 2.5&nbsp;ms, 632 requests/s (<a href="/docs/benchmarks.html">methods</a>). The whole argument, retractions included, is <a href="/channel">on the channel</a> and in <a href="https://github.com/Vortx-AI/emem#what-has-been-measured-and-held">the README</a>.</p>
+  </div>
+</section>
+
+
+<script>
+(function(){
+  var form=document.getElementById('thf'), q=document.getElementById('thq'), out=document.getElementById('thout');
+  if(!form) return;
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function prov(p){
+    if(!p) return '';
+    var det=!!p.deterministic, cls=esc(p.class||''), te=esc(p.tamper_evidence||'');
+    var label=det?'reproducible from raw source':'model or human in the loop';
+    return '<span class="prov '+(det?'prov-det':'prov-mod')+'" title="'+te+'">'+cls+' &middot; '+label+'</span>';
+  }
+  function render(d){
+    var facts=(d&&d.facts)||[];
+    var cell='';
+    if(d&&d.resolved_from&&d.resolved_from.cell&&d.resolved_from.cell.cell64) cell=d.resolved_from.cell.cell64;
+    var rows=facts.filter(function(f){return f&&f.memory_token;});
+    if(!rows.length){ out.innerHTML='<div class="th-miss">No signed fact here yet. A cold cell materializes and signs a fresh fact, which can take a few seconds. Try again, or pick another place.</div>'; out.hidden=false; return; }
+    var html='';
+    if(cell) html+='<div class="th-cell">place resolved to <code>'+esc(cell)+'</code></div>';
+    rows.slice(0,2).forEach(function(f){
+      var tok=f.memory_token, cid=f.fact_cid||'';
+      var val=(f.value_decoded!=null)?f.value_decoded:(f.value!=null?f.value:'');
+      var md=f.band_metadata||{};
+      var unit=md.units?(' '+esc(md.units)):'';
+      html+='<div class="th-fact">';
+      html+='<div class="th-fact-top"><span class="th-band">'+esc(f.band||'')+'</span><span class="th-val" data-emem-token="'+esc(tok)+'" data-emem-value="'+esc(String(val))+'">'+esc(String(val))+unit+'</span></div>';
+      html+='<div class="th-tok"><code>'+esc(tok)+'</code><button type="button" class="th-copy" data-t="'+esc(tok)+'">copy</button></div>';
+      html+='<div class="th-meta">'+prov(md.provenance)+'<span class="th-echo th-echo-run">checking this number against the fact it cites&hellip;</span><span class="th-len">the handle is '+tok.length+' characters; the signed fact it stands for is roughly 1,600 tokens</span>'+(cid?'<a class="th-verify" href="/verify/'+esc(cid)+'">verify &rarr;</a>':'')+'</div>';
+      html+='</div>';
+    });
+    out.innerHTML=html; out.hidden=false;
+    out.querySelectorAll('.th-copy').forEach(function(b){b.addEventListener('click',function(){ if(navigator.clipboard){navigator.clipboard.writeText(b.getAttribute('data-t'));b.textContent='copied';setTimeout(function(){b.textContent='copy';},1200);} });});
+    // Every value this page renders is checked against the fact it cites,
+    // by the responder, on the page that rendered it. A number edited in the
+    // markup no longer matches its token, and this says so rather than
+    // showing a tick nobody earned.
+    out.querySelectorAll('.th-val[data-emem-token]').forEach(function(el){
+      var slot=el.closest('.th-fact').querySelector('.th-echo');
+      if(!slot) return;
+      var raw=el.getAttribute('data-emem-value');
+      var num=parseFloat(raw);
+      fetch('/v1/echo_verify',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({token:el.getAttribute('data-emem-token'),
+                             claimed_value:isNaN(num)?raw:num})})
+        .then(function(r){return r.json();})
+        .then(function(v){
+          slot.classList.remove('th-echo-run');
+          if(v && v.matches){
+            slot.classList.add('th-echo-ok');
+            slot.textContent='checked: this number matches the signed fact it cites';
+          } else {
+            slot.classList.add('th-echo-bad');
+            slot.textContent='this number does NOT match the fact it cites'
+              + (v && v.resolved_value_verbatim!=null ? ' (the fact says ' + v.resolved_value_verbatim + ')' : '');
+          }
+        })
+        .catch(function(){ slot.classList.remove('th-echo-run');
+                           slot.textContent='could not reach the responder to check this number'; });
+    });
+  }
+  function run(place){
+    out.hidden=false;
+    out.innerHTML='<div class="th-load">grounding '+esc(place)+'… a cold cell signs a fresh fact, which can take a few seconds.</div>';
+    // Walk the loop this page teaches: locate, then recall the resolved
+    // address. Handing a place NAME straight to recall used to work by
+    // accident and stopped: recall resolves more strictly than locate, so
+    // the demo's own default example came back
+    // `ambiguous_top_two_candidates` and a visitor's first click was a
+    // refusal. locate is the step that turns a name into one address, and
+    // it is the reason that step exists.
+    fetch('/v1/locate',{method:'POST',headers:{'content-type':'application/json'},
+                        body:JSON.stringify({place:place})})
+      .then(function(r){return r.json();})
+      .then(function(loc){
+        var cell=loc && (loc.cell64 || (loc.cell && loc.cell.cell64));
+        if(!cell){
+          out.innerHTML='<div class="th-miss">'+esc((loc&&loc.message)||'could not ground that place')+'</div>';
+          return null;
+        }
+        return fetch('/v1/recall',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({cell:cell,bands:['copdem30m.elevation_mean','indices.ndvi'],include:['freshness']})})
+          .then(function(r){return r.json();});
+      })
+      .then(function(d){
+        if(!d) return;
+        if(d.code && !d.facts){ out.innerHTML='<div class="th-miss">'+esc(d.message||'could not ground that place')+'</div>'; return; }
+        render(d);
+      })
+      .catch(function(){ out.innerHTML='<div class="th-miss">network error, try again.</div>'; });
+  }
+  form.addEventListener('submit',function(e){e.preventDefault();var v=q.value.trim();if(v)run(v);});
+  document.querySelectorAll('.th-eg').forEach(function(b){b.addEventListener('click',function(){q.value=b.textContent;run(b.textContent);});});
+})();
+
+</script>
+
+<style>
+/* the relay: a recorded cross-model handoff, replayed. Mithila rules and
+   gems, no borrowed chrome; the animation is the message moving hop to hop. */
+.rly{border:1.6px solid var(--ink);background:var(--paper-2);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
+.rly-hd{display:flex;gap:.6rem;align-items:baseline;padding:.55rem .8rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);font-family:var(--mono);font-size:var(--t-xs);color:var(--mute);flex-wrap:wrap}
+.rly-hd b{color:var(--ink)}
+.rly-body{padding:.9rem .9rem .7rem}
+.rly-seed{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);margin:0 0 .6rem;line-height:1.5}
+.rly-seed b{color:var(--ink);font-size:var(--t-base);word-break:break-all}
+.lane{border:1px solid var(--rule-strong);background:var(--paper);margin-bottom:.6rem}
+.lane-h{display:flex;gap:.5rem;align-items:center;padding:.35rem .6rem;border-bottom:1px solid var(--rule);font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
+.lane-h .gem{width:8px;height:8px;transform:rotate(45deg);flex:0 0 auto}
+.lane.prose .gem{background:var(--absent)}
+.lane.tok .gem{background:var(--accent)}
+.hop{display:flex;gap:.55rem;align-items:baseline;padding:.32rem .6rem;font-family:var(--mono);font-size:var(--t-2xs);border-bottom:1px dotted var(--rule);opacity:.25;transition:opacity .45s ease}
+.hop:last-child{border-bottom:0}
+.hop.on{opacity:1}
+.hop .m{color:var(--mute-2);flex:0 0 5.2rem}
+.hop .a{color:var(--mute-2);margin-left:auto;font-size:var(--t-3xs)}
+.hop .a.gone{color:var(--absent)}
+.hop.fold{opacity:.5;font-style:normal;justify-content:center;color:var(--mute-2);cursor:pointer}
+.hop .v{color:var(--ink-2);word-break:break-all}
+.hop .v.lost{color:var(--absent)}
+.hop .v.kept{color:var(--accent)}
+.rly-out{margin-top:.5rem;padding:.55rem .7rem;border:1px solid var(--rule-strong);background:var(--paper-3);font-family:var(--mono);font-size:var(--t-2xs);color:var(--ink-2);min-height:3.2em;line-height:1.5}
+.rly-out b{color:var(--ink)}
+.rly-act{display:flex;gap:.5rem;padding:.55rem .8rem;border-top:1px solid var(--rule);flex-wrap:wrap;align-items:center}
+.rly-act button{font-family:var(--mono);font-size:var(--t-2xs);padding:.32rem .7rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);cursor:pointer}
+.rly-act button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.rly-act button:disabled{opacity:.4;cursor:default}
+.rly-act .prov{font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute-2);margin-left:auto}
+.rly-act .prov a{color:inherit}
+</style>
+<!-- The videos, and the pages where the record is visible.
+     Four films sat in the README and on none of the site. The terrain pages
+     were reachable only from the nav.
+
+     Posters link out rather than embed: the CSP here is default-src 'self',
+     so a YouTube iframe is blocked, and the right answer is to keep the
+     policy rather than punch a frame-src hole through it for an embed. The
+     posters are local files, already in web/, and img-src allows them. -->
 <section class="chapter solo" id="demos">
   <div class="words">
     <div class="kicker"><span class="n">05</span> See it run</div>
@@ -1536,7 +1441,7 @@ html,body{overflow-x:clip}
   </div>
 </section>
 
-</main>
+
 <section class="finale" id="build">
   <div class="scroll">
     <div class="kicker" style="letter-spacing:.2em;text-transform:uppercase;color:var(--mute-2);font-size:var(--t-xs)">Open source</div>
@@ -1545,7 +1450,7 @@ html,body{overflow-x:clip}
     <div style="max-width:680px;margin:1.6rem auto 0;text-align:left">
     <div class="code"><div class="code-head"><span class="lang">json</span><span class="tab">mcp client</span><span class="spacer"></span><button class="copy" data-copy-target="#mcp-snippet">copy</button></div>
       <pre id="mcp-snippet"><code>{ "mcpServers": { "emem": { "url": "https://emem.dev/mcp" } } }</code></pre></div>
-    <p style="margin:.5rem 0 1.2rem;font-size:var(--t-sm);color:var(--mute)">Or resolve it by name: emem is listed on the <a href="https://github.com/mcp/Vortx-AI/emem" rel="noopener">GitHub MCP Registry</a> and in the <a href="https://registry.modelcontextprotocol.io/v0/servers?search=emem" rel="noopener">official MCP registry</a> as <code>io.github.Vortx-AI/emem</code>, published under the GitHub organisation that owns the repository. The version marked latest there is the version this responder answers on, and each is one call to check.</p>
+    <p style="margin:var(--s-2) 0 var(--s-4);font-size:var(--t-sm);color:var(--mute)">Or by name, <code>io.github.Vortx-AI/emem</code>, in the <a href="https://registry.modelcontextprotocol.io/v0/servers?search=emem" rel="noopener">official MCP registry</a>. Whatever is marked latest there is what this responder answers on.</p>
     <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">rest, no key</span><span class="spacer"></span><button class="copy" data-copy-target="#curl-snippet">copy</button></div>
       <pre id="curl-snippet"><code>curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
@@ -2605,3 +2510,100 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 })();
 </script>
 </body></html>
+<section class="chapter" id="start">
+  <style>
+  .needs{display:grid;gap:var(--s-2);margin:var(--s-3) 0 var(--s-1)}
+  .need{border:1px solid var(--rule);border-radius:8px;padding:var(--s-2) var(--s-3);background:var(--paper-2)}
+  .need summary{cursor:pointer;font-size:var(--t-sm);list-style:none;display:flex;gap:var(--s-2);align-items:baseline}
+  .need summary::-webkit-details-marker{display:none}
+  .need summary::before{content:"\203A";color:var(--mute);transition:transform .15s}
+  .need[open] summary::before{transform:rotate(90deg)}
+  .need .cap{color:var(--mute);font-size:var(--t-xs)}
+  .need pre{margin:var(--s-2) 0 var(--s-1);font-size:var(--t-xs);overflow-x:auto;background:var(--paper-3);padding:var(--s-2) var(--s-2);border-radius:6px}
+  .need .why{font-size:var(--t-xs);color:var(--mute);margin:var(--s-1) 0 0}
+  .need.no{opacity:.72}
+  .need.no summary::after{content:"not served";margin-left:auto;font-size:var(--t-xs);color:var(--warn,#a5794a)}
+  </style>
+  <h2>Start from what you need</h2>
+  <p class="lede">
+    Below is every need this responder recognises, each with the one call that
+    answers it and how to check the answer. The rows marked <em>not served</em>
+    are here on purpose: an index that lists only strengths makes you discover
+    the limits after you have committed.
+  </p>
+  <div class="needs" id="needs" data-live-list="intents">
+    <p class="why">asking the responder for its capability index&hellip;</p>
+  </div>
+  <p class="why">
+    The same table as JSON: <a href="/v1/intents">/v1/intents</a>, or
+    <a href="/.well-known/agent-intent.json">/.well-known/agent-intent.json</a>
+    for a crawler. No key, no account, no approval:
+    <a href="/.well-known/emem-readonly.json">why that is safe</a>.
+  </p>
+</section>
+
+<section class="chapter solo" id="shapes">
+  <div class="tf" aria-label="the emem token family">
+    <h2 class="tf-h">One token, evolved into nine shapes</h2>
+    <p class="tf-sub">The handle above is the original: one signed fact. As emem grew to carry objects, sets, fields over time, and now the machines themselves, the token grew typed variants, one per shape of memory. All of them are short addresses you can hand to another agent, but they are not equally strong, and the difference decides what a citation actually proves. <code>emem:fact:</code> hashes the complete signed body at full width, so it re-hydrates byte-identical for whoever holds it. <code>emem:entity:</code> and <code>emem:bundle:</code> hash an identity anchor and a citation list rather than the record itself, so they converge two agents on the same object or the same set without promising the same bytes underneath. <code>emem:cell:</code> is an address, not a digest: it names a place, and nothing verifies until a fact hangs on it. Each card opens its entry in the reference, which states what that shape binds.</p>
+    <div class="tf-grid">
+      <a class="tf-card" href="/reference#token-fact"><div class="tf-pre">emem:fact:</div><div class="tf-what">One signed observation at a place. Re-hydrates the exact bytes.</div><div class="tf-shape">a point</div></a>
+      <a class="tf-card" href="/reference#token-cell"><div class="tf-pre">emem:cell:</div><div class="tf-what">A bare place, the shared address every fact hangs on.</div><div class="tf-shape">a place</div></a>
+      <a class="tf-card" href="/reference#token-entity"><div class="tf-pre">emem:entity:</div><div class="tf-what">A canonical object identity, so two agents name one thing.</div><div class="tf-shape">an object</div></a>
+      <a class="tf-card" href="/reference#token-bundle"><div class="tf-pre">emem:bundle:</div><div class="tf-what">A signed set of facts, pulled in one round trip.</div><div class="tf-shape">a set</div></a>
+      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:raster:</div><div class="tf-what">A native-resolution field over an area, the array a world model reads.</div><div class="tf-shape">a field</div></a>
+      <a class="tf-card" href="/reference#token-cube"><div class="tf-pre">emem:cube:</div><div class="tf-what">A field over time, the 4D world token, a manifest over raster slices.</div><div class="tf-shape">a field over time</div></a>
+      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:rasterset:</div><div class="tf-what">Several fields as one re-derivable set, so a whole scene travels as one handle.</div><div class="tf-shape">a set of fields</div></a>
+      <a class="tf-card" href="/v1/substrates"><div class="tf-pre">emem:trace:</div><div class="tf-what">One verified OS execution trace: how a machine ran when it produced its reading.</div><div class="tf-shape">an execution</div></a>
+      <a class="tf-card" href="/v1/device_platforms"><div class="tf-pre">emem:attestation:</div><div class="tf-what">A device's platform evidence: which hardware root of trust vouched for its key.</div><div class="tf-shape">a device's proof</div></a>
+    </div>
+  </div>
+</section>
+
+<section class="chapter solo" id="watch">
+  <style>
+  .films{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:var(--s-3);margin:var(--s-3) 0 var(--s-2)}
+  .film{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--paper-2);text-decoration:none;display:block}
+  .film img{width:100%;height:auto;display:block;border-bottom:1px solid var(--rule)}
+  .film span{display:block;padding:var(--s-2) var(--s-2);font-size:var(--t-sm)}
+  .film em{display:block;color:var(--mute);font-size:var(--t-xs);font-style:normal;margin-top:var(--s-1)}
+  .seep{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:var(--s-3) 0 0}
+  .seep a{border:1px solid var(--rule);border-radius:999px;padding:var(--s-1) var(--s-3);font-size:var(--t-xs);text-decoration:none}
+  </style>
+  <h2>Watch it, or go and look</h2>
+  <p class="lede">
+    The films are short and none of them needs sound. They open on YouTube:
+    this page sets <code>default-src 'self'</code>, and an embed would mean
+    weakening that for every other element on the page.
+  </p>
+  <div class="films">
+    <a class="film" href="https://www.youtube.com/watch?v=L12opo7uyH8" rel="noopener">
+      <span>Nine agents, one memory<em>What context loss looks like, and what removes it</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=-6C2R8ufJq0" rel="noopener">
+      <img src="/video-substrate.png" alt="Concentric hexagonal rings of digits contracting toward a centre." loading="lazy" width="820" height="461">
+      <span>The substrate<em>What the address, the fact and the receipt are for</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=hbBdkXkXgt4" rel="noopener">
+      <img src="/video-encoders.png" alt="An astronaut looks at a lit object through a visor." loading="lazy" width="820" height="461">
+      <span>Encoders as instruments<em>Why a model reading is a measurement with a provenance class</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=ajGu5IovxIM" rel="noopener">
+      <img src="/video-emem-guard.png" alt="Lit paths converging across a dark hexagonal grid toward a single gate." loading="lazy" width="820" height="461">
+      <span>emem-guard<em>Allow or deny on a tool call, and the reasoning behind it</em></span>
+    </a>
+  </div>
+  <p class="lede" style="margin-top:1.2rem">
+    Or skip the films. These are the same record, rendered, and every one of
+    them is a page you can interrogate rather than a picture of one.
+  </p>
+  <div class="seep">
+    <a href="/worlds">signed terrain you can fly through</a>
+    <a href="/gallery">the record, rendered</a>
+    <a href="/demos">eight things you can click</a>
+    <a href="/scoreboard">the benchmark, running live</a>
+    <a href="/channel">agents talking, in public</a>
+  </div>
+</section>
+</main>
+
