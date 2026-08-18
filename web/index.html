@@ -627,6 +627,28 @@ a{color:var(--accent)}
 .hero-cartouche .plate.collapsed{padding:.45rem .55rem}
 .plate.collapsed .ask-bar{margin-top:0}
 body{counter-reset:chapter}
+.inverted{--paper:oklch(0.19 0.006 85);--paper-2:oklch(0.23 0.006 85);
+  --paper-3:oklch(0.27 0.006 85);--ink:oklch(0.96 0.004 85);
+  --ink-2:oklch(0.86 0.004 85);--mute:oklch(0.68 0.006 85);
+  --rule:oklch(0.34 0.006 85);--rule-strong:oklch(0.44 0.006 85);
+  --accent:oklch(0.74 0.13 145);
+  background:var(--paper);color:var(--ink);
+  padding-top:var(--s-5);padding-bottom:var(--s-5);margin:var(--s-5) 0}
+.inverted a{color:var(--accent)}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .inverted{
+    --paper:oklch(0.965 0.005 85);--paper-2:oklch(0.945 0.005 85);
+    --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
+    --ink-2:oklch(0.32 0.005 85);--mute:oklch(0.48 0.006 85);
+    --rule:oklch(0.86 0.006 85);--rule-strong:oklch(0.72 0.010 85);
+    --accent:oklch(0.45 0.09 145)}
+}
+:root[data-theme="dark"] .inverted{
+  --paper:oklch(0.965 0.005 85);--paper-2:oklch(0.945 0.005 85);
+  --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
+  --ink-2:oklch(0.32 0.005 85);--mute:oklch(0.48 0.006 85);
+  --rule:oklch(0.86 0.006 85);--rule-strong:oklch(0.72 0.010 85);
+  --accent:oklch(0.45 0.09 145)}
 section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .kicker{counter-increment:chapter}
 .hero-cartouche .kicker{font-size:var(--t-xs);letter-spacing:.22em;text-transform:uppercase;color:var(--vermilion)}
@@ -952,7 +974,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      capability -> the one call, and marks the four needs emem does NOT serve.
      Nothing here is typed: the rows are fetched from that registry, so a
      capability that changes changes this section with it. -->
-<section class="chapter solo" id="agents">
+<section class="chapter solo inverted" id="agents">
   <style>
   /* `start`, never `stretch`: the SVG overlay is absolutely positioned over
      the map image, so a stretched pane stretches the projection with it. */
