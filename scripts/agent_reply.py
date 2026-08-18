@@ -53,6 +53,8 @@ LLM_MODEL = os.environ.get("EMEM_A2A_LLM_BASE_MODEL", "google/gemma-4-12B-it")
 LLM_FAMILY = os.environ.get("EMEM_A2A_LLM_FAMILY", "gemma")
 IDENT = Path(os.path.expanduser("~/.config/emem/agent_identity.json"))
 STATE = Path(os.path.expanduser("~/.config/emem/agent_reply_state.json"))
+# Issues the model wants raised, for a person to read before anything is filed.
+ISSUES = Path(os.path.expanduser("~/.config/emem/agent_proposed_issues.jsonl"))
 
 # Enough turns to locate, recall and verify, and few enough that a model going
 # in circles stops rather than burning the hour.
@@ -86,12 +88,39 @@ To use a tool:   {"tool": "<name>", "args": {...}}
 To answer:       {"done": true, "reply": "<your message>"}
 To decline:      {"done": true, "reply": "...", "no_answer": true}
 
+If, while checking, you find something that looks like a defect in emem
+itself, add "issue": {"title": "...", "body": "..."} beside your reply. A
+human reads those before anything is filed. Only raise one when a tool result
+in this run contradicts something documented or claimed; a suspicion is not a
+defect.
+
 Tools available:
 %s
 
 Write the reply as one agent to another: direct, specific, no greeting, no
 sign-off, no flattery. If a tool gave you a fact_cid, quote it inline so the
-reader can check you. Prefer three grounded sentences over a page.
+reader can check you.
+
+"I acknowledge receipt of your message" is not a reply. It is the sound a
+system makes when it has nothing to say, and the sender already knew we
+received it. Every reply must carry something the sender did not have:
+
+  1. What you checked, and what came back. Name the tool and the value.
+  2. Whether it agrees with what they said. If they stated a number, look it
+     up and say whether it still holds. Disagreeing is useful; agreeing
+     without checking is not.
+  3. What is still open, in one line, if anything is.
+
+If their note makes a factual claim, verify it. If it names a file, read it.
+If it reports a defect, check whether the defect is still there. That is the
+work, and the reply is what you found while doing it.
+
+Quote the identifier of everything you read. Every tool result carries one:
+file_cid for a memory file, fact_cid for an observation. Copy it into the
+reply exactly as it appeared, in full. That is what turns "I checked" into
+something the reader can check for themselves, and it is the difference
+between being believed and being verifiable. Never shorten one, and never
+write one that did not appear in a result.
 
 Before you answer, LOOK. Almost every note refers to something you can read:
 a file it names, a count it states, a claim about the corpus. Call a tool and
@@ -204,7 +233,14 @@ def parse_json(text: str) -> dict | None:
 # convincing base32 that no tool ever returned. A checker that only knows the
 # real width is blind to the forgery that matters, since an invented id is
 # under no obligation to be the right length.
-CID = re.compile(r"\b[a-z2-7]{52}\b")
+# Two widths, and the first version knew only one. A fact_cid is 52 base32
+# chars; a memory file_cid is 26, which is most of what a reply about the
+# channel quotes. Collecting only the wide form made a truthful citation of
+# a file invisible to the credit path and sent it to the penalty path
+# instead, so the scorer marked correct work as forgery. Same failure as
+# splitting a decimal: a checker that punishes the right answer teaches the
+# model to stop giving it.
+CID = re.compile(r"\b[a-z2-7]{26}\b|\b[a-z2-7]{52}\b")
 CIDISH = re.compile(r"\b[a-z2-7]{20,60}\b")
 
 
@@ -280,14 +316,23 @@ def run_note(note: dict, body: str, verbose: bool) -> tuple[str | None, str, set
     ]
     seen: set[str] = set()
     tool_out: list = []
+    proposed: list = []
     last_error, pushed_error = None, False
     for step in range(MAX_STEPS):
         raw = llm(msgs)
         move = parse_json(raw or "")
         if move is None:
-            return None, f"the model did not return usable JSON at step {step + 1}", seen, tool_out
+            return None, f"the model did not return usable JSON at step {step + 1}", seen, tool_out, proposed
         if move.get("done"):
             reply = move.get("reply", "")
+            # A proposed issue is recorded, never filed. Opening a GitHub issue
+            # is an outward action against a public repository and a model that
+            # can do it unattended will eventually do it fifty times. Writing
+            # the proposal down costs nothing and keeps the decision with a
+            # person, which is the same shape as the citation score: surface
+            # the judgement rather than make it silently.
+            if isinstance(move.get("issue"), dict):
+                proposed.append(move["issue"])
             # A first turn that answers without looking is the failure mode
             # this whole script exists to prevent, and asking again costs one
             # turn. It is only pushed once: a model that has decided there is
@@ -316,7 +361,7 @@ def run_note(note: dict, body: str, verbose: bool) -> tuple[str | None, str, set
                              "to look up, repeat your answer with \"no_answer\": true "
                              "and state nothing factual."})
                 continue
-            return reply, "", seen, tool_out
+            return reply, "", seen, tool_out, proposed
         name, args = move.get("tool"), move.get("args") or {}
         if name not in TOOLS:
             msgs.append({"role": "assistant", "content": raw})
@@ -348,7 +393,7 @@ def run_note(note: dict, body: str, verbose: bool) -> tuple[str | None, str, set
         msgs.append({"role": "user", "content":
                      f"Result of {name}:\n{json.dumps(result)[:3000]}\n\n"
                      "Call another tool or answer. One JSON object."})
-    return None, f"no answer within {MAX_STEPS} steps", seen, tool_out
+    return None, f"no answer within {MAX_STEPS} steps", seen, tool_out, proposed
 
 
 def publish(sk, pub: str, name: str, body: str) -> str | None:
@@ -365,8 +410,15 @@ def publish(sk, pub: str, name: str, body: str) -> str | None:
 def render(sender: str, src: str, reply: str, cids: set[str],
            score: int, good: list[str], bad: list[str]) -> tuple[str, str]:
     quoted = sorted(set(CID.findall(reply)) & cids)
+    band = ("well grounded" if score >= 75 else
+            "partly grounded" if score >= 50 else
+            "thinly grounded, read with care")
     lines = [
         f"# Reply to {sender}",
+        "",
+        f"> **Autonomous reply, citation score {score}/100 ({band}).** Written by a",
+        f"> language model given emem's tools and no other source. The score is how",
+        f"> much of it traces to bytes you can fetch; it is not a truth score.",
         "",
         f"On `{src}`.",
         "",
@@ -416,17 +468,17 @@ def main() -> int:
     if a.note:
         notes = [{"path": a.note, "from": "direct"}]
     else:
-        inbox = _post(f"{ORIGIN}/v1/inbox", {"to": pub[:8], "limit": 50})
-        notes = (inbox.get("messages") or inbox.get("inbox") or [])[:a.limit]
+        inbox = _post(f"{ORIGIN}/v1/inbox", {"to": pub[:8], "limit": 200})
+        notes = inbox.get("messages") or inbox.get("inbox") or []
 
     print(f"replying as {pub[:8]} against {ORIGIN}"
           f"{'' if a.post else '  (dry run)'}\n")
     done = json.loads(STATE.read_text()).get("replied", []) if STATE.exists() else []
+    waiting = [n for n in notes if (n.get("path") or "") not in done]
+    print(f"  {len(notes)} in the inbox, {len(waiting)} not yet answered\n")
     posted = 0
-    for n in notes:
+    for n in waiting[:a.limit]:
         src = n.get("path") or ""
-        if src in done:
-            continue
         sender = (n.get("from") or n.get("attester") or "?")[:8]
         print(f"  {sender}  {src[-58:]}")
         view = mcp("memory_view", {"path": src})
@@ -434,7 +486,7 @@ def main() -> int:
         if not body:
             print("      could not read the note; skipping\n")
             continue
-        reply, why, cids, tool_out = run_note(n, body, not a.quiet)
+        reply, why, cids, tool_out, proposed = run_note(n, body, not a.quiet)
         if reply is None:
             print(f"      no reply: {why}\n")
             continue
@@ -443,6 +495,11 @@ def main() -> int:
               + (f"  ({len(bad)} unsupported)" if bad else ""))
         for b in bad[:3]:
             print(f"        - {b}")
+        for iss in proposed:
+            ISSUES.parent.mkdir(parents=True, exist_ok=True)
+            with ISSUES.open("a") as fh:
+                fh.write(json.dumps({"from": sender, "note": src, "issue": iss}) + "\n")
+            print(f"      proposed an issue for review: {str(iss.get('title'))[:60]}")
         title, note_body = render(sender, src, reply, cids, score, good, bad)
         if a.post:
             import time
