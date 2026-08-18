@@ -33,6 +33,10 @@ What it reports
     python3 scripts/page_health.py            # against the deployed site
     python3 scripts/page_health.py --base http://127.0.0.1:8288
 
+Point it at a responder, not a directory. A static file server answers no
+/v1 route, so every live figure reports as pending and every one of those
+reports is about the server you chose rather than the page.
+
 Exit: 0 clean, 1 something is broken, 2 no browser available.
 """
 
@@ -66,7 +70,8 @@ PROBE = """(() => {
   for (const a of document.querySelectorAll('a')) {
     if (getComputedStyle(a).color === 'rgb(0, 0, 238)') out.blue.push(name(a) + ' "' + (a.textContent || '').trim().slice(0, 22) + '"');
   }
-  for (const p of document.querySelectorAll('[data-pending]')) out.pending.push(p.getAttribute('data-pending'));
+  for (const p of document.querySelectorAll('[data-pending]'))
+    out.pending.push((p.id || p.getAttribute('data-pending') || '(unnamed)'));
   out.overflow = document.body.scrollWidth - document.documentElement.clientWidth;
   return out;
 })()"""
