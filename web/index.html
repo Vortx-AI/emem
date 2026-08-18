@@ -688,13 +688,21 @@ section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);flex:0 0 auto;opacity:.8}
 
 .chapter{display:grid;grid-template-columns:38.2fr 61.8fr;gap:var(--s-5);align-items:start;padding:var(--s-5) 0}
-.chapter .words a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.18em}
+.chapter .words a{color:var(--accent);text-decoration:none}
+.chapter .words :is(p,.cap,.lede,.tf-sub,li,dd) a{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.18em}
 .chapter.wide{grid-template-columns:1fr}
 .chapter .art{margin:0;min-width:0}
 .chapter .art svg{display:block;width:100%;height:auto;border:0}
 /* the painted panels get the paper frame + cross-hatch corner the diagrams use */
 .chapter .art{position:relative;background:var(--paper);box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
 .chapter .words{min-width:0}
+/* the six painted panels: one per chapter, full measure, no frame fighting them */
+.plate{margin:var(--s-5) 0 0;padding:0}
+.plate img{width:100%;height:auto;display:block;border:1px solid var(--rule)}
+.plate figcaption{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);
+  margin-top:.55rem;letter-spacing:.01em}
+@media (max-width:680px){.plate{margin-top:2.2rem}}
+@media (min-width:900px){.chapter:not(.solo) .words{position:sticky;top:5.2rem}}
 .chapter:nth-of-type(even) .art{order:2}
 .chapter:nth-of-type(even) .words{order:1}
 .chapter .kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--mute-2);display:flex;align-items:center;gap:.6rem}
@@ -858,7 +866,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 .th-cta a:hover{background:var(--ink);color:var(--paper)}
 /* the token core */
 .th-core{margin:0;align-self:center;display:flex;flex-direction:column;align-items:center;gap:.6rem}
-.th-core svg{width:100%;max-width:360px;height:auto;display:block}
+.th-core svg,.th-core img{width:100%;max-width:420px;height:auto;display:block}
 .th-core figcaption{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);text-align:center}
 .th-ring{transform-origin:120px 120px;animation:th-spin 34s linear infinite}
 .th-seed{transform-origin:120px 120px;animation:th-pulse 3.6s ease-in-out infinite}
@@ -930,7 +938,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
       </div>
     </div>
     <figure class="th-core">
-        <img src="/art/hero-two-agents.svg" width="340" height="300"
+        <img src="/art/hero-two-agents.svg" width="340" height="300" style="max-width:420px"
              alt="Two agents in profile face each other. Between them stands one signed record, and a line runs from each agent to it. No line runs between the agents.">
         <figcaption>Each reads the same bytes. Neither reads the other.</figcaption>
       </figure>
@@ -1063,6 +1071,10 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   </div>
 </section>
 
+<figure class="plate">
+  <img src="/art/p5.svg" width="1200" height="460" loading="lazy" decoding="async" alt="Two figures in profile face each other, each holding one edge of a single wheel between them.">
+  <figcaption>Two agents, one record between them. Neither line runs to the other agent.</figcaption>
+</figure>
 <section class="chapter" id="drift">
   <div class="words">
     <div class="kicker">The problem</div>
@@ -1121,6 +1133,10 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 </section>
 <div class="mith-div"><span class="gem"></span></div>
 
+<figure class="plate">
+  <img src="/art/p1.svg" width="1200" height="460" loading="lazy" decoding="async" alt="A fish swims a river band; above it a grid with one cell marked.">
+  <figcaption>A place is a cell before it is a name. The fact hangs on the address.</figcaption>
+</figure>
 <section class="chapter solo" id="loop">
   <div class="words">
     <div class="kicker">The loop</div>
@@ -1219,6 +1235,10 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      words were a taxonomy shown to someone who had not yet met a single
      token. A reader arrives asking whether they need this at all; nine
      shapes is the second question, not the first. -->
+<figure class="plate">
+  <img src="/art/p6.svg" width="1200" height="460" loading="lazy" decoding="async" alt="A central sun joined by lines to houses arranged around it.">
+  <figcaption>Every device reports to the same centre, and each report is signed where it was taken.</figcaption>
+</figure>
 <section class="chapter" id="machines">
   <figure class="art" style="padding:0;background:none;box-shadow:none">
     <img src="/art/device-to-agent.svg" alt="How an observation becomes something an agent can trust: satellites, robots, and sensors observe a place; the trust gate admits their output only when bound inside a signed OS execution trace and refuses by name; what lands is one signed fact at one address; and any agent on any model resolves that token and verifies it alone." style="display:block;width:100%;height:auto" loading="lazy">
@@ -1419,6 +1439,10 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      so a YouTube iframe is blocked, and the right answer is to keep the
      policy rather than punch a frame-src hole through it for an embed. The
      posters are local files, already in web/, and img-src allows them. -->
+<figure class="plate">
+  <img src="/art/p3.svg" width="1200" height="460" loading="lazy" decoding="async" alt="Four birds face a central seal from the corners of the panel.">
+  <figcaption>Four readers, one seal. Agreement is what you check, not what you assume.</figcaption>
+</figure>
 <section class="chapter solo" id="demos">
   <div class="words">
     <div class="kicker">See it run</div>
@@ -2558,7 +2582,11 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 })();
 </script>
 </body></html>
-<section class="chapter" id="start">
+<figure class="plate">
+  <img src="/art/p4.svg" width="1200" height="460" loading="lazy" decoding="async" alt="A broad tree stands over a river with fish moving through it.">
+  <figcaption>The world you are joining is already carrying its own record.</figcaption>
+</figure>
+<section class="chapter solo" id="start">
   <style>
   .needs{display:grid;gap:var(--s-2);margin:var(--s-3) 0 var(--s-1)}
   .need{border:1px solid var(--rule);border-radius:8px;padding:var(--s-2) var(--s-3);background:var(--paper-2)}
@@ -2590,6 +2618,10 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   </p>
 </section>
 
+<figure class="plate">
+  <img src="/art/p2.svg" width="1200" height="460" loading="lazy" decoding="async" alt="A radiating lotus wheel with lines running out to points around it.">
+  <figcaption>One centre, nine ways out. The token grew a shape for each kind of memory.</figcaption>
+</figure>
 <section class="chapter solo" id="shapes">
   <div class="tf" aria-label="the emem token family">
     <h2 class="tf-h">One token, evolved into nine shapes</h2>
