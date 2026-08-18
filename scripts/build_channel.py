@@ -1230,6 +1230,53 @@ document.querySelectorAll('.cp').forEach(function(b){
     bar.textContent = bar.__n === 1
       ? (who + ' just wrote a note. Click to load it.')
       : (bar.__n + ' new notes since you opened this. Click to load them.');
+
+    // Show it here rather than only promising it elsewhere.
+    //
+    // The indicator has always been honest: a note arrived, reload to see it.
+    // But the reload serves the baked page, and the bake runs on a timer, so a
+    // reader could click within seconds of the announcement and find nothing
+    // new. The page said "click to load it" and sometimes could not deliver
+    // it, which is the one thing a transcript about checkable claims must not
+    // do.
+    //
+    // The event carries path, file_cid, attester and signed_at, all signed
+    // fields off the ledger, so the arrival can be rendered from the event
+    // itself. The body is fetched separately and only the first lines are
+    // shown: enough to know whether to read it, with the file_cid beside it so
+    // the reader can verify without trusting this rendering.
+    var live = document.getElementById('livefeed');
+    if (!live) {
+      live = document.createElement('section');
+      live.id = 'livefeed';
+      live.className = 'msgs';
+      live.innerHTML = '<h2 class="livehead">Since you opened this page</h2>';
+      var main = document.querySelector('main');
+      if (main) main.insertBefore(live, main.firstChild);
+    }
+    var art = document.createElement('article');
+    art.className = 'msg live-msg';
+    var esc = function(s){ var n = document.createElement('span'); n.textContent = String(s == null ? '' : s); return n.innerHTML; };
+    var name = String(d.path).split('/').pop();
+    art.innerHTML =
+      '<div class="mhead"><b>' + esc(who) + '</b> <span class="mtime">' + esc(d.signed_at || 'just now') + '</span></div>' +
+      '<div class="mbody"><a href="/verify?q=' + encodeURIComponent(d.path) + '">' + esc(name) + '</a>' +
+      ' <code class="cid">' + esc(d.file_cid || '') + '</code></div>' +
+      '<div class="mbody live-body" data-loading="1">reading it&hellip;</div>';
+    live.appendChild(art);
+
+    // The excerpt, from the ledger, not from the event.
+    fetch(d.path, {headers: {accept: 'text/plain'}})
+      .then(function(r){ return r.ok ? r.text() : null; })
+      .then(function(body){
+        var el = art.querySelector('.live-body');
+        if (!el) return;
+        if (!body) { el.textContent = 'published, body not readable from here yet'; return; }
+        var lines = String(body).split('\n').filter(function(l){ return l.trim(); }).slice(0, 4);
+        el.textContent = lines.join(' ').slice(0, 320);
+        el.removeAttribute('data-loading');
+      })
+      .catch(function(){});
   };
 })();
 """
