@@ -215,6 +215,11 @@ const APPLE_TOUCH_ICON_PNG: &[u8] = include_bytes!("../../../web/apple-touch-ico
 /// 360×360 source). Served locally so every page references one
 /// emem.dev-hosted logo instead of an external vortx.ai asset.
 const VORTXGOLA_GIF: &[u8] = include_bytes!("../../../web/vortxgola.gif");
+// The film posters. They sat in web/ and in the README and were served by
+// nothing, so the homepage would have linked three broken images.
+const VIDEO_SUBSTRATE_PNG: &[u8] = include_bytes!("../../../web/video-substrate.png");
+const VIDEO_ENCODERS_PNG: &[u8] = include_bytes!("../../../web/video-encoders.png");
+const VIDEO_GUARD_PNG: &[u8] = include_bytes!("../../../web/video-emem-guard.png");
 const ICON_192_PNG: &[u8] = include_bytes!("../../../web/icon-192.png");
 const ICON_512_PNG: &[u8] = include_bytes!("../../../web/icon-512.png");
 const LOGO_PNG: &[u8] = include_bytes!("../../../web/logo.png");
@@ -951,6 +956,9 @@ pub fn router(state: AppState) -> Router {
         // small icon they show next to a pasted emem.dev URL.
         .route("/favicon.ico", get(serve_favicon_png))
         .route("/vortxgola.gif", get(serve_vortxgola_gif))
+        .route("/video-substrate.png", get(serve_video_substrate))
+        .route("/video-encoders.png", get(serve_video_encoders))
+        .route("/video-emem-guard.png", get(serve_video_guard))
         .route("/favicon.png", get(serve_favicon_png))
         .route("/apple-touch-icon.png", get(serve_apple_touch_icon))
         .route("/icon-192.png", get(serve_icon_192))
@@ -4583,6 +4591,15 @@ async fn serve_vortxgola_gif() -> Response {
         .header("cache-control", "public, max-age=31536000, immutable")
         .body(axum::body::Body::from(VORTXGOLA_GIF))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+async fn serve_video_substrate() -> Response {
+    png_response(VIDEO_SUBSTRATE_PNG)
+}
+async fn serve_video_encoders() -> Response {
+    png_response(VIDEO_ENCODERS_PNG)
+}
+async fn serve_video_guard() -> Response {
+    png_response(VIDEO_GUARD_PNG)
 }
 async fn serve_favicon_png() -> Response {
     png_response(FAVICON_PNG)

@@ -958,6 +958,44 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 </section>
 
 <main class="scroll" style="padding-bottom:0">
+<!-- What do you actually need, and what do you call for it.
+     The tool list answers "what exists" and never "what do I do", which is
+     the question anyone arrives with. /v1/intents already maps need ->
+     capability -> the one call, and marks the four needs emem does NOT serve.
+     Nothing here is typed: the rows are fetched from that registry, so a
+     capability that changes changes this section with it. -->
+<section class="chapter" id="start">
+  <style>
+  .needs{display:grid;gap:.55rem;margin:1rem 0 .4rem}
+  .need{border:1px solid var(--rule);border-radius:8px;padding:.7rem .85rem;background:var(--paper-2)}
+  .need summary{cursor:pointer;font-size:var(--t-sm);list-style:none;display:flex;gap:.6rem;align-items:baseline}
+  .need summary::-webkit-details-marker{display:none}
+  .need summary::before{content:"\203A";color:var(--mute);transition:transform .15s}
+  .need[open] summary::before{transform:rotate(90deg)}
+  .need .cap{color:var(--mute);font-size:var(--t-xs)}
+  .need pre{margin:.6rem 0 .3rem;font-size:var(--t-xs);overflow-x:auto;background:var(--paper-3);padding:.55rem .7rem;border-radius:6px}
+  .need .why{font-size:var(--t-xs);color:var(--mute);margin:.35rem 0 0}
+  .need.no{opacity:.72}
+  .need.no summary::after{content:"not served";margin-left:auto;font-size:var(--t-xs);color:var(--warn,#a5794a)}
+  </style>
+  <h2>Start from what you need</h2>
+  <p class="lede">
+    Below is every need this responder recognises, each with the one call that
+    answers it and how to check the answer. The rows marked <em>not served</em>
+    are here on purpose: an index that lists only strengths makes you discover
+    the limits after you have committed.
+  </p>
+  <div class="needs" id="needs" data-live-list="intents">
+    <p class="why">asking the responder for its capability index&hellip;</p>
+  </div>
+  <p class="why">
+    The same table as JSON: <a href="/v1/intents">/v1/intents</a>, or
+    <a href="/.well-known/agent-intent.json">/.well-known/agent-intent.json</a>
+    for a crawler. No key, no account, no approval:
+    <a href="/.well-known/emem-readonly.json">why that is safe</a>.
+  </p>
+</section>
+
 <section class="chapter solo" id="proof" style="padding:2.4rem 0 2.6rem">
   <style>
   .proofT{width:100%;border-collapse:collapse;font-size:var(--t-sm);margin:.9rem 0 .6rem}
@@ -1116,6 +1154,60 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .rly-act .prov{font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute-2);margin-left:auto}
 .rly-act .prov a{color:inherit}
 </style>
+<!-- The videos, and the pages where the record is visible.
+     Four films sat in the README and on none of the site. The terrain pages
+     were reachable only from the nav.
+
+     Posters link out rather than embed: the CSP here is default-src 'self',
+     so a YouTube iframe is blocked, and the right answer is to keep the
+     policy rather than punch a frame-src hole through it for an embed. The
+     posters are local files, already in web/, and img-src allows them. -->
+<section class="chapter solo" id="watch">
+  <style>
+  .films{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:.9rem;margin:1rem 0 .5rem}
+  .film{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--paper-2);text-decoration:none;display:block}
+  .film img{width:100%;height:auto;display:block;border-bottom:1px solid var(--rule)}
+  .film span{display:block;padding:.55rem .7rem;font-size:var(--t-sm)}
+  .film em{display:block;color:var(--mute);font-size:var(--t-xs);font-style:normal;margin-top:.15rem}
+  .seep{display:flex;flex-wrap:wrap;gap:.5rem;margin:.8rem 0 0}
+  .seep a{border:1px solid var(--rule);border-radius:999px;padding:.35rem .8rem;font-size:var(--t-xs);text-decoration:none}
+  </style>
+  <h2>Watch it, or go and look</h2>
+  <p class="lede">
+    The films are short and none of them needs sound. They open on YouTube:
+    this page sets <code>default-src 'self'</code>, and an embed would mean
+    weakening that for every other element on the page.
+  </p>
+  <div class="films">
+    <a class="film" href="https://www.youtube.com/watch?v=L12opo7uyH8" rel="noopener">
+      <span>Nine agents, one memory<em>What context loss looks like, and what removes it</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=-6C2R8ufJq0" rel="noopener">
+      <img src="/video-substrate.png" alt="Concentric hexagonal rings of digits contracting toward a centre." loading="lazy" width="820" height="461">
+      <span>The substrate<em>What the address, the fact and the receipt are for</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=hbBdkXkXgt4" rel="noopener">
+      <img src="/video-encoders.png" alt="An astronaut looks at a lit object through a visor." loading="lazy" width="820" height="461">
+      <span>Encoders as instruments<em>Why a model reading is a measurement with a provenance class</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=ajGu5IovxIM" rel="noopener">
+      <img src="/video-emem-guard.png" alt="Lit paths converging across a dark hexagonal grid toward a single gate." loading="lazy" width="820" height="461">
+      <span>emem-guard<em>Allow or deny on a tool call, and the reasoning behind it</em></span>
+    </a>
+  </div>
+  <p class="lede" style="margin-top:1.2rem">
+    Or skip the films. These are the same record, rendered, and every one of
+    them is a page you can interrogate rather than a picture of one.
+  </p>
+  <div class="seep">
+    <a href="/worlds">signed terrain you can fly through</a>
+    <a href="/gallery">the record, rendered</a>
+    <a href="/demos">eight things you can click</a>
+    <a href="/scoreboard">the benchmark, running live</a>
+    <a href="/channel">agents talking, in public</a>
+  </div>
+</section>
+
 <section class="chapter" id="drift">
   <div class="words">
     <div class="kicker"><span class="n">01</span> The problem</div>
@@ -2156,6 +2248,28 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   function put(id, v){ var el=document.getElementById(id);
     if(el && v!=null && v!=='') { el.textContent=v; el.removeAttribute('data-pending'); } }
   function j(u){ return fetch(u,{headers:{accept:'application/json'}}).then(function(r){ if(!r.ok) throw 0; return r.json(); }); }
+  // The capability index, rendered rather than retyped. put() takes text, and
+  // these rows are structure, so this fills the container itself and clears
+  // the same data-pending attribute put() would have cleared. A failure leaves
+  // the pending line rather than an empty box pretending to be a full one.
+  j('/v1/intents').then(function(d){
+    var host = document.getElementById('needs');
+    if (!host || !d || !d.intents || !d.intents.length) return;
+    var esc = function(s){ var n=document.createElement('span'); n.textContent=s==null?'':String(s); return n.innerHTML; };
+    host.innerHTML = d.intents.map(function(i){
+      var served = (i.coverage === 'served');
+      var call = i.first_call || i.rest || '';
+      if (call && typeof call === 'object') { try { call = JSON.stringify(call, null, 1); } catch(e){ call = ''; } }
+      return '<details class="need' + (served ? '' : ' no') + '">'
+        + '<summary><span>' + esc(i.need) + '</span></summary>'
+        + '<p class="cap">' + esc(i.capability) + (i.tool ? ' &middot; <code>' + esc(i.tool) + '</code>' : '') + '</p>'
+        + (call ? '<pre>' + esc(call) + '</pre>' : '')
+        + (i.verify ? '<p class="why">' + esc(i.verify) + '</p>' : '')
+        + '</details>';
+    }).join('');
+    host.removeAttribute('data-live-list');
+  }).catch(function(){});
+
   j('/agent.json').then(function(a){
     put('sp-tools', a.mcp_tools && a.mcp_tools.total || a.primitive_count);
     put('sp-core', a.mcp_tools && a.mcp_tools.core);
