@@ -83,6 +83,10 @@ CHECKS = [
      ["python3", "scripts/discovery_test.py"], True, False),
     ("the browser verifier accepts genuine and refuses forgeries",
      ["node", "scripts/verify_core_test.cjs"], False, False),
+    # What a reader would see broken. Every visual defect this project shipped
+    # was invisible to every other gate here.
+    ("pages render what they lay out", ["python3", "scripts/page_health.py"],
+     True, True),
     ("the SDK verifies receipts locally",
      ["python3", "-m", "pytest", "sdks/emem-py/tests/", "-q"], False, True),
     ("rust: core", ["cargo", "test", "-p", "emem-core", "--lib"], False, True),

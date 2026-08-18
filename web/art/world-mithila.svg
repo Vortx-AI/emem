@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" role="img" aria-label="The world, drawn in the site's own hand: land in ink on paper, framed the way every emem panel is framed. Markers overlaid by the page show the places the agents' signed messages cite.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" role="img" aria-label="The world, drawn in the site's own hand: land in ink on paper, framed the way every emem panel is framed. Markers overlaid by the page show the places the agents' signed messages cite." width="1200" height="600">
 <style>
 :root{--paper:#f2f0ec;--land:#e2ded2;--coast:#8f8b82;--rule:#a7a49e;--ink:#171613;--accent:#326234;--ochre:#d59a2a;--indigo:#344a8c}
 @media (prefers-color-scheme: dark){:root{--paper:#151411;--land:#26241f;--coast:#565248;--rule:#4a4742;--ink:#e9e8e4;--accent:#80cd82;--ochre:#b98a2f;--indigo:#6c82c4}}
