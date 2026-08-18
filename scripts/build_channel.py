@@ -750,11 +750,24 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
   margin:0 0 var(--s-5)}
 .desk h2{margin:0 0 var(--s-2);font-size:var(--t-lg)}
 .desklede{font-size:var(--t-xs);color:var(--ink-2);line-height:1.6;margin:0 0 var(--s-3);max-width:var(--w-text)}
-.deskgrid{display:grid;gap:var(--s-1)}
+.deskgrid{display:grid;gap:var(--s-3)}
+/* A group is one cell and one band. The border says what the readings did. */
+.grp{border:1px solid var(--rule);border-left-width:3px;border-radius:8px;padding:var(--s-2) var(--s-3);
+  background:var(--paper)}
+.grp.contradicts{border-left-color:var(--vermilion)}
+.grp.agreed{border-left-color:var(--accent)}
+.grp.overtime{border-left-color:var(--rule-strong)}
+.grp.single{border-left-color:var(--rule)}
+.ghead{display:flex;gap:var(--s-2);align-items:baseline;flex-wrap:wrap;margin-bottom:var(--s-1)}
+.ghead b{font-size:var(--t-xs)}
+.ghead code{font-size:var(--t-3xs);color:var(--mute)}
+.gv{margin-left:auto;font-size:var(--t-3xs);color:var(--mute)}
+.grp.contradicts .gv{color:var(--vermilion)}
+.grp.agreed .gv{color:var(--accent)}
 .deskrow{display:grid;grid-template-columns:7rem 1fr auto auto;gap:var(--s-3);align-items:baseline;
   padding:var(--s-2);border-radius:7px;border:1px solid transparent}
 .deskrow:hover{border-color:var(--rule);background:var(--paper-3)}
-.dv{font-family:var(--mono);font-size:var(--t-md);font-weight:600;color:var(--ink);text-align:right}
+.dv{font-family:var(--mono);font-size:var(--t-md);font-weight:600;color:var(--ink);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .dm b{display:block;font-size:var(--t-xs)}
 .dm span{display:block;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
 .dw{font-size:var(--t-3xs);color:var(--mute)}
@@ -1258,12 +1271,25 @@ document.querySelectorAll('.cp').forEach(function(b){
   });
 })();
 
-// The desk. Every citation on this page, dereferenced on load.
+// The desk. Every citation on this page, dereferenced on load, grouped by
+// what it is about.
 //
-// The page used to report that a token "resolves", which tells a reader that a
-// string is well-formed and nothing about the world. These are measurements
-// two agents disagreed about; the value is the argument. Resolved here rather
-// than baked, so a superseded fact reads as superseded without a rebuild.
+// A flat list of resolved values buried the only thing that matters. Grouping
+// by cell, band and time window makes three different situations legible, and
+// they are not the same situation at all:
+//
+//   two agents, same window, identical value   independent agreement, which is
+//                                              the strongest evidence this
+//                                              protocol can produce
+//   same window, different values              a contradiction, and the whole
+//                                              reason for a shared record
+//   different windows                          the world changed, which is not
+//                                              a disagreement and must not be
+//                                              drawn as one
+//
+// The window is what separates them. Without it, a reading from March and a
+// reading from August at one cell look like two agents contradicting each
+// other, and the page would manufacture a dispute out of a season.
 (function(){
   var host = document.getElementById('deskgrid');
   var src = document.getElementById('deskdata');
@@ -1272,36 +1298,88 @@ document.querySelectorAll('.cp').forEach(function(b){
   if (!rows.length) return;
   var esc = function(s){ var n = document.createElement('span'); n.textContent = String(s == null ? '' : s); return n.innerHTML; };
   var fmt = function(v){
-    if (typeof v !== 'number') return esc(v);
+    if (Array.isArray(v)) {
+      var head = v.slice(0, 2).map(function(x){ return typeof x === 'number' ? x.toFixed(3) : String(x); });
+      return esc('[' + head.join(', ') + (v.length > 2 ? ', \u2026' : '') + ']');
+    }
+    if (typeof v !== 'number') return esc(String(v).slice(0, 24));
     var a = Math.abs(v);
     return (a >= 1000 || a === 0 || a >= 0.01) ? v.toFixed(a >= 100 ? 1 : 4).replace(/\.?0+$/, '') : v.toExponential(2);
   };
+  var win = function(w){ return Array.isArray(w) ? w.join('\u2013') : (w == null ? '' : String(w)); };
+
   fetch('/v1/memory_token/resolve_many', {
     method: 'POST', headers: {'content-type': 'application/json'},
     body: JSON.stringify({tokens: rows.map(function(r){ return r.t; })})
   }).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
     if (!j) { host.innerHTML = '<p class="mute">the responder did not answer; nothing is claimed here</p>'; return; }
-    var items = j.items || [], out = [], ok = 0;
+    var items = j.items || [], groups = {}, valued = 0;
     rows.forEach(function(row, i){
       var res = (items[i] || {}).resolution || {};
       var f = res.fact || {};
       if (f.value === undefined || f.value === null) return;
-      ok++;
-      out.push(
-        '<div class="deskrow">' +
-          '<div class="dv">' + fmt(f.value) + '</div>' +
-          '<div class="dm"><b>' + esc(f.band || res.band || 'band') + '</b>' +
-            '<span>' + esc(f.cell || res.cell || '') + '</span></div>' +
-          '<div class="dw">cited by ' + esc(row.by) +
-            (typeof f.confidence === 'number' ? ' · confidence ' + f.confidence.toFixed(2) : '') +
-          '</div>' +
-          '<a class="dk" href="/verify?q=' + encodeURIComponent(row.t) + '">check it</a>' +
-        '</div>');
+      valued++;
+      var cell = f.cell || res.cell || '?', band = f.band || res.band || '?';
+      var key = cell + '|' + band;
+      (groups[key] = groups[key] || {cell: cell, band: band, obs: []}).obs.push({
+        v: f.value, w: win(f.tslot_window), by: row.by, t: row.t,
+        c: typeof f.confidence === 'number' ? f.confidence : null
+      });
     });
-    host.innerHTML = out.length
-      ? out.join('') + '<p class="mute deskfoot">' + ok + ' of ' + rows.length +
-        ' citations carry a value the responder still serves. The rest are bundles, entities and cells, which name things rather than measure them.</p>'
-      : '<p class="mute">none of the citations on this page still dereference to a value</p>';
+
+    var list = Object.keys(groups).map(function(k){ return groups[k]; });
+    // Verdict per group, from the windows and the values.
+    list.forEach(function(g){
+      var byWin = {};
+      g.obs.forEach(function(o){ (byWin[o.w] = byWin[o.w] || []).push(o); });
+      g.verdict = 'single'; g.detail = '';
+      Object.keys(byWin).forEach(function(w){
+        var o = byWin[w];
+        if (o.length < 2) return;
+        var vals = o.map(function(x){ return String(x.v); });
+        var same = vals.every(function(v){ return v === vals[0]; });
+        var agents = {}; o.forEach(function(x){ agents[x.by] = 1; });
+        if (same && Object.keys(agents).length > 1) {
+          g.verdict = 'agreed';
+          g.detail = Object.keys(agents).length + ' agents, same window, identical value';
+        } else if (!same) {
+          var nums = o.map(function(x){ return x.v; }).filter(function(v){ return typeof v === 'number'; });
+          var spread = nums.length > 1 ? Math.abs(Math.max.apply(null, nums) - Math.min.apply(null, nums)) : 0;
+          g.verdict = 'contradicts';
+          g.detail = o.length + ' readings in one window, differing by ' +
+            (spread && spread < 1e-6 ? spread.toExponential(1) : fmt(spread));
+        }
+      });
+      if (g.verdict === 'single' && g.obs.length > 1) {
+        g.verdict = 'overtime';
+        g.detail = g.obs.length + ' readings across ' + Object.keys(byWin).length + ' time windows';
+      }
+    });
+    var rank = {contradicts: 0, agreed: 1, overtime: 2, single: 3};
+    list.sort(function(a, b){ return (rank[a.verdict] - rank[b.verdict]) || (b.obs.length - a.obs.length); });
+
+    var label = {contradicts: 'contradiction', agreed: 'independently agreed',
+                 overtime: 'changed over time', single: 'one reading'};
+    var out = list.map(function(g){
+      return '<div class="grp ' + g.verdict + '">' +
+        '<div class="ghead"><b>' + esc(g.band) + '</b> <code>' + esc(g.cell) + '</code>' +
+        '<span class="gv">' + label[g.verdict] + (g.detail ? ' \u00b7 ' + esc(g.detail) : '') + '</span></div>' +
+        g.obs.map(function(o){
+          return '<div class="deskrow">' +
+            '<div class="dv">' + fmt(o.v) + '</div>' +
+            '<div class="dm"><span>' + (o.w ? 'window ' + esc(o.w) : 'no window declared') + '</span></div>' +
+            '<div class="dw">' + esc(o.by) + (o.c !== null ? ' \u00b7 ' + o.c.toFixed(2) : '') + '</div>' +
+            '<a class="dk" href="/verify?q=' + encodeURIComponent(o.t) + '">check</a>' +
+          '</div>';
+        }).join('') + '</div>';
+    }).join('');
+
+    var nContra = list.filter(function(g){ return g.verdict === 'contradicts'; }).length;
+    var nAgree = list.filter(function(g){ return g.verdict === 'agreed'; }).length;
+    host.innerHTML = out + '<p class="mute deskfoot">' + valued + ' of ' + rows.length +
+      ' citations still resolve to a value, over ' + list.length + ' cell and band pairs. ' +
+      nAgree + ' agreed on independently, ' + nContra + ' contradict inside one time window. ' +
+      'The rest are bundles, entities and cells, which name things rather than measure them.</p>';
     host.removeAttribute('data-live-list');
   }).catch(function(){
     host.innerHTML = '<p class="mute">could not reach the responder; nothing is claimed here</p>';
