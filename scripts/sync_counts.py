@@ -414,7 +414,14 @@ PROSE_CLAIMS = (
     # sentences were current, which is the tell: whoever updated them updated
     # only what a pattern here was watching.
     ("rest_paths_v1", r"(\d{2,4})\s+(?:documented\s+)?/v1\s+paths"),
-    ("rest_paths_v1", r"(\d{2,4})\s+paths\s+under\s*/v1"),
+    # Any adjectives between the number and "paths". This family had five exact
+    # spellings and metadata-pack.md still slipped through with "114 REST paths
+    # under /v1/*" against a live 157, because no spelling had REST in that
+    # position and none was going to: the sixth phrasing always exists. The
+    # near-miss sweep did not catch it either, since 114 is 27% off and reads
+    # as a subset rather than a stale total. Matching the SHAPE is what closes
+    # this, not another literal.
+    ("rest_paths_v1", r"(\d{2,4})\s+(?:[A-Za-z-]+\s+){0,3}?paths\s+under\s*`?/v1"),
     # Both of these sat on /reference reading 122 against a live 157 while the
     # gate reported no drift, because it matches phrasings and neither phrasing
     # was listed. A number the gate cannot see is a number that only moves when
@@ -574,7 +581,13 @@ def verify_prose_counts() -> list[str]:
         REPO / "README.md", REPO / "AGENTS.md", REPO / "ARCHITECTURE_NOTES.md",
         REPO / "docs" / "ARCHITECTURE_NOTES.md", REPO / "web" / "llms.txt",
     ]
-    targets = sorted(REPO.glob("docs/*.md")) + sorted(REPO.glob("web/*.html")) + named
+    # docs/**, not docs/*. This globbed one directory level for its whole life,
+    # so docs/registries, docs/developers, docs/plans and docs/operators were
+    # never read by the gate that exists to read them. metadata-pack.md, the
+    # file every registry submission copies its numbers out of, sat two levels
+    # down saying "114 REST paths under /v1/*" against a live 157. The pattern
+    # to catch that was here; the file was not.
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
     # The RENDER of those same docs. `docs/book/` is mdbook output, it is
     # gitignored, and `crates/emem-api-rest` bakes it with include_dir!, so
     # https://emem.dev/docs serves whatever happened to be on the builder's disk
@@ -611,6 +624,11 @@ def verify_prose_counts() -> list[str]:
                     "the repo root and docs/ and present at neither")
     for path in targets:
         if not path.exists() or any(h in path.name for h in COUNT_HISTORY):
+            continue
+        # A plan argues from the surface it was written against, and a dated
+        # file records what was true that day. Both are records; correcting
+        # their numbers would falsify them.
+        if "docs/plans/" in str(path) or re.search(r"-20\d\d-\d\d-\d\d(?:\.|$)", path.name):
             continue
         body = path.read_text(encoding="utf-8", errors="replace")
         body = re.sub(r"<script.*?</script>|<style.*?</style>", "", body, flags=re.S)

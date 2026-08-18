@@ -21,11 +21,11 @@ numbers move.
 ## Canonical facts (2026-07-16)
 
 - Name: emem. Publisher: Vortx AI. Namespace: `io.github.Vortx-AI/emem`.
-- Endpoint: `https://emem.dev/mcp`, MCP Streamable HTTP (2025-03-26).
-  `/mcp` advertises the 14-tool core loop; `/mcp/full` lists all 102;
+- Endpoint: `https://emem.dev/mcp`, MCP Streamable HTTP (2025-11-25).
+  `/mcp` advertises the 16-tool core loop; `/mcp/full` lists all 102;
   `tools/call` dispatches every tool by name at either endpoint.
 - 108 MCP tools (16 core, 92 extended), 20 static resources + 9 URI
-  templates, 114 REST paths under `/v1/*`.
+  templates, 157 REST paths under `/v1/*`.
 - Auth posture: reads are open, no key, no account; writes are
   authenticated by an ed25519 signature on the request body.
 - The claim to lead with: every read returns a signed receipt that
