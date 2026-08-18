@@ -73,7 +73,9 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
    rem, so this single knob retunes the whole page. */
 html{font-size:100%}
 html,body{margin:0;padding:0}
-body{background:var(--paper);color:var(--ink);font-family:var(--display);font-size:var(--t-md);line-height:1.6;font-feature-settings:"ss01";-webkit-font-smoothing:antialiased}
+body{background:var(--paper);color:var(--ink);font-family:var(--display);
+  /* room for the fixed consent bar, so the end of the page is reachable */
+  padding-bottom:7rem;font-size:var(--t-md);line-height:1.6;font-feature-settings:"ss01";-webkit-font-smoothing:antialiased}
 /* Identifiers, values, keys, commands: where a transposed character has
    to be visible and the advance must not move. */
 code,kbd,pre,samp,.mono,.tok,.cid,.cidtag,.key,.chip,.pill,input,textarea,
@@ -1499,84 +1501,7 @@ html,body{overflow-x:clip}
     </div>
   </div>
 </section>
-<footer class="page foot">
-  <div class="foot-meta">
-    <div class="name">emem</div>
-    <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
-  </div>
-  <div>
-    <div class="foot-grid">
-      <div class="foot-col">
-        <h4>Protocol</h4>
-        <ul>
-          <li><a href="/docs/">docs (full book + search)</a></li>
-          <li><a href="/tools">every tool, generated</a></li>
-          <li><a href="/spec.md">spec.md</a></li>
-          <li><a href="/whitepaper">whitepaper</a></li>
-          <li><a href="/docs/diagrams">diagram gallery</a></li>
-          <li><a href="/docs/gallery">the living atlas</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Agents</h4>
-        <ul>
-          <li><a href="/a2a">the A2A layer</a></li>
-          <li><a href="/agents.md">agents.md</a></li>
-          <li><a href="/integrations.md">integrations</a></li>
-          <li><a href="/llms.txt">llms.txt</a></li>
-          <li><a href="/docs/model.html">the memory model</a></li>
-          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Machine</h4>
-        <ul>
-          <li><a href="/openapi.json">openapi.json</a></li>
-          <li><a href="/mcp">/mcp</a></li>
-          <li><a href="/v1/discover">/v1/discover</a></li>
-          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
-          <li><a href="/v1/corpus_state_stats">corpus stats</a></li>
-          <li><a href="/v1/stream">live stream (SSE)</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Try it</h4>
-        <ul>
-          <li><a href="/card">the card (share this)</a></li>
-          <li><a href="/demos">demos index</a></li>
-          <li><a href="/demos/ask-the-earth">ask the Earth (10 live calls)</a></li>
-          <li><a href="/demos/state-cube">state cube walk</a></li>
-          <li><a href="/demos/signed-answer">signed answer in 4 steps</a></li>
-          <li><a href="/verify">verify a receipt</a></li>
-          <li><a href="/v1/benchmark">agent benchmark</a></li>
-          <li><a href="/gallery">gallery</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Developers</h4>
-        <ul>
-          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
-          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
-          <li><a href="/docs/errors.html">errors</a></li>
-          <li><a href="/docs/self-host.html">self-host</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
-          <li><a href="/health">health</a></li>
-        </ul>
-      </div>
-    </div>
-    <div class="foot-bottom">
-      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
-      <span>
-        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
-        <a href="/privacy">privacy · terms</a> ·
-        <a href="#" id="emem-consent-manage">manage cookies</a>
-      </span>
-    </div>
-  </div>
-</footer>
+
 
 <div id=emem-consent hidden role=dialog aria-modal=false aria-labelledby=emem-consent-h>
   <p id=emem-consent-h>This site loads <strong>Google Analytics 4</strong> for aggregate visit counts. <span class="cdetail">By default no cookies are set and no personal data is sent (Consent Mode v2, all denied). Click <strong>Accept</strong> to enable cookie-based analytics, or <strong>Reject</strong> to keep the cookieless default. Decision stored in a first-party cookie <code>emem_consent</code>, valid for 180 days, revocable from the footer.</span> <button type=button class="cmore" aria-expanded="false">what this means</button></p>
@@ -2645,4 +2570,83 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   </div>
 </section>
 </main>
+
+<footer class="page foot">
+  <div class="foot-meta">
+    <div class="name">emem</div>
+    <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
+  </div>
+  <div>
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Protocol</h4>
+        <ul>
+          <li><a href="/docs/">docs (full book + search)</a></li>
+          <li><a href="/tools">every tool, generated</a></li>
+          <li><a href="/spec.md">spec.md</a></li>
+          <li><a href="/whitepaper">whitepaper</a></li>
+          <li><a href="/docs/diagrams">diagram gallery</a></li>
+          <li><a href="/docs/gallery">the living atlas</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Agents</h4>
+        <ul>
+          <li><a href="/a2a">the A2A layer</a></li>
+          <li><a href="/agents.md">agents.md</a></li>
+          <li><a href="/integrations.md">integrations</a></li>
+          <li><a href="/llms.txt">llms.txt</a></li>
+          <li><a href="/docs/model.html">the memory model</a></li>
+          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Machine</h4>
+        <ul>
+          <li><a href="/openapi.json">openapi.json</a></li>
+          <li><a href="/mcp">/mcp</a></li>
+          <li><a href="/v1/discover">/v1/discover</a></li>
+          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
+          <li><a href="/v1/corpus_state_stats">corpus stats</a></li>
+          <li><a href="/v1/stream">live stream (SSE)</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Try it</h4>
+        <ul>
+          <li><a href="/card">the card (share this)</a></li>
+          <li><a href="/demos">demos index</a></li>
+          <li><a href="/demos/ask-the-earth">ask the Earth (10 live calls)</a></li>
+          <li><a href="/demos/state-cube">state cube walk</a></li>
+          <li><a href="/demos/signed-answer">signed answer in 4 steps</a></li>
+          <li><a href="/verify">verify a receipt</a></li>
+          <li><a href="/v1/benchmark">agent benchmark</a></li>
+          <li><a href="/gallery">gallery</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Developers</h4>
+        <ul>
+          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
+          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
+          <li><a href="/docs/errors.html">errors</a></li>
+          <li><a href="/docs/self-host.html">self-host</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="/health">health</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="/privacy">privacy · terms</a> ·
+        <a href="#" id="emem-consent-manage">manage cookies</a>
+      </span>
+    </div>
+  </div>
+</footer>
 
