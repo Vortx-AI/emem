@@ -1292,6 +1292,7 @@ pub fn router(state: AppState) -> Router {
             get(get_capability_manifest),
         )
         .route("/.well-known/emem-readonly.json", get(get_readonly_profile))
+        .route("/spec/a2a/async-tasks/v1", get(a2a_async_tasks_spec))
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
         .route("/v1/explain", post(post_explain))
@@ -5548,6 +5549,96 @@ async fn get_a2a_skills(
     }))
 }
 
+/// The async-task extension, declared once and served at the URI that names it.
+///
+/// A2A carries vendor additions in `capabilities.extensions`, each named by a
+/// URI, so a client that does not know an extension can skip it by rule rather
+/// than by guessing. The contract that makes that work is that the URI resolves:
+/// an agent which does not recognise the name follows it to find out what it is.
+///
+/// Ours did not resolve. The card advertised
+/// `https://emem.dev/spec/a2a/async-tasks/v1` and that path 404'd, so the one
+/// move the extension mechanism exists to support returned nothing. An external
+/// reviewer followed the URI exactly as an autonomous client would and found the
+/// hole. This function is both the card's block and the document served there,
+/// so the description a client reads cannot drift from the capability declared.
+///
+/// The URI stays canonical (`emem.dev`) on every node while `params` follow the
+/// serving origin, because the URI names the extension and the params name this
+/// responder's endpoints. A self-hosted node speaks the same extension; it does
+/// not define a new one.
+fn a2a_async_tasks_extension(origin: &str) -> JsonValue {
+    json!({
+        "uri": A2A_ASYNC_TASKS_URI,
+        "description": "Poll-shaped task surface over plain REST, for clients that would rather not hold an SSE connection open. Same lifecycle and the same signed artifacts as message/send; every operation here is also reachable through the standard JSON-RPC methods.",
+        "required": false,
+        "params": {
+            "create": format!("{origin}/v1/a2a/tasks"),
+            "get":    format!("{origin}/v1/a2a/tasks/{{id}}"),
+            "cancel": format!("{origin}/v1/a2a/tasks/{{id}}/cancel"),
+            "skills_query": format!("{origin}/v1/a2a/skills?q="),
+        },
+    })
+}
+
+/// The name of the extension above. A URI, not an address to fetch a service
+/// from: it identifies the extension and resolves to its description.
+const A2A_ASYNC_TASKS_URI: &str = "https://emem.dev/spec/a2a/async-tasks/v1";
+
+/// GET the document the AgentCard's extension URI points at.
+///
+/// Written for a machine that arrived here by following the card: it repeats
+/// the declaration verbatim, then says what the lifecycle is, which errors it
+/// can answer with, and that nothing here is required.
+async fn a2a_async_tasks_spec() -> Json<JsonValue> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    Json(json!({
+        "schema":    "emem.a2a.extension.v1",
+        "extension": a2a_async_tasks_extension(&origin),
+        "name":      "emem async tasks",
+        "status":    "stable",
+        "a2a_protocol_version": "1.2.0",
+        "why": "message/send completes in the call. Work that outlives one request \
+                needs an id you can come back to. This extension is that surface over \
+                plain REST, for clients that would rather poll than hold a connection \
+                open, and it is never the only way in.",
+        "required": false,
+        "equivalent_standard_methods": {
+            "create": "message/send, or message/stream for the same work over SSE",
+            "get":    "tasks/get",
+            "cancel": "tasks/cancel",
+            "resubscribe": "tasks/resubscribe",
+            "note": "Every operation in this extension is reachable through the standard \
+                     JSON-RPC methods at the card's `url`. An agent that ignores this \
+                     extension entirely loses a shortcut, not a capability."
+        },
+        "lifecycle": {
+            "states": ["submitted", "working", "completed", "failed", "canceled"],
+            "terminal": ["completed", "failed", "canceled"],
+            "note": "`input-required` is not emitted: this responder never pauses a task \
+                     to ask a question. A task that cannot proceed fails with a typed \
+                     reason rather than waiting."
+        },
+        "errors": {
+            "-32001": "TaskNotFound. Tasks live in memory for their TTL after completion, \
+                       and a responder restart clears the registry, so a deploy mid-poll \
+                       loses live ids. Re-submit.",
+            "-32002": "TaskNotCancelable: the task already reached a terminal state.",
+            "-32602": "Invalid params. `data` carries what was missing and what is accepted.",
+            "taxonomy": format!("{origin}/v1/errors")
+        },
+        "artifacts": "Task artifacts are the same signed objects message/send returns: \
+                      every answer carries an ed25519 receipt that verifies offline against \
+                      the published key, with no account and no callback.",
+        "see_also": {
+            "agent_card":  format!("{origin}/.well-known/agent-card.json"),
+            "skills":      format!("{origin}/v1/a2a/skills?q="),
+            "verifier_spec": format!("{origin}/v1/verifier_spec"),
+            "openapi":     format!("{origin}/openapi.json"),
+        },
+    }))
+}
+
 async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     // Skill tags must be a deduplicated set of editorial labels, earlier
@@ -5632,19 +5723,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             // `required: false` is the load-bearing part: everything here is
             // reachable through the standard methods, so an agent that ignores
             // this loses nothing but a shortcut.
-            "extensions": [
-                {
-                    "uri": "https://emem.dev/spec/a2a/async-tasks/v1",
-                    "description": "Poll-shaped task surface over plain REST, for clients that would rather not hold an SSE connection open. Same lifecycle and the same signed artifacts as message/send; every operation here is also reachable through the standard JSON-RPC methods.",
-                    "required": false,
-                    "params": {
-                        "create": format!("{origin}/v1/a2a/tasks"),
-                        "get":    format!("{origin}/v1/a2a/tasks/{{id}}"),
-                        "cancel": format!("{origin}/v1/a2a/tasks/{{id}}/cancel"),
-                        "skills_query": format!("{origin}/v1/a2a/skills?q="),
-                    },
-                },
-            ],
+            "extensions": [a2a_async_tasks_extension(&origin)],
         },
         // A2A v1.2 added this field; we never serve a separate authenticated
         // card (every endpoint is open + receipt-signed). Explicit `false`

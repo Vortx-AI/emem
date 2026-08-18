@@ -385,6 +385,50 @@ def main():
                     notes.append("the resolved citation carried no receipt for B to "
                                  "verify; B has the bytes but not the proof")
 
+    # Step 5b. Every extension URI the AgentCard advertises must resolve.
+    #
+    # A2A names vendor additions in `capabilities.extensions` by URI so that a
+    # client which does not recognise one can follow it and find out what it is.
+    # That is the entire point of the mechanism, and it only works if the URI
+    # answers. Ours did not: the card advertised
+    # https://emem.dev/spec/a2a/async-tasks/v1 and the path 404'd, which an
+    # external reviewer found by doing exactly what an autonomous client does.
+    # A card that names a document nobody serves is worse than a card with no
+    # extensions, because it invites the fetch and then wastes it.
+    print("\n  the extension URIs the agent card advertises, followed:")
+    card, _ = p.get("/.well-known/agent-card.json")
+    exts = (card or {}).get("capabilities", {}).get("extensions", []) if isinstance(card, dict) else []
+    if not exts:
+        notes.append("the agent card advertises no extensions, so none were followed")
+    for e in exts:
+        uri = e.get("uri", "")
+        if not uri:
+            problems.append("an entry in capabilities.extensions has no `uri`, so a "
+                            "client cannot identify or look it up")
+            continue
+        # Only URIs this responder is responsible for are fetched. An extension
+        # named by someone else's URI is their document to serve, not ours.
+        path = uri.split(p.origin, 1)[1] if uri.startswith(p.origin) else (
+            "/" + uri.split("/", 3)[3] if uri.startswith("https://emem.dev/") else None)
+        if path is None:
+            print(f"    {uri}  (third-party URI, not fetched)")
+            continue
+        doc, code = p.get(path)
+        ok = isinstance(doc, dict) and code == 200
+        print(f"    {uri}  ->  {code}{'' if ok else '   BROKEN'}")
+        if not ok:
+            problems.append(
+                f"the agent card advertises the extension {uri} and following it "
+                f"returns {code}. A client that does not know this extension has "
+                f"no way to learn it."
+            )
+        elif doc.get("extension", {}).get("uri") != uri:
+            problems.append(
+                f"{uri} resolves, but the document served there does not name "
+                f"itself with the same URI, so a client cannot confirm it landed "
+                f"on the right spec."
+            )
+
     # Step 6. robots.txt advertises the bootstrap surfaces with their sizes,
     # cheapest first, so an agent can decide what to read on a budget. Those
     # figures drifted badly: llms.txt was advertised at 5 KB and served 24 KB,
