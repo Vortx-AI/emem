@@ -329,6 +329,8 @@ a{color:var(--accent)}
 .hero-tryit .tryit-result{min-height:0;padding-top:.8rem}
 
 /* footer */
+.foot.inverted{margin:var(--s-6) auto 0;padding-bottom:calc(3.4rem + 7rem)}
+body:has(.foot.inverted){padding-bottom:0}
 .foot{position:relative;background:var(--paper);padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
 .foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--mute);line-height:1.5}
@@ -633,7 +635,8 @@ body{counter-reset:chapter}
   --rule:oklch(0.34 0.006 85);--rule-strong:oklch(0.44 0.006 85);
   --accent:oklch(0.74 0.13 145);
   background:var(--paper);color:var(--ink);
-  padding-top:var(--s-5);padding-bottom:var(--s-5);margin:var(--s-5) 0}
+  padding-top:var(--s-5);padding-bottom:var(--s-5);margin:var(--s-5) 0;
+  box-shadow:0 0 0 100vw var(--paper);clip-path:inset(0 -100vw)}
 .inverted a{color:var(--accent)}
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]) .inverted{
@@ -2705,7 +2708,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 </section>
 </main>
 
-<footer class="page foot">
+<footer class="page foot inverted">
   <div class="foot-meta">
     <div class="name">emem</div>
     <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
