@@ -5601,12 +5601,29 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "stateTransitionHistory": false,
             // Extension field: where the async task lifecycle lives. The
             // sync door completes in-call; these three run it detached.
-            "dev.emem/asyncTasks": {
-                "create": format!("{origin}/v1/a2a/tasks"),
-                "get":    format!("{origin}/v1/a2a/tasks/{{id}}"),
-                "cancel": format!("{origin}/v1/a2a/tasks/{{id}}/cancel"),
-                "skills_query": format!("{origin}/v1/a2a/skills?q="),
-            },
+            // A2A carries vendor additions in capabilities.extensions, each
+            // named by a URI, so a client that does not know an extension can
+            // skip it by rule rather than by guessing. This used to sit
+            // directly in capabilities as a bare `dev.emem/asyncTasks` key,
+            // where a validator holding the schema strictly is entitled to
+            // reject the whole card over a field it has never heard of.
+            //
+            // `required: false` is the load-bearing part: everything here is
+            // reachable through the standard methods, so an agent that ignores
+            // this loses nothing but a shortcut.
+            "extensions": [
+                {
+                    "uri": "https://emem.dev/spec/a2a/async-tasks/v1",
+                    "description": "Poll-shaped task surface over plain REST, for clients that would rather not hold an SSE connection open. Same lifecycle and the same signed artifacts as message/send; every operation here is also reachable through the standard JSON-RPC methods.",
+                    "required": false,
+                    "params": {
+                        "create": format!("{origin}/v1/a2a/tasks"),
+                        "get":    format!("{origin}/v1/a2a/tasks/{{id}}"),
+                        "cancel": format!("{origin}/v1/a2a/tasks/{{id}}/cancel"),
+                        "skills_query": format!("{origin}/v1/a2a/skills?q="),
+                    },
+                },
+            ],
         },
         // A2A v1.2 added this field; we never serve a separate authenticated
         // card (every endpoint is open + receipt-signed). Explicit `false`
@@ -21143,16 +21160,25 @@ fn first_sentence(s: &str, cap: usize) -> String {
 /// legitimately produces submitted, artifact, completed in quick succession.
 /// A failing skill emits a `failed` status rather than a completed one.
 async fn post_a2a_task(State(s): State<AppState>, body: axum::body::Bytes) -> Response {
-    let is_stream = serde_json::from_slice::<JsonValue>(&body)
+    let method = serde_json::from_slice::<JsonValue>(&body)
         .ok()
         .and_then(|v| {
             v.get("method")
                 .and_then(|m| m.as_str())
-                .map(|m| m == "message/stream")
+                .map(|m| m.to_string())
         })
-        .unwrap_or(false);
-    if is_stream {
+        .unwrap_or_default();
+    if method == "message/stream" {
         return a2a_message_stream(s, body).await;
+    }
+    // tasks/resubscribe: reattach to a task whose stream was lost.
+    //
+    // We declared capabilities.streaming true and did not answer this, which
+    // is a promise with no way to keep it: a client whose SSE connection drops
+    // mid-task had no route back to the events and could only poll. The spec
+    // pairs the two for that reason.
+    if method == "tasks/resubscribe" {
+        return a2a_task_resubscribe(s, body).await;
     }
     match a2a_task_json(State(s), body).await {
         Ok(j) => j.into_response(),
@@ -21162,6 +21188,155 @@ async fn post_a2a_task(State(s): State<AppState>, body: axum::body::Bytes) -> Re
 
 /// Run the request through the ordinary `message/send` path and report its
 /// lifecycle as A2A SSE frames.
+/// `tasks/resubscribe`: reattach an SSE stream to a task already running.
+///
+/// We advertised `capabilities.streaming: true` and answered -32601 here,
+/// which is a promise with no way to keep it. A client whose connection drops
+/// mid-task had no route back to the event stream and could only fall back to
+/// polling `tasks/get`, which is the thing streaming exists to avoid.
+///
+/// It emits the task's current status immediately, so a client that reattaches
+/// after completion is told so at once rather than waiting on a stream that
+/// will never speak again, then follows the task to a terminal state. Task
+/// state lives in memory for its TTL, so a task lost to a restart answers
+/// -32001 TaskNotFound exactly as `tasks/get` does; saying so beats holding a
+/// stream open on a task that no longer exists.
+/// The JSON-RPC methods this responder answers.
+///
+/// Named once because it was stated in an unknown-method error and nowhere
+/// else, so nothing connected what the card promised to what the dispatcher
+/// actually had. `capabilities.streaming` was true while tasks/resubscribe
+/// answered -32601 for exactly that reason: the claim and the code had no
+/// shared point of truth to disagree at.
+const A2A_METHODS: &[&str] = &[
+    "message/send",
+    "message/stream",
+    "tasks/get",
+    "tasks/cancel",
+    "tasks/resubscribe",
+];
+
+async fn a2a_task_resubscribe(s: AppState, body: axum::body::Bytes) -> Response {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+
+    let v: JsonValue = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return a2a_bad_request(&format!("a2a: request body is not valid JSON: {e}"))
+                .into_response()
+        }
+    };
+    let rpc_id = v.get("id").cloned().unwrap_or(JsonValue::Null);
+    let task_id = v
+        .get("params")
+        .and_then(|p| p.get("id"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if task_id.is_empty() {
+        return (
+            StatusCode::OK,
+            Json(json!({"jsonrpc": "2.0", "id": rpc_id, "error": {
+                "code": -32602,
+                "message": "params.id is required",
+                "data": {"schema": "emem.error.v1",
+                         "hint": "pass the Task id message/send or /v1/a2a/tasks returned"}
+            }})),
+        )
+            .into_response();
+    }
+
+    mcp_tasks_reap(now_unix_ms());
+    let known = { mcp_tasks_lock().get(&task_id).is_some() };
+    if !known {
+        return (
+            StatusCode::OK,
+            Json(json!({"jsonrpc": "2.0", "id": rpc_id, "error": {
+                "code": -32001,
+                "message": format!("TaskNotFound: no task `{task_id}`"),
+                "data": {"schema": "emem.error.v1",
+                         "message": "tasks live in memory for their TTL after completion; a responder restart clears the registry, so a resubscribe after a deploy finds nothing and the work must be re-submitted"}
+            }})),
+        )
+            .into_response();
+    }
+
+    // unfold rather than a plain interval: this stream must END at the
+    // terminal state, and carrying (last_status, ticks) through the fold is
+    // what lets it decide that. 1200 ticks at 500 ms is the 10 minute task TTL.
+    let stream = futures_util::stream::unfold(
+        (s, task_id, rpc_id, String::new(), 0u32, false),
+        |(s, task_id, rpc_id, last, ticks, finished)| async move {
+            if finished || ticks >= 1200 {
+                return None;
+            }
+            if ticks > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+            let snapshot = {
+                mcp_tasks_reap(now_unix_ms());
+                let map = mcp_tasks_lock();
+                map.get(&task_id)
+                    .map(|slot| (slot.status.clone(), a2a_task_object(&s, &task_id, slot)))
+            };
+            let Some((status, obj)) = snapshot else {
+                // Reaped while attached: say so rather than going quiet.
+                let ev = Event::default().data(
+                    json!({"jsonrpc": "2.0", "id": rpc_id, "result": {
+                        "kind": "status-update",
+                        "taskId": task_id,
+                        "status": {"state": "unknown", "timestamp": iso8601_now_utc()},
+                        "final": true,
+                        "metadata": {"emem_note": "this task expired from the in-memory registry while you were attached"},
+                    }}).to_string(),
+                );
+                return Some((
+                    Ok::<Event, std::convert::Infallible>(ev),
+                    (s, task_id, rpc_id, last, ticks + 1, true),
+                ));
+            };
+            let terminal = matches!(
+                status.as_str(),
+                "completed" | "failed" | "cancelled" | "canceled"
+            );
+            let changed = status != last;
+            let payload = if terminal {
+                // The whole task, so a client reattaching after the fact gets
+                // the result and not merely the news that it finished.
+                json!({"jsonrpc": "2.0", "id": rpc_id, "result": obj})
+            } else {
+                json!({"jsonrpc": "2.0", "id": rpc_id, "result": {
+                    "kind": "status-update",
+                    "taskId": task_id,
+                    "contextId": obj.get("contextId").cloned().unwrap_or(JsonValue::Null),
+                    "status": obj.get("status").cloned().unwrap_or(JsonValue::Null),
+                    "final": false,
+                }})
+            };
+            let next = (s, task_id, rpc_id, status, ticks + 1, terminal);
+            if changed || terminal {
+                Some((
+                    Ok::<Event, std::convert::Infallible>(
+                        Event::default().data(payload.to_string()),
+                    ),
+                    next,
+                ))
+            } else {
+                // Nothing new: a keep-alive comment rather than a repeat.
+                Some((
+                    Ok::<Event, std::convert::Infallible>(Event::default().comment("working")),
+                    next,
+                ))
+            }
+        },
+    );
+
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
 async fn a2a_message_stream(s: AppState, body: axum::body::Bytes) -> Response {
     use axum::response::sse::{Event, KeepAlive, Sse};
 
@@ -21591,7 +21766,7 @@ async fn a2a_task_json(
             -32601,
             format!("method `{other}` is not implemented here"),
             json!({"schema": "emem.error.v1",
-                   "supported": ["message/send", "message/stream", "tasks/get", "tasks/cancel"],
+                   "supported": A2A_METHODS,
                    "async": "/v1/a2a/tasks",
                    "note": "message/stream answers as SSE. /v1/memory/sse is a different thing: a signed memory feed, not the A2A method."}),
         ),
@@ -64687,6 +64862,55 @@ mod tests {
                 .is_err(),
             "an inbox with no owner must refuse rather than answer for everyone"
         );
+    }
+
+    /// A declared capability must have a method behind it.
+    ///
+    /// The card said `capabilities.streaming: true` while tasks/resubscribe
+    /// answered -32601, so a client whose SSE dropped mid-task had no route
+    /// back to the events and could only poll, which is the thing streaming
+    /// exists to avoid. A promise with no way to keep it is worse than an
+    /// honest false.
+    #[tokio::test]
+    async fn streaming_claim_implies_the_methods_that_serve_it() {
+        let Json(card) = well_known_agent_card(State(test_app_state())).await;
+        let caps = &card["capabilities"];
+        if caps["streaming"] == json!(true) {
+            for m in ["message/stream", "tasks/resubscribe"] {
+                assert!(
+                    A2A_METHODS.contains(&m),
+                    "capabilities.streaming is true but {m} is not answered"
+                );
+            }
+        }
+        // Vendor additions belong in extensions, named by URI, so a client
+        // that does not know one can skip it by rule.
+        let known = [
+            "streaming",
+            "pushNotifications",
+            "stateTransitionHistory",
+            "extensions",
+        ];
+        for k in caps.as_object().expect("capabilities").keys() {
+            assert!(
+                known.contains(&k.as_str()),
+                "`{k}` sits directly in capabilities; a validator holding the \
+                 A2A schema strictly may reject the whole card. Declare it in \
+                 capabilities.extensions with a uri instead."
+            );
+        }
+        for e in caps["extensions"].as_array().unwrap_or(&vec![]) {
+            assert!(
+                e["uri"].is_string(),
+                "an extension without a uri cannot be skipped by rule"
+            );
+            assert!(
+                e["required"] == json!(false),
+                "{}: an extension that is required makes a standard client non-conformant by \
+                 arriving",
+                e["uri"]
+            );
+        }
     }
 
     /// message/send must read the part spellings clients actually send.
