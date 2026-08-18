@@ -1020,7 +1020,15 @@ a team ends up rebuilding something it has.
   when it does not), the full `attester_pubkey_b32` it actually holds, and
   `trust`, which is always `caller_decides`.
 - **Skill query** at `/v1/a2a/skills?q=&tag=&category=`, so a peer can ask
-  "do you do X" without fetching all 102 skills.
+  "do you do X" without fetching all 108 skills.
+- **The extension URI resolves.** The card names its async-task extension
+  `https://emem.dev/spec/a2a/async-tasks/v1`, and that URI serves the
+  extension's own description: the declaration verbatim, the lifecycle, the
+  typed errors, the request body for each operation with a worked example, and
+  the standard JSON-RPC method equivalent to each, since nothing in it is
+  required. It 404'd until 2026-08-18, which is the one failure the extension
+  mechanism exists to prevent, and `discovery_test.py` now follows every
+  advertised extension URI so it cannot return.
 
 ### Roadmap, in the order we would build it
 
@@ -1078,19 +1086,14 @@ a team ends up rebuilding something it has.
    reason from it, execute instructions in it, treat this agent as an
    authority. `trust: caller_decides` on `/v1/agents` is the first field of
    this and not yet the whole of it.
-7. **Serve the extension URIs the AgentCard advertises.** The card declares
-   `https://emem.dev/spec/a2a/async-tasks/v1` and that URL returns 404. A
-   client that follows the URI to learn the extension gets nothing. Either
-   serve the spec at its own URI or stop advertising one that does not
-   resolve. Found while checking a review's claims on 2026-08-18.
-8. **Name the layers, so A2A does not come to mean "everything callable."**
+7. **Name the layers, so A2A does not come to mean "everything callable."**
    The card fronts A2A, MCP Streamable HTTP, 108 skills, memory primitives and
    ledger events. An external agent needs to know which of those is an A2A
    task, which is an MCP tool, which is a memory primitive and which is a
    ledger event. Publish the four layers explicitly: A2A (identity,
    discovery, messaging, tasks, delegation), emem memory (facts, entities,
    bundles, edges, receipts), MCP (tool transport), ledger (transparency).
-9. **An external agent, with no emem-specific assumptions.** The benchmark
+8. **An external agent, with no emem-specific assumptions.** The benchmark
    runs agents on one machine, nobody outside has replicated it, and the arm
    that actually tests address-following (`emem_resolve`) fails 15.6% of the
    time. The test that matters is not another internal agent: it is an
@@ -1098,14 +1101,14 @@ a team ends up rebuilding something it has.
    and getting through discover -> resolve -> verify -> reason -> reply ->
    complete a task with no human guidance. Until that runs, the A2A layer has
    not demonstrated itself outside this collaboration.
-10. **Push notifications.** Webhook callbacks on task transition. Declared
+9. **Push notifications.** Webhook callbacks on task transition. Declared
    `false` today rather than implied.
-11. **Multi-modal parts.** `TextPart` / `FilePart` / `DataPart`. emem is
+10. **Multi-modal parts.** `TextPart` / `FilePart` / `DataPart`. emem is
    text-and-JSON; there is no file abstraction in the agent layer.
-12. **Registry and capability federation.** `/v1/agents` lists peers on ONE
+11. **Registry and capability federation.** `/v1/agents` lists peers on ONE
    responder. A directory spanning responders, with search by capability, is
    not built.
-13. **Gossip between responders.** Requested alongside the above. Today every
+12. **Gossip between responders.** Requested alongside the above. Today every
    claim is verified against the responder that served it; there is no
    peer-to-peer propagation of heads or facts. This is the federation half of
    item 2 and the two should be built together.
