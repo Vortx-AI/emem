@@ -359,12 +359,22 @@ jobs:
       # because the surface list and the phrase list were both hand-written.
       # This asserts the number. Needs the live responder, so it warns rather
       # than fails when the origin is unreachable.
+      # Failing here now names the one-word fix, because every count corrected
+      # by hand in this repo came back wrong within weeks: a typed number
+      # cannot notice the world moved, and the person who moves it is rarely
+      # the person who typed it. `--write` corrects the prose from the live
+      # responder, and leaves records alone (plans, ISO-dated notes,
+      # withdrawal tables, COUNT_HISTORY) because rewriting a record to match
+      # today turns it into a lie.
       - name: prose counts match the responder
         run: |
           set +e
           python3 scripts/sync_counts.py --check
           code=$?
           set -e
+          if [ "$code" = "1" ]; then
+            echo "::error::prose counts drifted. Run: python3 scripts/sync_counts.py --write"
+          fi
           if [ "$code" = "2" ]; then
             echo "::warning::the responder did not answer; counts not asserted this run"
             exit 0

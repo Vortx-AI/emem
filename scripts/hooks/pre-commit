@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Correct prose counts before they reach a commit.
+#
+# Install:  ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+#
+# Every stale count in this repo was typed by hand and corrected by hand, and
+# came back within weeks. The detector and the corrector are the same patterns,
+# so there is no reason for a person to be the step between them.
+#
+# An unreachable responder exits 2 and is not a failure here: "not checked" and
+# "checked and fine" are different facts and only one of them should block you.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+python3 scripts/sync_counts.py --write >/dev/null 2>&1 || true
+
+if ! git diff --quiet -- '*.md' '*.html' web/llms.txt 2>/dev/null; then
+  echo "sync_counts corrected prose counts that had drifted from the responder."
+  echo "The fixes are in your working tree. Review, 'git add', and commit again:"
+  git diff --stat -- '*.md' '*.html' web/llms.txt | sed 's/^/  /'
+  exit 1
+fi

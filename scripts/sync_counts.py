@@ -897,6 +897,73 @@ def write_agent(check_only: bool) -> list[str]:
     return out
 
 
+def write_prose_counts(check_only: bool) -> list[str]:
+    """Correct the counts in prose, rather than reporting them for a human.
+
+    Every count fixed by hand today came back wrong within weeks, because a
+    typed number cannot notice the world moved and the person who moves it is
+    rarely the person who typed it. The gate detected drift and then waited for
+    somebody to read the report and edit twenty files, which is the step that
+    keeps failing.
+
+    So the detector becomes the corrector: the same PROSE_CLAIMS patterns that
+    find a stale number replace it. Running `sync_counts.py --write` leaves the
+    tree correct instead of leaving a list of what to go and fix.
+
+    Records are never touched. A plan argues from the surface it was written
+    against, an ISO-dated note records what was true that day, a withdrawal
+    table quotes the old figure on purpose and COUNT_HISTORY files are frozen.
+    Rewriting any of those to match today would turn a record into a lie, which
+    is a worse failure than the drift this fixes.
+    """
+    named = [
+        REPO / "README.md", REPO / "AGENTS.md", REPO / "ARCHITECTURE_NOTES.md",
+        REPO / "docs" / "ARCHITECTURE_NOTES.md", REPO / "web" / "llms.txt",
+    ]
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
+    out: list[str] = []
+    for path in targets:
+        if not path.exists() or any(h in path.name for h in COUNT_HISTORY):
+            continue
+        if "docs/plans/" in str(path) or re.search(r"-20\d\d-\d\d-\d\d(?:\.|$)", path.name):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        original = text
+        for key, pat in PROSE_CLAIMS:
+            want = CANON.get(key)
+            if not isinstance(want, int):
+                continue
+
+            def fix(m, want=want):
+                said = m.group(1)
+                if int(said) == want:
+                    return m.group(0)
+                line_start = m.string.rfind("\n", 0, m.start()) + 1
+                line = m.string[line_start:m.string.find("\n", m.start())]
+                # A withdrawal table quotes the stale figure deliberately.
+                if line.lstrip().startswith("| §") and "**" in line:
+                    return m.group(0)
+                lead = m.string[max(0, m.start() - 40):m.start()]
+                if "then-" in lead or "was " in lead or "were " in lead:
+                    return m.group(0)
+                # Replace only the captured number, keeping the phrasing.
+                s, e = m.span(1)
+                return m.group(0)[: s - m.start()] + str(want) + m.group(0)[e - m.start():]
+
+            text = re.sub(pat, fix, text)
+        if text != original:
+            rel = path.relative_to(REPO)
+            if check_only:
+                out.append(f"{rel}: prose counts are stale and --write would fix them")
+            else:
+                path.write_text(text, encoding="utf-8")
+                out.append(f"{rel}: prose counts corrected")
+    return out
+
+
 def _apply(f: Path, old: str, new: str, check_only: bool) -> list[str]:
     if old == new:
         return []
@@ -1204,6 +1271,7 @@ def main() -> int:
 
     if mode == "--write":
         changes = write_agent(check_only=False)
+        changes += write_prose_counts(check_only=False)
         for c in changes:
             print(f"  ✓ {c}")
         print("\nMachine twins synced. Prose surfaces (README/docs/homepage):")
