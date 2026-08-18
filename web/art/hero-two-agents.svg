@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 300" width="340" height="300" role="img"
+     aria-label="Two agents in profile face each other. Between them stands one signed record. A line runs from each agent's eye to the same record, and neither line runs to the other agent.">
+  <title>Two agents, one record, and no line between them</title>
+
+  <!-- The frame every emem panel carries. -->
+  <rect x="6" y="6" width="328" height="288" fill="none" stroke="#b9b1a2" stroke-width="1.4"/>
+  <rect x="12" y="12" width="316" height="276" fill="none" stroke="#4f8a3d" stroke-width="1.6"
+        stroke-dasharray="5 8" opacity=".65"/>
+
+  <!-- The record they share: one address, one seal, held by neither of them. -->
+  <g>
+    <rect x="132" y="96" width="76" height="104" rx="4" fill="#f3eee2"
+          stroke="#2b2620" stroke-width="2.6"/>
+    <g stroke="#2b2620" stroke-width="1.5" opacity=".55">
+      <path d="M144 122h52M144 134h52M144 146h34"/>
+    </g>
+    <!-- the seal -->
+    <circle cx="170" cy="172" r="15" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.2"/>
+    <circle cx="170" cy="172" r="6.5" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+    <g stroke="#f3eee2" stroke-width="1.3">
+      <path d="M170 157v4M170 183v4M155 172h4M181 172h4"/>
+    </g>
+    <!-- the address, above the record, pointed at from both sides -->
+    <g stroke="#2b2620" stroke-width="2">
+      <path d="M170 96V74"/>
+    </g>
+    <polygon points="170,62 178,78 162,78" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+  </g>
+
+  <!-- Left agent, in profile, looking at the record. -->
+  <g>
+    <path d="M78 118c-16 0-27 13-27 30 0 12 5 19 5 27 0 9-4 12-4 19 0 8 9 14 26 14"
+          fill="#344a8c" fill-opacity=".16" stroke="#2b2620" stroke-width="2.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="74" cy="146" r="6.5" fill="#f3eee2" stroke="#2b2620" stroke-width="2.2"/>
+    <circle cx="76" cy="146" r="2.6" fill="#2b2620"/>
+    <g stroke="#2b2620" stroke-width="1.5" opacity=".5">
+      <path d="M60 172h22M62 182h16"/>
+    </g>
+  </g>
+
+  <!-- Right agent, in profile, looking at the same record. -->
+  <g>
+    <path d="M262 118c16 0 27 13 27 30 0 12-5 19-5 27 0 9 4 12 4 19 0 8-9 14-26 14"
+          fill="#bb3b2c" fill-opacity=".16" stroke="#2b2620" stroke-width="2.6"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="266" cy="146" r="6.5" fill="#f3eee2" stroke="#2b2620" stroke-width="2.2"/>
+    <circle cx="264" cy="146" r="2.6" fill="#2b2620"/>
+    <g stroke="#2b2620" stroke-width="1.5" opacity=".5">
+      <path d="M258 172h22M262 182h16"/>
+    </g>
+  </g>
+
+  <!-- Each looks at the record. Neither looks at the other, and there is no
+       line between them: that absence is the argument. -->
+  <g fill="none" stroke="#4f8a3d" stroke-width="2.4" stroke-linecap="round">
+    <path d="M84 144q28 -14 46 -18"/>
+    <path d="M256 144q-28 -14 -46 -18"/>
+  </g>
+  <g fill="#4f8a3d">
+    <polygon points="132,124 122,120 124,130"/>
+    <polygon points="208,124 218,120 216,130"/>
+  </g>
+</svg>
