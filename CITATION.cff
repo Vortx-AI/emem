@@ -1,0 +1,44 @@
+cff-version: 1.2.0
+message: >-
+  If you use emem, cite the software when you ran it and the preprint when you
+  build on the protocol. They are separate artefacts: the repository is the
+  running implementation, the preprint is the design and the evidence.
+title: "emem: shared, verifiable memory for AI agents"
+abstract: >-
+  A content-addressed memory protocol for AI agents. One place has one address,
+  one observation has one signed fact, and a citation resolves to byte-identical
+  signed bytes that any receiver verifies offline without trusting the sender.
+type: software
+authors:
+  - family-names: Kumari
+    given-names: Jaya
+    affiliation: Vortx AI Private Limited
+  - family-names: Singh
+    given-names: Avijeet
+    affiliation: Vortx AI Private Limited
+    email: avijeet@vortx.ai
+repository-code: "https://github.com/Vortx-AI/emem"
+url: "https://emem.dev"
+license: Apache-2.0
+version: 2.2.0
+keywords:
+  - verifiable-memory
+  - content-addressing
+  - ai-agents
+  - model-context-protocol
+  - earth-observation
+preferred-citation:
+  type: article
+  title: >-
+    emem: A research on Content-Addressed, Verifiable Earth-Memory Protocol for
+    AI Agents over Foundation-Model Embeddings
+  authors:
+    - family-names: Kumari
+      given-names: Jaya
+    - family-names: Singh
+      given-names: Avijeet
+  year: 2026
+  doi: 10.5281/zenodo.20706893
+  publisher:
+    name: Zenodo
+  notes: Open preprint, CC-BY-4.0, not yet peer-reviewed.

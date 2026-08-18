@@ -493,6 +493,8 @@ The Orin loop runs on four real Sentinel-2 crops of the Nile Delta committed in-
 
 **Today: satellite Earth observation.** Open data from ESA, NASA, USGS, and the EU JRC fills the memory on demand: 129 wired measurements from 46 declared source schemes (live lists at [`/v1/sources`](https://emem.dev/v1/sources) and [`/v1/bands`](https://emem.dev/v1/bands)), from elevation and NDVI to weather, forest change, and four open foundation-model embeddings. Every registry that governs meaning, bands, sources, algorithms, schema, substrates, device platforms, trace encodings, is one of nine content-addressed manifests at [`/v1/manifests`](https://emem.dev/v1/manifests): cite the cid and you have pinned the exact semantics your fact was written under.
 
+The design behind this substrate, why Earth observation is the first memory to fill and what a signed fact over it is allowed to assert, is set out in the preprint: [*A research on Content-Addressed, Verifiable Earth-Memory Protocol for AI Agents over Foundation-Model Embeddings*](https://doi.org/10.5281/zenodo.20706893) ([DOI 10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893), CC-BY-4.0, not yet peer-reviewed), with the full text in [docs/whitepaper.md](docs/whitepaper.md).
+
 **Run your own node.** The hosted node runs the exact binary in this repo, and a receipt minted on one verifies on the other:
 
 ```bash
@@ -652,6 +654,24 @@ Scope that bounds all of it: 5 sites, 2 open 7-12B models on one host, n=48 at t
 > **emem: A research on Content-Addressed, Verifiable Earth-Memory Protocol for AI Agents over Foundation-Model Embeddings.**
 > Jaya Kumari, Avijeet Singh. Vortx AI, 2026. Open preprint (Zenodo, CC-BY-4.0; not yet peer-reviewed).
 > [doi.org/10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893)
+
+Two artefacts, cited separately: the **software** if you ran it, the **preprint** if you build on the protocol. GitHub's *Cite this repository* button reads [CITATION.cff](CITATION.cff), which carries both.
+
+**The software:**
+
+```bibtex
+@software{emem_software,
+  title     = {emem: shared, verifiable memory for AI agents},
+  author    = {Kumari, Jaya and Singh, Avijeet},
+  year      = {2026},
+  version   = {2.2.0},
+  url       = {https://github.com/Vortx-AI/emem},
+  license   = {Apache-2.0},
+  publisher = {Vortx AI Private Limited}
+}
+```
+
+**The preprint:**
 
 ```bibtex
 @misc{emem2026,
