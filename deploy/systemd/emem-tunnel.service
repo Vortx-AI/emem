@@ -1,0 +1,17 @@
+[Unit]
+Description=Cloudflare Tunnel for emem.dev (proxies https://emem.dev → http://localhost:5051)
+After=network-online.target emem-server.service
+Wants=network-online.target
+PartOf=emem-server.service
+
+[Service]
+Type=simple
+ExecStart=/home/ubuntu/.local/bin/cloudflared tunnel --config /home/ubuntu/.cloudflared/config.yml run
+Restart=on-failure
+RestartSec=5
+# cloudflared exits cleanly on SIGTERM
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target

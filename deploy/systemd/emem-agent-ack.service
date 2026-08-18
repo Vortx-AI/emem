@@ -1,0 +1,18 @@
+[Unit]
+Description=emem: instant acknowledgement for incoming agent notes (Gemma-composed)
+After=network-online.target emem-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/emem
+# 180s poll: fast enough that a sender is not left guessing, slow enough that
+# the shared model host and the ledger both stay quiet.
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -u /home/ubuntu/emem/scripts/agent_ack.py --post --watch 180
+Restart=always
+RestartSec=30
+StandardOutput=append:/home/ubuntu/emem/var/emem/log/agent-ack.log
+StandardError=append:/home/ubuntu/emem/var/emem/log/agent-ack.log
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=run the emem health watchdog every 60s
+
+[Timer]
+# Start ~90s after boot (give the server time to come up), then every 60s.
+OnBootSec=90
+OnUnitActiveSec=60
+AccuracySec=10
+
+[Install]
+WantedBy=timers.target

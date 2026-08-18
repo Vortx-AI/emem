@@ -1,0 +1,8 @@
+[Unit]
+Description=emem health watchdog — restart the responder if its tokio runtime silently stalls
+After=emem-server.service
+
+[Service]
+Type=oneshot
+# Polls loopback /health; restarts emem-server.service after N consecutive misses.
+ExecStart=/home/ubuntu/emem/ops/systemd/emem-watchdog.sh

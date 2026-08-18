@@ -50,6 +50,9 @@ CHECKS = [
     ("prose convention", ["python3", "scripts/doc_lint.py"], False, False),
     ("image carries every compiled-in file",
      ["python3", "scripts/docker_context.py"], False, False),
+    # The operational half. Fourteen of eighteen units lived only on one box.
+    ("every unit that runs is in the repo",
+     ["python3", "scripts/units_tracked.py"], False, False),
     ("design tokens", ["python3", "scripts/design_tokens.py"], False, False),
     ("openapi describes every routed path",
      ["python3", "scripts/openapi_coverage.py"], False, False),

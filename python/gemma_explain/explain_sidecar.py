@@ -42,6 +42,19 @@ BIND = os.environ.get("EMEM_EXPLAIN_BIND", "127.0.0.1:5071")
 MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "160"))
 GEOQA_BASE = os.environ.get("GEOQA_BASE_URL", "http://127.0.0.1:8100").rstrip("/")
 GEOQA_KEY = os.environ.get("GEOQA_API_KEY", "")
+# Gemma, on its own server, rather than Qwen on the neighbour's.
+#
+# This surface answered as qwen2.5-7b through geo.qa's shared stack.
+# Switching it there means a base swap on a card another live product is
+# using, and this file's own docstring warns what that latency costs.
+# :5014 already serves gemma-4-12B-it independently and needs no swap.
+#
+# It also speaks a slightly different dialect: base_model rather than
+# model. One field, and the reason an earlier "replace the qwen api with
+# gemma" change reached the splats bridge and never reached this.
+GEMMA_BASE = os.environ.get("EMEM_EXPLAIN_GEMMA_BASE", "http://127.0.0.1:5014").rstrip("/")
+GEMMA_MODEL = os.environ.get("EMEM_EXPLAIN_GEMMA_MODEL", "google/gemma-4-12B-it")
+USE_GEMMA = os.environ.get("EMEM_EXPLAIN_BACKEND", "gemma") == "gemma"
 GEOQA_MODEL = os.environ.get("EMEM_EXPLAIN_GEOQA_MODEL", "qwen2.5-7b")
 
 SYSTEM = (
@@ -68,10 +81,41 @@ def _digest_ask(ask: dict) -> str:
     return json.dumps({k: v for k, v in keep.items() if v is not None}, ensure_ascii=False)
 
 
+def _explain_gemma(facts: str, ask: dict) -> dict:
+    """Ask gemma-4-12B to reword facts it was handed, and nothing else."""
+    payload = json.dumps({
+        "base_model": GEMMA_MODEL,
+        "family": "gemma",
+        "messages": [{"role": "system", "content": SYSTEM},
+                     {"role": "user", "content": "Signed facts:\n" + facts}],
+        "max_tokens": MAX_TOKENS, "temperature": 0.0, "stream": False,
+    }).encode()
+    r = _req.Request(GEMMA_BASE + "/v1/chat/completions", data=payload, method="POST",
+                     headers={"Content-Type": "application/json"})
+    try:
+        with _req.urlopen(r, timeout=120) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"gemma serving unavailable: {e}", "signed": False}
+    text = ((data.get("choices") or [{}])[0].get("message", {}) or {}).get("content", "").strip()
+    return {
+        "explanation": text,
+        "signed": False,
+        "disclaimer": "Written by gemma-4-12B from emem's already-signed facts. This "
+        "prose is NOT signed and is not a fact: verify the receipt (fact_cids, "
+        "signature) for the ground truth it rewords.",
+        "model": GEMMA_MODEL,
+        "via": "gemma /v1/chat/completions",
+        "source_routed_to": ask.get("routed_to"),
+    }
+
+
 def explain(ask: dict) -> dict:
+    facts = _digest_ask(ask)
+    if USE_GEMMA:
+        return _explain_gemma(facts, ask)
     if not GEOQA_KEY:
         return {"error": "GEOQA_API_KEY not configured for the explain sidecar", "signed": False}
-    facts = _digest_ask(ask)
     payload = json.dumps({
         "model": GEOQA_MODEL,
         "messages": [{"role": "system", "content": SYSTEM},

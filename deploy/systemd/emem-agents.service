@@ -1,0 +1,13 @@
+[Unit]
+Description=ememagentd — autonomous emem arcade agents
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/emem-world/agents
+ExecStart=/usr/bin/python3 /home/ubuntu/emem-world/agents/ememagentd.py
+Restart=on-failure
+RestartSec=20
+
+[Install]
+WantedBy=default.target

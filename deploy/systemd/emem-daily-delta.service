@@ -1,0 +1,12 @@
+[Unit]
+Description=emem.dev daily delta — captures contributors + metrics + runs realdemo
+After=network-online.target emem-server.service
+Requires=emem-server.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/emem
+ExecStart=/home/ubuntu/emem/tools/daily-delta.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=600

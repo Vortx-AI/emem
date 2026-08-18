@@ -1,0 +1,12 @@
+[Unit]
+Description=Run emem-weekly-digest every Monday at 04:23 UTC
+Requires=emem-weekly-digest.service
+
+[Timer]
+# Mon 04:23 — off the on-the-hour herd, far enough from the daily 03:17.
+OnCalendar=Mon *-*-* 04:23:00 UTC
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

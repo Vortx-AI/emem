@@ -1,0 +1,120 @@
+[Unit]
+Description=emem.dev — Earth memory protocol HTTP/MCP server
+# The jepa_v2 sidecar is deliberately NOT pulled in here any more. It holds
+# 6-13 GB of a card shared with the reasoning tier, which is live on the A2A
+# path and refuses to load a base without 12 GB free, and jepa_predict_v2
+# returns persistence_fallback_negative_skill with synthetic_fraction_train
+# 1.0, so it is the tenant we least want resident. `Wants=` resurrected it on
+# every redeploy even while the unit was disabled (restart counter hit 87).
+# The server already degrades gracefully when the socket is absent: see
+# EMEM_SIDECAR_SOCK below. Start it by hand if a jepa_v2 route is needed.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/emem
+# Plain HTTP listener is loopback-only — emem.dev is HTTPS-EXCLUSIVE
+# externally. Port 80 on this host is owned by an unrelated project
+# (Geo.qa Models API on uvicorn), and exposing 5051 publicly would
+# silently route around TLS. Local agents (emem-livedemo on the same
+# box, /v1/demos browsing) still reach the server via 127.0.0.1:5051.
+Environment=EMEM_BIND=127.0.0.1:5051
+Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
+Environment=EMEM_DEMOS_DIR=/home/ubuntu/emem/var/demos
+# Native TLS (Let's Encrypt via TLS-ALPN-01). The binary needs
+# `cap_net_bind_service` to bind :443 as a non-root user — see
+# scripts/redeploy.sh which restores the cap after every rebuild.
+# When the cap is missing, ExecStart fails with `Permission denied
+# (os error 13)` and the unit crash-loops; if you see that in
+# `journalctl --user -u emem-server -n 5`, run scripts/redeploy.sh.
+Environment=EMEM_TLS_DOMAINS=emem.dev,www.emem.dev
+Environment=EMEM_TLS_BIND=0.0.0.0:443
+Environment=EMEM_TLS_CONTACT=mailto:avijeet@vortx.ai
+# Environment=EMEM_TLS_STAGING=1
+Environment=RUST_LOG=info,rustls_acme=info
+# fastembed (sentence transformer for /v1/ask topic routing) loads
+# libonnxruntime.so via ort-load-dynamic from this path. The Microsoft
+# 1.22.0 GPU build at /opt/onnxruntime-1.22.0-cuda12 ships the CUDA
+# execution provider so embedding inference runs on the A100 (~1-2 ms
+# per question vs ~12-18 ms on CPU). LD_LIBRARY_PATH lets the CUDA EP
+# .so resolve its own deps (libcudart, libcublas) + the side-by-side
+# providers .so files. When ORT_DYLIB_PATH is missing or
+# libonnxruntime.so won't load, the topic router silently falls back
+# to model2vec (potion-base-8M, CPU, pure Rust) — see
+# EMEM_TOPIC_BACKEND override.
+Environment=ORT_DYLIB_PATH=/opt/onnxruntime-1.22.0-cuda12/lib/libonnxruntime.so.1.22.0
+Environment=LD_LIBRARY_PATH=/opt/onnxruntime-1.22.0-cuda12/lib:/usr/lib/x86_64-linux-gnu
+# Memory tenancy (2026-07-14). Close the global /memories/ namespace to
+# UNAUTHENTICATED writes: every memory write must carry a valid ed25519
+# `attester` block, which also stops anonymous memory-poisoning of another
+# agent's semantic recall. Belt-and-suspenders alongside the code default
+# (which is now RequireAll in release builds) so the public commons node
+# cannot silently regress to open writes on a future default change. Set
+# EMEM_MEMORY_OPEN=1 to re-open for unattested Anthropic memory-tool clients.
+Environment=EMEM_MEMORY_REQUIRE_ATTESTER=1
+# GPU sidecar — Python process that holds CUDA-resident jepa_v2 (and
+# Phase 3+ V-JEPA 2 / Prithvi). Same %t (XDG_RUNTIME_DIR) socket the
+# sidecar's systemd unit binds. When unreachable, /v1/jepa_predict_v2
+# transparently falls back to the in-process CPU path.
+Environment=EMEM_SIDECAR_SOCK=%t/emem/jepa_sidecar.sock
+Environment=EMEM_SIDECAR_TIMEOUT_MS=10000
+# Google Analytics 4 measurement ID. The repo's web/index.html has a
+# `__EMEM_GA_ID__` placeholder; the responder substitutes this value
+# at startup. Unset to disable GA entirely (the GA <script> blocks
+# get stripped from the HTML at first render).
+Environment=EMEM_GA_MEASUREMENT_ID=G-RBLXX5LR9L
+# WRI Global Drivers of Forest Loss v1.2 (Sims et al. 2025) local cache.
+# One-time download from Zenodo (record 15366671, ~295 MB COG) lets the
+# materializer sample band 1 (driver class 1..7) via the shared
+# `cog::sample_pixel_multi` LZW path through a `file://` URL. Unset to
+# fall back to the honest `NotImplemented` disclosure that the per-cell
+# fetch is blocked by Zenodo's no-Range serving. Bump this when the v1.3
+# release is wired (Zenodo record 19485190).
+Environment=EMEM_WRI_GDM_CACHE=/home/ubuntu/emem/var/emem/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif
+Environment=EMEM_EUDR_BATCH_PATH=1   # /v1/eudr_dds polygon-batched COG reads (1 sample_window per band, not per-cell). Set explicitly even though code default is now true (commit 401c14d) — belt-and-suspenders so a future code-default flip cannot silently regress to the 180s per-cell path.
+# /v1/ask latency floor (2026-06-14). The dispatch-level hard cap on each
+# cold-band materialiser (try_materialize_bands) defaulted to 30s — exactly
+# equal to the /v1/ask budget (EMEM_ASK_TIMEOUT_SECS=30). Zero slack: ONE
+# slow/unavailable cold upstream (CAMS, MODIS LST 8-day, Overture) ran the
+# full 30s and the ask budget fired at the same instant, so every consumer
+# ask returned the empty `incomplete` envelope at 30001ms (see access log).
+# Cap each materialiser at 14s (covers the SoilGrids/ORNL/STAC p95 ~12s the
+# 30s default was sized for) and drop the hot-path retry, so the ask always
+# has >=16s left to synthesise a real signed partial answer from the warm
+# facts + whatever materialised in time. Deferred/timed-out bands still ship
+# as honest materialize_notes + next_steps recall pointers.
+Environment=EMEM_MATERIALIZER_TIMEOUT_SECS=14
+Environment=EMEM_MATERIALIZER_RETRIES=1
+# /v1/ask budget raised 30→40s (2026-06-14). A cold COMPOSITE consumer
+# question (e.g. "how walkable/livable is this area" routes 5 topics inc.
+# flood_risk_composite) runs two bounded phases back-to-back: the cold-band
+# materialise (cap 8 bands, each ≤14s) THEN the temporal recipes (now run
+# concurrently across recipes + bounded by EMEM_ASK_TEMPORAL_BUDGET_SECS=16),
+# ~30s worst case. 40s leaves headroom so these return a real scored answer
+# on the first ask instead of the "fans out across many cold bands" timeout
+# envelope. Both phases stay individually bounded, so 40s is a ceiling not a
+# common hold; re-asking is fast once the cell is warm.
+Environment=EMEM_ASK_TIMEOUT_SECS=40
+Environment=EMEM_ASK_TEMPORAL_BUDGET_SECS=16
+# Cold composite questions need the WHOLE input set in one materialiser wave so
+# the fast bands (CAMS, weather, elevation) land even when the slow ones
+# (Overture, S2, MODIS) hit the 14s cap — otherwise an algorithm-input-first
+# cap of 8 spent the budget on slow bands that all failed, scoring nothing.
+# cap 12 + concurrency 12 (under a global limit of 16) clears 12 cold bands in
+# a single ~14s wave inside the 40s budget; code defaults stay 8/8.
+Environment=EMEM_ASK_COLD_BAND_CAP=12
+Environment=EMEM_MATERIALIZE_CONCURRENCY=12
+Environment=EMEM_MATERIALIZE_GLOBAL_LIMIT=16
+# Per-IP daily quota for the scene.png amplifier endpoint (code default 200).
+# Raised to 60_000 on 2026-05-30 — legitimate consumers (eudr.dev backend,
+# heavy interactive browsing) were hitting the 200/day cap. Still a per-IP
+# ceiling against sustained scraping of the upstream Planetary Computer.
+Environment=EMEM_SCENE_DAILY_QUOTA=60000
+LimitNOFILE=65536
+ExecStart=/home/ubuntu/emem/target/release/emem-server
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

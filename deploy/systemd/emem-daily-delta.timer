@@ -1,0 +1,12 @@
+[Unit]
+Description=Run emem-daily-delta once per day at 03:17 UTC
+Requires=emem-daily-delta.service
+
+[Timer]
+# 03:17 keeps us off the on-the-hour herd.
+OnCalendar=*-*-* 03:17:00 UTC
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

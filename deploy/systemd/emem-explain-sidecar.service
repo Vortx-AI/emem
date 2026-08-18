@@ -1,0 +1,20 @@
+[Unit]
+Description=emem "explain" sidecar — UNSIGNED NL layer over signed facts (thin client -> geo.qa LLM)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/emem-local
+# Thin-client override lives OUTSIDE the public emem repo (Vortx-AI/emem) so the
+# private geo.qa coupling is never committed/pushed. The repo's own
+# explain_sidecar.py stays pristine. geo.qa key + base url + model come from the
+# env file; no GPU, no model load — forwards to the geo.qa serving stack.
+EnvironmentFile=/home/ubuntu/.config/emem/explain.env
+Environment=EMEM_EXPLAIN_BIND=127.0.0.1:5071
+ExecStart=/usr/bin/python3 /home/ubuntu/emem/python/gemma_explain/explain_sidecar.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

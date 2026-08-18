@@ -1,0 +1,12 @@
+[Unit]
+Description=emem.dev weekly digest — contributors + agent_stats + metrics archive
+After=network-online.target emem-server.service
+Requires=emem-server.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/emem
+ExecStart=/home/ubuntu/emem/tools/weekly-digest.sh
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300
