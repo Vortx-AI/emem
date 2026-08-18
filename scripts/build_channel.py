@@ -767,6 +767,11 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
 .gv{margin-left:auto;font-size:var(--t-3xs);color:var(--mute)}
 .grp.contradicts .gv{color:var(--vermilion)}
 .grp.agreed .gv{color:var(--accent)}
+.verdicttag{display:inline-block;font-size:var(--t-3xs);font-family:var(--mono);
+  padding:.1rem .45rem;border-radius:4px;margin:var(--s-1) 0;text-decoration:none;
+  border:1px solid currentColor}
+.verdicttag.contradicts{color:var(--vermilion)}
+.verdicttag.agreed{color:var(--accent)}
 .deskrow{display:grid;grid-template-columns:7rem 1fr auto auto;gap:var(--s-3);align-items:baseline;
   padding:var(--s-2);border-radius:7px;border:1px solid transparent}
 .deskrow:hover{border-color:var(--rule);background:var(--paper-3)}
@@ -1454,6 +1459,7 @@ document.querySelectorAll('.cp').forEach(function(b){
       var key = cell + '|' + band;
       (groups[key] = groups[key] || {cell: cell, band: band, obs: []}).obs.push({
         v: f.value, w: win(f.tslot_window), by: row.by, t: row.t,
+        note: row.note, on: row.on,
         c: typeof f.confidence === 'number' ? f.confidence : null
       });
     });
@@ -1493,6 +1499,27 @@ document.querySelectorAll('.cp').forEach(function(b){
         g.detail = g.obs.length + ' readings across ' + Object.keys(byWin).length + ' time windows';
       }
     });
+    // Tell the transcript what the desk found. A note that took part in a
+    // contradiction should say so where it is read, not only in a panel
+    // above it.
+    setTimeout(function(){
+      list.forEach(function(g){
+        if (g.verdict !== 'contradicts' && g.verdict !== 'agreed') return;
+        g.obs.forEach(function(o){
+          if (!o.note) return;
+          var art = document.getElementById(o.note);
+          if (!art || art.querySelector('.verdicttag')) return;
+          var tag = document.createElement('a');
+          tag.className = 'verdicttag ' + g.verdict;
+          tag.href = '#desk';
+          tag.textContent = (g.verdict === 'contradicts'
+            ? 'contested reading: ' : 'independently confirmed: ') + g.band + ' at ' + g.cell;
+          var head = art.querySelector('.bub header');
+          if (head && head.parentNode) head.parentNode.insertBefore(tag, head.nextSibling);
+        });
+      });
+    }, 0);
+
     var rank = {contradicts: 0, agreed: 1, overtime: 2, single: 3};
     list.sort(function(a, b){ return (rank[a.verdict] - rank[b.verdict]) || (b.obs.length - a.obs.length); });
 
@@ -1506,7 +1533,10 @@ document.querySelectorAll('.cp').forEach(function(b){
           return '<div class="deskrow">' +
             '<div class="dv">' + fmt(o.v) + '</div>' +
             '<div class="dm"><span>' + (o.w ? 'window ' + esc(o.w) : 'no window declared') + '</span></div>' +
-            '<div class="dw">' + esc(o.by) + (o.c !== null ? ' \u00b7 ' + o.c.toFixed(2) : '') + '</div>' +
+            '<div class="dw">' +
+              (o.note ? '<a href="#' + esc(o.note) + '" title="the note that cited this">' + esc(o.by) + '</a>' : esc(o.by)) +
+              (o.on ? ' \u00b7 ' + esc(o.on) : '') +
+              (o.c !== null ? ' \u00b7 ' + o.c.toFixed(2) : '') + '</div>' +
             '<a class="dk" href="/verify?q=' + encodeURIComponent(o.t) + '">check</a>' +
           '</div>';
         }).join('') + '</div>';
@@ -1627,14 +1657,15 @@ def established_panel(notes: list[dict]) -> str:
     in front of the reader, on load.
     """
     tok = re.compile(r"emem:(?:fact|bundle|entity|cell|cube|raster):[A-Za-z0-9.:_-]+")
-    seen: dict[str, str] = {}
+    seen: dict[str, tuple[str, str, str]] = {}
     for n in notes:
         for m in tok.finditer(n.get("content") or ""):
-            seen.setdefault(m.group(0), n["attester"])
+            seen.setdefault(m.group(0), (n["attester"], n.get("cid") or "",
+                                         (n.get("signed_at") or "")[:10]))
     facts = [(k, v) for k, v in seen.items() if k.startswith("emem:fact:")][:64]
     if not facts:
         return ""
-    payload = json.dumps([{"t": k, "by": v} for k, v in facts])
+    payload = json.dumps([{"t": k, "by": v[0], "note": v[1], "on": v[2]} for k, v in facts])
     return f'''<section class="desk" id="desk">
   <h2>What they established</h2>
   <p class="desklede">Every content address the agents below quoted at each
