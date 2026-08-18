@@ -33525,6 +33525,21 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
     if !matches!(verb, "delete" | "str_replace" | "rename") {
         return Ok(());
     }
+    // Bounded, and honest about what that costs.
+    //
+    // This set lives in memory, so a restart empties it and the signature it
+    // was refusing becomes usable again. That is a real window: this responder
+    // restarts several times a day, so the guard closes replay within a
+    // process lifetime and not across one. It is written down rather than
+    // glossed because the alternative is worse right now. Persisting each
+    // signature means another sled write on the write path, and sled write
+    // pressure is the thing currently wedging this server; buying replay
+    // durability with more of it would trade a narrow hole for an outage.
+    //
+    // The cap stops an unbounded set: a signature is only useful to a replayer
+    // while the file it names still exists, and 200k of them is far more
+    // history than any restart interval here.
+    const CAP: usize = 200_000;
     static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<[u8; 32]>>> =
         std::sync::OnceLock::new();
     let seen = SEEN.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
@@ -33541,6 +33556,18 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
         // A poisoned lock must not become an open door.
         Err(e) => e.into_inner(),
     };
+    if guard.len() >= CAP {
+        // Dropping the oldest would need an ordered structure and a write on
+        // every read. Clearing is cruder and its failure mode is the one this
+        // already has: a signature becomes usable again, exactly as it would
+        // after a restart. Loud, so it is not discovered from a graph.
+        tracing::warn!(
+            cap = CAP,
+            "replay guard reached its cap and was cleared; signatures seen before \
+             this point are usable again until they are seen once more"
+        );
+        guard.clear();
+    }
     if !guard.insert(key) {
         return Err(ApiError(
             StatusCode::CONFLICT,
@@ -33568,16 +33595,41 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
 
 /// fsyncs for the durability of one.
 fn flush_off_runtime(tree: &sled::Tree) {
+    // Serialise, because sled's flush is whole-database and N concurrent ones
+    // are N threads waiting on the same fsync.
+    //
+    // The first version of this used block_in_place alone and the wedges
+    // continued: 465 before it, 467 after, with the new snapshot showing
+    // flush_off_runtime -> block_in_place -> exit_runtime -> the same condvar.
+    // block_in_place does not offload work. It converts THIS worker into a
+    // blocking thread and spawns a replacement, so under concurrent writes the
+    // thread count climbs, every new worker takes another write, and each one
+    // blocks in turn. 65 threads and a runtime with nothing left to poll.
+    //
+    // Tree::flush is self.context.pagecache.flush() and the pagecache belongs
+    // to the Db, so a flush already in progress makes every pending write
+    // durable, ours included. A second concurrent flush cannot finish sooner
+    // and cannot promise more. Waiting for the one in flight is therefore not
+    // a compromise, it is the same guarantee for one thread instead of ten.
+    static FLUSHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     let t = tree.clone();
-    let on_worker = matches!(
-        tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()),
-        Ok(tokio::runtime::RuntimeFlavor::MultiThread)
-    );
-    let _ = if on_worker {
-        tokio::task::block_in_place(move || t.flush())
-    } else {
-        t.flush()
+    let run = move || {
+        let _held = match FLUSHING.lock() {
+            Ok(g) => g,
+            // A poisoned lock means a previous flush panicked. Refusing to
+            // flush after that would trade a crash for silent data loss.
+            Err(e) => e.into_inner(),
+        };
+        let _ = t.flush();
     };
+
+    match tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()) {
+        Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(run),
+        // block_in_place panics on a current-thread runtime, which is what
+        // #[tokio::test] builds.
+        _ => run(),
+    }
 }
 
 fn persist_memory_write(
