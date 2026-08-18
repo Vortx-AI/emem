@@ -731,8 +731,11 @@ def display(prefix: str) -> str:
 CHANNEL_CSS = """
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
-body{background:var(--paper);color:var(--ink);font-family:var(--mono);
-  font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased}
+body{background:var(--paper);color:var(--ink);font-family:var(--display);
+  font-size:var(--t-md);line-height:1.6;-webkit-font-smoothing:antialiased}
+/* Where the fixed advance is the point: addresses, values, keys, commands. */
+code,.cid,.cidtag,.key,.dv,.dm span,.pstats dd,.phead b,.ghead code,
+.chip,.mtime,time,kbd,pre{font-family:var(--mono)}
 ::selection{background:var(--accent);color:var(--paper)}
 a{color:var(--accent)}
 /* Content addresses are 26 and 52 character base32 words with no break
@@ -826,7 +829,12 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
    the roster grows every time an agent joins: an unbounded sticky element is a
    page that gets worse on its own. Three rows, and it scrolls. */
 .hd .in{display:flex;gap:var(--s-2);align-items:center;flex-wrap:wrap;
-  max-height:5.2rem;overflow-y:auto;overscroll-behavior:contain}
+  max-height:5.2rem;overflow-y:auto;overscroll-behavior:contain;
+  /* A scroll region cut through the middle of a row reads as a rendering
+     fault rather than as more content. The fade says "there is more" in the
+     one way that needs no explaining. */
+  -webkit-mask-image:linear-gradient(180deg,#000 78%,transparent);
+  mask-image:linear-gradient(180deg,#000 78%,transparent)}
 .chip{display:inline-flex;align-items:center;gap:.35rem;font-size:var(--t-2xs);color:var(--ink-2);
   border:1px solid var(--rule);border-radius:999px;padding:.1rem .5rem;cursor:pointer;user-select:none;
   background:var(--paper-2);transition:opacity .15s ease,border-color .15s ease}
@@ -888,6 +896,11 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .msg.grouped{margin-top:-.1rem}
 .msg.grouped .ava{visibility:hidden}
 .msg.hide{display:none}
+.msg.folded{display:none}
+.loadmore{display:block;width:100%;margin:var(--s-4) 0;padding:var(--s-3);cursor:pointer;
+  font:inherit;font-size:var(--t-sm);color:var(--ink-2);background:var(--paper-2);
+  border:1px dashed var(--rule-strong);border-radius:10px}
+.loadmore:hover{border-style:solid;color:var(--accent);border-color:var(--accent)}
 .bub header{display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap;font-size:var(--t-2xs);margin-bottom:.2rem}
 .nm{font-weight:600;color:var(--ink)}
 .key,.bub time{color:var(--mute);font-size:var(--t-3xs)}
@@ -1318,6 +1331,62 @@ document.querySelectorAll('.cp').forEach(function(b){
       var dot = document.getElementById('pdot');
       if (dot && isFinite(mins) && mins < 60) dot.classList.add('warm');
     }).catch(function(){});
+})();
+
+// 511 messages is 217,000 pixels, which is 241 screens.
+//
+// Measured on the rendered page, not guessed. Nothing is removed: every note
+// is in the HTML, addressable by its cid, and a link to #<cid> still works
+// because the reveal runs before the browser scrolls. What changes is that a
+// reader arrives at the recent end of a correspondence instead of at a wall,
+// which is what a timeline is for.
+//
+// The count is stated rather than hidden. A page that silently shows 60 of 511
+// while claiming to be the transcript is lying by omission, and this one's
+// whole subject is claims you can check.
+(function(){
+  var msgs = Array.prototype.slice.call(document.querySelectorAll('.msg'));
+  var STEP = 60;
+  if (msgs.length <= STEP * 1.5) return;
+  var shown = STEP;
+  // Newest first: the recent end is the live end.
+  msgs.slice(0, msgs.length - shown).forEach(function(m){ m.classList.add('folded'); });
+
+  var bar = document.createElement('button');
+  bar.className = 'loadmore';
+  var stream = document.querySelector('.stream') || document.querySelector('main');
+  var anchor = msgs[msgs.length - shown];
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(bar, anchor);
+  function label(){
+    var left = msgs.length - shown;
+    bar.textContent = left > 0
+      ? 'show ' + Math.min(STEP, left) + ' earlier notes  ·  ' + left + ' of ' + msgs.length + ' still folded'
+      : '';
+    if (left <= 0) bar.remove();
+  }
+  bar.addEventListener('click', function(){
+    var left = msgs.length - shown;
+    var take = Math.min(STEP, left);
+    for (var i = 0; i < take; i++) msgs[msgs.length - shown - 1 - i].classList.remove('folded');
+    shown += take;
+    var next = msgs[msgs.length - shown];
+    if (next && next.parentNode) next.parentNode.insertBefore(bar, next);
+    label();
+  });
+  label();
+
+  // A deep link must still land. Reveal everything before the browser scrolls
+  // to a fragment, otherwise #<cid> silently does nothing for older notes.
+  function revealAll(){
+    msgs.forEach(function(m){ m.classList.remove('folded'); });
+    shown = msgs.length; label();
+  }
+  if (location.hash) revealAll();
+  window.addEventListener('hashchange', revealAll);
+  document.addEventListener('click', function(e){
+    var a = e.target.closest && e.target.closest('a[href^="#"]');
+    if (a) revealAll();
+  }, true);
 })();
 
 // The desk. Every citation on this page, dereferenced on load, grouped by
