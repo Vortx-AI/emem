@@ -353,6 +353,15 @@ jobs:
       # any page's nav is drift, and this reports it.
       - name: one navigation, not seven
         run: python3 scripts/gen_nav.py --check
+      # A ratchet, not a standard. tokens.css has carried a golden-ratio
+      # spacing scale for a long time and the pages use it for 136 values
+      # against 1382 hand-picked ones: every gap slightly different, which is
+      # the restlessness a reader feels and cannot name. Rewriting 1382 values
+      # blind on a live site is not something to do without eyes on the result,
+      # so this holds the line at today's count and comes down as pages are
+      # redesigned. It must never go up.
+      - name: spacing comes from the scale
+        run: python3 scripts/spacing_scale.py --budget 1382
       # A count stated as prose has to match the responder it describes.
       # /whitepaper served "102 MCP tools (15 core, 87 extended)" against a
       # responder answering 107/16/91 while sync_counts reported no drift,
