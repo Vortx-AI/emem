@@ -2153,7 +2153,7 @@ async function latLoad(){
     }
   }catch(e){/* the bridge may strip _meta; the responder's own door still has it */}
   try{
-    /* /mcp/full, not /mcp: the core profile advertises 16 of 107 tools and the
+    /* /mcp/full, not /mcp: the core profile advertises 16 of 108 tools and the
        missions call well outside that set */
     const r=await fetch(REST.base+'/mcp/full',{method:'POST',
       headers:{'content-type':'application/json'},

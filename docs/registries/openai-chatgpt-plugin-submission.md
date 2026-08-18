@@ -99,7 +99,7 @@ Facts survive context compaction, model swaps, and agent handoffs.
 
 Use cases: climate risk, deforestation detection, flood mapping, wildfire tracking, 
 agricultural monitoring, multi-agent coordination, audit-grade reporting.
-104 tools. Apache 2.0.
+108 tools. Apache 2.0.
 ```
 
 ### 3. Content Security Policy
@@ -190,7 +190,7 @@ all reviewer-relevant flows are read-only and require no credentials.
 **Release notes for first submission:**
 ```
 Initial submission. emem is a no-auth, read-only (for reviewers) MCP server providing 
-Ed25519-signed, BLAKE3 content-addressed Earth observation facts. 104 tools covering 
+Ed25519-signed, BLAKE3 content-addressed Earth observation facts. 108 tools covering 
 air quality, vegetation, flood, fire, elevation, deforestation, and multi-agent memory 
 token composition. Apache 2.0. No API key required.
 ```

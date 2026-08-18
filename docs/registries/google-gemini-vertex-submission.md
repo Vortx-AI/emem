@@ -74,7 +74,7 @@ Ed25519-signed, BLAKE3 content-addressed fact with an offline-verifiable receipt
 
 No API key, no signup, no rate limits for reads.
 
-**Tools exposed:** 104 MCP tools including emem_locate, emem_recall, emem_ask,
+**Tools exposed:** 108 MCP tools including emem_locate, emem_recall, emem_ask,
 emem_memory_token, emem_deforestation_alert, emem_burn_severity, emem_band_raster.
 
 **Use cases:** climate risk, deforestation detection, flood mapping, wildfire tracking,

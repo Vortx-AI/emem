@@ -24,7 +24,7 @@ numbers move.
 - Endpoint: `https://emem.dev/mcp`, MCP Streamable HTTP (2025-03-26).
   `/mcp` advertises the 14-tool core loop; `/mcp/full` lists all 102;
   `tools/call` dispatches every tool by name at either endpoint.
-- 94 MCP tools (14 core, 80 extended), 18 static resources + 8 URI
+- 108 MCP tools (16 core, 92 extended), 20 static resources + 9 URI
   templates, 114 REST paths under `/v1/*`.
 - Auth posture: reads are open, no key, no account; writes are
   authenticated by an ed25519 signature on the request body.
@@ -40,7 +40,7 @@ numbers move.
 > [emem](https://emem.dev) ([repo](https://github.com/Vortx-AI/emem)):
 > shared, verifiable memory of the physical world for AI agents. Every
 > place resolves to one signed, content-addressed record; every read
-> returns an ed25519 receipt that verifies offline. 94 MCP tools, 124
+> returns an ed25519 receipt that verifies offline. 108 MCP tools, 129
 > wired Earth-observation measurements (Sentinel-1/2, MODIS, ERA5,
 > JRC GSW, Hansen GFC, SoilGrids, Open-Meteo), no API key to read.
 > Streamable HTTP at `https://emem.dev/mcp`.

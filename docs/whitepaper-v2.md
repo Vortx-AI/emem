@@ -1302,7 +1302,7 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **8 of 102 tools are write
+responder refutes it from its own annotations: **8 of 108 tools are write
 tools**. `memory_create`, `memory_str_replace`, `memory_insert`,
 `memory_delete`, and `memory_rename` are destructive; `emem_entity`,
 `emem_entity_link`, and `emem_derive` are non-destructive writes. An
@@ -1738,7 +1738,7 @@ than discovering it through a failed signature.
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
 | §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **8 of 108 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
-| §15: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
+| §15: 93 documented REST paths under `/v1/*` (96 total), 92 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 16.2 Claims in v1's supporting material this document withdraws
 

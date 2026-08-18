@@ -44,7 +44,7 @@ The same content surfaces are reachable to agents via:
 
 - `GET /openapi.json`: full REST surface (browseable at [/docs/api/](/docs/api/) via ReDoc)
 - `POST /mcp` `tools/list` returns the 16 core tools by default, so a host's context carries about 66 KB of descriptors instead of 288 KB; `POST /mcp/full` advertises all 108 (16 core, 92 extended), and `{"tier":"core"|"extended"|"all"}` overrides either default. `tools/call` dispatches all 108 by name at both endpoints, so narrowing discovery removes no capability. `emem_tools` maps the surface: every tool declares one `dev.emem/shape` (the form of the answer: `scalar`, `raster`, `identity`, `token`, `proof`, and so on) and any number of overlapping `dev.emem/bundles` (the job: `tokenisation`, `verification`, `agent_to_agent`, `robotics`, …) in MCP-standard `_meta`, and both are filters
-- `POST /mcp` `resources/list`: 18 resources + 8 URI templates (memory anchors include `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`)
+- `POST /mcp` `resources/list`: 20 resources + 8 URI templates (memory anchors include `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`)
 - `GET /llms.txt`, `GET /skills.md`
 - `GET /agent.json`, `GET /ai-plugin.json`
 - `GET /sitemap.xml`

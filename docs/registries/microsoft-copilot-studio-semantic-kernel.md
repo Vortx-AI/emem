@@ -161,7 +161,7 @@ This lists emem in **Copilot Studio + Azure Foundry**, broader than M365 Copilot
   },
   "description": {
     "short": "Signed, cite-able Earth observation facts for any place. No API key.",
-    "full": "emem is shared, verifiable memory for AI agents grounded in Earth observation. Recall Ed25519-signed, BLAKE3 content-addressed facts about air quality, vegetation, flood extent, fire severity, elevation, and deforestation for any place on Earth. No API key, no signup, no rate limits for reads. Every response includes an offline-verifiable receipt. 104 MCP tools. Apache 2.0."
+    "full": "emem is shared, verifiable memory for AI agents grounded in Earth observation. Recall Ed25519-signed, BLAKE3 content-addressed facts about air quality, vegetation, flood extent, fire severity, elevation, and deforestation for any place on Earth. No API key, no signup, no rate limits for reads. Every response includes an offline-verifiable receipt. 108 MCP tools. Apache 2.0."
   },
   "agentConnectors": [
     {

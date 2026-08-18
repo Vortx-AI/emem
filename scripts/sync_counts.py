@@ -309,6 +309,99 @@ COUNT_HISTORY = (
     "whitepaper-v2.html",
 )
 
+# The inverted check: a number nothing watches must not pass by default.
+#
+# PROSE_CLAIMS below matches known phrasings, and a phrasing nobody listed was
+# silently fine. That is how "58 MCP tools" survived months on a served page,
+# and how /reference read 122 against a live 157 while this gate reported no
+# drift. Listing more phrasings does not fix it, because the next one is also
+# unlisted.
+#
+# So this sweeps for any count near a canonical one and treats the near miss as
+# the tell. A number far from canon is usually a real subset ("the 16-tool core
+# loop"), and one within a few percent is almost always the total, gone stale:
+# 104, 107 and 102 tools against 108, 89 and 81 against 92, 18 resources
+# against 20. Fourteen such claims were live when this was written and every
+# one was wrong.
+#
+# Each family lists the counts legitimately claimable for that noun, so a
+# genuine subset does not trip it.
+NEAR_MISS_FAMILIES = (
+    (r"(?:MCP\s+)?tools?", ("mcp_tools", "mcp_core", "mcp_extended")),
+    (r"bands?", ("cube_slots",)),
+    (r"algorithms?", ("algorithms",)),
+    (r"materializers?", ("materializer_wired",)),
+    (r"(?:static\s+)?(?:MCP\s+)?resources?", ("mcp_resources",)),
+)
+
+# Files whose numbers are a record of a moment rather than a claim about now.
+# Distinct from COUNT_HISTORY, which is about whole files being historical:
+# these are documents that reason about the surface as it stood when written.
+#
+# This list is meant to stay short. It briefly carried upstream-readme.md, a
+# 737 KB copy of somebody else's catalog sitting in the repo root, and that
+# entry was the only thing referencing the file: an exclusion written to keep
+# a gate quiet about a file nobody needed. Deleting the file was the fix.
+NEAR_MISS_RECORDS = (
+    "AGENT_HANDOFF_",     # dated handoffs between agents
+    "docs/plans/",        # a plan argues from the surface it was written against
+)
+
+
+def near_miss_claims(canon):
+    """Counts close enough to a canonical value to be a stale statement of it."""
+    import re as _re
+
+    out = []
+    targets = (
+        sorted(REPO.glob("docs/**/*.md"))
+        + sorted(REPO.glob("web/*.html"))
+        + sorted(REPO.glob("web/*.txt"))
+        + [REPO / "README.md", REPO / "AGENTS.md"]
+    )
+    for path in targets:
+        if not path.exists():
+            continue
+        s = str(path.relative_to(REPO))
+        if any(r in s for r in NEAR_MISS_RECORDS):
+            continue
+        # A filename carrying an ISO date is a record of that date. The
+        # friction logs and pagination notes are written as observations made
+        # on a day, and their numbers are the observation.
+        if re.search(r"-20\d\d-\d\d-\d\d(?:\.|$)", path.name):
+            continue
+        if any(h in path.name for h in COUNT_HISTORY):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for noun, keys in NEAR_MISS_FAMILIES:
+            oks = [canon[k] for k in keys if isinstance(canon.get(k), int)]
+            if not oks:
+                continue
+            for m in _re.finditer(rf"\b(\d{{2,4}})\s+(?:[a-z-]+\s+){{0,2}}?{noun}\b", text):
+                n = int(m.group(1))
+                if n in oks:
+                    continue
+                near = [o for o in oks if abs(n - o) <= max(3, o * 0.15)]
+                if not near:
+                    continue
+                lead = text[max(0, m.start() - 40):m.start()]
+                # "70 of the then-102 tools" is a record, not a claim.
+                if "then-" in lead or "was " in lead or "were " in lead:
+                    continue
+                # A withdrawal table quotes the old claim in its left column
+                # and corrects it in the right: `| §17: 81 MCP tools | **108**`.
+                # The stale number is the point of the row.
+                line_start = text.rfind("\n", 0, m.start()) + 1
+                line = text[line_start:text.find("\n", m.start())]
+                if line.lstrip().startswith("| §") and "**" in line:
+                    continue
+                out.append((s, m.group(0).strip().replace("\n", " "), n, near[0]))
+    return out
+
+
 # Prose that asserts a canonical quantity as a fact about this responder. Each
 # pattern names one CANON key and one way the docs phrase it.
 PROSE_CLAIMS = (
@@ -568,14 +661,15 @@ def verify_prose_counts() -> list[str]:
 # line, `<script type=application/ld+json>` near the top of web/index.html:
 # "the 15 core tools" -> 16, "all 105 registered" -> 107. web/*.html is
 # include_str!-baked, so it needs a rebuild and a restart to reach the site.
-PROSE_ONLY_CLAIMS = frozenset([r"(\d{1,3})\s+core tools\b"])
+# An exemption set here held one pattern kept out of the script-prose sweep. It
+# was emptied on 2026-08-18 because the gate said so: it checks whether its own
+# exemptions still suppress anything, and this one had stopped. An exemption
+# nobody can name a reason for is a hole waiting for a number to fall through.
 
 # The trailing-number form. PROSE_CLAIMS reads "168 algorithms"; the arcade
 # writes "archetype algorithms - 168 content-addressed recipes", with the noun
 # first, which none of those patterns can match.
-SCRIPT_PROSE_CLAIMS = tuple(
-    (k, p) for k, p in PROSE_CLAIMS if p not in PROSE_ONLY_CLAIMS
-) + (
+SCRIPT_PROSE_CLAIMS = tuple(PROSE_CLAIMS) + (
     ("algorithms", r"(\d{2,4})\s+content-addressed recipes\b"),
     ("algorithms", r"\balgorithms\s*[—–:-]\s*(\d{2,4})\b"),
 )
@@ -584,7 +678,7 @@ SCRIPT_PROSE_CLAIMS = tuple(
 def _script_prose_hits(claims) -> list[str]:
     """verify_script_prose_counts, over an arbitrary claim table.
 
-    Split out so PROSE_ONLY_CLAIMS can be asked the one question that keeps an
+    Split out so the script-prose surfaces can be asked the one question that keeps an
     exclusion honest: would removing it change anything today.
     """
     hits: list[str] = []
@@ -693,7 +787,15 @@ def verify_canon() -> list[str]:
     drift.extend(verify_prose_version())
     drift.extend(verify_package_versions())
     drift.extend(verify_count_history())
-    drift.extend(verify_prose_only_claims())
+    # Numbers no pattern above is watching. Everything before this checks
+    # phrasings somebody thought to list; this catches the ones nobody did.
+    for rel, span, said, live_n in near_miss_claims(CANON):
+        drift.append(
+            f"{rel}: \"{span}\" reads as a stale {live_n}. If it means the "
+            f"whole surface it is wrong by {abs(live_n - said)}; if it is a "
+            f"record of when it was written, say \"then-{said}\" or move the "
+            f"file under NEAR_MISS_RECORDS."
+        )
     return drift
 
 
@@ -848,29 +950,6 @@ STALE_PHRASES = {
                                  "7 of 10 corrections were made",
                                  "A week of agents"],
 }
-
-
-def verify_prose_only_claims() -> list[str]:
-    """PROSE_ONLY_CLAIMS has to still be buying something, and still be real.
-
-    This is the only exemption in this file that keeps a pattern away from a
-    surface on purpose, so it gets the treatment every other exemption here
-    gets: it fails if it names a pattern PROSE_CLAIMS does not carry, and it
-    fails once the drift it was written for is gone. An exemption that stops
-    exempting anything is worse than none, because the next reader takes it as
-    evidence the surface was considered and found fine.
-    """
-    hits = []
-    for pat in sorted(PROSE_ONLY_CLAIMS):
-        if not any(p == pat for _, p in PROSE_CLAIMS):
-            hits.append(f"PROSE_ONLY_CLAIMS holds {pat!r}, which PROSE_CLAIMS does "
-                        f"not carry; the exclusion excludes nothing.")
-    still_needed = [(k, p) for k, p in PROSE_CLAIMS if p in PROSE_ONLY_CLAIMS]
-    if still_needed and not _script_prose_hits(still_needed):
-        hits.append("PROSE_ONLY_CLAIMS no longer suppresses any finding: the "
-                    "script-prose surfaces it was written around are clean. "
-                    "Delete the set and let the patterns run everywhere.")
-    return hits
 
 
 def verify_count_history() -> list[str]:
