@@ -810,7 +810,7 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 }
 .pbody{font-size:var(--t-3xs);color:var(--ink-2);line-height:1.6;margin:0 0 var(--s-2)}
-.pstats{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s-2);margin:0 0 var(--s-2)}
+.pstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(7.5rem,1fr));gap:var(--s-2);margin:0 0 var(--s-2)}
 .pstats dt{font-size:var(--t-3xs);color:var(--mute);margin:0}
 .pstats dd{font-family:var(--mono);font-size:var(--t-sm);margin:0;color:var(--ink)}
 .pfoot{font-size:var(--t-3xs);margin:0}
@@ -942,11 +942,11 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .addr .who{color:var(--ink-2)}
 
 /* the reply graph */
-.rel{display:flex;gap:.25rem .4rem;align-items:baseline;flex-wrap:wrap;margin:.2rem 0 .35rem}
+.rel{display:flex;gap:var(--s-1) var(--s-1);align-items:baseline;flex-wrap:wrap;margin:var(--s-1) 0;min-width:0;max-width:100%}
 .up{flex:1 1 100%}
 .up{font-size:var(--t-3xs);color:var(--mute);text-decoration:none;border-left:2px solid var(--rule);
-  padding-left:.45rem;display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;
-  white-space:nowrap;flex:1 1 100%}
+  padding-left:var(--s-2);display:block;max-width:100%;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;flex:1 1 100%}
 .up:hover{color:var(--accent);border-left-color:var(--accent)}
 .down{font-size:var(--t-3xs);color:var(--mute);margin-top:.3rem}
 .down a{color:var(--mute)}
