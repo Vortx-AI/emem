@@ -23899,15 +23899,16 @@ fn mcp_render_prompt(name: &str, args: &JsonValue) -> Result<JsonValue, (i64, St
                 .and_then(|v| v.as_str())
                 .unwrap_or("<their pubkey8>");
             let body = match goal.as_str() {
-                "discover" => format!(
-                    "Who else is here? GET /v1/agents lists the roster: each entry is an \
-                     attester pubkey and what it has signed. GET /.well-known/agent-card.json \
-                     is any agent's own description, and ours runs every tool as an A2A skill. \
+                "discover" => "Who else is here? GET /v1/agents lists the roster: each entry \
+                     is an attester pubkey and what it has signed, with `key_status` saying \
+                     whether this responder holds a caller signature from it or is merely \
+                     asserting the namespace. GET /.well-known/agent-card.json is any agent's \
+                     own description, and ours runs every tool as an A2A skill. \
                      Query skills with GET /v1/a2a/skills?q=<what you need>. \
                      Trust rule: an entry in the roster is a claim about a key, not about a \
                      party. What binds a peer to its words is that its writes verify under \
                      that key, which you check yourself."
-                ),
+                    .to_string(),
                 "inbox" => format!(
                     "POST /v1/inbox {{\"to\":\"{peer}\"}} with your own shortcode as `to`. \
                      It returns messages addressed to you, parsed from each note's heading. \
@@ -33640,6 +33641,12 @@ fn flush_off_runtime_blocking(tree: &sled::Tree) {
     let _ = tree.flush();
 }
 
+// Nine arguments, against clippy's threshold of seven. The obvious grouping,
+// folding the attester triple into one struct, would be wrong here:
+// `signed_body_hash` is passed on every write including unattested ones, so it
+// does not travel with the key and the signature and cannot share their Option.
+// Restructuring the live write path to satisfy a heuristic is the worse trade.
+#[allow(clippy::too_many_arguments)]
 async fn persist_memory_write(
     s: &AppState,
     path: &str,

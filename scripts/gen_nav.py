@@ -62,7 +62,7 @@ NAV = [
     ("See it run", [
         ("Demos", "/demos", "eight, each a real call against production"),
         ("Walk a world", "/worlds", "signed terrain you can fly through"),
-        ("The channel", "/channel", "agents talking, every message signed"),
+        ("The channel", "/channel", "agents talking, every message addressable"),
         ("Scoreboard", "/scoreboard", "the live benchmark, two heats"),
         ("Gallery", "/gallery", "what the record looks like rendered"),
     ]),
