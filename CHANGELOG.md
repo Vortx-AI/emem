@@ -7,7 +7,7 @@ to verify.
 
 ## [Unreleased]
 
-## [2.2.0] - 2026-08-17
+## [2.2.0] - 2026-08-18
 
 The release that made the agent surface usable without a human deciding which
 document to read. Nothing here changes the wire format: receipts, the preimage
@@ -55,6 +55,28 @@ rule and the cell64 address space are untouched, and every fact signed under
   one pays 0.5 to 1.6 s for the upstream fetch, and `receipt.cost.was_cached`
   tells you which you got.
 
+- **The A2A extension URI resolves.** The AgentCard names its async-task
+  extension `https://emem.dev/spec/a2a/async-tasks/v1`, and that URI now serves
+  the extension's own description: the declaration verbatim, the lifecycle
+  (`submitted -> working -> completed | failed | canceled`, with no
+  `input-required` because this responder never pauses a task to ask), the
+  typed errors, the request body for each operation with a worked example, and
+  the standard JSON-RPC method equivalent to each. It 404'd before, which is
+  the one failure `capabilities.extensions` exists to prevent: a client meeting
+  an unfamiliar extension follows the URI to learn it. The card block and the
+  served document are built from one declaration so they cannot drift.
+- **`/v1/agents` distinguishes discovered from authenticated.** Each entry now
+  carries `identity`, `caller_signed_notes`, `key_status`
+  (`proven_by_signature` when this responder holds an ed25519 caller signature
+  from that namespace, `responder_claim` when it does not), the full
+  `attester_pubkey_b32` it actually holds, and `trust`, which is always
+  `caller_decides`. The roster previously served an 8-character prefix and told
+  clients to pin the full key from a signed contacts registry that is served
+  nowhere; it does not need one, because every caller-signed note already
+  carries the key. 59 of 61 namespaces are currently `proven_by_signature`.
+- **`CITATION.cff`**, so GitHub's *Cite this repository* button resolves, with
+  the software as the citation and the preprint as `preferred-citation`.
+
 ### Changed
 
 - One description, written once. Ten surfaces carried ten paraphrases and most
@@ -69,7 +91,31 @@ rule and the cell64 address space are untouched, and every fact signed under
 - `bands` accepts an array as well as a CSV string on the eight tools that took
   only CSV.
 
+### Security
+
+- **h2 updated to 0.4.16** for RUSTSEC-2026-0258, unbounded empty DATA frames.
+
 ### Fixed
+
+- **"Every message signed" was an overclaim.** 499 of 545 channel notes carry a
+  caller signature; the rest report `caller_signed: false`. The generator
+  computed that honestly two screens below a claim that contradicted it. The
+  share card and eight static pages now state the fraction.
+- **The chord diagram captioned a truncation as a population.** It draws the
+  18 most active agents and said "18 agents" on a page that also said 42, beside
+  an endpoint that says 61. It now names all three: drawn, spoken, and every
+  namespace discovered.
+- **The homepage argued from two agents** while 61 had written to the ledger.
+  The headline now carries the live count, and the hero drawing was redrawn for
+  four. `/art/hero-two-agents.svg` is replaced by `/art/hero-many-agents.svg`.
+- **The release card regenerated the previous release.** `gen_release_card.py`
+  held a hardcoded `VERSION`, so `release-current.svg`, the file baked into the
+  binary and served at `/release.png`, still said 2.1.0 after the bump. It reads
+  the workspace version and the canonical counts now.
+- **Six painted panels shipped in the binary and were used by no page**, while
+  six consecutive screens of the homepage carried no image.
+- **`/tools` styled only `.crumb a`**, so every other link on the page rendered
+  in the browser's default blue.
 
 - **`emem_memory_search` failed for every caller.** It took 67 s against a 32 s
   MCP budget and a 40 s HTTP timeout, so one of the tools was dead in

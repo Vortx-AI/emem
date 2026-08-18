@@ -14,13 +14,34 @@ can be posted anywhere a social preview is expected.
 """
 import math
 import os
+import re
 import sys
+
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _mithila_svg as M
 from _mithila_svg import Svg
 
-VERSION = "2.1.0"
+def _workspace_version() -> str:
+    """The one place a version is allowed to live. A constant here silently
+    regenerates the previous release's card; that is how release-current.svg
+    still said 2.1.0 after the 2.2.0 bump, on the file served at /release.png."""
+    txt = open(os.path.join(_ROOT, "Cargo.toml"), encoding="utf-8").read()
+    m = re.search(r'^version\s*=\s*"([^"]+)"', txt, re.M)
+    if not m:
+        raise SystemExit("gen_release_card: no version in Cargo.toml")
+    return m.group(1)
+
+
+def _canon(key: str) -> int:
+    """sync_counts owns the counts and gates them against the live node."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from sync_counts import CANON
+    return CANON[key]
+
+
+VERSION = _workspace_version()
 
 # The nine shapes, in the order the reference lists them. `strong` is the one
 # claim this release made precise: only emem:fact: hashes the complete body at
@@ -96,13 +117,13 @@ def build():
     s.text(78, 274, "verifiable memory for", 25, M.INK, font=M.MONO)
     s.text(78, 308, "agents and machines.", 25, M.INK, font=M.MONO)
 
-    s.text(78, 366, "+ emem-guard: signed allow/deny, 9 checkpoints", 15, M.INK_SOFT, font=M.MONO)
-    s.text(78, 392, "+ outputSchema on 11 tools, only where kept", 15, M.INK_SOFT, font=M.MONO)
-    s.text(78, 418, "· only emem:fact: binds the whole body", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 366, "+ an intent registry: a need maps to one call", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 392, "+ A2A message/stream, tasks, a signed mailbox", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 418, "\u00b7 only emem:fact: binds the whole body", 15, M.INK_SOFT, font=M.MONO)
 
     s.seal(90, 486, 10, fill=M.LEAF)
     s.text(112, 492, "emem.dev", 22, M.INK, font=M.MONO, weight="bold")
-    s.text(78, 536, "107 tools · 168 algorithms · no key to read", 14, M.INK_SOFT, font=M.MONO)
+    s.text(78, 536, f"{_canon('mcp_tools')} tools \u00b7 {_canon('algorithms')} algorithms \u00b7 no key to read", 14, M.INK_SOFT, font=M.MONO)
     return s
 
 
