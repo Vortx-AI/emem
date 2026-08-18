@@ -239,7 +239,17 @@ SKIP = {# channel.html was skipped for "owning its markup". It did own it, and i
         # was written, because a skipped page with no link out is a dead end
         # and the nav exists precisely to prevent that.
         "arcade.html": "a full-bleed 3D stage; a document nav bar would sit on "
-                       "top of the globe, so it carries its own link home"}
+                       "top of the globe, so it carries its own link home",
+        # Not a page anyone browses to. It is the MCP Apps view (SEP-1865) a
+        # host renders inside a conversation, sized to a chat pane and loaded
+        # under a CSP that blocks every external request, which is why its
+        # blake3 and ed25519 are compiled in rather than fetched. A site nav
+        # would offer a reader links their host cannot follow. Checked when
+        # this exemption was written, because a skipped page with no link out
+        # is a dead end: the card renders an "open the offline verifier" link
+        # to emem.dev alongside the two commands that re-check it elsewhere.
+        "mcp-fact-card.html": "an MCP Apps view rendered inside a host "
+                              "conversation, not a page on this site"}
 
 
 def main():

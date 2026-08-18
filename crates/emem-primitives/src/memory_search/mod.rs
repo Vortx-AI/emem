@@ -618,19 +618,16 @@ async fn build_hits_from_indexed(
     out
 }
 
-/// Pick the best 200-char window in `text` against `query_vec`.
+/// Pick the 200 characters of a hit worth showing.
 ///
 /// Algorithm:
 /// 1. If the file is shorter than the window, return the whole thing.
-/// 2. Otherwise split into the same chunks the indexer used, embed each
-///    one, find the chunk with the highest cosine to the query.
-/// 3. Within that chunk, slide a fixed window and pick the substring
-///    around the start of the strongest match. We use a simple heuristic
-///    here: centre on the chunk's first non-stopword that also appears
-///    in the query (case-folded substring); if none, centre on the
-///    middle of the chunk. Wrap the result with `[...]` ellipses when
-///    we trimmed the start/end of the chunk.
-/// Pick the 200 characters of a hit worth showing.
+/// 2. Otherwise split into the same chunks the indexer used and score each
+///    by how much of the query it contains, damped by chunk length the way
+///    BM25 damps by document length.
+/// 3. Within the winning chunk, centre the window on its first term that
+///    also appears in the query (case-folded substring); if none, centre on
+///    the middle of the chunk. Wrap with `[...]` when the ends were trimmed.
 ///
 /// This used to embed EVERY chunk of every returned file to choose one, which
 /// is neural inference paid for a preview. It dominated the endpoint: a query
