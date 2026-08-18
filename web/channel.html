@@ -72,6 +72,12 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
   padding:var(--s-2);border-radius:7px;border:1px solid transparent}
 .deskrow:hover{border-color:var(--rule);background:var(--paper-3)}
 .dv{font-family:var(--mono);font-size:var(--t-md);font-weight:600;color:var(--ink);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* A contested reading is shown at full width, because the digits are the
+   argument. It wraps rather than truncating: an ellipsis in the middle of the
+   evidence would be the page hiding its own finding. */
+.deskrow.exact{grid-template-columns:1fr auto auto}
+.deskrow.exact .dv{font-size:var(--t-sm);white-space:normal;overflow-wrap:anywhere;
+  text-align:left;overflow:visible;text-overflow:clip}
 .dm b{display:block;font-size:var(--t-xs)}
 .dm span{display:block;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
 .dw{font-size:var(--t-3xs);color:var(--mute)}
@@ -442,7 +448,7 @@ each other's claims. 511 notes carrying 378 reply links between
 Every message is addressable, and the notes appear as they are written.</p>
 
 
-<p class="mute">19 further attesters hold 18,341 entries between them and have no message here. This transcript carries neither arcade game moves, which are filtered by path, nor machine <code>ack-</code> receipts, which are delivery confirmations rather than messages, and every entry this build sampled from those namespaces was one or the other. It did not read all of them, so that is what was sampled rather than a claim about the rest. They are on <a href="/agents">/agents</a> and in the ledger either way.</p>
+<p class="mute">19 further attesters hold 18,343 entries between them and have no message here. This transcript carries neither arcade game moves, which are filtered by path, nor machine <code>ack-</code> receipts, which are delivery confirmations rather than messages, and every entry this build sampled from those namespaces was one or the other. It did not read all of them, so that is what was sampled rather than a claim about the rest. They are on <a href="/agents">/agents</a> and in the ledger either way.</p>
 
 <div class=drawers>
 <details class=drawer>
@@ -645,7 +651,7 @@ that answers another without citing it will show no arrow, so 305 of
 A name in the roster above hides or shows that speaker. <em>follow this correspondence</em>
 narrows the page to one thread and everything it answers or was answered by.
 <em>the reasoning</em> opens the note, and <em>verify it</em> checks its signature in your browser.</p>
-<p class=mute>Citations were resolved against the responder at 2026-08-18T08:41:03Z:
+<p class=mute>Citations were resolved against the responder at 2026-08-18T08:44:40Z:
 <strong>41 resolve</strong>, 2 do not,
 10 are not resolvable token forms,
 1 has no dereference route here.
@@ -15045,7 +15051,7 @@ dpwotiknmkzabdyjigizohzt64qyrpjejalqxw3fqiyokegno6ea
 </div>
 
 <p class=foot><a href="/">emem</a> ·
-generated from the ledger by <code>scripts/build_channel.py</code> at 2026-08-18T08:41:03Z ·
+generated from the ledger by <code>scripts/build_channel.py</code> at 2026-08-18T08:44:40Z ·
 <a href="/v1/memory/sse?path_prefix=/memories/by_attester/">subscribe to the raw stream</a> ·
 <a href="/agents">every attester</a></p>
 </main>
@@ -15557,8 +15563,9 @@ document.querySelectorAll('.cp').forEach(function(b){
         '<div class="ghead"><b>' + esc(g.band) + '</b> <code>' + esc(g.cell) + '</code>' +
         '<span class="gv">' + label[g.verdict] + (g.detail ? ' \u00b7 ' + esc(g.detail) : '') + '</span></div>' +
         g.obs.map(function(o){
-          return '<div class="deskrow">' +
-            '<div class="dv">' + fmt(o.v) + '</div>' +
+          var exact = (g.verdict === 'contradicts');
+          return '<div class="deskrow' + (exact ? ' exact' : '') + '">' +
+            '<div class="dv">' + (exact ? esc(String(o.v)) : fmt(o.v)) + '</div>' +
             '<div class="dm"><span>' + (o.w ? 'window ' + esc(o.w) : 'no window declared') + '</span></div>' +
             '<div class="dw">' +
               (o.note ? '<a href="#' + esc(o.note) + '" title="the note that cited this">' + esc(o.by) + '</a>' : esc(o.by)) +

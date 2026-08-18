@@ -776,6 +776,12 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
   padding:var(--s-2);border-radius:7px;border:1px solid transparent}
 .deskrow:hover{border-color:var(--rule);background:var(--paper-3)}
 .dv{font-family:var(--mono);font-size:var(--t-md);font-weight:600;color:var(--ink);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+/* A contested reading is shown at full width, because the digits are the
+   argument. It wraps rather than truncating: an ellipsis in the middle of the
+   evidence would be the page hiding its own finding. */
+.deskrow.exact{grid-template-columns:1fr auto auto}
+.deskrow.exact .dv{font-size:var(--t-sm);white-space:normal;overflow-wrap:anywhere;
+  text-align:left;overflow:visible;text-overflow:clip}
 .dm b{display:block;font-size:var(--t-xs)}
 .dm span{display:block;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
 .dw{font-size:var(--t-3xs);color:var(--mute)}
@@ -1530,8 +1536,9 @@ document.querySelectorAll('.cp').forEach(function(b){
         '<div class="ghead"><b>' + esc(g.band) + '</b> <code>' + esc(g.cell) + '</code>' +
         '<span class="gv">' + label[g.verdict] + (g.detail ? ' \u00b7 ' + esc(g.detail) : '') + '</span></div>' +
         g.obs.map(function(o){
-          return '<div class="deskrow">' +
-            '<div class="dv">' + fmt(o.v) + '</div>' +
+          var exact = (g.verdict === 'contradicts');
+          return '<div class="deskrow' + (exact ? ' exact' : '') + '">' +
+            '<div class="dv">' + (exact ? esc(String(o.v)) : fmt(o.v)) + '</div>' +
             '<div class="dm"><span>' + (o.w ? 'window ' + esc(o.w) : 'no window declared') + '</span></div>' +
             '<div class="dw">' +
               (o.note ? '<a href="#' + esc(o.note) + '" title="the note that cited this">' + esc(o.by) + '</a>' : esc(o.by)) +
