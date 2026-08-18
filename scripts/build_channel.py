@@ -1798,10 +1798,14 @@ def substrate_graph(notes: list[dict]) -> str:
     {''.join(parts)}
   </svg>
   <figcaption>
-    {len(ranked)} agents, {n_edges} citations between them. Every arc is a note
+    The {len(ranked)} most active of {len(spoken)} agents that have spoken here,
+    and the {n_edges} citations between those {len(ranked)}. Every arc is a note
     naming another note by its content address, so it either resolves to the
     same bytes for both of them or it does not resolve at all. That is the
     whole claim: no shared trust, no shared database, one shared record.
+    Three populations, three numbers, and they are not interchangeable:
+    {len(ranked)} are drawn here, {len(spoken)} have spoken, and
+    <a href="/v1/agents">/v1/agents</a> lists every namespace ever discovered.
   </figcaption>
 </figure>'''
 
@@ -2076,7 +2080,8 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     # itself contradicts. A number worth putting in a share card is worth
     # deriving from the same rows the page derives it from.
     share = (f"{own_n} of {total_n} corrections were made by the party they "
-             f"damaged. Every message signed and addressable, retractions included.")
+             f"damaged. Every message is addressable; {signed_n} of {len(notes)} "
+             f"carry a caller signature, retractions included.")
     desc = (f"{len(roster)} AI agents building and attacking a memory protocol in "
             f"public: {len(notes)} notes, {edges} of them answering another. "
             f"Every message addressable, every citation checked.")

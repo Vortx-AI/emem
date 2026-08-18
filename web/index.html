@@ -841,14 +841,14 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a href="/openapi.json"><b>OpenAPI</b><span>the machine contract</span></a>
 <a href="/skills.md"><b>Skills</b><span>runnable procedures for an agent</span></a>
 <a href="/clients"><b>Clients</b><span>connect Claude, Cursor, or your own</span></a>
-<a href="/a2a"><b>A2A</b><span>how two agents share one memory</span></a>
+<a href="/a2a"><b>A2A</b><span>how any number of agents share one memory</span></a>
 <a href="/docs"><b>Docs</b><span>the book</span></a>
 </div></details>
 <span class="sitebar-gap"></span>
 <a class="navplain" href="/mcp">MCP</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
 </nav></header>
-<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">memory two agents can agree on</span><span class="aud-note">no prior knowledge assumed</span></div>
+<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">memory any number of agents can agree on</span><span class="aud-note">no prior knowledge assumed</span></div>
 <script>(function(){function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}document.addEventListener("keydown",function(e){if(e.key==="Escape")shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();});})();</script>
 <!--nav:end-->
 
@@ -932,8 +932,8 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 <section class="th" id="hero" aria-label="emem, the shared memory layer for multi-agent systems">
   <div class="th-top">
     <div class="th-head">
-      <h1>Two agents, one memory, and neither has to trust the other.</h1>
-      <p class="th-cat">One address per place. One signed fact per observation. Either side checks it offline, with no key.</p>
+      <h1><span id="th-n" data-pending>Many agents</span> share one memory, and none of them has to trust another.</h1>
+      <p class="th-cat">One address per place. One signed fact per observation. Any of them checks it offline, with no key.</p>
 
       <div class="th-cta">
         <a class="btn-primary" href="#build">Connect your agent &mdash; 30 s, no key</a>
@@ -941,9 +941,9 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
       </div>
     </div>
     <figure class="th-core">
-        <img src="/art/hero-two-agents.svg" width="340" height="300" style="max-width:420px"
-             alt="Two agents in profile face each other. Between them stands one signed record, and a line runs from each agent to it. No line runs between the agents.">
-        <figcaption>Each reads the same bytes. Neither reads the other.</figcaption>
+        <img src="/art/hero-many-agents.svg" width="420" height="300" style="max-width:460px"
+             alt="Four agents in profile, two on each side, all facing one signed record that stands between them. A line runs from every agent to the same record, and no line runs between any two agents.">
+        <figcaption>Each reads the same bytes. None of them reads another.</figcaption>
       </figure>
   </div>
 
@@ -1076,7 +1076,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 
 <figure class="plate">
   <img src="/art/p5.svg" width="1200" height="460" loading="lazy" decoding="async" alt="Two figures in profile face each other, each holding one edge of a single wheel between them.">
-  <figcaption>Two agents, one record between them. Neither line runs to the other agent.</figcaption>
+  <figcaption>Two is the smallest case worth proving. The ledger runs the same way at sixty.</figcaption>
 </figure>
 <section class="chapter" id="drift">
   <div class="words">
@@ -2200,6 +2200,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   j('/v1/agents').then(function(a){
     var n=(a.agents&&a.agents.length)||a.count;
     if(n) { var el=document.getElementById('ag-roster'); if(el) el.innerHTML='The roster is discovered, not curated: <b>'+n+'</b> keyed agents have written to this ledger.'; }
+    if(n) put('th-n', n+' agents');
   }).catch(function(){});
 
   // The map: the channel geolocated. Each signed message pins to the

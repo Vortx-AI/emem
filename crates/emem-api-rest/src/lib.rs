@@ -251,8 +251,8 @@ const ART_PANELS: &[(&str, &str)] = &[
         include_str!("../../../web/art/world-mithila.svg"),
     ),
     (
-        "hero-two-agents.svg",
-        include_str!("../../../web/art/hero-two-agents.svg"),
+        "hero-many-agents.svg",
+        include_str!("../../../web/art/hero-many-agents.svg"),
     ),
     (
         "device-to-agent.svg",
@@ -51284,9 +51284,24 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
             },
         )
     })?;
-    // prefix -> (notes, correspondence, last_seen)
-    let mut seen: std::collections::BTreeMap<String, (u64, u64, String)> =
-        std::collections::BTreeMap::new();
+    // prefix -> what the store can actually prove about this namespace.
+    //
+    // A reviewer read this roster and asked, fairly, how a client is meant to
+    // tell "discovered" from "authenticated": the note said to pin the full
+    // key from a signed contacts registry, and no such registry is served.
+    // It does not need one. Every caller-signed note already carries the full
+    // attester pubkey, so the roster serves the key it actually holds and says
+    // how it came by it, instead of sending clients to look for it elsewhere.
+    #[derive(Default)]
+    struct Roster {
+        notes: u64,
+        corr: u64,
+        last_seen: String,
+        signed_notes: u64,
+        pubkey: Option<String>,
+        pubkey_at: String,
+    }
+    let mut seen: std::collections::BTreeMap<String, Roster> = std::collections::BTreeMap::new();
     for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
         let key = String::from_utf8_lossy(&kv.0).into_owned();
         if !key.ends_with(".md") {
@@ -51305,23 +51320,46 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
         };
         let (direct, cc, broadcast) = parse_note_addressing(&String::from_utf8_lossy(&bytes));
         let addressed = !direct.is_empty() || !cc.is_empty() || broadcast;
-        let e = seen.entry(from).or_insert((0, 0, String::new()));
-        e.0 += 1;
+        let e = seen.entry(from).or_default();
+        e.notes += 1;
         if addressed {
-            e.1 += 1;
+            e.corr += 1;
         }
-        if meta.signed_at > e.2 {
-            e.2 = meta.signed_at.clone();
+        if meta.signed_at > e.last_seen {
+            e.last_seen = meta.signed_at.clone();
+        }
+        // A note is caller-signed only with all three parts present: the key,
+        // the signature, and the body hash the signature was taken over. Two
+        // of the three is a responder claim, which is what this field exists
+        // to distinguish.
+        if let (Some(pk), Some(_), Some(_)) = (
+            meta.attester_pubkey_b32.as_deref(),
+            meta.attester_sig_b32.as_deref(),
+            meta.attester_body_hash_hex.as_deref(),
+        ) {
+            e.signed_notes += 1;
+            // Keys rotate. Carry the one from the most recent note that
+            // actually verified, not the first one encountered.
+            if meta.signed_at >= e.pubkey_at {
+                e.pubkey = Some(pk.to_string());
+                e.pubkey_at = meta.signed_at.clone();
+            }
         }
     }
     let mut agents: Vec<JsonValue> = seen
         .into_iter()
-        .map(|(prefix, (notes, corr, last))| {
+        .map(|(prefix, r)| {
             json!({
                 "prefix": prefix,
-                "notes": notes,
-                "correspondence": corr,
-                "last_seen": last,
+                "notes": r.notes,
+                "correspondence": r.corr,
+                "last_seen": r.last_seen,
+                // Four states a client must not collapse into one boolean.
+                "identity": "discovered",
+                "caller_signed_notes": r.signed_notes,
+                "key_status": if r.pubkey.is_some() { "proven_by_signature" } else { "responder_claim" },
+                "attester_pubkey_b32": r.pubkey,
+                "trust": "caller_decides",
             })
         })
         .collect();
@@ -51334,10 +51372,18 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
     Ok(Json(json!({
         "count": agents.len(),
         "agents": agents,
-        "note": "Discovered from the store, not configured. `prefix` is the 8-char namespace \
-                 owner; pin the FULL pubkey from the signed contacts registry before trusting \
-                 one. `correspondence` counts notes addressed to someone, so an agent \
-                 journalling its own run does not read as a participant.",
+        "note": "Discovered from the store, not configured, and discovered is not \
+                 authenticated. `key_status` says how this responder came by the key: \
+                 `proven_by_signature` means at least one note from this namespace carries \
+                 an ed25519 caller signature over its own body hash, and \
+                 `attester_pubkey_b32` is that full key, verifiable offline against any of \
+                 the notes; `responder_claim` means no such signature is held and the \
+                 namespace is an assertion by this server. `trust` is always \
+                 `caller_decides`: this responder never asserts that an authenticated agent \
+                 is a trusted or authorized one, and a client that collapses these into one \
+                 boolean has lost the distinction on purpose. `correspondence` counts notes \
+                 addressed to someone, so an agent journalling its own run does not read as \
+                 a participant.",
     })))
 }
 

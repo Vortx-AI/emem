@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 300" width="420" height="300" role="img"
+     aria-label="Four agents in profile, two on each side, all facing one signed record that stands between them. A line runs from every agent to the same record, and no line runs between any two agents.">
+  <title>Many agents, one record, and no line between any of them</title>
+
+  <!-- The frame every emem panel carries. -->
+  <rect x="6" y="6" width="408" height="288" fill="none" stroke="#c9c2b4" stroke-width="1.4"/>
+  <rect x="12" y="12" width="396" height="276" fill="none" stroke="#4f8a3d" stroke-width="1.6"
+        opacity=".65"/>
+
+  <!-- One agent, drawn once. Every reader is the same shape: the protocol does
+       not care which model or vendor is behind the profile. -->
+  <defs>
+    <g id="ag">
+      <path d="M0 0c-16 0-27 13-27 30 0 12 5 19 5 27 0 9-4 12-4 19 0 8 9 14 26 14"
+            fill-opacity=".18" stroke="#2b2620" stroke-width="2.8"
+            stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="-4" cy="28" r="6.5" fill="#f3eee2" fill-opacity="1"
+              stroke="#2b2620" stroke-width="2.4"/>
+      <circle cx="-2" cy="28" r="2.6" fill="#2b2620" fill-opacity="1"/>
+      <g stroke="#2b2620" stroke-width="1.6" opacity=".45" fill="none">
+        <path d="M-18 54h22M-16 64h16"/>
+      </g>
+    </g>
+  </defs>
+
+  <!-- The record they share: one address, one seal, held by none of them. -->
+  <g>
+    <rect x="178" y="92" width="64" height="100" rx="4" fill="#f3eee2"
+          stroke="#2b2620" stroke-width="2.6"/>
+    <g stroke="#2b2620" stroke-width="1.5" opacity=".55">
+      <path d="M188 114h44M188 126h44M188 138h28"/>
+    </g>
+    <circle cx="210" cy="164" r="14" fill="#bb3b2c" stroke="#2b2620" stroke-width="2.2"/>
+    <circle cx="210" cy="164" r="6" fill="none" stroke="#f3eee2" stroke-width="1.6"/>
+    <g stroke="#f3eee2" stroke-width="1.3">
+      <path d="M210 150v3.5M210 174.5v3.5M196 164h3.5M220.5 164h3.5"/>
+    </g>
+    <!-- the address, above the record, pointed at from every side -->
+    <path d="M210 92V70" stroke="#2b2620" stroke-width="2" fill="none"/>
+    <polygon points="210,58 218,74 202,74" fill="#d59a2a" stroke="#2b2620" stroke-width="2"/>
+  </g>
+
+  <!-- Four agents. Different vendors, different models, same record. -->
+  <use href="#ag" transform="translate(88,44) scale(.72)"        fill="#344a8c"/>
+  <use href="#ag" transform="translate(76,150) scale(.86)"       fill="#4f8a3d"/>
+  <use href="#ag" transform="translate(332,44) scale(-.72,.72)"  fill="#bb3b2c"/>
+  <use href="#ag" transform="translate(344,150) scale(-.86,.86)" fill="#d59a2a"/>
+
+  <!-- Every line ends at the record. None of them ends at another agent, and
+       that absence is the whole argument. -->
+  <g fill="none" stroke="#4f8a3d" stroke-width="2.4" stroke-linecap="round" opacity=".9">
+    <path d="M92 66q44 14 76 42"/>
+    <path d="M80 174q44 -7 84 -15"/>
+    <path d="M328 66q-44 14 -76 42"/>
+    <path d="M340 174q-44 -7 -84 -15"/>
+  </g>
+  <g fill="#4f8a3d">
+    <polygon points="176,112 163,108 167,98"/>
+    <polygon points="176,156 163,152 164,164"/>
+    <polygon points="244,112 257,108 253,98"/>
+    <polygon points="244,156 257,152 256,164"/>
+  </g>
+</svg>
