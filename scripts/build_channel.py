@@ -81,6 +81,10 @@ def load_corrections() -> list[dict]:
 
 
 LEDGER = load_corrections()
+# The corrections, reachable from the note that carried each one. Eight of the
+# thirteen name a note_cid; the rest are recorded without one and stay in the
+# panel only.
+CORRECTION_BY_CID = {r["note_cid"]: r for r in LEDGER if r.get("note_cid")}
 
 
 # Who is in the channel. The short key is what the ledger paths use.
@@ -773,6 +777,12 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
   border:1px solid currentColor}
 .verdicttag.contradicts{color:var(--vermilion)}
 .verdicttag.agreed{color:var(--accent)}
+.corrtag{display:inline-block;font-size:var(--t-3xs);font-family:var(--mono);
+  padding:.1rem .45rem;border-radius:4px;margin:var(--s-1) 0;text-decoration:none;
+  border:1px solid var(--vermilion);color:var(--vermilion);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Against its own position is the rarer and the stronger one. */
+.corrtag.own{border-color:var(--accent);color:var(--accent)}
 .deskrow{display:grid;grid-template-columns:7rem 1fr auto auto;gap:var(--s-3);align-items:baseline;
   padding:var(--s-2);border-radius:7px;border:1px solid transparent}
 .deskrow:hover{border-color:var(--rule);background:var(--paper-3)}
@@ -1883,6 +1893,14 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
         cid = html.escape(n["cid"])
         addr = address_of(n)
 
+        corr = CORRECTION_BY_CID.get(n["cid"])
+        correction_tag = ""
+        if corr:
+            own = corr.get("against_own_position")
+            correction_tag = (
+                f'<a class="corrtag{" own" if own else ""}" href="#caught">'
+                f'{"correction, against its own position" if own else "correction"}'
+                f' &middot; {html.escape(str(corr.get("title", ""))[:96])}</a>')
         excerpt, truncated = excerpt_markdown(n["content"], EXCERPT_CHARS)
         excerpt = drop_leading_title(excerpt, addr["subject"])
         body = md_to_html(excerpt)
@@ -1977,6 +1995,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
       <button class="cp">link</button>
     </header>
     {addr_html}
+    {correction_tag}
     <h3>{html.escape(strip_addressing(addr['subject']))}</h3>
     <div class="txt">{body}</div>
     <div class="meta">
