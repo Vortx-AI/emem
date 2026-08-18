@@ -62,7 +62,11 @@ gtag('config','__EMEM_GA_ID__',{anonymize_ip:true,transport_type:'beacon'});
    rem, so this single knob retunes the whole page. */
 html{font-size:100%}
 html,body{margin:0;padding:0}
-body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{background:var(--paper);color:var(--ink);font-family:var(--display);font-size:var(--t-md);line-height:1.6;font-feature-settings:"ss01";-webkit-font-smoothing:antialiased}
+/* Identifiers, values, keys, commands: where a transposed character has
+   to be visible and the advance must not move. */
+code,kbd,pre,samp,.mono,.tok,.cid,.cidtag,.key,.chip,.pill,input,textarea,
+button,.btn-primary,.btn-ghost,.th-connect,.lbl,time{font-family:var(--mono)}
 ::selection{background:var(--accent);color:var(--paper)}
 
 /* statusbar */
@@ -325,9 +329,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .foot-bottom a{color:inherit}
 
 /* consent banner */
-#emem-consent{position:fixed;left:1em;right:1em;bottom:1em;max-width:36em;margin:0 auto;background:var(--paper-2);border:1px solid var(--rule-strong);padding:1em 1.1em;box-shadow:0 6px 20px rgba(0,0,0,.12);font-size:var(--t-sm);line-height:1.5;z-index:9999;color:var(--ink-2)}
+#emem-consent{position:fixed;left:0;right:0;bottom:0;margin:0;background:var(--paper-2);border-top:1px solid var(--rule-strong);padding:var(--s-2) var(--pad-x);box-shadow:0 -2px 12px rgba(0,0,0,.06);display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap;z-index:40;font-size:var(--t-xs)}
 #emem-consent[hidden]{display:none}
-#emem-consent p{margin:0 0 .7em;max-width:none}
+#emem-consent p{margin:0;max-width:52em;flex:1 1 22em;line-height:1.5}
 #emem-consent strong{color:var(--ink);font-weight:700}
 #emem-consent code{background:var(--paper-3);padding:0 .25em;color:var(--ink);font-family:var(--mono);font-size:.9em}
 #emem-consent .row{display:flex;flex-wrap:wrap;gap:.5em;align-items:center}
