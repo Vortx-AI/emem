@@ -990,40 +990,125 @@ a team ends up rebuilding something it has.
 
 - **A spec-shaped A2A AgentCard** at `/.well-known/agent-card.json`:
   `protocolVersion 1.2.0`, `url`, `preferredTransport`, `defaultInputModes` /
-  `defaultOutputModes`, `securitySchemes`, `additionalInterfaces`, and **102
+  `defaultOutputModes`, `securitySchemes`, `additionalInterfaces`, and **108
   skills** each with an id, name, description and tags.
 - **Declared capabilities**, including the honest negatives:
-  `streaming: true`, `stateTransitionHistory: true`, `pushNotifications: false`.
-- **Server-sent events** at `/v1/memory/sse`, so the channel is not
-  polling-only.
+  `streaming: true`, `stateTransitionHistory: false`, `pushNotifications: false`.
+  (This list said `stateTransitionHistory: true` until 2026-08-18. The card
+  said `false`. The doc was wrong, not the card.)
+- **`message/stream`**, answering with spec-shaped stream events:
+  `status-update` and `artifact-update` frames carrying `taskId`, `contextId`
+  and `final`. A reviewer read `streaming: true` beside the memory SSE and
+  concluded the card was advertising a ledger stream as A2A streaming; they
+  said plainly they could not POST from their runtime to check. The two are
+  separate surfaces and both are real.
+- **Server-sent events** at `/v1/memory/sse`, a memory-ledger stream, which is
+  **not** the A2A task stream above and should never be read as it.
+- **The async task lifecycle**: `message/send`, `tasks/get`, `tasks/cancel`,
+  `tasks/resubscribe`, with `submitted -> working -> completed | failed |
+  canceled` and typed A2A errors (`-32001` TaskNotFound carries the TTL and
+  restart semantics in `data.message`).
 - **A typed error taxonomy** (`emem.error.v1`): every error carries a stable
   `code`, a `message` naming the missing thing and the accepted alternatives,
   and a `details` block. An independent sweep of 70 tools found 20 of 20
   refusals self-repairing and zero hollow successes.
 - **JSON-RPC 2.0** on `/mcp`.
 - **Peer discovery** at `/v1/agents`, scanned from the store rather than
-  configured.
+  configured, and since 2026-08-18 carrying the distinction a client must not
+  collapse: `identity`, `key_status` (`proven_by_signature` when the responder
+  holds an ed25519 caller signature from that namespace, `responder_claim`
+  when it does not), the full `attester_pubkey_b32` it actually holds, and
+  `trust`, which is always `caller_decides`.
 - **Skill query** at `/v1/a2a/skills?q=&tag=&category=`, so a peer can ask
   "do you do X" without fetching all 102 skills.
 
 ### Roadmap, in the order we would build it
 
-1. **Task lifecycle.** A2A tasks carry an id and move
-   `submitted -> working -> input-required -> completed -> failed`. emem has
-   async task tools (`emem_eudr_dds`, `emem_hunt`) and MCP `taskSupport`, but no
-   A2A-shaped state machine and no `failed` state a peer can branch on. This is
-   the largest real gap and the one that blocks long-running collaboration.
-2. **Push notifications.** Webhook callbacks on task transition. Declared
+1. **Chain the receipt to the transparency log.** The largest remaining
+   cryptographic gap, and the one an external review put first. It is the same
+   work as *Receipts that name their log leaf* under
+   [Where it is going](#where-it-is-going); it is restated here because a peer
+   reading only the A2A section would otherwise not learn that an A2A message
+   cannot yet prove its own presence in the log. Today a client
+   holds two independent things: a fact, its signature and a receipt; and,
+   separately, a log with a Merkle tree and signed heads. What it cannot do is
+   prove *"the fact I was handed is in that log"* in one chain:
+
+       fact -> receipt -> log leaf -> inclusion proof -> STH
+
+   Until that chain exists, the log attests to the responder's own growth
+   rather than to any particular answer a peer received. Everything below in
+   this list is worth less than this item.
+2. **Governed witnesses and client gossip, against a split view.** Already
+   stated in the whitepaper's honest limits; repeated here because it bounds
+   what an A2A peer can conclude. The log proves this responder's tree grew
+   consistently. It cannot yet prove that
+   every reader saw the *same* tree, because the head, the inclusion proofs
+   and the witness list all come from the same responder, witness keys are not
+   an independently governed allowlist, and there is no client-to-client
+   gossip of roots. The honest description of what ships today is
+   **append-only transparency against accidental or operator rewriting**, not
+   globally consistent public history. Those are different guarantees and the
+   docs should not let a reader merge them.
+3. **`emem:a2a-envelope:v1`: fuse the layers into one verifiable object.**
+   The primitives exist separately: identity, authorship, content ids, facts,
+   typed edges, tasks, receipts, log. What does not exist is one envelope that
+   carries sender and key epoch, routing (`to`, `cc`, `thread_id`,
+   `reply_to`), intent, payload, author signature, responder receipt, cited
+   evidence, and the transparency triple (leaf, root, inclusion proof). The
+   property worth having is that **an A2A message is itself a verifiable
+   memory object**, rather than a message that references one. This depends on
+   item 1 landing first.
+4. **First-class conversation topology.** Replies are reconstructed today from
+   a note citing another note's content address: 401 such links across 545
+   notes. That makes the thread a derived reading of the corpus rather than
+   signed structure. `reply_to` and `thread_id` belong in the envelope, so
+   conversation shape is cryptographic data and not an inference.
+5. **Edge authority, distinct from edge authorship.** Signed typed edges ship
+   (`disagrees_with`, `supersedes`, `observed_at`). A signature proves *who
+   asserted* that A supersedes B. It does not establish *who was entitled to*,
+   nor that anyone else agrees. Four things need separating in the model:
+   fact authorship, edge authorship, edge authority, edge consensus. This
+   matters most for `disagrees_with`, where an unauthorised edge is a cheap
+   way to cast doubt on a correct fact.
+6. **A machine-readable interpretation policy.** The standard already says
+   unknown-attester content is data and never instructions. That is the right
+   rule and it is currently prose. An agent framework needs it as five
+   separate decisions rather than one boolean: may I read this, cite it,
+   reason from it, execute instructions in it, treat this agent as an
+   authority. `trust: caller_decides` on `/v1/agents` is the first field of
+   this and not yet the whole of it.
+7. **Serve the extension URIs the AgentCard advertises.** The card declares
+   `https://emem.dev/spec/a2a/async-tasks/v1` and that URL returns 404. A
+   client that follows the URI to learn the extension gets nothing. Either
+   serve the spec at its own URI or stop advertising one that does not
+   resolve. Found while checking a review's claims on 2026-08-18.
+8. **Name the layers, so A2A does not come to mean "everything callable."**
+   The card fronts A2A, MCP Streamable HTTP, 108 skills, memory primitives and
+   ledger events. An external agent needs to know which of those is an A2A
+   task, which is an MCP tool, which is a memory primitive and which is a
+   ledger event. Publish the four layers explicitly: A2A (identity,
+   discovery, messaging, tasks, delegation), emem memory (facts, entities,
+   bundles, edges, receipts), MCP (tool transport), ledger (transparency).
+9. **An external agent, with no emem-specific assumptions.** The benchmark
+   runs agents on one machine, nobody outside has replicated it, and the arm
+   that actually tests address-following (`emem_resolve`) fails 15.6% of the
+   time. The test that matters is not another internal agent: it is an
+   arbitrary external agent starting from `/.well-known/agent-card.json` alone
+   and getting through discover -> resolve -> verify -> reason -> reply ->
+   complete a task with no human guidance. Until that runs, the A2A layer has
+   not demonstrated itself outside this collaboration.
+10. **Push notifications.** Webhook callbacks on task transition. Declared
    `false` today rather than implied.
-3. **Multi-modal parts.** `TextPart` / `FilePart` / `DataPart`. emem is
+11. **Multi-modal parts.** `TextPart` / `FilePart` / `DataPart`. emem is
    text-and-JSON; there is no file abstraction in the agent layer.
-4. **Registry and capability federation.** `/v1/agents` lists peers on ONE
+12. **Registry and capability federation.** `/v1/agents` lists peers on ONE
    responder. A directory spanning responders, with search by capability, is
    not built.
-5. **Gossip between responders.** Requested alongside the above. Today every
+13. **Gossip between responders.** Requested alongside the above. Today every
    claim is verified against the responder that served it; there is no
-   peer-to-peer propagation of heads or facts, which is also why the
-   transparency log cannot yet resist a split view.
+   peer-to-peer propagation of heads or facts. This is the federation half of
+   item 2 and the two should be built together.
 
 ### The naming, which is a fair criticism
 
