@@ -18997,7 +18997,7 @@ async fn post_log_witness(
             },
         )
     })?;
-    flush_off_runtime(&tree);
+    flush_off_runtime(&tree).await;
 
     Ok(Json(json!({
         "ok": true,
@@ -31094,11 +31094,11 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             let mut key = derived_index_key(&attester.pubkey_b32, Some(&cell), Some(&band));
             key.extend_from_slice(fact_cid.as_bytes());
             let _ = tree.insert(key, fact_cid.as_bytes());
-            flush_off_runtime(&tree);
+            flush_off_runtime(&tree).await;
         }
         if let Ok(tree) = db.open_tree(DERIVED_BY_BODY_TREE) {
             let _ = tree.insert(dedup_key, fact_cid.as_bytes());
-            flush_off_runtime(&tree);
+            flush_off_runtime(&tree).await;
         }
     }
 
@@ -31749,7 +31749,7 @@ async fn post_memory_bundle(
             let mut buf = Vec::with_capacity(1024);
             if ciborium::ser::into_writer(&resp, &mut buf).is_ok() {
                 let _ = tree.insert(bundle_cid.as_bytes(), buf);
-                flush_off_runtime(&tree);
+                flush_off_runtime(&tree).await;
             }
         }
     }
@@ -32183,13 +32183,13 @@ async fn post_entity(
                 format!("persist entity: {e}"),
             )
         })?;
-    flush_off_runtime(&entities);
+    flush_off_runtime(&entities).await;
 
     if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
         for k in alias_keys(&entity) {
             entity_alias_append(&aliases, &k, &entity_cid);
         }
-        flush_off_runtime(&aliases);
+        flush_off_runtime(&aliases).await;
     }
 
     // Tell the agent how strong this object's convergence is, so a weak
@@ -32460,7 +32460,7 @@ async fn post_entity_alias(
         for k in &keys {
             entity_alias_append(&aliases, k, &cid);
         }
-        flush_off_runtime(&aliases);
+        flush_off_runtime(&aliases).await;
     }
 
     Ok(Json(json!({
@@ -33594,45 +33594,49 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
 }
 
 /// fsyncs for the durability of one.
-fn flush_off_runtime(tree: &sled::Tree) {
-    // Serialise, because sled's flush is whole-database and N concurrent ones
-    // are N threads waiting on the same fsync.
-    //
-    // The first version of this used block_in_place alone and the wedges
-    // continued: 465 before it, 467 after, with the new snapshot showing
-    // flush_off_runtime -> block_in_place -> exit_runtime -> the same condvar.
-    // block_in_place does not offload work. It converts THIS worker into a
-    // blocking thread and spawns a replacement, so under concurrent writes the
-    // thread count climbs, every new worker takes another write, and each one
-    // blocks in turn. 65 threads and a runtime with nothing left to poll.
-    //
-    // Tree::flush is self.context.pagecache.flush() and the pagecache belongs
-    // to the Db, so a flush already in progress makes every pending write
-    // durable, ours included. A second concurrent flush cannot finish sooner
-    // and cannot promise more. Waiting for the one in flight is therefore not
-    // a compromise, it is the same guarantee for one thread instead of ten.
+/// fsync sled on the blocking pool, and free the worker while it happens.
+///
+/// Third attempt, and the first one that offloads. The first called flush
+/// directly on the worker. The second used block_in_place, which does not
+/// hand work anywhere: it converts THIS worker into a blocking thread and
+/// spawns a replacement, so under load the replacement takes the next write
+/// and blocks in turn. The third put a mutex around that, which made the
+/// blocked threads orderly and left the count unchanged: one wedge an hour
+/// before and one an hour after, with the same
+/// flush_off_runtime -> make_stable_inner stack in every snapshot.
+///
+/// spawn_blocking is different in the way that matters. The fsync runs on
+/// tokio's blocking pool, which is a separate set of threads sized for
+/// exactly this, and the caller awaits a handle. An awaiting worker is free
+/// to poll every other task, so a slow fsync stops being a runtime outage
+/// and becomes one slow request.
+///
+/// The mutex stays inside. Tree::flush is context.pagecache.flush() over a Db
+/// shared by every tree, so a flush already running makes this write durable
+/// too; ten of them queued on the blocking pool would still be ten whole
+/// database fsyncs where one suffices.
+async fn flush_off_runtime(tree: &sled::Tree) {
     static FLUSHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     let t = tree.clone();
-    let run = move || {
+    let _ = tokio::task::spawn_blocking(move || {
         let _held = match FLUSHING.lock() {
             Ok(g) => g,
             // A poisoned lock means a previous flush panicked. Refusing to
-            // flush after that would trade a crash for silent data loss.
+            // flush after that trades a crash for silent data loss.
             Err(e) => e.into_inner(),
         };
-        let _ = t.flush();
-    };
-
-    match tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()) {
-        Ok(tokio::runtime::RuntimeFlavor::MultiThread) => tokio::task::block_in_place(run),
-        // block_in_place panics on a current-thread runtime, which is what
-        // #[tokio::test] builds.
-        _ => run(),
-    }
+        t.flush()
+    })
+    .await;
 }
 
-fn persist_memory_write(
+/// The same fsync from a synchronous caller, for the background tasks that
+/// are not inside a runtime worker and cannot await.
+fn flush_off_runtime_blocking(tree: &sled::Tree) {
+    let _ = tree.flush();
+}
+
+async fn persist_memory_write(
     s: &AppState,
     path: &str,
     bytes: &[u8],
@@ -33836,7 +33840,7 @@ fn persist_memory_write(
     // PANICS on a current-thread runtime, which is what #[tokio::test] builds
     // by default. So the flavour is checked rather than assumed: a test, or
     // any caller off the runtime, flushes inline exactly as before.
-    flush_off_runtime(&metas);
+    flush_off_runtime(&metas).await;
 
     // Publish the SSE event after the sled commit succeeds.
     let event = if let Some(prev) = prev_file_cid {
@@ -34434,7 +34438,7 @@ fn persist_vault_write(
             },
         )
     })?;
-    flush_off_runtime(&tree);
+    flush_off_runtime_blocking(&tree);
     Ok(sealed)
 }
 
@@ -34525,7 +34529,8 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
         req.attester.as_ref().map(|a| a.sig_b32.as_str()),
         Some(&bh),
         started,
-    )?;
+    )
+    .await?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -34663,7 +34668,8 @@ async fn memory_str_replace_inner(
         req.attester.as_ref().map(|a| a.sig_b32.as_str()),
         Some(&bh),
         started,
-    )?;
+    )
+    .await?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -34773,7 +34779,8 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
         req.attester.as_ref().map(|a| a.sig_b32.as_str()),
         Some(&bh),
         started,
-    )?;
+    )
+    .await?;
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -34976,7 +34983,7 @@ async fn memory_supersede_inner(
             },
         )
     })?;
-    flush_off_runtime(&metas);
+    flush_off_runtime(&metas).await;
 
     Ok(json!({
         "ok": true,
@@ -35020,7 +35027,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             )
         })?;
         let _ = tree.remove(path.as_bytes());
-        flush_off_runtime(&tree);
+        flush_off_runtime(&tree).await;
         return Ok(json!({
             "ok": true,
             "verb": "delete",
@@ -35129,7 +35136,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         removed.push((path.clone(), kind_str));
     }
     // One fsync covers every tree: the pagecache is shared by the Db.
-    flush_off_runtime(&paths);
+    flush_off_runtime(&paths).await;
 
     // Sign a receipt over the delete. The audit binds the deleted
     // path(s) to the responder identity. When an attester is present
@@ -35340,7 +35347,7 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
         cid_str.as_bytes(),
     );
     // One fsync covers every tree: the pagecache is shared by the Db.
-    flush_off_runtime(&paths);
+    flush_off_runtime(&paths).await;
 
     let started = std::time::Instant::now();
     let mut cells: Vec<String> = Vec::new();
@@ -35805,7 +35812,7 @@ pub(crate) async fn run_memory_ttl_pass(s: &AppState) -> Result<(usize, usize), 
         expired += 1;
     }
     // One fsync covers every tree: the pagecache is shared by the Db.
-    flush_off_runtime(&paths);
+    flush_off_runtime_blocking(&paths);
     Ok((scanned, expired))
 }
 
@@ -35958,7 +35965,8 @@ pub(crate) async fn run_memory_consolidation_pass(
             None,
             None,
             std::time::Instant::now(),
-        )?;
+        )
+        .await?;
         // Mark each source as superseded.
         for (_p, _cid, mut m) in entries.iter().cloned() {
             m.superseded_by = Some(summary_meta.file_cid.clone());
@@ -35968,7 +35976,7 @@ pub(crate) async fn run_memory_consolidation_pass(
             }
             total_files_consolidated += 1;
         }
-        flush_off_runtime(&metas);
+        flush_off_runtime_blocking(&metas);
         let paths_list: Vec<String> = entries.iter().map(|(p, _, _)| p.clone()).collect();
         publish_memory_event(MemoryEvent::Consolidated {
             paths: paths_list,
