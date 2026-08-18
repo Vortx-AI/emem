@@ -1,0 +1,14 @@
+[Unit]
+Description=emem: hourly Lance version prune
+
+[Timer]
+# Hourly is the point, not a compromise. The backlog is what makes this
+# expensive: 38,950 versions took 14 minutes to barely dent and raced with a
+# write; 1,669 took 0.9 seconds. Running often means never reaching the size
+# where it is hard.
+OnCalendar=hourly
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

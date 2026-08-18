@@ -1,0 +1,13 @@
+[Unit]
+Description=emem: prune old Lance dataset versions
+Documentation=https://emem.dev/docs/roadmap
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/emem
+ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/lance_compact.py
+# It races a concurrent write occasionally and the next pass continues from
+# there, so a non-zero exit is not worth alerting on by itself.
+SuccessExitStatus=0 1
+Nice=10
+IOSchedulingClass=idle

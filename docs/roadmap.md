@@ -725,17 +725,22 @@ the existing ones are found.
 
 ### What agents building on emem actually hit
 
-- **Lance version manifests grow without bound.** OWED, and it will come back.
-  The memory text index accumulated 38,950 versions, 41 GB against 204 MB of
-  data, because the server appends a version per write and nothing prunes
-  them. Enumerating them took 557 s, which is what made `emem_memory_search`
-  time out for every caller. Rebuilding collapsed it to one version and 55 MB,
-  and 55 had accumulated again within minutes. Lance's own
-  `cleanup_old_versions` is not the answer at this scale: it removed 526
-  manifests in fourteen minutes before racing with a concurrent write and
-  aborting, which extrapolates to roughly fifteen hours with writes stopped.
-  What is needed is a scheduled compaction that runs while the server writes,
-  or a rebuild-and-swap on a timer, and neither exists.
+- **Lance version manifests grow without bound.** DONE 2026-08-18, by running
+  the prune hourly instead of heroically. The earlier reading of this was
+  wrong: cleanup_old_versions looked hopeless because it was measured against
+  a 38,950-version backlog, where it cleared 526 in fourteen minutes and then
+  raced a write. Against 1,669 versions it cleared 1,551 in 0.9 seconds with
+  the responder live. The backlog was the cost, not the tool. An hourly timer
+  (`emem-lance-compact.timer`) keeps it small, and the first full pass took
+  var/emem/lance from 13 GB to 388 MB, every dataset down from thousands of
+  versions to one or two. It fails if a pass leaves more than 20,000 behind,
+  which is the signal that the write rate outgrew an hourly sweep.
+  Worth keeping the shape of the wrong reading: this was written up as needing
+  a rebuild-and-swap because the tool was "not the answer at this scale", from
+  one measurement taken at the worst possible moment. Measuring the same tool
+  against a small backlog answered it in under a second. A number taken once,
+  under conditions nobody checked, produced a plan for work that was not
+  needed.
 - **No vector index on the memory text index.** `list_indices()` returns
   nothing, so every semantic search scores all 18,000 rows. It is 0.07 s at
   this size and does not need fixing yet, but it is O(corpus) and the corpus
