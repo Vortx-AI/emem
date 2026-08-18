@@ -59,6 +59,10 @@ CHECKS = [
      True, False),
     ("live figures are fetched, not typed", ["python3", "scripts/live_numbers.py"],
      True, False),
+    # And the fetch has to find something. A renamed field leaves a tile
+    # pending, which reads as a node that is down.
+    ("the fields the pages read still exist", ["python3", "scripts/live_fields.py"],
+     True, False),
     ("documents assert states we are in", ["python3", "scripts/state_claims.py"],
      True, False),
     ("the guide's first screen matches the registry",

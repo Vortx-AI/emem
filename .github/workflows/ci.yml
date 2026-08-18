@@ -362,6 +362,22 @@ jobs:
       # redesigned. It must never go up.
       - name: spacing comes from the scale
         run: python3 scripts/spacing_scale.py --budget 1382
+      # live_numbers proves a figure is fetched. It cannot prove the fetch
+      # finds anything: rename a field and put() is handed undefined, declines
+      # to write, and the tile keeps its placeholder, so the page reads as
+      # though the node were down while the node is fine. A 200 carrying a
+      # renamed field passes route_truth, sync_counts and doc_lint alike.
+      - name: the fields the pages read still exist
+        run: |
+          set +e
+          python3 scripts/live_fields.py
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; live reads not asserted"
+            exit 0
+          fi
+          exit $code
       # A count stated as prose has to match the responder it describes.
       # /whitepaper served "102 MCP tools (15 core, 87 extended)" against a
       # responder answering 107/16/91 while sync_counts reported no drift,
