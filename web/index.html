@@ -33,6 +33,17 @@
 <link rel=stylesheet href="/nav.css">
 <!-- ##GA_BEGIN## -->
 <script>
+  // The full notice is one click away and nothing is abbreviated: the reader
+  // sees the same words, in the order they were written, when they ask.
+  (function(){
+    document.addEventListener('click', function(e){
+      var b = e.target.closest && e.target.closest('#emem-consent .cmore');
+      if (!b) return;
+      var box = document.getElementById('emem-consent');
+      if (box) { box.classList.add('open'); b.setAttribute('aria-expanded','true'); }
+    });
+  })();
+
 // Google Consent Mode v2: every storage purpose denied before gtag.js
 // loads. The consent banner below (rendered for humans on first visit;
 // invisible to AI crawlers since they do not run JS) flips
@@ -332,6 +343,10 @@ button,.btn-primary,.btn-ghost,.th-connect,.lbl,time{font-family:var(--mono)}
 #emem-consent{position:fixed;left:0;right:0;bottom:0;margin:0;background:var(--paper-2);border-top:1px solid var(--rule-strong);padding:var(--s-2) var(--pad-x);box-shadow:0 -2px 12px rgba(0,0,0,.06);display:flex;gap:var(--s-3);align-items:center;flex-wrap:wrap;z-index:40;font-size:var(--t-xs)}
 #emem-consent[hidden]{display:none}
 #emem-consent p{margin:0;max-width:52em;flex:1 1 22em;line-height:1.5}
+#emem-consent .cdetail{display:none}
+#emem-consent.open .cdetail{display:inline}
+#emem-consent.open .cmore{display:none}
+#emem-consent .cmore{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-size:inherit;text-decoration:underline;cursor:pointer}
 #emem-consent strong{color:var(--ink);font-weight:700}
 #emem-consent code{background:var(--paper-3);padding:0 .25em;color:var(--ink);font-family:var(--mono);font-size:.9em}
 #emem-consent .row{display:flex;flex-wrap:wrap;gap:.5em;align-items:center}
@@ -1562,7 +1577,7 @@ html,body{overflow-x:clip}
 </footer>
 
 <div id=emem-consent hidden role=dialog aria-modal=false aria-labelledby=emem-consent-h>
-  <p id=emem-consent-h>This site loads <strong>Google Analytics 4</strong> for aggregate visit counts. By default no cookies are set and no personal data is sent (Consent Mode v2, all denied). Click <strong>Accept</strong> to enable cookie-based analytics, or <strong>Reject</strong> to keep the cookieless default. Decision stored in a first-party cookie <code>emem_consent</code>, valid for 180 days, revocable from the footer.</p>
+  <p id=emem-consent-h>This site loads <strong>Google Analytics 4</strong> for aggregate visit counts. <span class="cdetail">By default no cookies are set and no personal data is sent (Consent Mode v2, all denied). Click <strong>Accept</strong> to enable cookie-based analytics, or <strong>Reject</strong> to keep the cookieless default. Decision stored in a first-party cookie <code>emem_consent</code>, valid for 180 days, revocable from the footer.</span> <button type=button class="cmore" aria-expanded="false">what this means</button></p>
   <div class=row>
     <button data-act=accept type=button>Accept</button>
     <button data-act=reject type=button>Reject</button>
