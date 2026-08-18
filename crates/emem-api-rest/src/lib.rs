@@ -33515,7 +33515,14 @@ fn synth_memory_receipt(
 /// connection are normal and honest, and refusing them would break working
 /// clients to prevent a harm that does not exist.
 fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiError> {
-    if !matches!(verb, "delete" | "str_replace" | "rename" | "supersede") {
+    // Only the verbs whose effect depends on what is there NOW. Replaying a
+    // delete destroys whatever occupies the path today, which is the harm.
+    // Replaying a supersede sets the same pointer to the same target and
+    // changes nothing, and `supersede_is_idempotent_but_refuses_to_be_re_aimed`
+    // encodes that as a promise: a retry answers already_superseded: true
+    // rather than failing. I guarded it anyway in the first draft and that
+    // test caught me, which is what it was written for.
+    if !matches!(verb, "delete" | "str_replace" | "rename") {
         return Ok(());
     }
     static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<[u8; 32]>>> =
@@ -33551,7 +33558,7 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
                     "verb": verb,
                     "path": path,
                     "why": "The write preimage is blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash) and has no nonce or timestamp, so a captured signature stays valid forever. Destructive verbs are therefore single-use per signature.",
-                    "create_is_exempt": "create is idempotent and stays replayable, so an honest retry after a dropped connection still works.",
+                    "idempotent_verbs_exempt": "create and supersede are idempotent and stay replayable, so an honest retry after a dropped connection still works. Only verbs whose effect depends on current state are single-use.",
                 })),
             },
         ));
