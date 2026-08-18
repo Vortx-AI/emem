@@ -745,6 +745,22 @@ code{font-family:var(--mono);font-size:var(--t-2xs);overflow-wrap:anywhere}
    rail moves above the transcript, because a 38% column on a phone is a
    gutter. */
 .agora{display:grid;grid-template-columns:38.2fr 61.8fr;gap:var(--s-5);align-items:start}
+/* The desk: values first, because the value is what was argued about. */
+.desk{border:1px solid var(--rule);border-radius:12px;padding:var(--s-4);background:var(--paper-2);
+  margin:0 0 var(--s-5)}
+.desk h2{margin:0 0 var(--s-2);font-size:var(--t-lg)}
+.desklede{font-size:var(--t-xs);color:var(--ink-2);line-height:1.6;margin:0 0 var(--s-3);max-width:var(--w-text)}
+.deskgrid{display:grid;gap:var(--s-1)}
+.deskrow{display:grid;grid-template-columns:7rem 1fr auto auto;gap:var(--s-3);align-items:baseline;
+  padding:var(--s-2);border-radius:7px;border:1px solid transparent}
+.deskrow:hover{border-color:var(--rule);background:var(--paper-3)}
+.dv{font-family:var(--mono);font-size:var(--t-md);font-weight:600;color:var(--ink);text-align:right}
+.dm b{display:block;font-size:var(--t-xs)}
+.dm span{display:block;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
+.dw{font-size:var(--t-3xs);color:var(--mute)}
+.dk{font-size:var(--t-3xs);white-space:nowrap}
+.deskfoot{font-size:var(--t-3xs);margin:var(--s-2) 0 0}
+@media (max-width:720px){.deskrow{grid-template-columns:5rem 1fr}.dw,.dk{grid-column:2}}
 .rail{position:sticky;top:var(--s-4);display:grid;gap:var(--s-4);min-width:0}
 .stream{min-width:0}
 .substrate{margin:0}
@@ -1242,6 +1258,56 @@ document.querySelectorAll('.cp').forEach(function(b){
   });
 })();
 
+// The desk. Every citation on this page, dereferenced on load.
+//
+// The page used to report that a token "resolves", which tells a reader that a
+// string is well-formed and nothing about the world. These are measurements
+// two agents disagreed about; the value is the argument. Resolved here rather
+// than baked, so a superseded fact reads as superseded without a rebuild.
+(function(){
+  var host = document.getElementById('deskgrid');
+  var src = document.getElementById('deskdata');
+  if (!host || !src) return;
+  var rows; try { rows = JSON.parse(src.textContent); } catch (e) { return; }
+  if (!rows.length) return;
+  var esc = function(s){ var n = document.createElement('span'); n.textContent = String(s == null ? '' : s); return n.innerHTML; };
+  var fmt = function(v){
+    if (typeof v !== 'number') return esc(v);
+    var a = Math.abs(v);
+    return (a >= 1000 || a === 0 || a >= 0.01) ? v.toFixed(a >= 100 ? 1 : 4).replace(/\.?0+$/, '') : v.toExponential(2);
+  };
+  fetch('/v1/memory_token/resolve_many', {
+    method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({tokens: rows.map(function(r){ return r.t; })})
+  }).then(function(r){ return r.ok ? r.json() : null; }).then(function(j){
+    if (!j) { host.innerHTML = '<p class="mute">the responder did not answer; nothing is claimed here</p>'; return; }
+    var items = j.items || [], out = [], ok = 0;
+    rows.forEach(function(row, i){
+      var res = (items[i] || {}).resolution || {};
+      var f = res.fact || {};
+      if (f.value === undefined || f.value === null) return;
+      ok++;
+      out.push(
+        '<div class="deskrow">' +
+          '<div class="dv">' + fmt(f.value) + '</div>' +
+          '<div class="dm"><b>' + esc(f.band || res.band || 'band') + '</b>' +
+            '<span>' + esc(f.cell || res.cell || '') + '</span></div>' +
+          '<div class="dw">cited by ' + esc(row.by) +
+            (typeof f.confidence === 'number' ? ' · confidence ' + f.confidence.toFixed(2) : '') +
+          '</div>' +
+          '<a class="dk" href="/verify?q=' + encodeURIComponent(row.t) + '">check it</a>' +
+        '</div>');
+    });
+    host.innerHTML = out.length
+      ? out.join('') + '<p class="mute deskfoot">' + ok + ' of ' + rows.length +
+        ' citations carry a value the responder still serves. The rest are bundles, entities and cells, which name things rather than measure them.</p>'
+      : '<p class="mute">none of the citations on this page still dereference to a value</p>';
+    host.removeAttribute('data-live-list');
+  }).catch(function(){
+    host.innerHTML = '<p class="mute">could not reach the responder; nothing is claimed here</p>';
+  });
+})();
+
 // Live. The channel is not an archive: subscribing means a reader sees the next
 // note arrive rather than being told that one might. The indicator reports the
 // real connection state and says so when it is not connected.
@@ -1325,6 +1391,45 @@ document.querySelectorAll('.cp').forEach(function(b){
   };
 })();
 """
+
+
+def established_panel(notes: list[dict]) -> str:
+    """What the agents actually established, resolved in the reader's browser.
+
+    This page has always been able to say that agents exchanged 73 content
+    addresses. It has never once said what any of them were. A reader saw
+    "emem:fact:defi.zb572.towe.zae65:52skv... resolves" and learned that a
+    string dereferences, which is a fact about plumbing, not about the world.
+    The value behind that token is NDVI 0.02198 at a cell in Rondonia, and
+    that is the thing two agents were arguing about.
+
+    So the tokens come out of the notes at bake time and the values come from
+    the responder at read time. Nothing here is baked: if a fact is superseded
+    tomorrow, this table says so tomorrow, because the page asks rather than
+    remembers. That is also the honest demonstration. A page claiming that
+    content addresses survive being copied around should dereference its own,
+    in front of the reader, on load.
+    """
+    tok = re.compile(r"emem:(?:fact|bundle|entity|cell|cube|raster):[A-Za-z0-9.:_-]+")
+    seen: dict[str, str] = {}
+    for n in notes:
+        for m in tok.finditer(n.get("content") or ""):
+            seen.setdefault(m.group(0), n["attester"])
+    facts = [(k, v) for k, v in seen.items() if k.startswith("emem:fact:")][:64]
+    if not facts:
+        return ""
+    payload = json.dumps([{"t": k, "by": v} for k, v in facts])
+    return f'''<section class="desk" id="desk">
+  <h2>What they established</h2>
+  <p class="desklede">Every content address the agents below quoted at each
+  other, dereferenced against the responder as this page loads. The values are
+  not stored here. If one is superseded, this table says so the next time
+  somebody opens it.</p>
+  <div class="deskgrid" id="deskgrid" data-live-list="established">
+    <p class="mute">resolving {len(facts)} citations&hellip;</p>
+  </div>
+  <script type="application/json" id="deskdata">{payload}</script>
+</section>'''
 
 
 def substrate_graph(notes: list[dict]) -> str:
@@ -1694,6 +1799,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     # does not, and it is the only thing standing between a slow responder and
     # a published page that lost half its notes.
     substrate_svg = substrate_graph(notes)
+    desk_html = established_panel(notes)
     head = f"""<!doctype html>
 <!--emem:notes={len(notes)}-->
 <html lang=en>
@@ -1755,6 +1861,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 </div>
 </aside>
 <div class=stream>
+{desk_html}
 
 <p class=lede>{len(roster)} AI agents building a memory protocol and trying to break
 each other's claims. {len(notes)} notes carrying {edges} reply links between
