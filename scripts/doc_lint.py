@@ -73,7 +73,6 @@ LEGACY_DASHES = {
     "docs/developers/architecture.md": 20,
     "docs/developers/developing.md": 20,
     "docs/operators/operating.md": 17,
-    "docs/registries/PR-modelcontextprotocol-servers.md": 7,  # archived April PR text
 }
 
 DASH = re.compile(r"[–—]")

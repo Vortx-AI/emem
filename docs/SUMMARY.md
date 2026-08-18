@@ -21,7 +21,6 @@
   - [Whitepaper v1 (archived)](./whitepaper-v1.md)
 - [Protocol](./protocol.md)
 - [Registries](./registries.md)
-  - [MCP servers PR](./registries/PR-modelcontextprotocol-servers.md)
 - [Federation & scale-out (design)](./federation.md)
 
 # Research
