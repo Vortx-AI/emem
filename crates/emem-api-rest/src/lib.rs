@@ -18963,7 +18963,7 @@ async fn post_log_witness(
             },
         )
     })?;
-    let _ = tree.flush();
+    flush_off_runtime(&tree);
 
     Ok(Json(json!({
         "ok": true,
@@ -30888,11 +30888,11 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             let mut key = derived_index_key(&attester.pubkey_b32, Some(&cell), Some(&band));
             key.extend_from_slice(fact_cid.as_bytes());
             let _ = tree.insert(key, fact_cid.as_bytes());
-            let _ = tree.flush();
+            flush_off_runtime(&tree);
         }
         if let Ok(tree) = db.open_tree(DERIVED_BY_BODY_TREE) {
             let _ = tree.insert(dedup_key, fact_cid.as_bytes());
-            let _ = tree.flush();
+            flush_off_runtime(&tree);
         }
     }
 
@@ -31543,7 +31543,7 @@ async fn post_memory_bundle(
             let mut buf = Vec::with_capacity(1024);
             if ciborium::ser::into_writer(&resp, &mut buf).is_ok() {
                 let _ = tree.insert(bundle_cid.as_bytes(), buf);
-                let _ = tree.flush();
+                flush_off_runtime(&tree);
             }
         }
     }
@@ -31977,13 +31977,13 @@ async fn post_entity(
                 format!("persist entity: {e}"),
             )
         })?;
-    let _ = entities.flush();
+    flush_off_runtime(&entities);
 
     if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
         for k in alias_keys(&entity) {
             entity_alias_append(&aliases, &k, &entity_cid);
         }
-        let _ = aliases.flush();
+        flush_off_runtime(&aliases);
     }
 
     // Tell the agent how strong this object's convergence is, so a weak
@@ -32254,7 +32254,7 @@ async fn post_entity_alias(
         for k in &keys {
             entity_alias_append(&aliases, k, &cid);
         }
-        let _ = aliases.flush();
+        flush_off_runtime(&aliases);
     }
 
     Ok(Json(json!({
@@ -33260,6 +33260,40 @@ fn synth_memory_receipt(
 /// sled commit succeeds. The previous file_cid (if any) is read up
 /// front so the Modified event can name what was replaced.
 #[allow(clippy::too_many_arguments)]
+/// fsync sled without parking a tokio worker in its condvar.
+///
+/// sled's `flush()` blocks until the IO buffer stabilises. Called straight
+/// from an async handler it blocks the worker polling that future, and every
+/// write path here did exactly that. Under concurrent writes the workers
+/// parked one at a time until the runtime had nothing left to poll and
+/// emem.dev stopped answering anything, /live included. That is the wedge the
+/// watchdog has been restarting five to ten times a day for months: 465
+/// snapshots, all with `sled::pagecache::iobuf::make_stable_inner` above an
+/// axum handler. f3a2ddc moved the recall hot path off the runtime in July and
+/// left every write path on it.
+///
+/// `block_in_place` tells tokio this thread is about to block so it can move
+/// the remaining tasks to another worker. It panics on a current-thread
+/// runtime, which is what `#[tokio::test]` builds, so the flavour is checked
+/// rather than assumed and anything off a multi-thread runtime flushes inline.
+///
+/// One tree is enough: `Tree::flush` is `self.context.pagecache.flush()` and
+/// the pagecache belongs to the Db, so flushing any tree fsyncs all of them.
+/// Call sites that flushed five trees in a row were doing five whole-database
+/// fsyncs for the durability of one.
+fn flush_off_runtime(tree: &sled::Tree) {
+    let t = tree.clone();
+    let on_worker = matches!(
+        tokio::runtime::Handle::try_current().map(|h| h.runtime_flavor()),
+        Ok(tokio::runtime::RuntimeFlavor::MultiThread)
+    );
+    let _ = if on_worker {
+        tokio::task::block_in_place(move || t.flush())
+    } else {
+        t.flush()
+    };
+}
+
 fn persist_memory_write(
     s: &AppState,
     path: &str,
@@ -33439,11 +33473,32 @@ fn persist_memory_write(
     let _ = ciborium::ser::into_writer(&meta, &mut mbuf);
     let _ = metas.insert(file_cid.as_bytes(), mbuf);
 
-    let _ = blobs.flush();
-    let _ = paths.flush();
-    let _ = by_kind.flush();
-    let _ = history.flush();
-    let _ = metas.flush();
+    // One flush, not five, and never on the async worker.
+    //
+    // sled's Tree::flush is `self.context.pagecache.flush()`, and the
+    // pagecache is shared by every tree in the Db, so these five calls were
+    // five whole-database fsyncs where one has identical durability. That
+    // alone was five times the work needed.
+    //
+    // The wedge was the other half. This is a sync fn called from async
+    // handlers, so the fsync ran ON a tokio worker, parked in sled's
+    // `make_stable_inner` condvar until the IO buffer stabilised. Under
+    // concurrent memory writes the workers parked one by one until the
+    // runtime had nothing left to poll with, and emem.dev stopped answering
+    // anything at all, including /live. The watchdog then dumped stacks and
+    // restarted it: 465 snapshots, five to ten a day, every day. The wedge
+    // fixed in f3a2ddc moved the recall hot path off the runtime and this
+    // call site was missed, so the same failure kept happening on the write
+    // path with the same signature.
+    //
+    // The flush is handed to the blocking pool, which is what it is for, and
+    // still awaited: a receipt must not be returned for a write that is not
+    // yet durable. What changes is which thread waits.
+    // block_in_place is the right primitive from a sync fn on a worker, and it
+    // PANICS on a current-thread runtime, which is what #[tokio::test] builds
+    // by default. So the flavour is checked rather than assumed: a test, or
+    // any caller off the runtime, flushes inline exactly as before.
+    flush_off_runtime(&metas);
 
     // Publish the SSE event after the sled commit succeeds.
     let event = if let Some(prev) = prev_file_cid {
@@ -34041,7 +34096,7 @@ fn persist_vault_write(
             },
         )
     })?;
-    let _ = tree.flush();
+    flush_off_runtime(&tree);
     Ok(sealed)
 }
 
@@ -34583,7 +34638,7 @@ async fn memory_supersede_inner(
             },
         )
     })?;
-    let _ = metas.flush();
+    flush_off_runtime(&metas);
 
     Ok(json!({
         "ok": true,
@@ -34627,7 +34682,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             )
         })?;
         let _ = tree.remove(path.as_bytes());
-        let _ = tree.flush();
+        flush_off_runtime(&tree);
         return Ok(json!({
             "ok": true,
             "verb": "delete",
@@ -34735,8 +34790,8 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         let _ = by_kind.remove(format!("{kind_str}|{path}").as_bytes());
         removed.push((path.clone(), kind_str));
     }
-    let _ = paths.flush();
-    let _ = by_kind.flush();
+    // One fsync covers every tree: the pagecache is shared by the Db.
+    flush_off_runtime(&paths);
 
     // Sign a receipt over the delete. The audit binds the deleted
     // path(s) to the responder identity. When an attester is present
@@ -34946,8 +35001,8 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
         format!("{kind_str}|{new_path}").as_bytes(),
         cid_str.as_bytes(),
     );
-    let _ = paths.flush();
-    let _ = by_kind.flush();
+    // One fsync covers every tree: the pagecache is shared by the Db.
+    flush_off_runtime(&paths);
 
     let started = std::time::Instant::now();
     let mut cells: Vec<String> = Vec::new();
@@ -35411,10 +35466,8 @@ pub(crate) async fn run_memory_ttl_pass(s: &AppState) -> Result<(usize, usize), 
         });
         expired += 1;
     }
-    let _ = paths.flush();
-    let _ = expired_tree.flush();
-    let _ = by_kind.flush();
-    let _ = history.flush();
+    // One fsync covers every tree: the pagecache is shared by the Db.
+    flush_off_runtime(&paths);
     Ok((scanned, expired))
 }
 
@@ -35577,7 +35630,7 @@ pub(crate) async fn run_memory_consolidation_pass(
             }
             total_files_consolidated += 1;
         }
-        let _ = metas.flush();
+        flush_off_runtime(&metas);
         let paths_list: Vec<String> = entries.iter().map(|(p, _, _)| p.clone()).collect();
         publish_memory_event(MemoryEvent::Consolidated {
             paths: paths_list,
