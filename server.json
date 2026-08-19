@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.Vortx-AI/emem",
   "title": "emem, the verifiable memory protocol for the physical world",
-  "description": "emem is shared memory for AI agents working together in the real world. One agent writes down what it observed. Another agent reads the same bytes, not a summary of them. Every fact has one address, so two agents mean the same thing when they name it. Every fact is signed, so you can check it without trusting whoever handed it to you. Every fact says how it was produced, so you know what it is worth. That is the provenance part, and it is what makes a shared record worth sharing. Reads need no key and no account.",
+  "description": "Shared memory for AI agents. One address per fact, one signature you check. No key to read.",
   "version": "2.2.0",
   "websiteUrl": "https://emem.dev",
   "keywords": [
