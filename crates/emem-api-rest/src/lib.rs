@@ -6086,6 +6086,30 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "url":          "https://vortx.ai",
         },
         "emem": {
+            // Said here rather than in a spec field, deliberately.
+            //
+            // A2A gives no way to declare "no authentication": SecurityScheme
+            // is a oneof over five real schemes and there is no none-variant,
+            // so absence of securitySchemes and securityRequirements IS the
+            // statement. We used to invent `{"none": {"type": "noAuth"}}`,
+            // which parses into no variant and lets a strict validator reject
+            // the whole card.
+            //
+            // Emitting an empty `securityRequirements: []` instead would be
+            // worse than saying nothing: the spec's own canonicalization rule
+            // omits a non-required field at its default, so a verifier
+            // following it would compute a payload without that key and our
+            // signature would not verify.
+            //
+            // So the explicit sentence lives in our namespace, where it costs
+            // a reader nothing and misleads no parser.
+            "authentication": "none. Every read is open: no key, no account, \
+                               no callback. The absence of securitySchemes and \
+                               securityRequirements above is the A2A way of \
+                               saying this, and this field is here so a human \
+                               does not have to infer it from a gap.",
+            "readonly_profile": format!("{origin}/.well-known/emem-readonly.json"),
+            "write_path":       "writes need an ed25519 attester block; reads never do",
             "contact":      "avijeet@vortx.ai",
             "country":      "India",
             "privacy_policy_url":   format!("{origin}/privacy"),
