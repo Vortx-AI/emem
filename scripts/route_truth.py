@@ -82,6 +82,7 @@ def main():
     a = ap.parse_args()
     origin = a.origin.rstrip("/")
     fails = []
+    unreachable = []
 
     status, raw = fetch(f"{origin}/.well-known/emem-guard.json")
     if status != 200:
@@ -109,12 +110,26 @@ def main():
         hosted = cp.get("hosted")
         if hosted is True:
             code, _ = fetch(f"{origin}{route}", "POST", {})
+            # `fetch` returns 0 when the request never got an answer. That is
+            # not evidence the route is wrong: this repo's own deploys refuse
+            # connections for about ninety seconds per restart, and a CI run
+            # that lands in that window was reporting a healthy route as a
+            # failure. Undetermined is not green either, so it goes to the
+            # unreachable list, which already exits 2 rather than 0.
+            if code == 0:
+                unreachable.append(f"{route} (hosted)")
+                print(f"  ??   hosted     {route:<28} no answer, not asserted")
+                continue
             ok = 200 <= code < 300
             print(f"  {'ok  ' if ok else 'FAIL'} hosted     {route:<28} {code}")
             if not ok:
                 fails.append(f"{route} is advertised as hosted and answered {code}")
         elif hosted is False:
             code, body = fetch(f"{origin}{route}", "POST", {})
+            if code == 0:
+                unreachable.append(f"{route} (not-hosted)")
+                print(f"  ??   not-hosted {route:<28} no answer, not asserted")
+                continue
             # A typed refusal, not a bare 404. The distinction is the whole
             # point: an agent that cannot tell "not here" from "nowhere" gives
             # up on both.
@@ -214,7 +229,7 @@ def main():
                 continue
             advertised.setdefault(u, set()).add(rel)
 
-    dead, unreachable = [], []
+    dead = []
     for u in sorted(advertised):
         path = u[len("https://emem.dev"):].split("?")[0] or "/"
         verb = methods.get(path, "GET")
@@ -310,8 +325,10 @@ def main():
     # not checked the origin, and must read as neither pass nor fail of it.
     # Exit 2 is the code ci.yml already maps to a warning for exactly this.
     if unreachable:
-        print(f"\nroute truth: could not reach {len(unreachable)} advertised URLs "
-              f"at {origin}, so nothing was asserted about them this run.",
+        print(f"\nroute truth: could not reach {len(unreachable)} of the routes it "
+              f"probed at {origin}, so nothing was asserted about them this run. "
+              f"A deploy restart refuses connections for about ninety seconds, "
+              f"which is usually what this is.",
               file=sys.stderr)
         for u in unreachable[:5]:
             print(f"  {u}", file=sys.stderr)
