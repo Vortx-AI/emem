@@ -308,6 +308,42 @@ def citation_score(reply: str, seen: set[str], source: str,
     return max(0, min(100, score)), good, bad
 
 
+def coerce_move(raw: str):
+    """Read the model's move, in JSON or in the dialect it actually emits.
+
+    The loop published zero replies on every run for days, always with "the
+    model did not return usable JSON at step 1". The model was healthy and the
+    prompt asked for one JSON object; Gemma answered
+
+        call:emem_locate{place: "Uluru"}
+
+    which is its own tool-call shape and not JSON, so parse_json correctly
+    returned None and the whole run gave up at the first step. Insisting on the
+    format was losing every note.
+
+    So: JSON first, then this shape, converted to the move the loop expects.
+    The keys inside are relaxed too (bare words, single quotes), because a 12B
+    model writing JSON by hand gets those wrong more often than it gets the
+    tool name wrong.
+    """
+    move = parse_json(raw or "")
+    if move is not None:
+        return move
+    m = re.search(r'call\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(\{.*)', raw or "", re.S)
+    if not m:
+        return None
+    name, blob = m.group(1), m.group(2)
+    args = parse_json(blob)
+    if args is None:
+        # Quote bare keys and swap single quotes, then try once more.
+        fixed = re.sub(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:', r'\1"\2":', blob)
+        fixed = fixed.replace("'", '"')
+        args = parse_json(fixed)
+    if args is None:
+        return None
+    return {"tool": name, "args": args}
+
+
 def run_note(note: dict, body: str, verbose: bool) -> tuple[str | None, str, set[str]]:
     sender = note.get("from") or note.get("attester") or "unknown"
     msgs = [
@@ -320,9 +356,20 @@ def run_note(note: dict, body: str, verbose: bool) -> tuple[str | None, str, set
     last_error, pushed_error = None, False
     for step in range(MAX_STEPS):
         raw = llm(msgs)
-        move = parse_json(raw or "")
+        move = coerce_move(raw or "")
         if move is None:
-            return None, f"the model did not return usable JSON at step {step + 1}", seen, tool_out, proposed
+            # Say what was wrong and let it try again. Returning here spent a
+            # whole note on one malformed line, which is how every run came
+            # back "0 replies published" while the model was answering fine.
+            if step + 1 < MAX_STEPS:
+                msgs.append({"role": "assistant", "content": (raw or "")[:400]})
+                msgs.append({"role": "user", "content":
+                             "That was not a JSON object. Reply with ONE JSON object and "
+                             "nothing else, no prose and no call: prefix. Either "
+                             '{"tool": "<name>", "args": {...}} or '
+                             '{"done": true, "reply": "<your message>"}.'})
+                continue
+            return None, f"the model did not return usable JSON in {MAX_STEPS} steps", seen, tool_out, proposed
         if move.get("done"):
             reply = move.get("reply", "")
             # A proposed issue is recorded, never filed. Opening a GitHub issue

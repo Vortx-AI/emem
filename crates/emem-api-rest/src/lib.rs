@@ -5097,11 +5097,22 @@ struct A2aTaskReq {
 /// pauses to ask a caller for more input; claiming it would be advertising a
 /// transition that can never fire.
 fn a2a_task_object(s: &AppState, task_id: &str, slot: &McpTaskSlot) -> JsonValue {
+    // A2A 1.0 carries TaskState as a proto enum, and proto3 JSON writes an
+    // enum as its constant name, so the wire value is TASK_STATE_WORKING and
+    // not "working". We emitted the pre-1.0 lowercase while the card declares
+    // 1.0, so a current client parsing our task saw a state it has no case
+    // for. Same class as the PascalCase methods and the Part oneof: a version
+    // number is a promise about the wire, not just about the endpoint.
+    //
+    // This is the one spelling that cannot be served twice, since it is a
+    // value rather than a field, so the declared version wins. Inputs still
+    // accept both, and the extension document lists these names.
     let state = match slot.status.as_str() {
-        "completed" => "completed",
-        "failed" => "failed",
-        "cancelled" | "canceled" => "canceled",
-        _ => "working",
+        "completed" => "TASK_STATE_COMPLETED",
+        "failed" => "TASK_STATE_FAILED",
+        "cancelled" | "canceled" => "TASK_STATE_CANCELED",
+        "submitted" => "TASK_STATE_SUBMITTED",
+        _ => "TASK_STATE_WORKING",
     };
     let mut task = json!({
         "id": task_id,
@@ -5251,7 +5262,7 @@ async fn post_a2a_task_async(
             let body = match map.get(&id) {
                 Some(slot) => a2a_task_object(&s, &id, slot),
                 None => json!({"id": id, "kind": "task",
-                               "status": {"state": "working"}}),
+                               "status": {"state": "TASK_STATE_WORKING"}}),
             };
             Ok(Json(body))
         }
@@ -5779,8 +5790,12 @@ async fn a2a_async_tasks_spec() -> Json<JsonValue> {
                      extension entirely loses a shortcut, not a capability."
         },
         "lifecycle": {
-            "states": ["submitted", "working", "completed", "failed", "canceled"],
-            "terminal": ["completed", "failed", "canceled"],
+            "states": ["TASK_STATE_SUBMITTED", "TASK_STATE_WORKING",
+                       "TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED"],
+            "terminal": ["TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED"],
+            "note_on_spelling": "These are the A2A 1.0 wire values: TaskState is a proto \
+                                 enum and proto3 JSON writes an enum as its constant name. \
+                                 Filters on ListTasks accept the bare lowercase form too.",
             "note": "`input-required` is not emitted: this responder never pauses a task \
                      to ask a question. A task that cannot proceed fails with a typed \
                      reason rather than waiting."
@@ -21694,7 +21709,66 @@ fn first_sentence(s: &str, cap: usize) -> String {
 /// arrive as events, not for the work to be incremental, so a fast skill
 /// legitimately produces submitted, artifact, completed in quick succession.
 /// A failing skill emits a `failed` status rather than a completed one.
-async fn post_a2a_task(State(s): State<AppState>, body: axum::body::Bytes) -> Response {
+/// The A2A protocol versions this interface will answer under, Major.Minor.
+///
+/// 0.3 and 1.0 are both real here: the 1.0 method names are aliased onto the
+/// 0.3 dispatch and both Part spellings parse, so a client on either gets the
+/// same code, the same signing and the same artifacts.
+const A2A_SUPPORTED_VERSIONS: &[&str] = &["0.3", "1.0"];
+
+async fn post_a2a_task(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    // A2A-Version is a standard service parameter and this endpoint ignored it
+    // entirely. The spec is explicit: process under the requested version, and
+    // return VersionNotSupportedError (-32009) if the interface does not speak
+    // it. Silently answering a client that asked for a version we do not
+    // implement is the failure mode the header exists to prevent.
+    //
+    // "Agents MUST interpret empty value as 0.3 version", so absence is not an
+    // error and the older default stands.
+    if let Some(v) = headers
+        .get("a2a-version")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        // Match on Major.Minor: a client sending "1.0.1" is asking for 1.0.
+        let mm: String = {
+            let mut it = v.split('.');
+            match (it.next(), it.next()) {
+                (Some(a), Some(b)) => format!("{a}.{b}"),
+                _ => v.to_string(),
+            }
+        };
+        if !A2A_SUPPORTED_VERSIONS.contains(&mm.as_str()) {
+            let rpc_id = serde_json::from_slice::<JsonValue>(&body)
+                .ok()
+                .and_then(|j| j.get("id").cloned())
+                .unwrap_or(JsonValue::Null);
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": rpc_id,
+                    "error": {
+                        "code": -32009,
+                        "message": format!("VersionNotSupportedError: this interface does not speak A2A {v}"),
+                        "data": {
+                            "schema": "emem.error.v1",
+                            "supported": A2A_SUPPORTED_VERSIONS,
+                            "requested": v,
+                            "card": "/.well-known/agent-card.json",
+                            "note": "supportedInterfaces on the card carries the protocolVersion of each interface. An absent A2A-Version header is read as 0.3, per the spec.",
+                        },
+                    },
+                })),
+            )
+                .into_response();
+        }
+    }
     let method = serde_json::from_slice::<JsonValue>(&body)
         .ok()
         .and_then(|v| {
@@ -21960,11 +22034,14 @@ async fn a2a_message_stream(s: AppState, body: axum::body::Bytes) -> Response {
 
     let (final_state, payload) = match outcome {
         Ok(Json(j)) => match j.get("error") {
-            Some(err) => ("failed", err.clone()),
-            None => ("completed", j.get("result").cloned().unwrap_or(j)),
+            Some(err) => ("TASK_STATE_FAILED", err.clone()),
+            None => (
+                "TASK_STATE_COMPLETED",
+                j.get("result").cloned().unwrap_or(j),
+            ),
         },
         Err(e) => (
-            "failed",
+            "TASK_STATE_FAILED",
             json!({"schema": "emem.error.v1", "message": e.1.message}),
         ),
     };
@@ -21976,7 +22053,7 @@ async fn a2a_message_stream(s: AppState, body: axum::body::Bytes) -> Response {
         Ok(frame(json!({
             "kind": "status-update",
             "taskId": task_id, "contextId": context_id,
-            "status": {"state": "working"},
+            "status": {"state": "TASK_STATE_WORKING"},
             "final": false,
         }))),
         Ok(frame(json!({
@@ -22041,7 +22118,17 @@ async fn a2a_task_json(
             mcp_tasks_reap(now_unix_ms());
             let p = v.get("params").cloned().unwrap_or(json!({}));
             let want_ctx = p.get("contextId").and_then(|x| x.as_str());
-            let want_state = p.get("status").and_then(|x| x.as_str());
+            // Accept either spelling on the way in: TASK_STATE_WORKING is the
+            // 1.0 wire value, "working" is what pre-1.0 clients send, and
+            // refusing one of them would be pedantry rather than protocol.
+            let want_state = p.get("status").and_then(|x| x.as_str()).map(|st| {
+                let up = st.to_ascii_uppercase();
+                if up.starts_with("TASK_STATE_") {
+                    up
+                } else {
+                    format!("TASK_STATE_{up}")
+                }
+            });
             let page = p
                 .get("pageSize")
                 .and_then(|x| x.as_u64())
@@ -22055,7 +22142,7 @@ async fn a2a_task_json(
                     want_ctx.is_none_or(|c| t.get("contextId").and_then(|x| x.as_str()) == Some(c))
                 })
                 .filter(|t| {
-                    want_state.is_none_or(|st| {
+                    want_state.as_deref().is_none_or(|st| {
                         t.get("status")
                             .and_then(|s| s.get("state"))
                             .and_then(|x| x.as_str())
@@ -22263,7 +22350,7 @@ async fn a2a_task_json(
                         let map = mcp_tasks_lock();
                         let obj = map.get(&id)
                             .map(|slot| a2a_task_object(&s, &id, slot))
-                            .unwrap_or_else(|| json!({"id": id, "kind": "task", "status": {"state": "working"}}));
+                            .unwrap_or_else(|| json!({"id": id, "kind": "task", "status": {"state": "TASK_STATE_WORKING"}}));
                         Ok(Json(json!({"jsonrpc": "2.0", "id": rpc_id, "result": obj})))
                     }
                     Err((code, msg)) => rpc_err(
@@ -22397,7 +22484,7 @@ async fn a2a_task_json(
                             .get(&id)
                             .map(|slot| a2a_task_object(&s, &id, slot))
                             .unwrap_or_else(|| {
-                                json!({"id": id, "kind": "task", "status": {"state": "working"}})
+                                json!({"id": id, "kind": "task", "status": {"state": "TASK_STATE_WORKING"}})
                             });
                         Ok(Json(json!({"jsonrpc": "2.0", "id": rpc_id, "result": obj})))
                     }
