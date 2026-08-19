@@ -1604,6 +1604,11 @@ pub fn router(state: AppState) -> Router {
         // and every other route keeps the 40 s gateway timeout.
         .merge(splats_router(state.clone()))
         .merge(eudr_router(state))
+        // LAST, and it has to be last: axum sets this on the method routers
+        // registered so far, so calling it before the merges above leaves the
+        // merged sub-routers answering with the bare empty 405 this exists to
+        // remove. /v1/eudr_dds is the one that proved it.
+        .method_not_allowed_fallback(serve_405)
 }
 
 /// Dedicated sub-router for the hosted splat viewer + its Gemma-agent proxy.
@@ -3931,6 +3936,133 @@ fn suggest_paths(path: &str) -> Vec<String> {
         .collect();
     scored.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(b.1)));
     scored.into_iter().take(3).map(|(_, p)| p.clone()).collect()
+}
+
+/// The methods a documented path accepts, read from the OpenAPI spec.
+///
+/// The spec is already the canonical route list and is reconciled by
+/// `scripts/sync_counts.py`, so reading it here means there is no second table
+/// to drift out of step with the router.
+fn methods_for_path(path: &str) -> Vec<String> {
+    const VERBS: [&str; 7] = ["get", "post", "put", "patch", "delete", "head", "options"];
+    let spec = openapi_spec();
+    let item = spec.get("paths").and_then(|p| p.get(path));
+    // A concrete path like /v1/a2a/tasks/abc is documented as /v1/a2a/tasks/{id};
+    // match those by shape so a templated route still reports its methods.
+    let item = item.or_else(|| {
+        let want: Vec<&str> = path.trim_matches('/').split('/').collect();
+        spec.get("paths").and_then(|p| p.as_object()).and_then(|o| {
+            o.iter().find_map(|(k, v)| {
+                let have: Vec<&str> = k.trim_matches('/').split('/').collect();
+                (have.len() == want.len()
+                    && have
+                        .iter()
+                        .zip(&want)
+                        .all(|(h, w)| h.starts_with('{') || h == w))
+                .then_some(v)
+            })
+        })
+    });
+    item.and_then(|i| i.as_object())
+        .map(|o| {
+            VERBS
+                .iter()
+                .filter(|v| o.contains_key(**v))
+                .map(|v| v.to_uppercase())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What a request to a wired path with the wrong method gets.
+///
+/// axum answers an unmatched method with a bare 405 and no body. That is a dead
+/// end everywhere, and it became a visible one when the ChatGPT listing sent
+/// people to `GET /v1/verify_receipt`: 74 of the 78 POST-only paths returned
+/// 405 with zero bytes, so the reader learned neither that the path exists nor
+/// how to call it. Every other error this API serves is typed and names the
+/// accepted alternative; this one contradicted that promise at exactly the
+/// moment a newcomer arrives.
+///
+/// It answers with the same `emem.error.v1` envelope, an `Allow` header so
+/// ordinary HTTP tooling can act on it, and a worked call. Browsers get a short
+/// HTML page rather than JSON, because the reader who hit this from a link is a
+/// person, not an agent.
+async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
+    let path = req.uri().path().to_string();
+    let tried = req.method().as_str().to_string();
+    let allowed = methods_for_path(&path);
+    let allow_hdr = if allowed.is_empty() {
+        "POST".to_string()
+    } else {
+        allowed.join(", ")
+    };
+    let primary = allowed
+        .iter()
+        .find(|m| *m != "GET" && *m != "HEAD" && *m != "OPTIONS")
+        .cloned()
+        .unwrap_or_else(|| "POST".to_string());
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let example = format!(
+        "curl -s -X {primary} {origin}{path} -H 'content-type: application/json' -d '{{...}}'"
+    );
+
+    let accept = req
+        .headers()
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if accept.contains("text/html") {
+        let html = format!(
+            "<!doctype html><meta charset=utf-8><meta name=viewport \
+             content=\"width=device-width,initial-scale=1\">\
+             <title>{path} needs {primary}</title>\
+             <style>body{{font:16px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;\
+             background:#f7f4ec;color:#2b2620;margin:0;padding:12vh 6vw;max-width:52rem}}\
+             h1{{font:600 1.35rem/1.3 ui-monospace,monospace;margin:0 0 1rem}}\
+             code,pre{{background:#efeadd;border:1px solid #ddd6c6;padding:.15rem .4rem}}\
+             pre{{padding:.9rem;overflow-x:auto}}a{{color:#2f6b34}}</style>\
+             <h1>This endpoint is real. It takes {primary}, not {tried}.</h1>\
+             <p><code>{path}</code> exists and is documented; it just does not answer \
+             <code>{tried}</code>.</p><pre>{example}</pre>\
+             <p>The request shape is in <a href=\"/openapi.json\">/openapi.json</a>. \
+             To check a receipt by hand there is a page for it at \
+             <a href=\"/verify\">/verify</a>, and the full endpoint list is at \
+             <a href=\"/reference\">/reference</a>.</p>"
+        );
+        let mut resp = Response::builder()
+            .status(StatusCode::METHOD_NOT_ALLOWED)
+            .header(CONTENT_TYPE, "text/html; charset=utf-8")
+            .body(axum::body::Body::from(html))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        resp.headers_mut().insert(
+            axum::http::header::ALLOW,
+            axum::http::HeaderValue::from_str(&allow_hdr)
+                .unwrap_or(axum::http::HeaderValue::from_static("POST")),
+        );
+        return resp;
+    }
+
+    let body = json!({
+        "schema":  "emem.error.v1",
+        "code":    "method_not_allowed",
+        "message": format!(
+            "{path} is a wired endpoint but does not answer {tried}. It accepts {allow_hdr}. \
+             This is not a missing route: call it with {primary} and the request shape from \
+             GET /openapi.json."),
+        "path":    path,
+        "method_tried": tried,
+        "allow":   allowed,
+        "example": example,
+        "openapi": format!("{origin}/openapi.json"),
+    });
+    let mut resp = (StatusCode::METHOD_NOT_ALLOWED, Json(body)).into_response();
+    resp.headers_mut().insert(
+        axum::http::header::ALLOW,
+        axum::http::HeaderValue::from_str(&allow_hdr)
+            .unwrap_or(axum::http::HeaderValue::from_static("POST")),
+    );
+    resp
 }
 
 async fn serve_404(req: axum::http::Request<axum::body::Body>) -> Response {
@@ -26003,7 +26135,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/a2a/tasks/{id}":    {"get":{"summary":"poll an async task","operationId":"emem_a2a_task_get","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/a2a/tasks/{id}/cancel": {"post":{"summary":"cancel an async task","operationId":"emem_a2a_task_cancel","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"required":false,"description":"No body. The task is named by the path parameter; declared explicitly so the spec states the emptiness rather than omitting the field.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/a2a/skills":        {"get":{"summary":"find a skill in one call","operationId":"emem_a2a_skills","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"free-text query over skill ids and descriptions"}],"responses":{"200":json_ok}}},
-            "/v1/inbox":             {"post":{"summary":"read-side mailbox: the notes addressed to an attester, newest first. Read-only; it does not accept mail, it reports what was written to the shared memory naming you.","operationId":"emem_inbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["to"],"properties":{"to":{"type":"string","description":"attester pubkey or its 8-char shortcode"},"limit":{"type":"integer","minimum":1,"description":"default 20"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/inbox":             {"post":{"summary":"read-side mailbox: the notes addressed to an attester, newest first. Read-only; it does not accept mail, it reports what was written to the shared memory naming you.","operationId":"emem_inbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["to"],"properties":{"to":{"type":"string","description":"attester pubkey or its 8-char shortcode"},"limit":{"type":"integer","minimum":1,"description":"default 20"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}},"get":{"summary":"the same mailbox over a query string, for a client that would rather not POST to read. `to` is required and the 400 says so.","operationId":"emem_inbox_get","parameters":[{"name":"to","in":"query","required":true,"schema":{"type":"string"},"description":"attester pubkey or its 8-char shortcode"},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok,"400":json_bad_request}}},
             "/mcp":                  {"post":{"summary":"MCP JSON-RPC 2.0 (Streamable HTTP). tools/list here returns the 16-tool core surface; /mcp/full returns all 107. tools/call dispatches any of the 107 by name at either endpoint.","operationId":"mcp_jsonrpc","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{"description":"request id; omit for a notification"},"method":{"type":"string","description":"initialize | tools/list | tools/call | resources/list | resources/read | prompts/list"},"params":{"type":"object","description":"method-specific; for tools/call it is {name, arguments}"}}}}}},"responses":{"200":json_ok}},
                                       "get":{"summary":"Discovery document for the MCP endpoint (transport, protocol versions, tool names, client configs). This responder is stateless — no Mcp-Session-Id, no server-initiated messages — so a GET carrying `Accept: text/event-stream`, i.e. a Streamable HTTP stream open, is answered 405 Method Not Allowed as the transport spec requires, with `Allow: POST, OPTIONS`. Every other GET gets the discovery document.","operationId":"mcp_discover","responses":{"200":json_ok,"405":{"description":"no SSE stream is offered at this endpoint; use POST"}}}},
             // High-traffic endpoints that were previously discoverable
@@ -26096,7 +26228,7 @@ fn openapi_spec() -> JsonValue {
             },
             "/v1/agent_quickref":    {"get":{"summary":"agent-targeted intent map: which endpoint to call for which user intent, with usage priority + trust language","operationId":"emem_agent_quickref","tags":["boring"],"responses":{"200":json_ok}}},
             "/v1/discover":          {"get":{"summary":"machine-readable index of all surfaces","operationId":"emem_discover","responses":{"200":json_ok}}},
-            "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject. `subject_kind` must be one of: fact, cell, request_id, session, band, endpoint, other. `outcome` must be one of: success, partial, failed, noisy. Optional `agent_pubkey_b32` + `agent_signature_hex` for self-attesting reviews.","operationId":"emem_reviews_post","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["subject_kind","subject_id","task","outcome"],"properties":{"subject_kind":{"type":"string","enum":["fact","cell","request_id","session","band","endpoint","other"]},"subject_id":{"type":"string"},"task":{"type":"string"},"outcome":{"type":"string","enum":["success","partial","failed","noisy"]},"rating":{"type":"integer","minimum":0,"maximum":255},"comment":{"type":"string"},"agent_pubkey_b32":{"type":"string"},"agent_signature_hex":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/reviews":           {"post":{"summary":"submit task-outcome review keyed by subject. `subject_kind` must be one of: fact, cell, request_id, session, band, endpoint, other. `outcome` must be one of: success, partial, failed, noisy. Optional `agent_pubkey_b32` + `agent_signature_hex` for self-attesting reviews.","operationId":"emem_reviews_post","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["subject_kind","subject_id","task","outcome"],"properties":{"subject_kind":{"type":"string","enum":["fact","cell","request_id","session","band","endpoint","other"]},"subject_id":{"type":"string"},"task":{"type":"string"},"outcome":{"type":"string","enum":["success","partial","failed","noisy"]},"rating":{"type":"integer","minimum":0,"maximum":255},"comment":{"type":"string"},"agent_pubkey_b32":{"type":"string"},"agent_signature_hex":{"type":"string"}}}}}},"responses":{"200":json_ok}},"get":{"summary":"list recent task-outcome reviews across all subjects, newest first. For one subject use /v1/reviews/{subject_id}.","operationId":"emem_reviews_list","parameters":[{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1},"description":"default 50"}],"responses":{"200":json_ok}}},
             "/v1/reviews/{subject_id}":{"get":{"summary":"list reviews for a subject","operationId":"emem_reviews_get","parameters":[{"name":"subject_id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/contributors":      {"get":{"summary":"list of contributing pubkeys + per-band fact counts","operationId":"emem_contributors","responses":{"200":json_ok}}},
             "/v1/contributors/{pubkey_b32}": {"get":{"summary":"contributor profile by pubkey","operationId":"emem_contributor_one","parameters":[{"name":"pubkey_b32","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},

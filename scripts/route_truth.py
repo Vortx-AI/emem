@@ -270,6 +270,42 @@ def main():
     for h in unmarked[:5]:
         fails.append("unmarked block: " + re.sub(r"<[^>]+>", " ", h).strip()[:60])
 
+    # A wired endpoint answering the wrong method must say so. axum's default
+    # is a 405 with zero bytes, which is a dead end: the reader learns neither
+    # that the path exists nor how to call it. It became visible when the
+    # ChatGPT listing sent people to GET /v1/verify_receipt and 74 of the 78
+    # POST-only paths answered with nothing at all. Every other error this API
+    # serves is typed and names the accepted alternative.
+    code, text = fetch(f"{origin}/openapi.json")
+    try:
+        paths = json.loads(text).get("paths", {}) if code == 200 else {}
+    except Exception:
+        paths = {}
+    if not paths:
+        print(f"\n  FAIL could not read {origin}/openapi.json ({code}), so no "
+              f"POST-only path was checked")
+        fails.append("openapi.json unreadable: the empty-405 check asserted nothing")
+    post_only = [p for p, v in paths.items() if "post" in v and "get" not in v]
+    bare = []
+    for p in post_only:
+        url = origin + p.replace("{id}", "x").replace("{cid}", "x")
+        try:
+            req = urllib.request.Request(url, method="GET")
+            try:
+                r = urllib.request.urlopen(req, timeout=15)
+                code, body = r.status, r.read()
+            except urllib.error.HTTPError as e:
+                code, body = e.code, e.read()
+        except Exception:
+            continue
+        if code == 405 and len(body) < 5:
+            bare.append(p)
+    print(f"\n  {'ok  ' if not bare else 'FAIL'} {len(post_only)} POST-only paths, "
+          f"{len(bare)} answering GET with an empty 405")
+    for p in bare[:5]:
+        fails.append(f"{p} returns a 405 with no body, so a reader who follows a "
+                     f"link to it learns nothing")
+
     # Reported before any finding: a run that could not reach the origin has
     # not checked the origin, and must read as neither pass nor fail of it.
     # Exit 2 is the code ci.yml already maps to a warning for exactly this.
