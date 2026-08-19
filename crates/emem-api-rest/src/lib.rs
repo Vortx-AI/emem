@@ -58618,8 +58618,21 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
         }
     }
 
-    // 2. Longest run of consecutive capitalised words.
-    let mut best: Vec<&str> = Vec::new();
+    // 2. Runs of consecutive capitalised words. EVERY run, not just the
+    //    longest.
+    //
+    //    Keeping only the longest lost the place whenever the question opened
+    //    with a capitalised word, which is most questions. "How green is
+    //    Nairobi right now?" yields two runs of one word each, ["How"] and
+    //    ["Nairobi"], and the comparison was `cur.len() > best.len()`, so the
+    //    first run won on a tie and the only candidate was "How". The
+    //    question-stem strip below could not save it either, because that
+    //    only fires when the run has more than one word. So a question
+    //    naming a city was refused for naming no place.
+    //
+    //    Longest first, because a more specific span is the better guess and
+    //    the caller tries them in order.
+    let mut runs: Vec<Vec<&str>> = Vec::new();
     let mut cur: Vec<&str> = Vec::new();
     for tok in q.split_whitespace() {
         let clean = tok.trim_matches(|c: char| !c.is_alphanumeric());
@@ -58628,22 +58641,19 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
             .next()
             .map(|c| c.is_uppercase())
             .unwrap_or(false);
-        // Skip the first word of the sentence (questions usually start
-        // with a capitalised verb: "How walkable...", "Show me...")
-        // unless the run is at least length 2.
         if is_cap {
             cur.push(clean);
         } else {
-            if cur.len() > best.len() {
-                best = cur.clone();
+            if !cur.is_empty() {
+                runs.push(std::mem::take(&mut cur));
             }
-            cur.clear();
         }
     }
-    if cur.len() > best.len() {
-        best = cur;
+    if !cur.is_empty() {
+        runs.push(cur);
     }
-    if !best.is_empty() {
+    runs.sort_by_key(|r| std::cmp::Reverse(r.len()));
+    for mut best in runs {
         // Drop a leading "How/Show/What/Where/Tell/Find/Give/Get/Is/Are/
         // Can/Does/Do/Why" if the run starts the question, these are
         // question-stem verbs, not place name parts.
@@ -58655,7 +58665,9 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
             .first()
             .map(|w| stem.iter().any(|s| s == w))
             .unwrap_or(false);
-        if starts_with_stem && best.len() > 1 {
+        // A one-word run that IS a question stem is a stem and nothing else,
+        // so it is dropped rather than offered to the geocoder.
+        if starts_with_stem {
             best.remove(0);
         }
         if !best.is_empty() {
