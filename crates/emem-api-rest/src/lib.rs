@@ -36358,6 +36358,25 @@ async fn get_memory_sse(State(_s): State<AppState>, Query(q): Query<MemorySseQue
         .into_response();
     }
 
+    // Kept for the opening frame below, which tells the client what it just
+    // subscribed to rather than making it infer that from silence.
+    let ready = json!({
+        "type": "ready",
+        "stream": "emem.memory_event.v1",
+        "filters": {
+            "path_prefix": q.path_prefix.clone(),
+            "kind":        q.kind.clone(),
+            "attester":    q.attester.clone(),
+        },
+        "keepalive_s": 15,
+        // Two honest limits, said on connect rather than discovered later.
+        "backfill": "none: this is a live tail. Events that landed before you \
+                     connected are not replayed; read them from the store.",
+        "resume":   "none: events carry no id, so Last-Event-ID cannot resume a \
+                     gap. A reconnect starts a fresh tail and whatever happened \
+                     while you were away is missed.",
+    });
+
     let filter = MemoryEventFilter {
         path_prefix: q.path_prefix,
         kind: q.kind,
@@ -36406,6 +36425,27 @@ async fn get_memory_sse(State(_s): State<AppState>, Query(q): Query<MemorySseQue
     // Drop the original local handle so only the stream-borne clones
     // remain. The counter will decrement when those go out of scope.
     drop(guard);
+
+    // Say something immediately.
+    //
+    // The stream used to send its first byte only when a write landed or the
+    // 15s keep-alive fired, whichever came first. A connection that is healthy
+    // and simply quiet is indistinguishable, for fifteen seconds, from one that
+    // is hung: a client with a ten-second timeout sees zero bytes and reports
+    // the endpoint as failing. That is exactly what an outside reviewer
+    // reported, and they were reading the evidence correctly.
+    //
+    // An opening frame costs nothing and answers the three questions a client
+    // has on connect: am I through, what will I receive, and what will I not.
+    let opening = futures_util::stream::once(async move {
+        Ok::<_, std::convert::Infallible>(
+            axum::response::sse::Event::default()
+                .event("ready")
+                .retry(std::time::Duration::from_secs(5))
+                .data(ready.to_string()),
+        )
+    });
+    let filtered = opening.chain(filtered);
     // Forward the stream with a keep-alive ping every 15 s so proxies
     // don't drop idle connections.
     let sse = axum::response::sse::Sse::new(filtered).keep_alive(
