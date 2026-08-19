@@ -165,9 +165,10 @@ def main() -> int:
     # the current one with "message has no parts", so a client using the right
     # method name still could not send a message.
     if endpoint:
-        for label, part in (("1.0 oneof   {'text': ...}", {"text": "ping"}),
-                            ("0.3 kind    {'kind': 'text'}", {"kind": "text", "text": "ping"}),
-                            ("pre-0.3 type", {"type": "text", "text": "ping"})):
+        GROUNDABLE = "elevation at Uluru, Australia"
+        for label, part in (("1.0 oneof   {'text': ...}", {"text": GROUNDABLE}),
+                            ("0.3 kind    {'kind': 'text'}", {"kind": "text", "text": GROUNDABLE}),
+                            ("pre-0.3 type", {"type": "text", "text": GROUNDABLE})):
             code, body = post(endpoint, {
                 "jsonrpc": "2.0", "id": "c", "method": "SendMessage",
                 "params": {"message": {"role": "user", "messageId": "conformance",
@@ -176,13 +177,20 @@ def main() -> int:
                 err = json.loads(body).get("error") or {}
             except Exception:
                 err = {}
-            ok = not err
-            print(f"  part shape {label:<28} {'accepted' if ok else 'REJECTED'}")
-            if not ok:
+            # Only a SHAPE failure counts. A semantic refusal ("this text does
+            # not name a place I can ground confidently") means the part was
+            # read perfectly well, and an earlier version of this check called
+            # that a rejection and failed on the responder doing its job.
+            msg = str(err.get("message", ""))
+            shape_failed = "has no parts" in msg or "no parts" in msg
+            print(f"  part shape {label:<28} "
+                  f"{'NOT PARSED' if shape_failed else 'parsed'}"
+                  f"{'' if not err else f'  ({msg[:44]})'}")
+            if shape_failed:
                 problems.append(
-                    f"a Part shaped {json.dumps(part)} is rejected "
-                    f"({err.get('code')}: {str(err.get('message'))[:60]}); the card "
-                    f"claims protocolVersion {card.get('protocolVersion')}")
+                    f"a Part shaped {json.dumps(part)} is not parsed at all "
+                    f"({err.get('code')}: {msg[:60]}); the card claims "
+                    f"protocolVersion {card.get('protocolVersion')}")
 
     if problems:
         print("\nA card that describes a transport the endpoint does not speak sends "

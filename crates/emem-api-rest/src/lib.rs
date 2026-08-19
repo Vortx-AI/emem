@@ -21249,6 +21249,40 @@ fn a2a_ctx_cell(ctx: &str) -> Option<String> {
 /// Uses the geocoder's own `selected.is_high_confidence` and reason, never
 /// a heuristic of our own.
 async fn a2a_place_gate(text: &str, s: &AppState) -> Result<String, String> {
+    // Try the whole utterance first, then the place-shaped spans inside it.
+    //
+    // This used to geocode the entire message and nothing else, so any
+    // ordinary question was handed to Photon and Nominatim as if it were a
+    // place name. "How green is Nairobi right now?" returned zero results and
+    // was refused for naming no place, while "Nairobi" on its own resolves
+    // with high confidence. The refusal was reading as a judgement about the
+    // question when it was really a report about a bad query.
+    //
+    // emem_ask already had the extractor and the same confidence bar; this
+    // path simply did not use it. Candidates are tried in order and the first
+    // that clears the bar wins, so a question carrying several spans is not
+    // sunk by one bad one. If none clear it, the refusal below is unchanged:
+    // still no guessing, still says why.
+    let mut attempts: Vec<String> = vec![text.to_string()];
+    attempts.extend(extract_place_candidates(text));
+    let mut last_err = String::new();
+    for (i, attempt) in attempts.iter().enumerate() {
+        match a2a_place_gate_one(attempt, s).await {
+            Ok(cell) => return Ok(cell),
+            Err(e) => {
+                // Report the whole-text failure, which is the one that names
+                // what the caller actually sent.
+                if i == 0 || last_err.is_empty() {
+                    last_err = e;
+                }
+            }
+        }
+    }
+    Err(last_err)
+}
+
+/// One geocode attempt, gated on the resolver's own confidence flag.
+async fn a2a_place_gate_one(text: &str, s: &AppState) -> Result<String, String> {
     let body = json!({ "q": text });
     let located = mcp_tool_call("emem_locate", body, s)
         .await
