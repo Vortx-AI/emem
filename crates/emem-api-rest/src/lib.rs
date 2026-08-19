@@ -22106,11 +22106,41 @@ async fn a2a_task_json(
                 .and_then(|p| p.as_array())
                 .cloned()
                 .unwrap_or_default();
+            // Which variant a Part is, across three spellings of the same idea.
+            //
+            // A2A 1.0 defines Part as a message with a `oneof content`, so the
+            // field that is SET is the discriminator and there is no `kind` key
+            // at all: a text part is `{"text": "..."}`. Pre-0.3 used `type`,
+            // 0.3 used `kind`. We accepted the latter two and rejected the
+            // current one with "message has no parts", so a client sending the
+            // spec shape could not talk to us even with the right method name.
+            //
+            // Checked in order: an explicit discriminator wins if present,
+            // otherwise infer from which content field is set.
             let part_kind = |p: &JsonValue| -> Option<String> {
-                p.get("kind")
+                if let Some(k) = p
+                    .get("kind")
                     .or_else(|| p.get("type"))
                     .and_then(|k| k.as_str())
-                    .map(|s| s.to_string())
+                {
+                    return Some(k.to_string());
+                }
+                let o = p.as_object()?;
+                // `raw`, `url` and `file` are the other oneof arms; naming them
+                // here means an unsupported part is reported as its own kind
+                // rather than as an absent one.
+                for (field, kind) in [
+                    ("text", "text"),
+                    ("data", "data"),
+                    ("raw", "raw"),
+                    ("url", "url"),
+                    ("file", "file"),
+                ] {
+                    if o.contains_key(field) {
+                        return Some(kind.to_string());
+                    }
+                }
+                None
             };
             let data_part = parts.iter().find_map(|p| {
                 (part_kind(p).as_deref() == Some("data"))

@@ -157,6 +157,33 @@ def main() -> int:
                     f"{card.get('protocolVersion')}; 1.0 names its JSON-RPC methods "
                     f"in PascalCase and a current client sends exactly this")
 
+    # The message shape a 1.0 client actually sends.
+    #
+    # 1.0 defines Part as a message with a `oneof content`, so the field that is
+    # set IS the discriminator: a text part is {"text": "..."} with no `kind`.
+    # We accepted only the 0.3 `kind` and pre-0.3 `type` spellings and answered
+    # the current one with "message has no parts", so a client using the right
+    # method name still could not send a message.
+    if endpoint:
+        for label, part in (("1.0 oneof   {'text': ...}", {"text": "ping"}),
+                            ("0.3 kind    {'kind': 'text'}", {"kind": "text", "text": "ping"}),
+                            ("pre-0.3 type", {"type": "text", "text": "ping"})):
+            code, body = post(endpoint, {
+                "jsonrpc": "2.0", "id": "c", "method": "SendMessage",
+                "params": {"message": {"role": "user", "messageId": "conformance",
+                                       "parts": [part]}}})
+            try:
+                err = json.loads(body).get("error") or {}
+            except Exception:
+                err = {}
+            ok = not err
+            print(f"  part shape {label:<28} {'accepted' if ok else 'REJECTED'}")
+            if not ok:
+                problems.append(
+                    f"a Part shaped {json.dumps(part)} is rejected "
+                    f"({err.get('code')}: {str(err.get('message'))[:60]}); the card "
+                    f"claims protocolVersion {card.get('protocolVersion')}")
+
     if problems:
         print("\nA card that describes a transport the endpoint does not speak sends "
               "every well-behaved client into a 400.")
