@@ -353,6 +353,15 @@ jobs:
       # any page's nav is drift, and this reports it.
       - name: one navigation, not seven
         run: python3 scripts/gen_nav.py --check
+      # The ChatGPT submission declares MCP annotations that the server also
+      # declares, and they had drifted: the submission called five tools
+      # readOnlyHint:true while the server says false, because each can
+      # materialize and sign new facts on a cold miss. Telling a directory a
+      # writing tool is read-only is the one direction that is unsafe, and
+      # nothing was watching the pair until a reviewer asked about a different
+      # annotation entirely.
+      - name: the submission says what the server says
+        run: python3 scripts/submission_matches_server.py
       # A ratchet, not a standard. tokens.css has carried a golden-ratio
       # spacing scale for a long time and the pages use it for 136 values
       # against 1382 hand-picked ones: every gap slightly different, which is
