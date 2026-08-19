@@ -362,6 +362,18 @@ jobs:
       # annotation entirely.
       - name: the submission says what the server says
         run: python3 scripts/submission_matches_server.py
+      # The card declared preferredTransport HTTP+JSON while /a2a/tasks requires
+      # the JSON-RPC envelope, so every client that believed the card got a 400
+      # and the A2A registry's task_conformance probe failed on METHOD. A schema
+      # check could not see it: the value was a legal transport name, just not
+      # ours. This sends the shape the card promises and checks it is accepted.
+      - name: the agent card describes the endpoint that answers
+        run: python3 scripts/agent_card_conformance.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+      # Everything else emem serves carries an ed25519 receipt; the card that
+      # advertises all of it was the one document nobody signed. This verifies
+      # it as a stranger would, over HTTP, using only the published key.
+      - name: the agent card verifies against its own published key
+        run: python3 scripts/agent_card_signed.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       # A ratchet, not a standard. tokens.css has carried a golden-ratio
       # spacing scale for a long time and the pages use it for 136 values
       # against 1382 hand-picked ones: every gap slightly different, which is

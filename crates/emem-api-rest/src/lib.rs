@@ -1292,6 +1292,7 @@ pub fn router(state: AppState) -> Router {
             get(get_capability_manifest),
         )
         .route("/.well-known/emem-readonly.json", get(get_readonly_profile))
+        .route("/.well-known/jwks.json", get(well_known_jwks))
         .route("/spec/a2a/async-tasks/v1", get(a2a_async_tasks_spec))
         .route("/v1/agents", get(get_agents))
         .route("/v1/limits", get(get_limits))
@@ -5790,6 +5791,121 @@ async fn a2a_async_tasks_spec() -> Json<JsonValue> {
     }))
 }
 
+/// RFC 8785 (JCS) canonical form of a JSON value.
+///
+/// serde_json's `Map` is a BTreeMap here (the `preserve_order` feature is off),
+/// so object keys already serialize in lexicographic byte order, and
+/// `to_string` already emits no insignificant whitespace. For a document whose
+/// keys are all ASCII and whose numbers are all integers, that is JCS. The
+/// assert guards the assumption rather than trusting it: turning
+/// `preserve_order` on somewhere would silently change what we sign.
+fn jcs(value: &JsonValue) -> String {
+    debug_assert!(
+        {
+            let probe = json!({"b": 1, "a": 2});
+            serde_json::to_string(&probe).unwrap_or_default() == r#"{"a":2,"b":1}"#
+        },
+        "serde_json is no longer sorting object keys, so this is not JCS"
+    );
+    serde_json::to_string(value).unwrap_or_default()
+}
+
+/// The public half of this responder's signing key, as a JWK set.
+///
+/// The agent card's signature names this document in its `jku`, so a verifier
+/// that has only the card can fetch the key it needs without being told where
+/// to look, and without trusting us for anything except the bytes it then
+/// checks the signature against.
+async fn well_known_jwks(State(s): State<AppState>) -> Json<JsonValue> {
+    Json(json!({
+        "keys": [{
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "x":   data_encoding::BASE64URL_NOPAD.encode(&s.identity.pubkey.0),
+            "kid": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
+            "alg": "EdDSA",
+            "use": "sig",
+        }],
+    }))
+}
+
+/// Sign the agent card, per the spec's own procedure.
+///
+/// Every answer this server gives carries an ed25519 receipt, and the card
+/// that advertises all of it was the one document nobody signed. A reviewer
+/// noticed, and they were right that it undercuts the premise.
+///
+/// The procedure is section 8.4: exclude `signatures`, canonicalize with
+/// RFC 8785, build the protected header, and sign
+/// `BASE64URL(header) || '.' || BASE64URL(payload)`. `alg` is EdDSA, which is
+/// what RFC 8037 names for Ed25519, and `kid` is this responder's public key
+/// in the same base32 it publishes everywhere else.
+///
+/// One thing a verifier needs to know, because the spec leaves it ambiguous:
+/// the payload is THIS card as served, minus `signatures`, canonicalized. The
+/// spec's "remove default values" rule is written for a card reconstructed
+/// through protobuf, and a verifier that round-trips ours that way would drop
+/// the pre-1.0 compatibility fields and compute a different payload. Fetch,
+/// remove `signatures`, canonicalize, verify: that is the whole recipe, and it
+/// is stated at /v1/verifier_spec too.
+fn sign_agent_card(card: &JsonValue, s: &AppState, origin: &str) -> JsonValue {
+    use ed25519_dalek::Signer;
+    let mut payload = card.clone();
+    if let Some(o) = payload.as_object_mut() {
+        o.remove("signatures");
+    }
+    let kid = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_lowercase();
+    let protected_json = jcs(&json!({
+        "alg": "EdDSA",
+        "typ": "JOSE",
+        "kid": kid,
+        "jku": format!("{origin}/.well-known/jwks.json"),
+    }));
+    let protected_b64 = data_encoding::BASE64URL_NOPAD.encode(protected_json.as_bytes());
+    let payload_b64 = data_encoding::BASE64URL_NOPAD.encode(jcs(&payload).as_bytes());
+    let signing_input = format!("{protected_b64}.{payload_b64}");
+    let sig = s.identity.signing.sign(signing_input.as_bytes());
+    json!({
+        "protected": protected_b64,
+        "signature": data_encoding::BASE64URL_NOPAD.encode(&sig.to_bytes()),
+        "header": {
+            "payload": "this card as served, with `signatures` removed, canonicalized per RFC 8785",
+            "spec":    format!("{origin}/v1/verifier_spec"),
+        },
+    })
+}
+
+/// The A2A protocol version this server speaks, in the form the proto asks for.
+///
+/// `AgentInterface.protocol_version` is documented as Major.Minor, with "0.3"
+/// and "1.0" as the given examples, so a patch component here is not a more
+/// precise answer, it is the wrong shape.
+const A2A_PROTOCOL_VERSION: &str = "1.0";
+
+/// Every interface on which this server actually speaks A2A, most preferred
+/// first, which is the order `supportedInterfaces` defines.
+///
+/// One entry, and that is not an oversight. `/a2a/tasks` accepts the A2A
+/// JSON-RPC envelope, so it is a JSONRPC binding. The obvious second candidate,
+/// `/v1/a2a/tasks`, is NOT the spec's HTTP+JSON binding: it takes
+/// `{skill, args}` rather than the REST message shape, and listing it as
+/// HTTP+JSON would repeat exactly the mislabel this function was fixed for,
+/// one line further down. It stays where it belongs, in the async-tasks
+/// extension, which says what it takes.
+///
+/// The card's legacy `url` and `preferredTransport` are read from this list
+/// rather than written again, so the old shape and the current one cannot
+/// drift apart.
+fn a2a_interfaces(origin: &str) -> Vec<JsonValue> {
+    vec![json!({
+        "url":             format!("{origin}/a2a/tasks"),
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": A2A_PROTOCOL_VERSION,
+    })]
+}
+
 async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     // Skill tags must be a deduplicated set of editorial labels, earlier
@@ -5831,10 +5947,20 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             })
         })
         .collect();
-    Json(json!({
-        // A2A v1.2 envelope (Linux Foundation A2A project, March 2026).
-        // Compliant against https://a2a-protocol.org/dev/specification/
-        "protocolVersion":    "1.2.0",
+    let mut card = json!({
+        // A2A envelope, checked against the project's own normative proto
+        // (specification/a2a.proto) rather than the prose pages.
+        // "1.2.0" was declared here for a long time and no such A2A version
+        // exists: the project has released 0.2.x, 0.3.0, 1.0.0 and 1.0.1. The
+        // proto also documents this as Major.Minor ("0.3", "1.0"), not
+        // Major.Minor.Patch, so the old value was wrong in both its number and
+        // its shape. A registry probe reading it had no version to match.
+        //
+        // The current spec has no card-level protocolVersion at all; it lives
+        // per interface in `supportedInterfaces` below. This is kept, correct,
+        // because consumers that resolved this card under the older shape
+        // still read it.
+        "protocolVersion":    A2A_PROTOCOL_VERSION,
         "name":               "emem",
         "description":        EMEM_DESCRIPTION,
         // The card's primary `url` must accept the A2A envelope itself.
@@ -5842,8 +5968,20 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // client POSTing message/send landed on a surface that speaks a
         // different protocol; /a2a/tasks is the endpoint that accepts
         // message/send (and the friendly {skill, args} form).
-        "url":                format!("{origin}/a2a/tasks"),
-        "preferredTransport": "HTTP+JSON",
+        //
+        // Both of these are the pre-1.0 shape, kept because the A2A registry
+        // and anything that already resolved this card read them. The current
+        // spec replaced them with `supportedInterfaces`, served below from the
+        // same list so the two cannot disagree.
+        "url":                a2a_interfaces(&origin)[0]["url"].clone(),
+        // This said HTTP+JSON while the endpoint rejects a plain REST body and
+        // requires the JSON-RPC envelope, so a client that believed the card
+        // got a 400. That mislabel is the likeliest cause of the registry's
+        // task_conformance METHOD failure.
+        "preferredTransport": a2a_interfaces(&origin)[0]["protocolBinding"].clone(),
+        // The current shape: an ordered list, first entry preferred, each
+        // carrying its own binding and protocol version.
+        "supportedInterfaces": a2a_interfaces(&origin),
         "version":            env!("CARGO_PKG_VERSION"),
         "documentationUrl":   format!("{origin}/agents.md"),
         "iconUrl":            format!("{origin}/favicon.svg"),
@@ -5875,6 +6013,12 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             // reachable through the standard methods, so an agent that ignores
             // this loses nothing but a shortcut.
             "extensions": [a2a_async_tasks_extension(&origin)],
+            // The spec puts this inside capabilities. It was only at the top
+            // level, as `supportsAuthenticatedExtendedCard`, which is where
+            // the pre-1.0 shape had it. Both are served: the old name for
+            // whoever already reads it, this one because it is the field a
+            // current client looks for.
+            "extendedAgentCard": false,
         },
         // A2A v1.2 added this field; we never serve a separate authenticated
         // card (every endpoint is open + receipt-signed). Explicit `false`
@@ -5886,7 +6030,11 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "securitySchemes": {
             "none": { "type": "noAuth" }
         },
+        // `security` is the pre-1.0 name; the spec calls this
+        // `securityRequirements`. Same value, both emitted, because renaming
+        // in place would break every consumer that already resolved this card.
         "security": [{ "none": [] }],
+        "securityRequirements": [{ "none": [] }],
         "provider": {
             "organization": "Vortx AI Private Limited",
             "url":          "https://vortx.ai",
@@ -5964,7 +6112,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // saw zero alternate interfaces. We now use spec-valid transports
         // and keep the surface kind in `protocol` (extension field).
         "additionalInterfaces": [
-            { "url": format!("{origin}/a2a/tasks"),             "transport": "HTTP+JSON", "protocol": "a2a-message-send" },
+            { "url": format!("{origin}/a2a/tasks"),             "transport": "JSONRPC",   "protocol": "a2a-message-send" },
             { "url": format!("{origin}/v1/a2a/tasks"),          "transport": "HTTP+JSON", "protocol": "a2a-async-tasks" },
             { "url": format!("{origin}/v1/a2a/skills"),         "transport": "HTTP+JSON", "protocol": "a2a-skill-query" },
             { "url": format!("{origin}/openapi.json"),          "transport": "HTTP+JSON", "protocol": "openapi-3.1" },
@@ -5977,7 +6125,12 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "signature_alg": "ed25519",
             "hash_alg":      "blake3",
         },
-    }))
+    });
+    // Signed last, over everything above it. sign_agent_card documents exactly
+    // what a verifier has to reproduce.
+    let signature = sign_agent_card(&card, &s, &origin);
+    card["signatures"] = json!([signature]);
+    Json(card)
 }
 
 /// `GET /.well-known/mcp.json`, direct MCP server discovery descriptor.
@@ -65368,11 +65521,17 @@ mod tests {
         }
         // Vendor additions belong in extensions, named by URI, so a client
         // that does not know one can skip it by rule.
+        // The four AgentCapabilities fields the proto defines, plus
+        // stateTransitionHistory which the pre-1.0 shape carried and consumers
+        // still read. `extendedAgentCard` is field 4 in the current proto and
+        // belongs here; this list predates that field, so adding it to the card
+        // read as a vendor addition and tripped the guard.
         let known = [
             "streaming",
             "pushNotifications",
             "stateTransitionHistory",
             "extensions",
+            "extendedAgentCard",
         ];
         for k in caps.as_object().expect("capabilities").keys() {
             assert!(
