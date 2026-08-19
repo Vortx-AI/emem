@@ -56,8 +56,8 @@ CANON = {
     "mcp_core": 16,
     "mcp_extended": 92,
     "algorithms": 168,
-    "rest_paths_v1": 157,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 166,  # all paths in OpenAPI
+    "rest_paths_v1": 158,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 167,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
