@@ -1991,6 +1991,19 @@ async fn cors_layer(
     } else {
         next.run(req).await
     };
+    apply_cors_headers(&mut response, origin_header.as_deref());
+    response
+}
+
+/// Put the CORS headers on a response.
+///
+/// Split out of `cors_layer` because the method-not-allowed fallback is
+/// registered after that layer and is therefore not wrapped by it. A CORS
+/// preflight reaching the fallback was answered with a 405 carrying no
+/// `access-control-allow-origin` at all, which is a browser-visible failure:
+/// claude.ai preflights /mcp before it will connect.
+fn apply_cors_headers(response: &mut Response, origin_header: Option<&str>) {
+    let origin_header = origin_header.map(|s| s.to_string());
     let h = response.headers_mut();
     let allow = allowed_origins();
     if allow.is_empty() {
@@ -2038,7 +2051,6 @@ async fn cors_layer(
         ),
     );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
-    response
 }
 
 // ── Cache-Control hint layer ─────────────────────────────────────────────
@@ -3992,6 +4004,25 @@ fn methods_for_path(path: &str) -> Vec<String> {
 async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
     let path = req.uri().path().to_string();
     let tried = req.method().as_str().to_string();
+    let origin_header = req
+        .headers()
+        .get("origin")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // OPTIONS is never "method not allowed": it is how a browser asks whether
+    // it may make the real request. This fallback is registered after the CORS
+    // layer and so is not wrapped by it, so a preflight landing here was
+    // answered 405 with no allow-origin header, and claude.ai preflights /mcp
+    // before it will connect. Answer it the way the layer would have.
+    if req.method() == Method::OPTIONS {
+        let mut resp = Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(axum::body::Body::empty())
+            .unwrap_or_else(|_| StatusCode::NO_CONTENT.into_response());
+        apply_cors_headers(&mut resp, origin_header.as_deref());
+        return resp;
+    }
     let allowed = methods_for_path(&path);
     let allow_hdr = if allowed.is_empty() {
         "POST".to_string()
@@ -4041,6 +4072,7 @@ async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
             axum::http::HeaderValue::from_str(&allow_hdr)
                 .unwrap_or(axum::http::HeaderValue::from_static("POST")),
         );
+        apply_cors_headers(&mut resp, origin_header.as_deref());
         return resp;
     }
 
@@ -4063,6 +4095,7 @@ async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
         axum::http::HeaderValue::from_str(&allow_hdr)
             .unwrap_or(axum::http::HeaderValue::from_static("POST")),
     );
+    apply_cors_headers(&mut resp, origin_header.as_deref());
     resp
 }
 

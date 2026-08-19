@@ -34,6 +34,94 @@ import urllib.request
 
 DEFAULT_ORIGIN = "https://emem.dev"
 
+# ---------------------------------------------------------------------------
+# Ed25519 verification, RFC 8032, in the standard library alone.
+#
+# This started out importing pynacl and CI does not have it. Reaching for a
+# dependency was the wrong instinct anyway: emem's claim is that you can check
+# its signatures without special tooling, and a verifier that needs a package
+# installed is a weaker demonstration of that than one that does not. This is
+# the reference algorithm, and it is here to be read as much as to be run.
+# ---------------------------------------------------------------------------
+_P = 2 ** 255 - 19
+_L = 2 ** 252 + 27742317777372353535851937790883648493
+_D = (-121665 * pow(121666, _P - 2, _P)) % _P
+_I = pow(2, (_P - 1) // 4, _P)
+_BY = (4 * pow(5, _P - 2, _P)) % _P
+_BX = None  # filled below
+
+
+def _x_recover(y):
+    xx = (y * y - 1) * pow(_D * y * y + 1, _P - 2, _P)
+    x = pow(xx, (_P + 3) // 8, _P)
+    if (x * x - xx) % _P != 0:
+        x = (x * _I) % _P
+    if x % 2 != 0:
+        x = _P - x
+    return x
+
+
+_BX = _x_recover(_BY)
+_B = (_BX % _P, _BY % _P, 1, (_BX * _BY) % _P)
+
+
+def _add(p, q):
+    a = ((p[1] - p[0]) * (q[1] - q[0])) % _P
+    b = ((p[1] + p[0]) * (q[1] + q[0])) % _P
+    c = (2 * p[3] * q[3] * _D) % _P
+    dd = (2 * p[2] * q[2]) % _P
+    e, f, g, h = b - a, dd - c, dd + c, b + a
+    return (e * f % _P, g * h % _P, f * g % _P, e * h % _P)
+
+
+def _mul(p, e):
+    q = (0, 1, 1, 0)
+    while e > 0:
+        if e & 1:
+            q = _add(q, p)
+        p = _add(p, p)
+        e >>= 1
+    return q
+
+
+def _eq(p, q):
+    x1, y1, z1, _ = p
+    x2, y2, z2, _ = q
+    return (x1 * z2 - x2 * z1) % _P == 0 and (y1 * z2 - y2 * z1) % _P == 0
+
+
+def _decode_point(b):
+    y = int.from_bytes(b, "little") & ((1 << 255) - 1)
+    if y >= _P:
+        return None
+    x = _x_recover(y)
+    if x & 1 != (b[31] >> 7) & 1:
+        x = _P - x
+    pt = (x, y, 1, (x * y) % _P)
+    # on-curve check
+    x, y, z, t = pt
+    if (-x * x + y * y - z * z - _D * t * t) % _P != 0:
+        return None
+    return pt
+
+
+def ed25519_verify(pubkey: bytes, message: bytes, signature: bytes) -> bool:
+    import hashlib
+    if len(pubkey) != 32 or len(signature) != 64:
+        return False
+    a = _decode_point(pubkey)
+    r = _decode_point(signature[:32])
+    if a is None or r is None:
+        return False
+    sc = int.from_bytes(signature[32:], "little")
+    if sc >= _L:
+        return False
+    k = int.from_bytes(
+        hashlib.sha512(signature[:32] + pubkey + message).digest(), "little") % _L
+    return _eq(_mul(_B, sc), _add(r, _mul(a, k)))
+
+
+
 
 def b64url(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
@@ -54,11 +142,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--origin", default=DEFAULT_ORIGIN)
     a = ap.parse_args()
-    try:
-        from nacl.signing import VerifyKey
-    except ImportError:
-        print("agent-card-signed: pynacl not installed", file=sys.stderr)
-        return 2
     try:
         card = get(f"{a.origin}/.well-known/agent-card.json")
     except Exception as e:
@@ -99,11 +182,10 @@ def main() -> int:
         payload = {k: v for k, v in card.items() if k != "signatures"}
         signing_input = sig["protected"].encode() + b"." + \
             base64.urlsafe_b64encode(jcs(payload)).rstrip(b"=")
-        try:
-            VerifyKey(b64url(key["x"])).verify(signing_input, b64url(sig["signature"]))
+        if ed25519_verify(b64url(key["x"]), signing_input, b64url(sig["signature"])):
             print(f"  signature {i}: VERIFIES against the published key")
-        except Exception as e:
-            problems.append(f"signature {i}: does not verify ({type(e).__name__})")
+        else:
+            problems.append(f"signature {i}: does not verify against {kid}")
 
     if problems:
         print("\nA card that claims a signature and does not verify is worse than "
