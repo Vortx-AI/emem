@@ -116,5 +116,24 @@ ExecStart=/home/ubuntu/emem/target/release/emem-server
 Restart=on-failure
 RestartSec=2
 
+# Cap how long a stop may take before systemd escalates to SIGKILL.
+#
+# Unset, this is systemd's 90s default, and on 2026-08-19 a restart spent
+# every second of it: SIGTERM at 11:56:21, no drain line logged at all, SIGKILL
+# at 11:57:51. That is ninety-two seconds during which emem.dev refused
+# connections, and it is long enough for a directory health check or an
+# outside reviewer to conclude the endpoint is down. One did.
+#
+# The clean path is already bounded and much shorter: the listener drains for
+# EMEM_SHUTDOWN_GRACE_S (3s default) and the sled flush has its own 10s
+# timeout, so a healthy stop finishes inside 13s. Twenty leaves room for a slow
+# flush without leaving the door shut for a minute and a half.
+#
+# This bounds the damage, it does not explain it. The process logged nothing
+# after SIGTERM, which means the shutdown path never ran, and one occurrence is
+# not enough to say why. What it does guarantee is that the next one costs
+# twenty seconds instead of ninety.
+TimeoutStopSec=20
+
 [Install]
 WantedBy=default.target
