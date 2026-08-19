@@ -1552,6 +1552,12 @@ pub fn router(state: AppState) -> Router {
         // Liveness + metrics: exempt from the concurrency limit above (added
         // after it) but still under every shared layer below.
         .route("/health", get(health))
+        // The same handler under the prefix every other endpoint on this
+        // server uses. /v1/health is the first thing a health check guesses
+        // for a /v1/* API, and it answered 404, which reads as "the service is
+        // down" rather than "you guessed the path". A directory that probes it
+        // on a schedule would have marked us down on a healthy node.
+        .route("/v1/health", get(health))
         // Dead-cheap liveness: never touches storage, so it answers even while
         // a cold bake or a deploy has the index-scan path (which /health uses)
         // contended. This is the probe to poll DURING a deploy window, a 200
@@ -26638,6 +26644,7 @@ fn openapi_spec() -> JsonValue {
         "servers": servers,
         "paths": {
             "/health":               {"get":{"summary":"liveness + corpus stats","operationId":"emem_health","responses":{"200":json_ok}}},
+            "/v1/health":            {"get":{"summary":"liveness + corpus stats, the same handler as /health under the prefix every other endpoint uses. Aliased because a health check probing a /v1/* API guesses this path first, and a 404 there reads as a dead service rather than a wrong guess.","operationId":"emem_health_v1","responses":{"200":json_ok}}},
             "/live":                 {"get":{"summary":"dead-cheap liveness (no storage scan; poll during deploys)","operationId":"emem_live","responses":{"200":json_ok}}},
             "/.well-known/emem.json":{"get":{"summary":"protocol discovery","operationId":"emem_well_known","responses":{"200":json_ok}}},
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
