@@ -121,6 +121,42 @@ def main() -> int:
         else:
             print(f"  {url}  binding {binding!r} not probed by this gate")
 
+    # The methods a 1.0 client will actually send.
+    #
+    # The card claims protocolVersion 1.0, and 1.0's JSON-RPC binding names
+    # methods in PascalCase to match the gRPC service. This server answered only
+    # the pre-1.0 `message/send` spelling, so every one of these returned -32601
+    # and no client built against the current spec could call it at all. A
+    # version number in the card is a promise about which method names answer.
+    CORE = {
+        "SendMessage": {"message": {"role": "user", "messageId": "conformance",
+                                    "parts": [{"kind": "text", "text": "ping"}]}},
+        "GetTask": {"id": "conformance-probe-absent"},
+        "CancelTask": {"id": "conformance-probe-absent"},
+        "ListTasks": {"pageSize": 1},
+    }
+    endpoint = (ifaces[0]["url"] if ifaces else card.get("url"))
+    if endpoint:
+        for name, params in CORE.items():
+            code, body = post(endpoint, {"jsonrpc": "2.0", "id": "c",
+                                         "method": name, "params": params})
+            try:
+                err = json.loads(body).get("error") or {}
+            except Exception:
+                err = {}
+            rpc = err.get("code")
+            # -32601 is method-not-found: the method does not exist here.
+            # Any other typed error (e.g. -32001 TaskNotFound for a made-up id)
+            # means the method is implemented and answered properly.
+            served = rpc != -32601
+            print(f"  {name:<22} {'answers' if served else 'NOT IMPLEMENTED'}"
+                  f"{'' if served else '  <- a 1.0 client cannot call this'}")
+            if not served:
+                problems.append(
+                    f"{name} returns -32601 while the card claims protocolVersion "
+                    f"{card.get('protocolVersion')}; 1.0 names its JSON-RPC methods "
+                    f"in PascalCase and a current client sends exactly this")
+
     if problems:
         print("\nA card that describes a transport the endpoint does not speak sends "
               "every well-behaved client into a 400.")

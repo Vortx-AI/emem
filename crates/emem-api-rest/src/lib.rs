@@ -6027,17 +6027,32 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "defaultInputModes":  ["text/plain", "application/json"],
         "defaultOutputModes": ["application/json"],
         "skills": skills,
-        "securitySchemes": {
-            "none": { "type": "noAuth" }
-        },
-        // `security` is the pre-1.0 name; the spec calls this
-        // `securityRequirements`. Same value, both emitted, because renaming
-        // in place would break every consumer that already resolved this card.
-        "security": [{ "none": [] }],
-        "securityRequirements": [{ "none": [] }],
+        // No securitySchemes, and no securityRequirements, because this
+        // responder requires no authentication to read.
+        //
+        // It used to declare `{"none": {"type": "noAuth"}}`. There is no such
+        // thing. SecurityScheme is a oneof over apiKey, http, oauth2,
+        // openIdConnect and mtls, so "noAuth" does not parse into any variant
+        // and a validator holding the schema strictly rejects the whole card
+        // over it. `security: [{"none": []}]` was the same invention in the
+        // requirement shape, which the spec defines as
+        // `{"schemes": {"<name>": {"list": [...]}}}`.
+        //
+        // Both fields are optional and both are empty for us, and the spec's
+        // own canonicalization rule says a non-required field at its default
+        // is omitted. An agent that needs no key is described by saying
+        // nothing here, not by inventing a scheme that means nothing.
+
+        // AgentProvider is exactly two fields: organization and url. Everything
+        // else we had in here (contact, country, the privacy and terms links,
+        // the data-protection block) is real and worth publishing, but a parser
+        // reading this object as an AgentProvider has no field to put it in.
+        // It moved to `emem` at the top level, which is ours to shape.
         "provider": {
             "organization": "Vortx AI Private Limited",
             "url":          "https://vortx.ai",
+        },
+        "emem": {
             "contact":      "avijeet@vortx.ai",
             "country":      "India",
             "privacy_policy_url":   format!("{origin}/privacy"),
@@ -21646,7 +21661,38 @@ async fn post_a2a_task(State(s): State<AppState>, body: axum::body::Bytes) -> Re
 /// actually had. `capabilities.streaming` was true while tasks/resubscribe
 /// answered -32601 for exactly that reason: the claim and the code had no
 /// shared point of truth to disagree at.
+/// Fold A2A 1.0's method names onto the ones this server dispatches.
+///
+/// The 1.0 JSON-RPC binding names methods in PascalCase, matching the gRPC
+/// service ("Method Naming: PascalCase method names matching gRPC conventions,
+/// e.g. SendMessage, GetTask"). Everything here answered only the pre-1.0
+/// `message/send` spelling, so a client built against the current spec got
+/// -32601 for every single call. The card meanwhile advertises protocolVersion
+/// 1.0, which made that a promise we were not keeping.
+///
+/// Aliasing rather than reimplementing: both spellings reach the same code, the
+/// same signing and the same artifacts, and the older names keep working for
+/// whoever already integrated.
+fn a2a_canonical_method(m: &str) -> &str {
+    match m {
+        "SendMessage" => "message/send",
+        "SendStreamingMessage" => "message/stream",
+        "GetTask" => "tasks/get",
+        "CancelTask" => "tasks/cancel",
+        "SubscribeToTask" => "tasks/resubscribe",
+        "ListTasks" => "tasks/list",
+        other => other,
+    }
+}
+
 const A2A_METHODS: &[&str] = &[
+    // A2A 1.0 spellings.
+    "SendMessage",
+    "SendStreamingMessage",
+    "GetTask",
+    "CancelTask",
+    "SubscribeToTask",
+    "ListTasks",
     "message/send",
     "message/stream",
     "tasks/get",
@@ -21878,7 +21924,10 @@ async fn a2a_task_json(
         )
     })?;
 
-    let method = v.get("method").and_then(|m| m.as_str());
+    let method = v
+        .get("method")
+        .and_then(|m| m.as_str())
+        .map(a2a_canonical_method);
     let rpc_id = v.get("id").cloned().unwrap_or(JsonValue::Null);
 
     // JSON-RPC errors for JSON-RPC callers (sweep F6): spec code + message,
@@ -21893,6 +21942,65 @@ async fn a2a_task_json(
 
     match method {
         // ── tasks/get + tasks/cancel as real JSON-RPC methods (sweep F4) ──
+        // ListTasks: the one 1.0 core method with no pre-1.0 equivalent, so it
+        // is implemented here rather than aliased. Filters are the spec's
+        // (contextId, status) and the page is capped; tasks live in memory for
+        // their TTL, so this lists what is currently held, not all history.
+        Some("tasks/list") => {
+            mcp_tasks_reap(now_unix_ms());
+            let p = v.get("params").cloned().unwrap_or(json!({}));
+            let want_ctx = p.get("contextId").and_then(|x| x.as_str());
+            let want_state = p.get("status").and_then(|x| x.as_str());
+            let page = p
+                .get("pageSize")
+                .and_then(|x| x.as_u64())
+                .unwrap_or(50)
+                .clamp(1, 200) as usize;
+            let map = mcp_tasks_lock();
+            let mut tasks: Vec<JsonValue> = map
+                .iter()
+                .map(|(id, slot)| a2a_task_object(&s, id, slot))
+                .filter(|t| {
+                    want_ctx.is_none_or(|c| t.get("contextId").and_then(|x| x.as_str()) == Some(c))
+                })
+                .filter(|t| {
+                    want_state.is_none_or(|st| {
+                        t.get("status")
+                            .and_then(|s| s.get("state"))
+                            .and_then(|x| x.as_str())
+                            == Some(st)
+                    })
+                })
+                .collect();
+            // Newest first, so a caller that takes the first page gets the
+            // tasks it most likely just created.
+            tasks.sort_by(|a, b| {
+                b.get("status")
+                    .and_then(|s| s.get("timestamp"))
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .cmp(
+                        a.get("status")
+                            .and_then(|s| s.get("timestamp"))
+                            .and_then(|x| x.as_str())
+                            .unwrap_or(""),
+                    )
+            });
+            let total = tasks.len();
+            tasks.truncate(page);
+            Ok(Json(json!({
+                "jsonrpc": "2.0", "id": rpc_id,
+                "result": {
+                    "tasks": tasks,
+                    // No nextPageToken: this registry is small and in-memory, and
+                    // handing out a cursor we cannot honour across a restart
+                    // would be worse than saying the page is all there is.
+                    "held": total,
+                    "note": "tasks live in memory for their TTL; a responder restart clears the registry",
+                },
+            })))
+        }
+
         Some("tasks/get") | Some("tasks/cancel") => {
             let id = v
                 .get("params")
