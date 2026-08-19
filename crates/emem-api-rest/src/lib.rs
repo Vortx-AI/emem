@@ -6006,6 +6006,31 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
             "https://github.com/mcp/Vortx-AI/emem",
             "https://registry.modelcontextprotocol.io/v0/servers?search=emem",
         ],
+        // Which reading of the tool annotations this server uses, stated
+        // rather than left to be inferred.
+        //
+        // A directory's review tooling read `openWorldHint` as "may change
+        // publicly visible or third-party state" and asked us to invert it on
+        // 48 tools. That is not what the field means. MCP defines it as
+        // whether the tool interacts with an open world of EXTERNAL ENTITIES,
+        // and gives the two poles itself: a web search tool is open-world, a
+        // memory tool is not. Inverting ours would have declared 41 tools that
+        // genuinely reach Sentinel, NASA, USGS and OSM as if they touch
+        // nothing outside, and declared this server's own memory writes
+        // open-world in direct contradiction of the spec's example.
+        //
+        // The property that reviewer wanted is real and we already publish it,
+        // on the field that carries it: `readOnlyHint`, with `destructiveHint`
+        // for the writes that can remove or overwrite. This block says so in
+        // one place so the next consumer does not have to ask.
+        "annotation_semantics": {
+            "spec": "https://modelcontextprotocol.io/specification/server/tools#tool-annotations",
+            "readOnlyHint":   "true = the call does not modify this server's state. Every Read, Verify, Introspect and Plan primitive.",
+            "destructiveHint":"true = the call can remove or overwrite something that was there. Only writes.",
+            "idempotentHint": "true = repeating the call with the same arguments leaves the same observable state.",
+            "openWorldHint":  "true = the call may reach an unbounded set of EXTERNAL entities, e.g. auto-materializing a band from Sentinel, NASA, USGS or OSM. false = its domain is closed, e.g. introspecting this node's own store. It does NOT mean 'writes publicly visible state'; for that read readOnlyHint and destructiveHint.",
+            "note": "If your policy needs 'can this tool change state anyone else can see', that is readOnlyHint:false. Every one of this server's writes is readOnlyHint:false, and the destructive subset is destructiveHint:true. openWorldHint answers a different question and is false on those writes because a memory tool's world is closed, which is the spec's own example.",
+        },
         "version":     env!("CARGO_PKG_VERSION"),
         "description": EMEM_DESCRIPTION,
         "homepage":    "https://emem.dev",

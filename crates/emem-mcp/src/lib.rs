@@ -1732,7 +1732,11 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false /* scans this node's own store only: 
+        // get_corpus_state_stats makes no upstream call, so its domain of
+        // interaction is closed. It was marked open-world, which is what the
+        // MCP spec reserves for a tool that may reach an unbounded set of
+        // external entities. */,
         tier: "extended",
     },
     ToolDescriptor {
