@@ -180,6 +180,18 @@ emem-airgap verify <record> [payload] # a record, and whether it covers a file
 emem-airgap verify-join <request>     # a join request, for the endorser
 ```
 
+If the node ran in a container, run `identity` in one too:
+
+```bash
+docker run --rm -v ./data:/data emem-airgap:latest identity --data /data
+```
+
+The identity file is mode 600 and owned by the uid the container ran as, so a
+host user reading it directly gets a permission error. That is the file
+behaving correctly rather than a problem to route around: a private key
+readable by every account on the host would be the actual bug. `verify` and
+`verify-join` read only public records and work from either side.
+
 `verify` exits non-zero on a bad signature or a payload that does not match, so
 it drops straight into a script or a CI job. Nothing in this list needs a
 network, a server, or anything from this repository beyond the binary itself.

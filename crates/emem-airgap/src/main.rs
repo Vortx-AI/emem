@@ -23,7 +23,22 @@ fn env_or(flag: &str, var: &str, args: &[String]) -> Option<String> {
     std::env::var(var).ok()
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Print failures as text, not as a debug-formatted error.
+///
+/// Returning Err from main makes Rust Debug-print it, so a multi-line
+/// explanation arrives as one line with literal backslash-n in it. These
+/// messages exist to be read by whoever is stuck, so main does the printing.
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("emem-airgap: {e}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--help" || a == "-h") {
         eprintln!("{}", HELP);
@@ -238,7 +253,27 @@ fn cmd_identity(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
-    let file: NodeKeyFile = serde_json::from_str(&std::fs::read_to_string(&path)?)?;
+    // The identity is mode 600 and owned by whichever uid wrote it. Run the
+    // container as 65532, as the hardened invocation does, and a developer
+    // reading it from the host is a different user: they get EACCES and a raw
+    // OS error that explains nothing. Say what happened and what to do.
+    let raw = std::fs::read_to_string(&path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            format!(
+                "cannot read {}: permission denied.\n\n\
+                 The identity is mode 600, owned by the user that created it. If the node ran \
+                 in a container as another uid (65532 in the documented invocation), read it \
+                 the same way:\n\n  \
+                 docker run --rm -v <data-dir>:/data emem-airgap identity --data /data\n\n\
+                 That is not a workaround: a private key readable by every user on the host \
+                 would be the actual problem.",
+                path.display()
+            )
+        } else {
+            format!("cannot read {}: {e}", path.display())
+        }
+    })?;
+    let file: NodeKeyFile = serde_json::from_str(&raw)?;
     println!("node_key   {}", file.pubkey_b32);
     println!("short      {}", file.pubkey8);
     println!("created    {}", file.created);
