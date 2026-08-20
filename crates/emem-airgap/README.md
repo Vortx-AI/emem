@@ -276,7 +276,8 @@ docker run --rm \
   -v /host/data:/data \
   emem-encode:latest \
     --out /traces --payloads /payloads --data /data \
-    --profile orbital.satellite.v1 --platform jetson-orin-nx
+    --profile orbital.satellite.v1 --platform jetson-orin-nx \
+    --interval 60
 ```
 
 It shares the decoder's `node_identity.json` and **never creates one**: two
@@ -289,6 +290,37 @@ Then point the decoder at the traces:
 ```bash
 emem-airgap --input /in --output /out --data /data --traces /traces --stage L2 ...
 ```
+
+### Streaming, and surviving a restart
+
+A sidecar runs for a mission, not for one window. Add `--interval`:
+
+```bash
+emem-encode --out /traces --payloads /payloads --data /data \
+            --profile orbital.satellite.v1 --platform jetson-orin-nx \
+            --interval 60
+```
+
+Each window chains to the last by content id, so a dropped or reordered window
+is detectable rather than invisible. Where the chain has got to is kept in
+`stream_head.json` beside the identity, which is what makes the chain survive
+the things that break chains: the sidecar is stopped, the container is
+rescheduled, the bus browns out. On the way back it resumes the same stream.
+
+Keyed by boot id, and that is the load-bearing part. After a **reboot** the
+previous head refers to a stream this kernel never ran, so chaining to it would
+assert a continuity that did not happen. A fresh boot starts a fresh stream,
+which is what the verifier on the ground expects. The stale head is kept rather
+than deleted, because an operator reconstructing what a device did wants it.
+
+The head is written **after** the trace it names, and atomically. Lose power
+between the two and the head still points at the older trace, so the next
+window chains from there and the just-written one is left unreferenced: visible
+to an operator, and better than two windows claiming the same predecessor,
+which is a fork nobody could tell from tampering.
+
+Without `--interval` it captures one window and exits, which is the right shape
+for a task scheduler that wants to own the cadence itself.
 
 ### What it captures, and what it will not pretend to
 

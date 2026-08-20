@@ -71,7 +71,9 @@ pub(crate) mod run;
 pub use custody::{
     Custody, CustodyError, CustodyVerdict, ASSURANCE, ASSURANCE_TRACED, CUSTODY_SCHEMA_V1,
 };
-pub use encode::{capture_window, CaptureReport, CaptureSettings, MissedLayer};
+pub use encode::{
+    boot_id, capture_window, CaptureReport, CaptureSettings, MissedLayer, StreamHead,
+};
 pub use identity::{JoinRequest, NodeKeyFile, JOIN_REQUEST_SCHEMA_V1};
 pub use run::{
     decode_dir, key_path, short_key, DecodeReport, DecodeSettings, Skipped, DEFAULT_MAX_FILES,

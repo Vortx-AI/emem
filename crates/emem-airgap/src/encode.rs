@@ -103,6 +103,57 @@ pub struct CaptureReport {
     pub admissibility: String,
 }
 
+/// Where a device's trace stream has got to, kept across restarts.
+///
+/// A chain is only worth having if it survives the thing that breaks chains.
+/// The sidecar is stopped, the bus browns out, the container is rescheduled;
+/// on the way back the encoder has to know which trace to chain from, or every
+/// restart silently begins a new stream and the gap is invisible.
+///
+/// Keyed by boot id, and that is the load-bearing part. Two windows from one
+/// boot belong to one chain. After a REBOOT the previous head refers to a
+/// stream this kernel never ran, so chaining to it would assert a continuity
+/// that did not happen: a fresh boot starts a fresh stream, which is exactly
+/// what the trace gate expects.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamHead {
+    /// Boot this head belongs to.
+    pub boot_id: String,
+    /// Content id of the most recent trace written under that boot.
+    pub trace_cid: String,
+    /// How many windows this stream has produced, for an operator reading the
+    /// file rather than the traces.
+    pub windows: u64,
+}
+
+impl StreamHead {
+    /// Read the head, if it belongs to the boot we are in now.
+    ///
+    /// A head from an earlier boot is not an error and not corruption: it is a
+    /// device that restarted, so it is ignored and a new stream begins.
+    pub fn load_for_this_boot(path: &Path) -> Option<Self> {
+        let raw = std::fs::read(path).ok()?;
+        let head: StreamHead = serde_json::from_slice(&raw).ok()?;
+        (head.boot_id == boot_id()).then_some(head)
+    }
+
+    /// Where the head lives, beside the identity.
+    pub fn path(data_dir: &Path) -> PathBuf {
+        data_dir.join("stream_head.json")
+    }
+
+    /// Record a new head.
+    ///
+    /// Written AFTER the trace it names, and atomically. If power is lost
+    /// between the two, the head still points at the older trace and the next
+    /// window chains from there: the just-written trace is left unreferenced,
+    /// which an operator can see, rather than two windows claiming the same
+    /// predecessor, which would be a fork nobody could tell from tampering.
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        crate::run::write_atomic(path, &serde_json::to_vec_pretty(self)?)
+    }
+}
+
 /// How a capture run is configured.
 pub struct CaptureSettings {
     /// Directory the trace is written to. The decoder reads this.
@@ -291,7 +342,7 @@ fn os_and_kernel() -> (String, String) {
 
 /// The boot identifier, so two windows from one boot are linkable and a trace
 /// replayed from an older boot is not silently treated as current.
-fn boot_id() -> String {
+pub fn boot_id() -> String {
     std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "unknown".into())
@@ -428,4 +479,83 @@ pub fn capture_window(
         outputs: trace.outputs.len(),
         admissibility,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("emem-encode-{name}"));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A head from THIS boot is the chain to continue.
+    #[test]
+    fn a_head_from_this_boot_is_resumed() {
+        let d = tmp("resume");
+        let p = StreamHead::path(&d);
+        let head = StreamHead {
+            boot_id: boot_id(),
+            trace_cid: "abc".into(),
+            windows: 7,
+        };
+        head.save(&p).unwrap();
+        let loaded = StreamHead::load_for_this_boot(&p).expect("same boot resumes");
+        assert_eq!(loaded.trace_cid, "abc");
+        assert_eq!(loaded.windows, 7);
+    }
+
+    /// A head from a PREVIOUS boot must not be chained to.
+    ///
+    /// Chaining across a reboot would assert a continuity that did not happen:
+    /// the kernel that ran the earlier window is gone. A fresh boot is a fresh
+    /// stream, and the gate on the ground expects exactly that.
+    #[test]
+    fn a_head_from_an_earlier_boot_starts_a_fresh_stream() {
+        let d = tmp("reboot");
+        let p = StreamHead::path(&d);
+        let stale = StreamHead {
+            boot_id: "a-boot-that-has-since-ended".into(),
+            trace_cid: "abc".into(),
+            windows: 99,
+        };
+        stale.save(&p).unwrap();
+        assert!(
+            StreamHead::load_for_this_boot(&p).is_none(),
+            "a head from another boot must be ignored, not chained to"
+        );
+        // And the file is left alone rather than deleted: an operator
+        // reconstructing what a device did wants the old head, not a gap.
+        assert!(p.exists(), "the stale head is kept for forensics");
+    }
+
+    /// Debris must not be mistaken for a chain.
+    #[test]
+    fn an_unreadable_head_is_not_a_chain() {
+        let d = tmp("garbage");
+        let p = StreamHead::path(&d);
+        std::fs::write(&p, b"{ not json").unwrap();
+        assert!(StreamHead::load_for_this_boot(&p).is_none());
+    }
+
+    /// The capture rule, stated as a test: a layer with no readable source is
+    /// absent and explained, never invented.
+    #[test]
+    fn an_unreadable_source_yields_an_explained_absence_not_a_segment() {
+        let missing = Source {
+            layer: TraceLayerKind::Syscall,
+            encoding: "linux.ftrace.v1",
+            roots: &["/definitely/not/a/path/on/any/machine"],
+        };
+        let err = capture(&missing).expect_err("no source means no segment");
+        assert_eq!(err.layer, "syscall");
+        assert!(
+            err.reason.contains("exist"),
+            "the reason must say what was wrong: {}",
+            err.reason
+        );
+    }
 }

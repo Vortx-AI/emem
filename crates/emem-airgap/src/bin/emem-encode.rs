@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 
 use ed25519_dalek::SigningKey;
-use emem_airgap::{capture_window, key_path, CaptureSettings, NodeKeyFile};
+use emem_airgap::{capture_window, key_path, CaptureSettings, NodeKeyFile, StreamHead};
 
 fn env_or(flag: &str, var: &str, args: &[String]) -> Option<String> {
     if let Some(i) = args.iter().position(|a| a == flag) {
@@ -84,35 +84,87 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .signing_key()
         .ok_or("node identity seed is not 32 bytes of hex")?;
 
-    let settings = CaptureSettings {
-        out: PathBuf::from(&out),
-        payloads: env_or("--payloads", "EMEM_ENCODE_PAYLOADS", &args).map(PathBuf::from),
-        profile,
-        platform,
-        prev_trace_cid: env_or("--prev-trace", "EMEM_ENCODE_PREV_TRACE", &args),
-    };
+    // Where the chain got to. An explicit --prev-trace overrides it, for an
+    // operator splicing a stream by hand; otherwise the head on disk is the
+    // answer, and a head from an earlier boot is correctly ignored.
+    let head_path = StreamHead::path(&data_dir);
+    let explicit_prev = env_or("--prev-trace", "EMEM_ENCODE_PREV_TRACE", &args);
+    let mut head = StreamHead::load_for_this_boot(&head_path);
+    if head.is_none() && head_path.exists() {
+        eprintln!(
+            "emem-encode  a stream head exists from an earlier boot; starting a fresh stream, \
+             which is what a reboot means"
+        );
+    }
 
-    let report = capture_window(&key, &settings)?;
+    let interval =
+        env_or("--interval", "EMEM_ENCODE_INTERVAL", &args).and_then(|v| v.parse::<u64>().ok());
+
     eprintln!("emem-encode  node {}", file.pubkey8);
-    match &report.trace_cid {
-        Some(cid) => eprintln!("  trace {cid}"),
-        None => eprintln!("  no trace written"),
+    if let Some(secs) = interval {
+        eprintln!(
+            "  streaming every {secs}s; stop it with SIGTERM. A window in flight is written \
+             atomically, so there is nothing half-finished to clean up."
+        );
     }
-    eprintln!(
-        "  captured  {}",
-        if report.captured.is_empty() {
-            "nothing".to_string()
-        } else {
-            report.captured.join(", ")
+
+    let payloads = env_or("--payloads", "EMEM_ENCODE_PAYLOADS", &args).map(PathBuf::from);
+    let mut windows_done = 0u64;
+    loop {
+        let settings = CaptureSettings {
+            out: PathBuf::from(&out),
+            payloads: payloads.clone(),
+            profile: profile.clone(),
+            platform: platform.clone(),
+            // The first window of a run may take an explicit override; after
+            // that the chain is its own authority.
+            prev_trace_cid: if windows_done == 0 {
+                explicit_prev
+                    .clone()
+                    .or_else(|| head.as_ref().map(|h| h.trace_cid.clone()))
+            } else {
+                head.as_ref().map(|h| h.trace_cid.clone())
+            },
+        };
+
+        let report = capture_window(&key, &settings)?;
+        match &report.trace_cid {
+            Some(cid) => {
+                eprintln!("  trace {cid}");
+                let next = StreamHead {
+                    boot_id: emem_airgap::boot_id(),
+                    trace_cid: cid.clone(),
+                    windows: head.as_ref().map(|h| h.windows).unwrap_or(0) + 1,
+                };
+                // After the trace it names, never before: see StreamHead::save.
+                next.save(&head_path)?;
+                head = Some(next);
+            }
+            None => eprintln!("  no trace written"),
         }
-    );
-    for m in &report.missed {
-        eprintln!("  absent    {:<10} {}", m.layer, m.reason);
+        eprintln!(
+            "  captured  {}",
+            if report.captured.is_empty() {
+                "nothing".to_string()
+            } else {
+                report.captured.join(", ")
+            }
+        );
+        for m in &report.missed {
+            eprintln!("  absent    {:<10} {}", m.layer, m.reason);
+        }
+        eprintln!("  outputs   {} payload digest(s) bound", report.outputs);
+        windows_done += 1;
+
+        match interval {
+            None => {
+                eprintln!("  {}", report.admissibility);
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                return Ok(());
+            }
+            Some(secs) => std::thread::sleep(std::time::Duration::from_secs(secs.max(1))),
+        }
     }
-    eprintln!("  outputs   {} payload digest(s) bound", report.outputs);
-    eprintln!("  {}", report.admissibility);
-    println!("{}", serde_json::to_string_pretty(&report)?);
-    Ok(())
 }
 
 const HELP: &str = "\
