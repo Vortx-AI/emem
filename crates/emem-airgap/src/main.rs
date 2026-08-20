@@ -134,7 +134,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         &hwmodel,
         &settings.observed_at,
     );
-    std::fs::create_dir_all(&settings.output)?;
+    std::fs::create_dir_all(&settings.output).map_err(|e| {
+        format!(
+            "cannot create the output directory {}: {e}. Everything this node emits leaves \
+             through it, so nothing can run without it.",
+            settings.output.display()
+        )
+    })?;
     // Per-node for the same reason the run report is: several nodes may share
     // one output mount, and each one's request has to survive the others.
     std::fs::write(
@@ -143,7 +149,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             emem_airgap::short_key(&node_key)
         )),
         serde_json::to_vec_pretty(&join)?,
-    )?;
+    )
+    .map_err(|e| {
+        format!(
+            "cannot write the join request into {}: {e}",
+            settings.output.display()
+        )
+    })?;
 
     let report = decode_dir(&key, &settings)?;
     // stderr, so stdout stays free for the report itself.
@@ -200,8 +212,16 @@ fn load_or_create_identity(
         "emem air-gapped node: signs custody for payloads that arrive in its input directory",
     );
     let key = file.signing_key().ok_or("generated seed did not decode")?;
-    std::fs::create_dir_all(data_dir)?;
-    write_private(&path, serde_json::to_string_pretty(&file)?.as_bytes())?;
+    std::fs::create_dir_all(data_dir).map_err(|e| {
+        format!(
+            "cannot create the data directory {}: {e}. This is where node_identity.json lives, \
+             and it must be on storage that survives a restart: a new identity every run orphans \
+             every record signed under the last one.",
+            data_dir.display()
+        )
+    })?;
+    write_private(&path, serde_json::to_string_pretty(&file)?.as_bytes())
+        .map_err(|e| format!("cannot write the node identity to {}: {e}", path.display()))?;
     eprintln!(
         "emem-airgap  new node identity {} written to {}",
         file.pubkey8,

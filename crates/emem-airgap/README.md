@@ -378,14 +378,16 @@ operative claim until the capture is genuinely complete.
 
 ```
 out/
-  frame_001.tif.custody.json   one per payload, signed, verifies standalone
+  frame_001.tif.<node8>.custody.json   one per payload, signed, verifies standalone
   join_request.<node8>.json    carry this out to be endorsed (see below)
   run.<node8>.json             what the run did, including every skip and why
 ```
 
-The per-run files are keyed by the node's short key rather than named
-`run.json`, because a host may run several containers in parallel against one
-output mount. Two nodes writing a shared `run.json` meant the second silently
+**Every** output is keyed by the node's short key, because a host may run
+several containers in parallel against one output mount, and two nodes may be
+handed payloads with the same filename. Two payloads sharing a name are not a
+conflict to resolve: they are different bytes that different nodes took custody
+of, and both records are true. Two nodes writing a shared `run.json` meant the second silently
 destroyed the first's report; keyed, they coexist, while the same node
 re-running still overwrites its own.
 

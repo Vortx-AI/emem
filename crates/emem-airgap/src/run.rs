@@ -109,8 +109,33 @@ pub struct Skipped {
 ///   The bytes stay where the host put them, which is what makes this usable
 ///   on a link where the payload is the expensive thing.
 pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Result<DecodeReport> {
-    std::fs::create_dir_all(&settings.output)?;
-    let mut names: Vec<PathBuf> = std::fs::read_dir(&settings.input)?
+    // Every filesystem failure names the path and what was being attempted.
+    //
+    // These returned bare OS errors: "Permission denied (os error 13)" with no
+    // indication of which of three directories was at fault. On a machine you
+    // can attach a debugger to that is an annoyance; on one you cannot, it is
+    // the difference between a five-minute fix and an unexplained node.
+    std::fs::create_dir_all(&settings.output).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "cannot create the output directory {}: {e}. This is where records are written, \
+                 so the run cannot proceed without it.",
+                settings.output.display()
+            ),
+        )
+    })?;
+    let mut names: Vec<PathBuf> = std::fs::read_dir(&settings.input)
+        .map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!(
+                    "cannot read the input directory {}: {e}. This is where payloads arrive; \
+                     check the path and that it is mounted readable.",
+                    settings.input.display()
+                ),
+            )
+        })?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .collect();
@@ -254,7 +279,23 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
             traced.get(&digest).map(String::as_str),
         );
         let json = serde_json::to_vec_pretty(&record).unwrap_or_else(|_| b"{}".to_vec());
-        let out = settings.output.join(format!("{name}.custody.json"));
+        // Per-node, like the run report and the join request.
+        //
+        // This was the one output NOT keyed by node, and the omission was
+        // expensive. Eight nodes sharing an output mount, each handed payloads
+        // that happened to share filenames, all wrote `<name>.custody.json`.
+        // They overwrote one another; each node's read-back then found another
+        // node's record, saw a digest that did not match its own payload,
+        // concluded the storage was corrupt and DELETED it. Forty records
+        // became zero, and the report blamed hardware.
+        //
+        // Two payloads with one name are not a conflict to resolve: they are
+        // different bytes that different nodes took custody of, and both
+        // records are true.
+        let out = settings.output.join(format!(
+            "{name}.{}.custody.json",
+            short_key(&settings.node.node_key)
+        ));
         write_atomic(&out, &json)?;
 
         // Read it back and verify the signature against what actually landed
@@ -276,7 +317,8 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
                 report.skipped.push(Skipped {
                     name,
                     reason: "the record did not verify when read back from disk, so it was \
-                             removed rather than shipped. Suspect storage corruption."
+                             removed rather than shipped. Records are keyed by node, so this \
+                             is not another node overwriting yours; suspect storage."
                         .into(),
                 });
                 continue;
@@ -360,6 +402,11 @@ pub fn short_key(node_key: &str) -> String {
 /// after it, because a rename that is only in the page cache is not a rename
 /// that survived the power cut that made you care.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_atomic_inner(path, bytes)
+        .map_err(|e| std::io::Error::new(e.kind(), format!("cannot write {}: {e}", path.display())))
+}
+
+fn write_atomic_inner(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     // The temporary carries this process's pid.
     //
@@ -404,6 +451,10 @@ pub fn key_path(data_dir: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use crate::Custody;
+
+    fn key() -> SigningKey {
+        SigningKey::from_bytes(&[3u8; 32])
+    }
 
     fn settings(dir: &Path) -> DecodeSettings {
         DecodeSettings {
@@ -452,7 +503,7 @@ mod tests {
 
         // And each record verifies on its own, against the payload.
         for (name, bytes) in [("a.tif", &b"first"[..]), ("b.tif", &b"second"[..])] {
-            let raw = std::fs::read(d.join(format!("out/{name}.custody.json"))).unwrap();
+            let raw = std::fs::read(record_path(&d, name, &key())).unwrap();
             let c: Custody = serde_json::from_slice(&raw).unwrap();
             c.verify().expect("record verifies");
             assert!(c.covers(bytes), "record covers the payload it names");
@@ -483,9 +534,9 @@ mod tests {
         let k = SigningKey::from_bytes(&[3u8; 32]);
         let s = settings(&d);
         decode_dir(&k, &s).unwrap();
-        let first = std::fs::read(d.join("out/a.tif.custody.json")).unwrap();
+        let first = std::fs::read(record_path(&d, "a.tif", &key())).unwrap();
         decode_dir(&k, &s).unwrap();
-        let second = std::fs::read(d.join("out/a.tif.custody.json")).unwrap();
+        let second = std::fs::read(record_path(&d, "a.tif", &key())).unwrap();
         assert_eq!(first, second, "the same input must sign to the same bytes");
     }
 
@@ -504,6 +555,15 @@ mod tests {
             r.bytes_written
         );
     }
+}
+
+/// Where a record lands, for a given node. Records are keyed by node so that
+/// two nodes handed payloads with the same name do not overwrite each other.
+#[cfg(test)]
+fn record_path(dir: &Path, name: &str, key: &SigningKey) -> PathBuf {
+    let node = crate::b32(key.verifying_key().as_bytes());
+    dir.join("out")
+        .join(format!("{name}.{}.custody.json", short_key(&node)))
 }
 
 /// Attacks that were demonstrated against this code and now must fail.
@@ -565,7 +625,7 @@ mod security {
             r.skipped[0].reason
         );
         assert!(
-            !d.join("out/innocent.tif.custody.json").exists(),
+            !record_path(&d, "innocent.tif", &key()).exists(),
             "no record may be written for a symlinked payload"
         );
     }
@@ -580,7 +640,7 @@ mod security {
         let d = tmp("symlink-out");
         std::fs::write(d.join("in/x.tif"), b"payload").unwrap();
         std::fs::write(d.join("victim.txt"), b"ORIGINAL").unwrap();
-        std::os::unix::fs::symlink(d.join("victim.txt"), d.join("out/x.tif.custody.json")).unwrap();
+        std::os::unix::fs::symlink(d.join("victim.txt"), record_path(&d, "x.tif", &key())).unwrap();
 
         decode_dir(&key(), &s(&d)).unwrap();
         assert_eq!(
@@ -589,7 +649,7 @@ mod security {
             "the victim file must be untouched"
         );
         // The record still lands, at the real path, having replaced the link.
-        let raw = std::fs::read(d.join("out/x.tif.custody.json")).unwrap();
+        let raw = std::fs::read(record_path(&d, "x.tif", &key())).unwrap();
         assert!(
             raw.starts_with(b"{"),
             "the record is written where it belongs"
@@ -641,6 +701,66 @@ mod security {
 #[cfg(test)]
 mod parallel {
     use super::*;
+
+    /// Two nodes handed payloads with the SAME NAME must both keep their
+    /// records.
+    ///
+    /// Found by stress rather than by reading. Eight nodes shared an output
+    /// mount and each was handed files called f1.tif through f5.tif with
+    /// different content. Records were not keyed by node, so they overwrote
+    /// each other; each node's read-back then found another node's record,
+    /// saw a digest that did not match its payload, concluded the storage was
+    /// corrupt and DELETED it. Forty records became zero and the report
+    /// blamed hardware.
+    #[test]
+    fn same_payload_name_from_two_nodes_keeps_both_records() {
+        let d = std::env::temp_dir().join("emem-airgap-samename");
+        let _ = std::fs::remove_dir_all(&d);
+        for sub in ["in_a", "in_b", "out"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        // One name, two different payloads: not a conflict, two true facts.
+        std::fs::write(d.join("in_a/frame.tif"), b"what node a was handed").unwrap();
+        std::fs::write(d.join("in_b/frame.tif"), b"what node b was handed").unwrap();
+
+        let mk = |seed: u8, input: &str| {
+            let k = SigningKey::from_bytes(&[seed; 32]);
+            let st = DecodeSettings {
+                input: d.join(input),
+                output: d.join("out"),
+                traces: None,
+                stage: None,
+                node: NodeIdentity {
+                    node_key: crate::b32(k.verifying_key().as_bytes()),
+                    profile: "exec.trace.v1".into(),
+                    platform: "generic.linux-host".into(),
+                },
+                observed_at: "2026-08-20T09:00:00Z".into(),
+                max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+                max_files: DEFAULT_MAX_FILES,
+            };
+            (k, st)
+        };
+        let (ka, sa) = mk(41, "in_a");
+        let (kb, sb) = mk(42, "in_b");
+        let ra = decode_dir(&ka, &sa).unwrap();
+        let rb = decode_dir(&kb, &sb).unwrap();
+
+        assert_eq!(ra.recorded, 1, "node a: {:?}", ra.skipped);
+        assert_eq!(rb.recorded, 1, "node b: {:?}", rb.skipped);
+        assert!(ra.skipped.is_empty() && rb.skipped.is_empty());
+
+        // Both records exist, and each covers ITS OWN payload.
+        let pa = record_path(&d, "frame.tif", &ka);
+        let pb = record_path(&d, "frame.tif", &kb);
+        assert_ne!(pa, pb, "records from two nodes must not share a path");
+        let ca: Custody = serde_json::from_slice(&std::fs::read(&pa).unwrap()).unwrap();
+        let cb: Custody = serde_json::from_slice(&std::fs::read(&pb).unwrap()).unwrap();
+        ca.verify().unwrap();
+        cb.verify().unwrap();
+        assert!(ca.covers(b"what node a was handed"));
+        assert!(cb.covers(b"what node b was handed"));
+    }
 
     /// Two nodes writing the same output directory must both finish, and
     /// neither may destroy the other's report.
@@ -760,7 +880,7 @@ mod resilience {
             d.join("out/a.tif.custody.part").exists(),
             "another container's temporary must not be removed on its behalf"
         );
-        let raw = std::fs::read(d.join("out/a.tif.custody.json")).unwrap();
+        let raw = std::fs::read(record_path(&d, "a.tif", &key())).unwrap();
         let c: Custody = serde_json::from_slice(&raw).unwrap();
         c.verify().expect("the finished record verifies");
     }
@@ -790,7 +910,7 @@ mod resilience {
         decode_dir(&key(), &s(&d)).unwrap();
 
         // Flip a byte inside the signed body, the way a stray upset would.
-        let p = d.join("out/a.tif.custody.json");
+        let p = record_path(&d, "a.tif", &key());
         let mut raw = std::fs::read(&p).unwrap();
         let i = raw
             .windows(9)
@@ -905,7 +1025,7 @@ mod handoff {
         assert_eq!(r.unreadable_traces, 1, "debris is counted, not fatal");
 
         let traced: Custody =
-            serde_json::from_slice(&std::fs::read(d.join("out/traced.tif.custody.json")).unwrap())
+            serde_json::from_slice(&std::fs::read(record_path(&d, "traced.tif", &k)).unwrap())
                 .unwrap();
         traced.verify().expect("a traced record still verifies");
         assert_eq!(
@@ -915,10 +1035,9 @@ mod handoff {
         assert!(traced.assurance.starts_with("custody_with_trace"));
         assert_eq!(traced.stage.as_deref(), Some("L2"));
 
-        let plain: Custody = serde_json::from_slice(
-            &std::fs::read(d.join("out/untraced.tif.custody.json")).unwrap(),
-        )
-        .unwrap();
+        let plain: Custody =
+            serde_json::from_slice(&std::fs::read(record_path(&d, "untraced.tif", &k)).unwrap())
+                .unwrap();
         plain.verify().expect("an untraced record still verifies");
         assert!(plain.trace_cid.is_none(), "no trace, no citation");
         assert!(plain.assurance.starts_with("custody_only"));
