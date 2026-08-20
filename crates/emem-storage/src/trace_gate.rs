@@ -66,6 +66,40 @@ pub struct EnrollmentRecord {
     /// on an attested enrolment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endorsed_by: Option<String>,
+    /// Whether this device consents to being listed publicly.
+    ///
+    /// Defaults to false, and the default is the whole design. Enrolling is
+    /// how a device joins the protocol; being listed is a separate, later,
+    /// deliberate act. A roster that included every device that ever enrolled
+    /// would publish the shape of somebody's fleet as a side effect of them
+    /// using the software, which nobody agreed to.
+    ///
+    /// `serde(default)` also makes this migration-safe in the strict sense:
+    /// every enrolment written before this field existed decodes as private,
+    /// which is the answer they would have given if asked.
+    #[serde(default)]
+    pub publish: bool,
+}
+
+/// One device on the public roster, and only what it consented to show.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PublishedDevice {
+    /// The device's ed25519 public key, base32-nopad lowercase.
+    pub device_key: String,
+    /// Substrate profile it writes under.
+    pub profile_id: String,
+    /// Device platform, when the enrolment was attested.
+    pub platform_id: Option<String>,
+    /// The anchor that endorsed it. An operator's anchor id here rather than a
+    /// manufacturer's is the reader's cue about whose word this rests on.
+    pub endorsed_by: Option<String>,
+    /// `platform_attested` or `operator_asserted`.
+    pub assurance: String,
+    /// How many traces this device has written.
+    pub traces: u64,
+    /// End of its most recent capture window, monotonic nanoseconds on the
+    /// device. Not a wall clock, and not comparable between devices.
+    pub last_seen: u64,
 }
 
 impl EnrollmentRecord {
@@ -176,6 +210,8 @@ impl TraceGate {
                 profile_id: profile_id.to_string(),
                 platform_id: None,
                 endorsed_by: None,
+                // Enrolling is joining; being listed is a separate act.
+                publish: false,
             },
         )
     }
@@ -240,6 +276,7 @@ impl TraceGate {
             profile_id: profile_id.to_string(),
             platform_id: Some(platform_id.to_string()),
             endorsed_by: report.endorsed_by.clone(),
+            publish: false,
         };
         self.write_enrollment(pubkey_b32, &record)?;
         // Persist the evidence so an attested enrolment is auditable later,
@@ -287,6 +324,7 @@ impl TraceGate {
                 profile_id,
                 platform_id: None,
                 endorsed_by: None,
+                publish: false,
             })
     }
 
@@ -516,6 +554,84 @@ impl TraceGate {
     }
 
     /// Count of enrolled device keys.
+    /// Devices that have consented to being listed, with what is safe to show.
+    ///
+    /// Only `publish: true` enrolments are returned, and that filter is here
+    /// rather than in the route on purpose: a privacy rule enforced at the
+    /// edge is one refactor away from being forgotten. Anything reading this
+    /// method gets the consenting set and cannot accidentally get the rest.
+    ///
+    /// What comes back is deliberately thin. A device that agreed to appear on
+    /// a status page did not thereby agree to publish its traffic: the count of
+    /// traces it has written and when it last wrote one is enough to show a
+    /// fleet is alive, and the traces themselves stay where they were.
+    pub fn published_devices(&self) -> Vec<PublishedDevice> {
+        let mut out = Vec::new();
+        for kv in self.enrollment.iter().flatten() {
+            let Ok(pubkey) = String::from_utf8(kv.0.to_vec()) else {
+                continue;
+            };
+            let Some(rec) = self.enrollment_of(&pubkey) else {
+                continue;
+            };
+            if !rec.publish {
+                continue;
+            }
+            let (traces, last_seen) = self.trace_activity(&pubkey);
+            let assurance = rec.assurance().to_string();
+            out.push(PublishedDevice {
+                device_key: pubkey,
+                profile_id: rec.profile_id,
+                platform_id: rec.platform_id,
+                endorsed_by: rec.endorsed_by,
+                assurance,
+                traces,
+                last_seen,
+            });
+        }
+        out.sort_by_key(|d| std::cmp::Reverse(d.last_seen));
+        out
+    }
+
+    /// How many traces a device has written, and the most recent window end.
+    ///
+    /// Scans rather than keeping a counter, because a counter that drifts from
+    /// the traces it counts is worse than a scan that is merely slow, and this
+    /// is read by a status page rather than a hot path.
+    fn trace_activity(&self, device_key: &str) -> (u64, u64) {
+        let mut count = 0u64;
+        let mut latest = 0u64;
+        for kv in self.traces.iter().flatten() {
+            let Ok(trace) = ciborium::from_reader::<emem_trace::OsTrace, _>(&kv.1[..]) else {
+                continue;
+            };
+            let key = data_encoding::BASE32_NOPAD
+                .encode(&trace.device.device_key.0)
+                .to_lowercase();
+            if key != device_key {
+                continue;
+            }
+            count += 1;
+            latest = latest.max(trace.window_end_ns);
+        }
+        (count, latest)
+    }
+
+    /// Record a device's consent to be listed, or withdraw it.
+    ///
+    /// Separate from enrolment because consent is separate from joining, and
+    /// reversible because consent that cannot be withdrawn is not consent.
+    pub fn set_publish(&self, pubkey_b32: &str, publish: bool) -> Result<bool, StorageError> {
+        let Some(mut rec) = self.enrollment_of(pubkey_b32) else {
+            return Ok(false);
+        };
+        rec.publish = publish;
+        // Reuse the one writer, so consent goes through exactly the same
+        // encode and store path as every other change to an enrolment.
+        self.write_enrollment(pubkey_b32, &rec)?;
+        Ok(true)
+    }
+
     pub fn enrolled_count(&self) -> u64 {
         self.enrollment.len() as u64
     }
@@ -591,5 +707,64 @@ mod enrollment_record_tests {
         assert!(gate.enrollment_of("k").is_some());
         gate.revoke("k").expect("revoke");
         assert!(gate.enrollment_of("k").is_none());
+    }
+
+    /// Enrolling must never publish. This is the privacy default, and it is
+    /// the kind of default that is only real if a test says so.
+    #[test]
+    fn enrolling_does_not_put_a_device_on_the_roster() {
+        let gate = temp_gate();
+        gate.enroll("aaaa1111", "robot.fleet.v1").unwrap();
+        assert!(
+            gate.published_devices().is_empty(),
+            "a device that merely joined must not appear on a public roster"
+        );
+        assert_eq!(gate.enrolled_count(), 1, "but it IS enrolled");
+    }
+
+    /// Consent is a separate, deliberate act, and it is reversible.
+    #[test]
+    fn consent_can_be_given_and_withdrawn() {
+        let gate = temp_gate();
+        gate.enroll("bbbb2222", "robot.fleet.v1").unwrap();
+
+        assert!(gate.set_publish("bbbb2222", true).unwrap());
+        let listed = gate.published_devices();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].device_key, "bbbb2222");
+        assert_eq!(listed[0].assurance, "operator_asserted");
+
+        // Withdrawing must take it off again: consent that cannot be
+        // withdrawn is not consent.
+        assert!(gate.set_publish("bbbb2222", false).unwrap());
+        assert!(gate.published_devices().is_empty());
+    }
+
+    /// Consent for a device that never enrolled is not silently invented.
+    #[test]
+    fn consent_for_an_unknown_device_is_refused() {
+        let gate = temp_gate();
+        assert!(
+            !gate.set_publish("never-enrolled", true).unwrap(),
+            "there is no enrolment to attach consent to"
+        );
+        assert!(gate.published_devices().is_empty());
+    }
+
+    /// An enrolment written before the field existed reads as private, which
+    /// is the answer its operator would have given had they been asked.
+    #[test]
+    fn a_legacy_enrolment_defaults_to_private() {
+        let older = EnrollmentRecord {
+            profile_id: "robot.fleet.v1".into(),
+            platform_id: None,
+            endorsed_by: None,
+            publish: false,
+        };
+        let mut buf = Vec::new();
+        ciborium::into_writer(&older, &mut buf).unwrap();
+        // Decode through the same path the gate uses.
+        let back: EnrollmentRecord = ciborium::from_reader(&buf[..]).unwrap();
+        assert!(!back.publish);
     }
 }
