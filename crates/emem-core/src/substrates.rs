@@ -719,3 +719,63 @@ mod tests {
         assert_eq!(a, b);
     }
 }
+
+#[cfg(test)]
+mod id_shape {
+    use super::*;
+
+    /// No profile id may nest inside another's stem.
+    ///
+    /// A profile id is signed into every record that cites the profile, and it
+    /// is the thing a consumer reads when they are not reading anything else.
+    /// One id containing another invites the misreading the weaker profile
+    /// exists to prevent: `orbital.satellite.counters.v1` sat inside
+    /// `orbital.satellite.v1`, so a reader skimming the field, or code
+    /// matching on a prefix, could take the counter-level profile for the
+    /// attested-execution one.
+    ///
+    /// It was the only such pair among seventeen ids, which is to say the
+    /// registry already had this convention and one entry broke it. Now the
+    /// convention is checked rather than remembered.
+    #[test]
+    fn no_profile_id_nests_inside_another() {
+        let r = &*DEFAULT;
+        let stem = |id: &str| {
+            id.rsplit_once(".v")
+                .map(|(s, _)| s.to_string())
+                .unwrap_or_default()
+        };
+        for a in &r.substrates {
+            for b in &r.substrates {
+                if a.id == b.id {
+                    continue;
+                }
+                assert!(
+                    !b.id.starts_with(&stem(&a.id)),
+                    "{} nests inside {}: a consumer reading the profile field, or matching on a \
+                     prefix, can take one for the other. Give the narrower profile a name that \
+                     does not begin with the wider one's stem.",
+                    b.id,
+                    a.id
+                );
+            }
+        }
+    }
+
+    /// A profile admitting counter-level evidence must not claim to attest
+    /// execution. The two counter profiles exist precisely because their
+    /// hosts cannot produce execution evidence.
+    #[test]
+    fn counter_profiles_do_not_claim_attested_execution() {
+        for p in &DEFAULT.substrates {
+            if p.id.contains("counters") {
+                assert_ne!(
+                    p.provenance_class.as_str(),
+                    "attested_execution",
+                    "{} admits counter-level evidence and must not claim to attest execution",
+                    p.id
+                );
+            }
+        }
+    }
+}
