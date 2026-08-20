@@ -64,6 +64,20 @@ pub enum RootOfTrust {
     /// birth certificate proves the part, but not the running firmware.
     /// Lowest assurance in the registry.
     X509Devid,
+    /// No hardware root of trust at all: an ordinary machine somebody runs.
+    ///
+    /// Named rather than omitted, because the category is enormous and leaving
+    /// it out forces every cloud host and bare VM to claim a mechanism it does
+    /// not have. A platform declaring this can never be admitted by a vendor
+    /// endorsement, because no vendor is vouching; the only route in is an
+    /// operator saying "this is my machine and I stand behind it", which is
+    /// exactly what [`OperatorEndorsement`] records.
+    ///
+    /// It is the lowest assurance the registry can express, below
+    /// [`RootOfTrust::X509Devid`], and that ordering is the point: a reader
+    /// comparing two devices should be able to see which one's hardware
+    /// vouched for it and which one's owner did.
+    SoftwareOnly,
     /// Caliptra: an open-source silicon-level DICE root of trust (OCP).
     Caliptra,
     /// Intel TDX confidential-VM attestation (a TD quote appraised via the
@@ -112,6 +126,19 @@ pub enum DeviceKeyKind {
     Ieee8021arIdevid,
     /// A TPM 2.0 attestation key certified by the TPM's endorsement key.
     Tpm2Ak,
+    /// A raw ed25519 key that a specific OPERATOR has vouched for.
+    ///
+    /// The distinction from [`DeviceKeyKind::RawEd25519`] is not the key, it
+    /// is who spoke. A bare key identifies nothing, which is why whitelisting
+    /// one is refused: it would whitelist a key rather than a device. This
+    /// says an operator pointed at one particular machine they hold and said
+    /// so, one key at a time, and their endorsement is the evidence.
+    ///
+    /// It is weaker than every certificate-backed kind above and the registry
+    /// keeps it that way: no hardware attests anything here, and any enrolment
+    /// under it carries the operator's anchor id rather than a manufacturer's,
+    /// so a reader can see exactly whose word it rests on.
+    OperatorRegistered,
     /// A raw ed25519 key with no device-identity certificate — no
     /// attestation is possible; present only for completeness.
     RawEd25519,
@@ -288,7 +315,24 @@ impl Manifest for DevicePlatformRegistry {
                     p.id
                 )));
             }
-            if p.trust_anchors.is_empty() {
+            // A platform with no hardware root of trust structurally has no
+            // vendor anchor, because no vendor is vouching. That is different
+            // from a vendor platform that forgot one, which is what this guard
+            // was written to catch, so the exemption is narrow: only
+            // software_only, and only while it stays candidate. It can still
+            // admit a device, but exclusively through an operator endorsement
+            // added at load time, which carries the operator's id rather than
+            // a manufacturer's.
+            let vendorless = p.root_of_trust == RootOfTrust::SoftwareOnly;
+            if vendorless && p.status == ProfileStatus::Active {
+                return Err(ManifestError::Invalid(format!(
+                    "{}: a software_only platform cannot be active. Nothing vendor-side can \
+                     ever vouch for it, so it is admitted only by an operator endorsement \
+                     supplied at load time.",
+                    p.id
+                )));
+            }
+            if p.trust_anchors.is_empty() && !vendorless {
                 return Err(ManifestError::Invalid(format!(
                     "{}: a whitelist entry with no trust anchor whitelists nothing",
                     p.id
@@ -634,6 +678,53 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The vendorless tier exists, and cannot pretend to be more than it is.
+    ///
+    /// A machine with no TPM and no DICE is the commonest thing that will ever
+    /// run this software. Leaving the category out of the registry would force
+    /// every such host to borrow a mechanism it does not have, which is the
+    /// one failure a provenance registry must not enable.
+    #[test]
+    fn a_vendorless_platform_is_admittable_only_by_its_operator() {
+        let base = DevicePlatformRegistry::parse_default().expect("registry");
+        let host = base
+            .lookup("generic.linux-host")
+            .expect("the vendorless tier is registered");
+
+        assert_eq!(host.root_of_trust, RootOfTrust::SoftwareOnly);
+        assert!(!host.measured_boot, "there is no measured boot to claim");
+        assert!(
+            host.trust_anchors.is_empty(),
+            "no vendor is vouching, so there is no vendor anchor to carry"
+        );
+        assert_eq!(
+            host.effective_anchors().count(),
+            0,
+            "and therefore it admits nothing on its own"
+        );
+        assert_eq!(host.status, ProfileStatus::Candidate);
+
+        // The only route in is an operator saying so, and the record shows it.
+        let fp = data_encoding::BASE32_NOPAD
+            .encode(blake3::hash(b"this operator's endorser key").as_bytes())
+            .to_lowercase();
+        let overlaid = base
+            .with_operator_endorsements(&[OperatorEndorsement {
+                platform_id: "generic.linux-host".to_string(),
+                fingerprint: fp,
+                anchor_id: default_operator_anchor_id(),
+                note: None,
+            }])
+            .expect("an operator may vouch for their own machine");
+        let host = overlaid.lookup("generic.linux-host").unwrap();
+        let effective: Vec<_> = host.effective_anchors().collect();
+        assert_eq!(effective.len(), 1);
+        assert_eq!(
+            effective[0].id, "operator.local.v0",
+            "the anchor names the operator, never a manufacturer"
+        );
     }
 
     /// An operator endorsement makes an otherwise-inert platform admittable,
