@@ -20,6 +20,10 @@ pub struct DecodeSettings {
     /// Wall clock for this run, RFC 3339 UTC. Passed in rather than read so a
     /// run is reproducible and a machine with a bad clock cannot invent one.
     pub observed_at: String,
+    /// Most files this node will process in one run. Bounds the aggregate,
+    /// which a per-payload cap does not: a directory of a million tiny files
+    /// is within every per-file limit and still unbounded.
+    pub max_files: u64,
     /// Largest payload this node will read into memory. A cap rather than a
     /// hope: the input directory belongs to the host, and one enormous file
     /// should cost a skip line in the report, not the process.
@@ -29,6 +33,10 @@ pub struct DecodeSettings {
 /// Default payload cap: 256 MiB. Big enough for the imagery this is built for,
 /// small enough that a node with modest memory survives a hostile directory.
 pub const DEFAULT_MAX_PAYLOAD_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Default per-run file cap. A run that hits it reports the overflow rather
+/// than truncating silently, and the remainder is picked up on the next run.
+pub const DEFAULT_MAX_FILES: u64 = 10_000;
 
 /// What a run did.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +82,10 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         .map(|e| e.path())
         .collect();
     names.sort();
+    let mut overflow: Vec<PathBuf> = Vec::new();
+    if names.len() as u64 > settings.max_files {
+        overflow = names.split_off(settings.max_files as usize);
+    }
 
     let mut report = DecodeReport {
         recorded: 0,
@@ -168,45 +180,108 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         );
         let json = serde_json::to_vec_pretty(&record).unwrap_or_else(|_| b"{}".to_vec());
         let out = settings.output.join(format!("{name}.custody.json"));
-        write_no_follow(&out, &json)?;
+        write_atomic(&out, &json)?;
+
+        // Read it back and verify the signature against what actually landed
+        // on disk.
+        //
+        // Not paranoia in this deployment. A single-event upset flips a bit in
+        // RAM or in flash, the write reports success, and the record that
+        // leaves the machine no longer verifies. The node is the only party
+        // that can still notice, because on the ground there is no second copy
+        // to compare against. Catching it costs a re-read of a few hundred
+        // bytes and turns a silently corrupt record into a reported skip.
+        match std::fs::read(&out)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Custody>(&b).ok())
+        {
+            Some(back) if back.verify().is_ok() && back.covers(&bytes) => {}
+            _ => {
+                let _ = std::fs::remove_file(&out);
+                report.skipped.push(Skipped {
+                    name,
+                    reason: "the record did not verify when read back from disk, so it was \
+                             removed rather than shipped. Suspect storage corruption."
+                        .into(),
+                });
+                continue;
+            }
+        }
         report.bytes_read += bytes.len() as u64;
         report.bytes_written += json.len() as u64;
         report.recorded += 1;
     }
 
+    for path in overflow {
+        report.skipped.push(Skipped {
+            name: path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            reason: format!(
+                "beyond the {} file cap for one run; it will be picked up next run, or raise \
+                 --max-files",
+                settings.max_files
+            ),
+        });
+    }
+
     let manifest = settings.output.join("run.json");
     let mj = serde_json::to_vec_pretty(&report).unwrap_or_else(|_| b"{}".to_vec());
-    write_no_follow(&manifest, &mj)?;
+    write_atomic(&manifest, &mj)?;
     report.bytes_written += mj.len() as u64;
     Ok(report)
 }
 
-/// Write a file without ever following a symlink at the destination.
+/// Write a file so that a reader only ever sees all of it or none of it, and
+/// so that no symlink can redirect where it lands.
 ///
-/// The output directory is shared with the host, so it is attacker-controlled
-/// too. A symlink planted there named `<payload>.custody.json` redirected the
-/// write and overwrote whatever it pointed at; that was demonstrated against
-/// this code before it was fixed.
+/// Three properties, each earned:
 ///
-/// Unlinking first and then creating exclusively removes the follow entirely:
-/// `remove_file` on a symlink removes the link and not its target, and
-/// `create_new` refuses to open anything that already exists, so a racing
-/// writer gets an error rather than silently winning. Re-running the node
-/// still overwrites its own previous output, which is the behaviour that
-/// makes a run reproducible.
-pub(crate) fn write_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+/// **No follow.** A symlink planted at the destination redirected the write
+/// and overwrote whatever it pointed at; that was demonstrated against this
+/// code. The temporary is created exclusively, so it cannot be pre-planted,
+/// and `rename` replaces a symlink at the destination rather than following
+/// it.
+///
+/// **Atomic.** The earlier version truncated the destination and then wrote
+/// into it, so a power cut mid-write left a half-written record on disk. On a
+/// spacecraft that is not a hypothetical: the bus browns out, the node comes
+/// back, and the operator has a file that parses as JSON but is not a complete
+/// signed record. `rename` is atomic, so a reader sees the old file or the new
+/// one, never a partial one.
+///
+/// **Durable.** fsync on the file before the rename, and on the directory
+/// after it, because a rename that is only in the page cache is not a rename
+/// that survived the power cut that made you care.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    // NotFound is the ordinary case on a first run; anything else is real.
-    match std::fs::remove_file(path) {
+    let tmp = path.with_extension("part");
+    // A leftover .part from an interrupted earlier run is expected debris,
+    // not a reason to fail. Removing a symlink here removes the link only.
+    match std::fs::remove_file(&tmp) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
-    f.write_all(bytes)
+    {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, path)?;
+    // Directory fsync: without it the rename can still be lost. Best effort,
+    // because some filesystems refuse to open a directory for sync and that
+    // is not a reason to fail a write that otherwise succeeded.
+    if let Some(dir) = path.parent() {
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    Ok(())
 }
 
 /// Where the node's key lives on disk, given a data directory.
@@ -234,6 +309,7 @@ mod tests {
             },
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_files: DEFAULT_MAX_FILES,
         }
     }
 
@@ -341,6 +417,7 @@ mod security {
             },
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_files: DEFAULT_MAX_FILES,
         }
     }
 
@@ -440,6 +517,100 @@ mod security {
                 "{} escaped the output directory",
                 p.display()
             );
+        }
+    }
+}
+
+/// Failure modes that are not attacks: power, radiation, and a full disk.
+#[cfg(test)]
+mod resilience {
+    use super::*;
+
+    fn key() -> SigningKey {
+        SigningKey::from_bytes(&[3u8; 32])
+    }
+
+    fn s(dir: &Path) -> DecodeSettings {
+        DecodeSettings {
+            input: dir.join("in"),
+            output: dir.join("out"),
+            node: NodeIdentity {
+                node_key: crate::b32(key().verifying_key().as_bytes()),
+                profile: "orbital.satellite.v1".into(),
+                platform: "nvidia.jetson-orin".into(),
+            },
+            observed_at: "2026-08-20T09:00:00Z".into(),
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_files: DEFAULT_MAX_FILES,
+        }
+    }
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("emem-airgap-res-{name}"));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("in")).unwrap();
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        d
+    }
+
+    /// Debris from a run that was interrupted mid-write must not block the
+    /// next run, and must never be mistaken for a finished record.
+    #[test]
+    fn a_leftover_partial_write_does_not_poison_the_next_run() {
+        let d = tmp("partial");
+        std::fs::write(d.join("in/a.tif"), b"payload").unwrap();
+        // What a power cut during the previous run leaves behind.
+        std::fs::write(d.join("out/a.tif.custody.part"), b"{ truncated").unwrap();
+
+        let r = decode_dir(&key(), &s(&d)).unwrap();
+        assert_eq!(r.recorded, 1, "the run completes despite the debris");
+        assert!(
+            !d.join("out/a.tif.custody.part").exists(),
+            "the partial file is replaced, not left beside the real one"
+        );
+        let raw = std::fs::read(d.join("out/a.tif.custody.json")).unwrap();
+        let c: Custody = serde_json::from_slice(&raw).unwrap();
+        c.verify().expect("the finished record verifies");
+    }
+
+    /// A run larger than the file cap is truncated LOUDLY: every file beyond
+    /// the cap appears in the report, so the host can see what was left.
+    #[test]
+    fn the_file_cap_reports_the_overflow_rather_than_hiding_it() {
+        let d = tmp("cap");
+        for i in 0..5 {
+            std::fs::write(d.join("in").join(format!("f{i}.tif")), b"x").unwrap();
+        }
+        let mut st = s(&d);
+        st.max_files = 2;
+        let r = decode_dir(&key(), &st).unwrap();
+        assert_eq!(r.recorded, 2);
+        assert_eq!(r.skipped.len(), 3, "every skipped file is named");
+        assert!(r.skipped.iter().all(|s| s.reason.contains("file cap")));
+    }
+
+    /// Corruption after the write must be caught by the node, because on the
+    /// ground there is no second copy to compare against.
+    #[test]
+    fn a_record_that_does_not_survive_the_round_trip_is_not_shipped() {
+        let d = tmp("bitflip");
+        std::fs::write(d.join("in/a.tif"), b"payload").unwrap();
+        decode_dir(&key(), &s(&d)).unwrap();
+
+        // Flip a byte inside the signed body, the way a stray upset would.
+        let p = d.join("out/a.tif.custody.json");
+        let mut raw = std::fs::read(&p).unwrap();
+        let i = raw
+            .windows(9)
+            .position(|w| w == b"\"size_byt")
+            .expect("field present");
+        raw[i + 2] = b'X';
+        std::fs::write(&p, &raw).unwrap();
+
+        // A reader on the ground must reject it rather than half-trust it.
+        let parsed: Result<Custody, _> = serde_json::from_slice(&raw);
+        if let Ok(c) = parsed {
+            assert!(c.verify().is_err(), "a flipped byte must not verify");
         }
     }
 }

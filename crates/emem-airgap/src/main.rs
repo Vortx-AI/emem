@@ -44,6 +44,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // reproducible.
     let observed_at = env_or("--observed-at", "EMEM_AIRGAP_OBSERVED_AT", &args)
         .ok_or("--observed-at (or EMEM_AIRGAP_OBSERVED_AT) is required, RFC 3339 UTC")?;
+    // Signed, therefore checked. An unvalidated string here is signed into
+    // every record of the run, and a record claiming it was observed at
+    // "yesterday" verifies perfectly while meaning nothing. A shape check, not
+    // a claim the clock is right: only the operator can know that.
+    if !looks_like_rfc3339_utc(&observed_at) {
+        return Err(format!(
+            "--observed-at must be RFC 3339 UTC like 2026-08-20T09:00:00Z, got {observed_at:?}. \
+             It is signed into every record, so it is checked rather than trusted."
+        )
+        .into());
+    }
+
     let data_dir = PathBuf::from(
         env_or("--data", "EMEM_AIRGAP_DATA", &args).unwrap_or_else(|| ".".to_string()),
     );
@@ -72,6 +84,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .and_then(|v| v.parse().ok())
         .unwrap_or(emem_airgap::DEFAULT_MAX_PAYLOAD_BYTES),
+        max_files: env_or("--max-files", "EMEM_AIRGAP_MAX_FILES", &args)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(emem_airgap::DEFAULT_MAX_FILES),
     };
 
     // Written on every run, not just the first. It is small, it is
@@ -181,6 +196,24 @@ fn getrandom(buf: &mut [u8]) -> std::io::Result<()> {
     f.read_exact(buf)
 }
 
+/// A shape check for RFC 3339 UTC, without pulling in a date library.
+///
+/// Deliberately narrow: `YYYY-MM-DDTHH:MM:SSZ`. A node that writes exactly one
+/// timestamp format is easier to reason about than one accepting every legal
+/// spelling, and whoever supplies it already knows the shape.
+fn looks_like_rfc3339_utc(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
+        return false;
+    }
+    if b[13] != b':' || b[16] != b':' || b[19] != b'Z' {
+        return false;
+    }
+    [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18]
+        .iter()
+        .all(|&i| b[i].is_ascii_digit())
+}
+
 const HELP: &str = "\
 emem-airgap  one directory in, one directory out, no network.
 
@@ -191,6 +224,7 @@ emem-airgap  one directory in, one directory out, no network.
   --observed-at  <ts>    RFC 3339 UTC; required, never defaulted to now
   --data         <dir>   where node_identity.json lives (default: .)
   --max-payload-bytes <n> refuse payloads larger than this (default 256 MiB)
+  --max-files    <n>     most files in one run (default 10000)
 
 Each flag also reads an environment variable: EMEM_AIRGAP_INPUT, _OUTPUT,
 _PROFILE, _PLATFORM, _OBSERVED_AT, _DATA.

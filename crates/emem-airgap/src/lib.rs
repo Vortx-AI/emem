@@ -34,6 +34,32 @@
 //! When the OS encoder ships on the same machine, the same payload gains a
 //! trace and rises to attested execution. Custody is the floor, not the
 //! ceiling.
+//!
+//! # Running it where it is meant to run
+//!
+//! ```text
+//! docker run --network none --read-only --cap-drop ALL \
+//!            --security-opt no-new-privileges --user 65532:65532 \
+//!            -v /host/in:/in:ro -v /host/out:/out -v /host/data:/data \
+//!            emem-airgap --input /in --output /out --data /data ...
+//! ```
+//!
+//! `--network none` is the flag that matters, and it agrees with the build:
+//! this crate links no networking dependency, so there is nothing here that
+//! could open a socket even if the namespace allowed one. Mounting the input
+//! read-only means the host does not have to take the node's word that it
+//! leaves that directory alone.
+//!
+//! # What it survives
+//!
+//! The failure modes here are not only adversarial. A bus browns out mid-write;
+//! a single-event upset flips a bit in flash; a directory arrives with a
+//! million files in it. So records are written to a temporary and renamed,
+//! which is atomic, and fsynced before and after, because a rename that only
+//! reached the page cache did not survive the power cut that made you care.
+//! Each record is then read back and re-verified from disk, since the node is
+//! the last party that can notice corruption while there is still a second
+//! copy of the payload to check against.
 
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +70,8 @@ mod run;
 pub use custody::{Custody, CustodyError, CustodyVerdict, CUSTODY_SCHEMA_V1};
 pub use identity::{JoinRequest, NodeKeyFile, JOIN_REQUEST_SCHEMA_V1};
 pub use run::{
-    decode_dir, key_path, DecodeReport, DecodeSettings, Skipped, DEFAULT_MAX_PAYLOAD_BYTES,
+    decode_dir, key_path, DecodeReport, DecodeSettings, Skipped, DEFAULT_MAX_FILES,
+    DEFAULT_MAX_PAYLOAD_BYTES,
 };
 
 /// base32-nopad lowercase of a blake3 digest: the encoding every emem digest
