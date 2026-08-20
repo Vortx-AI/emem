@@ -103,8 +103,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &settings.observed_at,
     );
     std::fs::create_dir_all(&settings.output)?;
+    // Per-node for the same reason the run report is: several nodes may share
+    // one output mount, and each one's request has to survive the others.
     std::fs::write(
-        settings.output.join("join_request.json"),
+        settings.output.join(format!(
+            "join_request.{}.json",
+            emem_airgap::short_key(&node_key)
+        )),
         serde_json::to_vec_pretty(&join)?,
     )?;
 

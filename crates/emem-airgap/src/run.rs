@@ -49,6 +49,16 @@ pub struct DecodeReport {
     pub bytes_read: u64,
     /// Total bytes written to the output directory.
     pub bytes_written: u64,
+    /// Temporary files left behind by a run that did not finish, reported and
+    /// deliberately not deleted.
+    ///
+    /// Deleting them would be the wrong call on a host that runs containers in
+    /// parallel: a `.part` file may belong to another node that is writing
+    /// right now, and removing it would corrupt a healthy write to tidy up
+    /// after a dead one. Naming them lets the operator clean up knowing which
+    /// containers are running; guessing does not.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stale_partials: Vec<String>,
 }
 
 /// A file the run did not record, and why.
@@ -92,6 +102,7 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         skipped: Vec::new(),
         bytes_read: 0,
         bytes_written: 0,
+        stale_partials: Vec::new(),
     };
 
     for path in names {
@@ -226,11 +237,38 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         });
     }
 
-    let manifest = settings.output.join("run.json");
+    // Debris from runs that did not finish. Named, never removed: see the
+    // field's own note for why deleting would be the more dangerous choice.
+    let mine = format!(".{}.part", std::process::id());
+    if let Ok(entries) = std::fs::read_dir(&settings.output) {
+        for e in entries.filter_map(|e| e.ok()) {
+            let n = e.file_name().to_string_lossy().into_owned();
+            if n.ends_with(".part") && !n.ends_with(&mine) {
+                report.stale_partials.push(n);
+            }
+        }
+    }
+    report.stale_partials.sort();
+
+    // Per-node, not one global name. Two containers sharing an output mount
+    // both wrote `run.json` and the second silently destroyed the first's
+    // report, so a run could complete and leave no record that it had. Keying
+    // by the node's short key means parallel nodes coexist, while the same
+    // node re-running still overwrites its own previous report, which is what
+    // keeps a re-run reproducible.
+    let manifest = settings
+        .output
+        .join(format!("run.{}.json", short_key(&settings.node.node_key)));
     let mj = serde_json::to_vec_pretty(&report).unwrap_or_else(|_| b"{}".to_vec());
     write_atomic(&manifest, &mj)?;
     report.bytes_written += mj.len() as u64;
     Ok(report)
+}
+
+/// The eight-character form of a node key, used to keep per-node output files
+/// from colliding when several nodes share one output directory.
+pub fn short_key(node_key: &str) -> String {
+    node_key.chars().take(8).collect()
 }
 
 /// Write a file so that a reader only ever sees all of it or none of it, and
@@ -256,7 +294,13 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
 /// that survived the power cut that made you care.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let tmp = path.with_extension("part");
+    // The temporary carries this process's pid.
+    //
+    // Without it, two nodes running at once against the same output mount race
+    // on one temporary name: both call create_new, one wins, and the other
+    // exits non-zero. That is not hypothetical on a host that runs containers
+    // in parallel by design, and it was reproduced before this line existed.
+    let tmp = path.with_extension(format!("{}.part", std::process::id()));
     // A leftover .part from an interrupted earlier run is expected debris,
     // not a reason to fail. Removing a symlink here removes the link only.
     match std::fs::remove_file(&tmp) {
@@ -521,6 +565,71 @@ mod security {
     }
 }
 
+/// Their host runs containers in parallel against one output mount, so that
+/// is a supported configuration and not an edge case.
+#[cfg(test)]
+mod parallel {
+    use super::*;
+
+    /// Two nodes writing the same output directory must both finish, and
+    /// neither may destroy the other's report.
+    ///
+    /// Before the fix this was reproduced with two real processes: one exited
+    /// non-zero on a temporary-file race, and the survivor's run.json had
+    /// overwritten the other's.
+    #[test]
+    fn two_nodes_sharing_an_output_directory_do_not_collide() {
+        let d = std::env::temp_dir().join("emem-airgap-parallel");
+        let _ = std::fs::remove_dir_all(&d);
+        for sub in ["in_a", "in_b", "out"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        std::fs::write(d.join("in_a/shared_name.tif"), b"from node a").unwrap();
+        std::fs::write(d.join("in_b/shared_name.tif"), b"from node b").unwrap();
+
+        let mk = |seed: u8, input: &str| {
+            let k = SigningKey::from_bytes(&[seed; 32]);
+            let st = DecodeSettings {
+                input: d.join(input),
+                output: d.join("out"),
+                node: NodeIdentity {
+                    node_key: crate::b32(k.verifying_key().as_bytes()),
+                    profile: "orbital.satellite.v1".into(),
+                    platform: "nvidia.jetson-orin".into(),
+                },
+                observed_at: "2026-08-20T09:00:00Z".into(),
+                max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+                max_files: DEFAULT_MAX_FILES,
+            };
+            (k, st)
+        };
+        let (ka, sa) = mk(11, "in_a");
+        let (kb, sb) = mk(22, "in_b");
+
+        decode_dir(&ka, &sa).unwrap();
+        decode_dir(&kb, &sb).unwrap();
+
+        // Both reports survive, each under its own node's short key.
+        let a = d
+            .join("out")
+            .join(format!("run.{}.json", short_key(&sa.node.node_key)));
+        let b = d
+            .join("out")
+            .join(format!("run.{}.json", short_key(&sb.node.node_key)));
+        assert!(a.exists(), "node a's report must survive");
+        assert!(b.exists(), "node b's report must survive");
+        assert_ne!(a, b, "the two reports must not be the same file");
+
+        // No temporary debris is left in a shared directory.
+        let leftovers: Vec<_> = std::fs::read_dir(d.join("out"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".part"))
+            .collect();
+        assert!(leftovers.is_empty(), "no .part files may be left behind");
+    }
+}
+
 /// Failure modes that are not attacks: power, radiation, and a full disk.
 #[cfg(test)]
 mod resilience {
@@ -564,9 +673,17 @@ mod resilience {
 
         let r = decode_dir(&key(), &s(&d)).unwrap();
         assert_eq!(r.recorded, 1, "the run completes despite the debris");
+        // Reported, not deleted. On a host that runs containers in parallel a
+        // .part file may belong to a node writing right now, and tidying it
+        // away would corrupt a healthy write.
+        assert_eq!(
+            r.stale_partials,
+            vec!["a.tif.custody.part".to_string()],
+            "debris must be named in the report"
+        );
         assert!(
-            !d.join("out/a.tif.custody.part").exists(),
-            "the partial file is replaced, not left beside the real one"
+            d.join("out/a.tif.custody.part").exists(),
+            "another container's temporary must not be removed on its behalf"
         );
         let raw = std::fs::read(d.join("out/a.tif.custody.json")).unwrap();
         let c: Custody = serde_json::from_slice(&raw).unwrap();

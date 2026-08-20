@@ -106,9 +106,20 @@ laptop rehearsal.
 ```
 out/
   frame_001.tif.custody.json   one per payload, signed, verifies standalone
-  join_request.json            carry this out to be endorsed (see below)
-  run.json                     what the run did, including every skip and why
+  join_request.<node8>.json    carry this out to be endorsed (see below)
+  run.<node8>.json             what the run did, including every skip and why
 ```
+
+The per-run files are keyed by the node's short key rather than named
+`run.json`, because a host may run several containers in parallel against one
+output mount. Two nodes writing a shared `run.json` meant the second silently
+destroyed the first's report; keyed, they coexist, while the same node
+re-running still overwrites its own.
+
+`run.<node8>.json` also names any `.part` files left behind by a run that did
+not finish. They are reported and deliberately **not** deleted: on a host with
+parallel containers a temporary may belong to a node that is writing right now,
+and tidying it away would corrupt a healthy write to clean up after a dead one.
 
 `run.json` names everything that was **not** recorded and why. A run that
 quietly ignored half its input would look identical to a clean one, so nothing
@@ -151,6 +162,23 @@ assert!(record.covers(&payload_bytes)); // and it is about THIS file
 Those are two different questions on purpose. `verify` asks whether the record
 is authentic; `covers` asks whether the file in front of you is the one it
 describes. A reader holding only the record can answer the first.
+
+## Fitting a hosted-payload platform
+
+The crate hardcodes no host, path or vendor: input, output, data directory,
+profile, platform and timestamp are all flags or environment variables, so it
+adapts to whatever mount points a host provides rather than assuming any.
+
+Two properties that tend to matter on such platforms:
+
+* **Size.** The binary is about 4 MB. Hosts commonly cap an uploaded
+  application in the tens of megabytes, and some offer a large shared base
+  image plus a delta upload to stay inside that. This node is smaller than a
+  typical delta, so it can ship whole and skip the mechanism entirely.
+* **Parallelism.** Several containers may run at once against one output mount.
+  Temporary files carry the writing process's id and per-run outputs carry the
+  node's short key, so nodes do not collide, and no node ever deletes another's
+  work.
 
 ## What it survives, and what it does not
 
