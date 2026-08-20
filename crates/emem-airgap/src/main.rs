@@ -224,20 +224,8 @@ fn load_or_create_identity(
     created: &str,
 ) -> Result<(SigningKey, NodeKeyFile), Box<dyn std::error::Error>> {
     let path = key_path(data_dir);
-    if path.exists() {
-        let raw = std::fs::read_to_string(&path)?;
-        let file: NodeKeyFile = serde_json::from_str(&raw).map_err(|e| {
-            format!(
-                "{} exists but is not a node identity ({e}). Refusing to overwrite it: \
-                 a new key would orphan every record this node has already signed. \
-                 Move it aside deliberately if you really mean to start over.",
-                path.display()
-            )
-        })?;
-        let key = file
-            .signing_key()
-            .ok_or("node identity seed_hex is not 32 bytes of hex")?;
-        return Ok((key, file));
+    if let Some(found) = load_identity(&path)? {
+        return Ok(found);
     }
     let mut seed = [0u8; 32];
     getrandom(&mut seed)?;
@@ -255,8 +243,27 @@ fn load_or_create_identity(
             data_dir.display()
         )
     })?;
-    write_private(&path, serde_json::to_string_pretty(&file)?.as_bytes())
+    // Another starter may have claimed the identity between our look and our
+    // write.
+    //
+    // This is load-OR-create and it used to only do one of them: the loser of
+    // the race exited with "File exists (os error 17)", which reads as a
+    // broken disk rather than as another container getting there first. One
+    // run in forty-eight died this way when eight started together on an empty
+    // data directory, which is how a host brings up several containers on
+    // first boot, not an unusual way to do it.
+    let claimed = write_private(&path, serde_json::to_string_pretty(&file)?.as_bytes())
         .map_err(|e| format!("cannot write the node identity to {}: {e}", path.display()))?;
+    if !claimed {
+        return load_identity(&path)?.ok_or_else(|| {
+            format!(
+                "another starter claimed {} while this one was starting, and it cannot be read \
+                 back. Both are trying to be the same node; run one.",
+                path.display()
+            )
+            .into()
+        });
+    }
     eprintln!(
         "emem-airgap  new node identity {} written to {}",
         file.pubkey8,
@@ -265,21 +272,122 @@ fn load_or_create_identity(
     Ok((key, file))
 }
 
+/// Read an existing node identity, or `None` if there is none yet.
+///
+/// A file that exists but does not parse is an error rather than a reason to
+/// mint a new key: a fresh identity would orphan every record already signed
+/// under the old one and void any endorsement issued for it.
+fn load_identity(
+    path: &std::path::Path,
+) -> Result<Option<(SigningKey, NodeKeyFile)>, Box<dyn std::error::Error>> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(r) => r,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("cannot read {}: {e}", path.display()).into()),
+    };
+    let file: NodeKeyFile = serde_json::from_str(&raw).map_err(|e| {
+        format!(
+            "{} exists but is not a node identity ({e}). Refusing to overwrite it: a new key \
+             would orphan every record this node has already signed. Move it aside deliberately \
+             if you really mean to start over.",
+            path.display()
+        )
+    })?;
+    let key = file
+        .signing_key()
+        .ok_or("node identity seed_hex is not 32 bytes of hex")?;
+    Ok(Some((key, file)))
+}
+
+/// Write the node identity so that it is complete, durable, and never
+/// overwrites one that already exists.
+///
+/// All three matter more here than anywhere else in the crate, because every
+/// record this node will ever sign depends on this one file surviving.
+///
+/// **Complete.** The previous version created the destination and then wrote
+/// into it, so for a moment the identity existed and was empty. A second
+/// process starting at the same time read that empty file and reported the
+/// identity as corrupt; had the first process died in that window, the empty
+/// file would have stayed and every later run would have refused to start,
+/// with no way back that does not involve deleting the node's identity. The
+/// content is written to a temporary and linked into place complete.
+///
+/// **Durable.** fsync on the file before the link and on the directory after
+/// it. A brown-out is the ordinary case for this hardware, and an identity
+/// that only reached the page cache is an identity the node wakes up without,
+/// having already signed records with it.
+///
+/// **Never clobbering.** `hard_link` fails if the destination exists, which is
+/// what makes it the race winner's claim. `rename` would silently replace an
+/// existing identity, and replacing this file is never the right outcome.
+/// Returns `Ok(false)` when the destination already existed, so the caller can
+/// load what is there. An `Err` is a real failure and nothing else.
+///
+/// Two outcomes used to be one. The function returned `AlreadyExists` both
+/// when another writer had claimed the identity and when its own temporary
+/// name collided, and the caller could not tell them apart. Concurrent threads
+/// of one process hit the second case and were told the first, then failed
+/// looking for a file nobody had written yet.
 #[cfg(unix)]
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<bool> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
+
+    // Unique per writer, not per process. `std::process::id()` alone is the
+    // same for every thread, so two threads shared a temporary: one truncated
+    // or deleted the other's, and the failure surfaced as a nonexistent
+    // identity. Separate containers never hit this because their pids differ,
+    // which is exactly why it survived the process-level test.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("{}.{n}.tmp", std::process::id()));
+
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(path)?;
-    f.write_all(bytes)
+        .open(&tmp)?;
+    f.write_all(bytes)?;
+    f.sync_all()?;
+    drop(f);
+
+    let linked = std::fs::hard_link(&tmp, path);
+    // The temporary goes either way: it has served its purpose if the link
+    // took, and it is debris if somebody else won.
+    let _ = std::fs::remove_file(&tmp);
+    match linked {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(e) => return Err(e),
+    }
+
+    // The directory entry itself, so the link survives the power cut that made
+    // the fsync above worth doing.
+    if let Some(dir) = path.parent() {
+        if let Ok(d) = std::fs::File::open(dir) {
+            let _ = d.sync_all();
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(not(unix))]
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<bool> {
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(mut f) => {
+            use std::io::Write;
+            f.write_all(bytes)?;
+            f.sync_all()?;
+            Ok(true)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 /// Fill `buf` with OS randomness, without adding a dependency for it.
@@ -472,6 +580,96 @@ the record does.";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Eight processes starting on one empty data directory must agree on one
+    /// identity, and none of them may fail.
+    ///
+    /// One run in forty-eight used to die with "File exists (os error 17)".
+    /// The function is called load-or-create and it only did one of them: the
+    /// loser of the race gave up instead of reading the key the winner had
+    /// just written, and the message it printed reads as a broken disk rather
+    /// than as another container getting there first. Eight containers coming
+    /// up together on first boot is not an unusual way to start a host; it is
+    /// the normal one.
+    #[test]
+    fn concurrent_first_runs_agree_on_one_identity() {
+        let d = std::env::temp_dir().join("emem-airgap-idrace");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+
+        let keys: Vec<String> = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| {
+                    s.spawn(|| {
+                        let (_, file) = load_or_create_identity(&d, "2026-08-20")
+                            .expect("a process that loses the race must load, not fail");
+                        file.pubkey_b32
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        let first = &keys[0];
+        assert!(
+            keys.iter().all(|k| k == first),
+            "eight starts produced more than one identity: {keys:?}"
+        );
+        // And exactly one file, with no temporary left behind.
+        let entries: Vec<String> = std::fs::read_dir(&d)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            entries,
+            vec!["node_identity.json".to_string()],
+            "{entries:?}"
+        );
+    }
+
+    /// An identity that exists is never replaced.
+    ///
+    /// Replacing it orphans every record already signed under the old key and
+    /// voids any endorsement issued for it, so the write claims the
+    /// destination rather than overwriting it.
+    #[test]
+    fn an_existing_identity_is_never_overwritten() {
+        let d = std::env::temp_dir().join("emem-airgap-idclobber");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let path = d.join("node_identity.json");
+
+        assert!(write_private(&path, b"the original").expect("first write"));
+        assert!(
+            !write_private(&path, b"a replacement")
+                .expect("a second write is refused, not an error"),
+            "a second write reported that it had claimed the identity"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"the original");
+        // No temporary survives the refusal.
+        let leftovers: Vec<_> = std::fs::read_dir(&d)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "node_identity.json")
+            .collect();
+        assert!(leftovers.is_empty(), "debris left behind: {leftovers:?}");
+    }
+
+    /// The identity file is readable only by its owner. It holds the seed.
+    #[cfg(unix)]
+    #[test]
+    fn the_identity_file_is_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = std::env::temp_dir().join("emem-airgap-idperm");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let path = d.join("node_identity.json");
+        write_private(&path, b"seed").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "identity is mode {mode:o}, not 0600");
+    }
 
     /// The flags the decoder accepts and the flags its help text describes must be
     /// the same set. Two hand-kept lists drift, and the one that drifts silently

@@ -505,6 +505,12 @@ Built for a bus that browns out and flash that flips bits:
 * A payload is only signed if it held still while it was read, and the
   descriptor that is read is checked to be the file that was inspected, so the
   path cannot be swapped for a symlink in between.
+* Several containers starting together on an empty data directory agree on one
+  identity. The loser of that race reads the winner's key rather than failing;
+  it used to exit with "File exists", which reads as a broken disk. The
+  identity is written complete (never a moment where it exists and is empty),
+  fsynced with its directory, and never overwritten: replacing it would orphan
+  every record already signed under it and void any endorsement issued for it.
 * A flag the command does not have is refused, not ignored, with a suggestion
   when one is close. `--window-ms 300` was accepted in silence by a binary with
   no such flag: the run applied the default and reported success. On hardware
