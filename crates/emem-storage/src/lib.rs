@@ -301,6 +301,15 @@ pub trait Storage: Send + Sync {
         None
     }
 
+    /// Devices whose operators have consented to being listed, and which have
+    /// written at least one accepted trace. Empty for backends with no gate.
+    ///
+    /// The consent and proof filters live in the gate rather than here, so a
+    /// backend cannot accidentally widen them by implementing this differently.
+    fn published_devices(&self) -> Vec<crate::trace_gate::PublishedDevice> {
+        Vec::new()
+    }
+
     /// Resolve a stored platform attestation by its content ID — what an
     /// `emem:attestation:` token names. Default `None`.
     fn resolve_platform_attestation(
@@ -725,6 +734,13 @@ impl Storage for MaterializingStorage {
 
     fn resolve_os_trace(&self, trace_cid: &str) -> Option<emem_trace::OsTrace> {
         self.trace_gate.as_ref()?.get_trace(trace_cid)
+    }
+
+    fn published_devices(&self) -> Vec<crate::trace_gate::PublishedDevice> {
+        self.trace_gate
+            .as_ref()
+            .map(|g| g.published_devices())
+            .unwrap_or_default()
     }
 
     fn resolve_platform_attestation(

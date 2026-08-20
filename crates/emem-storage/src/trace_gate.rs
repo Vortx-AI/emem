@@ -561,6 +561,11 @@ impl TraceGate {
     /// edge is one refactor away from being forgotten. Anything reading this
     /// method gets the consenting set and cannot accidentally get the rest.
     ///
+    /// Two conditions, both required: the operator consented, AND the device
+    /// has written at least one trace this gate accepted. Consent alone would
+    /// make the roster a list of intentions; the trace is what makes it a list
+    /// of working nodes.
+    ///
     /// What comes back is deliberately thin. A device that agreed to appear on
     /// a status page did not thereby agree to publish its traffic: the count of
     /// traces it has written and when it last wrote one is enough to show a
@@ -578,6 +583,14 @@ impl TraceGate {
                 continue;
             }
             let (traces, last_seen) = self.trace_activity(&pubkey);
+            // Consent is necessary and not sufficient. A device appears once it
+            // has actually written a trace this gate accepted, so the roster is
+            // a list of nodes that demonstrably work rather than of nodes that
+            // registered an intention to. A device that opted in and has not
+            // yet traced is simply not there yet, which is the truth.
+            if traces == 0 {
+                continue;
+            }
             let assurance = rec.assurance().to_string();
             out.push(PublishedDevice {
                 device_key: pubkey,
@@ -724,18 +737,18 @@ mod enrollment_record_tests {
 
     /// Consent is a separate, deliberate act, and it is reversible.
     #[test]
-    fn consent_can_be_given_and_withdrawn() {
+    fn consent_alone_does_not_list_a_device_that_has_proved_nothing() {
         let gate = temp_gate();
         gate.enroll("bbbb2222", "robot.fleet.v1").unwrap();
 
         assert!(gate.set_publish("bbbb2222", true).unwrap());
-        let listed = gate.published_devices();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].device_key, "bbbb2222");
-        assert_eq!(listed[0].assurance, "operator_asserted");
+        // Consenting is not enough on its own: nothing has been proved yet.
+        assert!(
+            gate.published_devices().is_empty(),
+            "a device that consented but has never traced is not yet a working node"
+        );
 
-        // Withdrawing must take it off again: consent that cannot be
-        // withdrawn is not consent.
+        // Withdrawing must still work, and must still take it off.
         assert!(gate.set_publish("bbbb2222", false).unwrap());
         assert!(gate.published_devices().is_empty());
     }

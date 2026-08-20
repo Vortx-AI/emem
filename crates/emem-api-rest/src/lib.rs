@@ -1246,6 +1246,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/fleet", get(fleet))
         .route("/v1/substrates", get(substrates_registry))
         .route("/v1/device_platforms", get(device_platforms_registry))
+        .route("/v1/devices", get(get_devices))
         .route("/v1/trace_encodings", get(trace_encodings_registry))
         .route("/v1/trace_verify", post(post_trace_verify))
         .route("/v1/enroll_verify", post(post_enroll_verify))
@@ -8934,6 +8935,48 @@ async fn substrates_registry() -> Json<JsonValue> {
 /// specific device). Every entry is candidate and every anchor
 /// provisional until a published vendor anchor is pinned. The manifest
 /// CID lets an enrollment pin the exact whitelist it was made under.
+/// The device roster: nodes whose operators chose to be visible.
+///
+/// Three things this is NOT, said here because a roster invites all three
+/// assumptions:
+///
+/// It is not every device running emem. Listing is opt-in and defaults to off,
+/// so a short list means few operators chose to publish, never that few devices
+/// exist. Anyone reading a count here as a fleet size is reading it wrong, and
+/// the response says so rather than leaving them to it.
+///
+/// It is not a liveness monitor. `last_seen` is the end of a device's most
+/// recent capture window in ITS OWN monotonic clock, nanoseconds since that
+/// machine booted. It is not a wall clock and two devices' values cannot be
+/// compared. What it is good for is watching one device advance.
+///
+/// It is not an endorsement. A device appears because its operator consented
+/// and it wrote a trace this responder accepted. `assurance` says whether
+/// anything vouched for the hardware, and for most of them nothing did.
+async fn get_devices(State(s): State<AppState>) -> Json<JsonValue> {
+    let devices = s.storage.published_devices();
+    Json(json!({
+        "schema": "emem.devices.v1",
+        "count": devices.len(),
+        "devices": devices,
+        "listing_is_opt_in": true,
+        "note": "Devices appear here only when their operator has explicitly opted in AND the \
+                 device has written at least one trace this responder accepted. Enrolling does \
+                 not list you: joining the protocol and being visible on it are separate acts, \
+                 and the default is private. So this count is the number of operators who chose \
+                 to be seen, not the number of devices that exist.",
+        "last_seen_is": "the end of that device's most recent capture window, in its own \
+                         monotonic clock (nanoseconds since that machine booted). Not a wall \
+                         clock, and not comparable between devices.",
+        "assurance_is": "platform_attested when a whitelisted anchor endorsed the device key, \
+                         operator_asserted when the operator simply said so. Read endorsed_by \
+                         to see whose word it rests on: an operator anchor id means the owner \
+                         vouched, not a manufacturer.",
+        "platforms": "/v1/device_platforms",
+        "verify_a_trace": "/v1/trace_verify",
+    }))
+}
+
 async fn device_platforms_registry() -> Json<JsonValue> {
     let reg = &*emem_core::device_platforms::DEFAULT;
     Json(json!({
@@ -26762,6 +26805,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
             "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
+            "/v1/devices": {"get":{"summary":"Devices whose operators opted in to being listed, and which have written at least one accepted trace. Listing is opt-in and defaults to off, so the count is the number of operators who chose to be seen and NOT the number of devices that exist. last_seen is each device's own monotonic clock and is not comparable between devices.","operationId":"emem_devices","tags":["device"],"responses":{"200":json_ok}}},
             "/v1/device_platforms":  {"get":{"summary":"device-platform whitelist: which hardware platforms may enroll a trace-admitted key and the root-of-trust evidence (TCG DICE, IEEE 802.1AR DevID, TPM 2.0 quote, Arm PSA/EAT) each presents; a trust anchor is a RATS Endorsement for a platform class; content-addressed by manifest CID","operationId":"emem_device_platforms","responses":{"200":json_ok}}},
             "/v1/trace_encodings":   {"get":{"summary":"trace-encodings registry: recognized capture encodings a trace segment may name (linux.ftrace.v1, ros2.bag.v2, zephyr.ctf.v1, ...), the toolchain producing each, the layers it can capture, and the tracer's own integrity (in_kernel, signed_userspace, open_source_userspace, vendor_runtime), the 'trace of the trace'; content-addressed by manifest CID","operationId":"emem_trace_encodings","responses":{"200":json_ok}}},
             "/v1/trace_verify":      {"post":{"summary":"stateless verification of an emem.os_trace.v1 record against a substrate profile: schema, device identity, window, layer coverage, segment digest chain, merkle trace_root, emitted-output binding, and the device ed25519 signature. Always 200 for parseable JSON; the verdict plus every failed check is the payload.","operationId":"emem_trace_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["trace","profile"],"properties":{"trace":{"type":"object","description":"the emem.os_trace.v1 record"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"claimed_payload_digest":{"type":"string","description":"optional output digest to check binding for"}}}}}},"responses":{"200":json_ok}}},
