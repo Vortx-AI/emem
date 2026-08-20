@@ -355,10 +355,24 @@ docker run --rm \
     --interval 60
 ```
 
-It shares the decoder's `node_identity.json` and **never creates one**: two
-halves of a node must sign as one node, and a key minted by a sidecar would
-quietly split it in two. Run the decoder once against the same `--data`
-directory first.
+It shares the decoder's identity and **never creates one**: two halves of a
+node must sign as one node, and a key minted by a sidecar would quietly split it
+in two. Give it that identity one of two ways:
+
+* `EMEM_ENCODE_SEED_HEX` (or `EMEM_AIRGAP_SEED_HEX`, the same thing), 64 hex
+  characters as `emem-airgap keygen --print-seed` prints them. Nothing is
+  written and **no `--data` is needed at all**, which is the only option on a
+  host with no writable mount. `EMEM_ENCODE_SEED_FILE` reads the same from a
+  path.
+* Or run the decoder once against the same `--data` directory, which creates
+  the file the sidecar then reads.
+
+**Stream state lives in `<--out>/.state/`, not `--data`.** It used to go to the
+working directory, so on a read-only rootfs the encoder wrote its trace and
+then exited 1 recording where the chain had got to: work done, run reported as
+failed. The traces directory is the one place an encoder is guaranteed to be
+able to write. The decoder skips subdirectories when it scans for traces, so
+the state costs nothing there.
 
 Then point the decoder at the traces:
 
@@ -411,6 +425,44 @@ operator can already read. If the encoder is killed between writing a trace and
 updating the head, the trace is left unreferenced and the next window chains
 from the older head, which is the same behaviour as a power cut and is
 described above.
+
+### Which profile to capture under
+
+This is the question that decides whether the encoder does anything useful, and
+it has a short answer and a long one.
+
+**Short: on a general-purpose Linux host with no kernel tracing, use
+`host.counters.v1`.** It requires scheduler, memory, storage and network, all of
+which come from `/proc` on every Linux, readable by any uid, with no mount and
+no capability.
+
+**Long:** every other trace-admitted profile in the registry requires
+`sensor_bus`, `signal` or `inference`, whose only registered encodings are
+`ros2.bag.v2`, `linux.ebpf.raw` and `nvidia.nsys.v1`. This encoder has no source
+for any of them on any machine, so it cannot satisfy those profiles anywhere.
+The one exception, `exec.trace.v1`, requires `syscall`, which needs a tracefs
+mount and the capability to read it. A hosted payload with neither could
+therefore produce a signed, chained, payload-binding trace that **no** profile
+would admit, which is exactly what happened on a real deployment before
+`host.counters.v1` existed.
+
+You do not have to work this out by hand. Every capture reports which profiles
+it satisfies:
+
+```json
+"accepted_by": ["host.counters.v1"],
+"admissibility": "5 layer(s) captured, 2 absent. Accepted by: host.counters.v1.
+                  NOT by --profile orbital.satellite.v1, which this capture does
+                  not cover; a verifier will refuse it under that profile and be
+                  right to."
+```
+
+**What `host.counters.v1` is not.** Its segments carry `linux.procfs.v1`: a
+counter read at two instants, not an ordered log of what happened. That binds
+the payload digests emitted in a window to a device key and a clock, and it is
+real evidence that a machine was doing something. It is not evidence of *which
+code ran*. If you need that, you need a profile naming `syscall`, and the host
+has to grant tracefs.
 
 ### On a host that grants no kernel tracing
 
@@ -633,7 +685,7 @@ instead.
 | a read-only input mount | custody | nothing works |
 | a writable output mount | custody | nothing works |
 | `EMEM_AIRGAP_SEED_HEX` or a writable `--data` outside `--output` | a stable identity | either a new key every run, or the private key in the downlink |
-| `/sys/kernel/tracing` + `CAP_DAC_READ_SEARCH` | the `syscall` layer | the encoder still captures scheduler, memory, storage, network and thermal from `/proc` and `/sys`, but no profile that requires `syscall` will admit the trace |
+| `/sys/kernel/tracing` + `CAP_DAC_READ_SEARCH` | the `syscall` layer, and with it `exec.trace.v1` | the encoder captures scheduler, memory, storage, network and thermal from `/proc` and `/sys`, and its traces are admitted under `host.counters.v1`; no profile requiring `syscall` will take them |
 
 That last row is the one to negotiate if you want traces admitted rather than
 merely signed. Everything above it is already satisfied by a two-mount

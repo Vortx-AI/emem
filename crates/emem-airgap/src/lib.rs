@@ -164,16 +164,31 @@ pub fn reject_unknown_flags(args: &[String], known: &[&str]) -> Result<(), std::
 /// two-mount platform was to put the private seed in the folder that gets
 /// downlinked.
 pub fn seed_from_environment() -> Result<Option<NodeKeyFile>, Box<dyn std::error::Error>> {
-    let raw = match std::env::var("EMEM_AIRGAP_SEED_HEX") {
-        Ok(v) => Some(v),
-        Err(_) => match std::env::var("EMEM_AIRGAP_SEED_FILE") {
-            Ok(p) => Some(
-                std::fs::read_to_string(&p)
-                    .map_err(|e| format!("cannot read the seed file at {p}: {e}"))?,
-            ),
-            Err(_) => None,
-        },
-    };
+    // Both prefixes, for both binaries.
+    //
+    // The variable was EMEM_AIRGAP_SEED_HEX only, so an operator configuring
+    // the sidecar reached for EMEM_ENCODE_SEED_HEX to match its other
+    // variables (EMEM_ENCODE_OUT, _PROFILE, _DATA) and it did nothing at all.
+    // Reported from a real deployment, found by elimination, which is a long
+    // way to travel for a name. One identity, either spelling.
+    let mut raw = None;
+    for var in ["EMEM_AIRGAP_SEED_HEX", "EMEM_ENCODE_SEED_HEX"] {
+        if let Ok(v) = std::env::var(var) {
+            raw = Some(v);
+            break;
+        }
+    }
+    if raw.is_none() {
+        for var in ["EMEM_AIRGAP_SEED_FILE", "EMEM_ENCODE_SEED_FILE"] {
+            if let Ok(p) = std::env::var(var) {
+                raw = Some(
+                    std::fs::read_to_string(&p)
+                        .map_err(|e| format!("cannot read the seed file at {p}: {e}"))?,
+                );
+                break;
+            }
+        }
+    }
     let Some(raw) = raw else {
         return Ok(None);
     };

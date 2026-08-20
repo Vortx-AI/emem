@@ -460,6 +460,38 @@
     "kernel.version"
    ],
    "_note": "emem already verifies OS execution traces, but only as EVIDENCE that a device's reading of the world is admissible. This profile makes the trace the subject: the reading is about the run itself, its latency, its allocation, its syscall shape. Same verifier, same required layers, inverted role. It stays os_trace_required because a run cannot be re-fetched the way an archive can; the trace is the only thing that makes it checkable at all."
+  },
+  {
+   "id": "host.counters.v1",
+   "title": "A general-purpose host attesting itself with the counters Linux gives anyone",
+   "contributor_class": "execution",
+   "status": "candidate",
+   "admission": "os_trace_required",
+   "address_space": "entity.cid",
+   "grain": {
+    "unit": "span",
+    "min": 1.0,
+    "max": 100000000.0
+   },
+   "tempo": "ultra_fast",
+   "required_trace_layers": [
+    "scheduler",
+    "memory",
+    "storage",
+    "network"
+   ],
+   "evidence_layers": [
+    "trace"
+   ],
+   "drift_anchor": false,
+   "provenance_class": "direct_sensor",
+   "bands": [],
+   "declared_lineage": [
+    "trace.root",
+    "boot.id",
+    "kernel.version"
+   ],
+   "_note": "The profile a Linux host can actually satisfy without privilege. Every other os_trace profile requires sensor_bus, signal or inference, whose only registered encodings are ros2.bag.v2, linux.ebpf.raw and nvidia.nsys.v1; a host without that stack can satisfy none of them, and exec.trace.v1 needs syscall, which needs a tracefs mount and the capability to read it. A hosted payload on a read-only rootfs with neither could therefore produce a signed, chained, payload-binding trace that NO profile would admit, which was reported from a real deployment. The four layers here come from /proc/schedstat, /proc/meminfo, /proc/diskstats and /proc/net/dev: present on every Linux, readable by any uid, no mount and no capability. WHAT THIS IS NOT: those segments carry encoding linux.procfs.v1, which is a counter read at two instants, not linux.ftrace.v1, which is an ordered log of what happened. A counter delta is real evidence that a machine was doing something during a window, and it binds the payload digests emitted in that window to a device key and a clock. It is not evidence of WHICH code ran, and a consumer that needs that must require a profile that names syscall. Candidate rather than active: it is here so a device with no kernel tracing has something true to say, not because counter-level evidence should quietly become the norm."
   }
  ]
 }

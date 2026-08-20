@@ -15,7 +15,7 @@
 //! same node, and it never creates one: an identity conjured by a sidecar is a
 //! key nobody meant to exist.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use ed25519_dalek::SigningKey;
 use emem_airgap::{capture_window, key_path, CaptureSettings, NodeKeyFile, StreamHead};
@@ -95,10 +95,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let path = key_path(&data_dir);
     if supplied.is_none() && !path.exists() {
         return Err(format!(
-            "no node identity at {}.\n\n\
+            "no node identity at {}, and no seed in the environment.\n\n\
              The encoder shares the decoder's identity and does not create one: two halves of \
-             one node must sign as one node, and a key minted here would split it in two. Run \
-             the decoder once against the same --data directory first.",
+             one node must sign as one node, and a key minted here would split it in two.\n\n\
+             Two ways to give it one:\n  \
+             1. EMEM_ENCODE_SEED_HEX (or EMEM_AIRGAP_SEED_HEX, same thing), 64 hex characters \
+             as `emem-airgap keygen --print-seed` prints them. Nothing is written, and no \
+             --data directory is needed.\n  \
+             2. Run the decoder once against the same --data directory, which creates the file \
+             this was looking for.",
             path.display()
         )
         .into());
@@ -129,7 +134,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Where the chain got to. An explicit --prev-trace overrides it, for an
     // operator splicing a stream by hand; otherwise the head on disk is the
     // answer, and a head from an earlier boot is correctly ignored.
-    let head_path = StreamHead::path(&data_dir);
+    let head_path = StreamHead::path(Path::new(&out));
     let explicit_prev = env_or("--prev-trace", "EMEM_ENCODE_PREV_TRACE", &args);
     let mut head = StreamHead::load_for_this_boot(&head_path);
     if head.is_none() && head_path.exists() {
@@ -227,6 +232,14 @@ emem-encode  capture one OS-trace window, sign it, write it to a folder.
   --prev-trace <cid>  the previous trace in this stream, to chain the windows
   --interval  <secs>  capture every <secs> seconds instead of once and exiting;
                       each window chains to the one before it
+
+The identity is SHARED with the decoder and never created here. Supply it as
+EMEM_ENCODE_SEED_HEX (or EMEM_AIRGAP_SEED_HEX), 64 hex characters, and no
+--data directory is needed at all; EMEM_ENCODE_SEED_FILE reads the same from a
+path. Otherwise --data must hold the node_identity.json the decoder wrote.
+
+Stream state goes in <--out>/.state/, not --data, so an encoder on a read-only
+host can still record where its chain got to.
 
 Each flag also reads an environment variable: EMEM_ENCODE_OUT, _PAYLOADS,
 _PROFILE, _PLATFORM, _DATA, _PREV_TRACE, _INTERVAL. Either spelling works,

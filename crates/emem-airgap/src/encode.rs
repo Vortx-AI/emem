@@ -177,6 +177,16 @@ pub struct CaptureReport {
     pub unsupported: Vec<MissedLayer>,
     /// Payload digests bound into the trace as emitted outputs.
     pub outputs: usize,
+    /// Every substrate profile whose required layers this capture actually
+    /// covers, computed against the registry rather than guessed.
+    ///
+    /// Without this an operator saw only a refusal: "required trace layer
+    /// missing: Syscall, SensorBus, Signal", with nothing saying whether any
+    /// profile could have accepted what was captured, or which. Reported from
+    /// a real deployment, where the answer turned out to be none, and finding
+    /// that out took a round trip.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accepted_by: Vec<String>,
     /// Plain-language statement of what this trace can and cannot support.
     pub admissibility: String,
 }
@@ -215,9 +225,24 @@ impl StreamHead {
         (head.boot_id == boot_id()).then_some(head)
     }
 
-    /// Where the head lives, beside the identity.
-    pub fn path(data_dir: &Path) -> PathBuf {
-        data_dir.join("stream_head.json")
+    /// Where the head lives: beside the traces it names.
+    ///
+    /// It used to live beside the identity, in `--data`, and `--data` defaults
+    /// to the working directory. On a read-only rootfs that meant the encoder
+    /// wrote its trace and then exited 1 trying to record where the chain had
+    /// got to, which is the worst of both: the work was done and the run
+    /// reported failure. Reported from a real deployment.
+    ///
+    /// The traces directory is the one place an encoder is guaranteed to be
+    /// able to write, because it is where its output goes. The head is not
+    /// secret either: it holds the previous trace's content id, which is
+    /// public, and a boot id.
+    ///
+    /// In a `.state` subdirectory rather than loose among the traces, because
+    /// the decoder scans that directory for traces and skips subdirectories
+    /// without comment. Loose, it would be counted as debris on every run.
+    pub fn path(out_dir: &Path) -> PathBuf {
+        out_dir.join(".state").join("stream_head.json")
     }
 
     /// Record a new head.
@@ -228,6 +253,22 @@ impl StreamHead {
     /// which an operator can see, rather than two windows claiming the same
     /// predecessor, which would be a fork nobody could tell from tampering.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        // The head lives in a .state subdirectory now, so making it is part of
+        // saving. Without this the encoder wrote its trace and then failed on
+        // the very last step, which is the one failure shape worth avoiding
+        // above all others: work done, run reported as failed.
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| {
+                std::io::Error::new(
+                    e.kind(),
+                    format!(
+                        "cannot create {} for the stream head: {e}. This lives beside the \
+                         traces, so the directory --out points at must be writable.",
+                        dir.display()
+                    ),
+                )
+            })?;
+        }
         crate::run::write_atomic(path, &serde_json::to_vec_pretty(self)?)
     }
 }
@@ -492,6 +533,60 @@ pub fn boot_id() -> String {
         .unwrap_or_else(|_| "unknown".into())
 }
 
+/// Which registered profiles this capture would satisfy.
+///
+/// Coverage only: the layers present against each profile's requirements. The
+/// full verifier also checks the chain, the root, the window and the
+/// signature, and the decoder runs it before citing anything. This answers the
+/// one question a refusal does not: was any profile reachable from what this
+/// machine can read?
+fn profiles_satisfied_by(trace: &OsTrace) -> Vec<String> {
+    let present: std::collections::HashSet<_> = trace.segments.iter().map(|s| s.layer).collect();
+    emem_core::substrates::DEFAULT
+        .substrates
+        .iter()
+        .filter(|p| p.admission == emem_core::substrates::AdmissionRule::OsTraceRequired)
+        .filter(|p| p.required_trace_layers.iter().all(|l| present.contains(l)))
+        .map(|p| p.id.clone())
+        .collect()
+}
+
+/// What this trace supports, and what it does not, in a sentence an operator
+/// can act on.
+fn admissibility_line(
+    trace: &OsTrace,
+    missed: &[MissedLayer],
+    accepts: &[String],
+    configured: &str,
+) -> String {
+    let n = trace.segments.len();
+    if accepts.is_empty() {
+        return format!(
+            "{n} layer(s) captured, {} absent, and NO registered profile accepts this \
+             combination. The trace is signed, chained and binds its payload digests, but no \
+             verifier will admit it. Every profile but one requires sensor_bus, signal or \
+             inference, which this encoder has no source for on any machine; the exception \
+             requires syscall, which needs a tracefs mount and the capability to read it. If this \
+             host grants neither, host.counters.v1 is the profile built for it.",
+            missed.len()
+        );
+    }
+    let mine = accepts.iter().any(|p| p == configured);
+    format!(
+        "{n} layer(s) captured, {} absent. Accepted by: {}.{}",
+        missed.len(),
+        accepts.join(", "),
+        if mine {
+            String::new()
+        } else {
+            format!(
+                " NOT by --profile {configured}, which this capture does not cover; a verifier \
+                 will refuse it under that profile and be right to."
+            )
+        }
+    )
+}
+
 /// Capture one window and write a signed trace.
 pub fn capture_window(
     key: &SigningKey,
@@ -614,6 +709,7 @@ pub fn capture_window(
             missed,
             unsupported,
             outputs: outputs.len(),
+            accepted_by: Vec::new(),
             admissibility: "no trace written: not one layer could be read on this machine. \
                             An empty trace is rejected by the verifier, so emitting one would \
                             only move the failure downstream."
@@ -657,23 +753,15 @@ pub fn capture_window(
     let path = settings.out.join(format!("{cid}.trace.json"));
     crate::run::write_atomic(&path, &serde_json::to_vec_pretty(&trace)?)?;
 
-    let admissibility = if missed.is_empty() {
-        "every layer this encoder knows how to read was captured".to_string()
-    } else {
-        format!(
-            "{} layer(s) captured, {} absent. A substrate profile requiring an absent layer will \
-             REFUSE this trace, and that refusal is correct: a partial capture is not a complete \
-             one, and the alternative would have been to invent the difference.",
-            trace.segments.len(),
-            missed.len()
-        )
-    };
+    let accepts = profiles_satisfied_by(&trace);
+    let admissibility = admissibility_line(&trace, &missed, &accepts, &settings.profile);
     Ok(CaptureReport {
         trace_cid: Some(cid),
         captured,
         missed,
         unsupported,
         outputs: trace.outputs.len(),
+        accepted_by: accepts,
         admissibility,
     })
 }
@@ -734,6 +822,7 @@ mod tests {
     fn an_unreadable_head_is_not_a_chain() {
         let d = tmp("garbage");
         let p = StreamHead::path(&d);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, b"{ not json").unwrap();
         assert!(StreamHead::load_for_this_boot(&p).is_none());
     }
@@ -817,6 +906,103 @@ mod tests {
 
     /// The capture rule, stated as a test: a layer with no readable source is
     /// absent and explained, never invented.
+    /// A capture must be able to satisfy at least one profile.
+    ///
+    /// Before host.counters.v1 existed, none of them could be satisfied by any
+    /// Linux host: every other trace profile requires sensor_bus, signal or
+    /// inference, for which this encoder has no source anywhere, and the one
+    /// exception requires syscall, which needs a tracefs mount. A hosted
+    /// payload with neither produced a signed, chained, payload-binding trace
+    /// that no verifier would admit. Reported from a real deployment.
+    #[test]
+    fn what_this_encoder_captures_satisfies_a_real_profile() {
+        let d = tmp("accepts");
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        let key = SigningKey::from_bytes(&[23u8; 32]);
+        let settings = CaptureSettings {
+            out: d.join("out"),
+            payloads: None,
+            profile: "host.counters.v1".into(),
+            platform: "generic.linux-host".into(),
+            prev_trace_cid: None,
+        };
+        let report = capture_window(&key, &settings).expect("capture runs");
+        if report.trace_cid.is_none() {
+            return; // a host exposing nothing writes no trace, correctly
+        }
+        assert!(
+            report.accepted_by.contains(&"host.counters.v1".to_string()),
+            "the profile built for a plain Linux host did not accept a plain Linux capture. \
+             captured {:?}, accepted by {:?}",
+            report.captured,
+            report.accepted_by
+        );
+        assert!(
+            report.admissibility.contains("Accepted by"),
+            "the report must name the profiles that would take this: {}",
+            report.admissibility
+        );
+    }
+
+    /// Capturing under a profile the capture cannot cover says so, by name.
+    #[test]
+    fn a_capture_that_misses_its_own_profile_says_which_ones_would_take_it() {
+        let d = tmp("mismatch");
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        let key = SigningKey::from_bytes(&[29u8; 32]);
+        let settings = CaptureSettings {
+            out: d.join("out"),
+            payloads: None,
+            // Requires sensor_bus and signal, which have no source anywhere.
+            profile: "orbital.satellite.v1".into(),
+            platform: "nvidia.jetson-orin".into(),
+            prev_trace_cid: None,
+        };
+        let report = capture_window(&key, &settings).expect("capture runs");
+        if report.trace_cid.is_none() {
+            return;
+        }
+        assert!(
+            !report
+                .accepted_by
+                .contains(&"orbital.satellite.v1".to_string()),
+            "a capture missing sensor_bus must not claim that profile"
+        );
+        assert!(
+            report
+                .admissibility
+                .contains("NOT by --profile orbital.satellite.v1"),
+            "the operator must be told their profile is the wrong one: {}",
+            report.admissibility
+        );
+    }
+
+    /// The stream head goes beside the traces, so a read-only rootfs is fine.
+    #[test]
+    fn the_stream_head_lives_with_the_traces_not_the_identity() {
+        let d = tmp("headloc");
+        let out = d.join("out");
+        let p = StreamHead::path(&out);
+        assert!(
+            p.starts_with(&out),
+            "the head must sit under --out, not --data: {}",
+            p.display()
+        );
+        // save() makes its own directory, because the encoder used to write
+        // the trace and then fail on this last step.
+        StreamHead {
+            boot_id: boot_id(),
+            trace_cid: "abc".into(),
+            windows: 1,
+        }
+        .save(&p)
+        .expect("save must create .state itself");
+        assert!(p.exists());
+        // And it is in a subdirectory, which the decoder's trace scan skips,
+        // so it is never counted as debris.
+        assert_eq!(p.parent().unwrap().file_name().unwrap(), ".state");
+    }
+
     /// Two captures in a row must produce two different traces.
     ///
     /// They produced one. Four encoders capturing four different windows on a
