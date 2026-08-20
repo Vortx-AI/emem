@@ -65,7 +65,7 @@ CANON = {
     "foundation_encoders": 4,
     "mcp_resources": 20,       # resources/list entries (emem-mcp 7 + emem-api-rest 12)
     "mcp_uri_templates": 9,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
-    "crates": 18,
+    "crates": 19,
     "version": "2.2.0",
 }
 
