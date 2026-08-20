@@ -9,19 +9,19 @@ Allow: /
 # Bootstrap surfaces for agents, cheapest first. Sizes are measured, and are
 # the reason to read them in this order rather than all of them.
 #
-#   /.well-known/emem-readonly.json  ~2 KB   may I call this? no key, no cost,
+#   /.well-known/emem-readonly.json  ~4 KB   may I call this? no key, no cost,
 #                                            no approval, and how long a read takes
-#   /.well-known/emem-manifest.json  ~1 KB   version, tool count, capability cid
-#   /.well-known/emem.json           ~4 KB   what emem is, and every other door
+#   /.well-known/emem-manifest.json  ~1.1 KB version, tool count, capability cid
+#   /.well-known/emem.json           ~4.6 KB what emem is, and every other door
 #   /v1/intents                      ~12 KB  need -> capability -> tool, including
 #                                            the needs emem does NOT serve
-#   /.well-known/agent-intent.json   ~9 KB   the same index for a crawler
-#   /v1/discover                     ~4 KB   typed bootstrap
-#   /llms.txt                        ~24 KB  the agent contract in prose
-#   /openapi.json                    ~330 KB OpenAPI 3.1, every routed path
-#   /agents.md                       ~65 KB  full integration guide
-#   /.well-known/agent-card.json     ~51 KB  A2A card, every tool as a skill
-#   /.well-known/mcp.json            ~15 KB  MCP server descriptor
+#   /.well-known/agent-intent.json   ~8.6 KB the same index for a crawler
+#   /v1/discover                     ~3.7 KB typed bootstrap
+#   /llms.txt                        ~23 KB  the agent contract in prose
+#   /openapi.json                    ~341 KB OpenAPI 3.1, every routed path
+#   /agents.md                       ~67 KB  full integration guide
+#   /.well-known/agent-card.json     ~53 KB  A2A card, every tool as a skill
+#   /.well-known/mcp.json            ~16 KB  MCP server descriptor
 #   /mcp                             MCP Streamable HTTP (16-tool core loop)
 #
 # Reads need no key, no account and no approval. Every read returns an

@@ -153,12 +153,85 @@ def parse_first_call(s):
     return method, path, body
 
 
+def write_robots(origin):
+    """Refresh the advertised sizes from what is actually served.
+
+    These are hand-written numbers describing live documents, which is a
+    combination that drifts in one direction: documents grow. One of them
+    reached 2.00x its claim and failed this gate, which is the gate working,
+    but an agent should not need a CI failure to get an honest figure.
+
+    The rule and the fixer live in one file on purpose. A checker in one place
+    and a generator in another disagree eventually, and the disagreement shows
+    up as a gate nobody can satisfy.
+    """
+    import urllib.request
+
+    # Wide enough for the largest surface here (~341 KB) plus a space.
+    SIZE_COLUMN = 8
+
+    path = os.path.join(os.path.dirname(__file__), "..", "web", "robots.txt")
+    path = os.path.normpath(path)
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+
+    changed = 0
+
+    def measure(m):
+        nonlocal changed
+        url = origin.rstrip("/") + m.group("path")
+        try:
+            with urllib.request.urlopen(url, timeout=30) as r:
+                actual = len(r.read())
+        except Exception as exc:  # noqa: BLE001 - reported, not swallowed
+            print(f"  {m.group('path')}: could not fetch ({exc}); left alone")
+            return m.group(0)
+        # One significant figure below 10 KB, whole KB above: the number is a
+        # budgeting hint, not a content length, and false precision in a
+        # comment invites someone to keep it exact by hand.
+        kb = actual / 1000
+        shown = f"{kb:.1f}" if kb < 10 else f"{kb:.0f}"
+        shown = shown.rstrip("0").rstrip(".") if "." in shown else shown
+        was = m.group("num") + " " + m.group("unit") if m.group("unit") else m.group("num")
+        if was.replace(" ", "") != (shown + "KB"):
+            changed += 1
+            print(f"  {m.group('path'):<34} {was:>8}  ->  {shown} KB")
+        # Fixed column, so the descriptions stay lined up whatever the
+        # numbers do. Preserving the ORIGINAL field width instead let a longer
+        # number eat its own padding and shunt the description leftwards, which
+        # is a worse file to read than the one that was drifting.
+        return m.group("head") + f"~{shown} KB".ljust(SIZE_COLUMN)
+
+    pattern = re.compile(
+        r"(?P<head>^#\s+(?P<path>/\S+)\s+)(?P<size_field>~?(?P<num>[\d.]+)\s*(?P<unit>KB|B)\s*)",
+        re.M,
+    )
+    out = pattern.sub(measure, text)
+    if changed:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(out)
+        print(f"\n  {changed} size(s) refreshed in web/robots.txt.")
+        print("  robots.txt is include_str! into the binary: rebuild and restart to serve it.")
+    else:
+        print("  every advertised size already matches what is served.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--origin", default=os.environ.get("EMEM_ORIGIN", DEFAULT_ORIGIN))
     ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument(
+        "--write-robots",
+        action="store_true",
+        help="rewrite the size column in web/robots.txt from what the origin "
+             "actually serves, then exit",
+    )
     a = ap.parse_args()
+
+    if a.write_robots:
+        return write_robots(a.origin)
 
     p = Probe(a.origin)
     problems, notes = [], []
