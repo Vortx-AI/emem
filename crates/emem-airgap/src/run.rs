@@ -39,6 +39,22 @@ pub struct DecodeSettings {
     /// hope: the input directory belongs to the host, and one enormous file
     /// should cost a skip line in the report, not the process.
     pub max_payload_bytes: u64,
+    /// How deep into the input tree to descend.
+    ///
+    /// Bounded rather than trusting the filesystem to be shallow. A directory
+    /// beyond it is reported by name with its depth, never skipped in silence:
+    /// the whole reason this walk exists is that a tree nobody took custody of
+    /// used to look like a successful run.
+    pub max_depth: u32,
+    /// Write every record into the top of the output directory instead of
+    /// mirroring the input's shape.
+    ///
+    /// Mirroring is the default because it reads the way the input reads. Some
+    /// hosts collect only the files at the top of a results directory, though,
+    /// and on one of those a mirrored record is a record that never leaves.
+    /// Flat output encodes the relative path into the filename so nothing is
+    /// lost and nothing collides.
+    pub flat: bool,
     /// Largest file this node will read from the traces directory.
     ///
     /// The payload cap did not cover this and the omission was measurable:
@@ -53,6 +69,11 @@ pub struct DecodeSettings {
 /// Default payload cap: 256 MiB. Big enough for the imagery this is built for,
 /// small enough that a node with modest memory survives a hostile directory.
 pub const DEFAULT_MAX_PAYLOAD_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Default depth limit for the input walk. Deep enough for any real capture
+/// layout, shallow enough that a pathological tree is reported rather than
+/// walked forever.
+pub const DEFAULT_MAX_DEPTH: u32 = 32;
 
 /// Default per-run file cap. A run that hits it reports the overflow rather
 /// than truncating silently, and the remainder is picked up on the next run.
@@ -183,25 +204,22 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         }
     }
 
-    let mut names: Vec<PathBuf> = std::fs::read_dir(&settings.input)
-        .map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!(
-                    "cannot read the input directory {}: {e}. This is where payloads arrive; \
-                     check the path and that it is mounted readable.",
-                    settings.input.display()
-                ),
-            )
-        })?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .collect();
-    names.sort();
-    let mut overflow: Vec<PathBuf> = Vec::new();
-    if names.len() as u64 > settings.max_files {
-        overflow = names.split_off(settings.max_files as usize);
+    // Walk the whole tree, not just the top of it.
+    //
+    // It used to read one level. A capture directory laid out per scene, band
+    // or orbit had its loose root files recorded and everything below them
+    // ignored, and the run exited successfully saying so only as one line
+    // reading "not a regular file" against the directory's name. That reads
+    // like a stray entry, not like a tree nobody took custody of. Reported
+    // from a real deployment, and the right fix is to descend.
+    let mut walked = walk(&settings.input, settings.max_depth)?;
+    walked.files.sort();
+    let mut refused_dirs = walked.refused;
+    let mut overflow: Vec<Found> = Vec::new();
+    if walked.files.len() as u64 > settings.max_files {
+        overflow = walked.files.split_off(settings.max_files as usize);
     }
+    let names = walked.files;
 
     // Read the encoder's output once, up front: payload digest -> trace cid.
     //
@@ -298,20 +316,8 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         refused_traces,
     };
 
-    for path in names {
-        let name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n.to_string(),
-            None => {
-                // A name that is not UTF-8 cannot be bound into the preimage,
-                // and a record whose name field is a lossy approximation of
-                // the real one would verify while describing a different file.
-                report.skipped.push(Skipped {
-                    name: path.to_string_lossy().into_owned(),
-                    reason: "file name is not valid UTF-8, so it cannot be signed".into(),
-                });
-                continue;
-            }
-        };
+    for found in names {
+        let Found { path, name } = found;
         // symlink_metadata, NOT metadata: the latter follows the link.
         //
         // Following was a real disclosure and it was demonstrated before it
@@ -396,10 +402,21 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         // Two payloads with one name are not a conflict to resolve: they are
         // different bytes that different nodes took custody of, and both
         // records are true.
-        let out = settings.output.join(format!(
-            "{name}.{}.custody.json",
-            short_key(&settings.node.node_key)
-        ));
+        let out = record_path_for(settings, &name);
+        if let Some(parent) = out.parent() {
+            if parent != settings.output {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    std::io::Error::new(
+                        e.kind(),
+                        format!(
+                            "cannot create {} to mirror the input's shape: {e}. Pass --flat to \
+                             write every record into the top of the output directory instead.",
+                            parent.display()
+                        ),
+                    )
+                })?;
+            }
+        }
         write_atomic(&out, &json)?;
 
         // Read it back and verify the signature against what actually landed
@@ -436,12 +453,11 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         report.recorded += 1;
     }
 
-    for path in overflow {
+    report.skipped.append(&mut refused_dirs);
+
+    for found in overflow {
         report.skipped.push(Skipped {
-            name: path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+            name: found.name,
             reason: format!(
                 "beyond the {} file cap for one run; it will be picked up next run, or raise \
                  --max-files",
@@ -469,13 +485,173 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
     // by the node's short key means parallel nodes coexist, while the same
     // node re-running still overwrites its own previous report, which is what
     // keeps a re-run reproducible.
-    let manifest = settings
-        .output
-        .join(format!("run.{}.json", short_key(&settings.node.node_key)));
+    let manifest = settings.output.join(format!(
+        "run.{}.{}.json",
+        short_key(&settings.node.node_key),
+        compact_time(&settings.observed_at)
+    ));
     let mj = serde_json::to_vec_pretty(&report).unwrap_or_else(|_| b"{}".to_vec());
     write_atomic(&manifest, &mj)?;
     report.bytes_written += mj.len() as u64;
     Ok(report)
+}
+
+/// One payload the walk found: where it is, and what it is called relative to
+/// the input root.
+///
+/// The name is the RELATIVE PATH, not the basename. Two files called
+/// `scene.tif` in different orbit directories are different payloads, and a
+/// record that called them both `scene.tif` would be ambiguous exactly where
+/// it matters. The relative path is what gets signed.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Found {
+    /// Relative to the input root, with `/` separators.
+    pub name: String,
+    /// Absolute path to read.
+    pub path: PathBuf,
+}
+
+/// Name what a directory entry actually is, so the report says why.
+fn kind_of(t: &std::fs::FileType) -> &'static str {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        if t.is_fifo() {
+            return "a named pipe, which would block this node until something wrote to it";
+        }
+        if t.is_socket() {
+            return "a socket";
+        }
+        if t.is_block_device() {
+            return "a block device";
+        }
+        if t.is_char_device() {
+            return "a character device";
+        }
+    }
+    if t.is_symlink() {
+        return "a symlink";
+    }
+    "not a file or directory"
+}
+
+struct Walked {
+    files: Vec<Found>,
+    refused: Vec<Skipped>,
+}
+
+/// Walk the input tree breadth-first, refusing anything that could leave it.
+///
+/// Bounded by `max_depth` rather than trusting the filesystem to be shallow,
+/// and it never follows a symlink: a link back to an ancestor is
+/// an infinite walk, and a link out of the tree signs files the host did not
+/// put there. Both are refused by name rather than skipped quietly, because
+/// a directory nobody took custody of is exactly the failure this walk exists
+/// to end.
+fn walk(root: &Path, max_depth: u32) -> std::io::Result<Walked> {
+    let mut files = Vec::new();
+    let mut refused = Vec::new();
+    // (directory, its name relative to root, depth)
+    let mut queue: Vec<(PathBuf, String, u32)> = vec![(root.to_path_buf(), String::new(), 0)];
+
+    while let Some((dir, prefix, depth)) = queue.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(e) => {
+                if depth == 0 {
+                    return Err(std::io::Error::new(
+                        e.kind(),
+                        format!(
+                            "cannot read the input directory {}: {e}. This is where payloads \
+                             arrive; check the path and that it is mounted readable.",
+                            dir.display()
+                        ),
+                    ));
+                }
+                refused.push(Skipped {
+                    name: prefix.clone(),
+                    reason: format!("directory could not be read: {e}"),
+                });
+                continue;
+            }
+        };
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            let Some(base) = path.file_name().and_then(|n| n.to_str()) else {
+                // Not UTF-8, so it cannot be bound into a preimage. A record
+                // whose name is a lossy approximation would verify while
+                // describing a different file.
+                refused.push(Skipped {
+                    name: path.to_string_lossy().into_owned(),
+                    reason: "file name is not valid UTF-8, so it cannot be signed".into(),
+                });
+                continue;
+            };
+            let name = if prefix.is_empty() {
+                base.to_string()
+            } else {
+                format!("{prefix}/{base}")
+            };
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                refused.push(Skipped {
+                    name,
+                    reason: "unreadable".into(),
+                });
+                continue;
+            };
+            // Symlinks first, and never followed.
+            //
+            // symlink_metadata does not resolve, so a link to a directory
+            // arrives here as a symlink and never as a directory: the branch
+            // that used to check for a symlinked directory inside the is_dir
+            // arm could not run at all. One rule now covers both shapes, and a
+            // test proves it fires.
+            if meta.file_type().is_symlink() {
+                refused.push(Skipped {
+                    name,
+                    reason: "symlink: refused, not followed. Pointed out of the tree it would \
+                             sign files the host did not put here; pointed back into it, the \
+                             walk would never end."
+                        .into(),
+                });
+                continue;
+            }
+            if meta.is_dir() {
+                if depth + 1 > max_depth {
+                    refused.push(Skipped {
+                        name,
+                        reason: format!(
+                            "deeper than the {max_depth} directory limit, so its contents were \
+                             NOT recorded; raise --max-depth"
+                        ),
+                    });
+                    continue;
+                }
+                queue.push((path, name, depth + 1));
+                continue;
+            }
+            // Regular files only. Everything else is reported by name.
+            //
+            // The old one-level scan checked this and the walk that replaced
+            // it did not, which put a fifo back on the read path: opening one
+            // for reading blocks until a writer appears, so a single named
+            // pipe in the input directory would hang the node forever with no
+            // output and no explanation. Caught by a test that had been
+            // written for the old behaviour.
+            if !meta.is_file() {
+                refused.push(Skipped {
+                    name,
+                    reason: format!(
+                        "not a regular file ({}), so it was not read",
+                        kind_of(&meta.file_type())
+                    ),
+                });
+                continue;
+            }
+            files.push(Found { name, path });
+        }
+    }
+    Ok(Walked { files, refused })
 }
 
 /// Verify a trace before a record is allowed to cite it.
@@ -611,6 +787,49 @@ fn read_settled(path: &Path, checked: &std::fs::Metadata, cap: u64) -> Result<Ve
     Ok(bytes)
 }
 
+/// Where one payload's record goes.
+///
+/// Three things go into the name, and each closes a way records were lost.
+///
+/// The node's short key, because several nodes can share one output mount and
+/// two of them can be handed payloads with the same filename.
+///
+/// The observation time, because a second pass over the same input used to
+/// overwrite the first. Two runs at 09:00Z and 10:00Z left only the 10:00Z
+/// records and no trace that the earlier pass had happened, which was reported
+/// from a real deployment. Re-running with the SAME `--observed-at` still
+/// overwrites, and should: that is the same statement about the same bytes.
+///
+/// The relative path, either as directories mirroring the input or, with
+/// `--flat`, encoded into the filename for a host that collects only the top
+/// of the results directory.
+pub fn record_path_for(settings: &DecodeSettings, name: &str) -> PathBuf {
+    let stamp = compact_time(&settings.observed_at);
+    let node = short_key(&settings.node.node_key);
+    if settings.flat {
+        // `~` for the separator: legal in a filename, vanishingly rare in
+        // capture names, and the record's own `name` field carries the true
+        // path either way, so this only has to be unique and legible.
+        let flat = name.replace('/', "~");
+        settings
+            .output
+            .join(format!("{flat}.{node}.{stamp}.custody.json"))
+    } else {
+        settings
+            .output
+            .join(format!("{name}.{node}.{stamp}.custody.json"))
+    }
+}
+
+/// `2026-08-21T09:00:00Z` becomes `20260821T090000Z`: sortable, and legal in a
+/// filename on every filesystem this runs on, which the colons are not.
+pub fn compact_time(observed_at: &str) -> String {
+    observed_at
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
 /// The eight-character form of a node key, used to keep per-node output files
 /// from colliding when several nodes share one output directory.
 pub fn short_key(node_key: &str) -> String {
@@ -711,6 +930,8 @@ mod tests {
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+            max_depth: DEFAULT_MAX_DEPTH,
+            flat: false,
             max_files: DEFAULT_MAX_FILES,
         }
     }
@@ -754,13 +975,14 @@ mod tests {
     fn what_cannot_be_recorded_is_reported_not_dropped() {
         let d = tmp("skips");
         std::fs::write(d.join("in/ok.tif"), b"x").unwrap();
+        // An empty directory is walked, not reported: there is nothing in it
+        // to take custody of, and a skip line would be noise. This test used
+        // to assert the opposite, back when a directory was refused whole.
         std::fs::create_dir_all(d.join("in/nested")).unwrap();
         let k = SigningKey::from_bytes(&[3u8; 32]);
         let r = decode_dir(&k, &settings(&d)).unwrap();
         assert_eq!(r.recorded, 1);
-        assert_eq!(r.skipped.len(), 1);
-        assert_eq!(r.skipped[0].name, "nested");
-        assert!(r.skipped[0].reason.contains("not a regular file"));
+        assert!(r.skipped.is_empty(), "{:?}", r.skipped);
     }
 
     /// Two runs over the same directory must produce the same bytes, or a
@@ -795,13 +1017,38 @@ mod tests {
     }
 }
 
-/// Where a record lands, for a given node. Records are keyed by node so that
-/// two nodes handed payloads with the same name do not overwrite each other.
+/// Where a record lands, asked of the same function the node uses.
+///
+/// It used to rebuild the filename by hand, which meant the tests agreed with
+/// a copy of the rule rather than with the rule. When the naming changed to
+/// carry the observation time, every one of them failed for the right reason
+/// and none of them would have caught the naming being wrong.
 #[cfg(test)]
 fn record_path(dir: &Path, name: &str, key: &SigningKey) -> PathBuf {
-    let node = crate::b32(key.verifying_key().as_bytes());
-    dir.join("out")
-        .join(format!("{name}.{}.custody.json", short_key(&node)))
+    record_path_for(&test_settings(dir, key), name)
+}
+
+/// The settings every test in this file uses, in one place, so a field added
+/// to DecodeSettings is added once rather than in nine fixtures.
+#[cfg(test)]
+fn test_settings(dir: &Path, key: &SigningKey) -> DecodeSettings {
+    DecodeSettings {
+        input: dir.join("in"),
+        output: dir.join("out"),
+        traces: None,
+        stage: None,
+        node: NodeIdentity {
+            node_key: crate::b32(key.verifying_key().as_bytes()),
+            profile: "exec.trace.v1".into(),
+            platform: "generic.linux-host".into(),
+        },
+        observed_at: "2026-08-20T09:00:00Z".into(),
+        max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+        max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+        max_depth: DEFAULT_MAX_DEPTH,
+        flat: false,
+        max_files: DEFAULT_MAX_FILES,
+    }
 }
 
 /// Attacks that were demonstrated against this code and now must fail.
@@ -832,6 +1079,8 @@ mod security {
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+            max_depth: DEFAULT_MAX_DEPTH,
+            flat: false,
             max_files: DEFAULT_MAX_FILES,
         }
     }
@@ -842,6 +1091,193 @@ mod security {
         std::fs::create_dir_all(d.join("in")).unwrap();
         std::fs::create_dir_all(d.join("out")).unwrap();
         d
+    }
+
+    /// Nested capture directories must get custody, not a skip line.
+    ///
+    /// Reported from a real deployment: a capture folder laid out per scene,
+    /// band or orbit had its loose root files recorded and everything below
+    /// them ignored, and the run exited successfully. The only sign was one
+    /// line reading "not a regular file" against the directory's name, which
+    /// looks like a stray entry rather than a tree nobody took custody of.
+    #[test]
+    fn the_whole_input_tree_gets_custody_not_just_its_root() {
+        let d = tmp("nested");
+        std::fs::write(d.join("in/root.tif"), b"a root scene").unwrap();
+        std::fs::create_dir_all(d.join("in/orbit_1/band_2")).unwrap();
+        std::fs::write(d.join("in/orbit_1/band_2/scene.tif"), b"a nested scene").unwrap();
+        // Same basename, different orbit: the record must not be ambiguous.
+        std::fs::create_dir_all(d.join("in/orbit_2/band_2")).unwrap();
+        std::fs::write(d.join("in/orbit_2/band_2/scene.tif"), b"a different scene").unwrap();
+
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        let st = s(&d);
+        let r = decode_dir(&k, &st).unwrap();
+        assert_eq!(r.recorded, 3, "{:?}", r.skipped);
+        assert!(r.skipped.is_empty(), "{:?}", r.skipped);
+
+        // The signed name is the path relative to the input root, so the two
+        // scenes are distinguishable in the record itself.
+        let one: Custody = serde_json::from_slice(
+            &std::fs::read(record_path_for(&st, "orbit_1/band_2/scene.tif")).unwrap(),
+        )
+        .unwrap();
+        let two: Custody = serde_json::from_slice(
+            &std::fs::read(record_path_for(&st, "orbit_2/band_2/scene.tif")).unwrap(),
+        )
+        .unwrap();
+        one.verify().unwrap();
+        two.verify().unwrap();
+        assert_eq!(one.name, "orbit_1/band_2/scene.tif");
+        assert_eq!(two.name, "orbit_2/band_2/scene.tif");
+        assert!(one.covers(b"a nested scene"));
+        assert!(two.covers(b"a different scene"));
+        assert_ne!(one.payload_digest, two.payload_digest);
+    }
+
+    /// A second pass must not erase the first's records.
+    ///
+    /// Reported from a real deployment: runs at 09:00Z and 10:00Z left only
+    /// the 10:00Z records, and the run report with them. Two observations of
+    /// the same bytes at different times are two different statements, and
+    /// both are true.
+    #[test]
+    fn a_later_run_does_not_erase_an_earlier_one() {
+        let d = tmp("tworuns");
+        std::fs::write(d.join("in/a.tif"), b"a scene").unwrap();
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+
+        let mut first = s(&d);
+        first.observed_at = "2026-08-21T09:00:00Z".into();
+        let mut second = s(&d);
+        second.observed_at = "2026-08-21T10:00:00Z".into();
+
+        assert_eq!(decode_dir(&k, &first).unwrap().recorded, 1);
+        assert_eq!(decode_dir(&k, &second).unwrap().recorded, 1);
+
+        let early = record_path_for(&first, "a.tif");
+        let late = record_path_for(&second, "a.tif");
+        assert_ne!(early, late);
+        assert!(
+            early.exists(),
+            "the 09:00Z record was erased by the 10:00Z run"
+        );
+        assert!(late.exists());
+        for (p, when) in [
+            (&early, "2026-08-21T09:00:00Z"),
+            (&late, "2026-08-21T10:00:00Z"),
+        ] {
+            let c: Custody = serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap();
+            c.verify().unwrap();
+            assert_eq!(c.observed_at, when);
+        }
+        // Both run reports survive too.
+        let reports: Vec<_> = std::fs::read_dir(d.join("out"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("run."))
+            .collect();
+        assert_eq!(reports.len(), 2, "{reports:?}");
+
+        // Re-running the SAME observation is idempotent, not a third record:
+        // it is the same statement about the same bytes.
+        assert_eq!(decode_dir(&k, &first).unwrap().recorded, 1);
+        let all: Vec<_> = std::fs::read_dir(d.join("out"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains("custody.json"))
+            .collect();
+        assert_eq!(all.len(), 2, "{all:?}");
+    }
+
+    /// A named pipe must never reach the read path.
+    ///
+    /// Opening a fifo for reading blocks until something writes to it, so one
+    /// in the input directory hangs the node forever with no output and no
+    /// explanation. The one-level scan checked this; the recursive walk that
+    /// replaced it did not, and a test written for the old behaviour caught it
+    /// before it shipped.
+    #[cfg(unix)]
+    #[test]
+    fn a_named_pipe_is_refused_rather_than_opened() {
+        let d = tmp("fifo");
+        std::fs::write(d.join("in/ok.tif"), b"a real payload").unwrap();
+        let fifo = d.join("in/pipe");
+        let out = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("mkfifo");
+        if !out.success() {
+            return; // no mkfifo on this host; nothing to prove
+        }
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        // If this returns at all, the fifo was not opened.
+        let r = decode_dir(&k, &s(&d)).unwrap();
+        assert_eq!(r.recorded, 1);
+        assert_eq!(r.skipped.len(), 1);
+        assert_eq!(r.skipped[0].name, "pipe");
+        assert!(
+            r.skipped[0].reason.contains("named pipe"),
+            "{:?}",
+            r.skipped
+        );
+    }
+
+    /// A symlinked directory is never descended.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_directory_is_refused_not_walked() {
+        let d = tmp("linkdir");
+        std::fs::write(d.join("in/a.tif"), b"a scene").unwrap();
+        // A link back to the input root: following it walks forever.
+        std::os::unix::fs::symlink(d.join("in"), d.join("in/loop")).unwrap();
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        let r = decode_dir(&k, &s(&d)).unwrap();
+        assert_eq!(r.recorded, 1);
+        assert!(
+            r.skipped
+                .iter()
+                .any(|x| x.name == "loop" && x.reason.contains("walk would never end")),
+            "{:?}",
+            r.skipped
+        );
+    }
+
+    /// Flat output, for a host that collects only the top of its results
+    /// directory. Nothing is lost and nothing collides.
+    #[test]
+    fn flat_output_keeps_nested_payloads_distinct() {
+        let d = tmp("flat");
+        std::fs::create_dir_all(d.join("in/orbit_1")).unwrap();
+        std::fs::create_dir_all(d.join("in/orbit_2")).unwrap();
+        std::fs::write(d.join("in/orbit_1/scene.tif"), b"one").unwrap();
+        std::fs::write(d.join("in/orbit_2/scene.tif"), b"two").unwrap();
+
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        let mut st = s(&d);
+        st.flat = true;
+        let r = decode_dir(&k, &st).unwrap();
+        assert_eq!(r.recorded, 2, "{:?}", r.skipped);
+
+        // Every record sits directly in the output directory.
+        for e in std::fs::read_dir(d.join("out")).unwrap() {
+            let e = e.unwrap();
+            assert!(
+                e.file_type().unwrap().is_file(),
+                "flat output made a directory"
+            );
+        }
+        let one: Custody = serde_json::from_slice(
+            &std::fs::read(record_path_for(&st, "orbit_1/scene.tif")).unwrap(),
+        )
+        .unwrap();
+        one.verify().unwrap();
+        assert_eq!(
+            one.name, "orbit_1/scene.tif",
+            "the signed name keeps the real path"
+        );
     }
 
     /// A payload the host is still writing must not be signed.
@@ -1133,6 +1569,8 @@ mod parallel {
                 observed_at: "2026-08-20T09:00:00Z".into(),
                 max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
                 max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+                max_depth: DEFAULT_MAX_DEPTH,
+                flat: false,
                 max_files: DEFAULT_MAX_FILES,
             };
             (k, st)
@@ -1189,6 +1627,8 @@ mod parallel {
                 observed_at: "2026-08-20T09:00:00Z".into(),
                 max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
                 max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+                max_depth: DEFAULT_MAX_DEPTH,
+                flat: false,
                 max_files: DEFAULT_MAX_FILES,
             };
             (k, st)
@@ -1200,12 +1640,16 @@ mod parallel {
         decode_dir(&kb, &sb).unwrap();
 
         // Both reports survive, each under its own node's short key.
-        let a = d
-            .join("out")
-            .join(format!("run.{}.json", short_key(&sa.node.node_key)));
-        let b = d
-            .join("out")
-            .join(format!("run.{}.json", short_key(&sb.node.node_key)));
+        let a = d.join("out").join(format!(
+            "run.{}.{}.json",
+            short_key(&sa.node.node_key),
+            compact_time(&sa.observed_at)
+        ));
+        let b = d.join("out").join(format!(
+            "run.{}.{}.json",
+            short_key(&sb.node.node_key),
+            compact_time(&sb.observed_at)
+        ));
         assert!(a.exists(), "node a's report must survive");
         assert!(b.exists(), "node b's report must survive");
         assert_ne!(a, b, "the two reports must not be the same file");
@@ -1243,6 +1687,8 @@ mod resilience {
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+            max_depth: DEFAULT_MAX_DEPTH,
+            flat: false,
             max_files: DEFAULT_MAX_FILES,
         }
     }
@@ -1409,6 +1855,8 @@ mod handoff {
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+            max_depth: DEFAULT_MAX_DEPTH,
+            flat: false,
             max_files: DEFAULT_MAX_FILES,
         }
     }
@@ -1536,6 +1984,8 @@ mod handoff {
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+            max_depth: DEFAULT_MAX_DEPTH,
+            flat: false,
             max_files: DEFAULT_MAX_FILES,
         };
         let r = decode_dir(&k, &st).unwrap();

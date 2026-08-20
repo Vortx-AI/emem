@@ -90,6 +90,12 @@ Either spelling works, with a space or an equals sign, and a flag the command
 does not have is refused rather than ignored. Run `emem-airgap --help` for the
 list; a test checks that this file names every flag it does.
 
+`--max-depth` bounds how far the walk descends (default 32); a directory past
+it is reported by name rather than skipped quietly. `--flat` writes every
+record into the top of `--output` instead of mirroring the input's shape.
+`--seed-file` supplies the identity from a path, as `EMEM_AIRGAP_SEED_HEX`
+does from the environment.
+
 The three caps exist because the input directory belongs to the host:
 `--max-payload-bytes` (256 MiB) is the largest single payload, `--max-files`
 (10,000) the most in one run, and `--max-trace-bytes` (16 MiB) the largest file
@@ -199,13 +205,17 @@ exactly one static file, so you can take it out and run it anywhere:
 
 ```bash
 cid=$(docker create ghcr.io/vortx-ai/emem-airgap:latest)
-docker cp "$cid:/emem-node" ./emem-airgap
+docker cp "$cid:/emem-airgap" ./emem-airgap    # the encoder image holds /emem-encode
 docker rm "$cid"
 chmod +x ./emem-airgap && ./emem-airgap --help
 ```
 
 Measured: `ELF 64-bit LSB, statically linked, stripped`. No libc, no
 interpreter, no shared objects to satisfy.
+
+The binary inside each image is named for the half it is, `/emem-airgap` or
+`/emem-encode`. Both used to be `/emem-node`, which after a `docker load` left
+an operator with two images that looked identical and took different flags.
 
 **From source, with Rust**, if you would rather build what you run:
 
@@ -402,6 +412,25 @@ updating the head, the trace is left unreferenced and the next window chains
 from the older head, which is the same behaviour as a power cut and is
 described above.
 
+### On a host that grants no kernel tracing
+
+Most layers have a second source that needs no mount and no capability:
+`/proc/schedstat`, `/proc/meminfo`, `/proc/diskstats`, `/proc/net/dev` and the
+thermal zones under `/sys`. Measured on a host with tracefs unreadable and no
+capabilities: **five layers captured** (thermal, scheduler, memory, storage,
+network), where before there was one and no trace was written at all.
+
+Those segments are labelled `linux.procfs.v1`, not `linux.ftrace.v1`, and the
+difference is the point. ftrace gives an event log: what happened, in order.
+`/proc` gives counters: totals since boot, read at two instants. A counter
+delta is real evidence about a machine and worth signing; it is weaker, and a
+reader has to be able to tell which one they are holding.
+
+This changes nothing about admission. `syscall` has no unprivileged source, and
+every trace-admitted profile in the registry requires it, so a `/proc`-only
+trace stays inadmissible. It is simply no longer empty, and no longer dead
+weight on a host that will not grant tracefs.
+
 ### What it captures, and what it will not pretend to
 
 Privilege is not uniform, so neither is the capture:
@@ -448,14 +477,24 @@ operative claim until the capture is genuinely complete.
 
 ```
 out/
-  frame_001.tif.<node8>.custody.json   one per payload, signed, verifies standalone
-  join_request.<node8>.json    carry this out to be endorsed (see below)
-  run.<node8>.json             what the run did, including every skip and why
+  frame_001.tif.<node8>.<when>.custody.json      one per payload, per observation
+  orbit_1/band_2/scene.tif.<node8>.<when>.custody.json   the input's shape, mirrored
+  join_request.<node8>.json                      carry this out to be endorsed
+  run.<node8>.<when>.json                        what the run did, and every skip
 ```
 
-**Every** output is keyed by the node's short key, because a host may run
-several containers in parallel against one output mount, and two nodes may be
-handed payloads with the same filename. Two payloads sharing a name are not a
+`<when>` is `--observed-at` with the punctuation removed, so `20260821T090000Z`.
+
+**Records carry the observation time because a second pass used to erase the
+first.** Two runs at 09:00Z and 10:00Z left only the 10:00Z records, and the
+run report with them: two statements about the same bytes at different times
+are both true, and the node had been keeping one. Re-running with the *same*
+`--observed-at` still overwrites, and should, because that is the same
+statement about the same bytes.
+
+**Every** output is keyed by the node's short key as well, because a host may
+run several containers in parallel against one output mount, and two nodes may
+be handed payloads with the same filename. Two payloads sharing a name are not a
 conflict to resolve: they are different bytes that different nodes took custody
 of, and both records are true. Two nodes writing a shared `run.json` meant the second silently
 destroyed the first's report; keyed, they coexist, while the same node
@@ -533,6 +572,72 @@ assert!(record.covers(&payload_bytes)); // and it is about THIS file
 Those are two different questions on purpose. `verify` asks whether the record
 is authentic; `covers` asks whether the file in front of you is the one it
 describes. A reader holding only the record can answer the first.
+
+## A host with two mounts and no writable third
+
+The shape a flight platform usually offers: one directory uplinked to the
+payload, one downlinked to the ground, a read-only rootfs, and an unprivileged
+uid. No third place to keep anything.
+
+**Do not put `--data` in the downlink directory.** `node_identity.json` holds
+`seed_hex`, this node's private ed25519 seed. Pointing `--data` at the results
+folder publishes the node's private key with its records, and it looks like a
+working configuration until someone reads a downlink. The node refuses to
+create an identity anywhere inside `--output` for exactly this reason.
+
+Instead, generate the key on the ground and hand it over in the environment:
+
+```bash
+# on a machine you control, once per node
+emem-airgap keygen --print-seed
+#   EMEM_AIRGAP_SEED_HEX=<64 hex characters>   -> your secret store
+#   node <52 characters>                       -> the endorser
+```
+
+```bash
+docker run --rm --network none --read-only --user 65532:65532 \
+  -e EMEM_AIRGAP_SEED_HEX="$SEED" \
+  -v /opt/host/data:/in:ro \
+  -v /opt/host/results:/out \
+  ghcr.io/vortx-ai/emem-airgap:latest \
+    --input /in --output /out \
+    --profile orbital.satellite.v1 --platform nvidia.jetson-orin \
+    --observed-at now
+```
+
+No `--data`, nothing written outside the results mount, and the private key
+never touches storage. The same variable works for the encoder sidecar, which
+must run as the same node.
+
+`EMEM_AIRGAP_SEED_FILE` reads the same 64 characters from a path instead, for a
+platform that can mount a secret read-only but cannot set an environment.
+
+**What to pass for `--observed-at`.** It is signed into every record, so it is
+never defaulted silently. An unattended node on a timer passes the literal
+`now`, which uses the machine's clock deliberately. If the platform gives you a
+better time than the payload's own clock, pass that instead. The field says
+when this node saw these bytes; it does not claim the clock is right, and only
+you can know that.
+
+**Nested capture directories are walked.** A payload's signed `name` is its
+path relative to `--input`, so `orbit_1/band_2/scene.tif` is distinguishable
+from `orbit_2/band_2/scene.tif`. Records mirror that shape under `--output`.
+If your host collects only the files at the top of the results directory, pass
+`--flat` and every record lands there with its path encoded into the filename
+instead.
+
+**What the host still has to grant, and what it costs if it does not:**
+
+| | needed for | without it |
+| --- | --- | --- |
+| a read-only input mount | custody | nothing works |
+| a writable output mount | custody | nothing works |
+| `EMEM_AIRGAP_SEED_HEX` or a writable `--data` outside `--output` | a stable identity | either a new key every run, or the private key in the downlink |
+| `/sys/kernel/tracing` + `CAP_DAC_READ_SEARCH` | the `syscall` layer | the encoder still captures scheduler, memory, storage, network and thermal from `/proc` and `/sys`, but no profile that requires `syscall` will admit the trace |
+
+That last row is the one to negotiate if you want traces admitted rather than
+merely signed. Everything above it is already satisfied by a two-mount
+contract.
 
 ## Fitting a hosted-payload platform
 

@@ -41,7 +41,34 @@ struct Source {
     encoding: &'static str,
     /// Paths tried in order; the first readable one wins.
     roots: &'static [&'static str],
+    /// Unprivileged fallback: named files under /proc, read whole, tried only
+    /// when no root above yielded anything.
+    ///
+    /// These exist because a real flight platform grants neither a tracefs
+    /// mount nor CAP_DAC_READ_SEARCH, and without them the encoder captured
+    /// one layer out of ten and wrote no trace at all. An encoder that can
+    /// only work on a host willing to hand it kernel tracing is an encoder
+    /// that does nothing on the hardware it was built for.
+    ///
+    /// They are NOT the same evidence and are never labelled as though they
+    /// were: see [`PROCFS_ENCODING`].
+    procfs: &'static [&'static str],
 }
+
+/// What a /proc-sourced segment is called, and why it is not `linux.ftrace.v1`.
+///
+/// ftrace gives an event log: what happened, in order. /proc gives counters:
+/// totals since boot, sampled at two instants. A counter delta is real
+/// evidence about a machine and is worth signing, but it is weaker, and a
+/// reader has to be able to tell which one they are holding. Labelling a
+/// counter snapshot as an event log would be the exact kind of quiet
+/// overstatement this crate exists to avoid.
+///
+/// Note what this does NOT do: no profile in the registry is satisfied by it
+/// where it was not satisfied before, because every trace-admitted profile
+/// requires the syscall layer and syscall has no unprivileged source. A
+/// /proc-only trace stays inadmissible; it is simply no longer empty.
+pub const PROCFS_ENCODING: &str = "linux.procfs.v1";
 
 /// Every layer this encoder knows how to capture on Linux.
 ///
@@ -54,36 +81,43 @@ const SOURCES: &[Source] = &[
         layer: TraceLayerKind::Thermal,
         encoding: "linux.hwmon.v1",
         roots: &["/sys/class/thermal", "/sys/class/hwmon"],
+        procfs: &[],
     },
     Source {
         layer: TraceLayerKind::Energy,
         encoding: "linux.hwmon.v1",
         roots: &["/sys/class/powercap", "/sys/class/hwmon"],
+        procfs: &[],
     },
     Source {
         layer: TraceLayerKind::Syscall,
         encoding: "linux.ftrace.v1",
         roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
+        procfs: &[],
     },
     Source {
         layer: TraceLayerKind::Scheduler,
         encoding: "linux.ftrace.v1",
         roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
+        procfs: &["/proc/schedstat", "/proc/loadavg", "/proc/stat"],
     },
     Source {
         layer: TraceLayerKind::Memory,
         encoding: "linux.ftrace.v1",
         roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
+        procfs: &["/proc/meminfo", "/proc/vmstat"],
     },
     Source {
         layer: TraceLayerKind::Storage,
         encoding: "linux.ftrace.v1",
         roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
+        procfs: &["/proc/diskstats"],
     },
     Source {
         layer: TraceLayerKind::Network,
         encoding: "linux.ftrace.v1",
         roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
+        procfs: &["/proc/net/dev", "/proc/net/snmp"],
     },
 ];
 
@@ -339,6 +373,10 @@ fn harvest(root: &Path, want: &[&str]) -> (Vec<u8>, u64) {
 
 /// Capture one layer, or explain why not.
 fn capture(src: &Source) -> Result<(Vec<u8>, u64, &'static str), MissedLayer> {
+    // The richest source first, the unprivileged one after. A reason from the
+    // richest source is kept so the report can say what the host would have to
+    // grant for the stronger evidence, even when the fallback succeeded.
+    let mut best_reason: Option<MissedLayer> = None;
     for root in src.roots {
         let p = Path::new(root);
         if !p.exists() {
@@ -346,7 +384,7 @@ fn capture(src: &Source) -> Result<(Vec<u8>, u64, &'static str), MissedLayer> {
         }
         // The distinction an operator needs: absent versus forbidden.
         if std::fs::read_dir(p).is_err() {
-            return Err(MissedLayer {
+            best_reason.get_or_insert(MissedLayer {
                 layer: format!("{:?}", src.layer).to_lowercase(),
                 source: (*root).to_string(),
                 reason: format!(
@@ -355,6 +393,7 @@ fn capture(src: &Source) -> Result<(Vec<u8>, u64, &'static str), MissedLayer> {
                     unsafe_uid()
                 ),
             });
+            continue;
         }
         // EXACT file names, never a substring match.
         //
@@ -376,19 +415,43 @@ fn capture(src: &Source) -> Result<(Vec<u8>, u64, &'static str), MissedLayer> {
         };
         let (bytes, count) = harvest(p, want);
         if bytes.is_empty() {
-            return Err(MissedLayer {
+            best_reason.get_or_insert(MissedLayer {
                 layer: format!("{:?}", src.layer).to_lowercase(),
                 source: (*root).to_string(),
                 reason: format!("{root} is readable but exposed nothing for this layer"),
             });
+            continue;
         }
         return Ok((bytes, count, src.encoding));
     }
-    Err(MissedLayer {
+
+    // Nothing richer was available. Counters, honestly labelled.
+    let mut buf = Vec::new();
+    let mut count = 0u64;
+    for path in src.procfs {
+        let Some(bytes) = read_small(Path::new(path)) else {
+            continue;
+        };
+        if bytes.is_empty() {
+            continue;
+        }
+        // The path is part of the capture, not just the contents: a digest
+        // over bare numbers says nothing about where they came from.
+        buf.extend_from_slice(path.as_bytes());
+        buf.push(b'\n');
+        count += bytes.iter().filter(|b| **b == b'\n').count() as u64;
+        buf.extend_from_slice(&bytes);
+        buf.push(b'\n');
+    }
+    if !buf.is_empty() {
+        return Ok((buf, count, PROCFS_ENCODING));
+    }
+
+    Err(best_reason.unwrap_or(MissedLayer {
         layer: format!("{:?}", src.layer).to_lowercase(),
         source: src.roots.join(", "),
         reason: "none of these paths exist on this machine".into(),
-    })
+    }))
 }
 
 /// The process uid, for an error message. No libc: /proc knows.
@@ -846,6 +909,7 @@ mod tests {
             layer: TraceLayerKind::Syscall,
             encoding: "linux.ftrace.v1",
             roots: &["/definitely/not/a/path/on/any/machine"],
+            procfs: &[],
         };
         let err = capture(&missing).expect_err("no source means no segment");
         assert_eq!(err.layer, "syscall");
@@ -854,5 +918,45 @@ mod tests {
             "the reason must say what was wrong: {}",
             err.reason
         );
+    }
+
+    /// A layer with an unprivileged fallback captures where the rich source is
+    /// unavailable, and says which one it used.
+    ///
+    /// The whole encoder produced nothing on a host granting no tracefs and no
+    /// capabilities: one layer captured out of ten, so no trace was written at
+    /// all. Reported from a real deployment as dead weight in orbit.
+    #[test]
+    fn a_layer_with_a_counter_fallback_captures_and_labels_it_honestly() {
+        let fallback = Source {
+            layer: TraceLayerKind::Memory,
+            encoding: "linux.ftrace.v1",
+            roots: &["/definitely/not/a/path/on/any/machine"],
+            procfs: &["/proc/meminfo", "/proc/vmstat"],
+        };
+        let (bytes, events, encoding) = capture(&fallback).expect("/proc/meminfo exists on Linux");
+        assert!(!bytes.is_empty());
+        assert!(events > 0, "a counter file has lines");
+        assert_eq!(
+            encoding, PROCFS_ENCODING,
+            "a counter snapshot must never be labelled as an event log"
+        );
+        // The path is part of what was captured: a digest over bare numbers
+        // says nothing about where they came from.
+        assert!(
+            String::from_utf8_lossy(&bytes).contains("/proc/meminfo"),
+            "the capture must name its source"
+        );
+
+        // And a layer with no fallback still fails, so this is not a blanket
+        // "always find something" change: syscall stays absent without
+        // tracing, which is what keeps a /proc-only trace inadmissible.
+        let no_fallback = Source {
+            layer: TraceLayerKind::Syscall,
+            encoding: "linux.ftrace.v1",
+            roots: &["/definitely/not/a/path/on/any/machine"],
+            procfs: &[],
+        };
+        assert!(capture(&no_fallback).is_err());
     }
 }

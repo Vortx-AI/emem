@@ -33,6 +33,11 @@
 # error before a single layer runs. A developer building for their own machine
 # should not have to install buildx first, so the arch is detected below when
 # the build system does not say.
+# Declared before the first FROM so it can select the final stage further
+# down. A build argument used in a FROM line must be in the global scope, and
+# it has to be re-declared inside any stage that also reads it.
+ARG ROLE=decode
+
 FROM rust:1-bookworm AS build
 ARG TARGETARCH=""
 # Which half to build. Two images from one crate, on purpose.
@@ -113,11 +118,34 @@ RUN FEATURES=""; \
       --target "$(cat /target.txt)" $FEATURES && \
     cp "target/$(cat /target.txt)/release/$BIN" /emem-node
 
+# Two final stages, one per role, so the binary inside carries the name of the
+# thing it is.
+#
+# Both images used to entrypoint at /emem-node. They take different flags and
+# mean different things, and after a `docker load` the path is most of what an
+# operator has to go on; identical entrypoints invite running one half's flags
+# against the other. Reported from a real deployment. An unknown flag is
+# refused now, so the mistake is loud rather than silent, but it should not
+# have been invited.
+#
+# Two stages rather than one with a variable: the exec form of ENTRYPOINT does
+# not expand build arguments, and a shell form would need a shell, which a
+# scratch image does not have and should not gain.
+
 # scratch, not distroless or alpine: there is nothing else this binary needs.
-FROM scratch
-COPY --from=build /emem-node /emem-node
+FROM scratch AS decode
+COPY --from=build /emem-node /emem-airgap
 # Numeric, because scratch has no /etc/passwd to resolve a name against. 65532
 # is the conventional unprivileged id; the run command should set it too, so
 # the image is safe even if someone forgets.
 USER 65532:65532
-ENTRYPOINT ["/emem-node"]
+ENTRYPOINT ["/emem-airgap"]
+
+FROM scratch AS encode
+COPY --from=build /emem-node /emem-encode
+USER 65532:65532
+ENTRYPOINT ["/emem-encode"]
+
+# Selected by the same ROLE argument that chose which binary to build, so the
+# two can never disagree about which half this image is.
+FROM ${ROLE} AS final

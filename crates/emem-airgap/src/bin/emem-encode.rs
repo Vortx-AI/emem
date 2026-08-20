@@ -81,11 +81,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         env_or("--data", "EMEM_ENCODE_DATA", &args).unwrap_or_else(|| ".".to_string()),
     );
 
-    // Shared with the decoder, and never created here. Both halves must speak
-    // for the same node, and a sidecar that minted its own key on first run
-    // would quietly split one node into two.
+    // Supplied in the environment, if the host works that way.
+    //
+    // The same need as the decoder's: a platform may give this node no
+    // writable mount, and the encoder cannot read an identity file that was
+    // never allowed to exist. Checked first so a node provisioned this way
+    // never looks at --data at all.
+    let supplied = emem_airgap::seed_from_environment()?;
+
+    // Otherwise shared with the decoder, and never created here. Both halves
+    // must speak for the same node, and a sidecar that minted its own key on
+    // first run would quietly split one node into two.
     let path = key_path(&data_dir);
-    if !path.exists() {
+    if supplied.is_none() && !path.exists() {
         return Err(format!(
             "no node identity at {}.\n\n\
              The encoder shares the decoder's identity and does not create one: two halves of \
@@ -95,18 +103,25 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
-    let raw = std::fs::read_to_string(&path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            format!(
-                "cannot read {}: permission denied. The identity is mode 600 and owned by the \
-                 uid that created it; run this sidecar as that same user.",
-                path.display()
-            )
-        } else {
-            format!("cannot read {}: {e}", path.display())
+    // The identity, from wherever this node keeps it.
+    let file: NodeKeyFile = match supplied {
+        Some(f) => f,
+        None => {
+            let raw = std::fs::read_to_string(&path).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    format!(
+                        "cannot read {}: permission denied. The identity is mode 600 and owned \
+                         by the uid that created it; run this sidecar as that same user, or \
+                         supply the identity as EMEM_AIRGAP_SEED_HEX so no file is needed.",
+                        path.display()
+                    )
+                } else {
+                    format!("cannot read {}: {e}", path.display())
+                }
+            })?;
+            serde_json::from_str(&raw)?
         }
-    })?;
-    let file: NodeKeyFile = serde_json::from_str(&raw)?;
+    };
     let key: SigningKey = file
         .signing_key()
         .ok_or("node identity seed is not 32 bytes of hex")?;

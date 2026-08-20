@@ -33,6 +33,10 @@ const DECODE_FLAGS: &[&str] = &[
     "--traces",
     "--stage",
     "--hwmodel",
+    "--seed-file",
+    "--print-seed",
+    "--max-depth",
+    "--flat",
 ];
 
 fn env_or(flag: &str, var: &str, args: &[String]) -> Option<String> {
@@ -87,6 +91,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // needs to read its request the same way.
     match args.get(1).map(String::as_str) {
         Some("identity") => return cmd_identity(&args),
+        Some("keygen") => return cmd_keygen(&args),
         Some("verify") => return cmd_verify(&args),
         Some("verify-join") => return cmd_verify_join(&args),
         _ => {}
@@ -104,8 +109,24 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // silently stamped its own time would sign a false statement about when
     // it saw the bytes; making the caller supply it keeps the run honest and
     // reproducible.
-    let observed_at = env_or("--observed-at", "EMEM_AIRGAP_OBSERVED_AT", &args)
-        .ok_or("--observed-at (or EMEM_AIRGAP_OBSERVED_AT) is required, RFC 3339 UTC")?;
+    let observed_at = env_or("--observed-at", "EMEM_AIRGAP_OBSERVED_AT", &args).ok_or(
+        "--observed-at (or EMEM_AIRGAP_OBSERVED_AT) is required, RFC 3339 UTC. Pass `now` to \
+             use this machine's clock deliberately: it is never used by default, because a node \
+             with a wrong clock would sign a false statement without anyone choosing that.",
+    )?;
+    // `now` is spelled out, never assumed.
+    //
+    // An unattended node on a timer has no operator to type a timestamp, and
+    // there was no documented answer for what it should pass: the flag was
+    // required and the one obvious value was forbidden. Making the clock an
+    // explicit word keeps the property that mattered (nobody gets a
+    // self-asserted time by accident) while giving an unattended node
+    // something true to say.
+    let observed_at = if observed_at == "now" {
+        system_clock_utc()?
+    } else {
+        observed_at
+    };
     // Signed, therefore checked. An unvalidated string here is signed into
     // every record of the run, and a record claiming it was observed at
     // "yesterday" verifies perfectly while meaning nothing. A shape check, not
@@ -127,7 +148,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .next()
         .unwrap_or("unknown")
         .to_string();
-    let (key, idfile) = load_or_create_identity(&data_dir, &created)?;
+    let out_path = PathBuf::from(&output);
+    let (key, idfile) = load_or_create_identity(&data_dir, &created, Some(&out_path))?;
     let node_key = idfile.pubkey_b32.clone();
 
     let settings = DecodeSettings {
@@ -154,6 +176,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         max_trace_bytes: env_or("--max-trace-bytes", "EMEM_AIRGAP_MAX_TRACE_BYTES", &args)
             .and_then(|v| v.parse().ok())
             .unwrap_or(emem_airgap::DEFAULT_MAX_TRACE_BYTES),
+        max_depth: env_or("--max-depth", "EMEM_AIRGAP_MAX_DEPTH", &args)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(emem_airgap::DEFAULT_MAX_DEPTH),
+        flat: args.iter().any(|a| a == "--flat")
+            || std::env::var("EMEM_AIRGAP_FLAT").is_ok_and(|v| v == "1" || v == "true"),
     };
 
     // Written on every run, not just the first. It is small, it is
@@ -222,10 +249,54 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn load_or_create_identity(
     data_dir: &std::path::Path,
     created: &str,
+    output_dir: Option<&std::path::Path>,
 ) -> Result<(SigningKey, NodeKeyFile), Box<dyn std::error::Error>> {
+    // Supplied out of band, before anything touches a disk.
+    //
+    // A host may give this node no writable mount at all. The two-mount
+    // contract on at least one flight platform is an uplinked input folder and
+    // a downlinked results folder, and nothing else: the rootfs is read-only
+    // and the process is not root. Told to keep its identity in the results
+    // folder, this node would write its ed25519 SEED into the one directory
+    // that gets sent to the ground. An operator can instead generate the key
+    // on the ground with `keygen`, hold it wherever they hold secrets, and
+    // hand it to the node in the environment, where it never lands on storage
+    // this node can write or anyone else can read off a downlink.
+    if let Some(file) = emem_airgap::seed_from_environment()? {
+        let key = file
+            .signing_key()
+            .ok_or("EMEM_AIRGAP_SEED_HEX is not 32 bytes of hex")?;
+        return Ok((key, file));
+    }
     let path = key_path(data_dir);
     if let Some(found) = load_identity(&path)? {
         return Ok(found);
+    }
+    // About to mint one. Refuse if it would land where the output goes.
+    //
+    // node_identity.json holds seed_hex, the raw ed25519 private seed. The
+    // output directory is the one thing that leaves this machine: on a
+    // spacecraft it is downlinked, on a shared host it is collected. Writing
+    // the key into it publishes the node's private half to everyone who reads
+    // a results folder, and it looks like a working configuration right up
+    // until it does not. Reported before anything is written, with the two
+    // ways out.
+    if let Some(out) = output_dir {
+        if inside(&path, out) {
+            return Err(format!(
+                "refusing to create the node identity at {}, because it is inside the output \
+                 directory {} and would be published with the records. node_identity.json holds \
+                 this node's PRIVATE ed25519 seed.\n\n\
+                 Two ways out on a host with no third writable mount:\n  \
+                 1. Generate the key on the ground with `emem-airgap keygen --print-seed`, then \
+                 pass it as EMEM_AIRGAP_SEED_HEX (or EMEM_AIRGAP_SEED_FILE). Nothing is written \
+                 and --data is not needed.\n  \
+                 2. Give --data a writable directory that is NOT inside --output.",
+                path.display(),
+                out.display()
+            )
+            .into());
+        }
     }
     let mut seed = [0u8; 32];
     getrandom(&mut seed)?;
@@ -270,6 +341,19 @@ fn load_or_create_identity(
         path.display()
     );
     Ok((key, file))
+}
+
+/// Would a file at `path` end up inside `dir`?
+///
+/// Compares resolved paths where it can, so the same directory reached by a
+/// different spelling is still the same directory, and falls back to the
+/// lexical form for a path that does not exist yet, which is the normal case
+/// for an identity about to be created.
+fn inside(path: &std::path::Path, dir: &std::path::Path) -> bool {
+    let resolve = |p: &std::path::Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let dir = resolve(dir);
+    let parent = path.parent().map(resolve).unwrap_or_default();
+    parent.starts_with(&dir)
 }
 
 /// Read an existing node identity, or `None` if there is none yet.
@@ -395,6 +479,58 @@ fn getrandom(buf: &mut [u8]) -> std::io::Result<()> {
     use std::io::Read;
     let mut f = std::fs::File::open("/dev/urandom")?;
     f.read_exact(buf)
+}
+
+/// Create this node's identity, deliberately.
+///
+/// The `identity` command refuses to make one, and that is still right: a key
+/// minted as a side effect of an inspection command is a key nobody meant to
+/// create. But an operator has to be able to get a public key BEFORE the first
+/// pass, because enrolling a node means handing that key to an endorser and
+/// waiting, and a node that only reveals its key after it has already recorded
+/// something forces the whole enrolment to trail the first flight.
+///
+/// So: creation is a command of its own, named for what it does.
+///
+/// `--print-seed` writes the PRIVATE seed to stdout instead of a file, for a
+/// host with no writable mount to keep it in. That is a real need on a
+/// two-mount platform, and it is also the one output of this crate that must
+/// never be logged, echoed into CI, or downlinked. It says so when it prints.
+fn cmd_keygen(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let print_seed = args.iter().any(|a| a == "--print-seed");
+    if print_seed {
+        // Nothing is written, so no directory is needed and nothing can end up
+        // in an output folder by accident.
+        let mut seed = [0u8; 32];
+        getrandom(&mut seed)?;
+        let file = NodeKeyFile::new(
+            seed,
+            "generated",
+            "emem air-gapped node: identity generated for out-of-band provisioning",
+        );
+        eprintln!(
+            "This is a PRIVATE key. Anything holding it can sign as this node.\n\
+             Put it in a secret store and hand it to the node as EMEM_AIRGAP_SEED_HEX.\n\
+             Do not log it, commit it, or let it reach an output directory.\n"
+        );
+        println!("EMEM_AIRGAP_SEED_HEX={}", file.seed_hex);
+        eprintln!("\nnode {}", file.pubkey_b32);
+        eprintln!("Give the endorser the node line, never the seed.");
+        return Ok(());
+    }
+
+    let data_dir = PathBuf::from(
+        env_or("--data", "EMEM_AIRGAP_DATA", args).unwrap_or_else(|| ".".to_string()),
+    );
+    // No output directory to compare against here: keygen is run deliberately,
+    // by a person, against a directory they chose.
+    let (_, file) = load_or_create_identity(&data_dir, "keygen", None)?;
+    println!("node    {}", file.pubkey_b32);
+    println!("short   {}", file.pubkey8);
+    println!("at      {}", key_path(&data_dir).display());
+    println!();
+    println!("Give the endorser the node line. The seed stays in that file, mode 600.");
+    Ok(())
 }
 
 /// Print this node's public identity. Never the seed.
@@ -564,6 +700,41 @@ fn cmd_verify_join(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 /// Deliberately narrow: `YYYY-MM-DDTHH:MM:SSZ`. A node that writes exactly one
 /// timestamp format is easier to reason about than one accepting every legal
 /// spelling, and whoever supplies it already knows the shape.
+/// This machine's clock as RFC 3339 UTC, for an explicit `--observed-at now`.
+///
+/// Seconds since the epoch, converted by hand: no chrono, because this crate
+/// links nothing it does not need and the conversion is arithmetic. Leap
+/// seconds are not represented in Unix time, so neither are they here.
+fn system_clock_utc() -> Result<String, Box<dyn std::error::Error>> {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "this machine's clock is before 1970, so `now` cannot be trusted")?
+        .as_secs();
+    Ok(rfc3339_utc(secs))
+}
+
+/// Seconds since the epoch as RFC 3339 UTC. Separate from the clock so it can
+/// be tested against known dates instead of against whatever today is.
+fn rfc3339_utc(secs: u64) -> String {
+    let (mut days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
+    // Civil-from-days, the standard algorithm, shifted to a 1st-March era so
+    // the leap day falls at the end of the cycle and needs no special case.
+    days += 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+
+    format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
+}
+
 fn looks_like_rfc3339_utc(s: &str) -> bool {
     let b = s.as_bytes();
     if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
@@ -582,6 +753,9 @@ emem-airgap  one directory in, one directory out, no network.
 
 COMMANDS
   (none)                 decode: read --input, write custody records to --output
+  keygen                 create this node's identity, deliberately
+  keygen --print-seed    generate one and print the seed for out-of-band use,
+                         writing nothing to disk
   identity               print this node's public key, for the endorser
   verify <rec> [payload] check a custody record, and optionally the payload
   verify-join <req>      check a join request, for whoever is endorsing it
@@ -594,11 +768,23 @@ DECODE OPTIONS
   --platform     <id>    device platform id
   --hwmodel      <id>    EAT hwmodel claim for the join request
                          (default: the platform id)
-  --observed-at  <ts>    RFC 3339 UTC; required, never defaulted to now
+  --observed-at  <ts>    RFC 3339 UTC; required, never defaulted. Pass the
+                         literal `now` to use this machine's clock on purpose,
+                         which is what an unattended node on a timer wants.
   --data         <dir>   where node_identity.json lives (default: .)
+                         Not needed at all when the identity is supplied in
+                         the environment; see EMEM_AIRGAP_SEED_HEX below.
+  --seed-file    <path>  read the identity's seed from this file instead
+                         (same as EMEM_AIRGAP_SEED_FILE)
   --max-payload-bytes <n> refuse payloads larger than this (default 256 MiB)
   --max-trace-bytes <n>  refuse trace files larger than this (default 16 MiB)
   --max-files    <n>     most files in one run (default 10000)
+  --max-depth    <n>     how deep to descend into --input (default 32).
+                         Subdirectories ARE walked; a payload's signed name is
+                         its path relative to --input.
+  --flat                 write every record into the top of --output instead of
+                         mirroring the input's directories, for a host that
+                         collects only top-level files
   --traces       <dir>   emem.os_trace.v1 records from an encoder on this machine;
                          a payload a trace covers gets that trace cited
   --stage        <label> what stage these payloads are at, your vocabulary
@@ -607,6 +793,15 @@ Each flag also reads an environment variable: EMEM_AIRGAP_INPUT, _OUTPUT,
 _PROFILE, _PLATFORM, _OBSERVED_AT, _DATA, _HWMODEL. Either spelling works,
 with a space or an equals sign. A flag this command does not have is refused
 rather than ignored, so a typo stops the run instead of quietly changing it.
+
+EMEM_AIRGAP_SEED_HEX supplies this node's identity directly: 64 hex characters,
+the raw ed25519 seed, as `keygen --print-seed` prints it. Nothing is written to
+disk, so a host that can give this node no writable directory can still run it
+with a stable identity. EMEM_AIRGAP_SEED_FILE reads the same 64 characters from
+a path, for a platform that mounts secrets but cannot set an environment.
+
+The node REFUSES to create its identity inside --output: that file holds the
+private seed, and the output directory is the one that leaves the machine.
 
 Writes one <name>.<node>.custody.json per payload, plus run.<node>.json. Every
 output carries the node's short key, so several nodes can share one output
@@ -637,7 +832,7 @@ mod tests {
             let handles: Vec<_> = (0..8)
                 .map(|_| {
                     s.spawn(|| {
-                        let (_, file) = load_or_create_identity(&d, "2026-08-20")
+                        let (_, file) = load_or_create_identity(&d, "2026-08-20", None)
                             .expect("a process that loses the race must load, not fail");
                         file.pubkey_b32
                     })
@@ -759,6 +954,47 @@ mod tests {
             assert!(
                 README.contains(flag),
                 "{flag} is accepted but crates/emem-airgap/README.md never names it"
+            );
+        }
+    }
+
+    /// Hand-rolled date arithmetic, checked against dates that break it.
+    ///
+    /// Leap years, the century rule, the four-hundred-year exception, and the
+    /// day either side of each. `--observed-at now` signs whatever this
+    /// returns into every record of the run, so a wrong February would be a
+    /// wrong claim on a spacecraft nobody can correct.
+    #[test]
+    fn the_clock_conversion_matches_known_dates() {
+        // Expected values computed with an independent implementation, not
+        // typed from memory: my first pass had two of them wrong and the code
+        // right, which is the wrong way round to learn it.
+        for (secs, want) in [
+            // the epoch
+            (0u64, "1970-01-01T00:00:00Z"),
+            (1, "1970-01-01T00:00:01Z"),
+            (86399, "1970-01-01T23:59:59Z"),
+            (86400, "1970-01-02T00:00:00Z"),
+            // 2000 IS a leap year: divisible by 400
+            (951782400, "2000-02-29T00:00:00Z"),
+            (951868800, "2000-03-01T00:00:00Z"),
+            // 2100 is NOT: divisible by 100, not by 400
+            (4107456000, "2100-02-28T00:00:00Z"),
+            // the day after, with no 29th between them
+            (4107542400, "2100-03-01T00:00:00Z"),
+            // an ordinary leap year
+            (1709164800, "2024-02-29T00:00:00Z"),
+            // year boundary
+            (1704067199, "2023-12-31T23:59:59Z"),
+            (1704067200, "2024-01-01T00:00:00Z"),
+            // well past any mission
+            (2524608000, "2050-01-01T00:00:00Z"),
+        ] {
+            assert_eq!(rfc3339_utc(secs), want, "at {secs} seconds");
+            assert!(
+                looks_like_rfc3339_utc(&rfc3339_utc(secs)),
+                "the clock produced a value the validator would reject: {}",
+                rfc3339_utc(secs)
             );
         }
     }

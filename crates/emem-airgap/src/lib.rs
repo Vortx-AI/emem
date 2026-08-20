@@ -76,8 +76,9 @@ pub use encode::{
 };
 pub use identity::{JoinRequest, NodeKeyFile, JOIN_REQUEST_SCHEMA_V1};
 pub use run::{
-    decode_dir, key_path, short_key, DecodeReport, DecodeSettings, Skipped, DEFAULT_MAX_FILES,
-    DEFAULT_MAX_PAYLOAD_BYTES, DEFAULT_MAX_TRACE_BYTES,
+    compact_time, decode_dir, key_path, record_path_for, short_key, DecodeReport, DecodeSettings,
+    Found, Skipped, DEFAULT_MAX_DEPTH, DEFAULT_MAX_FILES, DEFAULT_MAX_PAYLOAD_BYTES,
+    DEFAULT_MAX_TRACE_BYTES,
 };
 
 /// base32-nopad lowercase of a blake3 digest: the encoding every emem digest
@@ -149,4 +150,49 @@ pub fn reject_unknown_flags(args: &[String], known: &[&str]) -> Result<(), std::
         ));
     }
     Ok(())
+}
+
+/// An identity handed to this node rather than stored by it.
+///
+/// `EMEM_AIRGAP_SEED_HEX` is 64 hex characters, the raw ed25519 seed. A
+/// `--seed-file` path is read instead when the platform can mount a secret
+/// read-only but cannot set an environment variable; the file holds the same
+/// 64 characters and nothing else.
+///
+/// Neither is written anywhere. A node running this way needs no writable
+/// directory for its identity at all, which is the point: the alternative on a
+/// two-mount platform was to put the private seed in the folder that gets
+/// downlinked.
+pub fn seed_from_environment() -> Result<Option<NodeKeyFile>, Box<dyn std::error::Error>> {
+    let raw = match std::env::var("EMEM_AIRGAP_SEED_HEX") {
+        Ok(v) => Some(v),
+        Err(_) => match std::env::var("EMEM_AIRGAP_SEED_FILE") {
+            Ok(p) => Some(
+                std::fs::read_to_string(&p)
+                    .map_err(|e| format!("cannot read the seed file at {p}: {e}"))?,
+            ),
+            Err(_) => None,
+        },
+    };
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let hex = raw.trim();
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!(
+            "the supplied seed is {} characters; it must be exactly 64 hex characters, the raw \
+             ed25519 seed as `keygen --print-seed` prints it.",
+            hex.len()
+        )
+        .into());
+    }
+    let mut seed = [0u8; 32];
+    for (i, b) in seed.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)?;
+    }
+    Ok(Some(NodeKeyFile::new(
+        seed,
+        "supplied",
+        "emem air-gapped node: identity supplied in the environment, never written to disk",
+    )))
 }
