@@ -35,6 +35,15 @@
 # the build system does not say.
 FROM rust:1-bookworm AS build
 ARG TARGETARCH=""
+# Which half to build. Two images from one crate, on purpose.
+#
+# The decoder runs --cap-drop ALL and its entire claim is that it cannot do
+# anything. The encoder needs a tracefs mount and the privilege to read it. One
+# image with two entrypoints would mean an operator who copies the encoder's
+# flags onto the decoder silently discards that claim, and nothing would
+# complain. Separate images make the two postures impossible to confuse, while
+# the crate keeps the schema, the identity file and the signing shared.
+ARG ROLE=decode
 WORKDIR /src
 
 # musl, so the result is static and the runtime image can be empty. An Orin NX
@@ -95,15 +104,20 @@ RUN FEATURES=""; \
         ;; \
     esac; \
     export RUSTFLAGS="-C strip=symbols"; \
-    cargo build --release --locked -p emem-airgap \
+    case "$ROLE" in \
+      decode) BIN=emem-airgap ;; \
+      encode) BIN=emem-encode ;; \
+      *) echo "ROLE must be decode or encode, got: $ROLE" >&2; exit 1 ;; \
+    esac; \
+    cargo build --release --locked -p emem-airgap --bin "$BIN" \
       --target "$(cat /target.txt)" $FEATURES && \
-    cp "target/$(cat /target.txt)/release/emem-airgap" /emem-airgap
+    cp "target/$(cat /target.txt)/release/$BIN" /emem-node
 
 # scratch, not distroless or alpine: there is nothing else this binary needs.
 FROM scratch
-COPY --from=build /emem-airgap /emem-airgap
+COPY --from=build /emem-node /emem-node
 # Numeric, because scratch has no /etc/passwd to resolve a name against. 65532
 # is the conventional unprivileged id; the run command should set it too, so
 # the image is safe even if someone forgets.
 USER 65532:65532
-ENTRYPOINT ["/emem-airgap"]
+ENTRYPOINT ["/emem-node"]

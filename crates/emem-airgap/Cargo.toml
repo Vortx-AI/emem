@@ -29,3 +29,10 @@ thiserror     = { workspace = true }
 [[bin]]
 name = "emem-airgap"
 path = "src/main.rs"
+
+# Two binaries, one crate. The schema, the identity file and the signing are
+# shared; the security postures are not, which is why they ship as separate
+# images rather than one image with two entrypoints.
+[[bin]]
+name = "emem-encode"
+path = "src/bin/emem-encode.rs"

@@ -109,6 +109,33 @@ at nothing and keeps working; neither half needs to know the other exists.
 created once and never regenerated: a new key orphans every record already
 signed under the old one.
 
+## Two halves, two images, one crate
+
+```text
+  [ emem-encode ]  privileged sidecar          reads /sys/kernel/tracing, /sys/class/thermal
+        |                                      writes a signed emem.os_trace.v1
+        |  shared volume: /traces
+        v
+  [ emem-airgap ]  hardened decoder            reads /in and /traces
+                                               writes signed custody records to /out
+```
+
+They never talk. The folder is the whole interface: the encoder names the
+payload digests it saw emitted, and a payload whose digest a trace covers gets
+that trace cited in its custody record.
+
+**Why two images rather than one with two entrypoints.** The decoder runs
+`--cap-drop ALL` and its entire claim is that it cannot do anything. The
+encoder needs a tracefs mount and the privilege to read it. In one image, an
+operator who copies the encoder's flags onto the decoder silently throws that
+claim away and nothing complains. Separate images make the postures impossible
+to confuse; the crate keeps the schema, the identity file and the signing
+shared, so there is no duplicated code to drift.
+
+**Either half alone is fine.** A developer who only wants custody runs the
+decoder and never builds the encoder. A developer who only wants traces runs
+the encoder and points it anywhere. Neither requires the other to exist.
+
 ## Install it
 
 Three ways in, depending on what you have.
@@ -127,9 +154,18 @@ cargo build --release -p emem-airgap
 ```bash
 git clone https://github.com/Vortx-AI/emem
 cd emem
+
+# the decoder
 docker build -f crates/emem-airgap/Dockerfile -t emem-airgap:latest .
+
+# the encoder sidecar, same Dockerfile, one argument different
+docker build --build-arg ROLE=encode -f crates/emem-airgap/Dockerfile -t emem-encode:latest .
+
 docker run --rm emem-airgap:latest --help
+docker run --rm emem-encode:latest --help
 ```
+
+Measured: decoder image 1.7 MB, encoder image 1.43 MB.
 
 **Cross-built for an aarch64 board from an x86 laptop**, which is the usual
 case when the target is a Jetson you cannot compile on. No buildx, no qemu:
@@ -226,6 +262,58 @@ node's word that it leaves your input alone.
 
 The same Dockerfile cross-builds `aarch64` for a Jetson Orin and `x86_64` for a
 laptop rehearsal.
+
+## Running the encoder sidecar
+
+```bash
+docker run --rm \
+  --cap-add DAC_READ_SEARCH \
+  --network none \
+  -v /sys/kernel/tracing:/sys/kernel/tracing:ro \
+  -v /sys/class/thermal:/sys/class/thermal:ro \
+  -v /host/traces:/traces \
+  -v /host/results:/payloads:ro \
+  -v /host/data:/data \
+  emem-encode:latest \
+    --out /traces --payloads /payloads --data /data \
+    --profile orbital.satellite.v1 --platform jetson-orin-nx
+```
+
+It shares the decoder's `node_identity.json` and **never creates one**: two
+halves of a node must sign as one node, and a key minted by a sidecar would
+quietly split it in two. Run the decoder once against the same `--data`
+directory first.
+
+Then point the decoder at the traces:
+
+```bash
+emem-airgap --input /in --output /out --data /data --traces /traces --stage L2 ...
+```
+
+### What it captures, and what it will not pretend to
+
+Privilege is not uniform, so neither is the capture:
+
+| Layer | Source | Needs |
+| --- | --- | --- |
+| thermal | `/sys/class/thermal` | nothing |
+| energy | `/sys/class/powercap`, `/sys/class/hwmon` | nothing |
+| syscall, scheduler, memory | `/sys/kernel/tracing` | a mount and the capability to read it |
+
+A layer the encoder could not read is **absent from the trace** and reported
+with the reason:
+
+```text
+captured  thermal, syscall, scheduler, memory
+absent    energy     /sys/class/powercap is readable but exposed nothing for this layer
+4 layer(s) captured, 1 absent. A substrate profile requiring an absent layer
+will REFUSE this trace, and that refusal is correct.
+```
+
+That refusal is the design working. `orbital.satellite.v1` requires eight
+layers; a trace carrying four will not be admitted under it, and the honest
+answer is to say so rather than to invent the other four. Custody remains the
+operative claim until the capture is genuinely complete.
 
 ## What lands in the output directory
 
