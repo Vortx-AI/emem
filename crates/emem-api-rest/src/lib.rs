@@ -57953,9 +57953,10 @@ async fn post_eudr_dds_inner(
             // `sampled_polygon_fraction`). Skipped when no cells were
             // sampled (indeterminate plots) and best-effort: a signing
             // error never fails the verdict, it just omits the fact_cid.
-            let loss_year_histogram_json: Option<JsonValue>;
             let mut histogram_fact_cid: Option<String> = None;
-            if n_total > 0 {
+            // Initialised by the branch rather than declared and assigned in
+            // it: same control flow, one fewer place for the two to disagree.
+            let loss_year_histogram_json: Option<JsonValue> = if n_total > 0 {
                 let tally = compute_lossyear_tally(
                     &per_cell,
                     cutoff_year,
@@ -58048,7 +58049,7 @@ async fn post_eudr_dds_inner(
                     }
                 }
                 let cell_area_ha = EUDR_CELL_AREA_M2 / 10_000.0;
-                loss_year_histogram_json = Some(json!({
+                Some(json!({
                     "by_year": by_year_json,
                     "after_cutoff_cells": tally.after_cutoff_cells,
                     "after_cutoff_year": cutoff_year,
@@ -58069,10 +58070,10 @@ async fn post_eudr_dds_inner(
                              CID is in this response's receipt.fact_cids.",
                     "signed_fact_cid": histogram_fact_cid,
                     "parents_capped": tally.parents_capped,
-                }));
+                }))
             } else {
-                loss_year_histogram_json = None;
-            }
+                None
+            };
 
             // Article 2(28) precision: pull GeoJSON polygon coords (if any)
             // for the TRACES envelope, and check operator-supplied decimal

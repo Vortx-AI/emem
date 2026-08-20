@@ -863,8 +863,13 @@ fn read_centroid_cache(
         }
         let raw = take(&b, i, len.checked_mul(4)?)?;
         out.push(
-            raw.chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            // Compile-time chunk size, so each chunk is &[u8; 4] and the
+            // four indexed reads become one copy with no bounds checks to
+            // elide.
+            raw.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f32::from_le_bytes(*c))
                 .collect(),
         );
     }

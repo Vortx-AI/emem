@@ -161,9 +161,19 @@ pub fn decode_grid(bytes: &[u8]) -> Result<(GridHeader, Vec<f32>), GridError> {
     if bytes.len() != expected {
         return Err(GridError::NotAGrid("length disagrees with header dims"));
     }
+    // as_chunks rather than chunks_exact: the chunk size is known at compile
+    // time, so each chunk arrives as &[u8; 4] and the try_into().unwrap() that
+    // used to convert it disappears. That unwrap could never fire - the length
+    // is checked against the header two lines above - but an unwrap a reader
+    // has to prove unreachable is worse than one that is not written.
+    //
+    // The remainder is discarded knowingly: the length check above guarantees
+    // it is empty.
     let values = bytes[GRID_HEADER_LEN..]
-        .chunks_exact(4)
-        .map(|c| f32::from_bits(u32::from_le_bytes(c.try_into().unwrap())))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_bits(u32::from_le_bytes(*c)))
         .collect();
     Ok((h, values))
 }
