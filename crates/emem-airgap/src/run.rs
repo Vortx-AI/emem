@@ -535,9 +535,9 @@ fn kind_of(t: &std::fs::FileType) -> &'static str {
     "not a file or directory"
 }
 
-struct Walked {
-    files: Vec<Found>,
-    refused: Vec<Skipped>,
+pub(crate) struct Walked {
+    pub(crate) files: Vec<Found>,
+    pub(crate) refused: Vec<Skipped>,
 }
 
 /// Walk the input tree breadth-first, refusing anything that could leave it.
@@ -548,7 +548,7 @@ struct Walked {
 /// put there. Both are refused by name rather than skipped quietly, because
 /// a directory nobody took custody of is exactly the failure this walk exists
 /// to end.
-fn walk(root: &Path, max_depth: u32) -> std::io::Result<Walked> {
+pub(crate) fn walk(root: &Path, max_depth: u32) -> std::io::Result<Walked> {
     let mut files = Vec::new();
     let mut refused = Vec::new();
     // (directory, its name relative to root, depth)

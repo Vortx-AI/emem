@@ -177,6 +177,13 @@ pub struct CaptureReport {
     pub unsupported: Vec<MissedLayer>,
     /// Payload digests bound into the trace as emitted outputs.
     pub outputs: usize,
+    /// Files under `--payloads` that were NOT bound, with the reason.
+    ///
+    /// A count of what was bound says nothing about what was passed over, and
+    /// the difference is exactly the number of payloads that will come out of
+    /// the decoder as custody_only for no visible reason.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub payloads_skipped: Vec<String>,
     /// Every substrate profile whose required layers this capture actually
     /// covers, computed against the registry rather than guessed.
     ///
@@ -280,6 +287,13 @@ pub struct CaptureSettings {
     /// Directory holding the payloads this window produced; their digests are
     /// bound into the trace as emitted outputs.
     pub payloads: Option<PathBuf>,
+    /// How deep to descend into `payloads`, matching the decoder's own walk.
+    ///
+    /// Same default and same flag name on both halves. A capture that binds
+    /// only the payloads at the top of a nested tree leaves the rest with
+    /// custody and no citation, and reports a clean-looking count while doing
+    /// it.
+    pub max_depth: u32,
     /// Substrate profile the device writes under.
     pub profile: String,
     /// Hardware platform string, e.g. `jetson-orin-nx`.
@@ -509,6 +523,16 @@ fn unsafe_uid() -> String {
 
 /// Read the OS and kernel identity strings the trace records.
 fn os_and_kernel() -> (String, String) {
+    // /etc/os-release first, then the kernel's own name.
+    //
+    // A FROM scratch image has no /etc at all, which is the point of it, so
+    // this field read "unknown" in the very deployment the crate is built for
+    // while kernel right beside it was populated. That is a signed field, and
+    // "unknown" next to a real kernel version reads like a failure rather than
+    // like a distribution that genuinely does not exist. /proc/sys/kernel/
+    // ostype is always there and says Linux, which is true and is more than
+    // nothing; the suffix says why there is no distribution name rather than
+    // leaving the reader to guess.
     let os = std::fs::read_to_string("/etc/os-release")
         .ok()
         .and_then(|s| {
@@ -517,6 +541,16 @@ fn os_and_kernel() -> (String, String) {
                     .trim_matches('"')
                     .to_string()
             })
+        })
+        .or_else(|| {
+            std::fs::read_to_string("/proc/sys/kernel/ostype")
+                .ok()
+                .map(|s| {
+                    format!(
+                        "{} (no /etc/os-release; a scratch image has no distribution)",
+                        s.trim()
+                    )
+                })
         })
         .unwrap_or_else(|| "unknown".into());
     let kernel = std::fs::read_to_string("/proc/sys/kernel/osrelease")
@@ -650,22 +684,33 @@ pub fn capture_window(
     // Bind the payloads this window produced. Their digests are what lets the
     // decoder join a custody record to this trace.
     let mut outputs = Vec::new();
+    let mut payloads_skipped: Vec<String> = Vec::new();
     if let Some(dir) = &settings.payloads {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            let mut paths: Vec<PathBuf> =
-                entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
-            paths.sort();
-            for p in paths {
-                // symlink_metadata, for the same reason the decoder uses it:
-                // a link here would bind a digest of a file outside the
-                // directory into a signed record.
-                let Ok(meta) = std::fs::symlink_metadata(&p) else {
-                    continue;
-                };
-                if meta.file_type().is_symlink() || !meta.is_file() {
-                    continue;
-                }
+        // The SAME walk the decoder runs over its input, not a second scan.
+        //
+        // The decoder descended 32 levels and the encoder read only the top,
+        // so on a tree laid out per scene and per band the encoder bound the
+        // loose root files and the nested ones came out custody_only. Nothing
+        // failed and nothing said so: "2 payload digest(s) bound" does not
+        // mention three files nobody looked at, and the decoder's traced count
+        // reads like a clean result. Reported from a real deployment, where
+        // the consequence is a traced fraction that silently shrinks as the
+        // layout deepens.
+        //
+        // One walk means the two halves cannot drift apart again.
+        let walked = crate::run::walk(dir, settings.max_depth)?;
+        payloads_skipped = walked
+            .refused
+            .into_iter()
+            .map(|s| format!("{}: {}", s.name, s.reason))
+            .collect();
+        let mut found = walked.files;
+        found.sort();
+        for f in found {
+            let p = f.path;
+            {
                 let Some(bytes) = read_small(&p) else {
+                    payloads_skipped.push(format!("{}: unreadable or too large to hash", f.name));
                     continue;
                 };
                 outputs.push(EmittedOutput {
@@ -709,6 +754,7 @@ pub fn capture_window(
             missed,
             unsupported,
             outputs: outputs.len(),
+            payloads_skipped,
             accepted_by: Vec::new(),
             admissibility: "no trace written: not one layer could be read on this machine. \
                             An empty trace is rejected by the verifier, so emitting one would \
@@ -761,6 +807,7 @@ pub fn capture_window(
         missed,
         unsupported,
         outputs: trace.outputs.len(),
+        payloads_skipped,
         accepted_by: accepts,
         admissibility,
     })
@@ -851,6 +898,7 @@ mod tests {
         let settings = CaptureSettings {
             out: d.join("out"),
             payloads: Some(d.clone()),
+            max_depth: crate::DEFAULT_MAX_DEPTH,
             // Three layers this machine can genuinely read, so the test turns
             // on structure rather than on what the CI host happens to expose.
             profile: "exec.trace.v1".into(),
@@ -906,6 +954,73 @@ mod tests {
 
     /// The capture rule, stated as a test: a layer with no readable source is
     /// absent and explained, never invented.
+    /// Nested payloads must be bound, not passed over in silence.
+    ///
+    /// The decoder walked its input 32 levels deep and the encoder read only
+    /// the top of --payloads, so on a tree laid out per scene and per band the
+    /// nested files came out with custody and no citation. Nothing failed and
+    /// nothing said so: "2 payload digest(s) bound" does not mention the three
+    /// files nobody looked at. Reported from a real deployment, where the
+    /// consequence is a traced fraction that shrinks as the layout deepens.
+    #[test]
+    fn payloads_below_the_top_level_are_bound_too() {
+        let d = tmp("deep-payloads");
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        let pay = d.join("payloads");
+        std::fs::create_dir_all(pay.join("orbit_1/band_2")).unwrap();
+        std::fs::write(pay.join("a.tif"), b"top one").unwrap();
+        std::fs::write(pay.join("b.tif"), b"top two").unwrap();
+        std::fs::write(pay.join("orbit_1/n1.tif"), b"nested one").unwrap();
+        std::fs::write(pay.join("orbit_1/band_2/n2.tif"), b"nested two").unwrap();
+        std::fs::write(pay.join("orbit_1/band_2/n3.tif"), b"nested three").unwrap();
+
+        let key = SigningKey::from_bytes(&[31u8; 32]);
+        let settings = CaptureSettings {
+            out: d.join("out"),
+            payloads: Some(pay),
+            max_depth: crate::DEFAULT_MAX_DEPTH,
+            profile: "host.counters.v1".into(),
+            platform: "generic.linux-host".into(),
+            prev_trace_cid: None,
+        };
+        let report = capture_window(&key, &settings).expect("capture runs");
+        assert_eq!(
+            report.outputs, 5,
+            "only the top level was bound; {:?} were skipped",
+            report.payloads_skipped
+        );
+        assert!(
+            report.payloads_skipped.is_empty(),
+            "{:?}",
+            report.payloads_skipped
+        );
+
+        // And a depth limit reports the shortfall rather than hiding it, so a
+        // traced fraction below 1 always has a reason attached.
+        let shallow = CaptureSettings {
+            max_depth: 0,
+            ..settings
+        };
+        let report = capture_window(&key, &shallow).expect("capture runs");
+        assert_eq!(report.outputs, 2, "only the two top-level files fit");
+        assert!(
+            report
+                .payloads_skipped
+                .iter()
+                .any(|s| s.contains("orbit_1") && s.contains("--max-depth")),
+            "the skipped payloads must say why: {:?}",
+            report.payloads_skipped
+        );
+    }
+
+    /// The signed os field must say something true even with no /etc.
+    #[test]
+    fn the_device_os_field_is_populated_without_an_etc_directory() {
+        let (os, kernel) = os_and_kernel();
+        assert_ne!(os, "unknown", "os read unknown while kernel was {kernel}");
+        assert!(!kernel.is_empty());
+    }
+
     /// A capture must be able to satisfy at least one profile.
     ///
     /// Before host.counters.v1 existed, none of them could be satisfied by any
@@ -922,6 +1037,7 @@ mod tests {
         let settings = CaptureSettings {
             out: d.join("out"),
             payloads: None,
+            max_depth: crate::DEFAULT_MAX_DEPTH,
             profile: "host.counters.v1".into(),
             platform: "generic.linux-host".into(),
             prev_trace_cid: None,
@@ -953,6 +1069,7 @@ mod tests {
         let settings = CaptureSettings {
             out: d.join("out"),
             payloads: None,
+            max_depth: crate::DEFAULT_MAX_DEPTH,
             // Requires sensor_bus and signal, which have no source anywhere.
             profile: "orbital.satellite.v1".into(),
             platform: "nvidia.jetson-orin".into(),
@@ -1022,6 +1139,7 @@ mod tests {
         let settings = CaptureSettings {
             out: d.join("out"),
             payloads: None,
+            max_depth: crate::DEFAULT_MAX_DEPTH,
             profile: "exec.trace.v1".into(),
             platform: "generic.linux-host".into(),
             prev_trace_cid: None,
@@ -1050,6 +1168,7 @@ mod tests {
         let settings = CaptureSettings {
             out: d.join("out"),
             payloads: Some(d.clone()),
+            max_depth: crate::DEFAULT_MAX_DEPTH,
             profile: "exec.trace.v1".into(),
             platform: "generic.linux-host".into(),
             prev_trace_cid: None,

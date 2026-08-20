@@ -323,8 +323,24 @@ fn load_or_create_identity(
     // run in forty-eight died this way when eight started together on an empty
     // data directory, which is how a host brings up several containers on
     // first boot, not an unusual way to do it.
-    let claimed = write_private(&path, serde_json::to_string_pretty(&file)?.as_bytes())
-        .map_err(|e| format!("cannot write the node identity to {}: {e}", path.display()))?;
+    // A write failure here is the first thing an operator hits who has not
+    // read the help, and it used to be a bare OS error: "Read-only file system
+    // (os error 30)" and nothing else, on a host where the answer is not to
+    // find a writable directory but to stop needing one. Every neighbouring
+    // refusal names its ways out; this one named none.
+    let claimed =
+        write_private(&path, serde_json::to_string_pretty(&file)?.as_bytes()).map_err(|e| {
+            format!(
+                "cannot write the node identity to {}: {e}\n\n\
+                 Two ways out:\n  \
+                 1. Supply the identity instead of storing it. `emem-airgap keygen --print-seed` \
+                 generates a key and prints it as EMEM_AIRGAP_SEED_HEX; pass that in the \
+                 environment and nothing has to be writable at all. EMEM_AIRGAP_SEED_FILE reads \
+                 the same 64 characters from a path.\n  \
+                 2. Give --data a writable directory that is not inside --output.",
+                path.display()
+            )
+        })?;
     if !claimed {
         return load_identity(&path)?.ok_or_else(|| {
             format!(

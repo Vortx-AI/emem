@@ -91,7 +91,12 @@ does not have is refused rather than ignored. Run `emem-airgap --help` for the
 list; a test checks that this file names every flag it does.
 
 `--max-depth` bounds how far the walk descends (default 32); a directory past
-it is reported by name rather than skipped quietly. `--flat` writes every
+it is reported by name rather than skipped quietly. **The encoder takes the
+same flag with the same default and runs the same walk over `--payloads`**, so
+a nested capture tree is bound in the trace as well as recorded, and anything
+it does pass over appears in `payloads_skipped` with the reason. The two halves
+disagreeing about depth was worth one silent bug: nested payloads got custody
+and no citation, and the traced count looked clean. `--flat` writes every
 record into the top of `--output` instead of mirroring the input's shape.
 `--seed-file` supplies the identity from a path, as `EMEM_AIRGAP_SEED_HEX`
 does from the environment.
@@ -431,8 +436,8 @@ described above.
 This is the question that decides whether the encoder does anything useful, and
 it has a short answer and a long one.
 
-**Short: on a general-purpose Linux host with no kernel tracing, use
-`host.counters.v1`.** It requires scheduler, memory, storage and network, all of
+**Short: on an orbital payload use `orbital.satellite.counters.v1`; on any
+other Linux host with no kernel tracing use `host.counters.v1`.** It requires scheduler, memory, storage and network, all of
 which come from `/proc` on every Linux, readable by any uid, with no mount and
 no capability.
 
@@ -446,11 +451,22 @@ therefore produce a signed, chained, payload-binding trace that **no** profile
 would admit, which is exactly what happened on a real deployment before
 `host.counters.v1` existed.
 
+**Why two names for one evidence bar.** The profile is signed into every record
+and cannot be corrected afterwards, so it has to be true about two separate
+things: what this node *is*, and what evidence it *produced*.
+`orbital.satellite.counters.v1` copies every substrate field from
+`orbital.satellite.v1` unchanged, so the name means exactly what it means
+there, and differs only in the two places that must differ: the required layers
+are the four an orbital node can actually produce, and `provenance_class` is
+`direct_sensor` rather than `attested_execution`, because counters do not
+attest execution. Flying under `host.counters.v1` would have meant every signed
+record from a spacecraft saying it came from a generic host.
+
 You do not have to work this out by hand. Every capture reports which profiles
 it satisfies:
 
 ```json
-"accepted_by": ["host.counters.v1"],
+"accepted_by": ["orbital.satellite.counters.v1", "host.counters.v1"],
 "admissibility": "5 layer(s) captured, 2 absent. Accepted by: host.counters.v1.
                   NOT by --profile orbital.satellite.v1, which this capture does
                   not cover; a verifier will refuse it under that profile and be

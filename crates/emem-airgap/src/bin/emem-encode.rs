@@ -32,6 +32,7 @@ const ENCODE_FLAGS: &[&str] = &[
     "--payloads",
     "--prev-trace",
     "--interval",
+    "--max-depth",
 ];
 
 fn env_or(flag: &str, var: &str, args: &[String]) -> Option<String> {
@@ -134,6 +135,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Where the chain got to. An explicit --prev-trace overrides it, for an
     // operator splicing a stream by hand; otherwise the head on disk is the
     // answer, and a head from an earlier boot is correctly ignored.
+    // Same flag, same default, same walk as the decoder.
+    let max_depth = env_or("--max-depth", "EMEM_ENCODE_MAX_DEPTH", &args)
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(emem_airgap::DEFAULT_MAX_DEPTH);
+
     let head_path = StreamHead::path(Path::new(&out));
     let explicit_prev = env_or("--prev-trace", "EMEM_ENCODE_PREV_TRACE", &args);
     let mut head = StreamHead::load_for_this_boot(&head_path);
@@ -161,6 +167,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let settings = CaptureSettings {
             out: PathBuf::from(&out),
             payloads: payloads.clone(),
+            max_depth,
             profile: profile.clone(),
             platform: platform.clone(),
             // The first window of a run may take an explicit override; after
@@ -232,6 +239,8 @@ emem-encode  capture one OS-trace window, sign it, write it to a folder.
   --prev-trace <cid>  the previous trace in this stream, to chain the windows
   --interval  <secs>  capture every <secs> seconds instead of once and exiting;
                       each window chains to the one before it
+  --max-depth <n>     how deep to descend into --payloads (default 32), the
+                      same walk the decoder runs over --input
 
 The identity is SHARED with the decoder and never created here. Supply it as
 EMEM_ENCODE_SEED_HEX (or EMEM_AIRGAP_SEED_HEX), 64 hex characters, and no
