@@ -270,13 +270,16 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
                     .ok()
                     .and_then(|b| serde_json::from_slice::<emem_trace::OsTrace>(&b).ok())
                 {
-                    Some(t) => match t.trace_cid() {
+                    Some(t) => match cite_check(&t) {
                         Ok(cid) => {
                             for out in &t.outputs {
                                 traced.insert(out.payload_digest.clone(), cid.clone());
                             }
                         }
-                        Err(_) => unreadable_traces += 1,
+                        Err(reason) => refused_traces.push(Skipped {
+                            name: tname,
+                            reason,
+                        }),
                     },
                     None => unreadable_traces += 1,
                 }
@@ -473,6 +476,52 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
     write_atomic(&manifest, &mj)?;
     report.bytes_written += mj.len() as u64;
     Ok(report)
+}
+
+/// Verify a trace before a record is allowed to cite it.
+///
+/// The node was citing traces it had never checked. Anything that could write
+/// to the traces directory could hand it a record with a stale signature and
+/// an output line naming the payload's digest, and the custody record came out
+/// carrying `custody_with_trace` and that trace's cid. Demonstrated: the
+/// forgery was one edited JSON field.
+///
+/// The assurance string was honest about this. It says the execution claim
+/// belongs to the trace and not to the record, and that a reader must fetch it
+/// and verify it themselves. That is still true, and it is still not enough: a
+/// node must not attach a stronger-sounding label on the strength of a file it
+/// did not look at. Nothing here is a claim this node cannot check.
+///
+/// Verified against the profile the **trace** names, not the one this node was
+/// configured with. A trace states what it was captured under, the registry
+/// states what that profile requires, and a payload can legitimately arrive
+/// from a device on a different profile. A profile this build does not know is
+/// not a trace to cite: the node cannot say what it required.
+///
+/// This is the same `verify_os_trace` the write path runs, not a second
+/// implementation of half of it. A local copy of the rules would drift from
+/// the real ones, and the drift would show up as a node citing traces the
+/// ground would reject.
+fn cite_check(t: &emem_trace::OsTrace) -> Result<String, String> {
+    let registry = &*emem_core::substrates::DEFAULT;
+    let Some(profile) = registry.lookup(&t.device.substrate_profile) else {
+        return Err(format!(
+            "names substrate profile {}, which this build does not know, so what it required \
+             cannot be checked. Not cited; custody is recorded regardless.",
+            t.device.substrate_profile
+        ));
+    };
+    let report = emem_trace::verify_os_trace(t, profile, None);
+    if report.verdict != emem_trace::Verdict::Admit {
+        let why: Vec<String> = report.reasons.iter().map(|r| r.to_string()).collect();
+        return Err(format!(
+            "did not verify, so no record cites it: {}. Custody is recorded regardless; a trace \
+             is an addition to a record, never a precondition for one.",
+            why.join("; ")
+        ));
+    }
+    t.trace_cid()
+        .map_err(|e| format!("verified but its cid could not be computed: {e}"))
 }
 
 /// Read a payload, and refuse to sign it unless the file held still.
@@ -1289,32 +1338,45 @@ mod handoff {
     /// actually produces, the two halves meet. A hand-rolled JSON blob would
     /// prove only that the decoder can read a hand-rolled JSON blob.
     fn trace_covering(payload: &[u8], key: &SigningKey) -> OsTrace {
+        use emem_core::substrates::TraceLayerKind as L;
+        // exec.trace.v1, and every layer it requires. The fixture used to
+        // carry one segment under a profile requiring seven, which the ground
+        // verifier rejects; the decoder cited it anyway because it never ran
+        // the verifier. Building a trace that actually verifies is the point.
         let device = DeviceIdentity {
             device_key: AttesterKey(key.verifying_key().to_bytes()),
             key_epoch: KeyEpoch(0),
-            substrate_profile: "robot.fleet.v1".into(),
+            substrate_profile: "exec.trace.v1".into(),
             platform: "jetson-orin-nx".into(),
             os: "Ubuntu 22.04".into(),
             kernel: "5.15.148-tegra".into(),
             boot_id: "boot-1".into(),
         };
-        let seg = TraceSegment {
-            layer: emem_core::substrates::TraceLayerKind::Syscall,
-            encoding: "linux.ftrace.v1".into(),
-            seq: 0,
-            clock_start_ns: 0,
-            clock_end_ns: 10,
-            event_count: 1,
-            log_digest: crate::b32(blake3::hash(b"segment").as_bytes()),
-            prev_digest: None,
-        };
+        let mut segments: Vec<TraceSegment> = Vec::new();
+        let mut prev: Option<String> = None;
+        for (i, layer) in [L::Syscall, L::Scheduler, L::Memory]
+            .into_iter()
+            .enumerate()
+        {
+            let seg = TraceSegment {
+                layer,
+                encoding: "linux.ftrace.v1".into(),
+                seq: i as u64,
+                clock_start_ns: i as u64,
+                clock_end_ns: i as u64 + 1,
+                event_count: 1,
+                log_digest: crate::b32(blake3::hash(format!("segment {i}").as_bytes()).as_bytes()),
+                prev_digest: prev.clone(),
+            };
+            prev = Some(crate::b32(&seg.digest().expect("segment digest")));
+            segments.push(seg);
+        }
         let out = EmittedOutput {
             payload_digest: crate::b32(blake3::hash(payload).as_bytes()),
             band: None,
-            emitted_at_ns: 5,
-            layer: emem_core::substrates::TraceLayerKind::SensorBus,
+            emitted_at_ns: 2,
+            layer: L::SensorBus,
         };
-        let segments = vec![seg];
         let root = OsTrace::compute_trace_root(&segments).expect("root");
         let mut t = OsTrace {
             schema: emem_trace::OS_TRACE_SCHEMA_V1.into(),
@@ -1331,6 +1393,113 @@ mod handoff {
         use ed25519_dalek::Signer;
         t.signature = emem_core::key::Signature(key.sign(&pre).to_bytes());
         t
+    }
+
+    fn settings_for(d: &Path, k: &SigningKey, profile: &str) -> DecodeSettings {
+        DecodeSettings {
+            input: d.join("in"),
+            output: d.join("out"),
+            traces: Some(d.join("traces")),
+            stage: None,
+            node: NodeIdentity {
+                node_key: crate::b32(k.verifying_key().as_bytes()),
+                profile: profile.into(),
+                platform: "nvidia.jetson-orin".into(),
+            },
+            observed_at: "2026-08-20T09:00:00Z".into(),
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
+            max_files: DEFAULT_MAX_FILES,
+        }
+    }
+
+    /// A trace the node did not verify must never be cited.
+    ///
+    /// The attack was one edited JSON field. Anything that can write to the
+    /// traces directory hands the node a trace with a stale signature and an
+    /// output line naming the payload's digest, and the record comes out
+    /// carrying `custody_with_trace` and that trace's cid. The assurance
+    /// string was honest about where the execution claim lives; the node was
+    /// still attaching a stronger label on the strength of a file it never
+    /// looked at.
+    #[test]
+    fn a_trace_that_does_not_verify_is_never_cited() {
+        let d = std::env::temp_dir().join("emem-airgap-forgedtrace");
+        let _ = std::fs::remove_dir_all(&d);
+        for sub in ["in", "out", "traces"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        let payload = b"a frame nobody actually watched being produced";
+        std::fs::write(d.join("in/frame.tif"), payload).unwrap();
+
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        let mut t = trace_covering(payload, &k);
+        // The forgery: the outputs still name the payload, the signature no
+        // longer covers them.
+        t.outputs[0].emitted_at_ns = 3;
+        std::fs::write(
+            d.join("traces/forged.json"),
+            serde_json::to_vec_pretty(&t).unwrap(),
+        )
+        .unwrap();
+
+        let st = settings_for(&d, &k, "exec.trace.v1");
+        let r = decode_dir(&k, &st).unwrap();
+
+        assert_eq!(
+            r.recorded, 1,
+            "custody is recorded regardless: a trace is \
+                   an addition to a record, never a precondition for one"
+        );
+        assert_eq!(r.traced, 0, "a forged trace was cited");
+        assert_eq!(r.refused_traces.len(), 1);
+        assert!(
+            r.refused_traces[0].reason.contains("did not verify"),
+            "{:?}",
+            r.refused_traces
+        );
+
+        let rec: Custody =
+            serde_json::from_slice(&std::fs::read(record_path(&d, "frame.tif", &k)).unwrap())
+                .unwrap();
+        rec.verify().unwrap();
+        assert!(rec.trace_cid.is_none());
+        assert!(rec.assurance.starts_with("custody_only"));
+    }
+
+    /// A trace under a profile this build does not know cannot be checked, so
+    /// it is not cited. The node cannot say what that profile required.
+    #[test]
+    fn a_trace_under_an_unknown_profile_is_not_cited() {
+        let d = std::env::temp_dir().join("emem-airgap-unknownprofile");
+        let _ = std::fs::remove_dir_all(&d);
+        for sub in ["in", "out", "traces"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        let payload = b"a frame from a profile nobody has registered";
+        std::fs::write(d.join("in/frame.tif"), payload).unwrap();
+
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        let mut t = trace_covering(payload, &k);
+        t.device.substrate_profile = "someone.invented.this.v9".into();
+        let pre = t.preimage().unwrap();
+        use ed25519_dalek::Signer;
+        t.signature = emem_core::key::Signature(k.sign(&pre).to_bytes());
+        // Properly signed, and still not citable.
+        std::fs::write(
+            d.join("traces/t.json"),
+            serde_json::to_vec_pretty(&t).unwrap(),
+        )
+        .unwrap();
+
+        let r = decode_dir(&k, &settings_for(&d, &k, "exec.trace.v1")).unwrap();
+        assert_eq!(r.recorded, 1);
+        assert_eq!(r.traced, 0);
+        assert!(
+            r.refused_traces[0].reason.contains("does not know"),
+            "{:?}",
+            r.refused_traces
+        );
     }
 
     #[test]

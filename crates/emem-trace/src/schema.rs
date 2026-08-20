@@ -90,6 +90,16 @@ pub struct TraceSegment {
     pub encoding: String,
 }
 
+impl EmittedOutput {
+    /// blake3 of the canonical CBOR of this whole output record.
+    ///
+    /// This is what the trace preimage binds, so editing any field of an
+    /// output invalidates the device signature.
+    pub fn digest(&self) -> Result<[u8; 32], TraceBuildError> {
+        canonical_digest(self)
+    }
+}
+
 impl TraceSegment {
     /// blake3 of the canonical CBOR of this segment record (including
     /// `prev_digest`, which is what makes the digests a chain).
@@ -100,7 +110,15 @@ impl TraceSegment {
 
 /// One sensor payload the device emitted during the window and wants
 /// admitted as a fact. The payload bytes travel in the write envelope;
-/// here only their digest is bound into the signed trace.
+/// the whole of this record is bound into the signed trace.
+///
+/// Every field, not just the payload digest. Binding the digest alone left
+/// `band`, `layer` and `emitted_at_ns` editable by anyone holding the trace,
+/// and a trace so edited still verified. That is not a cosmetic gap: `layer`
+/// is what separates a payload that came off a sensor bus from one that came
+/// out of an inference pass, which is the direct-sensor versus model-output
+/// distinction the provenance class rests on, and `band` is the label a fact
+/// is filed under. Demonstrated against the verifier before it was closed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmittedOutput {
     /// blake3 of the payload bytes, base32-nopad lowercase.
@@ -164,6 +182,12 @@ impl OsTrace {
         let device_digest = self.device.digest()?;
         let root = decode_digest(&self.trace_root)
             .ok_or_else(|| TraceBuildError::Encode("trace_root is not a digest".into()))?;
+        // The digest of each whole output record, not of the payload alone.
+        let output_digests: Vec<String> = self
+            .outputs
+            .iter()
+            .map(|o| o.digest().map(|d| render_digest(&d)))
+            .collect::<Result<_, _>>()?;
         Ok(emem_attest::os_trace_preimage_v1(
             &self.schema,
             &device_digest,
@@ -171,7 +195,7 @@ impl OsTrace {
             self.window_start_ns,
             self.window_end_ns,
             &root,
-            self.outputs.iter().map(|o| o.payload_digest.as_str()),
+            output_digests.iter().map(String::as_str),
             self.prev_trace_cid.as_deref(),
         ))
     }

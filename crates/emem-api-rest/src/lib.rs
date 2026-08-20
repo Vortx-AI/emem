@@ -18613,7 +18613,7 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                     {"tag": emem_attest::os_trace_tag::PROFILE, "name": "profile", "bytes": "substrate profile id (GET /v1/substrates)"},
                     {"tag": emem_attest::os_trace_tag::WINDOW, "name": "window", "bytes": "u64-LE start_ns || u64-LE end_ns"},
                     {"tag": emem_attest::os_trace_tag::TRACE_ROOT, "name": "trace_root", "bytes": "v1 merkle root over the chained segment digests, in chain order"},
-                    {"tag": emem_attest::os_trace_tag::OUTPUTS, "name": "outputs", "bytes": "list segment: every emitted-output payload digest"},
+                    {"tag": emem_attest::os_trace_tag::OUTPUTS, "name": "outputs", "bytes": "list segment: the digest of every emitted-output record, in order. The record, not the payload digest alone, so an output's band, layer and emission clock cannot be edited without breaking the device signature"},
                 ],
                 "verification": "ed25519_dalek verify_strict; the device_key signs. Segment encodings are validated against GET /v1/trace_encodings.",
             },

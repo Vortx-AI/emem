@@ -42,6 +42,16 @@ deterministically (fixed key, fixed clocks) by
 schema change with `EMEM_REGEN_VECTORS=1 cargo test -p emem-trace --test
 vectors` and review the diff as a wire change.
 
+The `os_trace/` signatures and trace CIDs were re-minted on 2026-08-20 to
+close a signature-coverage gap: the trace preimage bound each output's
+`payload_digest` alone, leaving `band`, `layer` and `emitted_at_ns` editable on
+a signed trace that still verified. It now binds the digest of the whole
+output record. No verdict and no reason code moved in that regeneration, which
+is what distinguishes a re-signing from a behaviour change. The change is to
+`emem.os_trace.v1` rather than a new version because no trace signed outside
+this repository exists: the device roster was empty, so minting a v2 would only
+have left a v1 with a known hole that verifiers must go on accepting.
+
 ## Adding vectors
 
 New protocol features MUST ship with new vectors before merge. New `Derivation.fn`

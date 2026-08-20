@@ -621,7 +621,10 @@ pub mod os_trace_tag {
     pub const WINDOW: u8 = 0x04;
     /// v1 merkle root over the chained segment digests, in chain order.
     pub const TRACE_ROOT: u8 = 0x05;
-    /// Digests of the sensor payloads emitted inside the window.
+    /// Digest of each whole emitted-output record inside the window, in
+    /// order. The record, not the payload digest alone: binding only the
+    /// payload left an output's band, layer and emission clock editable
+    /// without breaking the device signature.
     pub const OUTPUTS: u8 = 0x06;
     /// Content ID of the previous trace in this device's stream. Appended
     /// only when present, so a trace with no predecessor (the stream head)
@@ -632,8 +635,14 @@ pub mod os_trace_tag {
 /// Canonical v1 OS-trace preimage digest — the 32 bytes a device's
 /// ed25519 key signs. Binds the trace schema, the device identity, the
 /// substrate profile, the capture window, the merkle root of the chained
-/// trace segments, and every emitted output digest into one signature,
-/// so no part of the execution evidence can be swapped after signing.
+/// trace segments, and the digest of every emitted-output record into one
+/// signature, so no part of the execution evidence can be swapped after
+/// signing.
+///
+/// `output_digests` are digests of the whole output records. Passing payload
+/// digests alone leaves the rest of each output unsigned, which was the state
+/// this closed: `band`, `layer` and `emitted_at_ns` could all be edited on a
+/// signed trace and it still verified.
 #[allow(clippy::too_many_arguments)]
 pub fn os_trace_preimage_v1<'a, O>(
     schema: &str,

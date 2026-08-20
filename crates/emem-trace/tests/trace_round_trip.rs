@@ -301,3 +301,73 @@ fn every_candidate_profile_in_the_registry_is_verifiable() {
         "no archive-admitted profile was exercised"
     );
 }
+
+/// Every field of an emitted output is bound by the device signature.
+///
+/// It was not. Only `payload_digest` reached the preimage, so `band`, `layer`
+/// and `emitted_at_ns` could be edited on a signed trace and the trace still
+/// admitted. Found by mutating one field at a time and asking the verifier,
+/// rather than by reading the preimage and assuming.
+///
+/// The two that matter beyond tidiness: `layer` separates a payload that came
+/// off a sensor bus from one that came out of an inference pass, which is the
+/// direct-sensor versus model-output distinction the provenance class rests
+/// on; and `band` is the label the fact is filed under. An unsigned label on a
+/// signed record invites exactly the trust it has not earned.
+#[test]
+fn every_field_of_an_emitted_output_is_signed() {
+    let sk = signing_key();
+    let (trace, _) = robot_trace(&sk);
+    let registry = &*DEFAULT;
+    let profile = registry.lookup("robot.fleet.v1").expect("profile");
+
+    assert_eq!(
+        verify_os_trace(&trace, profile, None).verdict,
+        Verdict::Admit,
+        "the control must admit, or the mutations below prove nothing"
+    );
+    assert!(
+        !trace.outputs.is_empty(),
+        "this test needs an output to mutate"
+    );
+
+    type Edit = (&'static str, fn(&mut EmittedOutput));
+    let edits: Vec<Edit> = vec![
+        ("band", |o| {
+            o.band = Some(match o.band.as_deref() {
+                Some("surface_water") => "ndvi".to_string(),
+                _ => "surface_water".to_string(),
+            })
+        }),
+        ("layer", |o| {
+            o.layer = if o.layer == TraceLayerKind::Syscall {
+                TraceLayerKind::Network
+            } else {
+                TraceLayerKind::Syscall
+            }
+        }),
+        ("emitted_at_ns", |o| o.emitted_at_ns += 1),
+        ("payload_digest", |o| {
+            o.payload_digest = data_digest(b"a payload this device never emitted")
+        }),
+    ];
+
+    for (field, edit) in edits {
+        let mut forged = trace.clone();
+        edit(&mut forged.outputs[0]);
+        let report = verify_os_trace(&forged, profile, None);
+        assert_eq!(
+            report.verdict,
+            Verdict::Reject,
+            "editing output.{field} left the trace verifying"
+        );
+        assert!(
+            report
+                .reasons
+                .iter()
+                .any(|r| matches!(r, RejectReason::SignatureInvalid)),
+            "editing output.{field} was caught, but not as a broken signature: {:?}",
+            report.reasons
+        );
+    }
+}
