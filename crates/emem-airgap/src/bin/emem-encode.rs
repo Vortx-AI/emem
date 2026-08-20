@@ -210,10 +210,71 @@ emem-encode  capture one OS-trace window, sign it, write it to a folder.
   --platform  <id>    hardware platform string, e.g. jetson-orin-nx
   --data      <dir>   node_identity.json, SHARED with the decoder (default: .)
   --prev-trace <cid>  the previous trace in this stream, to chain the windows
+  --interval  <secs>  capture every <secs> seconds instead of once and exiting;
+                      each window chains to the one before it
 
 Each flag also reads an environment variable: EMEM_ENCODE_OUT, _PAYLOADS,
-_PROFILE, _PLATFORM, _DATA, _PREV_TRACE.
+_PROFILE, _PLATFORM, _DATA, _PREV_TRACE, _INTERVAL. Either spelling works,
+with a space or an equals sign. A flag this command does not have is refused
+rather than ignored, so a typo stops the run instead of quietly changing it.
 
 Needs a tracefs mount and the capability to read it for the syscall, scheduler
 and memory layers. Energy and thermal come from hwmon and need neither. A layer
 that cannot be read is ABSENT from the trace and reported, never invented.";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The encoder's help text must describe every flag it accepts.
+    ///
+    /// It did not. `--interval` is what turns a one-shot capture into the
+    /// sidecar this crate is built around, it is accepted, it is in the
+    /// README, and `--help` never mentioned it. A developer discovering the
+    /// tool through its own help could not find the mode it exists for.
+    #[test]
+    fn the_help_text_and_the_accepted_flags_agree() {
+        for flag in ENCODE_FLAGS {
+            if *flag == "--help" {
+                continue;
+            }
+            assert!(
+                HELP.contains(flag),
+                "{flag} is accepted but the help text never mentions it"
+            );
+        }
+        for line in HELP.lines() {
+            // The options block is indented two spaces; prose that mentions a
+            // flag is not an offer of one.
+            let Some(rest) = line.strip_prefix("  --") else {
+                continue;
+            };
+            let name = format!(
+                "--{}",
+                rest.split([' ', '\t', '=']).next().unwrap_or_default()
+            );
+            if name == "--" {
+                continue;
+            }
+            assert!(
+                ENCODE_FLAGS.contains(&name.as_str()),
+                "the help text offers {name} but the parser refuses it"
+            );
+        }
+    }
+
+    /// And the README must name them too.
+    #[test]
+    fn the_readme_names_every_flag_the_encoder_accepts() {
+        const README: &str = include_str!("../../README.md");
+        for flag in ENCODE_FLAGS {
+            if *flag == "--help" {
+                continue;
+            }
+            assert!(
+                README.contains(flag),
+                "{flag} is accepted but crates/emem-airgap/README.md never names it"
+            );
+        }
+    }
+}

@@ -743,6 +743,26 @@ mod tests {
         );
     }
 
+    /// Every flag the decoder accepts must appear in the README too.
+    ///
+    /// The README is what a developer reads before they ever run `--help`, and
+    /// it had fallen behind by four flags. That matters more now that an
+    /// unknown flag is refused rather than ignored: a README that names a flag
+    /// the binary does not have stops the run outright.
+    #[test]
+    fn the_readme_names_every_flag_the_decoder_accepts() {
+        const README: &str = include_str!("../README.md");
+        for flag in DECODE_FLAGS {
+            if *flag == "--help" {
+                continue;
+            }
+            assert!(
+                README.contains(flag),
+                "{flag} is accepted but crates/emem-airgap/README.md never names it"
+            );
+        }
+    }
+
     /// The flags the decoder accepts and the flags its help text describes must be
     /// the same set. Two hand-kept lists drift, and the one that drifts silently
     /// is the one nobody runs.

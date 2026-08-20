@@ -84,9 +84,18 @@ emem-airgap \
 ```
 
 Every flag also reads an environment variable (`EMEM_AIRGAP_INPUT`, `_OUTPUT`,
-`_DATA`, `_PROFILE`, `_PLATFORM`, `_OBSERVED_AT`, `_MAX_PAYLOAD_BYTES`,
-`_MAX_FILES`). Run `emem-airgap --help` for the current list; that output is
-the source of truth if this file ever falls behind it.
+`_DATA`, `_PROFILE`, `_PLATFORM`, `_OBSERVED_AT`, `_HWMODEL`,
+`_MAX_PAYLOAD_BYTES`, `_MAX_TRACE_BYTES`, `_MAX_FILES`, `_TRACES`, `_STAGE`).
+Either spelling works, with a space or an equals sign, and a flag the command
+does not have is refused rather than ignored. Run `emem-airgap --help` for the
+list; a test checks that this file names every flag it does.
+
+The three caps exist because the input directory belongs to the host:
+`--max-payload-bytes` (256 MiB) is the largest single payload, `--max-files`
+(10,000) the most in one run, and `--max-trace-bytes` (16 MiB) the largest file
+read from the traces directory. Each reports what it refused rather than
+dropping it silently. `--hwmodel` is the EAT hardware-model string that goes
+into the join request, defaulting to the platform id.
 
 `--observed-at` is required and is never defaulted to the system clock. It is
 signed into every record, so a node with a wrong clock stamping its own time
@@ -318,6 +327,11 @@ between the two and the head still points at the older trace, so the next
 window chains from there and the just-written one is left unreferenced: visible
 to an operator, and better than two windows claiming the same predecessor,
 which is a fork nobody could tell from tampering.
+
+`--prev-trace <cid>` names the trace this window follows, when you are driving
+the chain yourself rather than letting `--interval` do it. The streaming loop
+sets it from the previous window automatically, so you only need it to resume a
+stream by hand.
 
 Without `--interval` it captures one window and exits, which is the right shape
 for a task scheduler that wants to own the cadence itself.
