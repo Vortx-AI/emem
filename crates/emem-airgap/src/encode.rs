@@ -1014,8 +1014,20 @@ mod tests {
     }
 
     /// The signed os field must say something true even with no /etc.
+    ///
+    /// Scoped to a host that HAS one of the two sources, rather than to an
+    /// operating system by name: the point is that the field is populated
+    /// wherever it can be, not that this is Linux. Asserting unconditionally
+    /// turned a macOS CI runner red for a property that machine cannot have,
+    /// which is a failing test that is telling the truth about nothing.
     #[test]
     fn the_device_os_field_is_populated_without_an_etc_directory() {
+        let has_source =
+            Path::new("/etc/os-release").exists() || Path::new("/proc/sys/kernel/ostype").exists();
+        if !has_source {
+            eprintln!("skipped: this host has neither /etc/os-release nor /proc/sys/kernel/ostype");
+            return;
+        }
         let (os, kernel) = os_and_kernel();
         assert_ne!(os, "unknown", "os read unknown while kernel was {kernel}");
         assert!(!kernel.is_empty());
@@ -1233,6 +1245,12 @@ mod tests {
     /// all. Reported from a real deployment as dead weight in orbit.
     #[test]
     fn a_layer_with_a_counter_fallback_captures_and_labels_it_honestly() {
+        // The fallback IS the procfs read, so a host without /proc cannot
+        // exercise it. Skipped by capability rather than by OS name.
+        if !Path::new("/proc/meminfo").exists() {
+            eprintln!("skipped: this host has no /proc/meminfo to fall back to");
+            return;
+        }
         let fallback = Source {
             layer: TraceLayerKind::Memory,
             encoding: "linux.ftrace.v1",
