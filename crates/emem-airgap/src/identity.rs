@@ -113,9 +113,27 @@ pub struct JoinRequest {
     /// The node's own signature over
     /// [`emem_attest::join_request_preimage_v1`].
     pub self_signature: String,
-    /// What to do with this file, for the human carrying it.
+    /// What to do with this file, for the human carrying it. MUST equal
+    /// [`NEXT_STEP`]: instructions inside a signed document that the signature
+    /// does not cover are instructions an attacker can rewrite.
     pub next_step: String,
 }
+
+/// What to do with a join request, for the human carrying it.
+///
+/// A constant, and checked on verification, for the same reason [`PROVES`] is.
+/// It was free text in the signed body but outside the signature, so anyone
+/// who intercepted the file on its way to the endorser could rewrite the
+/// instructions, and the request still verified. A human reading a document
+/// that checks out has no way to see which sentences the signature covered.
+/// The instruction that matters most here is the one telling them to satisfy
+/// themselves the platform claim is true, which is exactly what an attacker
+/// would want removed.
+pub const NEXT_STEP: &str = "Carry this to a connected machine holding the endorser key. Verify \
+                             the self-signature, satisfy yourself the platform claim is true, \
+                             then issue an emem.platform_attestation.v0 for this node_key and \
+                             POST it to /v1/enroll_attested. Return the attestation to this \
+                             node's input directory so it can carry its own endorsement.";
 
 /// The sentence every join request carries about itself.
 pub const PROVES: &str = "possession_of_node_key_only: this signature shows the sender holds the \
@@ -152,19 +170,17 @@ impl JoinRequest {
             created_at: created_at.into(),
             proves: PROVES.into(),
             self_signature: b32(&sig.to_bytes()),
-            next_step: "Carry this to a connected machine holding the endorser key. Verify the \
-                        self-signature, satisfy yourself the platform claim is true, then issue \
-                        an emem.platform_attestation.v0 for this node_key and POST it to \
-                        /v1/enroll_attested. Return the attestation to this node's input \
-                        directory so it can carry its own endorsement."
-                .into(),
+            next_step: NEXT_STEP.into(),
         }
     }
 
     /// Check the self-signature, with nothing but the request.
     pub fn verify(&self) -> bool {
         use ed25519_dalek::{Signature, VerifyingKey};
-        if self.schema != JOIN_REQUEST_SCHEMA_V1 || self.proves != PROVES {
+        if self.schema != JOIN_REQUEST_SCHEMA_V1
+            || self.proves != PROVES
+            || self.next_step != NEXT_STEP
+        {
             return false;
         }
         let Some(pk) = decode32(&self.node_key) else {
