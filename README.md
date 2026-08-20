@@ -496,6 +496,8 @@ The Orin loop runs on four real Sentinel-2 crops of the Nile Delta committed in-
 
 The design behind this substrate, why Earth observation is the first memory to fill and what a signed fact over it is allowed to assert, is set out in the preprint: [*A research on Content-Addressed, Verifiable Earth-Memory Protocol for AI Agents over Foundation-Model Embeddings*](https://doi.org/10.5281/zenodo.20706893) ([DOI 10.5281/zenodo.20706893](https://doi.org/10.5281/zenodo.20706893), CC-BY-4.0, not yet peer-reviewed), with the full text in [docs/whitepaper.md](docs/whitepaper.md).
 
+**Run a node with no route out.** A container on hardware you do not own, one directory in and one out, no network and no database: [`crates/emem-airgap`](crates/emem-airgap/README.md). It signs custody for every payload that arrives, which is a deliberately weaker claim than an execution trace and says so in its own signed body. The image is `FROM scratch` and holds one static binary; the build links no networking crate, so `--network none` agrees with the binary rather than merely being asked of it.
+
 **Run your own node.** The hosted node runs the exact binary in this repo, and a receipt minted on one verifies on the other:
 
 ```bash
