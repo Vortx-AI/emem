@@ -39,6 +39,15 @@ pub struct DecodeSettings {
     /// hope: the input directory belongs to the host, and one enormous file
     /// should cost a skip line in the report, not the process.
     pub max_payload_bytes: u64,
+    /// Largest file this node will read from the traces directory.
+    ///
+    /// The payload cap did not cover this and the omission was measurable:
+    /// 400 MB of junk in the traces directory took the process to 383 MB
+    /// resident. That directory is written by a separate process, so it fills
+    /// with debris for ordinary reasons (an encoder killed mid-write, a log
+    /// rotated into the wrong folder) and a decoder that dies reading it is a
+    /// decoder that recorded no custody at all.
+    pub max_trace_bytes: u64,
 }
 
 /// Default payload cap: 256 MiB. Big enough for the imagery this is built for,
@@ -48,6 +57,11 @@ pub const DEFAULT_MAX_PAYLOAD_BYTES: u64 = 256 * 1024 * 1024;
 /// Default per-run file cap. A run that hits it reports the overflow rather
 /// than truncating silently, and the remainder is picked up on the next run.
 pub const DEFAULT_MAX_FILES: u64 = 10_000;
+
+/// Default trace file cap: 16 MiB. A trace is a few hundred bytes per segment,
+/// so this holds tens of thousands of segments; anything larger is debris
+/// rather than a record.
+pub const DEFAULT_MAX_TRACE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// What a run did.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +92,15 @@ pub struct DecodeReport {
     /// containers are running; guessing does not.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stale_partials: Vec<String>,
+    /// Files in the traces directory refused by policy rather than by failing
+    /// to parse, with the reason.
+    ///
+    /// Separate from `unreadable_traces` because the two need different
+    /// responses. Debris that does not parse is expected and needs no action;
+    /// a trace refused for being oversized or a symlink is a fact about the
+    /// host that the operator should see.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused_traces: Vec<Skipped>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -125,6 +148,41 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
             ),
         )
     })?;
+    // Refuse a configuration that cannot mean what it says.
+    //
+    // Pointing --input and --output at one directory makes the node take
+    // custody of its own records, and the growth squares: one payload became
+    // two records, then five, then eleven. A satellite fills its output mount
+    // from a typo in a unit file, and every record after the first describes
+    // bookkeeping rather than science. There is no reading of that
+    // configuration that is correct, so it is rejected rather than obeyed.
+    let same = |a: &Path, b: &Path| match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        // Unresolvable means it does not exist yet, which means it is not the
+        // directory we just created.
+        _ => false,
+    };
+    if same(&settings.input, &settings.output) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "--input and --output are the same directory ({}). The node would take custody of its own records, and each run would record the previous run's output. Give the output its own directory.",
+                settings.output.display()
+            ),
+        ));
+    }
+    if let Some(t) = &settings.traces {
+        if same(t, &settings.output) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "--traces and --output are the same directory ({}). The node would try to read its own custody records as encoder traces. The encoder writes traces; point --traces at where it writes them.",
+                    t.display()
+                ),
+            ));
+        }
+    }
+
     let mut names: Vec<PathBuf> = std::fs::read_dir(&settings.input)
         .map_err(|e| {
             std::io::Error::new(
@@ -156,11 +214,56 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
     // separate process and its debris must not stop custody being recorded.
     let mut traced: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut unreadable_traces = 0usize;
+    let mut refused_traces: Vec<Skipped> = Vec::new();
     if let Some(dir) = &settings.traces {
         if let Ok(entries) = std::fs::read_dir(dir) {
+            let mut seen = 0u64;
             for e in entries.filter_map(|e| e.ok()) {
                 let path = e.path();
-                if !path.is_file() {
+                let tname = e.file_name().to_string_lossy().into_owned();
+                seen += 1;
+                if seen > settings.max_files {
+                    refused_traces.push(Skipped {
+                        name: tname,
+                        reason: format!(
+                            "beyond the {} file cap while scanning the traces directory; raise --max-files or clear the encoder's debris",
+                            settings.max_files
+                        ),
+                    });
+                    continue;
+                }
+                // symlink_metadata, for the same reason the input directory
+                // uses it: is_file() resolves the link, so a symlink here
+                // reads a file outside the traces directory. Its digest map
+                // reaches the signed record, so this is not a read that stays
+                // local.
+                let meta = match std::fs::symlink_metadata(&path) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        unreadable_traces += 1;
+                        continue;
+                    }
+                };
+                if meta.file_type().is_symlink() {
+                    refused_traces.push(Skipped {
+                        name: tname,
+                        reason: "symlink: refused, because following it would read a file outside the traces directory"
+                            .into(),
+                    });
+                    continue;
+                }
+                if !meta.is_file() {
+                    continue;
+                }
+                if meta.len() > settings.max_trace_bytes {
+                    refused_traces.push(Skipped {
+                        name: tname,
+                        reason: format!(
+                            "{} bytes exceeds the {} byte trace cap; a trace this large is debris, not a record",
+                            meta.len(),
+                            settings.max_trace_bytes
+                        ),
+                    });
                     continue;
                 }
                 match std::fs::read(&path)
@@ -189,6 +292,7 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         traced: 0,
         unreadable_traces,
         stale_partials: Vec::new(),
+        refused_traces,
     };
 
     for path in names {
@@ -258,13 +362,10 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
             });
             continue;
         }
-        let bytes = match std::fs::read(&path) {
+        let bytes = match read_settled(&path, &meta, settings.max_payload_bytes) {
             Ok(b) => b,
-            Err(e) => {
-                report.skipped.push(Skipped {
-                    name,
-                    reason: format!("unreadable: {e}"),
-                });
+            Err(reason) => {
+                report.skipped.push(Skipped { name, reason });
                 continue;
             }
         };
@@ -374,6 +475,93 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
     Ok(report)
 }
 
+/// Read a payload, and refuse to sign it unless the file held still.
+///
+/// The plain read was wrong in ordinary operation, not just under attack. A
+/// host writing a 200 MB frame while the decoder ran on a timer got a record
+/// signed over the first 30 MB, reported as `0 skipped`. The record was valid,
+/// the signature checked, and it named a file whose digest no longer matched
+/// it, so downstream it read as tampering. The decoder cannot know when the
+/// host has finished writing, but it can know whether the file moved under it,
+/// and a skipped payload picked up next run is worth any number of records
+/// that describe a file that no longer exists.
+///
+/// Three checks, in the order the failures happen:
+///
+/// * **Same file.** The size and type were checked by path; the read happens
+///   through a descriptor. Between the two, the path can be swapped for a
+///   symlink. Comparing device and inode of the open descriptor against what
+///   was checked closes that, because the descriptor cannot be redirected once
+///   it is open.
+/// * **Bounded.** Reading through `take` means a file that grows after its
+///   size was checked costs a skip line rather than the process. The stat is a
+///   hint; the limit is enforced on the bytes.
+/// * **Settled.** The size and mtime after the read come from `fstat` on the
+///   same descriptor, so they describe exactly the file that was read. If
+///   either moved, the payload was in flight and is left for the next run.
+fn read_settled(path: &Path, checked: &std::fs::Metadata, cap: u64) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let f = std::fs::File::open(path).map_err(|e| format!("unreadable: {e}"))?;
+    let opened = f
+        .metadata()
+        .map_err(|e| format!("unreadable after opening: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if opened.ino() != checked.ino() || opened.dev() != checked.dev() {
+            return Err("the path was replaced between being checked and being opened, so what would have been signed is not what was checked"
+                .into());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = checked;
+
+    if !opened.is_file() {
+        return Err("not a regular file".into());
+    }
+    let mut bytes = Vec::with_capacity(opened.len().min(cap) as usize);
+    // By reference: the descriptor is needed afterwards, and the fstat that
+    // proves the file settled must come from the same one.
+    (&f).take(cap.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("unreadable: {e}"))?;
+    if bytes.len() as u64 > cap {
+        return Err(format!(
+            "grew past the {cap} byte payload cap while it was being read; raise \
+             --max-payload-bytes deliberately if this node really should read files this large"
+        ));
+    }
+
+    let after = f
+        .metadata()
+        .map_err(|e| format!("unreadable after being read: {e}"))?;
+    // Name the check that fired. "Changed" alone sends an operator looking at
+    // the wrong thing: a file that grew is a host still writing, while one
+    // that was rewritten in place at the same size is something else entirely.
+    let moved = if after.len() != bytes.len() as u64 {
+        Some(format!(
+            "it grew from {} to {} bytes",
+            bytes.len(),
+            after.len()
+        ))
+    } else if after.modified().ok() != opened.modified().ok() {
+        Some(format!(
+            "it was modified in place, still {} bytes",
+            bytes.len()
+        ))
+    } else {
+        None
+    };
+    if let Some(how) = moved {
+        return Err(format!(
+            "changed while it was being read: {how}. It was still being written, so nothing was \
+             signed; it will be recorded next run, once the host has finished with it."
+        ));
+    }
+    Ok(bytes)
+}
+
 /// The eight-character form of a node key, used to keep per-node output files
 /// from colliding when several nodes share one output directory.
 pub fn short_key(node_key: &str) -> String {
@@ -473,6 +661,7 @@ mod tests {
             stage: None,
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
             max_files: DEFAULT_MAX_FILES,
         }
     }
@@ -573,6 +762,7 @@ fn record_path(dir: &Path, name: &str, key: &SigningKey) -> PathBuf {
 /// side rather than the implementer's.
 #[cfg(test)]
 mod security {
+
     use super::*;
 
     fn key() -> SigningKey {
@@ -592,6 +782,7 @@ mod security {
             stage: None,
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
             max_files: DEFAULT_MAX_FILES,
         }
     }
@@ -602,6 +793,161 @@ mod security {
         std::fs::create_dir_all(d.join("in")).unwrap();
         std::fs::create_dir_all(d.join("out")).unwrap();
         d
+    }
+
+    /// A payload the host is still writing must not be signed.
+    ///
+    /// Found by stress and it is not an attack: a downlink writing a 200 MB
+    /// frame while the decoder ran on a timer got a valid record over the
+    /// first 30 MB, reported as `0 skipped`. The record verified and named a
+    /// file whose digest no longer matched it, which downstream reads as
+    /// tampering. A skipped payload picked up next run beats a record that
+    /// describes a file that no longer exists.
+    #[test]
+    fn a_payload_still_being_written_is_not_signed() {
+        use std::io::Write;
+        let d = std::env::temp_dir().join("emem-airgap-inflight");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("in")).unwrap();
+        let p = d.join("in/frame.tif");
+        // Large enough that the read takes long enough for the writer to move
+        // the file under it. A 4 KiB file was read faster than the appending
+        // thread could touch it, so the race never showed and the test passed
+        // for the wrong reason.
+        std::fs::write(&p, vec![7u8; 32 * 1024 * 1024]).unwrap();
+
+        // A writer that appends while the decode runs.
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stop = done.clone();
+        let path = p.clone();
+        let w = std::thread::spawn(move || {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = f.write_all(&[9u8; 65536]);
+                let _ = f.flush();
+                // Paced. A tight loop drove the file past the payload cap in
+                // milliseconds, so every run skipped for being oversized and
+                // the race under test never ran.
+                std::thread::sleep(std::time::Duration::from_micros(200));
+            }
+        });
+
+        let k = key();
+        let st = s(&d);
+        let mut caught = false;
+        for _ in 0..40 {
+            let r = decode_dir(&k, &st).unwrap();
+            if r.skipped
+                .iter()
+                .any(|s| s.reason.contains("changed while it was being read"))
+            {
+                caught = true;
+                break;
+            }
+        }
+        done.store(true, std::sync::atomic::Ordering::Relaxed);
+        w.join().unwrap();
+        assert!(
+            caught,
+            "a file being appended to was signed as if it had settled"
+        );
+
+        // Once the writer stops, the same file records and covers its bytes.
+        let r = decode_dir(&k, &st).unwrap();
+        assert_eq!(r.recorded, 1, "{:?}", r.skipped);
+        let bytes = std::fs::read(&p).unwrap();
+        let rec: Custody =
+            serde_json::from_slice(&std::fs::read(record_path(&d, "frame.tif", &k)).unwrap())
+                .unwrap();
+        rec.verify().unwrap();
+        assert!(
+            rec.covers(&bytes),
+            "the record does not cover the settled file"
+        );
+    }
+
+    /// Input and output pointing at one directory makes the node record its
+    /// own output, and the growth squares: one payload became two records,
+    /// then five, then eleven. A typo in a unit file fills the output mount.
+    #[test]
+    fn input_and_output_being_one_directory_is_refused() {
+        let d = std::env::temp_dir().join("emem-airgap-selfref");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("in")).unwrap();
+        std::fs::write(d.join("in/frame.tif"), b"science").unwrap();
+        let k = key();
+        let mut st = s(&d);
+        st.output = st.input.clone();
+        let e = decode_dir(&k, &st).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(e.to_string().contains("custody of its own records"), "{e}");
+
+        // And the same directory reached by a different path is still the
+        // same directory: the check resolves rather than comparing strings.
+        st.output = st.input.join("..").join("in");
+        let e = decode_dir(&k, &st).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput, "{e}");
+    }
+
+    /// A trace file is read into memory, and until this cap existed nothing
+    /// bounded it: 400 MB of junk in the traces directory took the process to
+    /// 383 MB resident. That directory is written by a separate process, so it
+    /// collects debris for ordinary reasons.
+    #[test]
+    fn an_oversized_trace_is_refused_rather_than_read() {
+        let d = std::env::temp_dir().join("emem-airgap-bigtrace");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("in")).unwrap();
+        std::fs::create_dir_all(d.join("traces")).unwrap();
+        std::fs::write(d.join("in/frame.tif"), b"science").unwrap();
+        std::fs::write(d.join("traces/huge.json"), vec![b'x'; 4096]).unwrap();
+
+        let k = key();
+        let mut st = s(&d);
+        st.traces = Some(d.join("traces"));
+        st.max_trace_bytes = 1024;
+        let r = decode_dir(&k, &st).unwrap();
+        assert_eq!(
+            r.recorded, 1,
+            "custody must survive debris in the traces directory"
+        );
+        assert_eq!(r.refused_traces.len(), 1);
+        assert!(
+            r.refused_traces[0].reason.contains("exceeds"),
+            "{:?}",
+            r.refused_traces
+        );
+        assert_eq!(r.unreadable_traces, 0, "a refusal is not a parse failure");
+    }
+
+    /// is_file() resolves a symlink, so a link in the traces directory read a
+    /// file outside it. Its digests reach the signed record, so that read does
+    /// not stay local.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_trace_is_refused() {
+        let d = std::env::temp_dir().join("emem-airgap-linktrace");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("in")).unwrap();
+        std::fs::create_dir_all(d.join("traces")).unwrap();
+        std::fs::write(d.join("in/frame.tif"), b"science").unwrap();
+        std::fs::write(d.join("elsewhere.json"), b"not yours").unwrap();
+        std::os::unix::fs::symlink(d.join("elsewhere.json"), d.join("traces/link.json")).unwrap();
+
+        let k = key();
+        let mut st = s(&d);
+        st.traces = Some(d.join("traces"));
+        let r = decode_dir(&k, &st).unwrap();
+        assert_eq!(r.recorded, 1);
+        assert_eq!(r.refused_traces.len(), 1);
+        assert!(
+            r.refused_traces[0].reason.contains("symlink"),
+            "{:?}",
+            r.refused_traces
+        );
     }
 
     /// A symlink in the input directory must never be read.
@@ -737,6 +1083,7 @@ mod parallel {
                 },
                 observed_at: "2026-08-20T09:00:00Z".into(),
                 max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+                max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
                 max_files: DEFAULT_MAX_FILES,
             };
             (k, st)
@@ -792,6 +1139,7 @@ mod parallel {
                 stage: None,
                 observed_at: "2026-08-20T09:00:00Z".into(),
                 max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+                max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
                 max_files: DEFAULT_MAX_FILES,
             };
             (k, st)
@@ -845,6 +1193,7 @@ mod resilience {
             stage: None,
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
             max_files: DEFAULT_MAX_FILES,
         }
     }
@@ -1017,6 +1366,7 @@ mod handoff {
             },
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_trace_bytes: DEFAULT_MAX_TRACE_BYTES,
             max_files: DEFAULT_MAX_FILES,
         };
         let r = decode_dir(&k, &st).unwrap();

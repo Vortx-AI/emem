@@ -77,7 +77,7 @@ pub use encode::{
 pub use identity::{JoinRequest, NodeKeyFile, JOIN_REQUEST_SCHEMA_V1};
 pub use run::{
     decode_dir, key_path, short_key, DecodeReport, DecodeSettings, Skipped, DEFAULT_MAX_FILES,
-    DEFAULT_MAX_PAYLOAD_BYTES,
+    DEFAULT_MAX_PAYLOAD_BYTES, DEFAULT_MAX_TRACE_BYTES,
 };
 
 /// base32-nopad lowercase of a blake3 digest: the encoding every emem digest

@@ -119,6 +119,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         max_files: env_or("--max-files", "EMEM_AIRGAP_MAX_FILES", &args)
             .and_then(|v| v.parse().ok())
             .unwrap_or(emem_airgap::DEFAULT_MAX_FILES),
+        max_trace_bytes: env_or("--max-trace-bytes", "EMEM_AIRGAP_MAX_TRACE_BYTES", &args)
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(emem_airgap::DEFAULT_MAX_TRACE_BYTES),
     };
 
     // Written on every run, not just the first. It is small, it is
@@ -416,6 +419,7 @@ DECODE OPTIONS
   --observed-at  <ts>    RFC 3339 UTC; required, never defaulted to now
   --data         <dir>   where node_identity.json lives (default: .)
   --max-payload-bytes <n> refuse payloads larger than this (default 256 MiB)
+  --max-trace-bytes <n>  refuse trace files larger than this (default 16 MiB)
   --max-files    <n>     most files in one run (default 10000)
   --traces       <dir>   emem.os_trace.v1 records from an encoder on this machine;
                          a payload a trace covers gets that trace cited
@@ -424,5 +428,7 @@ DECODE OPTIONS
 Each flag also reads an environment variable: EMEM_AIRGAP_INPUT, _OUTPUT,
 _PROFILE, _PLATFORM, _OBSERVED_AT, _DATA.
 
-Writes one <name>.custody.json per payload plus run.json. The payload itself
-never leaves: only the record does.";
+Writes one <name>.<node>.custody.json per payload, plus run.<node>.json. Every
+output carries the node's short key, so several nodes can share one output
+mount without overwriting each other. The payload itself never leaves: only
+the record does.";

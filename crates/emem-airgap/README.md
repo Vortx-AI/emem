@@ -400,6 +400,32 @@ and tidying it away would corrupt a healthy write to clean up after a dead one.
 quietly ignored half its input would look identical to a clean one, so nothing
 is skipped silently.
 
+### A skip you should expect to see
+
+**A payload the host is still writing is skipped, not signed.** If the decoder
+runs on a timer and the host is halfway through writing `frame_002.tif`, the
+node reads the file, notices it moved underneath it, and leaves it alone:
+
+```
+"skipped": [{
+  "name": "frame_002.tif",
+  "reason": "changed while it was being read: it grew from 30000000 to
+             41000000 bytes. It was still being written, so nothing was
+             signed; it will be recorded next run, once the host has
+             finished with it."
+}]
+```
+
+This is normal and needs no action. The next run records it. The alternative is
+worse than a skip: before this check existed, a 200 MB frame written during a
+run produced a perfectly valid record over the first 30 MB, reported as
+`0 skipped`. That record verifies, names a real file, and its digest does not
+match it, which downstream is indistinguishable from tampering.
+
+If a file is skipped this way on **every** run, the host is writing into the
+input directory continuously. Write to a temporary and rename it in, and the
+node will see the whole file the first time.
+
 ## Joining the network
 
 The node cannot enrol itself. A platform attestation is signed by the
@@ -468,7 +494,21 @@ Built for a bus that browns out and flash that flips bits:
 * Symlinks in either directory are refused, not followed. Both directories are
   attacker-controlled when you do not own the host.
 * Payloads are size-checked before being read (256 MiB default) and runs are
-  capped at 10,000 files, with the overflow reported rather than dropped.
+  capped at 10,000 files, with the overflow reported rather than dropped. The
+  size check is a hint, not the limit: the read itself is bounded, so a file
+  that grows after being checked costs a skip line rather than the process.
+* Trace files are bounded too (`--max-trace-bytes`, 16 MiB default). The
+  traces directory is written by a **separate** process, so it collects debris
+  for ordinary reasons; 400 MB of it took the decoder to 383 MB resident before
+  this cap existed, which on an 8 GB module shared with a GPU is a decoder that
+  records no custody at all.
+* A payload is only signed if it held still while it was read, and the
+  descriptor that is read is checked to be the file that was inspected, so the
+  path cannot be swapped for a symlink in between.
+* `--input` and `--output` being the same directory is refused. The node would
+  take custody of its own records and the growth squares: one payload became
+  two records, then five, then eleven. A typo in a unit file should not fill
+  the output mount.
 
 What it does **not** do: it does not encrypt anything, it does not decide
 whether your clock is right, and it does not make the payload itself
