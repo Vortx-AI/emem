@@ -399,22 +399,39 @@ pub fn capture_window(
 ) -> std::io::Result<CaptureReport> {
     let window_start_ns = monotonic_ns();
 
-    let mut segments = Vec::new();
+    let mut segments: Vec<TraceSegment> = Vec::new();
     let mut captured = Vec::new();
     let mut missed = Vec::new();
-    for (i, src) in SOURCES.iter().enumerate() {
+    // seq counts EMITTED segments, not attempted sources.
+    //
+    // It was the source index, which left holes whenever a layer could not be
+    // read: capture five of seven and the sequence ran 0, 2, 3, 5, 6. The
+    // verifier requires seq contiguous from zero and rejected every trace this
+    // encoder produced. Nothing local caught it, because nothing local ran the
+    // verifier; the deployed one found it on the first trace it was shown.
+    let mut seq = 0u64;
+    // And each segment must name the previous segment's digest. Every one of
+    // these was None, so the chain was broken at every link. Same story: a
+    // chain nothing checked is a chain nobody noticed was missing.
+    let mut prev_digest: Option<String> = None;
+    for src in SOURCES.iter() {
         match capture(src) {
             Ok((bytes, events, encoding)) => {
-                segments.push(TraceSegment {
+                let seg = TraceSegment {
                     layer: src.layer,
-                    seq: i as u64,
+                    seq,
                     clock_start_ns: window_start_ns,
                     clock_end_ns: monotonic_ns().max(window_start_ns + 1),
                     event_count: events,
                     log_digest: b32(blake3::hash(&bytes).as_bytes()),
-                    prev_digest: None,
+                    prev_digest: prev_digest.clone(),
                     encoding: encoding.to_string(),
-                });
+                };
+                prev_digest = Some(b32(&seg
+                    .digest()
+                    .map_err(|e| std::io::Error::other(format!("segment digest: {e}")))?));
+                segments.push(seg);
+                seq += 1;
                 captured.push(format!("{:?}", src.layer).to_lowercase());
             }
             Err(m) => missed.push(m),
@@ -594,6 +611,83 @@ mod tests {
         let p = StreamHead::path(&d);
         std::fs::write(&p, b"{ not json").unwrap();
         assert!(StreamHead::load_for_this_boot(&p).is_none());
+    }
+
+    /// Run the REAL verifier over what the encoder actually produces.
+    ///
+    /// This test exists because its absence cost us. Every trace this encoder
+    /// wrote was structurally invalid, in two ways at once: seq was the source
+    /// index so it had holes whenever a layer could not be read, and every
+    /// segment's prev_digest was None so the chain was broken at every link.
+    /// Nothing local noticed, because nothing local ran the verifier. The
+    /// deployed one rejected the first trace it was ever shown.
+    ///
+    /// So the encoder's output now meets its own verifier in the test suite,
+    /// which is where that should have been checked from the beginning.
+    #[test]
+    fn what_the_encoder_produces_survives_the_real_verifier() {
+        use emem_core::substrates::DEFAULT as SUBSTRATES;
+        use emem_trace::{verify_os_trace, Verdict};
+
+        let d = tmp("verify");
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        std::fs::write(d.join("payload.bin"), b"an output of this window").unwrap();
+
+        let key = SigningKey::from_bytes(&[13u8; 32]);
+        let settings = CaptureSettings {
+            out: d.join("out"),
+            payloads: Some(d.clone()),
+            // Three layers this machine can genuinely read, so the test turns
+            // on structure rather than on what the CI host happens to expose.
+            profile: "exec.trace.v1".into(),
+            platform: "generic.linux-host".into(),
+            prev_trace_cid: None,
+        };
+        let report = capture_window(&key, &settings).expect("capture runs");
+        let Some(cid) = report.trace_cid else {
+            // A host exposing nothing at all is a real possibility in CI, and
+            // the encoder correctly writes no trace. Nothing to verify.
+            return;
+        };
+
+        let raw = std::fs::read(d.join("out").join(format!("{cid}.trace.json"))).unwrap();
+        let trace: OsTrace = serde_json::from_slice(&raw).unwrap();
+
+        // Structure first, independent of which layers this host allowed.
+        for (i, seg) in trace.segments.iter().enumerate() {
+            assert_eq!(seg.seq, i as u64, "seq must be contiguous from zero");
+            if i == 0 {
+                assert!(
+                    seg.prev_digest.is_none(),
+                    "the first segment starts the chain"
+                );
+            } else {
+                let want = b32(&trace.segments[i - 1].digest().unwrap());
+                assert_eq!(
+                    seg.prev_digest.as_deref(),
+                    Some(want.as_str()),
+                    "segment {i} must name the previous segment's digest"
+                );
+            }
+        }
+
+        // Then the verifier itself, on whatever profile the capture can meet.
+        let profile = SUBSTRATES
+            .lookup("exec.trace.v1")
+            .expect("exec.trace.v1 is registered");
+        let report = verify_os_trace(&trace, profile, None);
+        let structural: Vec<_> = report
+            .reasons
+            .iter()
+            .filter(|r| !format!("{r:?}").contains("MissingLayer"))
+            .collect();
+        assert!(
+            structural.is_empty(),
+            "the only acceptable rejection is an absent layer, got: {structural:?}"
+        );
+        if report.coverage.missing.is_empty() {
+            assert_eq!(report.verdict, Verdict::Admit, "full coverage must admit");
+        }
     }
 
     /// The capture rule, stated as a test: a layer with no readable source is
