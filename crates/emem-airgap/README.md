@@ -147,9 +147,67 @@ the encoder and points it anywhere. Neither requires the other to exist.
 
 ## Install it
 
-Three ways in, depending on what you have.
+Nothing here needs Rust, a clone of this repository, or network access from
+the node itself.
 
-**From this repository, with Rust:**
+**Pull the images.** Both halves are published for `linux/amd64` and
+`linux/arm64`; the manifest picks your architecture:
+
+```bash
+docker pull ghcr.io/vortx-ai/emem-airgap:latest   # the decoder
+docker pull ghcr.io/vortx-ai/emem-encode:latest   # the encoder sidecar
+
+docker run --rm ghcr.io/vortx-ai/emem-airgap:latest --help
+```
+
+Tags follow the server image: `:latest` and `:main` on the default branch,
+`:<short-sha>` for any particular commit, and the semver forms on a release.
+Pin a digest if you want the exact bytes you tested to be the exact bytes that
+run:
+
+```bash
+docker pull ghcr.io/vortx-ai/emem-airgap@sha256:<digest>
+```
+
+**Or run the quickstart**, which goes from nothing to a signed, verified record
+in six steps and prints every command it runs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Vortx-AI/emem/main/crates/emem-airgap/quickstart.sh -o quickstart.sh
+less quickstart.sh          # short, and it prints every command it runs
+sh quickstart.sh ./mynode
+```
+
+**Carry it across the gap.** The node itself never needs a registry. Fetch on a
+connected machine, hand over a tarball:
+
+```bash
+docker pull --platform linux/arm64 ghcr.io/vortx-ai/emem-airgap:latest
+docker save ghcr.io/vortx-ai/emem-airgap:latest | gzip > emem-airgap-arm64.tar.gz
+sha256sum emem-airgap-arm64.tar.gz > emem-airgap-arm64.sha256
+
+# on the node, having checked the digest you were given
+sha256sum -c emem-airgap-arm64.sha256
+gunzip -c emem-airgap-arm64.tar.gz | docker load
+```
+
+The quickstart skips the pull for an image that is already loaded, so it works
+unchanged on a node with no route out.
+
+**Just the binary, no container runtime.** The image is `FROM scratch` and holds
+exactly one static file, so you can take it out and run it anywhere:
+
+```bash
+cid=$(docker create ghcr.io/vortx-ai/emem-airgap:latest)
+docker cp "$cid:/emem-node" ./emem-airgap
+docker rm "$cid"
+chmod +x ./emem-airgap && ./emem-airgap --help
+```
+
+Measured: `ELF 64-bit LSB, statically linked, stripped`. No libc, no
+interpreter, no shared objects to satisfy.
+
+**From source, with Rust**, if you would rather build what you run:
 
 ```bash
 git clone https://github.com/Vortx-AI/emem
@@ -158,23 +216,18 @@ cargo build --release -p emem-airgap
 ./target/release/emem-airgap --help
 ```
 
-**As a container image, built here:**
+**Or build the images yourself**, from the same Dockerfile the published ones
+come from:
 
 ```bash
-git clone https://github.com/Vortx-AI/emem
-cd emem
-
 # the decoder
 docker build -f crates/emem-airgap/Dockerfile -t emem-airgap:latest .
 
 # the encoder sidecar, same Dockerfile, one argument different
 docker build --build-arg ROLE=encode -f crates/emem-airgap/Dockerfile -t emem-encode:latest .
-
-docker run --rm emem-airgap:latest --help
-docker run --rm emem-encode:latest --help
 ```
 
-Measured: decoder image 1.7 MB, encoder image 1.43 MB.
+Measured: decoder image 1.9 MB, encoder image 1.48 MB.
 
 **Cross-built for an aarch64 board from an x86 laptop**, which is the usual
 case when the target is a Jetson you cannot compile on. No buildx, no qemu:
