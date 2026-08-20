@@ -26,28 +26,78 @@
 # build agree. Mounting the input read-only means the host does not have to
 # take the node's word that it leaves the directory alone.
 
-FROM --platform=$BUILDPLATFORM rust:1-bookworm AS build
-ARG TARGETARCH
+# No --platform pin on the FROM line.
+#
+# $BUILDPLATFORM and $TARGETARCH are supplied by BuildKit and are EMPTY under
+# the legacy builder, where the pin then fails outright with an invalid-platform
+# error before a single layer runs. A developer building for their own machine
+# should not have to install buildx first, so the arch is detected below when
+# the build system does not say.
+FROM rust:1-bookworm AS build
+ARG TARGETARCH=""
 WORKDIR /src
 
 # musl, so the result is static and the runtime image can be empty. An Orin NX
 # is aarch64; the same file builds amd64 for a laptop rehearsal.
-RUN case "$TARGETARCH" in \
+RUN ARCH="$TARGETARCH"; \
+    if [ -z "$ARCH" ]; then \
+      case "$(uname -m)" in \
+        aarch64|arm64) ARCH=arm64 ;; \
+        x86_64|amd64)  ARCH=amd64 ;; \
+        *) echo "cannot infer arch from $(uname -m); pass --build-arg TARGETARCH=arm64|amd64" >&2; exit 1 ;; \
+      esac; \
+      echo "TARGETARCH not set by the builder, inferred $ARCH from $(uname -m)"; \
+    fi && \
+    case "$ARCH" in \
       arm64) echo aarch64-unknown-linux-musl > /target.txt ;; \
       amd64) echo x86_64-unknown-linux-musl  > /target.txt ;; \
-      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+      *) echo "unsupported TARGETARCH: $ARCH (expected arm64 or amd64)" >&2; exit 1 ;; \
     esac && \
     rustup target add "$(cat /target.txt)" && \
     apt-get update && apt-get install -y --no-install-recommends musl-tools && \
     rm -rf /var/lib/apt/lists/*
 
-COPY . .
+# Named, not `COPY . .`.
+#
+# Cargo needs every workspace member's manifest to resolve the graph, so the
+# whole crates/ tree comes in, but nothing else does. The blanket copy pulled
+# in whatever the ignore file had not thought of, which on this repository was
+# fifteen gigabytes of Python sidecars that this binary has no use for.
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+
 # Only this crate. The workspace holds a REST server, a vector store and an
 # ONNX runtime, and none of them belong on a spacecraft.
-RUN cargo build --release --locked -p emem-airgap \
-      --target "$(cat /target.txt)" && \
-    cp "target/$(cat /target.txt)/release/emem-airgap" /emem-airgap && \
-    strip /emem-airgap
+# blake3/no_neon on aarch64, and the reason is a build failure not a preference.
+#
+# blake3 is the only dependency in this graph that compiles C, for its SIMD
+# paths. Cross-compiling to aarch64-musl therefore needs aarch64-linux-musl-gcc,
+# which musl-tools does not provide, and the build dies with
+# "failed to find tool aarch64-linux-musl-gcc". Disabling NEON selects blake3's
+# portable Rust implementation, the C compile disappears, and the crate builds
+# with nothing but rustup.
+#
+# The cost is hashing throughput. This node hashes what arrives in a directory,
+# a few megabytes per pass, so the portable path is far below the noise; adding
+# a cross toolchain to the image to win it back would be the wrong trade.
+# Symbols are stripped by the compiler, not by binutils. The host's `strip` is
+# x86_64 and cannot read an aarch64 binary ("unable to recognise the format"),
+# whereas -C strip=symbols works for whatever target rustc just built.
+#
+# rust-lld for the cross link, for the same reason: the host's /usr/bin/ld is
+# x86_64 and refuses aarch64 objects with "file in wrong format". rustup ships
+# rust-lld, which links either, so no binutils cross package is needed either.
+RUN FEATURES=""; \
+    case "$(cat /target.txt)" in \
+      aarch64-*) \
+        FEATURES="--features blake3/no_neon"; \
+        export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld; \
+        ;; \
+    esac; \
+    export RUSTFLAGS="-C strip=symbols"; \
+    cargo build --release --locked -p emem-airgap \
+      --target "$(cat /target.txt)" $FEATURES && \
+    cp "target/$(cat /target.txt)/release/emem-airgap" /emem-airgap
 
 # scratch, not distroless or alpine: there is nothing else this binary needs.
 FROM scratch

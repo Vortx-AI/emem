@@ -132,14 +132,14 @@ docker run --rm emem-airgap:latest --help
 ```
 
 **Cross-built for an aarch64 board from an x86 laptop**, which is the usual
-case when the target is a Jetson you cannot compile on:
+case when the target is a Jetson you cannot compile on. No buildx, no qemu:
+the build cross-compiles rather than emulating, so plain `docker build` does
+it.
 
 ```bash
-docker buildx build \
-  --platform linux/arm64 \
+docker build --build-arg TARGETARCH=arm64 \
   -f crates/emem-airgap/Dockerfile \
-  -t emem-airgap:arm64 \
-  --load .
+  -t emem-airgap:arm64 .
 
 # Save it for a machine with no registry access
 docker save emem-airgap:arm64 | gzip > emem-airgap-arm64.tar.gz
@@ -147,6 +147,25 @@ docker save emem-airgap:arm64 | gzip > emem-airgap-arm64.tar.gz
 # On the target
 gunzip -c emem-airgap-arm64.tar.gz | docker load
 ```
+
+Building on the board itself needs no argument at all: with no `TARGETARCH`
+the Dockerfile reads `uname -m` and targets the machine it is on.
+
+Measured, both arches built and checked:
+
+| | |
+| --- | --- |
+| aarch64 binary | 0.8 MB, `ELF 64-bit ARM aarch64, statically linked, stripped` |
+| aarch64 image | 1.36 MB |
+| x86_64 image | 1.7 MB |
+| build context | 722 MB (the workspace's manifests and sources) |
+
+Three things had to be true for the cross build to work, and each is a
+one-line reason worth knowing if you change the Dockerfile: blake3 builds its
+SIMD paths in C, so aarch64 uses its portable implementation instead of
+needing a cross C toolchain; the link goes through `rust-lld`, because the
+host's `ld` refuses aarch64 objects; and symbols are stripped by the compiler,
+because the host's `strip` cannot read the result either.
 
 The image is `FROM scratch` and holds one static binary, so the tarball is a
 few megabytes rather than a few gigabytes. If your host offers a large shared

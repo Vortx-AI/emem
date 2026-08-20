@@ -5,6 +5,13 @@ target/
 .dockerignore
 var/
 .cargo/
+# 15 GB of sidecar services that no Dockerfile here copies. It was still being
+# shipped to the daemon on every build, because the ignore file governs the
+# CONTEXT and not just what a COPY takes.
+python/
+# A directory literally named ":memory:", created by a test that took the
+# sqlite in-memory sentinel as a path.
+:memory:
 # NOTE: docs/, web/, examples/, claude-skills/ and root *.md MUST stay
 # in the build context — crates/emem-api-rest/src/lib.rs include_str!()s
 # files from those trees (llms.txt, skills.md, claude-skills/*/SKILL.md,
