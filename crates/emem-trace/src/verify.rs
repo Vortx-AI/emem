@@ -212,6 +212,16 @@ pub fn verify_os_trace(
 
     // Chain, clocks, and root.
     let mut digests: Vec<[u8; 32]> = Vec::with_capacity(trace.segments.len());
+    // A set beside the vector, because the vector is needed in chain order for
+    // the merkle root and the duplicate check is not a linear scan.
+    //
+    // It was. `digests.contains(&d)` inside the segment loop made verification
+    // quadratic, and this runs on an unauthenticated write path with a 16 MB
+    // body limit: 50,000 segments in 11.9 MB cost 1.09 s of CPU, against 2 ms
+    // for 1,000. Roughly 50 KB of request per second of CPU is an
+    // amplification worth closing, on a machine that has wedged before.
+    let mut seen_digests: std::collections::HashSet<[u8; 32]> =
+        std::collections::HashSet::with_capacity(trace.segments.len());
     let mut prev_rendered: Option<String> = None;
     let mut chain_intact = true;
     for (i, seg) in trace.segments.iter().enumerate() {
@@ -233,7 +243,7 @@ pub fn verify_os_trace(
         }
         match seg.digest() {
             Ok(d) => {
-                if digests.contains(&d) {
+                if !seen_digests.insert(d) {
                     reasons.push(RejectReason::DuplicateSegmentDigest { seq: seg.seq });
                 }
                 prev_rendered = Some(render_digest(&d));

@@ -371,3 +371,74 @@ fn every_field_of_an_emitted_output_is_signed() {
         );
     }
 }
+
+/// Verification cost must stay linear in segment count.
+///
+/// Ignored by default: it is a timing measurement, and a timing assertion on a
+/// loaded CI box is a flaky assertion. Run it deliberately:
+///
+/// ```bash
+/// cargo test -p emem-trace --release --test trace_round_trip -- --ignored --nocapture
+/// ```
+///
+/// What it guards. The duplicate-segment check was `digests.contains(&d)`
+/// inside the segment loop, which is quadratic, on an unauthenticated write
+/// path with a 16 MB body limit. Release measurements before and after:
+///
+/// | segments | json    | before   | after  |
+/// |----------|---------|----------|--------|
+/// |    1,000 |  232 KB |     2 ms |   1 ms |
+/// |    5,000 |  1.1 MB |    17 ms |   7 ms |
+/// |   20,000 |  4.6 MB |   189 ms |  29 ms |
+/// |   50,000 | 11.6 MB | 1,086 ms |  77 ms |
+///
+/// Roughly 50 KB of request bought a second of CPU. The ratio is what matters:
+/// a tenfold rise in segments cost 543x before and 77x after.
+#[test]
+#[ignore = "timing measurement; run deliberately in release"]
+fn verification_cost_is_linear_in_segment_count() {
+    fn timed(n: usize) -> u128 {
+        let sk = signing_key();
+        let mut segments = Vec::with_capacity(n);
+        for i in 0..n {
+            let layer = match i % 3 {
+                0 => TraceLayerKind::Syscall,
+                1 => TraceLayerKind::Scheduler,
+                _ => TraceLayerKind::Memory,
+            };
+            segments.push(segment(
+                layer,
+                i as u64,
+                i as u64 + 1,
+                format!("segment {i}").as_bytes(),
+            ));
+        }
+        let trace = OsTrace::build_and_sign_v1(
+            device(&sk, "exec.trace.v1"),
+            0,
+            n as u64 + 1,
+            segments,
+            vec![],
+            &sk,
+        )
+        .expect("build");
+        let registry = &*DEFAULT;
+        let profile = registry.lookup("exec.trace.v1").expect("profile");
+        let start = std::time::Instant::now();
+        let report = verify_os_trace(&trace, profile, None);
+        let ms = start.elapsed().as_millis();
+        assert_eq!(report.verdict, Verdict::Admit, "control at {n} segments");
+        println!("  {n:>6} segments  verify {ms:>5} ms");
+        ms
+    }
+
+    let small = timed(5_000).max(1);
+    let large = timed(50_000);
+    let ratio = large as f64 / small as f64;
+    println!("  tenfold segments cost {ratio:.0}x");
+    assert!(
+        ratio < 40.0,
+        "a tenfold rise in segments cost {ratio:.0}x, which is superlinear: the duplicate-segment \
+         check is scanning again"
+    );
+}
