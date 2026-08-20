@@ -330,10 +330,111 @@ impl Manifest for DevicePlatformRegistry {
     }
 }
 
+/// An endorsement the OPERATOR of a node makes, rather than the vendor.
+///
+/// Why this exists, and why it is not a way around the provisional guard.
+///
+/// Whitelisting a platform means pinning an Endorsement: a key that vouches
+/// for the class. For NVIDIA Jetson that would be NVIDIA's device-attestation
+/// CA, and we do not hold its published fingerprint, so the shipped anchor is
+/// a placeholder and admits nothing. That guard is right and stays.
+///
+/// But a vendor is not the only party who can honestly vouch for a device. On
+/// a self-hosted node where the operator installed the hardware, holds it, and
+/// keeps every byte local, the operator IS the trust root, and saying so out
+/// loud is more honest than either pretending NVIDIA vouched or refusing to
+/// admit a device the operator can physically point at.
+///
+/// So an operator endorsement adds a REAL anchor: non-provisional, a genuine
+/// 32-byte fingerprint, matched by exactly the same v0 rule as any vendor
+/// anchor. Nothing is bypassed. What differs is only who is named: an
+/// enrolment admitted this way carries `endorsed_by: "operator.local.v0"`
+/// rather than a vendor anchor id, so a reader can always tell which kind of
+/// claim they are looking at. The platform stays `candidate`, because status
+/// records whether the VENDOR has vouched and NVIDIA still has not.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorEndorsement {
+    /// The platform this operator vouches for, e.g. `"nvidia.jetson-orin"`.
+    pub platform_id: String,
+    /// blake3 of the operator's raw 32-byte ed25519 endorser public key,
+    /// base32-nopad lowercase: the same fingerprint scheme a vendor anchor
+    /// uses, because the verifier computes it the same way.
+    pub fingerprint: String,
+    /// Optional operator-chosen label, recorded so a multi-site deployment can
+    /// tell its own anchors apart. Defaults to `operator.local.v0`.
+    #[serde(default = "default_operator_anchor_id")]
+    pub anchor_id: String,
+    /// Editorial note, e.g. where the endorser key lives and who holds it.
+    #[serde(default, rename = "_note", skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+fn default_operator_anchor_id() -> String {
+    "operator.local.v0".to_string()
+}
+
+impl OperatorEndorsement {
+    /// The anchor this endorsement contributes.
+    ///
+    /// `provisional: false` is not a shortcut: the fingerprint is checked to
+    /// be a real 32-byte digest by the same `validate()` every other anchor
+    /// passes, and an endorsement whose fingerprint is malformed is refused
+    /// at overlay time rather than admitting anything.
+    pub fn anchor(&self) -> TrustAnchor {
+        TrustAnchor {
+            id: self.anchor_id.clone(),
+            kind: "ed25519_pk_blake3".to_string(),
+            fingerprint: self.fingerprint.clone(),
+            provisional: false,
+            note: Some(self.note.clone().unwrap_or_else(|| {
+                "Operator endorsement: this node's owner vouches for this device. \
+                     Not a vendor attestation."
+                    .to_string()
+            })),
+        }
+    }
+}
+
 impl DevicePlatformRegistry {
     /// Embedded v0 default.
     pub fn parse_default() -> Result<Self, ManifestError> {
         Self::parse_json(DEVICE_PLATFORMS_V0_JSON.as_bytes())
+    }
+
+    /// Return a copy of this registry with operator endorsements overlaid.
+    ///
+    /// Errors rather than silently dropping: an endorsement naming a platform
+    /// that does not exist, or carrying a fingerprint that is not a 32-byte
+    /// digest, is a misconfiguration the operator needs told about. A node
+    /// that quietly ignored it would look enrolled and admit nothing.
+    pub fn with_operator_endorsements(
+        &self,
+        endorsements: &[OperatorEndorsement],
+    ) -> Result<Self, ManifestError> {
+        let mut out = self.clone();
+        for e in endorsements {
+            if !decodes_to_32_bytes(&e.fingerprint) {
+                return Err(ManifestError::Invalid(format!(
+                    "operator endorsement for {}: fingerprint is not a 32-byte digest. \
+                     It must be blake3 of the endorser's raw ed25519 public key, \
+                     base32-nopad lowercase.",
+                    e.platform_id
+                )));
+            }
+            let Some(p) = out.platforms.iter_mut().find(|p| p.id == e.platform_id) else {
+                return Err(ManifestError::Invalid(format!(
+                    "operator endorsement names platform {}, which is not in the registry. \
+                     Read GET /v1/device_platforms for the ids that exist.",
+                    e.platform_id
+                )));
+            };
+            // Replacing rather than appending a duplicate id keeps re-running
+            // an install idempotent instead of growing the anchor list.
+            p.trust_anchors.retain(|a| a.id != e.anchor_id);
+            p.trust_anchors.push(e.anchor());
+        }
+        out.validate()?;
+        Ok(out)
     }
 
     /// Look up a platform by ID.
@@ -533,5 +634,121 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// An operator endorsement makes an otherwise-inert platform admittable,
+    /// and says whose word it is standing on.
+    #[test]
+    fn operator_endorsement_creates_an_effective_anchor() {
+        let base = DevicePlatformRegistry::parse_default().expect("default registry");
+        let orin = base
+            .lookup("nvidia.jetson-orin")
+            .expect("orin is registered");
+        // Shipped state: NVIDIA's anchor is a placeholder, so nothing is
+        // admittable. This is the guard the operator path must not weaken.
+        assert_eq!(
+            orin.effective_anchors().count(),
+            0,
+            "the shipped Orin anchor must admit nothing"
+        );
+
+        let fp = data_encoding::BASE32_NOPAD
+            .encode(blake3::hash(b"an operator endorser key").as_bytes())
+            .to_lowercase();
+        let e = OperatorEndorsement {
+            platform_id: "nvidia.jetson-orin".to_string(),
+            fingerprint: fp.clone(),
+            anchor_id: default_operator_anchor_id(),
+            note: None,
+        };
+        let overlaid = base
+            .with_operator_endorsements(std::slice::from_ref(&e))
+            .expect("overlay validates");
+        let orin = overlaid.lookup("nvidia.jetson-orin").expect("still there");
+        let effective: Vec<_> = orin.effective_anchors().collect();
+        assert_eq!(effective.len(), 1, "operator anchor is now effective");
+        assert_eq!(effective[0].id, "operator.local.v0");
+        assert_eq!(effective[0].kind, "ed25519_pk_blake3");
+        assert_eq!(effective[0].fingerprint, fp);
+
+        // The vendor's placeholder is untouched, and the platform has NOT
+        // been promoted: status still records that NVIDIA has not vouched.
+        assert!(
+            orin.trust_anchors.iter().any(|a| a.provisional),
+            "the vendor placeholder must survive the overlay"
+        );
+        assert_eq!(
+            orin.status,
+            base.lookup("nvidia.jetson-orin").unwrap().status
+        );
+
+        // The base registry is unchanged: overlaying returns a copy.
+        assert_eq!(
+            base.lookup("nvidia.jetson-orin")
+                .unwrap()
+                .effective_anchors()
+                .count(),
+            0
+        );
+    }
+
+    /// Re-running an install must not grow the anchor list.
+    #[test]
+    fn operator_endorsement_is_idempotent() {
+        let base = DevicePlatformRegistry::parse_default().unwrap();
+        let fp = data_encoding::BASE32_NOPAD
+            .encode(blake3::hash(b"k").as_bytes())
+            .to_lowercase();
+        let e = OperatorEndorsement {
+            platform_id: "nvidia.jetson-orin".to_string(),
+            fingerprint: fp,
+            anchor_id: default_operator_anchor_id(),
+            note: None,
+        };
+        let once = base
+            .with_operator_endorsements(std::slice::from_ref(&e))
+            .unwrap();
+        let twice = once
+            .with_operator_endorsements(std::slice::from_ref(&e))
+            .unwrap();
+        let n = twice
+            .lookup("nvidia.jetson-orin")
+            .unwrap()
+            .trust_anchors
+            .iter()
+            .filter(|a| a.id == "operator.local.v0")
+            .count();
+        assert_eq!(n, 1, "re-endorsing replaces rather than appends");
+    }
+
+    /// A misconfigured endorsement is reported, never silently ignored.
+    #[test]
+    fn operator_endorsement_refuses_bad_input() {
+        let base = DevicePlatformRegistry::parse_default().unwrap();
+        let good = data_encoding::BASE32_NOPAD
+            .encode(blake3::hash(b"k").as_bytes())
+            .to_lowercase();
+
+        let short = OperatorEndorsement {
+            platform_id: "nvidia.jetson-orin".to_string(),
+            fingerprint: "abc".to_string(),
+            anchor_id: default_operator_anchor_id(),
+            note: None,
+        };
+        assert!(
+            base.with_operator_endorsements(&[short]).is_err(),
+            "a fingerprint that is not 32 bytes must be refused"
+        );
+
+        let unknown = OperatorEndorsement {
+            platform_id: "nvidia.no-such-board".to_string(),
+            fingerprint: good,
+            anchor_id: default_operator_anchor_id(),
+            note: None,
+        };
+        assert!(
+            base.with_operator_endorsements(&[unknown]).is_err(),
+            "an endorsement for an unregistered platform must be refused"
+        );
     }
 }
