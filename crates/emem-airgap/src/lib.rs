@@ -99,3 +99,54 @@ pub struct NodeIdentity {
     /// `nvidia.jetson-orin`.
     pub platform: String,
 }
+
+/// Refuse a flag this binary does not have.
+///
+/// A misspelled flag used to be ignored in silence. `--window-ms 300` passed to
+/// a binary with no such flag ran happily with the default and reported
+/// success, so the operator had every reason to believe they had configured
+/// something they had not. On hardware nobody can log into, a setting that
+/// silently did not apply is worse than a run that refused to start: the run
+/// that refuses gets fixed, and this one gets trusted.
+///
+/// Checked against the flags the binary actually accepts rather than a
+/// hand-kept list, so a flag added later cannot fall out of this by omission.
+pub fn reject_unknown_flags(args: &[String], known: &[&str]) -> Result<(), std::io::Error> {
+    let mut skip_value = false;
+    for (i, a) in args.iter().enumerate().skip(1) {
+        if skip_value {
+            skip_value = false;
+            continue;
+        }
+        if !a.starts_with("--") {
+            continue;
+        }
+        // `--flag=value` names the flag before the equals sign.
+        let name = a.split_once('=').map_or(a.as_str(), |(n, _)| n);
+        if known.contains(&name) {
+            skip_value = !a.contains('=') && args.get(i + 1).is_some_and(|v| !v.starts_with("--"));
+            continue;
+        }
+        let near: Vec<&str> = known
+            .iter()
+            .copied()
+            .filter(|k| {
+                let (a, b) = (k.trim_start_matches('-'), name.trim_start_matches('-'));
+                a.starts_with(b) || b.starts_with(a) || a.contains(b) || b.contains(a)
+            })
+            .collect();
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            if near.is_empty() {
+                format!("{name} is not a flag this command has. Run --help for the ones it does.")
+            } else {
+                format!(
+                    "{name} is not a flag this command has. Did you mean {}? Run --help for all \
+                     of them.",
+                    near.join(" or ")
+                )
+            },
+        ));
+    }
+    Ok(())
+}

@@ -505,6 +505,11 @@ Built for a bus that browns out and flash that flips bits:
 * A payload is only signed if it held still while it was read, and the
   descriptor that is read is checked to be the file that was inspected, so the
   path cannot be swapped for a symlink in between.
+* A flag the command does not have is refused, not ignored, with a suggestion
+  when one is close. `--window-ms 300` was accepted in silence by a binary with
+  no such flag: the run applied the default and reported success. On hardware
+  nobody can log into, a setting that silently did not apply is worse than a
+  run that refuses to start.
 * `--input` and `--output` being the same directory is refused. The node would
   take custody of its own records and the growth squares: one payload became
   two records, then five, then eleven. A typo in a unit file should not fill

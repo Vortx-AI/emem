@@ -16,9 +16,40 @@ use std::path::PathBuf;
 use ed25519_dalek::SigningKey;
 use emem_airgap::{decode_dir, key_path, DecodeSettings, JoinRequest, NodeIdentity, NodeKeyFile};
 
+/// Every flag the decoder accepts. The help text is generated from nothing, so
+/// this and HELP are checked against each other by a test rather than by
+/// whoever edits one of them.
+const DECODE_FLAGS: &[&str] = &[
+    "--help",
+    "--input",
+    "--output",
+    "--profile",
+    "--platform",
+    "--observed-at",
+    "--data",
+    "--max-payload-bytes",
+    "--max-files",
+    "--max-trace-bytes",
+    "--traces",
+    "--stage",
+    "--hwmodel",
+];
+
 fn env_or(flag: &str, var: &str, args: &[String]) -> Option<String> {
+    // Both spellings. `--flag value` and `--flag=value` are the same thing to
+    // everyone typing them, and accepting one while reporting the other as
+    // missing is the kind of difference that costs an hour on hardware you
+    // cannot log into.
     if let Some(i) = args.iter().position(|a| a == flag) {
-        return args.get(i + 1).cloned();
+        // A value that begins with two dashes is a forgotten value, not a
+        // value. `--profile --platform orin` would otherwise set the profile
+        // to the literal string "--platform" and then complain that the
+        // platform was missing, which sends the reader to the wrong flag.
+        return args.get(i + 1).filter(|v| !v.starts_with("--")).cloned();
+    }
+    let prefix = format!("{flag}=");
+    if let Some(a) = args.iter().find(|a| a.starts_with(&prefix)) {
+        return Some(a[prefix.len()..].to_string());
     }
     std::env::var(var).ok()
 }
@@ -44,6 +75,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("{}", HELP);
         return Ok(());
     }
+    emem_airgap::reject_unknown_flags(&args, DECODE_FLAGS)?;
 
     // Subcommands, with decode as the default so existing invocations are
     // unchanged.
@@ -416,6 +448,8 @@ DECODE OPTIONS
   --output       <dir>   custody records are written here
   --profile      <id>    substrate profile this node writes under
   --platform     <id>    device platform id
+  --hwmodel      <id>    EAT hwmodel claim for the join request
+                         (default: the platform id)
   --observed-at  <ts>    RFC 3339 UTC; required, never defaulted to now
   --data         <dir>   where node_identity.json lives (default: .)
   --max-payload-bytes <n> refuse payloads larger than this (default 256 MiB)
@@ -426,9 +460,49 @@ DECODE OPTIONS
   --stage        <label> what stage these payloads are at, your vocabulary
 
 Each flag also reads an environment variable: EMEM_AIRGAP_INPUT, _OUTPUT,
-_PROFILE, _PLATFORM, _OBSERVED_AT, _DATA.
+_PROFILE, _PLATFORM, _OBSERVED_AT, _DATA, _HWMODEL. Either spelling works,
+with a space or an equals sign. A flag this command does not have is refused
+rather than ignored, so a typo stops the run instead of quietly changing it.
 
 Writes one <name>.<node>.custody.json per payload, plus run.<node>.json. Every
 output carries the node's short key, so several nodes can share one output
 mount without overwriting each other. The payload itself never leaves: only
 the record does.";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The flags the decoder accepts and the flags its help text describes must be
+    /// the same set. Two hand-kept lists drift, and the one that drifts silently
+    /// is the one nobody runs.
+    #[test]
+    fn the_help_text_and_the_accepted_flags_agree() {
+        let help = HELP;
+        for flag in DECODE_FLAGS {
+            if *flag == "--help" {
+                continue;
+            }
+            assert!(
+                help.contains(flag),
+                "{flag} is accepted but the help text never mentions it"
+            );
+        }
+        for line in help.lines() {
+            // The options block is indented two spaces. Prose that happens to
+            // mention a flag is not an offer of one, and treating it as one
+            // made this test fail on its own explanation of --flag=value.
+            let Some(rest) = line.strip_prefix("  --") else {
+                continue;
+            };
+            let name = format!(
+                "--{}",
+                rest.split([' ', '\t', '=']).next().unwrap_or_default()
+            );
+            assert!(
+                DECODE_FLAGS.contains(&name.as_str()),
+                "the help text offers {name} but the parser refuses it"
+            );
+        }
+    }
+}

@@ -20,9 +20,35 @@ use std::path::PathBuf;
 use ed25519_dalek::SigningKey;
 use emem_airgap::{capture_window, key_path, CaptureSettings, NodeKeyFile, StreamHead};
 
+/// Every flag the encoder accepts. An unknown one is refused rather than
+/// ignored: `--window-ms 300` was accepted in silence by a binary that has no
+/// such flag, and the run reported success having applied nothing.
+const ENCODE_FLAGS: &[&str] = &[
+    "--help",
+    "--out",
+    "--data",
+    "--profile",
+    "--platform",
+    "--payloads",
+    "--prev-trace",
+    "--interval",
+];
+
 fn env_or(flag: &str, var: &str, args: &[String]) -> Option<String> {
+    // Both spellings. `--flag value` and `--flag=value` are the same thing to
+    // everyone typing them, and accepting one while reporting the other as
+    // missing is the kind of difference that costs an hour on hardware you
+    // cannot log into.
     if let Some(i) = args.iter().position(|a| a == flag) {
-        return args.get(i + 1).cloned();
+        // A value that begins with two dashes is a forgotten value, not a
+        // value. `--profile --platform orin` would otherwise set the profile
+        // to the literal string "--platform" and then complain that the
+        // platform was missing, which sends the reader to the wrong flag.
+        return args.get(i + 1).filter(|v| !v.starts_with("--")).cloned();
+    }
+    let prefix = format!("{flag}=");
+    if let Some(a) = args.iter().find(|a| a.starts_with(&prefix)) {
+        return Some(a[prefix.len()..].to_string());
     }
     std::env::var(var).ok()
 }
@@ -43,6 +69,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("{HELP}");
         return Ok(());
     }
+    emem_airgap::reject_unknown_flags(&args, ENCODE_FLAGS)?;
 
     let out = env_or("--out", "EMEM_ENCODE_OUT", &args)
         .ok_or("--out (or EMEM_ENCODE_OUT) is required: where traces are written")?;

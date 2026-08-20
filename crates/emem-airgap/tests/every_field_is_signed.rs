@@ -124,3 +124,43 @@ fn every_field_of_a_join_request_is_covered_by_its_signature() {
         );
     }
 }
+
+/// A flag this binary does not have must be refused, not ignored.
+///
+/// `--window-ms 300` was accepted in silence by a binary with no such flag:
+/// the run applied the default, reported success, and the operator had every
+/// reason to believe they had configured something they had not. On hardware
+/// nobody can log into, a setting that silently did not apply is worse than a
+/// run that refuses to start, because the run that refuses gets fixed.
+#[test]
+fn an_unknown_flag_is_refused_with_a_suggestion() {
+    const KNOWN: &[&str] = &["--input", "--output", "--profile", "--max-files"];
+
+    let ok = |args: &[&str]| {
+        let v: Vec<String> = std::iter::once("emem-airgap".to_string())
+            .chain(args.iter().map(|s| s.to_string()))
+            .collect();
+        emem_airgap::reject_unknown_flags(&v, KNOWN)
+    };
+
+    assert!(ok(&["--input", "/in", "--output", "/out"]).is_ok());
+    assert!(ok(&["--input=/in", "--profile=exec.trace.v1"]).is_ok());
+    // Two known flags in a row: the first one's value was omitted, which is
+    // the caller's business, not an unknown flag.
+    assert!(ok(&["--input", "--output"]).is_ok());
+
+    let e = ok(&["--input", "/in", "--window-ms", "300"]).unwrap_err();
+    assert!(e.to_string().contains("--window-ms"), "{e}");
+
+    // A near miss says what was probably meant.
+    let e = ok(&["--inputt", "/in"]).unwrap_err();
+    assert!(e.to_string().contains("Did you mean --input"), "{e}");
+
+    // A value that begins with two dashes is reported rather than consumed.
+    // None of these flags take a value that looks like a flag, so the far more
+    // likely reading is a forgotten value: `--profile --platform orin` would
+    // otherwise swallow --platform as the profile and run with neither set.
+    // --flag=value remains available if a value ever genuinely starts with --.
+    let e = ok(&["--profile", "--platform"]).unwrap_err();
+    assert!(e.to_string().contains("--platform"), "{e}");
+}

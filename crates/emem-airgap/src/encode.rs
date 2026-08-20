@@ -240,12 +240,49 @@ fn read_small(p: &Path) -> Option<Vec<u8>> {
     Some(buf)
 }
 
-/// Monotonic nanoseconds since boot, from /proc/uptime.
+/// A monotonic clock with a since-boot anchor and nanosecond resolution.
 ///
-/// Not the wall clock. The schema wants a monotonic window, and uptime is
-/// monotonic by construction where `SystemTime` is not: a clock correction
-/// mid-window would otherwise make a trace look like it ended before it began.
-fn monotonic_ns() -> u64 {
+/// Neither half alone is enough. `/proc/uptime` is since boot, which is what
+/// the schema's window means, but it is written to two decimal places: every
+/// reading is quantised to 10 ms. `Instant` has nanosecond resolution but no
+/// absolute value at all, only differences. So the anchor is read once from
+/// uptime and every later reading is that anchor plus an `Instant` delta.
+///
+/// The coarse clock alone produced traces that were byte-identical. Four
+/// encoders capturing four different windows on a live machine all landed in
+/// the same 10 ms slot, and because the recorded window was
+/// `start .. start + 1` regardless of how long the capture ran, nothing else
+/// in the record distinguished them. They shared a content id, so three of the
+/// four silently overwrote the first. Worse than losing the files: a trace
+/// whose bytes do not depend on when it was captured is a trace that can be
+/// replayed as evidence of any later window, which is the one thing an
+/// execution trace exists to prevent.
+///
+/// Wall clock is deliberately not used: a clock correction mid-window would
+/// make a trace appear to end before it began.
+struct MonotonicClock {
+    anchor_ns: u64,
+    from: std::time::Instant,
+}
+
+impl MonotonicClock {
+    fn start() -> Self {
+        Self {
+            anchor_ns: uptime_ns(),
+            from: std::time::Instant::now(),
+        }
+    }
+
+    /// Nanoseconds since boot, to the resolution the platform actually offers.
+    fn now(&self) -> u64 {
+        self.anchor_ns
+            .saturating_add(self.from.elapsed().as_nanos().min(u64::MAX as u128) as u64)
+    }
+}
+
+/// Seconds since boot from /proc/uptime, in nanoseconds. Quantised to 10 ms by
+/// the file's own format; used only as [`MonotonicClock`]'s anchor.
+fn uptime_ns() -> u64 {
     std::fs::read_to_string("/proc/uptime")
         .ok()
         .and_then(|s| s.split_whitespace().next().map(str::to_string))
@@ -397,7 +434,8 @@ pub fn capture_window(
     key: &SigningKey,
     settings: &CaptureSettings,
 ) -> std::io::Result<CaptureReport> {
-    let window_start_ns = monotonic_ns();
+    let clock = MonotonicClock::start();
+    let window_start_ns = clock.now();
 
     let mut segments: Vec<TraceSegment> = Vec::new();
     let mut captured = Vec::new();
@@ -415,13 +453,17 @@ pub fn capture_window(
     // chain nothing checked is a chain nobody noticed was missing.
     let mut prev_digest: Option<String> = None;
     for src in SOURCES.iter() {
+        // Per source, so a segment's clocks describe reading that source
+        // rather than the whole window. Every segment used to carry the
+        // window's own start and a fabricated one-nanosecond end.
+        let seg_start = clock.now();
         match capture(src) {
             Ok((bytes, events, encoding)) => {
                 let seg = TraceSegment {
                     layer: src.layer,
                     seq,
-                    clock_start_ns: window_start_ns,
-                    clock_end_ns: monotonic_ns().max(window_start_ns + 1),
+                    clock_start_ns: seg_start,
+                    clock_end_ns: clock.now(),
                     event_count: events,
                     log_digest: b32(blake3::hash(&bytes).as_bytes()),
                     prev_digest: prev_digest.clone(),
@@ -447,8 +489,6 @@ pub fn capture_window(
         })
         .collect();
 
-    let window_end_ns = monotonic_ns().max(window_start_ns + 1);
-
     // Bind the payloads this window produced. Their digests are what lets the
     // decoder join a custody record to this trace.
     let mut outputs = Vec::new();
@@ -473,11 +513,33 @@ pub fn capture_window(
                 outputs.push(EmittedOutput {
                     payload_digest: b32(blake3::hash(&bytes).as_bytes()),
                     band: None,
-                    emitted_at_ns: window_start_ns,
+                    // When this encoder saw the payload, which is what it can
+                    // honestly say. It did not witness the write, so it does
+                    // not claim to. Every output used to carry the window's
+                    // start, which reads as a measurement and was not one.
+                    emitted_at_ns: clock.now(),
                     layer: TraceLayerKind::SensorBus,
                 });
             }
         }
+    }
+
+    // Closed after the outputs are read, so the window genuinely covers
+    // everything the trace describes. Reading them after the window closed put
+    // their timestamps outside it.
+    let window_end_ns = clock.now();
+    if window_end_ns <= window_start_ns {
+        // Reported, never papered over. The previous code wrote
+        // `start.max(start + 1)`, which satisfies the verifier's requirement
+        // that a window be non-empty by inventing the one nanosecond it could
+        // not measure. A window is the trace's central claim about when it
+        // happened; a node that cannot measure one must say so rather than
+        // supply a plausible number.
+        return Err(std::io::Error::other(format!(
+            "the monotonic clock did not advance across the capture ({window_start_ns} to \
+             {window_end_ns}). No trace was written: a window is what a trace claims about \
+             when it ran, and this node cannot measure one."
+        )));
     }
 
     if segments.is_empty() {
@@ -692,6 +754,92 @@ mod tests {
 
     /// The capture rule, stated as a test: a layer with no readable source is
     /// absent and explained, never invented.
+    /// Two captures in a row must produce two different traces.
+    ///
+    /// They produced one. Four encoders capturing four different windows on a
+    /// live machine wrote byte-identical records and three silently overwrote
+    /// the first, because the only clock was `/proc/uptime`, which is written
+    /// to two decimal places, and the recorded window was
+    /// `start .. start + 1` however long the capture actually ran.
+    ///
+    /// The lost files were the smaller half. A trace whose bytes do not depend
+    /// on when it was captured can be replayed as evidence of any later
+    /// window, which is the one thing an execution trace exists to prevent.
+    #[test]
+    fn two_captures_in_a_row_are_two_different_traces() {
+        let d = tmp("distinct");
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        let key = SigningKey::from_bytes(&[17u8; 32]);
+        let settings = CaptureSettings {
+            out: d.join("out"),
+            payloads: None,
+            profile: "exec.trace.v1".into(),
+            platform: "generic.linux-host".into(),
+            prev_trace_cid: None,
+        };
+
+        let a = capture_window(&key, &settings).expect("first capture");
+        let b = capture_window(&key, &settings).expect("second capture");
+        let (Some(ca), Some(cb)) = (a.trace_cid, b.trace_cid) else {
+            // A host exposing no layer at all writes no trace, correctly.
+            return;
+        };
+        assert_ne!(
+            ca, cb,
+            "two captures produced one content id, so the record does not depend on when it \
+             was taken and can be replayed as evidence of a window it did not observe"
+        );
+    }
+
+    /// The recorded window must be the window that was measured.
+    #[test]
+    fn the_recorded_window_is_measured_not_fabricated() {
+        let d = tmp("window");
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        std::fs::write(d.join("payload.bin"), b"an output of this window").unwrap();
+        let key = SigningKey::from_bytes(&[19u8; 32]);
+        let settings = CaptureSettings {
+            out: d.join("out"),
+            payloads: Some(d.clone()),
+            profile: "exec.trace.v1".into(),
+            platform: "generic.linux-host".into(),
+            prev_trace_cid: None,
+        };
+        let Some(cid) = capture_window(&key, &settings).expect("capture").trace_cid else {
+            return;
+        };
+        let raw = std::fs::read(d.join("out").join(format!("{cid}.trace.json"))).unwrap();
+        let t: OsTrace = serde_json::from_slice(&raw).unwrap();
+
+        let span = t.window_end_ns - t.window_start_ns;
+        assert!(
+            span > 1,
+            "the window is {span} ns wide, which is the fabricated minimum rather than a \
+             measurement: reading /proc takes longer than that"
+        );
+
+        for seg in &t.segments {
+            assert!(
+                seg.clock_start_ns >= t.window_start_ns && seg.clock_end_ns <= t.window_end_ns,
+                "segment {} runs outside the window it belongs to",
+                seg.seq
+            );
+            assert!(
+                seg.clock_end_ns >= seg.clock_start_ns,
+                "segment {} ends before it starts",
+                seg.seq
+            );
+        }
+        // Outputs are read before the window closes, so their timestamps fall
+        // inside it. Reading them afterwards put every one of them outside.
+        for out in &t.outputs {
+            assert!(
+                out.emitted_at_ns >= t.window_start_ns && out.emitted_at_ns <= t.window_end_ns,
+                "an output is stamped outside the window"
+            );
+        }
+    }
+
     #[test]
     fn an_unreadable_source_yields_an_explained_absence_not_a_segment() {
         let missing = Source {
