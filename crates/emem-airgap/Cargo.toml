@@ -1,0 +1,30 @@
+[package]
+name         = "emem-airgap"
+version      = "2.2.0"
+edition      = "2021"
+rust-version = { workspace = true }
+license      = { workspace = true }
+repository   = { workspace = true }
+description  = "Air-gapped emem node: a folder in, a folder out, no network."
+
+# Deliberately short. This crate exists to run where nothing else can: a
+# container on hardware someone else owns, with no route to the internet and
+# no room for a database. Every dependency here is one that has to be on that
+# machine, and the list is the argument.
+#
+# Not present, and each absence is the point: no HTTP server, no sled, no
+# Lance, no ONNX runtime, no tokio. A node that only reads a folder and writes
+# a folder needs none of them.
+[dependencies]
+emem-attest   = { workspace = true }
+emem-core     = { workspace = true }
+blake3        = { workspace = true }
+ed25519-dalek = { workspace = true }
+serde         = { workspace = true }
+serde_json    = { workspace = true }
+data-encoding = { workspace = true }
+thiserror     = { workspace = true }
+
+[[bin]]
+name = "emem-airgap"
+path = "src/main.rs"

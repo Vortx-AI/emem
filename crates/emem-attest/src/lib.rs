@@ -450,6 +450,57 @@ pub fn attestation_preimage_v1(
     p.finalize()
 }
 
+/// Segment tags for the v1 custody preimage — the digest a node's key signs
+/// to say it held some bytes. Stable wire constants: never renumber, append
+/// only.
+pub mod custody_tag {
+    /// Custody schema identifier (`"emem.custody.v1"`).
+    pub const SCHEMA: u8 = 0x01;
+    /// blake3 of the payload the node received, base32-nopad lowercase.
+    pub const PAYLOAD: u8 = 0x02;
+    /// Substrate profile the node is operating under.
+    pub const PROFILE: u8 = 0x03;
+    /// Device platform id from the device-platform registry.
+    pub const PLATFORM: u8 = 0x04;
+    /// Wall clock at observation, RFC 3339 UTC.
+    pub const OBSERVED_AT: u8 = 0x05;
+    /// Byte length of the payload, u64 little-endian.
+    pub const SIZE: u8 = 0x06;
+    /// The name the payload arrived under, as given. Bound because a file
+    /// name is part of what the node received, and a record that omitted it
+    /// would let two different arrivals of the same bytes look identical.
+    pub const NAME: u8 = 0x07;
+}
+
+/// Canonical v1 custody preimage — the 32 bytes a node's ed25519 key signs to
+/// record that it received a payload.
+///
+/// What this deliberately does NOT bind: any trace root, any segment, any
+/// execution evidence. A custody record is a weaker claim than an OS trace on
+/// purpose, and giving it a distinct preimage domain is what stops one being
+/// mistaken for the other. A verifier that checks this signature learns that
+/// the holder of the node key says these bytes arrived under this name, at
+/// this size, at this time. It learns nothing about how they were produced.
+pub fn custody_preimage_v1(
+    schema: &str,
+    payload_digest: &str,
+    profile_id: &str,
+    platform_id: &str,
+    observed_at: &str,
+    size_bytes: u64,
+    name: &str,
+) -> [u8; 32] {
+    let mut p = PreimageV1::new("custody");
+    p.seg(custody_tag::SCHEMA, schema.as_bytes());
+    p.seg(custody_tag::PAYLOAD, payload_digest.as_bytes());
+    p.seg(custody_tag::PROFILE, profile_id.as_bytes());
+    p.seg(custody_tag::PLATFORM, platform_id.as_bytes());
+    p.seg(custody_tag::OBSERVED_AT, observed_at.as_bytes());
+    p.seg(custody_tag::SIZE, &size_bytes.to_le_bytes());
+    p.seg(custody_tag::NAME, name.as_bytes());
+    p.finalize()
+}
+
 /// Segment tags for the v1 OS-trace preimage — the digest a device's key
 /// signs over its execution trace (`emem-trace` crate). Stable wire
 /// constants — never renumber, append only.

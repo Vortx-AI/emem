@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/emem-core",
+    "crates/emem-airgap",
     "crates/emem-guard",
     "crates/emem-codec",
     "crates/emem-fact",
@@ -44,6 +45,7 @@ emem-fetch      = { path = "crates/emem-fetch",      version = "2.2.0" }
 emem-storage    = { path = "crates/emem-storage",    version = "2.2.0" }
 emem-cubes      = { path = "crates/emem-cubes",      version = "2.2.0" }
 emem-primitives = { path = "crates/emem-primitives", version = "2.2.0" }
+emem-airgap     = { path = "crates/emem-airgap",     version = "2.2.0" }
 emem-attest     = { path = "crates/emem-attest",     version = "2.2.0" }
 emem-trace      = { path = "crates/emem-trace",      version = "2.2.0" }
 emem-intent     = { path = "crates/emem-intent",     version = "2.2.0" }
