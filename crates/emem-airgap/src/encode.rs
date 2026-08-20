@@ -75,6 +75,46 @@ const SOURCES: &[Source] = &[
         encoding: "linux.ftrace.v1",
         roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
     },
+    Source {
+        layer: TraceLayerKind::Storage,
+        encoding: "linux.ftrace.v1",
+        roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
+    },
+    Source {
+        layer: TraceLayerKind::Network,
+        encoding: "linux.ftrace.v1",
+        roots: &["/sys/kernel/tracing", "/sys/kernel/debug/tracing"],
+    },
+];
+
+/// Layers this encoder has NO source for, and why.
+///
+/// Reported alongside the ones it tried and failed, because the two are
+/// different problems and an operator needs to tell them apart. "The path was
+/// unreadable, mount it" is a configuration fix. "Nothing here can produce
+/// this" is not, and a report that showed only the first would leave someone
+/// hunting for a permission they could never grant.
+///
+/// These are honest gaps rather than oversights: the trace-encodings registry
+/// lists `ros2.bag.v2` as the only thing that captures the sensor bus and the
+/// signal layer, and a ROS bag is produced by a robotics stack, not by reading
+/// sysfs. Emitting a segment labelled `ros2.bag.v2` without one would be a lie
+/// about provenance in a provenance record.
+const UNSUPPORTED: &[(&str, &str)] = &[
+    (
+        "sensor_bus",
+        "no source in this encoder: the registry's only encoding for it is ros2.bag.v2, which \
+         a robotics stack produces and reading sysfs does not",
+    ),
+    (
+        "signal",
+        "no source in this encoder: as above, ros2.bag.v2 is the only registered encoding",
+    ),
+    (
+        "inference",
+        "no source in this encoder: registered encodings are linux.ebpf.raw and nvidia.nsys.v1, \
+         both of which need a profiler attached to the workload rather than a directory read",
+    ),
 ];
 
 /// A layer the encoder could not capture, and why. Reported, never hidden.
@@ -95,8 +135,12 @@ pub struct CaptureReport {
     pub trace_cid: Option<String>,
     /// Layers actually read.
     pub captured: Vec<String>,
-    /// Layers that could not be read, with the reason for each.
+    /// Layers this encoder tried and could not read, with the reason.
     pub missed: Vec<MissedLayer>,
+    /// Layers this encoder has no source for at all. A different problem from
+    /// `missed`: no mount or capability will fix these, and saying so stops an
+    /// operator hunting for a permission that does not exist.
+    pub unsupported: Vec<MissedLayer>,
     /// Payload digests bound into the trace as emitted outputs.
     pub outputs: usize,
     /// Plain-language statement of what this trace can and cannot support.
@@ -377,6 +421,15 @@ pub fn capture_window(
         }
     }
 
+    let unsupported: Vec<MissedLayer> = UNSUPPORTED
+        .iter()
+        .map(|(layer, reason)| MissedLayer {
+            layer: (*layer).to_string(),
+            source: "none".into(),
+            reason: (*reason).to_string(),
+        })
+        .collect();
+
     let window_end_ns = monotonic_ns().max(window_start_ns + 1);
 
     // Bind the payloads this window produced. Their digests are what lets the
@@ -417,6 +470,7 @@ pub fn capture_window(
             trace_cid: None,
             captured,
             missed,
+            unsupported,
             outputs: outputs.len(),
             admissibility: "no trace written: not one layer could be read on this machine. \
                             An empty trace is rejected by the verifier, so emitting one would \
@@ -476,6 +530,7 @@ pub fn capture_window(
         trace_cid: Some(cid),
         captured,
         missed,
+        unsupported,
         outputs: trace.outputs.len(),
         admissibility,
     })

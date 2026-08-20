@@ -151,7 +151,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         );
         for m in &report.missed {
-            eprintln!("  absent    {:<10} {}", m.layer, m.reason);
+            eprintln!("  absent    {:<11} {}", m.layer, m.reason);
+        }
+        // Printed once, on the first window only: it never changes, and
+        // repeating it every minute would train the operator to stop reading.
+        if windows_done == 0 {
+            for m in &report.unsupported {
+                eprintln!("  no source {:<11} {}", m.layer, m.reason);
+            }
         }
         eprintln!("  outputs   {} payload digest(s) bound", report.outputs);
         windows_done += 1;

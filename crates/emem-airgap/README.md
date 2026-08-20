@@ -322,15 +322,42 @@ which is a fork nobody could tell from tampering.
 Without `--interval` it captures one window and exits, which is the right shape
 for a task scheduler that wants to own the cadence itself.
 
+**There is no signal handler, on purpose.** SIGTERM ends the loop between
+windows; a window in flight is written atomically, so nothing half-finished is
+left, and `stream_head.json` already records how many windows the stream has
+produced. Progress is durable on disk whether the process exits politely or is
+killed outright, so a handler would add a dependency to print something the
+operator can already read. If the encoder is killed between writing a trace and
+updating the head, the trace is left unreferenced and the next window chains
+from the older head, which is the same behaviour as a power cut and is
+described above.
+
 ### What it captures, and what it will not pretend to
 
 Privilege is not uniform, so neither is the capture:
 
 | Layer | Source | Needs |
 | --- | --- | --- |
-| thermal | `/sys/class/thermal` | nothing |
+| thermal | `/sys/class/thermal`, `/sys/class/hwmon` | nothing |
 | energy | `/sys/class/powercap`, `/sys/class/hwmon` | nothing |
-| syscall, scheduler, memory | `/sys/kernel/tracing` | a mount and the capability to read it |
+| syscall, scheduler, memory, storage, network | `/sys/kernel/tracing` | a mount and the capability to read it |
+| sensor_bus, signal, inference | none | see below |
+
+Three layers this encoder has **no source for at all**, and it says so rather
+than letting you hunt for a permission that does not exist. The registry's only
+encoding for `sensor_bus` and `signal` is `ros2.bag.v2`, which a robotics stack
+produces and reading sysfs does not; `inference` needs a profiler attached to
+the workload. Emitting a segment labelled with an encoding we did not run would
+be a lie about provenance inside a provenance record.
+
+The report separates the two cases, because they are different problems:
+
+```text
+absent    energy      /sys/class/powercap is readable but exposed nothing
+no source sensor_bus  the registry's only encoding for it is ros2.bag.v2 ...
+```
+
+The first is a configuration fix. The second is not.
 
 A layer the encoder could not read is **absent from the trace** and reported
 with the reason:
