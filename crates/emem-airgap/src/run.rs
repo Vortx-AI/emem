@@ -129,7 +129,7 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
 
 /// Where the node's key lives on disk, given a data directory.
 pub fn key_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("node.secret.b32")
+    data_dir.join("node_identity.json")
 }
 
 #[cfg(test)]

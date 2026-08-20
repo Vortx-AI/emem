@@ -14,7 +14,7 @@
 use std::path::PathBuf;
 
 use ed25519_dalek::SigningKey;
-use emem_airgap::{decode_dir, key_path, DecodeSettings, NodeIdentity};
+use emem_airgap::{decode_dir, key_path, DecodeSettings, JoinRequest, NodeIdentity, NodeKeyFile};
 
 fn env_or(flag: &str, var: &str, args: &[String]) -> Option<String> {
     if let Some(i) = args.iter().position(|a| a == flag) {
@@ -48,10 +48,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         env_or("--data", "EMEM_AIRGAP_DATA", &args).unwrap_or_else(|| ".".to_string()),
     );
 
-    let key = load_or_create_key(&data_dir)?;
-    let node_key = data_encoding::BASE32_NOPAD
-        .encode(key.verifying_key().as_bytes())
-        .to_lowercase();
+    let created = observed_at
+        .split('T')
+        .next()
+        .unwrap_or("unknown")
+        .to_string();
+    let (key, idfile) = load_or_create_identity(&data_dir, &created)?;
+    let node_key = idfile.pubkey_b32.clone();
 
     let settings = DecodeSettings {
         input: PathBuf::from(&input),
@@ -63,6 +66,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         observed_at,
     };
+
+    // Written on every run, not just the first. It is small, it is
+    // deterministic for a given identity and timestamp, and a node whose
+    // endorsement never came back needs the request to still be there for
+    // whoever next collects the output directory.
+    let hwmodel = env_or("--hwmodel", "EMEM_AIRGAP_HWMODEL", &args)
+        .unwrap_or_else(|| settings.node.platform.clone());
+    let join = JoinRequest::sign(
+        &key,
+        &settings.node.profile,
+        &settings.node.platform,
+        &hwmodel,
+        &settings.observed_at,
+    );
+    std::fs::create_dir_all(&settings.output)?;
+    std::fs::write(
+        settings.output.join("join_request.json"),
+        serde_json::to_vec_pretty(&join)?,
+    )?;
 
     let report = decode_dir(&key, &settings)?;
     // stderr, so stdout stays free for the report itself.
@@ -81,32 +103,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Load the node key, or make one on first run.
+/// Load this node's identity, or create it once.
 ///
-/// Written 0600 and never printed. The public half is printed, because the
-/// operator needs it to endorse this node.
-fn load_or_create_key(
+/// The file is the same shape agents already use in `agent_identity.json`:
+/// one format for anything that holds a key and answers for what it signs.
+///
+/// It is never regenerated. A new key would orphan every custody record
+/// already signed under the old one and invalidate any endorsement an
+/// operator had issued for it, so an unreadable file is an error the operator
+/// has to look at rather than something to paper over with a fresh identity.
+fn load_or_create_identity(
     data_dir: &std::path::Path,
-) -> Result<SigningKey, Box<dyn std::error::Error>> {
+    created: &str,
+) -> Result<(SigningKey, NodeKeyFile), Box<dyn std::error::Error>> {
     let path = key_path(data_dir);
     if path.exists() {
-        let s = std::fs::read_to_string(&path)?;
-        let raw = data_encoding::BASE32_NOPAD.decode(s.trim().to_uppercase().as_bytes())?;
-        let bytes: [u8; 32] = raw
-            .as_slice()
-            .try_into()
-            .map_err(|_| "node.secret.b32 is not a 32-byte key")?;
-        return Ok(SigningKey::from_bytes(&bytes));
+        let raw = std::fs::read_to_string(&path)?;
+        let file: NodeKeyFile = serde_json::from_str(&raw).map_err(|e| {
+            format!(
+                "{} exists but is not a node identity ({e}). Refusing to overwrite it: \
+                 a new key would orphan every record this node has already signed. \
+                 Move it aside deliberately if you really mean to start over.",
+                path.display()
+            )
+        })?;
+        let key = file
+            .signing_key()
+            .ok_or("node identity seed_hex is not 32 bytes of hex")?;
+        return Ok((key, file));
     }
-    // No OS RNG dependency beyond what ed25519-dalek already needs.
     let mut seed = [0u8; 32];
     getrandom(&mut seed)?;
-    let key = SigningKey::from_bytes(&seed);
+    let file = NodeKeyFile::new(
+        seed,
+        created,
+        "emem air-gapped node: signs custody for payloads that arrive in its input directory",
+    );
+    let key = file.signing_key().ok_or("generated seed did not decode")?;
     std::fs::create_dir_all(data_dir)?;
-    let enc = data_encoding::BASE32_NOPAD.encode(&seed).to_lowercase();
-    write_private(&path, enc.as_bytes())?;
-    eprintln!("emem-airgap  new node key written to {}", path.display());
-    Ok(key)
+    write_private(&path, serde_json::to_string_pretty(&file)?.as_bytes())?;
+    eprintln!(
+        "emem-airgap  new node identity {} written to {}",
+        file.pubkey8,
+        path.display()
+    );
+    Ok((key, file))
 }
 
 #[cfg(unix)]

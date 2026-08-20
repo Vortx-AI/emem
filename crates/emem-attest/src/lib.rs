@@ -450,6 +450,53 @@ pub fn attestation_preimage_v1(
     p.finalize()
 }
 
+/// Segment tags for the v1 join-request preimage — the digest a node's own
+/// key signs to prove it holds that key and wants to be enrolled. Stable wire
+/// constants: never renumber, append only.
+pub mod join_request_tag {
+    /// Join-request schema identifier (`"emem.join_request.v1"`).
+    pub const SCHEMA: u8 = 0x01;
+    /// The node key asking to be enrolled, base32-nopad lowercase.
+    pub const NODE_KEY: u8 = 0x02;
+    /// Substrate profile the node intends to write under.
+    pub const PROFILE: u8 = 0x03;
+    /// Device platform id the node claims to be.
+    pub const PLATFORM: u8 = 0x04;
+    /// EAT `hwmodel` claim the node reports for itself.
+    pub const HWMODEL: u8 = 0x05;
+    /// When the request was made, RFC 3339 UTC.
+    pub const CREATED_AT: u8 = 0x06;
+}
+
+/// Canonical v1 join-request preimage — the 32 bytes a node signs to say
+/// "this is my key, and I would like to be enrolled".
+///
+/// This proves ONE thing: whoever produced the request holds the private half
+/// of `node_key`. Everything else in it, the platform, the hardware model, is
+/// the node's own claim about itself and is not evidence of anything. That is
+/// exactly why a join request is not an enrolment: the endorser reads these
+/// claims, decides whether they are true by means outside this protocol
+/// (usually by having physically installed the machine), and only then signs a
+/// platform attestation. Giving the request its own preimage domain keeps a
+/// self-signed request from ever being mistaken for an endorser's signature.
+pub fn join_request_preimage_v1(
+    schema: &str,
+    node_key: &str,
+    profile_id: &str,
+    platform_id: &str,
+    hwmodel: &str,
+    created_at: &str,
+) -> [u8; 32] {
+    let mut p = PreimageV1::new("join_request");
+    p.seg(join_request_tag::SCHEMA, schema.as_bytes());
+    p.seg(join_request_tag::NODE_KEY, node_key.as_bytes());
+    p.seg(join_request_tag::PROFILE, profile_id.as_bytes());
+    p.seg(join_request_tag::PLATFORM, platform_id.as_bytes());
+    p.seg(join_request_tag::HWMODEL, hwmodel.as_bytes());
+    p.seg(join_request_tag::CREATED_AT, created_at.as_bytes());
+    p.finalize()
+}
+
 /// Segment tags for the v1 custody preimage — the digest a node's key signs
 /// to say it held some bytes. Stable wire constants: never renumber, append
 /// only.
