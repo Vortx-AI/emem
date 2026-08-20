@@ -109,6 +109,62 @@ at nothing and keeps working; neither half needs to know the other exists.
 created once and never regenerated: a new key orphans every record already
 signed under the old one.
 
+## Install it
+
+Three ways in, depending on what you have.
+
+**From this repository, with Rust:**
+
+```bash
+git clone https://github.com/Vortx-AI/emem
+cd emem
+cargo build --release -p emem-airgap
+./target/release/emem-airgap --help
+```
+
+**As a container image, built here:**
+
+```bash
+git clone https://github.com/Vortx-AI/emem
+cd emem
+docker build -f crates/emem-airgap/Dockerfile -t emem-airgap:latest .
+docker run --rm emem-airgap:latest --help
+```
+
+**Cross-built for an aarch64 board from an x86 laptop**, which is the usual
+case when the target is a Jetson you cannot compile on:
+
+```bash
+docker buildx build \
+  --platform linux/arm64 \
+  -f crates/emem-airgap/Dockerfile \
+  -t emem-airgap:arm64 \
+  --load .
+
+# Save it for a machine with no registry access
+docker save emem-airgap:arm64 | gzip > emem-airgap-arm64.tar.gz
+
+# On the target
+gunzip -c emem-airgap-arm64.tar.gz | docker load
+```
+
+The image is `FROM scratch` and holds one static binary, so the tarball is a
+few megabytes rather than a few gigabytes. If your host offers a large shared
+base image and a delta-upload mechanism to stay under an application size cap,
+you can skip it: this is already smaller than a typical delta.
+
+### Check it before you trust it
+
+```bash
+emem-airgap identity --data /data     # the public key, for whoever endorses you
+emem-airgap verify <record> [payload] # a record, and whether it covers a file
+emem-airgap verify-join <request>     # a join request, for the endorser
+```
+
+`verify` exits non-zero on a bad signature or a payload that does not match, so
+it drops straight into a script or a CI job. Nothing in this list needs a
+network, a server, or anything from this repository beyond the binary itself.
+
 ## In a container, hardened
 
 ```bash
