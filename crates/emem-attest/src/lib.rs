@@ -450,6 +450,45 @@ pub fn attestation_preimage_v1(
     p.finalize()
 }
 
+/// Segment tags for the v1 publish-decision preimage — the digest a device's
+/// own key signs to consent to being listed, or to withdraw. Stable wire
+/// constants: never renumber, append only.
+pub mod publish_decision_tag {
+    /// Decision schema identifier (`"emem.publish_decision.v1"`).
+    pub const SCHEMA: u8 = 0x01;
+    /// The device key the decision is about, base32-nopad lowercase.
+    pub const DEVICE_KEY: u8 = 0x02;
+    /// The decision itself: a single byte, 1 to publish and 0 to withdraw.
+    pub const PUBLISH: u8 = 0x03;
+    /// When it was decided, RFC 3339 UTC. Bound so a responder can refuse a
+    /// decision older than the one it already holds.
+    pub const DECIDED_AT: u8 = 0x04;
+}
+
+/// Canonical v1 publish-decision preimage — the 32 bytes a device signs to say
+/// whether it consents to appearing on a public roster.
+///
+/// The device signs, not the operator of the responder, because the consent
+/// belongs to whoever holds the device key. A responder that could list a
+/// device on its own say-so would make the opt-in meaningless.
+///
+/// `decided_at` is bound so consent is monotonic. Without it, anyone who saw
+/// an old `publish: true` could replay it after a withdrawal and put a device
+/// back on the roster it had left, which is the one replay that matters here.
+pub fn publish_decision_preimage_v1(
+    schema: &str,
+    device_key: &str,
+    publish: bool,
+    decided_at: &str,
+) -> [u8; 32] {
+    let mut p = PreimageV1::new("publish_decision");
+    p.seg(publish_decision_tag::SCHEMA, schema.as_bytes());
+    p.seg(publish_decision_tag::DEVICE_KEY, device_key.as_bytes());
+    p.seg(publish_decision_tag::PUBLISH, &[u8::from(publish)]);
+    p.seg(publish_decision_tag::DECIDED_AT, decided_at.as_bytes());
+    p.finalize()
+}
+
 /// Segment tags for the v1 join-request preimage — the digest a node's own
 /// key signs to prove it holds that key and wants to be enrolled. Stable wire
 /// constants: never renumber, append only.

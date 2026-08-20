@@ -1247,6 +1247,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/substrates", get(substrates_registry))
         .route("/v1/device_platforms", get(device_platforms_registry))
         .route("/v1/devices", get(get_devices))
+        .route("/v1/device_publish", post(post_device_publish))
         .route("/v1/trace_encodings", get(trace_encodings_registry))
         .route("/v1/trace_verify", post(post_trace_verify))
         .route("/v1/enroll_verify", post(post_enroll_verify))
@@ -8935,6 +8936,94 @@ async fn substrates_registry() -> Json<JsonValue> {
 /// specific device). Every entry is candidate and every anchor
 /// provisional until a published vendor anchor is pinned. The manifest
 /// CID lets an enrollment pin the exact whitelist it was made under.
+/// A device decides, in its own words and its own signature, whether to be
+/// listed.
+///
+/// The DEVICE signs, not this responder and not an operator of it. Consent
+/// belongs to whoever holds the device key, and a responder that could list a
+/// device on its own say-so would make an opt-in meaningless. So the only way
+/// onto the roster is a signature from the key being listed.
+///
+/// `decided_at` is bound into that signature and the decision must be newer
+/// than the one already held. That closes the one replay that matters here:
+/// without it, anyone who had seen an earlier `publish: true` could send it
+/// again after a withdrawal and put a device back on a roster it had left.
+async fn post_device_publish(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<DevicePublishReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let pre = emem_attest::publish_decision_preimage_v1(
+        PUBLISH_DECISION_SCHEMA_V1,
+        &req.device_key,
+        req.publish,
+        &req.decided_at,
+    );
+    let key_bytes = data_encoding::BASE32_NOPAD
+        .decode(req.device_key.to_uppercase().as_bytes())
+        .ok()
+        .and_then(|v| <[u8; 32]>::try_from(v.as_slice()).ok())
+        .ok_or_else(|| {
+            bad_request(
+                "device_key_malformed",
+                "device_key must be a base32-nopad ed25519 public key".to_string(),
+            )
+        })?;
+    let sig_bytes = data_encoding::BASE32_NOPAD
+        .decode(req.signature.to_uppercase().as_bytes())
+        .ok()
+        .and_then(|v| <[u8; 64]>::try_from(v.as_slice()).ok())
+        .ok_or_else(|| {
+            bad_request(
+                "signature_malformed",
+                "signature must be a base32-nopad ed25519 signature".to_string(),
+            )
+        })?;
+    let vk = ed25519_dalek::VerifyingKey::from_bytes(&key_bytes)
+        .map_err(|_| bad_request("device_key_invalid", "not a valid ed25519 key".to_string()))?;
+    // verify_strict: the permissive check accepts small-order keys, so one
+    // signature could validate under more than one key. For a decision about
+    // WHICH device is listed, that ambiguity is the bug.
+    vk.verify_strict(&pre, &ed25519_dalek::Signature::from_bytes(&sig_bytes))
+        .map_err(|_| {
+            bad_request(
+                "signature_invalid",
+                "the signature does not verify under device_key over \
+                 publish_decision_preimage_v1(schema, device_key, publish, decided_at). Only the \
+                 device may decide whether it is listed."
+                    .to_string(),
+            )
+        })?;
+
+    let changed = s
+        .storage
+        .set_device_publish(&req.device_key, req.publish, Some(&req.decided_at))
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("recording the decision failed: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+
+    Ok(Json(json!({
+        "schema": "emem.publish_decision.result.v1",
+        "device_key": req.device_key,
+        "publish": req.publish,
+        "applied": changed,
+        "note": if changed {
+            "recorded. A device appears on /v1/devices once it has ALSO written a trace this \
+             responder accepted; consent alone lists nothing."
+        } else {
+            "not applied. Either this key is not enrolled here, or the decision is not newer \
+             than the one already held, which is how a replayed consent is refused."
+        },
+        "roster": "/v1/devices",
+    })))
+}
+
 /// The device roster: nodes whose operators chose to be visible.
 ///
 /// Three things this is NOT, said here because a roster invites all three
@@ -8975,6 +9064,23 @@ async fn get_devices(State(s): State<AppState>) -> Json<JsonValue> {
         "platforms": "/v1/device_platforms",
         "verify_a_trace": "/v1/trace_verify",
     }))
+}
+
+/// Schema identifier for a device's publish decision.
+const PUBLISH_DECISION_SCHEMA_V1: &str = "emem.publish_decision.v1";
+
+/// A device's signed decision about being listed.
+#[derive(Debug, serde::Deserialize)]
+struct DevicePublishReq {
+    /// The device key deciding, base32-nopad lowercase.
+    device_key: String,
+    /// True to be listed, false to withdraw.
+    publish: bool,
+    /// When it was decided, RFC 3339 UTC. Must be newer than the decision the
+    /// responder already holds.
+    decided_at: String,
+    /// ed25519 signature by `device_key` over the decision preimage.
+    signature: String,
 }
 
 async fn device_platforms_registry() -> Json<JsonValue> {
@@ -26805,6 +26911,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
             "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
+            "/v1/device_publish": {"post":{"summary":"A device's own signed decision about whether it appears on /v1/devices. The DEVICE signs, not this responder: consent belongs to whoever holds the key, and a responder that could list a device on its own say-so would make the opt-in meaningless. decided_at is bound into the signature and must be newer than the decision already held, which refuses a replayed consent.","operationId":"emem_device_publish","tags":["device"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["device_key","publish","decided_at","signature"],"properties":{"device_key":{"type":"string"},"publish":{"type":"boolean"},"decided_at":{"type":"string"},"signature":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/devices": {"get":{"summary":"Devices whose operators opted in to being listed, and which have written at least one accepted trace. Listing is opt-in and defaults to off, so the count is the number of operators who chose to be seen and NOT the number of devices that exist. last_seen is each device's own monotonic clock and is not comparable between devices.","operationId":"emem_devices","tags":["device"],"responses":{"200":json_ok}}},
             "/v1/device_platforms":  {"get":{"summary":"device-platform whitelist: which hardware platforms may enroll a trace-admitted key and the root-of-trust evidence (TCG DICE, IEEE 802.1AR DevID, TPM 2.0 quote, Arm PSA/EAT) each presents; a trust anchor is a RATS Endorsement for a platform class; content-addressed by manifest CID","operationId":"emem_device_platforms","responses":{"200":json_ok}}},
             "/v1/trace_encodings":   {"get":{"summary":"trace-encodings registry: recognized capture encodings a trace segment may name (linux.ftrace.v1, ros2.bag.v2, zephyr.ctf.v1, ...), the toolchain producing each, the layers it can capture, and the tracer's own integrity (in_kernel, signed_userspace, open_source_userspace, vendor_runtime), the 'trace of the trace'; content-addressed by manifest CID","operationId":"emem_trace_encodings","responses":{"200":json_ok}}},

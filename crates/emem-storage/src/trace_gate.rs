@@ -79,6 +79,14 @@ pub struct EnrollmentRecord {
     /// which is the answer they would have given if asked.
     #[serde(default)]
     pub publish: bool,
+    /// When the device last decided, RFC 3339 UTC.
+    ///
+    /// Kept so consent is monotonic: a responder refuses a decision that is
+    /// not newer than the one it holds. Without it, an old signed `publish:
+    /// true` could be replayed after a withdrawal and put a device back on a
+    /// roster it had deliberately left.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publish_decided_at: Option<String>,
 }
 
 /// One device on the public roster, and only what it consented to show.
@@ -212,6 +220,7 @@ impl TraceGate {
                 endorsed_by: None,
                 // Enrolling is joining; being listed is a separate act.
                 publish: false,
+                publish_decided_at: None,
             },
         )
     }
@@ -277,6 +286,7 @@ impl TraceGate {
             platform_id: Some(platform_id.to_string()),
             endorsed_by: report.endorsed_by.clone(),
             publish: false,
+            publish_decided_at: None,
         };
         self.write_enrollment(pubkey_b32, &record)?;
         // Persist the evidence so an attested enrolment is auditable later,
@@ -325,6 +335,7 @@ impl TraceGate {
                 platform_id: None,
                 endorsed_by: None,
                 publish: false,
+                publish_decided_at: None,
             })
     }
 
@@ -634,11 +645,25 @@ impl TraceGate {
     ///
     /// Separate from enrolment because consent is separate from joining, and
     /// reversible because consent that cannot be withdrawn is not consent.
-    pub fn set_publish(&self, pubkey_b32: &str, publish: bool) -> Result<bool, StorageError> {
+    pub fn set_publish(
+        &self,
+        pubkey_b32: &str,
+        publish: bool,
+        decided_at: Option<&str>,
+    ) -> Result<bool, StorageError> {
         let Some(mut rec) = self.enrollment_of(pubkey_b32) else {
             return Ok(false);
         };
+        // Monotonic: a decision must be newer than the one already held.
+        // Equal timestamps are refused too, because two decisions at the same
+        // instant give no way to tell which the device meant last.
+        if let (Some(new), Some(old)) = (decided_at, rec.publish_decided_at.as_deref()) {
+            if new <= old {
+                return Ok(false);
+            }
+        }
         rec.publish = publish;
+        rec.publish_decided_at = decided_at.map(str::to_string);
         // Reuse the one writer, so consent goes through exactly the same
         // encode and store path as every other change to an enrolment.
         self.write_enrollment(pubkey_b32, &rec)?;
@@ -741,7 +766,7 @@ mod enrollment_record_tests {
         let gate = temp_gate();
         gate.enroll("bbbb2222", "robot.fleet.v1").unwrap();
 
-        assert!(gate.set_publish("bbbb2222", true).unwrap());
+        assert!(gate.set_publish("bbbb2222", true, None).unwrap());
         // Consenting is not enough on its own: nothing has been proved yet.
         assert!(
             gate.published_devices().is_empty(),
@@ -749,7 +774,7 @@ mod enrollment_record_tests {
         );
 
         // Withdrawing must still work, and must still take it off.
-        assert!(gate.set_publish("bbbb2222", false).unwrap());
+        assert!(gate.set_publish("bbbb2222", false, None).unwrap());
         assert!(gate.published_devices().is_empty());
     }
 
@@ -758,7 +783,7 @@ mod enrollment_record_tests {
     fn consent_for_an_unknown_device_is_refused() {
         let gate = temp_gate();
         assert!(
-            !gate.set_publish("never-enrolled", true).unwrap(),
+            !gate.set_publish("never-enrolled", true, None).unwrap(),
             "there is no enrolment to attach consent to"
         );
         assert!(gate.published_devices().is_empty());
@@ -773,11 +798,43 @@ mod enrollment_record_tests {
             platform_id: None,
             endorsed_by: None,
             publish: false,
+            publish_decided_at: None,
         };
         let mut buf = Vec::new();
         ciborium::into_writer(&older, &mut buf).unwrap();
         // Decode through the same path the gate uses.
         let back: EnrollmentRecord = ciborium::from_reader(&buf[..]).unwrap();
         assert!(!back.publish);
+    }
+
+    /// Consent is monotonic: an older signed decision cannot undo a newer one.
+    ///
+    /// This is the replay that matters. Anyone who saw a device's earlier
+    /// "publish: true" could otherwise send it again after the device had
+    /// withdrawn, and put it back on a roster it deliberately left.
+    #[test]
+    fn an_older_decision_cannot_overturn_a_newer_one() {
+        let gate = temp_gate();
+        gate.enroll("cccc3333", "robot.fleet.v1").unwrap();
+
+        assert!(gate
+            .set_publish("cccc3333", true, Some("2026-08-20T10:00:00Z"))
+            .unwrap());
+        assert!(gate
+            .set_publish("cccc3333", false, Some("2026-08-20T11:00:00Z"))
+            .unwrap());
+        assert!(!gate.enrollment_of("cccc3333").unwrap().publish);
+
+        // The replay: the original consent, sent again.
+        assert!(
+            !gate
+                .set_publish("cccc3333", true, Some("2026-08-20T10:00:00Z"))
+                .unwrap(),
+            "a decision older than the one held must be refused"
+        );
+        assert!(
+            !gate.enrollment_of("cccc3333").unwrap().publish,
+            "and the withdrawal must stand"
+        );
     }
 }

@@ -310,6 +310,17 @@ pub trait Storage: Send + Sync {
         Vec::new()
     }
 
+    /// Record a device's own decision about being listed. `false` when there
+    /// is no such enrolment, or the decision is not newer than the one held.
+    fn set_device_publish(
+        &self,
+        _device_key: &str,
+        _publish: bool,
+        _decided_at: Option<&str>,
+    ) -> Result<bool, StorageError> {
+        Ok(false)
+    }
+
     /// Resolve a stored platform attestation by its content ID — what an
     /// `emem:attestation:` token names. Default `None`.
     fn resolve_platform_attestation(
@@ -741,6 +752,18 @@ impl Storage for MaterializingStorage {
             .as_ref()
             .map(|g| g.published_devices())
             .unwrap_or_default()
+    }
+
+    fn set_device_publish(
+        &self,
+        device_key: &str,
+        publish: bool,
+        decided_at: Option<&str>,
+    ) -> Result<bool, StorageError> {
+        match self.trace_gate.as_ref() {
+            Some(g) => g.set_publish(device_key, publish, decided_at),
+            None => Ok(false),
+        }
     }
 
     fn resolve_platform_attestation(
