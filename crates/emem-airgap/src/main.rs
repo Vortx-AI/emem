@@ -445,6 +445,38 @@ fn cmd_identity(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Read a signed record from disk for one of the ground-side commands.
+///
+/// Two things the plain read did not do.
+///
+/// It named nothing. A missing file produced "No such file or directory (os
+/// error 2)" with no indication of which file, which is the same defect that
+/// was fixed inside the node and had been left in the tools an endorser runs.
+/// These commands exist to be used by someone holding a USB stick and a
+/// terminal, and an error they cannot act on wastes the trip.
+///
+/// It had no bound. A custody record is under a kilobyte and a join request is
+/// smaller; a 50 MB file named `record.custody.json` was read whole, and the
+/// process grew to match it. These files arrive from a node the endorser has
+/// not yet decided to trust, which is the whole point of the command, so its
+/// input is untrusted by definition.
+fn read_record(path: &str, what: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    /// 1 MiB. Three orders of magnitude above any real record, so a legitimate
+    /// file cannot hit it, and small enough that a hostile one costs nothing.
+    const MAX: u64 = 1024 * 1024;
+    let meta =
+        std::fs::metadata(path).map_err(|e| format!("cannot read the {what} at {path}: {e}"))?;
+    if meta.len() > MAX {
+        return Err(format!(
+            "{path} is {} bytes, which is not a {what}: they are under a kilobyte. Refusing to \
+             read it.",
+            meta.len()
+        )
+        .into());
+    }
+    std::fs::read(path).map_err(|e| format!("cannot read the {what} at {path}: {e}").into())
+}
+
 /// Verify a custody record, and optionally that it covers a given payload.
 ///
 /// Two questions, reported separately, because they are different: whether the
@@ -453,7 +485,7 @@ fn cmd_verify(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let record_path = args
         .get(2)
         .ok_or("usage: emem-airgap verify <record.custody.json> [payload-file]")?;
-    let raw = std::fs::read(record_path)?;
+    let raw = read_record(record_path, "custody record")?;
     let record: emem_airgap::Custody = serde_json::from_slice(&raw)
         .map_err(|e| format!("{record_path} is not a custody record: {e}"))?;
 
@@ -480,7 +512,11 @@ fn cmd_verify(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     println!("claims     {}", record.assurance);
 
     if let Some(payload_path) = args.get(3) {
-        let payload = std::fs::read(payload_path)?;
+        // The payload itself has no cap: it is the thing being checked, the
+        // caller named it deliberately, and refusing to hash a large frame
+        // would defeat the command.
+        let payload = std::fs::read(payload_path)
+            .map_err(|e| format!("cannot read the payload at {payload_path}: {e}"))?;
         if record.covers(&payload) {
             println!("payload    MATCHES {payload_path}");
         } else {
@@ -502,7 +538,7 @@ fn cmd_verify_join(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let path = args
         .get(2)
         .ok_or("usage: emem-airgap verify-join <join_request.json>")?;
-    let raw = std::fs::read(path)?;
+    let raw = read_record(path, "join request")?;
     let j: JoinRequest =
         serde_json::from_slice(&raw).map_err(|e| format!("{path} is not a join request: {e}"))?;
     if j.verify() {
@@ -669,6 +705,42 @@ mod tests {
         write_private(&path, b"seed").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "identity is mode {mode:o}, not 0600");
+    }
+
+    /// The ground-side commands read files a node sent, which is to say files
+    /// from a party the endorser has not yet decided to trust.
+    #[test]
+    fn a_record_read_from_disk_is_bounded_and_names_its_path() {
+        let d = std::env::temp_dir().join("emem-airgap-readrecord");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+
+        // A file too large to be what it claims to be is refused before it is
+        // read. A 50 MB file named record.custody.json used to be read whole,
+        // and the process grew to match it.
+        let big = d.join("big.custody.json");
+        std::fs::write(&big, vec![b'{'; 2 * 1024 * 1024]).unwrap();
+        let e = read_record(big.to_str().unwrap(), "custody record").unwrap_err();
+        assert!(e.to_string().contains("under a kilobyte"), "{e}");
+
+        // A missing file says which file. It used to say only "No such file or
+        // directory (os error 2)", which is the same defect that was fixed
+        // inside the node and left in the tools someone runs by hand.
+        let gone = d.join("nowhere.custody.json");
+        let e = read_record(gone.to_str().unwrap(), "custody record").unwrap_err();
+        assert!(e.to_string().contains("nowhere.custody.json"), "{e}");
+        assert!(
+            e.to_string().contains("cannot read the custody record"),
+            "{e}"
+        );
+
+        // A real record is read.
+        let small = d.join("ok.custody.json");
+        std::fs::write(&small, b"{}").unwrap();
+        assert_eq!(
+            read_record(small.to_str().unwrap(), "custody record").unwrap(),
+            b"{}"
+        );
     }
 
     /// The flags the decoder accepts and the flags its help text describes must be
