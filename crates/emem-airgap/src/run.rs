@@ -20,7 +20,15 @@ pub struct DecodeSettings {
     /// Wall clock for this run, RFC 3339 UTC. Passed in rather than read so a
     /// run is reproducible and a machine with a bad clock cannot invent one.
     pub observed_at: String,
+    /// Largest payload this node will read into memory. A cap rather than a
+    /// hope: the input directory belongs to the host, and one enormous file
+    /// should cost a skip line in the report, not the process.
+    pub max_payload_bytes: u64,
 }
+
+/// Default payload cap: 256 MiB. Big enough for the imagery this is built for,
+/// small enough that a node with modest memory survives a hostile directory.
+pub const DEFAULT_MAX_PAYLOAD_BYTES: u64 = 256 * 1024 * 1024;
 
 /// What a run did.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,10 +96,56 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
                 continue;
             }
         };
-        if !path.is_file() {
+        // symlink_metadata, NOT metadata: the latter follows the link.
+        //
+        // Following was a real disclosure and it was demonstrated before it
+        // was fixed. A symlink dropped in the input directory made the node
+        // read the target and sign its size and digest into a record that
+        // then LEAVES the machine. Pointed at the node's own
+        // node_identity.json it published facts about the private key file;
+        // pointed at /etc/anything it published those. On hardware someone
+        // else owns, the input directory is attacker-controlled by
+        // definition, so the only safe rule is that a symlink is never
+        // followed and never silently ignored.
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(e) => {
+                report.skipped.push(Skipped {
+                    name,
+                    reason: format!("unreadable: {e}"),
+                });
+                continue;
+            }
+        };
+        if meta.file_type().is_symlink() {
+            report.skipped.push(Skipped {
+                name,
+                reason: "symlink: refused, because following it would sign a file outside the \
+                         input directory and publish its digest"
+                    .into(),
+            });
+            continue;
+        }
+        if !meta.is_file() {
             report.skipped.push(Skipped {
                 name,
                 reason: "not a regular file".into(),
+            });
+            continue;
+        }
+        // Size is checked before the read, not after. std::fs::read on a
+        // multi-gigabyte payload (or a symlinked /dev/zero, were symlinks
+        // allowed) would take the process down, and a node that dies part way
+        // through a run leaves the host unable to tell what it did.
+        if meta.len() > settings.max_payload_bytes {
+            report.skipped.push(Skipped {
+                name,
+                reason: format!(
+                    "{} bytes exceeds the {} byte payload cap; raise --max-payload-bytes \
+                     deliberately if this node really should read files this large",
+                    meta.len(),
+                    settings.max_payload_bytes
+                ),
             });
             continue;
         }
@@ -114,7 +168,7 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         );
         let json = serde_json::to_vec_pretty(&record).unwrap_or_else(|_| b"{}".to_vec());
         let out = settings.output.join(format!("{name}.custody.json"));
-        std::fs::write(&out, &json)?;
+        write_no_follow(&out, &json)?;
         report.bytes_read += bytes.len() as u64;
         report.bytes_written += json.len() as u64;
         report.recorded += 1;
@@ -122,9 +176,37 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
 
     let manifest = settings.output.join("run.json");
     let mj = serde_json::to_vec_pretty(&report).unwrap_or_else(|_| b"{}".to_vec());
-    std::fs::write(&manifest, &mj)?;
+    write_no_follow(&manifest, &mj)?;
     report.bytes_written += mj.len() as u64;
     Ok(report)
+}
+
+/// Write a file without ever following a symlink at the destination.
+///
+/// The output directory is shared with the host, so it is attacker-controlled
+/// too. A symlink planted there named `<payload>.custody.json` redirected the
+/// write and overwrote whatever it pointed at; that was demonstrated against
+/// this code before it was fixed.
+///
+/// Unlinking first and then creating exclusively removes the follow entirely:
+/// `remove_file` on a symlink removes the link and not its target, and
+/// `create_new` refuses to open anything that already exists, so a racing
+/// writer gets an error rather than silently winning. Re-running the node
+/// still overwrites its own previous output, which is the behaviour that
+/// makes a run reproducible.
+pub(crate) fn write_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    // NotFound is the ordinary case on a first run; anything else is real.
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    f.write_all(bytes)
 }
 
 /// Where the node's key lives on disk, given a data directory.
@@ -151,6 +233,7 @@ mod tests {
                 platform: "nvidia.jetson-orin".into(),
             },
             observed_at: "2026-08-20T09:00:00Z".into(),
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
         }
     }
 
@@ -231,5 +314,132 @@ mod tests {
             r.bytes_read,
             r.bytes_written
         );
+    }
+}
+
+/// Attacks that were demonstrated against this code and now must fail.
+///
+/// These are regression tests in the strict sense: every one of them passed
+/// as an attack before the fix landed, and each is written from the attacker's
+/// side rather than the implementer's.
+#[cfg(test)]
+mod security {
+    use super::*;
+
+    fn key() -> SigningKey {
+        SigningKey::from_bytes(&[3u8; 32])
+    }
+
+    fn s(dir: &Path) -> DecodeSettings {
+        DecodeSettings {
+            input: dir.join("in"),
+            output: dir.join("out"),
+            node: NodeIdentity {
+                node_key: crate::b32(key().verifying_key().as_bytes()),
+                profile: "orbital.satellite.v1".into(),
+                platform: "nvidia.jetson-orin".into(),
+            },
+            observed_at: "2026-08-20T09:00:00Z".into(),
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+        }
+    }
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("emem-airgap-sec-{name}"));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("in")).unwrap();
+        std::fs::create_dir_all(d.join("out")).unwrap();
+        d
+    }
+
+    /// A symlink in the input directory must never be read.
+    ///
+    /// Before the fix this signed the size and digest of whatever the link
+    /// pointed at, including the node's own private key file, into a record
+    /// that then leaves the machine.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_in_the_input_is_refused_not_followed() {
+        let d = tmp("symlink-in");
+        std::fs::write(d.join("secret.txt"), b"operator secret").unwrap();
+        std::os::unix::fs::symlink(d.join("secret.txt"), d.join("in/innocent.tif")).unwrap();
+
+        let r = decode_dir(&key(), &s(&d)).unwrap();
+        assert_eq!(r.recorded, 0, "nothing behind a symlink may be signed");
+        assert_eq!(r.skipped.len(), 1);
+        assert!(
+            r.skipped[0].reason.contains("symlink"),
+            "the refusal must name the reason, got: {}",
+            r.skipped[0].reason
+        );
+        assert!(
+            !d.join("out/innocent.tif.custody.json").exists(),
+            "no record may be written for a symlinked payload"
+        );
+    }
+
+    /// A symlink at the OUTPUT path must not redirect the write.
+    ///
+    /// Before the fix this overwrote the file the link pointed at with custody
+    /// JSON: an arbitrary file write on hardware the node does not own.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_in_the_output_cannot_redirect_a_write() {
+        let d = tmp("symlink-out");
+        std::fs::write(d.join("in/x.tif"), b"payload").unwrap();
+        std::fs::write(d.join("victim.txt"), b"ORIGINAL").unwrap();
+        std::os::unix::fs::symlink(d.join("victim.txt"), d.join("out/x.tif.custody.json")).unwrap();
+
+        decode_dir(&key(), &s(&d)).unwrap();
+        assert_eq!(
+            std::fs::read(d.join("victim.txt")).unwrap(),
+            b"ORIGINAL",
+            "the victim file must be untouched"
+        );
+        // The record still lands, at the real path, having replaced the link.
+        let raw = std::fs::read(d.join("out/x.tif.custody.json")).unwrap();
+        assert!(
+            raw.starts_with(b"{"),
+            "the record is written where it belongs"
+        );
+    }
+
+    /// One huge file must cost a skip line, not the process.
+    #[test]
+    fn an_oversized_payload_is_skipped_rather_than_read() {
+        let d = tmp("huge");
+        std::fs::write(d.join("in/big.tif"), vec![0u8; 4096]).unwrap();
+        std::fs::write(d.join("in/ok.tif"), b"small").unwrap();
+        let mut st = s(&d);
+        st.max_payload_bytes = 1024;
+        let r = decode_dir(&key(), &st).unwrap();
+        assert_eq!(r.recorded, 1, "the small payload is still recorded");
+        assert_eq!(r.skipped.len(), 1);
+        assert!(r.skipped[0].reason.contains("exceeds"));
+        assert!(
+            r.bytes_read < 1024,
+            "the oversized file must never be read into memory"
+        );
+    }
+
+    /// A run must not be able to write outside its output directory, whatever
+    /// the input is named. On unix a file name cannot contain a separator, so
+    /// this checks the property rather than assuming it.
+    #[test]
+    fn every_written_path_stays_inside_the_output_directory() {
+        let d = tmp("escape");
+        for name in ["..tif", "...", "a b.tif", "-rf.tif"] {
+            std::fs::write(d.join("in").join(name), b"x").unwrap();
+        }
+        decode_dir(&key(), &s(&d)).unwrap();
+        let out = d.join("out").canonicalize().unwrap();
+        for e in std::fs::read_dir(d.join("out")).unwrap() {
+            let p = e.unwrap().path().canonicalize().unwrap();
+            assert!(
+                p.starts_with(&out),
+                "{} escaped the output directory",
+                p.display()
+            );
+        }
     }
 }

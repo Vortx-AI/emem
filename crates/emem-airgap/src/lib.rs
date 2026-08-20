@@ -43,7 +43,9 @@ mod run;
 
 pub use custody::{Custody, CustodyError, CustodyVerdict, CUSTODY_SCHEMA_V1};
 pub use identity::{JoinRequest, NodeKeyFile, JOIN_REQUEST_SCHEMA_V1};
-pub use run::{decode_dir, key_path, DecodeReport, DecodeSettings, Skipped};
+pub use run::{
+    decode_dir, key_path, DecodeReport, DecodeSettings, Skipped, DEFAULT_MAX_PAYLOAD_BYTES,
+};
 
 /// base32-nopad lowercase of a blake3 digest: the encoding every emem digest
 /// uses, kept here so this crate does not need the codec crate for one call.

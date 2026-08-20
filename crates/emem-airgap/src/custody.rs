@@ -1,6 +1,6 @@
 //! The custody record: the weakest honest claim a node can sign.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 
 use crate::{b32, NodeIdentity};
@@ -147,7 +147,12 @@ impl Custody {
             .ok()
             .and_then(|v| <[u8; 64]>::try_from(v.as_slice()).ok())
             .ok_or(CustodyError::NotBase32 { field: "signature" })?;
-        vk.verify(&self.preimage(), &Signature::from_bytes(&sig_bytes))
+        // verify_strict, not verify. The permissive check accepts small-order
+        // and non-canonical public keys, which lets one signature validate
+        // under more than one key. For a record whose whole purpose is to say
+        // WHICH node held some bytes, that ambiguity is the bug. The same fix
+        // was already made elsewhere in this codebase; it belongs here too.
+        vk.verify_strict(&self.preimage(), &Signature::from_bytes(&sig_bytes))
             .map_err(|_| CustodyError::BadSignature)?;
         Ok(CustodyVerdict::Valid)
     }

@@ -20,7 +20,7 @@ pub const JOIN_REQUEST_SCHEMA_V1: &str = "emem.join_request.v1";
 /// identity, orphaning every custody record it had already signed and any
 /// endorsement an operator had already issued for the old key, so the loader
 /// never overwrites an existing file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NodeKeyFile {
     /// Always `"ed25519"`.
     pub alg: String,
@@ -36,6 +36,25 @@ pub struct NodeKeyFile {
     pub created: String,
     /// Why the file exists, for whoever finds it later.
     pub note: String,
+}
+
+/// Hand-written so the private seed can never reach a log.
+///
+/// The derived Debug printed `seed_hex` in full. Nothing in this crate logs
+/// the struct today, but a derived impl is a loaded gun: the next person to
+/// add a `dbg!` or an error context while debugging an enrolment would have
+/// written the node's private key into a file that leaves the machine.
+impl std::fmt::Debug for NodeKeyFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeKeyFile")
+            .field("alg", &self.alg)
+            .field("seed_hex", &"<redacted>")
+            .field("pubkey_b32", &self.pubkey_b32)
+            .field("pubkey8", &self.pubkey8)
+            .field("role", &self.role)
+            .field("created", &self.created)
+            .finish_non_exhaustive()
+    }
 }
 
 impl NodeKeyFile {
@@ -144,7 +163,7 @@ impl JoinRequest {
 
     /// Check the self-signature, with nothing but the request.
     pub fn verify(&self) -> bool {
-        use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+        use ed25519_dalek::{Signature, VerifyingKey};
         if self.schema != JOIN_REQUEST_SCHEMA_V1 || self.proves != PROVES {
             return false;
         }
@@ -169,7 +188,7 @@ impl JoinRequest {
             &self.hwmodel,
             &self.created_at,
         );
-        vk.verify(&pre, &Signature::from_bytes(&sig)).is_ok()
+        vk.verify_strict(&pre, &Signature::from_bytes(&sig)).is_ok()
     }
 }
 

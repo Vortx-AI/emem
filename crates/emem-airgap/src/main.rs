@@ -65,6 +65,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             platform,
         },
         observed_at,
+        max_payload_bytes: env_or(
+            "--max-payload-bytes",
+            "EMEM_AIRGAP_MAX_PAYLOAD_BYTES",
+            &args,
+        )
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(emem_airgap::DEFAULT_MAX_PAYLOAD_BYTES),
     };
 
     // Written on every run, not just the first. It is small, it is
@@ -182,7 +189,8 @@ emem-airgap  one directory in, one directory out, no network.
   --profile      <id>    substrate profile this node writes under
   --platform     <id>    device platform id
   --observed-at  <ts>    RFC 3339 UTC; required, never defaulted to now
-  --data         <dir>   where node.secret.b32 lives (default: .)
+  --data         <dir>   where node_identity.json lives (default: .)
+  --max-payload-bytes <n> refuse payloads larger than this (default 256 MiB)
 
 Each flag also reads an environment variable: EMEM_AIRGAP_INPUT, _OUTPUT,
 _PROFILE, _PLATFORM, _OBSERVED_AT, _DATA.
