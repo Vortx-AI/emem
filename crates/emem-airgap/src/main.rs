@@ -76,6 +76,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             profile,
             platform,
         },
+        traces: env_or("--traces", "EMEM_AIRGAP_TRACES", &args).map(PathBuf::from),
+        stage: env_or("--stage", "EMEM_AIRGAP_STAGE", &args),
         observed_at,
         max_payload_bytes: env_or(
             "--max-payload-bytes",
@@ -117,8 +119,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // stderr, so stdout stays free for the report itself.
     eprintln!("emem-airgap  node {node_key}");
     eprintln!(
-        "  {} recorded, {} skipped, {} bytes read, {} bytes written",
+        "  {} recorded ({} citing an encoder trace), {} skipped, {} bytes read, {} bytes written",
         report.recorded,
+        report.traced,
         report.skipped.len(),
         report.bytes_read,
         report.bytes_written
@@ -230,6 +233,9 @@ emem-airgap  one directory in, one directory out, no network.
   --data         <dir>   where node_identity.json lives (default: .)
   --max-payload-bytes <n> refuse payloads larger than this (default 256 MiB)
   --max-files    <n>     most files in one run (default 10000)
+  --traces       <dir>   emem.os_trace.v1 records from an encoder on this machine;
+                         a payload a trace covers gets that trace cited
+  --stage        <label> what stage these payloads are at, your vocabulary
 
 Each flag also reads an environment variable: EMEM_AIRGAP_INPUT, _OUTPUT,
 _PROFILE, _PLATFORM, _OBSERVED_AT, _DATA.

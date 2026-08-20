@@ -17,6 +17,17 @@ pub struct DecodeSettings {
     pub output: PathBuf,
     /// The node's identity, as configured by the operator.
     pub node: NodeIdentity,
+    /// Directory of `emem.os_trace.v1` records an encoder on this machine has
+    /// written, if one is running.
+    ///
+    /// The folder the two halves meet through. Neither has to know the other
+    /// exists; a node with no encoder points this at nothing.
+    pub traces: Option<PathBuf>,
+    /// The operator's label for the stage the payloads in `input` sit at.
+    ///
+    /// Free text, because every host names its pipeline differently and a
+    /// fixed vocabulary would force somebody to lie about theirs.
+    pub stage: Option<String>,
     /// Wall clock for this run, RFC 3339 UTC. Passed in rather than read so a
     /// run is reproducible and a machine with a bad clock cannot invent one.
     pub observed_at: String,
@@ -49,6 +60,14 @@ pub struct DecodeReport {
     pub bytes_read: u64,
     /// Total bytes written to the output directory.
     pub bytes_written: u64,
+    /// Payloads whose digest an encoder trace covered, so their record cites
+    /// one. The rest carry custody alone.
+    pub traced: usize,
+    /// Files in the traces directory that could not be read as a trace.
+    /// Counted rather than fatal: the encoder is a separate process and its
+    /// debris must not stop custody being recorded.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unreadable_traces: usize,
     /// Temporary files left behind by a run that did not finish, reported and
     /// deliberately not deleted.
     ///
@@ -59,6 +78,10 @@ pub struct DecodeReport {
     /// containers are running; guessing does not.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub stale_partials: Vec<String>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// A file the run did not record, and why.
@@ -97,11 +120,49 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         overflow = names.split_off(settings.max_files as usize);
     }
 
+    // Read the encoder's output once, up front: payload digest -> trace cid.
+    //
+    // This is the folder the two halves meet through. A trace names the
+    // payloads it emitted, so the join is the digest and nothing has to be
+    // agreed between the halves beyond a directory. Neither has to know the
+    // other exists, and a node with no encoder yet points this at nothing.
+    //
+    // A trace that does not parse is counted, not fatal: the encoder is a
+    // separate process and its debris must not stop custody being recorded.
+    let mut traced: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut unreadable_traces = 0usize;
+    if let Some(dir) = &settings.traces {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.filter_map(|e| e.ok()) {
+                let path = e.path();
+                if !path.is_file() {
+                    continue;
+                }
+                match std::fs::read(&path)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<emem_trace::OsTrace>(&b).ok())
+                {
+                    Some(t) => match t.trace_cid() {
+                        Ok(cid) => {
+                            for out in &t.outputs {
+                                traced.insert(out.payload_digest.clone(), cid.clone());
+                            }
+                        }
+                        Err(_) => unreadable_traces += 1,
+                    },
+                    None => unreadable_traces += 1,
+                }
+            }
+        }
+    }
+
     let mut report = DecodeReport {
         recorded: 0,
         skipped: Vec::new(),
         bytes_read: 0,
         bytes_written: 0,
+        traced: 0,
+        unreadable_traces,
         stale_partials: Vec::new(),
     };
 
@@ -182,12 +243,15 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
                 continue;
             }
         };
+        let digest = crate::b32(blake3::hash(&bytes).as_bytes());
         let record = Custody::sign(
             key,
             settings.node.clone(),
             &name,
             &bytes,
             &settings.observed_at,
+            settings.stage.as_deref(),
+            traced.get(&digest).map(String::as_str),
         );
         let json = serde_json::to_vec_pretty(&record).unwrap_or_else(|_| b"{}".to_vec());
         let out = settings.output.join(format!("{name}.custody.json"));
@@ -220,6 +284,9 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
         }
         report.bytes_read += bytes.len() as u64;
         report.bytes_written += json.len() as u64;
+        if record.trace_cid.is_some() {
+            report.traced += 1;
+        }
         report.recorded += 1;
     }
 
@@ -351,6 +418,8 @@ mod tests {
                 profile: "orbital.satellite.v1".into(),
                 platform: "nvidia.jetson-orin".into(),
             },
+            traces: None,
+            stage: None,
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_files: DEFAULT_MAX_FILES,
@@ -459,6 +528,8 @@ mod security {
                 profile: "orbital.satellite.v1".into(),
                 platform: "nvidia.jetson-orin".into(),
             },
+            traces: None,
+            stage: None,
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_files: DEFAULT_MAX_FILES,
@@ -597,6 +668,8 @@ mod parallel {
                     profile: "orbital.satellite.v1".into(),
                     platform: "nvidia.jetson-orin".into(),
                 },
+                traces: None,
+                stage: None,
                 observed_at: "2026-08-20T09:00:00Z".into(),
                 max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
                 max_files: DEFAULT_MAX_FILES,
@@ -648,6 +721,8 @@ mod resilience {
                 profile: "orbital.satellite.v1".into(),
                 platform: "nvidia.jetson-orin".into(),
             },
+            traces: None,
+            stage: None,
             observed_at: "2026-08-20T09:00:00Z".into(),
             max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
             max_files: DEFAULT_MAX_FILES,
@@ -729,5 +804,138 @@ mod resilience {
         if let Ok(c) = parsed {
             assert!(c.verify().is_err(), "a flipped byte must not verify");
         }
+    }
+}
+
+/// The seam between the encoder and the decoder.
+#[cfg(test)]
+mod handoff {
+    use super::*;
+    use emem_core::key::{AttesterKey, KeyEpoch};
+    use emem_trace::{DeviceIdentity, EmittedOutput, OsTrace, TraceSegment};
+
+    /// Build a real, signed trace that emits one payload digest.
+    ///
+    /// Real rather than mocked: if the decoder can read what emem-trace
+    /// actually produces, the two halves meet. A hand-rolled JSON blob would
+    /// prove only that the decoder can read a hand-rolled JSON blob.
+    fn trace_covering(payload: &[u8], key: &SigningKey) -> OsTrace {
+        let device = DeviceIdentity {
+            device_key: AttesterKey(key.verifying_key().to_bytes()),
+            key_epoch: KeyEpoch(0),
+            substrate_profile: "robot.fleet.v1".into(),
+            platform: "jetson-orin-nx".into(),
+            os: "Ubuntu 22.04".into(),
+            kernel: "5.15.148-tegra".into(),
+            boot_id: "boot-1".into(),
+        };
+        let seg = TraceSegment {
+            layer: emem_core::substrates::TraceLayerKind::Syscall,
+            encoding: "linux.ftrace.v1".into(),
+            seq: 0,
+            clock_start_ns: 0,
+            clock_end_ns: 10,
+            event_count: 1,
+            log_digest: crate::b32(blake3::hash(b"segment").as_bytes()),
+            prev_digest: None,
+        };
+        let out = EmittedOutput {
+            payload_digest: crate::b32(blake3::hash(payload).as_bytes()),
+            band: None,
+            emitted_at_ns: 5,
+            layer: emem_core::substrates::TraceLayerKind::SensorBus,
+        };
+        let segments = vec![seg];
+        let root = OsTrace::compute_trace_root(&segments).expect("root");
+        let mut t = OsTrace {
+            schema: emem_trace::OS_TRACE_SCHEMA_V1.into(),
+            device,
+            window_start_ns: 0,
+            window_end_ns: 10,
+            segments,
+            outputs: vec![out],
+            trace_root: crate::b32(&root),
+            prev_trace_cid: None,
+            signature: emem_core::key::Signature([0u8; 64]),
+        };
+        let pre = t.preimage().expect("preimage");
+        use ed25519_dalek::Signer;
+        t.signature = emem_core::key::Signature(key.sign(&pre).to_bytes());
+        t
+    }
+
+    #[test]
+    fn a_payload_an_encoder_traced_cites_that_trace() {
+        let d = std::env::temp_dir().join("emem-airgap-handoff");
+        let _ = std::fs::remove_dir_all(&d);
+        for sub in ["in", "out", "traces"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        let payload = b"a frame the encoder watched being produced";
+        std::fs::write(d.join("in/traced.tif"), payload).unwrap();
+        std::fs::write(d.join("in/untraced.tif"), b"a frame nobody watched").unwrap();
+
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        let t = trace_covering(payload, &k);
+        std::fs::write(
+            d.join("traces/t1.json"),
+            serde_json::to_vec_pretty(&t).unwrap(),
+        )
+        .unwrap();
+        // Debris in the encoder's directory must not stop custody.
+        std::fs::write(d.join("traces/garbage.json"), b"not a trace").unwrap();
+
+        let st = DecodeSettings {
+            input: d.join("in"),
+            output: d.join("out"),
+            traces: Some(d.join("traces")),
+            stage: Some("L2".into()),
+            node: NodeIdentity {
+                node_key: crate::b32(k.verifying_key().as_bytes()),
+                profile: "robot.fleet.v1".into(),
+                platform: "nvidia.jetson-orin".into(),
+            },
+            observed_at: "2026-08-20T09:00:00Z".into(),
+            max_payload_bytes: DEFAULT_MAX_PAYLOAD_BYTES,
+            max_files: DEFAULT_MAX_FILES,
+        };
+        let r = decode_dir(&k, &st).unwrap();
+        assert_eq!(r.recorded, 2);
+        assert_eq!(r.traced, 1, "exactly the traced payload cites a trace");
+        assert_eq!(r.unreadable_traces, 1, "debris is counted, not fatal");
+
+        let traced: Custody =
+            serde_json::from_slice(&std::fs::read(d.join("out/traced.tif.custody.json")).unwrap())
+                .unwrap();
+        traced.verify().expect("a traced record still verifies");
+        assert_eq!(
+            traced.trace_cid.as_deref(),
+            Some(t.trace_cid().unwrap().as_str())
+        );
+        assert!(traced.assurance.starts_with("custody_with_trace"));
+        assert_eq!(traced.stage.as_deref(), Some("L2"));
+
+        let plain: Custody = serde_json::from_slice(
+            &std::fs::read(d.join("out/untraced.tif.custody.json")).unwrap(),
+        )
+        .unwrap();
+        plain.verify().expect("an untraced record still verifies");
+        assert!(plain.trace_cid.is_none(), "no trace, no citation");
+        assert!(plain.assurance.starts_with("custody_only"));
+    }
+
+    /// A record must not be able to claim the stronger sentence without the
+    /// evidence that earns it.
+    #[test]
+    fn claiming_a_trace_you_do_not_cite_is_refused() {
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        let node = NodeIdentity {
+            node_key: crate::b32(k.verifying_key().as_bytes()),
+            profile: "p".into(),
+            platform: "pl".into(),
+        };
+        let mut c = Custody::sign(&k, node, "a.tif", b"x", "2026-08-20T09:00:00Z", None, None);
+        c.assurance = crate::custody::ASSURANCE_TRACED.to_string();
+        assert!(c.verify().is_err(), "the sentence must match the evidence");
     }
 }

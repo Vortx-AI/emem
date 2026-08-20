@@ -18,6 +18,7 @@ description  = "Air-gapped emem node: a folder in, a folder out, no network."
 [dependencies]
 emem-attest   = { workspace = true }
 emem-core     = { workspace = true }
+emem-trace    = { workspace = true }
 blake3        = { workspace = true }
 ed25519-dalek = { workspace = true }
 serde         = { workspace = true }

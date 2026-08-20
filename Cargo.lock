@@ -2438,6 +2438,7 @@ dependencies = [
  "ed25519-dalek",
  "emem-attest",
  "emem-core",
+ "emem-trace",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

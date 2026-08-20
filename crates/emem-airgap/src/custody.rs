@@ -29,15 +29,31 @@ pub struct Custody {
     /// read from the system clock inside this crate, so a run is reproducible
     /// and a machine with no reliable clock cannot silently invent one.
     pub observed_at: String,
+    /// The operator's label for the processing stage this payload sits at.
+    ///
+    /// A free string on purpose. Every host names its pipeline differently,
+    /// and a fixed vocabulary here would either exclude a host or force one to
+    /// lie about which stage it is at. The label is signed, so it cannot be
+    /// changed after the fact, but its MEANING is the operator's to define.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+    /// Content id of the `emem.os_trace.v1` whose outputs include this
+    /// payload, when an encoder has traced the execution that produced it.
+    ///
+    /// This is the join between the two halves. Custody says the bytes
+    /// arrived; a trace says how they were produced. When both exist for the
+    /// same digest the record cites the trace, and its assurance says so.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_cid: Option<String>,
     /// What this record establishes, written into the record rather than left
-    /// to a reader's assumption. See [`ASSURANCE`].
+    /// to a reader's assumption.
     pub assurance: String,
     /// ed25519 signature by `node.node_key` over the custody preimage,
     /// base32-nopad lowercase.
     pub signature: String,
 }
 
-/// The sentence every custody record carries about itself.
+/// What a record says about itself when no encoder traced the payload.
 ///
 /// It is in the signed body on purpose. A reader who has the record but not
 /// this documentation still learns the limit, and an intermediary cannot strip
@@ -45,6 +61,18 @@ pub struct Custody {
 pub const ASSURANCE: &str = "custody_only: the holder of this node key states these bytes arrived \
                              under this name at this time. Nothing here attests how the payload \
                              was produced, and this is NOT an emem.os_trace.v1 execution record.";
+
+/// What a record says about itself when an encoder DID trace the payload.
+///
+/// The stronger sentence is still careful about what it claims. The trace is
+/// cited, not embedded, so a reader has to fetch and verify it themselves; and
+/// custody remains a statement about arrival, with the execution claim resting
+/// entirely on the trace that is named.
+pub const ASSURANCE_TRACED: &str =
+    "custody_with_trace: the holder of this node key states these bytes arrived under this name \
+     at this time, AND cites an emem.os_trace.v1 whose outputs include this payload digest. The \
+     execution claim belongs to that trace, not to this record: fetch it by its cid and verify it \
+     yourself before relying on it.";
 
 /// What can go wrong building or checking a custody record.
 #[derive(Debug, thiserror::Error)]
@@ -87,6 +115,8 @@ impl Custody {
         name: &str,
         payload: &[u8],
         observed_at: &str,
+        stage: Option<&str>,
+        trace_cid: Option<&str>,
     ) -> Self {
         let payload_digest = b32(blake3::hash(payload).as_bytes());
         let size_bytes = payload.len() as u64;
@@ -98,6 +128,8 @@ impl Custody {
             observed_at,
             size_bytes,
             name,
+            stage,
+            trace_cid,
         );
         let sig = key.sign(&pre);
         Self {
@@ -107,7 +139,15 @@ impl Custody {
             payload_digest,
             size_bytes,
             observed_at: observed_at.to_string(),
-            assurance: ASSURANCE.to_string(),
+            stage: stage.map(str::to_string),
+            trace_cid: trace_cid.map(str::to_string),
+            // The sentence follows the evidence rather than being chosen: a
+            // record cites a trace or it does not, and it says which.
+            assurance: if trace_cid.is_some() {
+                ASSURANCE_TRACED.to_string()
+            } else {
+                ASSURANCE.to_string()
+            },
             signature: b32(&sig.to_bytes()),
         }
     }
@@ -122,6 +162,8 @@ impl Custody {
             &self.observed_at,
             self.size_bytes,
             &self.name,
+            self.stage.as_deref(),
+            self.trace_cid.as_deref(),
         )
     }
 
@@ -136,7 +178,15 @@ impl Custody {
         }
         // The caveat is signed, so an altered one is a broken record rather
         // than a quiet downgrade of what the reader is told.
-        if self.assurance != ASSURANCE {
+        // The sentence must match the evidence. A record that cites no trace
+        // and claims the traced assurance is claiming execution it has nothing
+        // to stand on, so that combination is refused rather than tolerated.
+        let expected = if self.trace_cid.is_some() {
+            ASSURANCE_TRACED
+        } else {
+            ASSURANCE
+        };
+        if self.assurance != expected {
             return Err(CustodyError::AssuranceAltered);
         }
         let key_bytes =
@@ -200,6 +250,8 @@ mod tests {
             "frame_001.tif",
             b"pixels",
             "2026-08-20T09:00:00Z",
+            None,
+            None,
         );
         assert_eq!(c.verify().unwrap(), CustodyVerdict::Valid);
         assert!(c.covers(b"pixels"));
@@ -212,7 +264,15 @@ mod tests {
     #[test]
     fn every_bound_field_breaks_the_signature_when_edited() {
         let k = key();
-        let base = Custody::sign(&k, node(&k), "a.tif", b"bytes", "2026-08-20T09:00:00Z");
+        let base = Custody::sign(
+            &k,
+            node(&k),
+            "a.tif",
+            b"bytes",
+            "2026-08-20T09:00:00Z",
+            None,
+            None,
+        );
 
         let mut t = base.clone();
         t.name = "b.tif".into();
@@ -244,7 +304,15 @@ mod tests {
     #[test]
     fn the_assurance_sentence_cannot_be_stripped() {
         let k = key();
-        let mut c = Custody::sign(&k, node(&k), "a.tif", b"b", "2026-08-20T09:00:00Z");
+        let mut c = Custody::sign(
+            &k,
+            node(&k),
+            "a.tif",
+            b"b",
+            "2026-08-20T09:00:00Z",
+            None,
+            None,
+        );
         c.assurance = "attested execution, verified".into();
         assert!(matches!(c.verify(), Err(CustodyError::AssuranceAltered)));
     }
@@ -254,7 +322,15 @@ mod tests {
     fn another_key_cannot_speak_for_this_node() {
         let k = key();
         let other = SigningKey::from_bytes(&[9u8; 32]);
-        let mut c = Custody::sign(&k, node(&k), "a.tif", b"b", "2026-08-20T09:00:00Z");
+        let mut c = Custody::sign(
+            &k,
+            node(&k),
+            "a.tif",
+            b"b",
+            "2026-08-20T09:00:00Z",
+            None,
+            None,
+        );
         c.node.node_key = b32(other.verifying_key().as_bytes());
         assert!(matches!(c.verify(), Err(CustodyError::BadSignature)));
     }
@@ -264,8 +340,24 @@ mod tests {
     #[test]
     fn signing_is_deterministic() {
         let k = key();
-        let a = Custody::sign(&k, node(&k), "a.tif", b"b", "2026-08-20T09:00:00Z");
-        let b = Custody::sign(&k, node(&k), "a.tif", b"b", "2026-08-20T09:00:00Z");
+        let a = Custody::sign(
+            &k,
+            node(&k),
+            "a.tif",
+            b"b",
+            "2026-08-20T09:00:00Z",
+            None,
+            None,
+        );
+        let b = Custody::sign(
+            &k,
+            node(&k),
+            "a.tif",
+            b"b",
+            "2026-08-20T09:00:00Z",
+            None,
+            None,
+        );
         assert_eq!(a.signature, b.signature);
         assert_eq!(a.payload_digest, b.payload_digest);
     }
@@ -275,7 +367,17 @@ mod tests {
     /// the whole thing this separation exists to prevent.
     #[test]
     fn custody_and_os_trace_preimages_are_different_domains() {
-        let c = emem_attest::custody_preimage_v1(CUSTODY_SCHEMA_V1, "d", "p", "pl", "t", 1, "n");
+        let c = emem_attest::custody_preimage_v1(
+            CUSTODY_SCHEMA_V1,
+            "d",
+            "p",
+            "pl",
+            "t",
+            1,
+            "n",
+            None,
+            None,
+        );
         let o = emem_attest::os_trace_preimage_v1(
             CUSTODY_SCHEMA_V1,
             &[0u8; 32],

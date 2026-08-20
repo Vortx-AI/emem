@@ -18,6 +18,33 @@ The payload never leaves. Only the record does, and it is roughly three orders
 of magnitude smaller, which is the point on a link where bandwidth is the
 expensive part.
 
+## What is actually delivered, in one table
+
+| You get | You do not get |
+| --- | --- |
+| A signed statement that these exact bytes, under this name and size, arrived at this node at this time | Any statement that the bytes are *correct*, or that the sensor was calibrated, or that the clock was right |
+| A record that verifies offline against the node's published key, with no server and nothing from this repository | Encryption. Records are signed, not sealed; anyone who has one can read it |
+| A digest you can check the payload against wherever the payload actually lives | The payload. It never leaves through this node |
+| A stage label, so a record says which point in your pipeline it covers | Lineage between stages. See the note below, because this is the one people assume |
+| A citation of an `emem.os_trace.v1` when an encoder traced the payload, and a stronger assurance sentence to match | The execution claim itself. That belongs to the trace, which you fetch and verify separately |
+
+### The lineage gap, stated plainly
+
+If your pipeline turns a raw capture into a corrected image and then into an
+analysis product, this node can take custody at every step: run it against each
+directory with its own `--stage` label. What it **cannot** do is tell you that
+the analysis product came from that particular raw capture. Only your pipeline
+knows that, and it does not tell us.
+
+So a record says "this artefact was here, at this stage". It does not say "this
+artefact was derived from that one". Anyone reading a set of records should not
+infer a chain that nothing signed.
+
+The one case where derivation IS attested is when an encoder traced the run:
+the trace names the payload digests it emitted, and the custody record cites
+the trace by content id. That is evidence rather than inference, which is why
+it is the only form of it here.
+
 ## What it deliberately does not claim
 
 A custody record is **not** an `emem.os_trace.v1` execution record, and it says
@@ -65,6 +92,18 @@ the source of truth if this file ever falls behind it.
 signed into every record, so a node with a wrong clock stamping its own time
 would be signing a false statement. It is shape-checked as RFC 3339 UTC;
 whether the clock is *right* is something only you can know.
+
+`--stage` labels what point in your pipeline these payloads sit at. It is free
+text and signed. There is no fixed vocabulary because every host names its
+pipeline differently, and one baked into this crate would force somebody to
+mislabel theirs.
+
+`--traces` points at a directory where an encoder on the same machine writes
+`emem.os_trace.v1` records. That directory is the whole interface between the
+two halves: a trace names the payload digests it emitted, so a payload the
+encoder watched being produced gets that trace cited in its custody record and
+the stronger `custody_with_trace` assurance. A node with no encoder points this
+at nothing and keeps working; neither half needs to know the other exists.
 
 `--data` must be on storage that survives a restart. The identity there is
 created once and never regenerated: a new key orphans every record already

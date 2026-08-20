@@ -517,6 +517,13 @@ pub mod custody_tag {
     /// name is part of what the node received, and a record that omitted it
     /// would let two different arrivals of the same bytes look identical.
     pub const NAME: u8 = 0x07;
+    /// Operator's label for the processing stage this payload sits at.
+    /// Appended only when present.
+    pub const STAGE: u8 = 0x08;
+    /// Content id of the `emem.os_trace.v1` whose outputs include this
+    /// payload. Appended only when present, which is what lets a record made
+    /// before any encoder existed keep hashing byte-identically.
+    pub const TRACE: u8 = 0x09;
 }
 
 /// Canonical v1 custody preimage — the 32 bytes a node's ed25519 key signs to
@@ -528,6 +535,7 @@ pub mod custody_tag {
 /// mistaken for the other. A verifier that checks this signature learns that
 /// the holder of the node key says these bytes arrived under this name, at
 /// this size, at this time. It learns nothing about how they were produced.
+#[allow(clippy::too_many_arguments)]
 pub fn custody_preimage_v1(
     schema: &str,
     payload_digest: &str,
@@ -536,6 +544,8 @@ pub fn custody_preimage_v1(
     observed_at: &str,
     size_bytes: u64,
     name: &str,
+    stage: Option<&str>,
+    trace_cid: Option<&str>,
 ) -> [u8; 32] {
     let mut p = PreimageV1::new("custody");
     p.seg(custody_tag::SCHEMA, schema.as_bytes());
@@ -545,6 +555,16 @@ pub fn custody_preimage_v1(
     p.seg(custody_tag::OBSERVED_AT, observed_at.as_bytes());
     p.seg(custody_tag::SIZE, &size_bytes.to_le_bytes());
     p.seg(custody_tag::NAME, name.as_bytes());
+    // Appended only when present, following the same rule os_trace uses for
+    // prev_trace_cid: a record that carries neither hashes exactly as it did
+    // before these two segments existed, so nothing already signed is
+    // invalidated by adding them.
+    if let Some(v) = stage {
+        p.seg(custody_tag::STAGE, v.as_bytes());
+    }
+    if let Some(v) = trace_cid {
+        p.seg(custody_tag::TRACE, v.as_bytes());
+    }
     p.finalize()
 }
 
