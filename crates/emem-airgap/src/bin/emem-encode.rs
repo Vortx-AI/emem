@@ -255,9 +255,12 @@ _PROFILE, _PLATFORM, _DATA, _PREV_TRACE, _INTERVAL. Either spelling works,
 with a space or an equals sign. A flag this command does not have is refused
 rather than ignored, so a typo stops the run instead of quietly changing it.
 
-Needs a tracefs mount and the capability to read it for the syscall, scheduler
-and memory layers. Energy and thermal come from hwmon and need neither. A layer
-that cannot be read is ABSENT from the trace and reported, never invented.";
+Only the syscall layer needs a tracefs mount and the capability to read it.
+Scheduler, memory, storage and network come from /proc and need neither, as
+counter segments labelled linux.procfs.v1 rather than event logs. Energy and
+thermal come from hwmon. A layer that cannot be read is ABSENT from the trace
+and reported, never invented, and every capture prints which profiles the
+layers it did get would satisfy.";
 
 #[cfg(test)]
 mod tests {

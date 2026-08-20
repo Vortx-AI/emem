@@ -288,7 +288,7 @@ pub fn decode_dir(key: &SigningKey, settings: &DecodeSettings) -> std::io::Resul
                     .ok()
                     .and_then(|b| serde_json::from_slice::<emem_trace::OsTrace>(&b).ok())
                 {
-                    Some(t) => match cite_check(&t) {
+                    Some(t) => match cite_check(&t, &settings.node) {
                         Ok(cid) => {
                             for out in &t.outputs {
                                 traced.insert(out.payload_digest.clone(), cid.clone());
@@ -678,7 +678,58 @@ pub(crate) fn walk(root: &Path, max_depth: u32) -> std::io::Result<Walked> {
 /// implementation of half of it. A local copy of the rules would drift from
 /// the real ones, and the drift would show up as a node citing traces the
 /// ground would reject.
-fn cite_check(t: &emem_trace::OsTrace) -> Result<String, String> {
+fn cite_check(t: &emem_trace::OsTrace, node: &NodeIdentity) -> Result<String, String> {
+    // Whose evidence is this, and is it this node's?
+    //
+    // Checked BEFORE anything else, because a trace that belongs to someone
+    // else is not made citable by being internally sound.
+    //
+    // This was missing entirely, and the comment that used to sit here argued
+    // it should be: it said a payload could legitimately arrive from a device
+    // on a different profile. There is no such topology in this crate. The
+    // encoder shares the decoder's identity by design - two halves of one node
+    // signing as one node - and nothing documents or supports citing another
+    // device's capture. I asserted a legitimacy I never had a case for, and it
+    // cost a signature-level hole.
+    //
+    // What the hole was, demonstrated: a second node's trace dropped into the
+    // traces directory made this node issue custody_with_trace records citing
+    // hardware evidence signed by a key that is not its own, and neither key
+    // appeared in the other's record. On a host where the traces directory
+    // sits under the writable output mount, anything that can write a file
+    // there could do it. Separately, a counters-only capture from a generic
+    // host let a node configured as orbital.satellite.v1 - the profile kept at
+    // attested_execution precisely so it would not overclaim - issue
+    // custody_with_trace on the back of it.
+    //
+    // The trace self-selected both the bar it was judged against and whose
+    // evidence it was. It now selects neither.
+    let device_key = crate::b32(&t.device.device_key.0);
+    if device_key != node.node_key {
+        return Err(format!(
+            "was signed by device {}, and this node is {}. A record citing it would claim another \
+             device's execution evidence as its own. The encoder shares this node's identity by \
+             design; if this trace is from a different machine, it does not belong in this node's \
+             traces directory.",
+            short_key(&device_key),
+            short_key(&node.node_key)
+        ));
+    }
+    if t.device.substrate_profile != node.profile {
+        return Err(format!(
+            "was captured under profile {}, and this node writes under {}. A record cannot cite \
+             evidence gathered to a different standard than the one it claims to meet.",
+            t.device.substrate_profile, node.profile
+        ));
+    }
+    if t.device.platform != node.platform {
+        return Err(format!(
+            "names platform {}, and this node is configured as {}. One node describing its own \
+             hardware two ways across a signed pair is a configuration error, not two facts.",
+            t.device.platform, node.platform
+        ));
+    }
+
     let registry = &*emem_core::substrates::DEFAULT;
     let Some(profile) = registry.lookup(&t.device.substrate_profile) else {
         return Err(format!(
@@ -1793,7 +1844,11 @@ mod handoff {
             device_key: AttesterKey(key.verifying_key().to_bytes()),
             key_epoch: KeyEpoch(0),
             substrate_profile: "exec.trace.v1".into(),
-            platform: "jetson-orin-nx".into(),
+            // Same string the node is configured with. The two used to differ
+            // ("jetson-orin-nx" here, "nvidia.jetson-orin" there), which is the
+            // inconsistency the ownership check now refuses, and it was in the
+            // README recipes too.
+            platform: "nvidia.jetson-orin".into(),
             os: "Ubuntu 22.04".into(),
             kernel: "5.15.148-tegra".into(),
             boot_id: "boot-1".into(),
@@ -1859,6 +1914,114 @@ mod handoff {
             flat: false,
             max_files: DEFAULT_MAX_FILES,
         }
+    }
+
+    /// A record must never cite another device's execution evidence.
+    ///
+    /// Reported from a real deployment, and it was the worst of the lot. The
+    /// decoder judged a trace against the profile the TRACE stamped on itself
+    /// and never asked whose it was, so a trace self-selected both the bar it
+    /// was judged against and whose evidence it counted as. A second node's
+    /// capture, dropped into the traces directory, made this node issue
+    /// custody_with_trace records citing hardware evidence signed by a key
+    /// that is not its own, with neither key appearing in the other's record.
+    /// On a host where the traces directory sits under the writable output
+    /// mount, anything able to write a file there could do it.
+    #[test]
+    fn a_trace_from_another_node_is_never_cited() {
+        let d = std::env::temp_dir().join("emem-airgap-xnode");
+        let _ = std::fs::remove_dir_all(&d);
+        for sub in ["in", "out", "traces"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        let payload = b"a frame both nodes can see";
+        std::fs::write(d.join("in/frame.tif"), payload).unwrap();
+
+        // The trace belongs to `theirs`; the node running is `ours`.
+        let theirs = SigningKey::from_bytes(&[3u8; 32]);
+        let ours = SigningKey::from_bytes(&[4u8; 32]);
+        let t = trace_covering(payload, &theirs);
+        std::fs::write(
+            d.join("traces/t.json"),
+            serde_json::to_vec_pretty(&t).unwrap(),
+        )
+        .unwrap();
+
+        let r = decode_dir(&ours, &settings_for(&d, &ours, "exec.trace.v1")).unwrap();
+        assert_eq!(r.recorded, 1, "custody is unaffected");
+        assert_eq!(
+            r.traced, 0,
+            "a record cited a trace signed by a different node"
+        );
+        assert!(
+            r.refused_traces[0]
+                .reason
+                .contains("another device's execution evidence"),
+            "{:?}",
+            r.refused_traces
+        );
+        let rec: Custody =
+            serde_json::from_slice(&std::fs::read(record_path(&d, "frame.tif", &ours)).unwrap())
+                .unwrap();
+        assert!(rec.trace_cid.is_none());
+        assert!(rec.assurance.starts_with("custody_only"));
+
+        // The control: the node the trace actually belongs to still cites it.
+        // Without this the test would pass just as well if citation were
+        // broken outright.
+        let d2 = std::env::temp_dir().join("emem-airgap-xnode-ok");
+        let _ = std::fs::remove_dir_all(&d2);
+        for sub in ["in", "out", "traces"] {
+            std::fs::create_dir_all(d2.join(sub)).unwrap();
+        }
+        std::fs::write(d2.join("in/frame.tif"), payload).unwrap();
+        std::fs::write(
+            d2.join("traces/t.json"),
+            serde_json::to_vec_pretty(&t).unwrap(),
+        )
+        .unwrap();
+        let ok = decode_dir(&theirs, &settings_for(&d2, &theirs, "exec.trace.v1")).unwrap();
+        assert_eq!(
+            ok.traced, 1,
+            "the owning node must still cite its own trace"
+        );
+    }
+
+    /// A node cannot cite a capture taken to a weaker standard than the one it
+    /// claims to meet.
+    ///
+    /// orbital.satellite.v1 is held at attested_execution precisely so it does
+    /// not overclaim. Before this check, a counters-only capture let a node
+    /// configured under that profile issue custody_with_trace on the back of
+    /// it: the encoder's own report said a verifier "will refuse it under that
+    /// profile and be right to", and the decoder is that verifier.
+    #[test]
+    fn a_trace_captured_under_a_different_profile_is_never_cited() {
+        let d = std::env::temp_dir().join("emem-airgap-xprofile");
+        let _ = std::fs::remove_dir_all(&d);
+        for sub in ["in", "out", "traces"] {
+            std::fs::create_dir_all(d.join(sub)).unwrap();
+        }
+        let payload = b"a frame captured one way and claimed another";
+        std::fs::write(d.join("in/frame.tif"), payload).unwrap();
+
+        let k = SigningKey::from_bytes(&[3u8; 32]);
+        // trace_covering stamps exec.trace.v1; the node claims to be stricter.
+        let t = trace_covering(payload, &k);
+        std::fs::write(
+            d.join("traces/t.json"),
+            serde_json::to_vec_pretty(&t).unwrap(),
+        )
+        .unwrap();
+
+        let r = decode_dir(&k, &settings_for(&d, &k, "orbital.satellite.v1")).unwrap();
+        assert_eq!(r.recorded, 1);
+        assert_eq!(r.traced, 0);
+        assert!(
+            r.refused_traces[0].reason.contains("different standard"),
+            "{:?}",
+            r.refused_traces
+        );
     }
 
     /// A trace the node did not verify must never be cited.
@@ -1940,7 +2103,11 @@ mod handoff {
         )
         .unwrap();
 
-        let r = decode_dir(&k, &settings_for(&d, &k, "exec.trace.v1")).unwrap();
+        // The node claims the SAME unknown profile, so the ownership checks
+        // pass and this test reaches the one it is actually about. Configured
+        // otherwise it trips the profile-mismatch refusal first, which is
+        // correct but a different test.
+        let r = decode_dir(&k, &settings_for(&d, &k, "someone.invented.this.v9")).unwrap();
         assert_eq!(r.recorded, 1);
         assert_eq!(r.traced, 0);
         assert!(
@@ -1978,7 +2145,11 @@ mod handoff {
             stage: Some("L2".into()),
             node: NodeIdentity {
                 node_key: crate::b32(k.verifying_key().as_bytes()),
-                profile: "robot.fleet.v1".into(),
+                // Matches the trace's own profile, as a node and its encoder
+                // must. This said robot.fleet.v1 while the trace said
+                // exec.trace.v1, which is exactly the mismatch a record must
+                // not be able to cite across.
+                profile: "exec.trace.v1".into(),
                 platform: "nvidia.jetson-orin".into(),
             },
             observed_at: "2026-08-20T09:00:00Z".into(),

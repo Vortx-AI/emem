@@ -356,9 +356,17 @@ docker run --rm \
   -v /host/data:/data \
   emem-encode:latest \
     --out /traces --payloads /payloads --data /data \
-    --profile orbital.satellite.v1 --platform jetson-orin-nx \
+    --profile orbital.satellite.counters.v1 --platform nvidia.jetson-orin \
     --interval 60
 ```
+
+**The encoder's `--profile` and `--platform` must match the decoder's exactly**,
+as its identity already must. A record only cites a trace that this node itself
+captured, under the same profile, on the same platform; anything else is
+refused into `refused_traces` with the mismatch named. Without that check a
+trace dropped into the traces directory could make a node issue
+`custody_with_trace` citing another device's evidence, or let a node configured
+under a strict profile cite a capture taken to a weaker one.
 
 It shares the decoder's identity and **never creates one**: two halves of a
 node must sign as one node, and a key minted by a sidecar would quietly split it
@@ -391,7 +399,7 @@ A sidecar runs for a mission, not for one window. Add `--interval`:
 
 ```bash
 emem-encode --out /traces --payloads /payloads --data /data \
-            --profile orbital.satellite.v1 --platform jetson-orin-nx \
+            --profile orbital.satellite.v1 --platform nvidia.jetson-orin \
             --interval 60
 ```
 
