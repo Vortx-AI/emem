@@ -517,8 +517,70 @@ fn decodes_to_32_bytes(s: &str) -> bool {
 }
 
 /// Process-wide cached default registry.
+/// Where an operator declares the devices they personally vouch for.
+///
+/// A path, read once at first use. Absent, the registry is exactly the
+/// embedded one and admits nothing, which is the state every node ships in.
+pub const OPERATOR_ENDORSEMENTS_ENV: &str = "EMEM_OPERATOR_ENDORSEMENTS";
+
+/// The device-platform registry this node uses.
+///
+/// The embedded manifest, plus any endorsements the operator of THIS node has
+/// declared. That overlay is the only route by which anything is ever
+/// admitted: every anchor shipped in the manifest is provisional, so a stock
+/// node whitelists nothing, and it stays that way until an operator says
+/// otherwise about a machine they hold.
+///
+/// Two consequences worth stating rather than discovering. A node with
+/// endorsements has a different `manifest_cid` from the published one, which
+/// is correct: its registry genuinely differs, and pretending otherwise would
+/// hide the difference that matters. And a malformed endorsements file is
+/// logged and IGNORED rather than fatal, because a node that refuses to boot
+/// over a roster file is a node that took its own availability hostage to a
+/// convenience.
 pub static DEFAULT: LazyLock<DevicePlatformRegistry> = LazyLock::new(|| {
-    DevicePlatformRegistry::parse_default().expect("embedded device-platforms-v0.json is malformed")
+    let base = DevicePlatformRegistry::parse_default()
+        .expect("embedded device-platforms-v0.json is malformed");
+    let Ok(path) = std::env::var(OPERATOR_ENDORSEMENTS_ENV) else {
+        return base;
+    };
+    let raw = match std::fs::read(&path) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "emem: {OPERATOR_ENDORSEMENTS_ENV}={path} could not be read ({e}); \
+                       continuing with no operator endorsements, so this node admits no device"
+            );
+            return base;
+        }
+    };
+    let endorsements: Vec<OperatorEndorsement> = match serde_json::from_slice(&raw) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!(
+                "emem: {path} is not a list of operator endorsements ({e}); \
+                       continuing with none, so this node admits no device"
+            );
+            return base;
+        }
+    };
+    match base.with_operator_endorsements(&endorsements) {
+        Ok(overlaid) => {
+            eprintln!(
+                "emem: {} operator endorsement(s) loaded from {path}; \
+                 devices admitted under them carry the operator's anchor id, not a vendor's",
+                endorsements.len()
+            );
+            overlaid
+        }
+        Err(e) => {
+            eprintln!(
+                "emem: operator endorsements in {path} were refused ({e}); \
+                       continuing with none"
+            );
+            base
+        }
+    }
 });
 
 #[cfg(test)]
