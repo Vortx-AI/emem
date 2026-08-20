@@ -249,14 +249,17 @@ gunzip -c emem-airgap-arm64.tar.gz | docker load
 Building on the board itself needs no argument at all: with no `TARGETARCH`
 the Dockerfile reads `uname -m` and targets the machine it is on.
 
-Measured, both arches built and checked:
+Measured against the published images, both arches pulled and opened:
 
-| | |
-| --- | --- |
-| aarch64 binary | 0.8 MB, `ELF 64-bit ARM aarch64, statically linked, stripped` |
-| aarch64 image | 1.36 MB |
-| x86_64 image | 1.7 MB |
-| build context | 722 MB (the workspace's manifests and sources) |
+| | download | binary inside |
+| --- | --- | --- |
+| `emem-airgap` arm64 | 526 KB | 973 KB, `ELF 64-bit ARM aarch64, statically linked, stripped` |
+| `emem-airgap` amd64 | 594 KB | 1,260 KB, `ELF 64-bit x86-64, static-pie linked` |
+| `emem-encode` arm64 | 427 KB | |
+| `emem-encode` amd64 | 472 KB | |
+
+The build context is 722 MB (the workspace's manifests and sources), which
+matters only if you build rather than pull.
 
 Three things had to be true for the cross build to work, and each is a
 one-line reason worth knowing if you change the Dockerfile: blake3 builds its
