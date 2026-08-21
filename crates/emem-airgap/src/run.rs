@@ -1331,6 +1331,56 @@ mod security {
         );
     }
 
+    /// The path being swapped between the check and the open must be refused.
+    ///
+    /// Deterministic, unlike its neighbour: this branch compares the device
+    /// and inode of the OPEN DESCRIPTOR against what was inspected by path, so
+    /// it can be exercised by replacing the file rather than by winning a race
+    /// against a writer. It had no test at all, because the only test near it
+    /// needed a race and this needs none.
+    ///
+    /// What it stops: the input directory belongs to the host, so between the
+    /// moment a payload is checked (regular file, within the size cap) and the
+    /// moment it is opened, the name can be pointed at something else.
+    #[cfg(unix)]
+    #[test]
+    fn a_path_replaced_between_the_check_and_the_open_is_refused() {
+        let d = std::env::temp_dir().join("emem-airgap-swap");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("frame.tif");
+        std::fs::write(&p, b"what was inspected").unwrap();
+        let checked = std::fs::symlink_metadata(&p).unwrap();
+
+        // Renamed over, not deleted and recreated. Deleting frees the inode
+        // and the very next create in the same directory usually gets it back,
+        // so the name would point at different CONTENT with the same identity
+        // and this check would have nothing to see. A rename brings its own
+        // inode with it, which is what a swap actually looks like.
+        let other = d.join("other.tif");
+        std::fs::write(&other, b"what would have been signed instead").unwrap();
+        std::fs::rename(&other, &p).unwrap();
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_ne!(
+                std::fs::symlink_metadata(&p).unwrap().ino(),
+                checked.ino(),
+                "the setup did not actually swap the inode, so this proves nothing"
+            );
+        }
+
+        let err = read_settled(&p, &checked, DEFAULT_MAX_PAYLOAD_BYTES)
+            .expect_err("a replaced path must not be read");
+        assert!(err.contains("replaced"), "{err}");
+
+        // Control: the same call against the file it was actually told about
+        // reads it. Without this the test would pass just as well if
+        // read_settled refused everything.
+        let checked = std::fs::symlink_metadata(&p).unwrap();
+        let bytes = read_settled(&p, &checked, DEFAULT_MAX_PAYLOAD_BYTES).expect("unchanged file");
+        assert_eq!(bytes, b"what would have been signed instead");
+    }
+
     /// A payload the host is still writing must not be signed.
     ///
     /// Found by stress and it is not an attack: a downlink writing a 200 MB
@@ -1389,17 +1439,38 @@ mod security {
         //
         // Checked separately from `caught` because how easily a read loses a
         // race to a writer is a property of the filesystem, not of this code.
-        // Requiring the race to trip turned a macOS runner red for something
-        // that machine simply does faster, which is a test failing about
-        // nothing while the code under it was correct.
+        //
+        // What is asserted here is what the code actually promises: a record
+        // describes a state the file GENUINELY PASSED THROUGH. The writer only
+        // appends, so every complete state is a prefix of the final one, and a
+        // record signed while the file was momentarily still is true about the
+        // length it names even though the file later grew.
+        //
+        // My previous version demanded the record cover the FINAL bytes, which
+        // the design has never promised and which is wrong on its own terms: a
+        // record says these bytes arrived under this name at this time, and a
+        // later append is a different state, not a contradiction of an earlier
+        // one. It passed on Linux only because reads there were slow enough
+        // that no iteration ever landed in a quiet window between the writer's
+        // sleeps. macOS found a quiet window and was right to.
+        //
+        // What would still fail here is the thing the guard exists to stop: a
+        // torn read, whose digest covers bytes the file never held all at once.
         let bytes = std::fs::read(&p).unwrap();
         let rec_path = record_path(&d, "frame.tif", &k);
         if rec_path.exists() {
             let rec: Custody = serde_json::from_slice(&std::fs::read(&rec_path).unwrap()).unwrap();
             rec.verify().unwrap();
+            let n = rec.size_bytes as usize;
             assert!(
-                rec.covers(&bytes),
-                "a record was signed over a payload that was still being written"
+                n <= bytes.len(),
+                "the record claims {n} bytes and the file only ever reached {}",
+                bytes.len()
+            );
+            assert!(
+                rec.covers(&bytes[..n]),
+                "the record's digest matches no state this append-only file passed through, so \
+                 it was signed over a torn read"
             );
         }
         if !caught {
