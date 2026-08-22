@@ -1153,9 +1153,17 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      unreachable the alt text says so and the page carries on, which is the
      correct failure: a missing panel is honest, a stale one is not. -->
 <figure class="plate">
-  <img src="/v1/perception/cards/trafalgar-square/latest.svg" width="1200" height="460"
+  <!-- 1240x1000, not the 1200x460 the fixed plates use, and the difference is
+       a correctness fix rather than a layout preference. Filling a 2.6:1
+       canvas from a 4:3 camera meant stretching the detection spread: it
+       composed better and it put a car where no car was. The frame is
+       letterboxed at the camera's own ratio now, so neither axis distorts.
+       These attributes must track the painter's dimensions - declaring the old
+       ones here would reintroduce, in the browser, exactly the squash that was
+       removed from the renderer. -->
+  <img src="/v1/perception/cards/trafalgar-square/latest.svg" width="1240" height="1000"
        loading="lazy" decoding="async"
-       alt="A Mithila panel of a London street, painted from a count made minutes ago: one motif per object a detector found in a single frame of a signed clip. Unavailable if the observation cannot be reached.">
+       alt="A Mithila panel of a London street, painted from a count made minutes ago: one motif per object a detector found in a single frame of a signed clip. Where the street could not be seen, only pattern is painted and no figures. Unavailable if the observation cannot be reached.">
   <figcaption>Not an illustration. One motif per object, counted in a frame of a clip whose
     hash is inked into the seal &mdash; repainted every fifteen minutes, because the street moved.
     <span class="prov"><a href="/v1/perception/cards/trafalgar-square/latest.svg">open the panel</a>
