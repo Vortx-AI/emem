@@ -1152,23 +1152,291 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      bytes that hash commits to are held rather than linked. If the painter is
      unreachable the alt text says so and the page carries on, which is the
      correct failure: a missing panel is honest, a stale one is not. -->
-<figure class="plate">
-  <!-- 1240x1000, not the 1200x460 the fixed plates use, and the difference is
-       a correctness fix rather than a layout preference. Filling a 2.6:1
-       canvas from a 4:3 camera meant stretching the detection spread: it
-       composed better and it put a car where no car was. The frame is
-       letterboxed at the camera's own ratio now, so neither axis distorts.
-       These attributes must track the painter's dimensions - declaring the old
-       ones here would reintroduce, in the browser, exactly the squash that was
-       removed from the renderer. -->
-  <img src="/v1/perception/cards/trafalgar-square/latest.svg" width="1240" height="1000"
-       loading="lazy" decoding="async"
-       alt="A Mithila panel of a London street, painted from a count made minutes ago: one motif per object a detector found in a single frame of a signed clip. Where the street could not be seen, only pattern is painted and no figures. Unavailable if the observation cannot be reached.">
-  <figcaption>Not an illustration. One motif per object, counted in a frame of a clip whose
-    hash is inked into the seal &mdash; repainted every fifteen minutes, because the street moved.
-    <span class="prov"><a href="/v1/perception/cards/trafalgar-square/latest.svg">open the panel</a>
-    &middot; the count, the cell and the clip hash are inside the file</span></figcaption>
-</figure>
+<!-- LIVE GALLERY. Three painted streets and one moving one, none of which
+     exist until you scroll to them.
+
+     The cost is the reason this is built the way it is. Each panel is roughly
+     200 KB of SVG and the film is 335 KB, so loading all four with the page
+     would put nearly a megabyte of London in front of a reader who came to
+     find out what emem is. Every one of them is fetched by an observer when it
+     is about to become visible and never before, so a visitor who stops
+     reading above this section pays nothing for it.
+
+     Three panels and one film is the ceiling, deliberately. These are painted
+     from live clips by a service with one GPU, and a page that asked for a
+     dozen would be a page that made every other caller queue behind it. -->
+<section class="chapter solo" id="live">
+  <div class="words">
+    <div class="kicker">Live</div>
+    <h2>Four streets, painted from what was on them</h2>
+    <p class="cap">These are not illustrations and they are not stock. A camera on each of
+      these streets keeps a short clip; a detector counts what is in one frame of it; a painter
+      puts one motif on the panel for each object counted. The clip's sha256 is inked into the
+      seal, so the picture and the number it came from cannot drift apart. Where the street
+      could not be seen, the panel carries pattern and no figures, because an empty street and
+      an unobserved one are different claims.</p>
+  </div>
+
+  <div class="livegrid" id="livegrid">
+    <figure class="livecard" data-src="/v1/perception/cards/trafalgar-square/latest.svg"
+            data-w="1240" data-h="1000"
+            data-alt="A Mithila panel of Trafalgar Square, painted from a count made minutes ago: one motif for each object a detector found in a single frame of a signed clip.">
+      <div class="liveslot"><span class="livenote">Trafalgar Square, loads when you reach it</span></div>
+      <figcaption>Trafalgar Square<span class="prov"><a href="/v1/perception/cards/trafalgar-square/latest.svg">open the panel</a> &middot; count, cell and clip hash are inside the file</span></figcaption>
+    </figure>
+    <figure class="livecard" data-src="/v1/perception/cards/piccadilly-circus/latest.svg"
+            data-w="1240" data-h="1000"
+            data-alt="A Mithila panel of Piccadilly Circus, painted from a count made minutes ago: one motif for each object a detector found in a single frame of a signed clip.">
+      <div class="liveslot"><span class="livenote">Piccadilly Circus, loads when you reach it</span></div>
+      <figcaption>Piccadilly Circus<span class="prov"><a href="/v1/perception/cards/piccadilly-circus/latest.svg">open the panel</a> &middot; count, cell and clip hash are inside the file</span></figcaption>
+    </figure>
+    <figure class="livecard" data-src="/v1/perception/cards/tower-bridge/latest.svg"
+            data-w="1240" data-h="1000"
+            data-alt="A Mithila panel of Tower Bridge, painted from a count made minutes ago: one motif for each object a detector found in a single frame of a signed clip.">
+      <div class="liveslot"><span class="livenote">Tower Bridge, loads when you reach it</span></div>
+      <figcaption>Tower Bridge<span class="prov"><a href="/v1/perception/cards/tower-bridge/latest.svg">open the panel</a> &middot; count, cell and clip hash are inside the file</span></figcaption>
+    </figure>
+  </div>
+
+  <!-- The film. `preload="none"` matters as much as the observer: without it a
+       browser will start pulling the file the moment the element exists, which
+       is the whole cost this section is arranged to avoid. -->
+  <figure class="plate livefilm" data-src="/v1/perception/cards/trafalgar-square/timelapse.mp4">
+    <div class="liveslot filmslot"><span class="livenote">A day of Trafalgar Square, loads when you reach it</span></div>
+    <figcaption>Every panel painted of this street today, in order. The street moved; so does the
+      picture of it.
+      <span class="prov">measurement &middot; each frame is a panel painted from its own signed clip</span></figcaption>
+  </figure>
+
+  <!-- Anywhere, not just the four we paint on a timer. This calls the same
+       route an agent calls, which is the point: the reader and the machine get
+       the identical artefact from the identical address. -->
+  <form class="pcgen" id="pcgen">
+    <label for="pcplace">Paint somewhere else</label>
+    <div class="pcrow">
+      <input id="pcplace" name="place" type="text" value="Oxford Circus"
+             placeholder="a place with a street camera" autocomplete="off" spellcheck="false">
+      <button type="submit" id="pcgo">Paint it</button>
+    </div>
+    <p class="pcstatus" id="pcstatus">Calls <code>GET /postcard?place=&hellip;</code>, the same address an agent
+      uses. Painting runs a detector on a live frame and takes a few seconds. Places with no camera
+      say so rather than inventing a street.</p>
+    <div class="pcout" id="pcout" hidden></div>
+  </form>
+</section>
+<style>
+/* Live gallery. Sized so a panel that has not loaded holds exactly the space
+   the loaded one will take: the aspect-ratio box means arriving media never
+   shoves the paragraph you are reading down the page. */
+.livegrid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));margin:0 0 26px}
+.livecard{margin:0}
+.livecard img{display:block;width:100%;height:auto;border-radius:3px}
+.liveslot{aspect-ratio:1240/1000;display:flex;align-items:center;justify-content:center;
+  background:#f4efe4;border:1px solid #ddd2bd;border-radius:3px}
+.filmslot{aspect-ratio:1240/1000;max-height:520px}
+.livenote{font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;padding:0 14px;text-align:center}
+/* Three states, and they must look different from each other: not started,
+   fetching, failed. A single grey box for all three is how a 200 KB download in
+   flight becomes indistinguishable from a street with nothing on it. */
+.liveslot.is-loading{background:linear-gradient(100deg,#f4efe4 30%,#ece4d3 50%,#f4efe4 70%);
+  background-size:220% 100%;animation:liveshimmer 1.4s ease-in-out infinite}
+@keyframes liveshimmer{from{background-position:120% 0}to{background-position:-20% 0}}
+.livespin{display:inline-block;width:13px;height:13px;margin-right:8px;vertical-align:-2px;
+  border:2px solid #cbbb99;border-top-color:transparent;border-radius:50%;
+  animation:livespin .8s linear infinite}
+@keyframes livespin{to{transform:rotate(360deg)}}
+/* Motion is decoration here, and the words carry the state on their own. */
+@media (prefers-reduced-motion:reduce){
+  .liveslot.is-loading{animation:none;background:#ece4d3}
+  .livespin{animation:none;border-top-color:#cbbb99}
+}
+.livecard figcaption,.livefilm figcaption{font-size:.86rem;margin-top:8px}
+.livefilm video{display:block;width:100%;height:auto;border-radius:3px}
+.livefail{font-size:.8rem;color:#8a7a5e;padding:0 14px;text-align:center}
+
+/* Generator. Deliberately plain: it is a form that calls one GET, and dressing
+   it up would suggest something more is happening than one address. */
+.pcgen{margin:26px 0 0;padding:18px;border:1px solid #ddd2bd;border-radius:4px;background:#fbf8f1}
+.pcgen label{display:block;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;margin-bottom:8px}
+.pcrow{display:flex;gap:10px;flex-wrap:wrap}
+.pcrow input{flex:1 1 240px;padding:9px 11px;border:1px solid #ccc0a8;border-radius:3px;font:inherit;background:#fff}
+.pcrow button{padding:9px 18px;border:1px solid #8a7a5e;border-radius:3px;background:#8a7a5e;color:#fff;font:inherit;cursor:pointer}
+.pcrow button[disabled]{opacity:.55;cursor:progress}
+.pcstatus{font-size:.82rem;color:#6b5f49;margin:10px 0 0}
+.pcout{margin-top:14px}
+.pcout img{display:block;width:100%;height:auto;border-radius:3px}
+@media (prefers-color-scheme:dark){
+  .liveslot{background:#241f18;border-color:#3b3227}
+  .liveslot.is-loading{background:linear-gradient(100deg,#241f18 30%,#2f281e 50%,#241f18 70%);background-size:220% 100%}
+  .livespin{border-color:#4a4133;border-top-color:transparent}
+  .pcgen{background:#211d16;border-color:#3b3227}
+  .pcrow input{background:#181510;border-color:#3b3227;color:#e8e0d0}
+}
+</style>
+<script>
+/* Nothing here loads until it is about to be seen.
+
+   The observer swaps a placeholder for the real element at 200px of margin,
+   which is close enough that the panel is usually there by the time it is,
+   and far enough that a reader who scrolls past quickly does not queue four
+   fetches behind them. Each element is unobserved as soon as it fires, so a
+   panel is requested exactly once per page view.
+
+   Failure is visible rather than blank. The painter runs on one GPU and can be
+   busy or down, and a silently empty box would read as "this place is empty",
+   which is the one thing these panels must never say by accident. */
+(function () {
+  var slots = document.querySelectorAll('.livecard[data-src], .livefilm[data-src]');
+  if (!slots.length) return;
+
+  function fail(fig, msg) {
+    var slot = fig.querySelector('.liveslot');
+    if (!slot) return;
+    slot.classList.remove('is-loading');
+    slot.removeAttribute('aria-busy');
+    slot.innerHTML = '<span class="livefail">' + msg + '</span>';
+  }
+
+  function load(fig) {
+    var src = fig.getAttribute('data-src');
+    var slot = fig.querySelector('.liveslot');
+    if (!src || !slot) return;
+    /* The moment the request goes out, say so. Until now the placeholder read
+       "loads when you reach it" for the whole download, which is a promise
+       about the future being shown during the present. */
+    slot.classList.add('is-loading');
+    var note = slot.querySelector('.livenote');
+    if (note) {
+      note.innerHTML = '<span class="livespin" aria-hidden="true"></span>' + (
+        fig.classList.contains('livefilm') ? 'loading the film' : 'loading the panel');
+    }
+    slot.setAttribute('aria-busy', 'true');
+    var isFilm = fig.classList.contains('livefilm');
+    var el;
+    if (isFilm) {
+      el = document.createElement('video');
+      el.controls = true; el.muted = true; el.loop = true;
+      el.playsInline = true; el.preload = 'metadata';
+      el.setAttribute('aria-label', 'Time lapse of panels painted of Trafalgar Square today');
+    } else {
+      el = document.createElement('img');
+      el.width = fig.getAttribute('data-w') || 1240;
+      el.height = fig.getAttribute('data-h') || 1000;
+      el.alt = fig.getAttribute('data-alt') || '';
+      el.decoding = 'async';
+    }
+    el.addEventListener('error', function () {
+      fail(fig, 'the painter could not be reached, so nothing is shown here');
+    });
+    el.addEventListener(isFilm ? 'loadeddata' : 'load', function () {
+      if (slot.parentNode) slot.parentNode.replaceChild(el, slot);
+    });
+    el.src = src;
+  }
+
+  if (!('IntersectionObserver' in window)) {
+    /* No observer means no way to defer honestly, so load the first panel only
+       and leave the rest to their placeholders rather than pulling a megabyte
+       on an old browser. */
+    load(slots[0]);
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      io.unobserve(e.target);
+      load(e.target);
+    });
+  }, { rootMargin: '200px 0px' });
+  slots.forEach(function (s) { io.observe(s); });
+
+  /* The generator. One GET to the same address an agent calls, and the result
+     is put on the page as an image rather than parsed, because the artefact IS
+     the answer: the counts, the cell and the clip hash are inside the file. */
+  var form = document.getElementById('pcgen');
+  if (!form) return;
+  var input = document.getElementById('pcplace');
+  var btn = document.getElementById('pcgo');
+  var status = document.getElementById('pcstatus');
+  var out = document.getElementById('pcout');
+
+  form.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var place = (input.value || '').trim();
+    if (!place) { status.textContent = 'Type a place first.'; return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="livespin" aria-hidden="true"></span>Painting';
+    status.textContent = 'Painting ' + place + '. A detector is counting a live frame, which takes a few seconds.';
+    out.hidden = true;
+    out.innerHTML = '';
+
+    var url = '/postcard?place=' + encodeURIComponent(place);
+    /* A place nobody has painted recently takes about a minute upstream, which
+       is longer than any request here should hold open, so the responder
+       answers 202 and keeps painting. Waiting and asking again is the whole
+       protocol: the second call is served from the finished paint. Three tries,
+       then we stop and say so rather than spinning forever. */
+    var tries = 0;
+    function ask() {
+      tries++;
+      return fetch(url, { headers: { 'accept': 'image/svg+xml, application/json' } })
+      .then(function (r) {
+        if (r.status === 202 && tries < 4) {
+          var wait = 10;
+          return r.json().then(function (j) { return j; }).catch(function () { return {}; })
+            .then(function (j) {
+              wait = (j && j.retry_after_s) || 10;
+              status.textContent = 'Still painting ' + place +
+                '. A detector is working through a live frame; asking again in ' + wait + 's.';
+              return new Promise(function (res) { setTimeout(function () { res(ask()); }, wait * 1000); });
+            });
+        }
+        if (r.status === 202) {
+          return { ok: false, why: 'That place is taking longer than usual to paint. It is still ' +
+                                   'being worked on, so trying again shortly should return it.' };
+        }
+        if (r.ok) return r.text().then(function (svg) { return { ok: true, svg: svg }; });
+        return r.text().then(function (t) {
+          /* Only a structured reason is shown. An upstream that answers with a
+             framework's stock HTML page has said nothing a reader can act on,
+             and printing it put a raw 500 document inside this paragraph. */
+          var why = '';
+          try { var j = JSON.parse(t); why = j.message || j.error || ''; } catch (e) {}
+          if (!why) {
+            why = 'That place could not be painted just now (the painter returned ' +
+                  r.status + '). Places with no street camera say so; this one did not.';
+          }
+          return { ok: false, why: why };
+        });
+      });
+    }
+
+    ask()
+      .then(function (res) {
+        btn.disabled = false;
+        btn.textContent = 'Paint it';
+        if (!res.ok) {
+          /* A place with no camera is a real answer and is printed as one. */
+          status.textContent = res.why || 'No camera covers that place, so there is nothing to paint.';
+          return;
+        }
+        var blob = new Blob([res.svg], { type: 'image/svg+xml' });
+        var img = document.createElement('img');
+        img.alt = 'A Mithila panel of ' + place + ', painted from a count made just now.';
+        img.decoding = 'async';
+        img.src = URL.createObjectURL(blob);
+        out.appendChild(img);
+        out.hidden = false;
+        status.textContent = 'Painted from a clip retained minutes ago. The count, the cell and the clip hash are inside the file.';
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Paint it';
+        status.textContent = 'The painter could not be reached just now.';
+      });
+  });
+})();
+</script>
 <section class="chapter solo" id="loop">
   <div class="words">
     <div class="kicker">The loop</div>

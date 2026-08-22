@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Record a REAL cross-model relay for the homepage decay demo.
 
-One signed fact leaves emem, passes Gemma -> Qwen -> Gemma as a summary
+One signed fact leaves emem, passes Gemma -> Cosmos -> Gemma as a summary
 (the way a long multi-agent session compacts it), and separately as a
 token. Every frame below is what the models actually wrote; nothing is
 authored by hand. Output: web/data/relay-recording.json

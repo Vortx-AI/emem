@@ -59,6 +59,12 @@ REPO = Path(__file__).resolve().parent.parent
 # build no longer spends emem's public rate limit.
 RESPONDER = os.environ.get("EMEM_CHANNEL_RESPONDER", "http://127.0.0.1:5051")
 
+# Seconds to wait before each call, so this build never empties the responder's
+# rate-limit bucket. Slightly above the 1/10 s refill interval: fast enough that
+# a few thousand notes still rebuild in minutes, slow enough that the bucket
+# refills as we spend it.
+PACE_S = float(os.environ.get("EMEM_CHANNEL_PACE_S", "0.12"))
+
 sys.path.insert(0, str(REPO / "scripts"))
 import gen_nav  # noqa: E402  the site nav, so this page cannot drift from it
 
@@ -208,14 +214,29 @@ def call(name: str, args: dict, timeout: int = 110) -> dict:
     # indication anything had gone wrong. Failing closed is right for a write;
     # for a page rebuild it means the transcript silently stops tracking the
     # ledger.
-    for attempt in range(5):
+    # PACE, then retry. The burst is 120 tokens refilling at 10/s and this walks
+    # a ledger of several thousand notes one `memory_view` at a time, so an
+    # unpaced run spends its burst in a second and then lives entirely inside
+    # exponential backoff: correct, and it turned a two-minute rebuild into a
+    # quarter of an hour. Sleeping a little under the refill interval keeps the
+    # bucket from ever emptying, which is both kinder to every other caller on
+    # the responder and faster than being throttled.
+    #
+    # The retries below stay as the floor. Pacing assumes this is the only heavy
+    # caller, and on a shared box that assumption is exactly the kind that is
+    # true until it is not.
+    time.sleep(PACE_S)
+    # Eight attempts, not five. Five (15 s of backoff) gave up, the caller
+    # logged to stderr and moved on, and 129 notes vanished from a page nobody
+    # diffs.
+    for attempt in range(8):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code != 429 or attempt == 4:
+            if e.code != 429 or attempt == 7:
                 raise
-            time.sleep(2 ** attempt)   # 1, 2, 4, 8 seconds
+            time.sleep(min(2 ** attempt, 20))   # 1,2,4,8,16,20,20 seconds
     raise RuntimeError("unreachable")
 
 
@@ -2511,10 +2532,21 @@ def main() -> int:
         m = re.search(r"<!--emem:notes=(\d+)-->", channel.read_text())
         if m:
             prev_notes = int(m.group(1))
-    if prev_notes and len(notes) < prev_notes * 0.9:
+    # The tolerance used to be a tenth, and a tenth is far too much slack for a
+    # quantity that only ever grows. A build lost 129 of 2,485 notes to 429s,
+    # which is 5.2%, sailed under the threshold, and published a page missing
+    # every one of them. The guard fired correctly on the day it was written and
+    # was silent on the day it was needed.
+    #
+    # Notes are append-only in practice, so the honest tolerance is "almost
+    # none". Two is the slack for a genuine `memory_delete` between builds;
+    # anything past that, proportionally, is a read that failed.
+    allowed_drop = max(2, int(prev_notes * 0.005))
+    if prev_notes and len(notes) < prev_notes - allowed_drop:
         print(
             f"  REFUSING to write: this build read {len(notes)} notes against "
-            f"{prev_notes} already published, a {100 - 100 * len(notes) // prev_notes}% drop. "
+            f"{prev_notes} already published, {prev_notes - len(notes)} fewer "
+            f"(tolerance {allowed_drop}). "
             f"Notes do not disappear, so this is a failed read and not a smaller "
             f"channel. Keeping the published transcript.",
             file=sys.stderr,

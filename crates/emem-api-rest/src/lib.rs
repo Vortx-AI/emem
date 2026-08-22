@@ -1001,6 +1001,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/perception/*path",
             get(perception_proxy).post(perception_proxy),
         )
+        .route("/postcard", get(get_postcard))
         .route("/v1/scoreboard", get(get_scoreboard))
         .route("/v1/a2a/tasks", post(post_a2a_task_async))
         .route("/v1/a2a/tasks/:id", get(get_a2a_task))
@@ -6211,6 +6212,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 "examples":    [first_sentence(t.when_to_use, 160)],
             })
         })
+        .chain(perception_skills())
         .collect();
     let mut card = json!({
         // A2A envelope, checked against the project's own normative proto
@@ -20471,12 +20473,39 @@ fn mcp_spawn_task(
     let ttl_for_future = ttl_ms;
     let join = tokio::spawn(async move {
         let mut raw_result: Option<JsonValue> = None;
-        let result = match mcp_tool_call(&name_owned, args, &state).await {
-            Ok(inner) => {
+        // BOUND THE CALL. Without this the future awaits a tool that may never
+        // return, the slot stays TASK_STATE_WORKING until the reaper removes
+        // it, and the caller polls to ttl and then gets a 404 for a task it
+        // watched for ten minutes. From outside, a hang and a long computation
+        // are indistinguishable, and the honest end of an impossible task is a
+        // failure with a reason, not a disappearance.
+        //
+        // Deadline sits INSIDE the retention window, not on it: expiring at
+        // exactly ttl would race the reaper for the slot and the caller could
+        // still see the 404 rather than the reason. Five seconds of margin is
+        // enough for the terminal write below to land and be readable.
+        let deadline_ms = ttl_for_future.saturating_sub(5_000).max(10_000);
+        let bounded = tokio::time::timeout(
+            std::time::Duration::from_millis(deadline_ms),
+            mcp_tool_call(&name_owned, args, &state),
+        )
+        .await;
+        let result = match bounded {
+            Err(_elapsed) => json!({
+                "content": [{
+                    "type": "text",
+                    "text": format!(
+                        "`{name_owned}` did not finish within {} s and was stopped. The task                          is FAILED rather than left running: a caller cannot tell a hung                          tool from a slow one by polling. Retry with a narrower request                          (one band, one cell, or a place already warm), or call the                          equivalent REST endpoint, where the per-endpoint budget applies.",
+                        deadline_ms / 1000
+                    ),
+                }],
+                "isError": true,
+            }),
+            Ok(Ok(inner)) => {
                 raw_result = Some(inner.clone());
                 mcp_wrap_call_tool_result_for(inner, &name_owned)
             }
-            Err((code, msg)) => {
+            Ok(Err((code, msg))) => {
                 if code == -32601 {
                     json!({
                         "content": [{
@@ -21823,6 +21852,15 @@ struct ModelRoute {
     /// runaway guard is the backstop, which is also what makes a `truncated`
     /// flag mean something went wrong rather than "normal operation".
     fills_token_ceiling: bool,
+    /// Whether this model can be shown an image.
+    ///
+    /// A stated property per route rather than a name checked at the call
+    /// site. The vision path hardcoded "nvidia/Cosmos3-Edge" two hours after
+    /// this table was built to stop exactly that: a model id in one place that
+    /// an operator overriding the route table could not change, so
+    /// EMEM_A2A_COSMOS_BASE_MODEL would move the reasoning route and silently
+    /// leave vision pointing at a model that might not be loaded.
+    vision: bool,
 }
 
 /// The models emem will route to, and the ones it will not.
@@ -21859,6 +21897,7 @@ fn model_routes() -> Vec<ModelRoute> {
                             .get("fills_token_ceiling")
                             .and_then(|v| v.as_bool())
                             .unwrap_or(false),
+                        vision: r.get("vision").and_then(|v| v.as_bool()).unwrap_or(false),
                         url,
                     })
                 })
@@ -21881,6 +21920,10 @@ fn model_routes() -> Vec<ModelRoute> {
             // Gemma answers within a cap rather than growing to fill it, and
             // 700 has served the channel since it was written.
             fills_token_ceiling: false,
+            // Multimodal, but it is not the route this responder shows images
+            // to: the splat bridge already sends it screenshots, and the
+            // vision path wants the model with the stronger scene reasoning.
+            vision: false,
             url: gemma_url,
         },
         ModelRoute {
@@ -21890,6 +21933,7 @@ fn model_routes() -> Vec<ModelRoute> {
                 .unwrap_or_else(|_| "cosmos3_edge".into()),
             health: health_url_for(&cosmos_url),
             fills_token_ceiling: true,
+            vision: true,
             url: cosmos_url,
         },
     ]
@@ -21934,19 +21978,42 @@ async fn resolve_model_route(want: &str) -> Result<ModelRoute, (i64, String)> {
 
     // Liveness. The allowlist says what we are willing to reach; only the
     // service itself knows whether it is up right now.
-    let up = reqwest::Client::new()
-        .get(&route.health)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-        .map(|r| r.status().is_success())
-        .unwrap_or(false);
+    //
+    // Probed up to three times, because ONE failed probe is not evidence that a
+    // service is down. The perception host answers /health in about 1.5 ms and
+    // is redeployed several times a day; a single probe landing in a restart
+    // window produced a hard refusal, and the agent on the other end was told
+    // its model was unavailable while the model was in fact fine seconds
+    // either side. Refusing to substitute is right; refusing on one sample is
+    // not, and the two are easy to confuse because the refusal message reads
+    // identically in both cases.
+    //
+    // Cheap to be sure: a healthy service costs one probe and exits the loop,
+    // so the retries are only ever paid on the path that was about to fail.
+    let client = reqwest::Client::new();
+    let mut up = false;
+    for attempt in 0..3 {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        up = client
+            .get(&route.health)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await
+            .map(|r| r.status().is_success())
+            .unwrap_or(false);
+        if up {
+            break;
+        }
+    }
     if !up {
         return Err((
             -32050,
             format!(
-                "model {} is one this responder routes to, but its service at {} is not \
-                 answering, so the call would fail rather than be answered by something else.",
+                "model {} is one this responder routes to, but its service at {} did not \
+                 answer three probes over half a second, so the call would fail rather than \
+                 be answered by something else.",
                 route.base_model, route.health
             ),
         ));
@@ -22123,8 +22190,70 @@ async fn a2a_reason_compose(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let mut grounding = serde_json::to_string(&ask_env).unwrap_or_default();
-    grounding.truncate(10_000);
+    // Put the decisive evidence FIRST, because this is about to be truncated.
+    //
+    // This used to serialize the whole envelope and cut it at 10,000 bytes.
+    // `live_perception` is attached near the end of the ask envelope, so it
+    // always fell outside the cut, and the model never saw it. Asked "what is
+    // happening on the streets of London right now" with 53 cameras and counts
+    // in hand, the reasoning tier replied "ABSTAIN: does not contain live human
+    // observations" -- which was TRUE of the evidence it was given, and the
+    // opposite of true about what emem knew.
+    //
+    // A byte truncation silently decides what matters by field order, which is
+    // an accident of how the envelope is built rather than a judgement about
+    // the question. So the order is stated here instead: what is happening now,
+    // how old the readings are, where this actually is, then the bulk. A cut
+    // now loses the tail of the band list, which is the part a reader can
+    // afford to lose.
+    //
+    // Cutting JSON mid-string also produced invalid JSON for the model to parse,
+    // every time it was long enough to matter.
+    let grounding = {
+        const HEAD: &[&str] = &[
+            "live_perception",
+            "freshness",
+            "imagery",
+            "place_resolved",
+            "routed_to",
+            "answer",
+            "facts_summary",
+        ];
+        let mut ordered = serde_json::Map::new();
+        if let Some(env) = ask_env.as_object() {
+            for k in HEAD {
+                if let Some(v) = env.get(*k) {
+                    ordered.insert((*k).to_string(), v.clone());
+                }
+            }
+            // Everything else after, and dropped wholesale rather than cut in
+            // half if it does not fit.
+            for (k, v) in env {
+                if HEAD.contains(&k.as_str()) {
+                    continue;
+                }
+                let candidate = {
+                    let mut probe = ordered.clone();
+                    probe.insert(k.clone(), v.clone());
+                    serde_json::to_string(&JsonValue::Object(probe)).unwrap_or_default()
+                };
+                if candidate.len() <= 10_000 {
+                    ordered.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        let out = serde_json::to_string(&JsonValue::Object(ordered)).unwrap_or_default();
+        if out.len() <= 10_000 {
+            out
+        } else {
+            // The head alone is over budget, which means one field is enormous.
+            // Fall back to the old behaviour rather than send nothing, and keep
+            // the priority order so what survives is still the useful part.
+            let mut t = out;
+            t.truncate(10_000);
+            t
+        }
+    };
 
     let system = format!(
         "You are the reasoning tier of emem, a shared verifiable memory for AI agents. \
@@ -28523,13 +28652,19 @@ async fn a2a_answer_with_vision(
             )),
         };
 
-    let base = std::env::var("EMEM_PERCEPTION_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    // The route table decides which model sees, not a literal here.
+    let route = model_routes().into_iter().find(|r| r.vision).ok_or((
+        -32050i64,
+        "no model this responder routes to can be shown an image. The card admits image \
+             types because a peer's parts carry them; if no vision route is configured, say so \
+             rather than answering from the text alone."
+            .to_string(),
+    ))?;
     // thinking off: describing an image is perception, not deliberation, and
     // the difference is about a second against twenty.
     let payload = json!({
-        "base_model": "nvidia/Cosmos3-Edge",
-        "family": "cosmos3_edge",
+        "base_model": route.base_model,
+        "family": route.family,
         "thinking": false,
         "temperature": 0.0,
         "messages": [{"role": "user", "content": [
@@ -28543,7 +28678,7 @@ async fn a2a_answer_with_vision(
         .build()
         .map_err(|e| (-32050i64, format!("vision client: {e}")))?;
     let body: JsonValue = client
-        .post(format!("{base}/v1/chat/completions"))
+        .post(&route.url)
         .json(&payload)
         .send()
         .await
@@ -28582,13 +28717,65 @@ async fn a2a_answer_with_vision(
         "answer_prose": text,
         "provenance_class": "model_output",
         "signed": false,
-        "base_model": "nvidia/Cosmos3-Edge",
+        "base_model": route.base_model,
         "note": "A model's description of bytes you supplied. It is not a measurement and \
                  carries no receipt: this responder did not observe the scene, it looked at \
                  your file. For an observation emem can vouch for, ask about a place: \
                  /v1/perception/at answers from a retained clip whose sha256 is committed in a \
                  signed receipt.",
     }))
+}
+
+/// Ground-camera capabilities, as discoverable skills on the agent card.
+///
+/// Every other skill here is derived from an MCP tool, and perception has no
+/// tool: it is a set of read-only REST routes this responder fronts. That is a
+/// reason for it to be tagged differently, not a reason for it to be invisible.
+/// An agent doing capability discovery asked the card for what we can do, and
+/// the answer omitted the one capability that can say what is happening on a
+/// street right now — the card is the contract, and a capability the card does
+/// not declare is one a careful caller must assume is absent.
+///
+/// Tagged `rest` and carrying their own URLs, because these are NOT dispatchable
+/// through `tools/call`. Advertising them with the other 108 and letting an
+/// agent discover the difference by getting an error would be worse than not
+/// advertising them at all.
+///
+/// `/v1/ask` already returns `live_perception` on any place question without
+/// the caller naming a skill; these are for an agent that wants the capability
+/// by name, or wants the picture rather than the numbers.
+fn perception_skills() -> Vec<JsonValue> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    vec![
+        json!({
+            "id":   "perception_at",
+            "name": "Live street perception at a place",
+            "description": "Counts per object class at a cell right now, from a retained \
+                            camera clip whose sha256 is committed in a signed receipt. Answers \
+                            what orbit cannot: a satellite revisits in days.",
+            "tags": ["read", "rest", "direct_sensor"],
+            "examples": [format!("GET {origin}/v1/perception/at?cell=<cell64> for coverage, \
+                                  POST the same path with {{\"cell\":\"<cell64>\"}} for counts")],
+        }),
+        json!({
+            "id":   "perception_postcard",
+            "name": "Painted postcard of a place",
+            "description": "A place painted from its own camera clip, one motif per object \
+                            counted, with the cell, the count and the clip hash inside the \
+                            file. Unobserved and empty are painted differently.",
+            "tags": ["read", "rest", "direct_sensor"],
+            "examples": [format!("GET {origin}/postcard?place=Trafalgar%20Square")],
+        }),
+        json!({
+            "id":   "perception_gonogo",
+            "name": "Proceed or wait, for something that has to move",
+            "description": "Proceed-or-wait over what a street camera sees, for something \
+                            that has to move. Returns the clip it reasoned from and its age. \
+                            Undecidable returns wait. Not a safety system.",
+            "tags": ["read", "rest", "model_output"],
+            "examples": [format!("GET {origin}/v1/perception/gonogo?cell=<cell64>")],
+        }),
+    ]
 }
 
 /// Front the local perception service so a peer that DISCOVERS it can reach it.
@@ -28614,33 +28801,96 @@ async fn perception_proxy(
     Path(path): Path<String>,
     method: axum::http::Method,
     axum::extract::RawQuery(query): axum::extract::RawQuery,
+    headers: axum::http::HeaderMap,
     body: Bytes,
 ) -> Response {
-    const ALLOWED: &[&str] = &["at", "pipeline", "health", "v1/models", "cards"];
+    // Exact paths, then the trees below. This list grew because an allowlist
+    // that lags the upstream is indistinguishable from the upstream being down:
+    // the perception service shipped postcards, a city survey and public
+    // verification, every one of them answered on its own port, and every one
+    // of them 404'd here — so an agent anywhere else could read about the
+    // capability in our own envelope and never reach it.
+    const ALLOWED: &[&str] = &[
+        "at",
+        "city",
+        "postcard",
+        "generate",
+        "gonogo",
+        "history",
+        "trend",
+        "story",
+        "story.svg",
+        "latest.svg",
+        "timelapse.mp4",
+        "pipeline",
+        "health",
+        "v1/models",
+        "cards",
+    ];
+    // Trees rather than single paths. `verify/` is what lets a stranger check a
+    // clip hash and the signing key without trusting us, which is the point of
+    // the receipt; `clips/` serves the bytes a count was taken from.
+    // The ROOT deliberately stays a list while `v1/` and the others are trees.
+    // The upstream asked, fairly, whether the root should be a tree too, since
+    // it has now added three siblings in a day. It should not: a tree at the
+    // root is a pass-through, and then this function reaches whatever that host
+    // ever starts serving on that port, which is the single thing it exists to
+    // prevent. The cost of the list is one line per capability, paid by us; the
+    // cost of a root tree is paid by whoever finds the next thing listening
+    // there. Naming each capability is also what lets the 404 body tell a
+    // caller what IS fronted.
+    //
+    // `v1/` is a tree rather than the three exact paths it holds today
+    // (`models`, `data_availability`, `verifier_spec`). The upstream publishes
+    // its own capability and verification surface there and will add to it; an
+    // allowlist that has to be edited for each new sibling is the failure this
+    // block was just widened to fix, one release later.
+    const ALLOWED_TREES: &[&str] = &["cards/", "clips/", "verify/", "v1/"];
     let clean = path.trim_start_matches('/').to_string();
 
-    // `cards` is a small tree rather than one path, so it is admitted by
-    // prefix — but the segments under it are still checked rather than passed
-    // through. A proxy that forwards whatever follows a permitted prefix is a
+    // The segments under a permitted prefix are still checked rather than
+    // passed through. A proxy that forwards whatever follows a prefix is a
     // wildcard with extra steps, and the traversal it invites is the reason
     // this function has an allowlist at all.
-    let is_card = clean == "cards"
-        || (clean.starts_with("cards/")
-            && clean.split('/').count() <= 4
-            && clean.split('/').all(|seg| {
-                !seg.is_empty()
-                    && seg != ".."
-                    && seg
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
-            }));
+    let in_tree = ALLOWED_TREES.iter().any(|t| clean.starts_with(t))
+        && clean.split('/').count() <= 4
+        && clean.split('/').all(|seg| {
+            !seg.is_empty()
+                && seg != ".."
+                && seg
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        });
 
-    if !is_card && !ALLOWED.contains(&clean.as_str()) {
+    // Extendable without a rebuild. The upstream added five read-only siblings
+    // in one day, and each one cost a nine-minute compile before an agent could
+    // reach a capability that already worked. `EMEM_PERCEPTION_EXTRA_PATHS` is a
+    // comma-separated list that ADDS to the compiled set and cannot subtract
+    // from it, so the door can be opened at the speed capabilities appear while
+    // staying a list rather than becoming a pass-through. Each entry is a single
+    // path segment: no slashes, so this can never be used to graft on a tree.
+    let extra_ok = std::env::var("EMEM_PERCEPTION_EXTRA_PATHS")
+        .ok()
+        .map(|v| {
+            v.split(',')
+                .map(|p| p.trim())
+                .filter(|p| {
+                    !p.is_empty()
+                        && p.len() <= 48
+                        && p.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                })
+                .any(|p| p == clean)
+        })
+        .unwrap_or(false);
+
+    if !in_tree && !extra_ok && !ALLOWED.contains(&clean.as_str()) {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({
                 "error": format!("{clean:?} is not a perception path this responder fronts"),
                 "fronted": ALLOWED,
+                "fronted_trees": ALLOWED_TREES,
                 "why": "an allowlist rather than a pass-through: a proxy that forwards any \
                         path reaches whatever else that host later serves",
             })),
@@ -28671,6 +28921,58 @@ async fn perception_proxy(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
 
+    // WHO is asking, forwarded to the upstream.
+    //
+    // Everything we proxy arrives at the upstream from this one host, so
+    // without this every agent in the world shares a single rate-limit bucket
+    // and the first one to run a loop locks out all the others. Forwarding a
+    // stable per-caller string lets a quota be charged to whoever actually
+    // spent it.
+    //
+    // Passed through as the caller's own CLAIM, not as a verified identity: we
+    // do not check a signature here, and an upstream must treat these as a
+    // bucketing key rather than as proof of who anyone is. The IP hash is the
+    // fallback precisely because it is the one value a caller cannot choose for
+    // itself, so an agent that omits the headers still gets its own bucket
+    // instead of the shared one.
+    const IDENTITY_HEADERS: &[&str] = &[
+        "x-agent-id",
+        "x-emem-agent",
+        "x-caller",
+        "x-attester-pubkey",
+    ];
+    let mut forwarded: Vec<(&str, String)> = Vec::new();
+    for h in IDENTITY_HEADERS {
+        if let Some(v) = headers.get(*h).and_then(|v| v.to_str().ok()) {
+            let v = v.trim();
+            // Bounded and header-safe: a value echoed into an outbound request
+            // must not be able to carry a newline into it.
+            if !v.is_empty()
+                && v.len() <= 128
+                && v.chars().all(|c| c.is_ascii_graphic() || c == ' ')
+            {
+                forwarded.push((h, v.to_string()));
+            }
+        }
+    }
+    if forwarded.is_empty() {
+        if let Some(fwd) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty() && v.len() <= 64)
+        {
+            let mut h = blake3::Hasher::new();
+            h.update(b"emem.perception.caller.v1|");
+            h.update(fwd.as_bytes());
+            forwarded.push((
+                "x-caller",
+                format!("ip-{}", &h.finalize().to_hex().as_str()[..16]),
+            ));
+        }
+    }
+
     let req = match method {
         axum::http::Method::GET => client.get(&url),
         axum::http::Method::POST => client
@@ -28679,6 +28981,9 @@ async fn perception_proxy(
             .body(body),
         _ => return StatusCode::METHOD_NOT_ALLOWED.into_response(),
     };
+    let req = forwarded
+        .into_iter()
+        .fold(req, |r, (name, value)| r.header(name, value));
 
     match req.send().await {
         Ok(resp) => {
@@ -54874,6 +55179,21 @@ fn sources_json(srcs: &[emem_fact::Source]) -> JsonValue {
     )
 }
 
+/// Seconds between an RFC 3339 `signed_at` and now, or None when it cannot be
+/// read.
+///
+/// None rather than zero on a parse failure, for the same reason the clip age
+/// is absent rather than zero: an unknown age must not render as "just now".
+fn fact_age_s(signed_at: &str) -> Option<i64> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs() as i64;
+    let then = rfc3339_to_unix_secs(signed_at)?;
+    let age = now - then;
+    (age >= 0).then_some(age)
+}
+
 /// Build the per-band raw observation array for `/v1/ask`.
 ///
 /// Used as the **algorithm-outcomes fallback** when matched topics
@@ -54963,6 +55283,18 @@ fn band_observations_from_recall(
                 "confidence":        p.confidence,
                 "fact_cid":          cid,
                 "signed_at":         p.signed_at,
+                // How old this reading is, in seconds, computed here so a
+                // consumer does not have to parse a timestamp and pick the
+                // right field to find out.
+                //
+                // `current_by_band` means "the newest we hold", which is not
+                // the same as "fresh", and nothing in a response ever said so.
+                // A cold cell returns a confidently signed number that can be a
+                // season out of date and renders identically to one taken this
+                // morning: London's centre cell answers 29.5 degC from a fact
+                // signed six weeks earlier, which is plausible enough that only
+                // a fresher neighbouring cell gives it away.
+                "age_s":             fact_age_s(&p.signed_at),
                 "derivation_fn_key": p.derivation.fn_key,
                 "sources":           sources_json(&p.sources),
                 "data_url":          data_url,
@@ -54978,6 +55310,7 @@ fn band_observations_from_recall(
                 "tslot":             a.tslot,
                 "fact_cid":          cid,
                 "signed_at":         a.signed_at,
+                "age_s":             fact_age_s(&a.signed_at),
                 "reason_cid":        a.reason_cid.as_str(),
                 "sources":           sources_json(&a.sources),
                 "advice":            "signed Absence, upstream confirmed no value for this band at this cell at this tslot. Do not retry.",
@@ -60873,6 +61206,18 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         }
     };
 
+    // Ground cameras, started HERE rather than at the end, and this placement is
+    // the whole design. `/v1/ask` runs against a 32s budget and routinely spends
+    // most of it in the band cascade below; a perception call bolted on after
+    // that cascade would be the call that pushes a working answer over the
+    // budget. Started now, it overlaps the EO work and costs approximately
+    // nothing on the wall clock.
+    let perception = {
+        let cell = cell.clone();
+        let q = req.q.clone();
+        tokio::spawn(async move { fetch_live_perception(&cell, &q).await })
+    };
+
     let topics = route_question_to_topics(&req.q);
     let alg_reg = &*emem_core::algorithms::DEFAULT;
 
@@ -61711,7 +62056,833 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
     if question_looks_eudr(&req.q) {
         attach_eudr_next_step(&mut body, Some(cell.as_str()));
     }
+    // Collect the perception work started before the cascade. A panic or a dead
+    // perception service yields None and the Earth-observation answer stands on
+    // its own: an enrichment must never be able to fail a good answer.
+    // Take the perception result IF the band cascade has already paid for the
+    // time, and otherwise wait only a little longer for it.
+    //
+    // This is why the probe upstairs can afford a generous budget: it is not
+    // wall clock, it is a race against work that was happening anyway. A cold
+    // cell costs the perception service about eleven seconds and a warm one
+    // twenty milliseconds, and chasing that with a fixed timeout is a losing
+    // game -- six seconds was already the second guess and it still lost the
+    // first question about London.
+    //
+    // What a caller actually cares about is that asking about a place does not
+    // get slower because cameras exist. So the deadline here is a GRACE on top
+    // of the cascade rather than a budget of its own. If the cascade ran long,
+    // the probe has long since finished and this returns immediately.
+    //
+    // When the grace does expire the spawned task is left running on purpose:
+    // it finishes, the perception service caches the result, and the next
+    // question about that place gets its cameras in twenty milliseconds. A cold
+    // miss warms the path rather than wasting the work.
+    // Twelve seconds, and it only ever binds on a question that asked for
+    // detection: a question that does not detect has its block in hand in
+    // milliseconds and never waits here at all. For one that does, waiting is
+    // the point -- "how busy is it right now" cannot be answered from orbit, so
+    // returning quickly without the counts is returning quickly without the
+    // answer.
+    let grace_s = std::env::var("EMEM_PERCEPTION_GRACE_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(12)
+        .clamp(0, 60);
+    if let Ok(Ok(Some(block))) =
+        tokio::time::timeout(std::time::Duration::from_secs(grace_s), perception).await
+    {
+        apply_live_perception(&mut body, block);
+    }
+    attach_imagery(&mut body, cell.as_str());
+    attach_freshness(&mut body, &req.q, &band_observations);
     Ok(body)
+}
+
+/// True when a question asks what is happening at a place *now* — the class of
+/// question a satellite structurally cannot answer.
+///
+/// This exists because of a real failure. An agent asked "what's happening in
+/// Trafalgar Square", emem answered with a Sentinel-2 scene from nine days
+/// earlier, and everything in that answer was true: the surface is urban, the
+/// greenness is low, the scene timestamp was stated. It was still the wrong
+/// answer, because "what's happening" is a question about people and vehicles
+/// at this minute and a 5-day-revisit satellite cannot see either. There were
+/// 57 cameras within a few hundred metres, with clips retained that morning,
+/// and nothing in the answer mentioned them.
+///
+/// So this is not a keyword convenience, it is the routing rule: match the
+/// question to the sensor whose physics can answer it. Deliberately narrow —
+/// it decides whether to spend GPU on detection, and a question about
+/// vegetation or elevation must not, however it is phrased.
+fn question_wants_live_scene(q: &str) -> bool {
+    let ql = q.to_lowercase();
+
+    // A band question is a band question even when phrased in the present
+    // tense ("how green is it right now"). Checked first so the physical-state
+    // vocabulary wins over the temporal cue below.
+    const EO_SUBJECT: &[&str] = &[
+        "ndvi",
+        "vegetation",
+        "greenness",
+        "elevation",
+        "terrain",
+        "soil",
+        "rainfall",
+        "precipitation",
+        "land cover",
+        "landcover",
+        "deforestation",
+        "forest",
+        "water",
+        "flood",
+        "burn",
+        "air quality",
+        "population",
+    ];
+    if EO_SUBJECT.iter().any(|s| ql.contains(s)) {
+        return false;
+    }
+
+    // What a camera sees and a satellite does not: people, vehicles, activity,
+    // and the present tense itself.
+    const SCENE_SUBJECT: &[&str] = &[
+        "happening",
+        "going on",
+        "crowd",
+        "crowded",
+        "busy",
+        "traffic",
+        "congestion",
+        "queue",
+        "people",
+        "pedestrian",
+        "protest",
+        "demonstration",
+        "cars",
+        "buses",
+        "vehicles",
+        "look like",
+        "looks like",
+        "see there",
+        "scene",
+        "footfall",
+    ];
+    const NOW_CUE: &[&str] = &[
+        "right now",
+        "now",
+        "currently",
+        "at the moment",
+        "today",
+        "live",
+        "this minute",
+    ];
+
+    // Either a subject only a camera has, or a plain present-tense observation
+    // request ("what does it look like now"). One signal is enough for the
+    // former; the latter needs the temporal cue to avoid capturing every
+    // question that happens to contain the word "now".
+    SCENE_SUBJECT.iter().any(|s| ql.contains(s)) || NOW_CUE.iter().any(|c| ql.contains(c))
+}
+
+/// Attach live camera perception to an `/v1/ask` answer when the place has
+/// cameras — always as a capability, and with the actual counts when the
+/// question is one only a camera can answer.
+///
+/// Two costs, deliberately separated. `GET /at` is a database read of which
+/// cameras are near a cell and which have retained clips: single-digit
+/// milliseconds, so every place question can afford it and every place
+/// question makes it. `POST /at` runs detection on a frame: seconds of GPU, so
+/// it is spent only when `question_wants_live_scene` says the question needs
+/// it.
+///
+/// Fails open, always. Perception is a second service on a second port; when
+/// it is down or slow the Earth-observation answer is still a good answer and
+/// must not be delayed or failed by an enrichment. Nothing here can turn a 200
+/// into an error.
+/// Seconds since the Unix epoch for an RFC 3339 timestamp, or None.
+///
+/// A deliberately small parser rather than a new dependency. It is used for one
+/// thing — how old a retained clip is — and the only shapes it has to accept
+/// are the ones a peer actually emits: `2026-08-22T11:54:23.632824+00:00`,
+/// `...Z`, and the same with an hour-offset zone.
+///
+/// Returns None rather than a guess on anything it does not fully understand.
+/// The caller renders a missing age as "at an unrecorded time", so a parse
+/// failure degrades to silence; a zero here would render as "seconds ago" and
+/// state the exact freshness we failed to establish.
+fn rfc3339_to_unix_secs(t: &str) -> Option<i64> {
+    let b = t.as_bytes();
+    if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || (b[10] != b'T' && b[10] != b' ') {
+        return None;
+    }
+    let num = |a: usize, z: usize| t.get(a..z)?.parse::<i64>().ok();
+    let (y, mo, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (h, mi, sec) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || sec > 60 {
+        return None;
+    }
+
+    // days_from_civil (Hinnant): exact for the whole proleptic Gregorian range,
+    // no table and no leap-year special-casing at the call site.
+    let y2 = if mo <= 2 { y - 1 } else { y };
+    let era = if y2 >= 0 { y2 } else { y2 - 399 } / 400;
+    let yoe = y2 - era * 400;
+    let mp = (mo + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let mut secs = days * 86_400 + h * 3600 + mi * 60 + sec;
+
+    // Zone. Absent is treated as UTC, which is what every producer here emits;
+    // an offset is subtracted so the result is a true epoch instant rather than
+    // a local wall clock read as if it were UTC.
+    let rest = &t[19..];
+    let zone = rest
+        .rfind(['+', '-'])
+        .filter(|i| rest.len() >= i + 3)
+        .map(|i| &rest[i..]);
+    if let Some(z) = zone {
+        let sign = if z.starts_with('-') { -1 } else { 1 };
+        let zh = z.get(1..3)?.parse::<i64>().ok()?;
+        let zm = z.get(4..6).and_then(|v| v.parse::<i64>().ok()).unwrap_or(0);
+        secs -= sign * (zh * 3600 + zm * 60);
+    }
+    Some(secs)
+}
+
+/// Cached postcard bytes, keyed by the cell they depict.
+///
+/// Painting one costs ~15s upstream because it runs detection on a live clip.
+/// That is the right price to pay once and the wrong price to pay per viewer: a
+/// link shared in a chat, or a card embedded on a page, fans out to many
+/// requests for the same picture within seconds of each other.
+/// One cached postcard: when it was fetched, its bytes, and its media type.
+type CachedPostcard = (std::time::Instant, Vec<u8>, String);
+
+static POSTCARD_CACHE: LazyLock<Mutex<std::collections::HashMap<String, CachedPostcard>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// How long a painted postcard stays servable.
+///
+/// The upstream's own measured clip cadence is ~1230s, so a shorter TTL than
+/// that mostly repaints the same frame at GPU cost and returns a picture that
+/// is not actually newer. Five minutes keeps a card well inside one clip
+/// generation while never serving across two.
+const POSTCARD_TTL_S: u64 = 300;
+
+#[derive(serde::Deserialize)]
+struct PostcardQuery {
+    cell: Option<String>,
+    place: Option<String>,
+}
+
+/// `GET /postcard?cell=<cell64>` or `?place=<name>` — a place, painted, at this
+/// responder's own short public address.
+///
+/// This exists because the address a human is handed has to be one that works.
+/// `https://emem.dev/postcard?cell=...` was an unrouted 404 whose HTML reads
+/// "The path you requested is not attested at this responder" — which parses as
+/// an attestation failure on a card that is in fact attested, the worst
+/// available wording for a fault that was only ever routing.
+///
+/// It serves the upstream's bytes rather than repainting them. The postcard is
+/// the perception service's artefact, its placement rule is published in its
+/// own metadata, and a second renderer here would be a second thing to keep
+/// honest. What this adds is a stable address, a cache, and the headers that
+/// say what the picture is.
+async fn get_postcard(axum::extract::Query(q): axum::extract::Query<PostcardQuery>) -> Response {
+    let (cell, label) = match (q.cell.as_deref(), q.place.as_deref()) {
+        (Some(c), lbl) if !c.trim().is_empty() => {
+            (c.trim().to_string(), lbl.unwrap_or("").to_string())
+        }
+        (_, Some(p)) if !p.trim().is_empty() => {
+            // Resolved through the same locator every other surface uses, so a
+            // postcard and an /v1/ask answer for the same words depict the same
+            // cell rather than two places that merely share a name.
+            match locate_inner(LocateReq {
+                lat: None,
+                lng: None,
+                place: Some(p.to_string()),
+            })
+            .await
+            {
+                Ok(b) => (
+                    b.0.get("cell64")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    p.to_string(),
+                ),
+                Err(_) => (String::new(), p.to_string()),
+            }
+        }
+        _ => (String::new(), String::new()),
+    };
+
+    if cell.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "schema":  "emem.error.v1",
+                "code":    "invalid_argument",
+                "message": "postcard needs a place: pass ?cell=<cell64> or ?place=<name>",
+                "example": "/postcard?place=Trafalgar%20Square",
+            })),
+        )
+            .into_response();
+    }
+
+    let key = format!("{cell}|{label}");
+    if let Ok(c) = POSTCARD_CACHE.lock() {
+        if let Some((at, bytes, ctype)) = c.get(&key) {
+            if at.elapsed().as_secs() < POSTCARD_TTL_S {
+                return postcard_response(bytes.clone(), ctype.clone(), &cell, true);
+            }
+        }
+    }
+
+    let base = std::env::var("EMEM_PERCEPTION_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    // Bounded well under the front door's own budget, because a cold paint is
+    // genuinely slower than any reasonable request. Measured: a place whose clip
+    // is not warm takes ~64 s upstream, the edge cuts the connection at 40 s,
+    // and the reader gets a 504 for work that was in fact proceeding and
+    // finished. Waiting longer cannot fix that; only not waiting can.
+    let upstream_s = std::env::var("EMEM_POSTCARD_UPSTREAM_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(25)
+        .clamp(5, 120);
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(upstream_s))
+        .build()
+    else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    // Query built through reqwest rather than by string concatenation: place
+    // labels carry spaces, commas and apostrophes, and hand-formatting those
+    // into a URL is how a request for "King's Cross" becomes a request for
+    // something else.
+    let mut params: Vec<(&str, &str)> = vec![("cell", cell.as_str())];
+    if !label.is_empty() {
+        params.push(("place", label.as_str()));
+    }
+    let resp = match client
+        .get(format!("{base}/postcard"))
+        .query(&params)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            // A TIMEOUT here is not a failure, and saying so would be the lie.
+            // The paint is still running upstream and its result lands in this
+            // cache, so the honest answer is 202 with a time to come back:
+            // measured, the second call to a place that timed out on the first
+            // serves in about eleven seconds. Anything else (connection
+            // refused, DNS, the service actually down) really is unavailable
+            // and keeps saying so.
+            if e.is_timeout() {
+                return (
+                    StatusCode::ACCEPTED,
+                    Json(json!({
+                        "schema":  "emem.postcard_pending.v1",
+                        "code":    "painting",
+                        "message": format!(
+                            "this place is being painted now. A cold paint runs a detector on \
+                             a live frame and takes longer than one request should wait, so \
+                             the work continues and the result is held. Ask again in about \
+                             {} seconds.",
+                            upstream_s
+                        ),
+                        "retry_after_s": 10,
+                        "cell64":        cell,
+                    })),
+                )
+                    .into_response();
+            }
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(json!({
+                    "schema":  "emem.error.v1",
+                    "code":    "upstream_unavailable",
+                    "message": "the perception service did not answer, and no cached postcard \
+                                exists for this cell",
+                    "cell64":  cell,
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    // A place with no camera is a real answer, not a failure to produce one, so
+    // the upstream's own structured reason is passed through unchanged.
+    // Deliberately not cached: coverage changes when a camera is added, and a
+    // cached 404 would outlive the gap it described.
+    //
+    // Anything that is NOT structured gets replaced rather than forwarded. A
+    // caller asked emem.dev for a picture; handing back a framework's stock
+    // HTML 500 from a service they have never heard of tells them nothing they
+    // can act on, and it rendered verbatim inside our own page. What went wrong
+    // upstream is reported as the status it was, in the shape every other error
+    // on this responder uses.
+    if !resp.status().is_success() {
+        let code = resp.status();
+        let upstream_json = resp
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.starts_with("application/json"))
+            .unwrap_or(false);
+        let body = resp.bytes().await.unwrap_or_default();
+        if upstream_json {
+            return (code, body).into_response();
+        }
+        return (
+            code,
+            Json(json!({
+                "schema":  "emem.error.v1",
+                "code":    "upstream_error",
+                "message": format!(
+                    "the perception service could not paint this place (it returned {} and no \
+                     structured reason)",
+                    code.as_u16()
+                ),
+                "cell64":  cell,
+            })),
+        )
+            .into_response();
+    }
+
+    let ctype = resp
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/svg+xml")
+        .to_string();
+    let bytes = resp.bytes().await.unwrap_or_default().to_vec();
+    if let Ok(mut c) = POSTCARD_CACHE.lock() {
+        // Bounded: this is a cache, not a store. An unbounded map keyed by
+        // caller-supplied cells is a memory leak with a query string.
+        if c.len() > 256 {
+            c.retain(|_, (at, _, _)| at.elapsed().as_secs() < POSTCARD_TTL_S);
+        }
+        c.insert(
+            key,
+            (std::time::Instant::now(), bytes.clone(), ctype.clone()),
+        );
+    }
+    postcard_response(bytes, ctype, &cell, false)
+}
+
+/// Wrap postcard bytes with the headers that say what they are.
+///
+/// `X-Provenance-Class: direct_sensor` because the picture is painted from a
+/// camera's own retained clip, and `X-Emem-Cached` because a viewer comparing
+/// two loads a minute apart should be able to tell a repaint from a replay
+/// without inferring it from the latency.
+fn postcard_response(bytes: Vec<u8>, ctype: String, cell: &str, cached: bool) -> Response {
+    (
+        StatusCode::OK,
+        [
+            (axum::http::header::CONTENT_TYPE, ctype),
+            (
+                axum::http::header::CACHE_CONTROL,
+                format!("public, max-age={POSTCARD_TTL_S}"),
+            ),
+            (
+                axum::http::HeaderName::from_static("x-provenance-class"),
+                "direct_sensor".to_string(),
+            ),
+            (
+                axum::http::HeaderName::from_static("x-emem-cell64"),
+                cell.to_string(),
+            ),
+            (
+                axum::http::HeaderName::from_static("x-emem-cached"),
+                cached.to_string(),
+            ),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+/// Fetch live camera perception for a cell, or None when there is nothing
+/// honest to say about it.
+///
+/// Two costs, deliberately separated. `GET /at` is a database read of which
+/// cameras are near a cell and which hold retained clips: single-digit
+/// milliseconds, so every place question can afford it and every place
+/// question makes it. `POST /at` runs detection on a frame — seconds of GPU —
+/// so it is spent only when `question_wants_live_scene` says the question is
+/// one a satellite cannot answer.
+///
+/// Returns None on every failure path. Perception is a second service on a
+/// second port; when it is down, slow, or covers nowhere near this cell, the
+/// Earth-observation answer is still a good answer. Nothing in here can turn a
+/// 200 into an error or an empty result into a claim.
+async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> {
+    if cell.is_empty() {
+        return None;
+    }
+    let base = std::env::var("EMEM_PERCEPTION_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let wants_scene = question_wants_live_scene(question);
+
+    // The probe is on the critical path of every place question, so its budget
+    // is the tight one. Detection is only reached when the question asked for
+    // it, and even then is bounded well inside the caller's 32s: a partial
+    // answer that arrives beats a complete one that times out.
+    // Six seconds, not three. The upstream answers a WARM cell in ~30 ms and a
+    // cold one in ~3.1 s, and a 3 s budget sat directly on that number: the
+    // first question about any new place silently lost its cameras and looked
+    // exactly like a place that had none. The probe overlaps the band cascade,
+    // so the extra headroom is only ever spent on a request that would
+    // otherwise have returned nothing.
+    let probe_s = std::env::var("EMEM_PERCEPTION_PROBE_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(15)
+        .clamp(1, 60);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(probe_s))
+        .build()
+        .ok()?;
+    let resp = client
+        .get(format!("{base}/at?cell={cell}"))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let at: JsonValue = resp.json().await.ok()?;
+
+    let camera_count = at.get("camera_count").and_then(|v| v.as_u64()).unwrap_or(0);
+    if camera_count == 0 {
+        return None;
+    }
+    let cameras = at.get("cameras").and_then(|v| v.as_array());
+    let with_clips = cameras
+        .map(|a| a.iter().filter(|c| c.get("clip").is_some()).count())
+        .unwrap_or(0);
+
+    // How old the freshest retained clip is. A count is only as current as the
+    // frame it was counted from, and a consumer should not have to parse
+    // timestamps out of a camera list to learn that. Absent rather than zero
+    // when no clip carries a usable time: an unknown age must not read as new.
+    let now_s = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let newest_clip_age_s = cameras.and_then(|a| {
+        a.iter()
+            .filter_map(|c| c.get("clip")?.get("retained_at")?.as_str())
+            .filter_map(rfc3339_to_unix_secs)
+            .map(|t| now_s - t)
+            .filter(|s| *s >= 0)
+            .min()
+    });
+
+    // Every URL here is this server's public front door, never the loopback
+    // upstream. An agent reading this envelope from another machine has to be
+    // able to call what it is offered; a 127.0.0.1 in an answer is a capability
+    // that only works from the host that wrote it.
+    let mut block = json!({
+        "schema":           "emem.live_perception.v1",
+        "cameras_near":     camera_count,
+        "cameras_with_retained_clips": with_clips,
+        "provenance_class": "direct_sensor",
+        "answers_now":      wants_scene,
+        "why": "Ground cameras see what a satellite cannot: people, vehicles and \
+                activity at this minute, rather than surface reflectance on a \
+                multi-day revisit. Retained clips are committed by sha256 in a \
+                signed receipt, so a stranger can verify the frame a count came from.",
+        "postcard_url": format!("{origin}/v1/perception/postcard?cell={cell}"),
+        "next": json!([{
+            "what":   "counts of what is in view right now, per class",
+            "url":    format!("{origin}/v1/perception/at"),
+            "method": "POST",
+            "body":   { "cell": cell },
+        }]),
+    });
+    if let (Some(m), Some(age)) = (block.as_object_mut(), newest_clip_age_s) {
+        m.insert("newest_clip_age_s".into(), json!(age));
+    }
+
+    if wants_scene {
+        // Detection must not be able to lose the presence data.
+        //
+        // It used to sit on the same future as the probe, so a slow or wedged
+        // detector took the whole block down with it and a cell with 53 cameras
+        // reported none at all. The cheap half is already in hand at this
+        // point; the expensive half either arrives inside its own budget or is
+        // abandoned, and either way the caller learns the cameras are there.
+        let detect_s = std::env::var("EMEM_PERCEPTION_DETECT_TIMEOUT_S")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(10)
+            .clamp(1, 60);
+        let dclient = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(detect_s))
+            .build()
+            .ok();
+        let detected = match dclient {
+            Some(dc) => tokio::time::timeout(
+                std::time::Duration::from_secs(detect_s),
+                dc.post(format!("{base}/at"))
+                    .json(&json!({ "cell": cell }))
+                    .send(),
+            )
+            .await
+            .ok()
+            .and_then(|r| r.ok()),
+            None => None,
+        };
+        if let Some(dr) = detected {
+            if dr.status().is_success() {
+                if let Ok(det) = dr.json::<JsonValue>().await {
+                    if let Some(m) = block.as_object_mut() {
+                        // An EMPTY counts map is not a count of zero. It is
+                        // the detector having returned nothing usable, and
+                        // storing it puts `"counts": {}` in the envelope, which
+                        // reads to a consumer as "this street is empty". Absence
+                        // has to stay absent: the block then carries cameras and
+                        // clip ages and no counts, which is the true statement.
+                        if det
+                            .get("counts")
+                            .and_then(|c| c.as_object())
+                            .map(|c| c.is_empty())
+                            .unwrap_or(false)
+                        {
+                            m.insert(
+                                "counts_unavailable".into(),
+                                json!("the detector returned no counts for this clip"),
+                            );
+                        }
+                        for k in [
+                            "counts",
+                            "detector_fn_id",
+                            "clip_sha256",
+                            "frame",
+                            "observed_at",
+                            "camera",
+                            "postcard_url",
+                        ] {
+                            if let Some(v) = det.get(k) {
+                                if k == "counts"
+                                    && v.as_object().map(|c| c.is_empty()).unwrap_or(false)
+                                {
+                                    continue;
+                                }
+                                m.insert(k.to_string(), v.clone());
+                            }
+                        }
+                        m.insert("observed_by".into(), json!("ground_camera"));
+                    }
+                }
+            }
+        }
+    }
+    Some(block)
+}
+
+/// Say how old the readings are when the question was about now.
+///
+/// The failure this prevents is not a wrong number, it is a right number
+/// answering a question it cannot answer. "What is happening on the streets of
+/// London right now" returns, among other things, an air temperature of
+/// 29.5 degC signed six weeks earlier. Every part of that is true. Nothing in
+/// the envelope distinguishes it from a reading taken this morning, and a
+/// neighbouring cell 200 m away holds one signed that day.
+///
+/// Only attached for present-tense questions, and this restraint is deliberate:
+/// a six-week-old temperature is a perfectly good answer to "what is the
+/// climate like here", and warning about it there would train a reader to skip
+/// the warning where it matters.
+///
+/// Reported as structure, not prose. `oldest_reading_age_s` is a number a
+/// consumer can threshold on, and `stale_bands` names the bands rather than
+/// describing them, so something that strips text still sees which readings
+/// were old.
+fn attach_freshness(body: &mut JsonValue, question: &str, observations: &[JsonValue]) {
+    if !question_wants_live_scene(question) {
+        return;
+    }
+    // A day. Not tuned per band, because this flags "old enough that calling it
+    // *now* is wrong" rather than "past its refresh interval", and every band
+    // here is answering a question about this minute.
+    const STALE_AFTER_S: i64 = 86_400;
+
+    // Read from the observations the caller's envelope was BUILT from, not from
+    // the envelope. `band_observations` is a heavy section that only appears
+    // when asked for, so reading it back meant freshness was reported to
+    // verbose callers and withheld from everyone else, which is precisely
+    // backwards: the slim envelope is the one a reader takes at face value.
+    let obs = observations;
+    let mut stale: Vec<JsonValue> = Vec::new();
+    let mut oldest: Option<i64> = None;
+    for o in obs {
+        let Some(age) = o.get("age_s").and_then(|v| v.as_i64()) else {
+            continue;
+        };
+        oldest = Some(oldest.map_or(age, |m: i64| m.max(age)));
+        if age > STALE_AFTER_S {
+            stale.push(json!({
+                "band":  o.get("band_key"),
+                "age_s": age,
+                "age_days": age / 86_400,
+            }));
+        }
+    }
+    if stale.is_empty() {
+        return;
+    }
+    if let Some(map) = body.as_object_mut() {
+        map.insert(
+            "freshness".into(),
+            json!({
+                "schema":               "emem.freshness.v1",
+                "question_was_about_now": true,
+                "oldest_reading_age_s": oldest,
+                "stale_after_s":        STALE_AFTER_S,
+                "stale_bands":          stale,
+                "what_this_means": "These readings are the newest this responder holds for \
+                                    this cell, which is not the same as recent. They describe \
+                                    the place, not this moment. For what is happening now, \
+                                    read `live_perception` where it is present: a ground \
+                                    camera's clip is minutes old and carries its own age.",
+            }),
+        );
+    }
+}
+
+/// Name the pictures of this place, both kinds, on every answer that has a cell.
+///
+/// An answer about a place that hands back only numbers makes the reader go
+/// looking for the image, and most callers never do — so they quote the numbers
+/// and never see the scene. Two sources, and the distinction between them is
+/// the point rather than a caption:
+///
+/// * the satellite scene is reflectance measured from orbit on a multi-day
+///   revisit — authoritative about the surface, silent about the moment;
+/// * the postcard is painted from a ground clip whose sha256 is committed in a
+///   signed receipt — authoritative about the moment, blind beyond its camera.
+///
+/// Both are `direct_sensor`. Neither is a render of the other, and an agent
+/// that treats them as interchangeable will misdate one of them, which is why
+/// each carries what it can and cannot answer rather than just a URL.
+fn attach_imagery(body: &mut JsonValue, cell: &str) {
+    if cell.is_empty() {
+        return;
+    }
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let has_cameras = body.get("live_perception").is_some();
+
+    let mut sources = vec![json!({
+        "kind":             "satellite_scene",
+        "media_type":       "image/png",
+        "url":              format!("{origin}/v1/cells/{cell}/scene.png"),
+        "instrument":       "sentinel-2 l2a true colour",
+        "provenance_class": "direct_sensor",
+        "answers":          "what the surface looks like from orbit",
+        "cannot_answer":    "what is happening at this minute: revisit is multi-day",
+    })];
+
+    // Only offered when cameras actually cover this cell. A postcard URL for a
+    // place with no camera is a link to a 404, and an agent that has been
+    // handed one has no way to know that until it spends the round-trip.
+    if has_cameras {
+        sources.push(json!({
+            "kind":             "ground_postcard",
+            "media_type":       "image/svg+xml",
+            "url":              format!("{origin}/v1/perception/postcard?cell={cell}"),
+            "instrument":       "ground camera, retained clip",
+            "provenance_class": "direct_sensor",
+            "answers":          "what is in view right now, painted and countable",
+            "cannot_answer":    "anything outside this camera's field of view",
+        }));
+    }
+
+    if let Some(map) = body.as_object_mut() {
+        map.insert(
+            "imagery".into(),
+            json!({ "schema": "emem.imagery.v1", "sources": sources }),
+        );
+    }
+}
+
+/// Merge a `fetch_live_perception` block into an `/v1/ask` body, and say so in
+/// the prose when the question was one only a camera can answer.
+///
+/// The prose half is not decoration. The failure this whole path fixes was not
+/// a missing field — `band_observations` was present and correct. It was that a
+/// model composing an answer from this envelope had nothing about cameras to
+/// compose FROM, so it answered from satellite bands and sounded certain. A
+/// block the prose never mentions would reproduce that failure exactly.
+fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+    let wants_scene = block
+        .get("answers_now")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let camera_count = block
+        .get("cameras_near")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let with_clips = block
+        .get("cameras_with_retained_clips")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    if wants_scene {
+        let counts = block.get("counts").and_then(|c| c.as_object());
+        // Age is stated in the same sentence as the numbers, never in a
+        // footnote. A count from a frame two hours old is a different claim
+        // from a count taken this minute, and a reader who sees only the
+        // numbers cannot tell them apart.
+        let age = match block.get("newest_clip_age_s").and_then(|v| v.as_i64()) {
+            Some(a) if a < 60 => "seconds ago".to_string(),
+            Some(a) if a < 120 => "a minute ago".to_string(),
+            Some(a) if a < 7200 => format!("{} minutes ago", a / 60),
+            Some(a) => format!("{} hours ago", a / 3600),
+            None => "at an unrecorded time".to_string(),
+        };
+        let lead = match counts {
+            Some(c) if !c.is_empty() => {
+                let mut parts: Vec<String> = c
+                    .iter()
+                    .filter_map(|(k, v)| v.as_u64().map(|n| format!("{n} {k}")))
+                    .collect();
+                parts.sort();
+                format!(
+                    "From a ground camera covering this cell, in a clip retained {}: {}. \
+                     These are counted objects from a frame committed by sha256 in a signed \
+                     receipt, not a satellite estimate.",
+                    age,
+                    parts.join(", ")
+                )
+            }
+            _ => format!(
+                "{camera_count} ground camera(s) cover this cell, {with_clips} with retained \
+                 clips (freshest {age}). The satellite bands below describe the surface, not \
+                 what is happening on it: POST /v1/perception/at for counts of what is in view."
+            ),
+        };
+        for key in ["answer", "answer_md"] {
+            let merged = match map.get(key).and_then(|v| v.as_str()) {
+                Some(prev) if !prev.is_empty() => format!("{lead}\n\n{prev}"),
+                _ => lead.clone(),
+            };
+            map.insert(key.to_string(), JsonValue::String(merged));
+        }
+    }
+    map.insert("live_perception".into(), block);
 }
 
 /// Build a 1-3 sentence answer from the structured `/v1/ask` body.
@@ -62815,7 +63986,30 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     // clusters differently can dial both thresholds.
                     let imp_floor = env_f64("EMEM_LOCATE_PHOTON_IMP_FLOOR", 0.5, 0.0, 1.0);
                     let imp_delta = env_f64("EMEM_LOCATE_PHOTON_IMP_DELTA", 0.1, 0.0, 1.0);
-                    if top_imp < imp_floor || (top_imp - second_imp).abs() < imp_delta {
+
+                    // Whether the runner-up is a DIFFERENT PLACE, not merely a
+                    // different score. Two hits a few hundred metres apart are
+                    // one place described twice — `Piccadilly Circus` returns
+                    // the pedestrian area and the tube station beneath it — and
+                    // refusing to answer because they scored alike sends the
+                    // caller away from a question that has one obvious answer.
+                    // `Moon`, the case the score test was written for, returns
+                    // towns on four continents; those are separated by
+                    // thousands of kilometres and stay ambiguous.
+                    //
+                    // Scores alone cannot tell those apart, and after the rank
+                    // term entered `photon_rank_score` they stopped trying to:
+                    // adjacent candidates now sit one rank step (0.08) apart,
+                    // inside the 0.1 delta, so every Photon answer with more
+                    // than one hit read as ambiguous. Distance is what the test
+                    // was reaching for in the first place.
+                    let same_place_km = env_f64("EMEM_LOCATE_SAME_PLACE_KM", 25.0, 0.0, 20_000.0);
+                    let sep_km = haversine_km(hits[0].lat, hits[0].lng, hits[1].lat, hits[1].lng);
+                    let runner_up_is_elsewhere = sep_km > same_place_km;
+
+                    if top_imp < imp_floor
+                        || (runner_up_is_elsewhere && (top_imp - second_imp).abs() < imp_delta)
+                    {
                         disambiguation_required = true;
                     }
                 }
@@ -64209,7 +65403,7 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///    assert `nominatim_boundingbox`. Both change which polygon a cached place
 ///    answers with, so every generation-4 row must re-resolve rather than
 ///    replay a bbox chosen by a race that no longer runs.
-const LOCATE_RESOLVER_VERSION: u32 = 5;
+const LOCATE_RESOLVER_VERSION: u32 = 7;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -64761,6 +65955,48 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
 /// a query arrives here only when it is a name none of them carried, which is
 /// the rural/administrative case the prior is for. It is not a general claim
 /// that districts beat cities.
+/// Great-circle distance in kilometres.
+///
+/// Used to ask whether two geocoder candidates are the same place or two
+/// different ones. A local copy rather than a dependency on `emem-fetch`: this
+/// crate does not otherwise depend on it, and the formula is four lines that
+/// will not change.
+fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
+    const R_KM: f64 = 6371.0088;
+    let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
+    let (dp, dl) = ((lat2 - lat1).to_radians(), (lng2 - lng1).to_radians());
+    let a = (dp / 2.0).sin().powi(2) + p1.cos() * p2.cos() * (dl / 2.0).sin().powi(2);
+    2.0 * R_KM * a.sqrt().asin()
+}
+
+/// Score one Photon candidate from its position in Photon's own ranking and,
+/// secondarily, its OSM class.
+///
+/// The class prior used to be the ONLY input here, and it broke the same way
+/// twice. `Lahaul` (boundary, Himachal Pradesh) came back from Photon at rank 0
+/// and we sorted a French village over it. Then `Piccadilly Circus` came back
+/// at rank 0 as `highway/pedestrian` — the actual London landmark — and we
+/// served a locality in the Australian Capital Territory, 16,000 km away,
+/// because `place` (0.6) outscores the `_` fallback (0.3). The satellite
+/// answer that followed was perfectly correct about rural Australia.
+///
+/// Both failures share a shape: Photon had it right and our re-rank overrode
+/// it. The boundary prior was raised once to undo the first instance, which
+/// treated the symptom. So the ordering is inverted here. Photon's rank is the
+/// signal — it reflects OSM importance, which we cannot synthesise from a class
+/// name — and the class prior is a tie-breaker between candidates Photon
+/// already considered close.
+///
+/// The weights encode exactly that. A rank step costs 0.08; the whole class
+/// prior spans 0.35 and is scaled by 0.20, so it can move a candidate past an
+/// adjacent one and never past a distant one. `Keylong` (two `place` hits,
+/// Himachal town first) is unaffected, as it was under the old stable sort.
+fn photon_rank_score(rank: usize, osm_key: &str) -> f64 {
+    const RANK_STEP: f64 = 0.08;
+    const PRIOR_WEIGHT: f64 = 0.20;
+    1.0 - (rank as f64) * RANK_STEP + PRIOR_WEIGHT * photon_class_prior(osm_key)
+}
+
 fn photon_class_prior(osm_key: &str) -> f64 {
     match osm_key {
         "boundary" => 0.65,
@@ -64814,7 +66050,7 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
         .as_array()
         .ok_or("photon response missing features[]")?;
     let mut out = Vec::with_capacity(features.len());
-    for feat in features {
+    for (rank, feat) in features.iter().enumerate() {
         let coords = match feat["geometry"]["coordinates"].as_array() {
             Some(c) if c.len() == 2 => c,
             _ => continue,
@@ -64864,7 +66100,7 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             let min_lat = arr[3].as_f64()?;
             Some((min_lat, max_lat, min_lon, max_lon))
         });
-        let importance = photon_class_prior(osm_key);
+        let importance = photon_rank_score(rank, osm_key);
         let osm_id = props["osm_id"]
             .as_i64()
             .map(|i| i.to_string())
@@ -67360,11 +68596,59 @@ mod tests {
     async fn the_agent_card_indexes_skills_rather_than_documenting_them() {
         let Json(card) = well_known_agent_card(State(test_app_state())).await;
         let skills = card["skills"].as_array().expect("skills");
+        // Coverage, by NAME rather than by count.
+        //
+        // This asserted `skills.len() == TOOLS.len()`, which reads as a
+        // coverage check and is really a check that nothing else is ever
+        // listed. It failed the moment the card gained the perception skills,
+        // which are REST capabilities with no MCP tool behind them — a case the
+        // equality forbade without ever saying so. Comparing ids catches a tool
+        // that actually went missing, which is what the message claims to be
+        // about, and a swap of one tool for another, which counting never did.
+        let ids: std::collections::HashSet<&str> = skills
+            .iter()
+            .filter_map(|s| s.get("id").and_then(|v| v.as_str()))
+            .collect();
+        for t in emem_mcp::TOOLS.iter() {
+            assert!(
+                ids.contains(t.name),
+                "tool `{}` is missing from the agent card; trimming is about length, \
+                 not coverage",
+                t.name
+            );
+        }
+        // And the non-tool skills are exactly the declared ones, so this cannot
+        // become a door through which anything quietly appears on the card.
+        let extra: std::collections::BTreeSet<&str> = ids
+            .iter()
+            .copied()
+            .filter(|id| !emem_mcp::TOOLS.iter().any(|t| t.name == *id))
+            .collect();
+        let declared: std::collections::BTreeSet<&str> = perception_skills()
+            .iter()
+            .filter_map(|s| s.get("id").and_then(|v| v.as_str().map(str::to_owned)))
+            .collect::<Vec<_>>()
+            .iter()
+            .map(|s| Box::leak(s.clone().into_boxed_str()) as &str)
+            .collect();
         assert_eq!(
-            skills.len(),
-            emem_mcp::TOOLS.len(),
-            "every tool must still appear; trimming is about length, not coverage"
+            extra, declared,
+            "the card carries a skill that is neither an MCP tool nor a declared \
+             perception capability"
         );
+        // Every non-tool skill says so, because it is NOT dispatchable through
+        // tools/call and an agent must be able to tell before it tries.
+        for s in skills.iter() {
+            let id = s.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+            if emem_mcp::TOOLS.iter().any(|t| t.name == id) {
+                continue;
+            }
+            let tags = s.get("tags").and_then(|v| v.as_array()).expect("tags");
+            assert!(
+                tags.iter().any(|t| t.as_str() == Some("rest")),
+                "skill `{id}` is not an MCP tool, so it must be tagged `rest`"
+            );
+        }
         let bytes = serde_json::to_string(&card).expect("card").len();
         assert!(
             bytes < 60_000,

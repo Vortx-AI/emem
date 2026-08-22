@@ -29,8 +29,6 @@ Run
     # POST /explain   {"ask": <emem /v1/ask response JSON>}  ->  {explanation, ...}
 
 Env: EMEM_EXPLAIN_BIND (default 127.0.0.1:5071), EMEM_EXPLAIN_MAX_TOKENS (160),
-     GEOQA_BASE_URL (default http://127.0.0.1:8100),
-     GEOQA_API_KEY (required — a geo.qa API key),
      EMEM_EXPLAIN_COSMOS_BASE (default http://127.0.0.1:5017) and
        EMEM_EXPLAIN_COSMOS_MODEL (default nvidia/Cosmos3-Edge) — the fallback
        backend, on its own service, so it needs no base swap at all.
@@ -41,8 +39,12 @@ from urllib import request as _req, error as _err
 
 BIND = os.environ.get("EMEM_EXPLAIN_BIND", "127.0.0.1:5071")
 MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "160"))
-GEOQA_BASE = os.environ.get("GEOQA_BASE_URL", "http://127.0.0.1:8100").rstrip("/")
-GEOQA_KEY = os.environ.get("GEOQA_API_KEY", "")
+# GEOQA_BASE_URL and GEOQA_API_KEY are gone with the route that used them.
+#
+# Both backends are local services now — Gemma on its own port, Cosmos on its
+# own — so neither needs a key, and a variable this file no longer reads is a
+# variable an operator can set and watch do nothing. A neighbour was holding
+# 4.7 GB of model weights on disk on the strength of this file naming them.
 # Gemma, on its own server, rather than Qwen on the neighbour's.
 #
 # This surface answered as qwen2.5-7b through geo.qa's shared stack.
