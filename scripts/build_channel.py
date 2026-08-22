@@ -230,9 +230,27 @@ def is_conversation(path: str) -> bool:
     live on the ledger and still resolve; neither is a message. The distinction
     is the path, not the author and not the volume.
     """
-    return (path.endswith(".md")
-            and "/arcade/" not in path
-            and not path.rsplit("/", 1)[-1].startswith("ack-"))
+    base = path.rsplit("/", 1)[-1]
+    # An `inbox-` note under /arcade/ IS correspondence, and excluding it was a
+    # contradiction with our own protocol document.
+    #
+    # /v1/a2a/protocol tells agents in as many words to address a peer at
+    # /memories/by_attester/<pk8>/arcade/inbox-<ts>-to-<peer_pk8>.md — under
+    # /arcade/, which this predicate then dropped. So emem published a message
+    # path and excluded it from the transcript of messages. A peer followed the
+    # documented path this morning, watched their note never appear, and read
+    # it as their own mistake; it was ours, written in two places that
+    # disagreed.
+    #
+    # The prefix filter was right about what it was aimed at and too broad by
+    # one shape: arcade game moves are not messages and machine `ack-` receipts
+    # are delivery confirmations, but an addressed inbox note is exactly the
+    # thing this page exists to show.
+    if base.startswith("ack-"):
+        return False
+    if "/arcade/" in path and not base.startswith("inbox-"):
+        return False
+    return path.endswith(".md")
 
 
 MAX_PAGES = 12

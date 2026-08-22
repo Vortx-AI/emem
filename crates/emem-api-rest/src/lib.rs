@@ -23031,6 +23031,37 @@ async fn a2a_task_json(
                     })
                     .flatten()
             });
+            // Media parts, which this responder had been identifying and then
+            // dropping.
+            //
+            // part_kind already knew "file" — it names the arm so an
+            // unsupported part is reported as its own kind rather than as an
+            // absent one — and nothing downstream ever read one. So the card
+            // was widened this afternoon to admit image/jpeg, image/png and
+            // video/mp4, and an agent sending an image got a 200 and an answer
+            // composed from its text alone, with no indication the picture had
+            // been ignored. That is worse than a refusal: the caller believes
+            // the answer is about what they sent.
+            //
+            // Declaring a capability nothing consumes is the exact fault this
+            // exchange has been finding all day in other people's surfaces,
+            // and I shipped it into ours between finding two of them.
+            let media_part = parts.iter().find_map(|p| {
+                if part_kind(p).as_deref() != Some("file") {
+                    return None;
+                }
+                let f = p.get("file")?;
+                let mime = f
+                    .get("mimeType")
+                    .or_else(|| f.get("mime_type"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let bytes_b64 = f.get("bytes").and_then(|b| b.as_str()).map(String::from);
+                let uri = f.get("uri").and_then(|u| u.as_str()).map(String::from);
+                Some((mime, bytes_b64, uri))
+            });
+
             let skill_id = params
                 .get("metadata")
                 .and_then(|m| m.get("skill_id"))
@@ -23041,6 +23072,29 @@ async fn a2a_task_json(
                 .and_then(|m| m.get("mode"))
                 .and_then(|x| x.as_str())
                 .unwrap_or("");
+
+            // An image is answered by a model that can see it, or refused.
+            //
+            // Never accepted and quietly dropped: an answer composed from the
+            // caller's text while their picture went unread is a true sentence
+            // about the wrong input, and nothing in the envelope would say so.
+            if let Some((mime, bytes_b64, uri)) = media_part {
+                let question = text_part
+                    .clone()
+                    .unwrap_or_else(|| "Describe what is in this image.".to_string());
+                return match a2a_answer_with_vision(&mime, bytes_b64, uri, &question).await {
+                    // Same envelope every other skill uses, so a vision answer
+                    // is not a special shape a client has to learn.
+                    Ok(v) => Ok(Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": rpc_id,
+                        "result": a2a_message_result(&s, "vision", v),
+                    }))),
+                    Err((code, msg)) => {
+                        rpc_err(rpc_id, code, msg, json!({"schema": "emem.error.v1"}))
+                    }
+                };
+            }
 
             // The reasoning tier (opt-in, labelled): run as an async task -
             // the model may cold-load, and a Task with pollIntervalMs is
@@ -28224,6 +28278,117 @@ async fn serve_splats_file(
             Err(_) => not_found("read error"),
         },
     }
+}
+
+/// Answer a question about an image with a model that can actually see it.
+///
+/// The only routable model with eyes is the perception service, so this is
+/// where an image part goes. The prose it returns is `model_output` and
+/// `signed: false` exactly like the reasoning tier's, because it is the same
+/// kind of thing: a model's description, not a measurement.
+///
+/// A media type this responder cannot hand to a vision model is REFUSED by
+/// name rather than dropped. The card admits video/mp4 because a peer's clip
+/// parts carry it, and this path does not yet decode video, so a video arrives
+/// with an honest error saying which surface does handle it instead of an
+/// answer about nothing.
+async fn a2a_answer_with_vision(
+    mime: &str,
+    bytes_b64: Option<String>,
+    uri: Option<String>,
+    question: &str,
+) -> Result<JsonValue, (i64, String)> {
+    if !mime.starts_with("image/") {
+        return Err((
+            -32602,
+            format!(
+                "this responder answers questions about image/* here and was sent {mime:?}. A \
+                 retained video clip is answered by the perception surface at \
+                 /v1/perception/at, which reasons over the bytes a receipt commits to rather \
+                 than over a frame pulled out of them."
+            ),
+        ));
+    }
+
+    // data: URI for inline bytes, the http(s) form when the caller referenced
+    // one. Both are shapes the vision service already accepts.
+    let image_ref =
+        match (bytes_b64, uri) {
+            (Some(b), _) => format!("data:{mime};base64,{b}"),
+            (None, Some(u)) => u,
+            (None, None) => return Err((
+                -32602,
+                "the file part carried neither `bytes` nor `uri`, so there is nothing to look at"
+                    .into(),
+            )),
+        };
+
+    let base = std::env::var("EMEM_PERCEPTION_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    // thinking off: describing an image is perception, not deliberation, and
+    // the difference is about a second against twenty.
+    let payload = json!({
+        "base_model": "nvidia/Cosmos3-Edge",
+        "family": "cosmos3_edge",
+        "thinking": false,
+        "temperature": 0.0,
+        "messages": [{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": image_ref}},
+            {"type": "text", "text": question},
+        ]}],
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| (-32050i64, format!("vision client: {e}")))?;
+    let body: JsonValue = client
+        .post(format!("{base}/v1/chat/completions"))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| (-32050i64, format!("the vision model did not answer: {e}")))?
+        .json()
+        .await
+        .map_err(|e| {
+            (
+                -32050i64,
+                format!("the vision model returned non-JSON: {e}"),
+            )
+        })?;
+
+    if body.get("truncated").and_then(|v| v.as_bool()) == Some(true) {
+        return Err((
+            -32050,
+            "the vision model's answer was truncated and is not returned incomplete".into(),
+        ));
+    }
+    let text = body
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("content"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        return Err((-32050, "the vision model returned an empty answer".into()));
+    }
+
+    Ok(json!({
+        "schema": "emem.vision.v1",
+        "question": question,
+        "answer_prose": text,
+        "provenance_class": "model_output",
+        "signed": false,
+        "base_model": "nvidia/Cosmos3-Edge",
+        "note": "A model's description of bytes you supplied. It is not a measurement and \
+                 carries no receipt: this responder did not observe the scene, it looked at \
+                 your file. For an observation emem can vouch for, ask about a place: \
+                 /v1/perception/at answers from a retained clip whose sha256 is committed in a \
+                 signed receipt.",
+    }))
 }
 
 /// Front the local perception service so a peer that DISCOVERS it can reach it.
