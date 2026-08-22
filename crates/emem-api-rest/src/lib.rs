@@ -62587,10 +62587,24 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
         .unwrap_or(0);
     let newest_clip_age_s = cameras.and_then(|a| {
         a.iter()
-            .filter_map(|c| c.get("clip")?.get("retained_at")?.as_str())
-            .filter_map(rfc3339_to_unix_secs)
-            .map(|t| now_s - t)
-            .filter(|s| *s >= 0)
+            .filter_map(|c| {
+                let clip = c.get("clip")?;
+                // Prefer the age the SOURCE computed. It knows when it retained
+                // the clip without a round trip through a string, and a
+                // timestamp parsed here can only ever be a second opinion about
+                // a fact that service already holds.
+                //
+                // The fallback stays because `GET /at` does not carry it yet
+                // (POST does, and /city does), and because a field a peer added
+                // yesterday is a field a peer can rename. Parsing is what we do
+                // when we are not told; being told is better.
+                if let Some(age) = clip.get("age_seconds").and_then(|v| v.as_i64()) {
+                    return (age >= 0).then_some(age);
+                }
+                let t = rfc3339_to_unix_secs(clip.get("retained_at")?.as_str()?)?;
+                let age = now_s - t;
+                (age >= 0).then_some(age)
+            })
             .min()
     });
 
@@ -62676,6 +62690,11 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
                             "clip_sha256",
                             "frame",
                             "observed_at",
+                            // What the COUNTS were taken from, and how old THAT
+                            // is. A clip age and a live-frame age are different
+                            // observations, and the prose below attributes to
+                            // whichever actually produced the numbers.
+                            "counted_from",
                             "camera",
                             "postcard_url",
                         ] {
@@ -62848,18 +62867,39 @@ fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
         .unwrap_or(0);
 
     if wants_scene {
-        let counts = block.get("counts").and_then(|c| c.as_object());
-        // Age is stated in the same sentence as the numbers, never in a
-        // footnote. A count from a frame two hours old is a different claim
-        // from a count taken this minute, and a reader who sees only the
-        // numbers cannot tell them apart.
-        let age = match block.get("newest_clip_age_s").and_then(|v| v.as_i64()) {
+        // Attribute the counts to the observation they actually came from.
+        //
+        // This said "in a clip retained {age}" unconditionally, using the age of
+        // the freshest RETAINED CLIP near the cell. But the detector may have
+        // counted a LIVE FRAME instead, which is a different observation with a
+        // different age and no retained bytes behind it. So a number taken from
+        // a frame one second ago could be printed as coming from a clip twenty
+        // minutes old, and a number from a clip could be described with a
+        // stranger's freshness. Both are the same failure as everything else
+        // today: a true sentence about the wrong thing.
+        let counted_from = block.get("counted_from");
+        let from_clip = counted_from
+            .and_then(|c| c.get("source"))
+            .and_then(|v| v.as_str())
+            .map(|s| s != "live_frame")
+            .unwrap_or(true);
+        // The observation's OWN age when the source reports it, falling back to
+        // the freshest nearby clip only when it does not.
+        let observed_age = counted_from
+            .and_then(|c| {
+                c.get("observed_age_seconds")
+                    .or_else(|| c.get("clip_age_seconds"))
+            })
+            .and_then(|v| v.as_i64())
+            .or_else(|| block.get("newest_clip_age_s").and_then(|v| v.as_i64()));
+        let age = match observed_age {
             Some(a) if a < 60 => "seconds ago".to_string(),
             Some(a) if a < 120 => "a minute ago".to_string(),
             Some(a) if a < 7200 => format!("{} minutes ago", a / 60),
             Some(a) => format!("{} hours ago", a / 3600),
             None => "at an unrecorded time".to_string(),
         };
+        let counts = block.get("counts").and_then(|c| c.as_object());
         let lead = match counts {
             Some(c) if !c.is_empty() => {
                 let mut parts: Vec<String> = c
@@ -62867,12 +62907,24 @@ fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
                     .filter_map(|(k, v)| v.as_u64().map(|n| format!("{n} {k}")))
                     .collect();
                 parts.sort();
+                let seen = if from_clip {
+                    format!("in a clip retained {age}")
+                } else {
+                    format!("in a live frame taken {age}")
+                };
+                let vouch = if from_clip {
+                    "These are counted objects from a frame committed by sha256 in a signed \
+                     receipt, not a satellite estimate."
+                } else {
+                    "These are counted objects from a live frame this responder does not \
+                     retain, so they cannot be re-verified later; they are a reading, not \
+                     evidence."
+                };
                 format!(
-                    "From a ground camera covering this cell, in a clip retained {}: {}. \
-                     These are counted objects from a frame committed by sha256 in a signed \
-                     receipt, not a satellite estimate.",
-                    age,
-                    parts.join(", ")
+                    "From a ground camera covering this cell, {}: {}. {}",
+                    seen,
+                    parts.join(", "),
+                    vouch
                 )
             }
             _ => format!(
