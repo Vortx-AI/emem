@@ -5683,11 +5683,81 @@ async fn get_scoreboard() -> Json<JsonValue> {
 /// large read to ask of a peer that only wants to know whether to route here at
 /// all. A consumer asked for exactly this and called it QuerySkill.
 ///
+/// Roster peers carrying a signed capability declaration, optionally narrowed
+/// to those covering one cell.
+///
+/// Coverage matches by cell64 prefix because the address is hierarchical: an
+/// agent declaring `defi.zb64a` covers every finer cell inside it, and would
+/// otherwise have to enumerate thousands of leaves to say "London". Matching
+/// on the segment boundary, so `defi.zb64` does not silently cover
+/// `defi.zb649` — a prefix that stops mid-segment is a different place, and
+/// answering as though it were the same is the referential drift this whole
+/// protocol exists to prevent.
+fn peers_declaring(s: &AppState, cell: &str) -> Option<Vec<JsonValue>> {
+    let db = memory_db(s).ok()?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).ok()?;
+    let mut out: Vec<JsonValue> = Vec::new();
+    for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
+        let key = String::from_utf8_lossy(&kv.0).into_owned();
+        if !key.ends_with("/agent-skills.md") {
+            continue;
+        }
+        let Some(who) = key
+            .strip_prefix("/memories/by_attester/")
+            .and_then(|r| r.split('/').next())
+            .filter(|f| !f.is_empty())
+        else {
+            continue;
+        };
+        let Ok(Some((bytes, meta))) = read_memory_file(s, &key) else {
+            continue;
+        };
+        let Some(decl) = parse_skill_declaration(&String::from_utf8_lossy(&bytes)) else {
+            continue;
+        };
+        if !cell.is_empty() {
+            let covered = decl
+                .get("skills")
+                .and_then(|sk| sk.as_array())
+                .is_some_and(|sk| {
+                    sk.iter().any(|one| {
+                        one.get("covers")
+                            .and_then(|c| c.as_array())
+                            .is_some_and(|cs| {
+                                cs.iter().filter_map(|c| c.as_str()).any(|c| {
+                                    cell == c
+                                        || (cell.starts_with(c)
+                                            && cell.as_bytes().get(c.len()) == Some(&b'.'))
+                                })
+                            })
+                    })
+                });
+            if !covered {
+                continue;
+            }
+        }
+        out.push(json!({
+            "prefix": who,
+            "attester_pubkey_b32": meta.attester_pubkey_b32,
+            "key_status": if meta.attester_sig_b32.is_some() && meta.attester_body_hash_hex.is_some() {
+                "proven_by_signature"
+            } else {
+                "responder_claim"
+            },
+            "declared_at": meta.signed_at,
+            "declaration_path": key,
+            "declares": decl,
+        }));
+    }
+    Some(out)
+}
+
 /// Matching is over id, name, description and tags, case-insensitive. `matched`
 /// is the count BEFORE `limit`, so a caller can tell a narrow answer from a
 /// truncated one.
 async fn get_a2a_skills(
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::State(s): axum::extract::State<AppState>,
 ) -> Json<JsonValue> {
     let needle = q.get("q").map(|v| v.to_lowercase()).unwrap_or_default();
     let tag = q.get("tag").map(|v| v.to_lowercase()).unwrap_or_default();
@@ -5738,8 +5808,28 @@ async fn get_a2a_skills(
         .collect();
 
     let matched = hits.len();
+    // Peers, and the place they say they cover.
+    //
+    // This endpoint used to answer only with this responder's own 108 tools,
+    // which meant a stranger could ask "do you do X" and never "who does X".
+    // An agent that had exactly the capability another was looking for sat on
+    // the roster, provably itself, describing nothing. Answering with peers is
+    // what turns a guest list into a directory.
+    let cell = q
+        .get("cell")
+        .map(|c| c.trim().to_string())
+        .unwrap_or_default();
+    let peers = peers_declaring(&s, &cell).unwrap_or_default();
+
     Json(json!({
-        "query": {"q": needle, "tag": tag, "category": category, "limit": limit},
+        "query": {"q": needle, "tag": tag, "category": category, "cell": cell, "limit": limit},
+        "peers": peers,
+        "peers_note": "Other agents on this responder's roster that have SIGNED a declaration \
+                       of what they do. The signature proves which key wrote it, exactly as it \
+                       does for any other note. It does not prove the endpoint answers or that \
+                       the skill is real, and this responder does not check either: call them \
+                       and judge for yourself. Pass `cell` to keep only peers whose declared \
+                       coverage contains that cell64.",
         "matched": matched,
         "returned": hits.len().min(limit),
         "truncated": matched > limit,
@@ -52678,6 +52768,83 @@ async fn get_limits() -> Json<JsonValue> {
 /// `notes` counts every memory in the namespace; `correspondence` counts only
 /// those addressed to someone, which is what separates a peer writing to the
 /// channel from an agent journalling its own run.
+/// Read a peer's capability declaration out of its signed note.
+///
+/// The note is markdown like every other note, and the declaration is a JSON
+/// object in it — fenced or bare. Markdown because that is what the store
+/// holds and what the signature covers; JSON because a capability list is
+/// structured and prose is not.
+///
+/// Only the fields this responder will republish are taken, and each is
+/// length-bounded. A declaration is written by a stranger and rendered to
+/// other strangers, so it is treated as hostile input rather than as
+/// configuration: an agent cannot make the roster carry a megabyte, and cannot
+/// smuggle a field this responder does not understand into something that
+/// reads as though this responder endorsed it.
+fn parse_skill_declaration(body: &str) -> Option<JsonValue> {
+    let raw = body
+        .split_once("```json")
+        .and_then(|(_, r)| r.split_once("```"))
+        .map(|(j, _)| j.to_string())
+        .or_else(|| {
+            let a = body.find('{')?;
+            let b = body.rfind('}')?;
+            (b > a).then(|| body[a..=b].to_string())
+        })?;
+    let v: JsonValue = serde_json::from_str(raw.trim()).ok()?;
+
+    let cut = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+    let skills: Vec<JsonValue> = v
+        .get("skills")?
+        .as_array()?
+        .iter()
+        .take(24)
+        .filter_map(|sk| {
+            let id = cut(sk.get("id")?.as_str()?, 64);
+            let mut out = json!({ "id": id });
+            if let Some(d) = sk.get("description").and_then(|d| d.as_str()) {
+                out["description"] = json!(cut(d, 400));
+            }
+            if let Some(c) = sk.get("covers").and_then(|c| c.as_array()) {
+                let cells: Vec<String> = c
+                    .iter()
+                    .filter_map(|x| x.as_str())
+                    .take(64)
+                    .map(|x| cut(x, 64))
+                    .collect();
+                if !cells.is_empty() {
+                    out["covers"] = json!(cells);
+                }
+            }
+            Some(out)
+        })
+        .collect();
+    if skills.is_empty() {
+        return None;
+    }
+
+    let mut out = json!({
+        "skills": skills,
+        "declared_by": "the key that owns this namespace, in a note it signed",
+        "verified_by_this_responder": false,
+        "note": "This is what the agent SAYS it does. This responder proves the key and \
+                 does not check the endpoint, the skill, or the coverage. Call it and \
+                 decide for yourself.",
+    });
+    if let Some(serves) = v.get("serves").and_then(|s| s.as_object()) {
+        let mut m = serde_json::Map::new();
+        for k in ["url", "protocol", "auth"] {
+            if let Some(val) = serves.get(k).and_then(|x| x.as_str()) {
+                m.insert(k.to_string(), json!(cut(val, 200)));
+            }
+        }
+        if !m.is_empty() {
+            out["serves"] = JsonValue::Object(m);
+        }
+    }
+    Some(out)
+}
+
 async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
     let db = memory_db(&s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
@@ -52706,6 +52873,9 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
         signed_notes: u64,
         pubkey: Option<String>,
         pubkey_at: String,
+        /// What this agent SAYS it can do, from its own signed declaration.
+        skills: Option<JsonValue>,
+        skills_at: String,
     }
     let mut seen: std::collections::BTreeMap<String, Roster> = std::collections::BTreeMap::new();
     for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
@@ -52724,7 +52894,38 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
         let Some((bytes, meta)) = read_memory_file(&s, &key)? else {
             continue;
         };
-        let (direct, cc, broadcast) = parse_note_addressing(&String::from_utf8_lossy(&bytes));
+        let body = String::from_utf8_lossy(&bytes);
+
+        // A capability declaration is an ordinary signed note at a well-known
+        // name, and that is the whole design.
+        //
+        // The roster could prove sixty-four identities and advertise not one
+        // capability, so a newcomer could verify exactly who everybody was and
+        // had no way to learn what any of them did. A peer asked this
+        // responder "who here can see cell X", polled for four minutes, and
+        // got fifteen month-old broadcasts addressed to nobody. They could
+        // have been answered in two seconds by an agent that was sitting right
+        // there.
+        //
+        // Nothing new had to be trusted to fix it. The roster already proves a
+        // key by the signatures on its notes, so a declaration written as a
+        // note inherits that proof exactly: same namespace, same signature,
+        // same verification. No registration, no second auth path, no
+        // allowlist an operator has to maintain.
+        if key.ends_with("/agent-skills.md") {
+            if let Some(decl) = parse_skill_declaration(&body) {
+                let e = seen.entry(from.clone()).or_default();
+                // Newest declaration wins, like the key does: an agent that
+                // changes what it offers should not have an old claim outlive
+                // the correction.
+                if meta.signed_at >= e.skills_at {
+                    e.skills = Some(decl);
+                    e.skills_at = meta.signed_at.clone();
+                }
+            }
+        }
+
+        let (direct, cc, broadcast) = parse_note_addressing(&body);
         let addressed = !direct.is_empty() || !cc.is_empty() || broadcast;
         let e = seen.entry(from).or_default();
         e.notes += 1;
@@ -52766,6 +52967,12 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
                 "key_status": if r.pubkey.is_some() { "proven_by_signature" } else { "responder_claim" },
                 "attester_pubkey_b32": r.pubkey,
                 "trust": "caller_decides",
+                // DECLARED, never verified. This responder can prove the key
+                // that wrote it and cannot check that the endpoint answers or
+                // that the skill is real. Presenting a self-description as a
+                // capability this responder vouches for would be the same
+                // overstatement as signing a model's prose.
+                "declares": r.skills,
             })
         })
         .collect();
