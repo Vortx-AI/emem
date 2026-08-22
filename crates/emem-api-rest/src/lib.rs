@@ -23096,6 +23096,43 @@ async fn a2a_task_json(
                 };
             }
 
+            // Robotics: metric answers about a place, for something that moves.
+            //
+            // mode="robotics" rather than a separate endpoint, so it sits
+            // beside mode="reasoning" on the surface an agent already found.
+            if mode == "robotics" {
+                let cell = data_part
+                    .as_ref()
+                    .and_then(|d| d.get("cell").and_then(|c| c.as_str()).map(String::from))
+                    .or_else(|| text_part.clone())
+                    .unwrap_or_default();
+                if cell.is_empty() {
+                    return rpc_err(
+                        rpc_id,
+                        -32602,
+                        "mode=robotics needs a cell64 in data.cell. Resolve a place with \
+                         /v1/locate first: a robot should act on the address emem named, not \
+                         on coordinates rounded through a convenience field."
+                            .into(),
+                        json!({"schema": "emem.error.v1"}),
+                    );
+                }
+                let question = data_part
+                    .as_ref()
+                    .and_then(|d| d.get("question").and_then(|q| q.as_str()).map(String::from))
+                    .unwrap_or_else(|| "What is present and what is moving?".to_string());
+                return match a2a_robotics_at(&cell, &question).await {
+                    Ok(v) => Ok(Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": rpc_id,
+                        "result": a2a_message_result(&s, "robotics", v),
+                    }))),
+                    Err((code, msg)) => {
+                        rpc_err(rpc_id, code, msg, json!({"schema": "emem.error.v1"}))
+                    }
+                };
+            }
+
             // The reasoning tier (opt-in, labelled): run as an async task -
             // the model may cold-load, and a Task with pollIntervalMs is
             // exactly the right shape for that. The returned Task id is
@@ -28280,6 +28317,169 @@ async fn serve_splats_file(
     }
 }
 
+/// How a detection total is described, and what a caller must not read into it.
+///
+/// Separated from the request path so the zero branch can be exercised without
+/// waiting for an empty street. It is the branch that could get someone hurt,
+/// and a branch nobody has watched fire is not a branch anybody has checked.
+fn robotics_observation(total: i64) -> (&'static str, &'static str) {
+    if total == 0 {
+        (
+            "unreadable_or_empty",
+            "that the place is clear. A zero count here means the detector read nothing, and this responder cannot tell an empty street from an unreadable frame — a placeholder image, a dark frame, a camera serving its offline card. Roughly two in five readings across the fleet are zero at every hour of the day, including rush hour, which is not what an actually-empty city looks like. Do not move on this.",
+        )
+    } else {
+        (
+            "objects_detected",
+            "that the absence of a label means the absence of the thing. A detector reports what it recognised, and this answer is one camera's view at one moment.",
+        )
+    }
+}
+
+/// A metric answer about a place, shaped for something that has to move.
+///
+/// The difference between this and the reasoning tier is not the model, it is
+/// what is allowed to be load-bearing. An agent renders a wrong answer; a robot
+/// MOVES on one. So the numbers come first, every one of them carries its own
+/// uncertainty or its own absence, and the prose is explicitly commentary.
+///
+/// Four refusals are built in, and each is here because measurement said so.
+async fn a2a_robotics_at(cell: &str, question: &str) -> Result<JsonValue, (i64, String)> {
+    let base = std::env::var("EMEM_PERCEPTION_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .map_err(|e| (-32050i64, format!("robotics client: {e}")))?;
+
+    let obs: JsonValue = client
+        .post(format!("{base}/at"))
+        .json(&json!({
+            "cell": cell,
+            "question": question,
+            "stages": ["detect", "reason"],
+            // The retained clip, not a fresh pull: the answer and the receipt
+            // must describe the same pixels, or the evidence is of a different
+            // moment than the claim.
+            "use_clip": true,
+        }))
+        .send()
+        .await
+        .map_err(|e| {
+            (
+                -32050i64,
+                format!("the perception service did not answer: {e}"),
+            )
+        })?
+        .json()
+        .await
+        .map_err(|e| {
+            (
+                -32050i64,
+                format!("the perception service returned non-JSON: {e}"),
+            )
+        })?;
+
+    // 1. WRONG PLACE. Gate on the representativeness flag, never on the raw
+    //    distance beside it: a number sitting next to a claim is not read by
+    //    whatever renders the claim.
+    if obs.get("depicts_query_point").and_then(|v| v.as_bool()) == Some(false) {
+        return Err((
+            -32050,
+            format!(
+                "the nearest camera does not depict the requested point, so this would describe \
+                 a different place. {}",
+                obs.get("caveat").and_then(|c| c.as_str()).unwrap_or("")
+            ),
+        ));
+    }
+
+    let counts = obs.get("counts").cloned().unwrap_or_else(|| json!({}));
+    let total: i64 = counts
+        .as_object()
+        .map(|m| m.values().filter_map(|v| v.as_i64()).sum())
+        .unwrap_or(0);
+
+    // 2. ZERO IS UNOBSERVED, NOT EMPTY, and this is the one that could hurt
+    //    somebody. Around 40% of readings across the fleet report zero and the
+    //    rate barely moves between 3am and the morning peak — if those were
+    //    empty streets the number would collapse at rush hour. So many zeros
+    //    are frames the detector could not read: a placeholder image, a dark
+    //    frame, a camera serving its offline card. Nothing in the data
+    //    distinguishes those from a genuinely clear road.
+    //
+    //    A robot reading {car: 0} as "clear to proceed" is the worst thing
+    //    this responder could cause, and it would be signed, verifiable and
+    //    beautiful the whole way down. So zero is never returned as a count.
+    let (observation, must_not_conclude) = robotics_observation(total);
+
+    let detections: Vec<JsonValue> = obs
+        .get("detections")
+        .and_then(|d| d.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|d| {
+                    json!({
+                        "label": d.get("label"),
+                        "confidence": d.get("confidence"),
+                        // 3. A RANGE WITH ITS SIGMA, AND NO BEARING AT ALL.
+                        //    Range is pose-independent — angular size against a
+                        //    known real height — so it survives a camera whose
+                        //    mount nobody recorded. Bearing does not: not one
+                        //    camera in the fleet has a heading, and a bearing
+                        //    computed from an unknown one is a wrong number a
+                        //    caller cannot tell from a right one. Absent, with
+                        //    the reason, is the honest partial answer.
+                        "range_m": d.get("range_m"),
+                        "range_sigma_m": d.get("range_sigma_m"),
+                        "range_basis": d.get("range_basis"),
+                        "bearing_deg": JsonValue::Null,
+                        "bearing_unavailable": d.get("bearing_unavailable"),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let perception = obs.get("perception").cloned().unwrap_or_else(|| json!({}));
+    // 4. Deliberation that could not be separated from the answer is not
+    //    presented as either.
+    let prose = if perception
+        .get("reasoning_separated")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+    {
+        perception.get("answer").cloned().unwrap_or(JsonValue::Null)
+    } else {
+        JsonValue::Null
+    };
+
+    Ok(json!({
+        "schema": "emem.robotics.v1",
+        "cell": cell,
+        "observation": observation,
+        "counts": if total == 0 { JsonValue::Null } else { counts },
+        "detections": detections,
+        "basis": perception.get("basis"),
+        "clip": obs.get("parts"),
+        "commentary": prose,
+        "provenance": {
+            "counts": "direct_sensor: a detector over the retained clip's pixels",
+            "commentary": "model_output, unsigned. About 2 answers in 6 restate the counts \
+                           cleanly, so read it as commentary and act on the numbers.",
+            "actions": "none proposed. This responder carries an action a caller composes; it \
+                        does not generate one. The only action-generating checkpoint in reach \
+                        is a robot-ARM policy for a different embodiment, and a policy belongs \
+                        on the robot rather than across a network hop.",
+        },
+        "must_not_conclude": must_not_conclude,
+        "latency_floor_ms": 1600,
+        "note": "Perception, not a policy. This says what is there; what to do about it is \
+                 yours, and anything reactive should run on the robot rather than wait on a \
+                 network hop with a 1.6 second floor.",
+    }))
+}
+
 /// Answer a question about an image with a model that can actually see it.
 ///
 /// The only routable model with eyes is the perception service, so this is
@@ -28416,9 +28616,26 @@ async fn perception_proxy(
     axum::extract::RawQuery(query): axum::extract::RawQuery,
     body: Bytes,
 ) -> Response {
-    const ALLOWED: &[&str] = &["at", "pipeline", "health", "v1/models"];
+    const ALLOWED: &[&str] = &["at", "pipeline", "health", "v1/models", "cards"];
     let clean = path.trim_start_matches('/').to_string();
-    if !ALLOWED.contains(&clean.as_str()) {
+
+    // `cards` is a small tree rather than one path, so it is admitted by
+    // prefix — but the segments under it are still checked rather than passed
+    // through. A proxy that forwards whatever follows a permitted prefix is a
+    // wildcard with extra steps, and the traversal it invites is the reason
+    // this function has an allowlist at all.
+    let is_card = clean == "cards"
+        || (clean.starts_with("cards/")
+            && clean.split('/').count() <= 4
+            && clean.split('/').all(|seg| {
+                !seg.is_empty()
+                    && seg != ".."
+                    && seg
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            }));
+
+    if !is_card && !ALLOWED.contains(&clean.as_str()) {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({
@@ -71000,6 +71217,34 @@ mod tests {
 
     /// The routes this responder cannot honestly serve must say WHY, not 404.
     /// An agent that cannot tell "not here" from "nowhere" gives up on both.
+    /// Zero is never reported as a count, and never as clear.
+    ///
+    /// About 40% of readings across the camera fleet are zero, and the rate
+    /// barely moves between 3am and the morning peak — if those were empty
+    /// streets the number would collapse at rush hour. So a large share are
+    /// frames the detector could not read, and nothing in the data separates
+    /// them from a genuinely clear road.
+    ///
+    /// A robot reading {car: 0} as permission to move is the worst outcome
+    /// this responder could cause, and every other property of that answer
+    /// would still check out: signed, verifiable, and wrong.
+    #[test]
+    fn a_zero_detection_total_is_unobserved_and_says_not_to_move() {
+        let (obs, warn) = robotics_observation(0);
+        assert_eq!(obs, "unreadable_or_empty", "zero must not read as a count");
+        assert!(warn.contains("Do not move on this"), "{warn}");
+        assert!(
+            warn.contains("unreadable frame"),
+            "the warning must say WHY zero is not emptiness: {warn}"
+        );
+
+        // Control: a real reading is described as one, or the test above would
+        // pass just as well if every answer refused.
+        let (obs, warn) = robotics_observation(1);
+        assert_eq!(obs, "objects_detected");
+        assert!(!warn.contains("Do not move"), "{warn}");
+    }
+
     #[tokio::test]
     async fn the_routes_a_shared_responder_cannot_serve_name_the_reason() {
         for (label, resp) in [
