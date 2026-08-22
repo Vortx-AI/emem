@@ -991,6 +991,16 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/agent.json", get(well_known_agent_card))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
         .route("/v1/a2a/skills", get(get_a2a_skills))
+        // Fronting the local perception service: see perception_proxy.
+        // `/*path`, not `/{*path}`: this is axum 0.7, where the braced form is
+        // not a wildcard but a literal, and Router::route PANICS on it at
+        // construction. That took production down for the length of a rebuild,
+        // on a syntax difference between two versions of the same crate that
+        // every other wildcard route in this file already had right.
+        .route(
+            "/v1/perception/*path",
+            get(perception_proxy).post(perception_proxy),
+        )
         .route("/v1/scoreboard", get(get_scoreboard))
         .route("/v1/a2a/tasks", post(post_a2a_task_async))
         .route("/v1/a2a/tasks/:id", get(get_a2a_task))
@@ -28213,6 +28223,109 @@ async fn serve_splats_file(
             }
             Err(_) => not_found("read error"),
         },
+    }
+}
+
+/// Front the local perception service so a peer that DISCOVERS it can reach it.
+///
+/// Capability discovery without reachability is a directory of phone numbers
+/// that do not connect. A peer declared its endpoint honestly as
+/// http://127.0.0.1:5017/at and said in the declaration that it was loopback
+/// and why — so an agent anywhere else could find the capability and not call
+/// it. This closes that.
+///
+/// Loopback upstream deliberately, and this is the same shape as the splat
+/// bridge rather than a new pattern. A GPU inference endpoint with no auth and
+/// no rate limit of its own must not listen publicly; reachability comes from
+/// this front door, which already carries the public name, TLS, the per-IP
+/// limit and the access log. Binding it publicly would have been giving the
+/// world an unmetered GPU and calling it reachable.
+///
+/// An ALLOWLIST of upstream paths, not a wildcard. A proxy that forwards any
+/// path a caller names is a proxy that reaches whatever else that host ever
+/// starts serving, and the whole point of the two gates elsewhere in this file
+/// is that being reachable and being permitted are different questions.
+async fn perception_proxy(
+    Path(path): Path<String>,
+    method: axum::http::Method,
+    axum::extract::RawQuery(query): axum::extract::RawQuery,
+    body: Bytes,
+) -> Response {
+    const ALLOWED: &[&str] = &["at", "pipeline", "health", "v1/models"];
+    let clean = path.trim_start_matches('/').to_string();
+    if !ALLOWED.contains(&clean.as_str()) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": format!("{clean:?} is not a perception path this responder fronts"),
+                "fronted": ALLOWED,
+                "why": "an allowlist rather than a pass-through: a proxy that forwards any \
+                        path reaches whatever else that host later serves",
+            })),
+        )
+            .into_response();
+    }
+
+    let base = std::env::var("EMEM_PERCEPTION_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    let url = match query {
+        Some(q) if !q.is_empty() => format!("{base}/{clean}?{q}"),
+        _ => format!("{base}/{clean}"),
+    };
+
+    // Generous, because detection plus physical reasoning runs about five
+    // seconds and deliberation can run minutes, and bounded, because a request
+    // parked here holds one of this server's in-flight permits for its whole
+    // duration.
+    let timeout_s: u64 = std::env::var("EMEM_PERCEPTION_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(120)
+        .clamp(5, 600);
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(timeout_s))
+        .build()
+    else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+
+    let req = match method {
+        axum::http::Method::GET => client.get(&url),
+        axum::http::Method::POST => client
+            .post(&url)
+            .header("content-type", "application/json")
+            .body(body),
+        _ => return StatusCode::METHOD_NOT_ALLOWED.into_response(),
+    };
+
+    match req.send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let ct = resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("application/json")
+                .to_string();
+            match resp.bytes().await {
+                Ok(b) => Response::builder()
+                    .status(status)
+                    .header("content-type", ct)
+                    .body(axum::body::Body::from(b))
+                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+                Err(_) => StatusCode::BAD_GATEWAY.into_response(),
+            }
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({
+                "error": "the perception service did not answer",
+                "detail": e.to_string(),
+                "note": "this responder fronts that service and does not run it; the \
+                         capability may be declared and the service down",
+            })),
+        )
+            .into_response(),
     }
 }
 
