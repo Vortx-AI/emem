@@ -2581,11 +2581,29 @@ fn rate_limit_rps() -> f64 {
 
 /// Default per-IP burst capacity (max tokens in the bucket).
 /// Tunable via `EMEM_RATE_LIMIT_BURST` (clamped to 1.0..=100_000.0).
+///
+/// 120 rather than 1200, and the sustained rate is unchanged.
+///
+/// The burst is how much damage a runaway can do before it is told anything.
+/// At 1200 a client with a poll loop and no sleep got twelve hundred free
+/// requests before the first 429 — which is what happened: a peer agent
+/// checking whether a page had updated fired a few hundred requests in 150
+/// seconds, drained the bucket, and then read a degraded response and reasoned
+/// from it as though the channel were empty. It never saw a 429 at all. The
+/// sustained rate was never the problem; nothing about 600 req/min is
+/// unreasonable for an agent running a multi-tool loop, and tightening THAT
+/// would punish the callers this responder exists to serve.
+///
+/// 120 still absorbs any honest burst — a discovery sequence, a fan-out over a
+/// dozen cells, a page of tool schemas — and stops a runaway inside twelve
+/// seconds with a Retry-After instead of letting it quietly poison its own
+/// view of the world. A limit that never fires is not protection, it is a
+/// constant with a comment.
 fn rate_limit_burst() -> f64 {
     std::env::var("EMEM_RATE_LIMIT_BURST")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(1200.0_f64)
+        .unwrap_or(120.0_f64)
         .clamp(1.0, 100_000.0)
 }
 
@@ -6174,8 +6192,22 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // card (every endpoint is open + receipt-signed). Explicit `false`
         // beats omission for downstream validators.
         "supportsAuthenticatedExtendedCard": false,
-        "defaultInputModes":  ["text/plain", "application/json"],
-        "defaultOutputModes": ["application/json"],
+        // Media is admitted because parts carrying it now exist.
+        //
+        // A peer built clip FileParts to a shape this responder specified, and
+        // they are video/mp4 — which the card did not admit, so a conforming
+        // client was CORRECT to refuse the very parts both sides had agreed
+        // on. We had shipped to a contract that forbade them. The card is the
+        // contract; a capability the card does not declare is a capability a
+        // careful caller must assume is absent.
+        //
+        // image/jpeg and image/png alongside video/mp4: a frame is what a
+        // camera hands over and a clip is what a retained observation is, and
+        // a splat viewer already sends a rendered screenshot today. Output
+        // carries them too, because this responder can hand back a frame it
+        // was given a receipt for.
+        "defaultInputModes":  ["text/plain", "application/json", "image/jpeg", "image/png", "video/mp4"],
+        "defaultOutputModes": ["application/json", "image/jpeg", "image/png", "video/mp4"],
         "skills": skills,
         // No securitySchemes, and no securityRequirements, because this
         // responder requires no authentication to read.
@@ -22033,25 +22065,27 @@ async fn a2a_reason_compose(
             "temperature": 0.0,
             "messages": messages,
         });
-        // No cap by default, on any model.
+        // Generous where a cap is a ceiling; absent where it is an
+        // instruction to fill.
         //
-        // Two reasons, and they point the same way. On a model that grows to
-        // meet its ceiling a cap does not shorten the answer, it removes it
-        // (see ModelRoute::fills_token_ceiling). On a model that stops at end
-        // of sequence, a cap only ever truncates a good answer into a worse
-        // one; the old 700 was a quality ceiling nobody asked for. The real
-        // bound is the request timeout, which is what actually protects the
-        // card, and each service applies its own runaway guard besides.
+        // The old 700 was a quality limit nobody asked for and it truncated
+        // good answers. Removing it entirely was worse: Gemma generates to end
+        // of sequence, and with no ceiling at all a reason call started
+        // exceeding this responder's own 32-second call budget, so the caller
+        // got a timeout instead of the longer answer the change was meant to
+        // buy. A cap that never binds on a real answer but keeps the call
+        // inside the budget is the shape that serves quality.
         //
-        // An operator who wants one says so; ceiling-filling models never get
-        // it, because for them it is not a bound but an instruction to fill.
+        // Ceiling-filling models still get none, and that asymmetry is the
+        // whole point: on a model that deliberates, a cap is not a bound but
+        // an instruction to spend it, and 1600 produced 5,465 characters of
+        // thinking with no conclusion where uncapped finished in 990 tokens.
         if !fills_ceiling {
-            if let Some(cap) = std::env::var("EMEM_A2A_LLM_MAX_TOKENS")
+            let cap = std::env::var("EMEM_A2A_LLM_MAX_TOKENS")
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
-            {
-                payload["max_tokens"] = json!(cap);
-            }
+                .unwrap_or(2048);
+            payload["max_tokens"] = json!(cap);
         }
         let resp = client.post(&url).json(&payload).send().await.map_err(|e| {
             (
@@ -22087,7 +22121,32 @@ async fn a2a_reason_compose(
                     .into(),
             ));
         }
-        // Deliberation, kept beside the answer and never merged into it.
+        // Deliberation, kept beside the answer and never merged into it —
+        // when the service can tell them apart, and it says when it cannot.
+        //
+        // A reasoning model that never closes its deliberation leaves the
+        // splitter no boundary to cut on, and thousands of characters of
+        // thinking come back in `content`. The service reports that as
+        // reasoning_separated:false rather than pretending the split held.
+        // Prose that is actually deliberation must not be labelled as the
+        // model's answer: the grounding block beside it makes anything in that
+        // field read as a considered conclusion.
+        //
+        // Absent means true, so a service that never had a split to lose is
+        // unaffected.
+        let separated = body
+            .get("reasoning_separated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        if !separated {
+            return Err((
+                -32050i64,
+                "the model did not close its deliberation, so this responder cannot tell its \
+                 thinking from its answer and will not present one as the other. Ask again, ask \
+                 more narrowly, or call emem_ask for the signed answer with no model in the loop."
+                    .into(),
+            ));
+        }
         let reasoning = body
             .get("reasoning")
             .and_then(|t| t.as_str())
