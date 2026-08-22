@@ -18,15 +18,35 @@ LLM = "http://127.0.0.1:5014/v1/chat/completions"
 # point where the number is no longer the measurement in any useful sense) or
 # MAX_HOPS is reached. Whatever it does is what gets published: if it never
 # falls, the recording says so.
-HOPS_PAIR = [("google/gemma-4-12B-it", "gemma"), ("Qwen/Qwen2.5-7B-Instruct", "qwen")]
+# The second family is Cosmos, not Qwen.
+#
+# Qwen/Qwen2.5-7B-Instruct's weights were evicted from this box on 2026-08-17
+# and its registry rows are archived, so this recording could no longer be
+# reproduced: the alternation would die on the first cold load of hop two. The
+# point of the relay is that the chain is re-runnable by anyone reading the
+# published result, and a hop pointing at a model nobody can load is a
+# recording nobody can check.
+#
+# Cosmos runs on its own service, so the two hops now cross a process boundary
+# as well as a family one, which if anything makes the drift test stronger.
+HOPS_PAIR = [
+    ("google/gemma-4-12B-it", "gemma", "http://127.0.0.1:5014/v1/chat/completions"),
+    ("nvidia/Cosmos3-Edge", "cosmos3_edge", "http://127.0.0.1:5017/v1/chat/completions"),
+]
 MAX_HOPS = 24
 STOP_BELOW = 0.1
 
-def call(base, fam, prompt, timeout=600):
+def call(base, fam, prompt, timeout=600, url=None):
     body = {"base_model": base, "family": fam,
             "messages": [{"role":"user","content":prompt}],
-            "temperature": 0.0, "max_tokens": 160}
-    out = subprocess.run(["curl","-s","-m",str(timeout),"-X","POST",LLM,
+            "temperature": 0.0}
+    # max_tokens only where it is a ceiling the model stops before. Cosmos
+    # grows to meet any cap it is given, so one does not shorten its answer, it
+    # removes it: 1600 produced 5,465 characters of deliberation and no
+    # conclusion where unthrottled completed in 990 tokens.
+    if fam == "gemma":
+        body["max_tokens"] = 160
+    out = subprocess.run(["curl","-s","-m",str(timeout),"-X","POST",url or LLM,
                           "-H","Content-Type: application/json","-d",json.dumps(body)],
                          capture_output=True, text=True).stdout
     try:
@@ -53,14 +73,14 @@ frames = []
 carried = f'NDVI at cell {cell} is {val}'
 stop_reason = "max_hops"
 for i in range(MAX_HOPS):
-    base, fam = HOPS_PAIR[i % 2]
+    base, fam, hop_url = HOPS_PAIR[i % 2]
     # Tighten the budget the way a compaction window tightens, then hold.
     budget = max(6, 24 - i * 2)
     prompt = (f"You are agent {i+1} in a long chain. Compress this handoff note for the next "
               f"agent in ONE sentence, under {budget} words. Write it naturally, the way you "
               f"would brief a colleague; do not add caveats.\n\n{carried}")
     t0 = time.time()
-    out = call(base, fam, prompt)
+    out = call(base, fam, prompt, url=hop_url)
     ms = int((time.time() - t0) * 1000)
     cv = carried_value(out)
     frames.append({"hop": i + 1, "model": base, "family": fam, "text": out,
@@ -78,10 +98,10 @@ for i in range(MAX_HOPS):
 tok_carried = f"Reference: {token}"
 tok_frames = []
 for i in range(len(frames)):
-    base, fam = HOPS_PAIR[i % 2]
+    base, fam, hop_url = HOPS_PAIR[i % 2]
     prompt = (f"You are agent {i+1} in a long chain. Pass this reference to the next agent "
               f"EXACTLY as written, with one short sentence of context. Under 25 words.\n\n{tok_carried}")
-    out = call(base, fam, prompt)
+    out = call(base, fam, prompt, url=hop_url)
     tok_frames.append({"hop": i+1, "model": base, "family": fam, "text": out,
                        "token_intact": token in out})
     print(f"tok hop{i+1} {fam} intact={token in out}: {out[:90]}")
@@ -128,11 +148,12 @@ def fmt_set(facts):
 set_prose, set_tok = [], []
 carried_set = fmt_set(set_facts)
 for i in range(len(frames)):
-    base, fam = HOPS_PAIR[i % 2]
+    base, fam, hop_url = HOPS_PAIR[i % 2]
     budget = max(18, 60 - i * 4)
     out = call(base, fam,
                f"You are agent {i+1} in a long chain. Compress this handoff note for the "
-               f"next agent in under {budget} words. Keep it natural.\n\n{carried_set}")
+               f"next agent in under {budget} words. Keep it natural.\n\n{carried_set}",
+               url=hop_url)
     kept = sum(1 for f in set_facts if str(f["value"])[:6] in out)
     set_prose.append({"hop": i + 1, "family": fam, "text": out,
                       "values_kept": kept, "of": len(set_facts)})
@@ -141,7 +162,7 @@ for i in range(len(frames)):
 
 carried_tok = f"Reference: {bundle_token}"
 for i in range(len(frames)):
-    base, fam = HOPS_PAIR[i % 2]
+    base, fam, hop_url = HOPS_PAIR[i % 2]
     out = call(base, fam,
                f"You are agent {i+1} in a long chain. Pass this reference to the next agent "
                f"EXACTLY as written, with one short sentence of context. Under 25 words.\n\n{carried_tok}")

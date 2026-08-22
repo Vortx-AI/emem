@@ -730,7 +730,8 @@ const SCHEMA_MEMORY_SUPERSEDE: &str = r#"{"type":"object","required":["path","su
 }}"#;
 
 const SCHEMA_REASON: &str = r#"{"type":"object","required":["q"],"properties":{
-  "q":{"type":"string","description":"The plain-language question to reason about."}}}"#;
+  "q":{"type":"string","description":"The plain-language question to reason about."},
+  "model":{"type":"string","description":"Optional. Which model composes the prose, by base_model or by the shorter family. Omit for this responder's default. Two are routable today: `gemma` (google/gemma-4-12B-it) answers in around a second and carries this deployment's geo-tuned adapters; `cosmos3_edge` (nvidia/Cosmos3-Edge) is a reasoning model that deliberates before answering, takes images as well as text, and typically needs 13-22s. A name this responder does not route to is REFUSED and names what it does route to, rather than being quietly answered by whatever happens to be loaded: an answer from a different model than the one asked for is worse than no answer. Being loaded on the host is not sufficient to be routable, because a host reports what it loaded, not what it can load again."}}}"#;
 
 const SCHEMA_TOOLS: &str = r#"{"type":"object","properties":{
 "name":{"type":"string","description":"Return the full descriptor for exactly this tool (input schema, runnable example, annotations), e.g. `emem_ndvi`. Use this when you already know the name and want its schema without loading the whole catalog. It SHORT-CIRCUITS: when `name` is set every other argument here is ignored, so `{name, q}` is not a search within one tool. A name this responder does not carry is not an error status, you get a body with `did_you_mean` holding up to five names that share a substring with what you asked for."},
@@ -2514,7 +2515,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_reason",
         title: "Compose a prose answer over signed facts (LLM, labelled)",
-        description: "The opt-in reasoning tier: grounds your question through emem_ask (deterministic, signed), then has the responder's local model compose a prose answer over that envelope. The prose is model_output and signed:false by construction, it is never evidence; the grounding block beside it (fact_cids + receipt) is. Runs the model greedily (temperature 0) with a single-flight lock, so a cold load never fans out. For anything a signed envelope already answers, use emem_ask instead and skip the model entirely.",
+        description: "The opt-in reasoning tier: grounds your question through emem_ask (deterministic, signed), then has the responder's local model compose a prose answer over that envelope. The prose is model_output and signed:false by construction, it is never evidence; the grounding block beside it (fact_cids + receipt) is. Runs the model greedily (temperature 0) under a per-model single-flight lock, so a cold load never fans out and a slow deliberation on one model cannot head-of-line-block a fast answer on another. Pass `model` to choose which one composes; call with no arguments to see which are routable. For anything a signed envelope already answers, use emem_ask instead and skip the model entirely.",
         when_to_use: "Reach for this only when the question needs prose composition across several facts and the caller explicitly wants a model in the loop, an A2A peer sending metadata.mode=\"reasoning\", or a human asking for a narrative. Everything it says is bounded by the signed grounding it returns beside the prose; if the envelope cannot support an answer the model must abstain. Prefer emem_ask (no language model, signed) for every factual readout.",
         input_schema: SCHEMA_REASON,
         output_schema: None,

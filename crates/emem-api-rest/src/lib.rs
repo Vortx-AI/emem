@@ -21629,8 +21629,8 @@ fn reason_place_mismatch(q: &str, ask_env: &JsonValue) -> Option<String> {
                 .or_else(|| p.get("display_name"))
         })
         .and_then(|l| l.as_str())
-        .unwrap_or_default()
-        .to_lowercase();
+        .unwrap_or_default();
+    let label = fold_for_place_match(label);
     if label.is_empty() {
         return None;
     }
@@ -21644,7 +21644,7 @@ fn reason_place_mismatch(q: &str, ask_env: &JsonValue) -> Option<String> {
         .filter_map(|w| {
             let t: String = w.chars().filter(|c| c.is_alphanumeric()).collect();
             (t.chars().next().is_some_and(|c| c.is_uppercase()) && t.len() >= 4)
-                .then(|| t.to_lowercase())
+                .then(|| fold_for_place_match(&t))
         })
         .filter(|t| !GENERIC.contains(&t.as_str()))
         .collect();
@@ -21658,6 +21658,215 @@ fn reason_place_mismatch(q: &str, ask_env: &JsonValue) -> Option<String> {
     ))
 }
 
+/// One model emem is willing to route a reasoning call to.
+///
+/// Two models on this box today, on two different services, and that is the
+/// correct shape rather than an accident. The Gemma host loads through
+/// `AutoModelForCausalLM`, which has no mapping for the Cosmos architecture,
+/// and runs an older transformers than Cosmos needs. Putting them behind one
+/// port would mean upgrading the interpreter that serves the live channel and
+/// the splat bridge, to gain nothing.
+#[derive(Clone, Debug)]
+struct ModelRoute {
+    base_model: String,
+    family: String,
+    /// Full chat-completions endpoint.
+    url: String,
+    /// Health endpoint on the same service.
+    health: String,
+    /// Whether this model expands its deliberation to fill whatever token
+    /// ceiling it is given, so a cap must NOT be sent.
+    ///
+    /// Counter-intuitive and measured, not assumed. On a reasoning model that
+    /// thinks before answering, `max_tokens` is not a budget it economises
+    /// within; it is a ceiling it grows to meet. Measured on one frame:
+    /// 1600 gave 5,465 characters of deliberation and no conclusion, 3072 gave
+    /// 10,391 characters and no conclusion, and removing the cap entirely gave
+    /// a complete answer in 990 tokens. Capping does not shorten the answer,
+    /// it removes it.
+    ///
+    /// emem sent 700 unconditionally, which is below every one of those, so
+    /// every reasoned Cosmos call would have truncated and returned nothing.
+    /// With no cap, end-of-sequence stops generation and the service's own
+    /// runaway guard is the backstop, which is also what makes a `truncated`
+    /// flag mean something went wrong rather than "normal operation".
+    fills_token_ceiling: bool,
+}
+
+/// The models emem will route to, and the ones it will not.
+///
+/// THIS LIST IS THE ALLOWLIST, and a host's own `/health` is only the liveness
+/// check. Both gates, because neither is sufficient alone.
+///
+/// The reason is concrete. The Gemma host advertises
+/// `Qwen/Qwen2.5-7B-Instruct` in its `loaded_bases` and reports status ok, and
+/// that model's weights were evicted from this box on 2026-08-17 to reclaim
+/// disk. It is resident from before the eviction, so it answers until anything
+/// forces a cold load, at which point it cannot be re-materialised. An earlier
+/// draft of this function trusted `/health` alone; it would have accepted
+/// "qwen" from a caller and routed to a model that no longer exists on disk,
+/// producing a failure that reads as emem breaking rather than as a model
+/// having been deleted. Qwen is therefore absent here deliberately, and its
+/// absence is the point rather than an oversight.
+///
+/// Overridable as JSON in `EMEM_A2A_MODELS` so this is a default, not a
+/// hardcoding: an operator running a different pair of services says so
+/// without a rebuild.
+fn model_routes() -> Vec<ModelRoute> {
+    if let Ok(raw) = std::env::var("EMEM_A2A_MODELS") {
+        if let Ok(v) = serde_json::from_str::<Vec<JsonValue>>(&raw) {
+            let routes: Vec<ModelRoute> = v
+                .iter()
+                .filter_map(|r| {
+                    let url = r.get("url")?.as_str()?.to_string();
+                    Some(ModelRoute {
+                        base_model: r.get("base_model")?.as_str()?.to_string(),
+                        family: r.get("family")?.as_str()?.to_string(),
+                        health: health_url_for(&url),
+                        fills_token_ceiling: r
+                            .get("fills_token_ceiling")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                        url,
+                    })
+                })
+                .collect();
+            if !routes.is_empty() {
+                return routes;
+            }
+        }
+    }
+    let gemma_url = std::env::var("EMEM_A2A_LLM_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5014/v1/chat/completions".into());
+    let cosmos_url = std::env::var("EMEM_A2A_COSMOS_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5017/v1/chat/completions".into());
+    vec![
+        ModelRoute {
+            base_model: std::env::var("EMEM_A2A_LLM_BASE_MODEL")
+                .unwrap_or_else(|_| "google/gemma-4-12B-it".into()),
+            family: std::env::var("EMEM_A2A_LLM_FAMILY").unwrap_or_else(|_| "gemma".into()),
+            health: health_url_for(&gemma_url),
+            // Gemma answers within a cap rather than growing to fill it, and
+            // 700 has served the channel since it was written.
+            fills_token_ceiling: false,
+            url: gemma_url,
+        },
+        ModelRoute {
+            base_model: std::env::var("EMEM_A2A_COSMOS_BASE_MODEL")
+                .unwrap_or_else(|_| "nvidia/Cosmos3-Edge".into()),
+            family: std::env::var("EMEM_A2A_COSMOS_FAMILY")
+                .unwrap_or_else(|_| "cosmos3_edge".into()),
+            health: health_url_for(&cosmos_url),
+            fills_token_ceiling: true,
+            url: cosmos_url,
+        },
+    ]
+}
+
+/// `.../v1/chat/completions` -> `.../health`, the convention both services use.
+fn health_url_for(url: &str) -> String {
+    url.rsplit_once("/v1/")
+        .map(|(root, _)| format!("{root}/health"))
+        .unwrap_or_else(|| url.to_string())
+}
+
+/// Resolve a caller-named model to a route it may actually reach.
+///
+/// Allowlist first, then liveness. A name outside the table is refused by
+/// name; a name inside it whose service is not answering is refused as down.
+/// Neither is silently substituted: a caller who asks for one model and is
+/// handed another, in a response that then reports which model answered, has
+/// been told something true in a way that misleads.
+async fn resolve_model_route(want: &str) -> Result<ModelRoute, (i64, String)> {
+    let routes = model_routes();
+    let want_lc = want.trim().to_ascii_lowercase();
+    let Some(route) = routes.iter().find(|r| {
+        r.base_model.to_ascii_lowercase() == want_lc || r.family.to_ascii_lowercase() == want_lc
+    }) else {
+        return Err((
+            -32602,
+            format!(
+                "model {want:?} is not one this responder routes to. Available: {}. Ask by \
+                 base_model or by family, or omit `model` for the default. A model this \
+                 responder can see loaded elsewhere is still not routable unless it is listed \
+                 here, because a host reporting a model as loaded is not the same as its weights \
+                 being present.",
+                routes
+                    .iter()
+                    .map(|r| format!("{} (family {})", r.base_model, r.family))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+        ));
+    };
+
+    // Liveness. The allowlist says what we are willing to reach; only the
+    // service itself knows whether it is up right now.
+    let up = reqwest::Client::new()
+        .get(&route.health)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false);
+    if !up {
+        return Err((
+            -32050,
+            format!(
+                "model {} is one this responder routes to, but its service at {} is not \
+                 answering, so the call would fail rather than be answered by something else.",
+                route.base_model, route.health
+            ),
+        ));
+    }
+    Ok(route.clone())
+}
+
+/// Lowercase and fold Latin diacritics, for comparing a place a caller typed
+/// against the label a geocoder returned.
+///
+/// The anchor check refused a CORRECT grounding because of one accent: a
+/// question about "Soubre" grounded at "Soubré, 76 CI", and
+/// `"soubré".contains("soubre")` is false, so the responder reported that it
+/// had landed somewhere else and refused to answer. It had landed exactly
+/// right. The same fault would hit Zurich, Sao Paulo, Krakow, Malmo and every
+/// other place whose name a caller types without the mark — which is most
+/// callers, on most keyboards.
+///
+/// Folding rather than stripping non-ASCII: dropping the character entirely
+/// would turn "Zürich" into "Zrich" and fail differently. This maps each
+/// accented form to its base letter, which is what someone typing without the
+/// accent actually meant.
+///
+/// Deliberately narrow. It covers Latin-1 and the Latin Extended-A letters a
+/// geocoder returns for European and Latin American place names, and leaves
+/// every other script alone rather than guessing at a transliteration nobody
+/// asked for.
+fn fold_for_place_match(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à'..='å' | 'ā' | 'ă' | 'ą' => 'a',
+            'è'..='ë' | 'ē' | 'ĕ' | 'ė' | 'ę' | 'ě' => 'e',
+            'ì'..='ï' | 'ĩ' | 'ī' | 'ĭ' | 'į' => 'i',
+            'ò'..='ö' | 'ø' | 'ō' | 'ŏ' | 'ő' => 'o',
+            'ù'..='ü' | 'ũ' | 'ū' | 'ŭ' | 'ů' | 'ű' | 'ų' => 'u',
+            'ç' | 'ć' | 'ĉ' | 'ċ' | 'č' => 'c',
+            'ñ' | 'ń' | 'ņ' | 'ň' => 'n',
+            'ý' | 'ÿ' => 'y',
+            'ß' => 's',
+            'š' | 'ś' | 'ş' => 's',
+            'ž' | 'ź' | 'ż' => 'z',
+            'ł' => 'l',
+            'ğ' | 'ĝ' | 'ġ' | 'ģ' => 'g',
+            'ř' | 'ŕ' => 'r',
+            'ť' | 'ţ' => 't',
+            'ď' => 'd',
+            other => other,
+        })
+        .collect()
+}
+
 /// Compose the reasoning tier's answer: prose from the local model over the
 /// signed emem_ask envelope. Discipline per the ratified standard's rule 7:
 /// the shared model host is called directly, greedily (temperature 0, so
@@ -21669,22 +21878,77 @@ async fn a2a_reason_compose(
     q: &str,
     ask_env: JsonValue,
     s: &AppState,
+    want_model: Option<&str>,
 ) -> Result<JsonValue, (i64, String)> {
-    static REASON_FLIGHT: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-    let sema = REASON_FLIGHT.get_or_init(|| tokio::sync::Semaphore::new(1));
-    let _permit = sema
-        .acquire()
-        .await
-        .map_err(|_| (-32050i64, "reasoning tier is shutting down".to_string()))?;
+    // Per-model permits, not one global permit for the whole tier.
+    //
+    // A single process-wide permit was right when one model existed: it kept a
+    // cold load from fanning out. With two models resident on two services it
+    // becomes a queue in front of both, so a 15-second Cosmos deliberation
+    // head-of-line-blocks a 200 ms Gemma answer that needed nothing from the
+    // same weights. The neighbouring service serialises its own GPU access
+    // internally, so a global permit here protects nothing it does not already
+    // protect for itself.
+    //
+    // Still ONE permit per model rather than none: two concurrent calls to the
+    // same weights is where a cold load fans out, which is the thing the
+    // original permit existed to prevent.
+    //
+    // Generation, when it lands, gets its own exclusive permit rather than a
+    // share of this pool: video generation has a different memory profile from
+    // reasoning and should not compete with it for the same slot. That
+    // separation is deliberate and belongs here even before the first
+    // generation call exists, so nobody has to rediscover why.
+    static REASON_FLIGHT: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Semaphore>>>,
+    > = std::sync::OnceLock::new();
+    let permits = REASON_FLIGHT.get_or_init(Default::default);
 
     let url = std::env::var("EMEM_A2A_LLM_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:5014/v1/chat/completions".into());
     // The sanctioned shape for the shared model host (ratified standard
     // rule 7, and the host enforces it): field `base_model` (not OpenAI's
     // `model`) plus `family`, called directly at :5014.
-    let base_model =
+    let default_model =
         std::env::var("EMEM_A2A_LLM_BASE_MODEL").unwrap_or_else(|_| "google/gemma-4-12B-it".into());
-    let family = std::env::var("EMEM_A2A_LLM_FAMILY").unwrap_or_else(|_| "gemma".into());
+    let default_family = std::env::var("EMEM_A2A_LLM_FAMILY").unwrap_or_else(|_| "gemma".into());
+
+    // A caller may name the model. It is resolved against what the host has
+    // ACTUALLY loaded, never taken on the caller's word and never quietly
+    // substituted.
+    //
+    // The host is the authority: its /health reports `loaded_bases` as a list
+    // and already carries more than one. Before this, emem read a single base
+    // model from its own process environment, so the model was fixed at server
+    // start; a second model could be resident on the same box and no caller
+    // could reach it.
+    //
+    // A name that does not match is an error, not a fallback. A caller who
+    // asks for one model and is handed another, in a response that then
+    // reports which model answered, has been told something true in a way that
+    // misleads. The error names what IS loaded, so the next call can be right.
+    let (url, base_model, family, fills_ceiling) = match want_model {
+        None => (url, default_model, default_family, false),
+        Some(want) => {
+            let r = resolve_model_route(want).await?;
+            (r.url, r.base_model, r.family, r.fills_token_ceiling)
+        }
+    };
+
+    // Taken only now, because which permit to take is not known until the
+    // model is.
+    let sema = {
+        let mut map = permits
+            .lock()
+            .map_err(|_| (-32050i64, "reasoning permits are poisoned".to_string()))?;
+        map.entry(base_model.clone())
+            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Semaphore::new(1)))
+            .clone()
+    };
+    let _permit = sema
+        .acquire()
+        .await
+        .map_err(|_| (-32050i64, "reasoning tier is shutting down".to_string()))?;
     let timeout_s = std::env::var("EMEM_A2A_LLM_TIMEOUT_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -21763,13 +22027,32 @@ async fn a2a_reason_compose(
     let mut prose = String::new();
 
     for _turn in 0..=max_tool_calls {
-        let payload = json!({
+        let mut payload = json!({
             "base_model": base_model,
             "family": family,
             "temperature": 0.0,
-            "max_tokens": 700,
             "messages": messages,
         });
+        // No cap by default, on any model.
+        //
+        // Two reasons, and they point the same way. On a model that grows to
+        // meet its ceiling a cap does not shorten the answer, it removes it
+        // (see ModelRoute::fills_token_ceiling). On a model that stops at end
+        // of sequence, a cap only ever truncates a good answer into a worse
+        // one; the old 700 was a quality ceiling nobody asked for. The real
+        // bound is the request timeout, which is what actually protects the
+        // card, and each service applies its own runaway guard besides.
+        //
+        // An operator who wants one says so; ceiling-filling models never get
+        // it, because for them it is not a bound but an instruction to fill.
+        if !fills_ceiling {
+            if let Some(cap) = std::env::var("EMEM_A2A_LLM_MAX_TOKENS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                payload["max_tokens"] = json!(cap);
+            }
+        }
         let resp = client.post(&url).json(&payload).send().await.map_err(|e| {
             (
                 -32050i64,
@@ -21785,6 +22068,31 @@ async fn a2a_reason_compose(
                 format!("reasoning tier returned non-JSON ({status}): {e}"),
             )
         })?;
+        // A truncated completion is an error, not an answer with a caveat.
+        //
+        // The Cosmos service reports `truncated` explicitly rather than making
+        // a caller infer it from a finish_reason, and when its budget dies
+        // before the model closes its reasoning it returns the deliberation
+        // with content EMPTY rather than handing over half-formed thinking
+        // dressed as a conclusion. Both are its design and this honours them:
+        // prose that stopped mid-sentence must never be presented as the
+        // model's answer, because the grounding block beside it makes the
+        // whole envelope look considered.
+        if body.get("truncated").and_then(|v| v.as_bool()) == Some(true) {
+            return Err((
+                -32050i64,
+                "the model's answer was truncated by its token budget, so it is incomplete and \
+                 is not returned. Ask a narrower question, or call emem_ask for the signed \
+                 answer with no model in the loop."
+                    .into(),
+            ));
+        }
+        // Deliberation, kept beside the answer and never merged into it.
+        let reasoning = body
+            .get("reasoning")
+            .and_then(|t| t.as_str())
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty());
         let content = body
             .get("choices")
             .and_then(|c| c.get(0))
@@ -21795,9 +22103,17 @@ async fn a2a_reason_compose(
             .trim()
             .to_string();
         if content.is_empty() {
+            // Empty content with reasoning present is the budget-death case,
+            // and it is named as such: an operator who sees "empty completion"
+            // goes looking for a broken service, when what happened is that
+            // the model thought until the budget ran out.
             return Err((
                 -32050i64,
-                format!("the reasoning tier returned an empty completion ({status}); use emem_ask for the signed answer"),
+                if reasoning.is_some() {
+                    format!("the model spent its whole budget deliberating and never reached an answer ({status}). Its reasoning is not returned as prose, because deliberation is not a conclusion. Ask a narrower question, or call emem_ask.")
+                } else {
+                    format!("the reasoning tier returned an empty completion ({status}); use emem_ask for the signed answer")
+                },
             ));
         }
         // Strict action protocol: a fenced or bare JSON object is an action;
@@ -25422,7 +25738,12 @@ async fn mcp_tool_call(
             if let Some(mismatch) = reason_place_mismatch(&q, &ask_env) {
                 return Err((-32602, mismatch));
             }
-            a2a_reason_compose(&q, ask_env, s).await
+            // The caller may name a model; None keeps the configured default.
+            let want_model = args
+                .get("model")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            a2a_reason_compose(&q, ask_env, s, want_model.as_deref()).await
         }
         "emem_ask" => {
             // Single-shot free-text answer. Same routing as POST /v1/ask;

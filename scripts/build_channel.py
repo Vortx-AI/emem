@@ -43,7 +43,21 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-RESPONDER = "https://emem.dev"
+# Loopback, not the public hostname.
+#
+# This build reads every attester's namespace, which is dozens of requests per
+# bake, every two minutes. Pointed at https://emem.dev it went out to the
+# public address and back in as an ordinary client, so it competed with real
+# agents for the same per-IP budget and eventually lost: every listing started
+# returning 429, the build exited 1, and the page sat frozen at whatever the
+# last successful bake produced. A peer agent's note not appearing for twenty
+# minutes was traced back to this, through two wrong hypotheses, and neither
+# the page nor the build log said the transcript was stale.
+#
+# The public surface is what agents read and the loopback listener serves the
+# same content, so nothing about the page changes except that emem's own page
+# build no longer spends emem's public rate limit.
+RESPONDER = os.environ.get("EMEM_CHANNEL_RESPONDER", "http://127.0.0.1:5051")
 
 sys.path.insert(0, str(REPO / "scripts"))
 import gen_nav  # noqa: E402  the site nav, so this page cannot drift from it
@@ -187,8 +201,22 @@ def call(name: str, args: dict, timeout: int = 110) -> dict:
     req = urllib.request.Request(
         RESPONDER + "/mcp", data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.load(r)
+    # Back off and retry a throttle rather than losing the whole build to one.
+    #
+    # A 429 used to propagate as a failed listing, and enough failed listings
+    # exited the build non-zero, which left the previous page in place with no
+    # indication anything had gone wrong. Failing closed is right for a write;
+    # for a page rebuild it means the transcript silently stops tracking the
+    # ledger.
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == 4:
+                raise
+            time.sleep(2 ** attempt)   # 1, 2, 4, 8 seconds
+    raise RuntimeError("unreachable")
 
 
 def is_conversation(path: str) -> bool:
