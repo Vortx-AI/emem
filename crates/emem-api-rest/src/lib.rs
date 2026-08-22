@@ -61745,6 +61745,13 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 "band":  band,
                 "value": value,
                 "unit":  o.get("unit").cloned().unwrap_or(JsonValue::Null),
+                // Age comes along into the summary, because the summary is what
+                // the DEFAULT envelope carries and therefore what the prose is
+                // written from. Leaving it out of the slim shape meant the
+                // freshness work reached verbose callers and no one else: the
+                // one reader most likely to take a number at face value is the
+                // one who asked for the small answer.
+                "age_s": o.get("age_s").cloned().unwrap_or(JsonValue::Null),
             }));
             if bands.len() >= 12 {
                 break;
@@ -62967,7 +62974,7 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
     // EMPTY array, `as_array().map(...)` would return `Some(vec![])` and shadow
     // the summary fallback, so the answer came back with algorithm keys and no
     // readings. Falling through on empty fixes the "aqi_class@1 2; ..." answers.
-    let bands: Vec<(String, JsonValue, Option<String>)> = body
+    let bands: Vec<(String, JsonValue, Option<String>, Option<i64>)> = body
         .get("band_observations")
         .and_then(|v| v.as_array())
         .filter(|arr| !arr.is_empty())
@@ -62986,7 +62993,8 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
                         .to_string();
                     let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
                     let u = m.get("unit").and_then(|x| x.as_str()).map(String::from);
-                    Some((b, v, u))
+                    let age = m.get("age_s").and_then(|x| x.as_i64());
+                    Some((b, v, u, age))
                 })
                 .collect()
         })
@@ -63003,7 +63011,8 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
                             let b = m.get("band")?.as_str()?.to_string();
                             let v = m.get("value").cloned().unwrap_or(JsonValue::Null);
                             let u = m.get("unit").and_then(|x| x.as_str()).map(String::from);
-                            Some((b, v, u))
+                            let age = m.get("age_s").and_then(|x| x.as_i64());
+                            Some((b, v, u, age))
                         })
                         .collect()
                 })
@@ -63085,7 +63094,7 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
     let band_phrases: Vec<String> = bands
         .iter()
         .take(6)
-        .map(|(band, value, unit)| {
+        .map(|(band, value, unit, age_s)| {
             let label = band_display_label(band);
             let base = match unit {
                 Some(u) if !u.is_empty() && u != "1" => {
@@ -63096,10 +63105,27 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
             // Append the registry value range so a bare number carries
             // scale. Factual, not a fabricated "low/high" label (those
             // mislead on skewed ranges). Only for numeric values.
-            match (value.is_number(), band_value_range(band)) {
+            let base = match (value.is_number(), band_value_range(band)) {
                 (true, Some((lo, hi))) => {
                     format!("{base} (range {}..{})", fmt_num(lo), fmt_num(hi))
                 }
+                _ => base,
+            };
+            // AGE TRAVELS WITH THE NUMBER, not in a sentence after it.
+            //
+            // The freshness block was correct and the prose beside it was not:
+            // "air temperature 29.50 degC" was printed as current-state climate
+            // while the reading was forty-six days old, two lines under camera
+            // counts from four minutes earlier. The adjacency made the stale
+            // number look as fresh as the fresh one.
+            //
+            // A trailing caveat would not fix it. A reader who quotes
+            // "29.50 degC" takes the phrase, and a caveat is exactly the thing
+            // that gets left behind -- the same reason a stale value is dropped
+            // rather than captioned elsewhere in this file. Attaching the age to
+            // the phrase means whatever survives the quoting carries it.
+            match age_s {
+                Some(a) if *a > 86_400 => format!("{base}, measured {} days ago", a / 86_400),
                 _ => base,
             }
         })
@@ -63119,7 +63145,7 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
     // reading, so a bare number means something ("NDVI: higher is denser
     // vegetation"). Pulled verbatim from `interpretation` (first sentence) -
     // never a fabricated low/high judgement.
-    let interp = bands.first().and_then(|(band, _, _)| {
+    let interp = bands.first().and_then(|(band, _, _, _)| {
         band_metadata_for_response(band)
             .get("interpretation")
             .and_then(|v| v.as_str())
@@ -68582,6 +68608,76 @@ mod tests {
                 .flatten()
             });
             assert_eq!(text.as_deref(), Some("hi"), "{label} was not read");
+        }
+    }
+
+    /// A reading old enough to be the wrong answer must say so IN THE PROSE,
+    /// not only in the freshness block beside it.
+    ///
+    /// This gap shipped and was found from outside. `freshness` correctly
+    /// reported 22 stale bands with the oldest at 87 days, while the `answer`
+    /// in the same response called a 46-day-old reading "air temperature
+    /// 29.50 degC" under the heading "Current-state climate", two lines below
+    /// camera counts from four minutes earlier. The structure was honest and
+    /// the sentence was not, and the sentence is what a person reads and what a
+    /// quoting agent copies.
+    ///
+    /// The age is asserted INLINE, attached to the phrase, because that is the
+    /// part that survives being quoted. A trailing caveat is exactly what gets
+    /// left behind.
+    ///
+    /// Both envelope shapes are exercised. The first fix wired the age through
+    /// the prose builder's two readers and not into the slim summary they read
+    /// from by default, so it passed every gate and changed nothing for the
+    /// caller who asked for the small answer.
+    #[test]
+    fn a_stale_reading_carries_its_age_in_the_sentence_not_only_in_the_block() {
+        let old = 46 * 86_400;
+        let fresh = 900;
+
+        for (label, body) in [
+            (
+                "full band_observations",
+                json!({
+                    "place_resolved": { "label": "London, ENG GB" },
+                    "band_observations": [
+                        { "band_key": "weather.temperature_2m", "value": 29.5,
+                          "unit": "degC", "age_s": old },
+                        { "band_key": "cams.pm25", "value": 6.6,
+                          "unit": "ug/m^3", "age_s": fresh },
+                    ],
+                }),
+            ),
+            (
+                "slim band_observations_summary",
+                json!({
+                    "place_resolved": { "label": "London, ENG GB" },
+                    "band_observations_summary": { "count": 2, "bands": [
+                        { "band": "weather.temperature_2m", "value": 29.5,
+                          "unit": "degC", "age_s": old },
+                        { "band": "cams.pm25", "value": 6.6,
+                          "unit": "ug/m^3", "age_s": fresh },
+                    ]},
+                }),
+            ),
+        ] {
+            let prose = synthesise_ask_answer(body.as_object().expect("obj"));
+            assert!(
+                prose.contains("measured 46 days ago"),
+                "{label}: a 46-day-old reading is quoted with no age: {prose}"
+            );
+            // The control. Without it this test passes just as well against a
+            // build that stamps an age onto everything, which would be its own
+            // kind of lie and would train a reader to ignore the marker.
+            assert!(
+                !prose.contains("measured 0 days ago"),
+                "{label}: a fresh reading was aged: {prose}"
+            );
+            let aged = prose.matches("measured ").count();
+            assert_eq!(
+                aged, 1,
+                "{label}: expected exactly the stale reading to be aged, got {aged}: {prose}"
+            );
         }
     }
 
