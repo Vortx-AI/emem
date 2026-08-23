@@ -94,7 +94,7 @@ Out of scope:
 | Other headers            | X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy |
 | Body cap                 | 16 MiB on POST endpoints (413 on overflow)                  |
 | Request timeout          | 40 s (504 on overflow), `EMEM_TIMEOUT_SECS`                 |
-| Per-IP rate limit        | 600 req/min sustained, 1200 burst, `Retry-After: 1`. `EMEM_RATE_LIMIT_RPS` / `EMEM_RATE_LIMIT_BURST` |
+| Per-IP rate limit        | 600 req/min sustained, 120 burst, `Retry-After: 1`. `EMEM_RATE_LIMIT_RPS` / `EMEM_RATE_LIMIT_BURST` |
 | Identity                 | ed25519 secret stored mode 0600, never logged               |
 | Receipts                 | every read signed; offline-verifiable via /v1/verify_receipt |
 | Storage                  | sled with content-addressed keys, no SQL                     |

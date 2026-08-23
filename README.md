@@ -504,7 +504,7 @@ The design behind this substrate, why Earth observation is the first memory to f
 docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest   # or: cargo run --release --bin emem-server
 ```
 
-The signing key is your node's identity: mount a volume for `EMEM_DATA` before you hand out receipts you care about. `:latest` is right for trying it; for anything long-lived pin the digest rather than any tag, because a tag can be moved or deleted and a digest cannot. Release tags are also published as `:v2.2.0`, `:2.2.0` and `:2.2`. Full guide: [docs/self-host.md](docs/self-host.md). Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks.md)): warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node, cold materialize 0.5 to 1.6 s depending on the upstream.
+The signing key is your node's identity: mount a volume for `EMEM_DATA` before you hand out receipts you care about. `:latest` is right for trying it; for anything long-lived pin the digest rather than any tag, because a tag can be moved or deleted and a digest cannot. Release tags are also published as `:v2.3.0`, `:2.3.0` and `:2.2`. Full guide: [docs/self-host.md](docs/self-host.md). Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks.md)): warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node, cold materialize 0.5 to 1.6 s depending on the upstream.
 
 ## emem-guard: a yes/no gate for claims about the world
 
@@ -667,7 +667,7 @@ Two artefacts, cited separately: the **software** if you ran it, the **preprint*
   title     = {emem: shared, verifiable memory for AI agents},
   author    = {Kumari, Jaya and Singh, Avijeet},
   year      = {2026},
-  version   = {2.2.0},
+  version   = {2.3.0},
   url       = {https://github.com/Vortx-AI/emem},
   license   = {Apache-2.0},
   publisher = {Vortx AI Private Limited}

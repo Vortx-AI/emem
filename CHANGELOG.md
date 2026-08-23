@@ -7,6 +7,75 @@ to verify.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-23
+
+The release that stopped a place question being answered from orbit while a
+camera was watching the street. Nothing here changes the wire format; the one
+change to a signed preimage is additive and versioned, and every fact signed
+under the old one still verifies.
+
+### Added
+
+- **Ground perception on `/v1/ask`.** A place question now carries what a camera
+  can see, not only what a satellite measured. A presence probe is a database
+  read and runs on every place question; detection costs GPU and runs only when
+  the question is one a multi-day revisit cannot answer. Both start when the cell
+  resolves rather than after the band cascade, so they overlap work already
+  happening and cost close to nothing on the wall clock.
+- **`age_s` on every reading, and a `freshness` block on present-tense
+  questions.** `current_by_band` means "the newest we hold", never "fresh", and
+  nothing said so. Asked what is happening in London right now, this responder
+  answers partly from bands 87 days old. The age travels attached to the number
+  in the prose, not as a caveat after it, because a reader quoting "29.50 degC"
+  takes the phrase and leaves the caveat behind.
+- **An `imagery` block** naming the satellite scene and the ground postcard with
+  what each can and cannot answer, so an agent does not treat them as
+  interchangeable and misdate one.
+- **`emem.memory_write.v2` preimage**, binding the version a write replaces.
+  Caller signatures are persisted in the ledger so authorship can be re-verified
+  offline, which makes every past signature public and a replay a read away. v2
+  is required for `delete` and `rename`, where a replay overwrites what is there
+  now; the additive verbs still accept v1 while clients migrate. No nonce (server
+  state a restart loses) and no timestamp (a freshness window makes an old
+  signature stop verifying, which attacks permanent offline verifiability).
+- **A live album on the homepage**, twelve places read from the painter's own
+  index rather than a list written into the page, with the unobserved intervals
+  between observations drawn as elements sized by their own duration, and a
+  detector change drawn as a wall because counts either side of it are not the
+  same measurement.
+- **Perception capabilities on the agent card** (`perception_at`,
+  `perception_postcard`, `perception_gonogo`), tagged `rest` because they are not
+  dispatchable through `tools/call` and an agent must learn that before it tries.
+
+### Changed
+
+- **The geocoder ranks by the upstream's own order**, with the synthesised class
+  prior demoted to a tie-break worth at most one rank step. It had been the only
+  ranking signal, and it resolved "Piccadilly Circus" to a locality in the
+  Australian Capital Territory: every reading that followed was a correct
+  measurement of rural Australia. Ambiguity is now decided by whether the
+  runner-up is a different PLACE (great-circle distance) rather than by whether
+  two scores are close.
+- **The perception door is described in `openapi.json`** and its allowlist is
+  extensible at runtime. It was served and undocumented, which reads to an agent
+  exactly like a route nobody wrote.
+- **The proxy forwards the upstream's provenance headers.** It had returned
+  `content-type` and nothing else, so a generated video reached the public
+  carrying no label at all: not `X-Provenance-Class: model_output`, not
+  `X-Frames-Imagined`, not the warning that every frame after the first was never
+  seen. The filter is a denylist now, because a safelist written one day was
+  already missing a new disclaimer the next.
+
+### Removed
+
+- **Google Analytics, the consent banner and the `emem_consent` cookie.** A page
+  whose argument is that you do not have to trust the responder should not ask
+  you to trust a second party to count you. The CSP no longer permits
+  `googletagmanager.com` or `google-analytics.com`, so a reintroduction would be
+  refused by the browser rather than merely regretted. What remains for counting
+  is the access log: a blake3-truncated IP that cannot be reversed, thirty days,
+  vacuumed by journald.
+
 ## [2.2.0] - 2026-08-18
 
 The release that made the agent surface usable without a human deciding which

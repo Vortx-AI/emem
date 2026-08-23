@@ -7,7 +7,7 @@
 **MCP endpoint:** https://emem.dev/mcp
 **MCP Registry:** io.github.Vortx-AI/emem
 **Container:** ghcr.io/vortx-ai/emem:latest
-**Version:** 2.2.0
+**Version:** 2.3.0
 
 ## Description
 
