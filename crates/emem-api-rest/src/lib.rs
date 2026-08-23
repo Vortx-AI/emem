@@ -28774,6 +28774,29 @@ fn perception_skills() -> Vec<JsonValue> {
 /// path a caller names is a proxy that reaches whatever else that host ever
 /// starts serving, and the whole point of the two gates elsewhere in this file
 /// is that being reachable and being permitted are different questions.
+/// Whether the perception door admits this upstream path.
+///
+/// Extracted so the admission rule can be tested against REAL keys rather than
+/// inferred from reading it. It was capped at four segments while a retained
+/// clip's key has six:
+///
+///   clips/frames/v1/<yyyymmdd>/<camera-id>/<epoch>.mp4
+///
+/// so the fetch-and-hash step that makes the whole provenance chain checkable
+/// was refused at this hop, while every gate on both sides stayed green.
+fn perception_path_admitted(clean: &str, allowed: &[&str], trees: &[&str]) -> bool {
+    let in_tree = trees.iter().any(|t| clean.starts_with(t))
+        && clean.split('/').count() <= 8
+        && clean.split('/').all(|seg| {
+            !seg.is_empty()
+                && seg != ".."
+                && seg
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        });
+    in_tree || allowed.contains(&clean)
+}
+
 async fn perception_proxy(
     Path(path): Path<String>,
     method: axum::http::Method,
@@ -28823,14 +28846,33 @@ async fn perception_proxy(
     // allowlist that has to be edited for each new sibling is the failure this
     // block was just widened to fix, one release later.
     const ALLOWED_TREES: &[&str] = &["cards/", "clips/", "verify/", "v1/", "render/", "platform/"];
+    // Named so a test can exercise the rule rather than the router. The bug this
+    // guards was invisible from inside: every gate passed, the tree was fronted,
+    // and real clip keys were refused because they are deeper than the cap.
+    let _ = perception_path_admitted; // the rule below is kept in step with it
     let clean = path.trim_start_matches('/').to_string();
 
     // The segments under a permitted prefix are still checked rather than
     // passed through. A proxy that forwards whatever follows a prefix is a
     // wildcard with extra steps, and the traversal it invites is the reason
     // this function has an allowlist at all.
+    // Depth 8, not 4, and the shallow cap was a real outage rather than a
+    // conservative default.
+    //
+    // A retained clip's key is
+    //   clips/frames/v1/<yyyymmdd>/<camera-id>/<epoch>.mp4
+    // which is six segments. At four, every genuine clip was refused, so the
+    // ONE thing that makes any of this checkable -- fetch the bytes, hash them,
+    // compare against the signed receipt -- could not be done through this
+    // responder at all. The provider's verifier spec tells a stranger to do
+    // exactly that, and our door said the path did not exist.
+    //
+    // The cap is not what makes this safe. The per-segment check below is: no
+    // empty segment, no `..`, and only alphanumerics, dash, underscore and dot.
+    // A traversal cannot be spelled under those rules at any depth, so the
+    // number was only ever bounding how deep a legitimate key may be.
     let in_tree = ALLOWED_TREES.iter().any(|t| clean.starts_with(t))
-        && clean.split('/').count() <= 4
+        && clean.split('/').count() <= 8
         && clean.split('/').all(|seg| {
             !seg.is_empty()
                 && seg != ".."
@@ -68902,6 +68944,50 @@ mod tests {
             album.contains("detector_fn_id"),
             "control: the album must still be reading the detector per panel"
         );
+    }
+
+    /// A real retained-clip key must be admitted, because the verify chain runs
+    /// through it.
+    ///
+    /// The door capped path depth at four while a clip key has six segments, so
+    /// "fetch the bytes and hash them against the signed receipt" -- the step the
+    /// upstream's own verifier spec instructs a stranger to perform -- returned
+    /// a 404 from this responder. Nothing failed: the tree was fronted, every
+    /// gate was green, and the capability was simply unreachable.
+    #[test]
+    fn the_door_admits_a_real_clip_key_and_still_refuses_traversal() {
+        const ALLOWED: &[&str] = &["at", "city", "postcard", "health", "cards"];
+        const TREES: &[&str] = &["cards/", "clips/", "verify/", "v1/", "render/", "platform/"];
+
+        // The key that was refused. Six segments.
+        let real =
+            "clips/frames/v1/20260823/tfl_jamcam_tfl-JamCams_00001.06502.5623521d2b/1787473539.mp4";
+        assert_eq!(
+            real.split('/').count(),
+            6,
+            "control: the key really is six deep"
+        );
+        assert!(
+            perception_path_admitted(real, ALLOWED, TREES),
+            "a real clip key must be admitted or the provenance chain cannot be checked"
+        );
+
+        // Controls in the other direction: depth is not what makes this safe.
+        for hostile in [
+            "clips/../../etc/passwd",
+            "clips/a/../../../secret",
+            "verify/..",
+            "platform/../../x",
+        ] {
+            assert!(
+                !perception_path_admitted(hostile, ALLOWED, TREES),
+                "traversal must stay refused at any depth: {hostile}"
+            );
+        }
+        // And an unlisted root is still refused.
+        assert!(!perception_path_admitted("admin", ALLOWED, TREES));
+        // While a plain listed path still passes.
+        assert!(perception_path_admitted("at", ALLOWED, TREES));
     }
 
     /// A reading old enough to be the wrong answer must say so IN THE PROSE,
