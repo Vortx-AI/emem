@@ -74,7 +74,15 @@ UNDOCUMENTED = {
 
 
 def routed_paths(src):
-    """Paths the axum router actually serves, with `:name` normalised."""
+    """Paths the axum router actually serves, with `:name` and `*name` normalised.
+
+    Both of axum's parameter spellings become OpenAPI's `{name}`. The wildcard
+    was missing, so a route declared `/v1/perception/*path` could only be
+    satisfied by a description literally spelled `*path` -- which is not
+    OpenAPI templating, so the only way to pass was to write something no
+    client generator could read. The gate was asking for a spelling that would
+    have made the description wrong.
+    """
     out = {}
     pat = (r'\.route\(\s*"([^"]+)"\s*,\s*'
            r'((?:get|post|put|delete|patch)\([^)]*\)'
@@ -83,7 +91,7 @@ def routed_paths(src):
         path, verbs = m.group(1), m.group(2)
         if not path.startswith("/v1/"):
             continue
-        tmpl = re.sub(r":([A-Za-z_][A-Za-z0-9_]*)", r"{\1}", path)
+        tmpl = re.sub(r"[:*]([A-Za-z_][A-Za-z0-9_]*)", r"{\1}", path)
         found = re.findall(r"\b(get|post|put|delete|patch)\(", verbs)
         out.setdefault(tmpl, set()).update(v.upper() for v in found)
     return out
