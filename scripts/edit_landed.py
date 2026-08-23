@@ -32,9 +32,23 @@ from the other side: rather than asking a checker to distinguish code from
 content in general, it asks whether ONE known piece of text is in executable
 position, which is exactly answerable.
 
+Four answers, not two
+---------------------
+    code      outside any string or comment
+    data      inside a single-line string that is itself in executable
+              position: a dict key, a message, a URL. The STRING is code; its
+              CONTENT is data, and an edit that landed here is not running.
+    inert     inside the body of a multi-line string. Text that never runs.
+    comment   the other inert case.
+
+A match counts as inside a token only when the WHOLE needle fits within it. A
+needle straddling a string and the code after it -- a dict key and its colon --
+is code, because part of it is. That single condition is what separates the two
+mistakes below.
+
 How
 ---
-`tokenize`, not the AST. The first version took every string node's
+`tokenize`, not the AST, and TOKEN spans rather than line spans. The first version took every string node's
 `lineno..end_lineno` and called all of it string -- which reports `x = f("lit")`
 as inert text, because that line CONTAINS a string. My own control caught it on
 the first run, on the very edit this tool was written to check. A tool that
@@ -53,21 +67,30 @@ import tokenize
 from pathlib import Path
 
 
-def string_and_comment_lines(src: str) -> tuple[set[int], set[int]]:
-    """Lines that are string CONTENT, and lines that are only a comment.
+def token_spans(src: str) -> list[tuple[int, int, str]]:
+    """Absolute character spans of every string and comment token.
 
-    The first version of this took every string node's `lineno..end_lineno` and
-    called all of it string. That is wrong in the ordinary case and my own
-    control caught it: `x = f("literal")` is code that CONTAINS a string, and it
-    was reported as inert text. A tool that misreads working code as dead is
-    worse than no tool, because the next person to see it right will stop
-    believing the one that matters.
+    TOKEN granularity, not line granularity, and the upstream is why. My first
+    version worked in lines: a row strictly inside a multi-line string was
+    content, everything else was code. That gets a dict key right --
+    `"verify_emem_facts": (` is a string sitting in executable position, and the
+    row carries real tokens -- but it gets this wrong:
 
-    So: tokenize, and mark only the rows strictly INSIDE a multi-line string
-    token. The row where such a string opens can hold code before it, and the
-    row where it closes can hold code after it; the rows between cannot hold
-    anything. A line is then code when it carries at least one token that is not
-    a string, comment, or layout.
+        msg = "SPLICED = this is data inside executable code"
+
+    The needle is inside the string; the LINE is code; my tool said code. A
+    false negative in the direction that matters, because the whole point is to
+    tell you your edit is not running.
+
+    Their rule is the one that separates the two cases: a match counts as
+    inside a token only when the WHOLE needle fits within it. A needle
+    straddling a string and the code after it -- a dict key and its colon -- is
+    code, because part of it is.
+
+    A STRING LITERAL IN CODE IS CODE; ITS CONTENT IS DATA. Both of our first
+    versions misread working code as dead, from opposite directions: I called
+    code-containing-a-string dead, they called a string-that-is-code dead. Both
+    were caught by pointing the tool at a real file rather than at a fixture.
     """
     try:
         ast.parse(src)
@@ -75,42 +98,68 @@ def string_and_comment_lines(src: str) -> tuple[set[int], set[int]]:
         raise SystemExit(f"{e.__class__.__name__}: {e}. Fix the syntax first; "
                          f"this tool answers a narrower question than 'does it parse'.")
 
-    interior: set[int] = set()
-    comments: set[int] = set()
-    real: set[int] = set()
-    IGNORE = {
-        tokenize.STRING, tokenize.COMMENT, tokenize.NL, tokenize.NEWLINE,
-        tokenize.INDENT, tokenize.DEDENT, tokenize.ENDMARKER,
-    }
-    if hasattr(tokenize, "FSTRING_START"):  # 3.12+ splits f-strings
-        IGNORE |= {tokenize.FSTRING_START, tokenize.FSTRING_MIDDLE, tokenize.FSTRING_END}
+    # (row, col) -> absolute offset
+    line_start = [0]
+    for line in src.split("\n"):
+        line_start.append(line_start[-1] + len(line) + 1)
+
+    def off(rc: tuple[int, int]) -> int:
+        return line_start[rc[0] - 1] + rc[1]
+
+    spans: list[tuple[int, int, str]] = []
     try:
         for tok in tokenize.generate_tokens(io.StringIO(src).readline):
             if tok.type == tokenize.COMMENT:
-                comments.add(tok.start[0])
-            elif tok.type == tokenize.STRING and tok.end[0] > tok.start[0]:
-                # Rows after the opening one are content. The closing row is
-                # content up to the quote, so treat it as content too: nothing
-                # spliced there is executable.
-                interior.update(range(tok.start[0] + 1, tok.end[0] + 1))
-            elif tok.type not in IGNORE:
-                real.add(tok.start[0])
+                spans.append((off(tok.start), off(tok.end), "comment"))
+            elif tok.type == tokenize.STRING:
+                kind = "inert" if tok.end[0] > tok.start[0] else "data"
+                spans.append((off(tok.start), off(tok.end), kind))
     except tokenize.TokenError:
         pass  # truncated file; what was tokenized still applies
+    return spans
 
-    # A row inside a multi-line string is content even if a later token starts
-    # on the closing row, so interior wins over real for the rows it claims.
-    return interior, comments - real
+
+VERDICTS = {
+    "code": ("code", False),
+    "data": ("STRING LITERAL — data inside executable code, not code itself", True),
+    "inert": ("INERT — the body of a multi-line string; this never runs", True),
+    "comment": ("COMMENT — inert text, not code", True),
+}
 
 
 def classify(path: Path, patterns: list[str]) -> int:
     src = path.read_text(encoding="utf-8")
-    strings, comments = string_and_comment_lines(src)
+    spans = token_spans(src)
     lines = src.split("\n")
+    line_start = [0]
+    for line in lines:
+        line_start.append(line_start[-1] + len(line) + 1)
+
+    def row_of(offset: int) -> int:
+        lo, hi = 0, len(line_start) - 1
+        while lo < hi - 1:
+            mid = (lo + hi) // 2
+            if line_start[mid] <= offset:
+                lo = mid
+            else:
+                hi = mid
+        return lo + 1
+
+    def verdict_at(a: int, b: int) -> str:
+        # Whole-needle containment: a match straddling a string and the code
+        # after it is code, because part of it is.
+        for ts, te, kind in spans:
+            if ts <= a and b <= te:
+                return kind
+        return "code"
 
     bad = 0
     for pat in patterns:
-        hits = [i + 1 for i, l in enumerate(lines) if pat in l]
+        hits = []
+        i = src.find(pat)
+        while i >= 0:
+            hits.append(i)
+            i = src.find(pat, i + 1)
         if not hits:
             # Not finding the text is itself a finding: the edit did not land at
             # all, which is the failure this repo has hit repeatedly with
@@ -118,16 +167,12 @@ def classify(path: Path, patterns: list[str]) -> int:
             print(f"  NOT FOUND  {pat!r} appears nowhere in {path.name}")
             bad += 1
             continue
-        for ln in hits:
-            if ln in strings:
-                where = "STRING LITERAL — inert text, not code"
-                bad += 1
-            elif ln in comments and lines[ln - 1].lstrip().startswith("#"):
-                where = "COMMENT — inert text, not code"
-                bad += 1
-            else:
-                where = "code"
-            print(f"  {path.name}:{ln}  {where}   {lines[ln - 1].strip()[:64]}")
+        for a in hits:
+            kind = verdict_at(a, a + len(pat))
+            where, is_bad = VERDICTS[kind]
+            bad += 1 if is_bad else 0
+            ln = row_of(a)
+            print(f"  {path.name}:{ln}  {where}\n       {lines[ln - 1].strip()[:72]}")
     return bad
 
 
