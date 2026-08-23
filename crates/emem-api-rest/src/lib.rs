@@ -28555,8 +28555,24 @@ async fn a2a_robotics_at(cell: &str, question: &str) -> Result<JsonValue, (i64, 
                        clip's pixels. The CLIP is direct_sensor; the count derived from it is \
                        not, and the detector's fn_id is what makes it reproducible. Counts \
                        under two different fn_ids are not comparable.",
-            "commentary": "model_output, unsigned. About 2 answers in 6 restate the counts \
-                           cleanly, so read it as commentary and act on the numbers.",
+            // The prose and the counts can flatly contradict each other, and the
+            // upstream measured it: asked about a frame where its detector had
+            // counted two people, its language model answered "there are no
+            // people visible in the image". Neither instrument is broken. At
+            // 352x288 a pedestrian is a handful of pixels, so a detector trained
+            // to find them does and a model reading a resized frame does not.
+            //
+            // A reader seeing both has no basis for choosing, and the one that
+            // SOUNDS authoritative is the prose. So this says which is the
+            // instrument of record, in the upstream's own words rather than
+            // ours, and the disagreement is left visible: two instruments
+            // disagreeing is information, and hiding it would be the same move
+            // as collapsing two clocks into one word.
+            "commentary": "model_output, unsigned. It is SHOWN the detections so it interprets \
+                           rather than re-counts. Where it disagrees with counts, the DETECTOR \
+                           is the instrument of record: counts are reproducible from the cited \
+                           clip under counted_from.detector.fn_id, and this prose is not. Do \
+                           not present it as adjudicating them.",
             "actions": "none proposed. This responder carries an action a caller composes; it \
                         does not generate one. The only action-generating checkpoint in reach \
                         is a robot-ARM policy for a different embodiment, and a policy belongs \
