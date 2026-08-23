@@ -106,7 +106,15 @@ def enum_vocabularies(allowed: set[str]) -> list[str]:
                 f"missing {sorted(allowed - vals)}. Complete it, or add it to "
                 f"DELIBERATE_SUBSETS with the reason it is partial."
             )
-    if not problems and seen:
+    if not seen:
+        # Same vacuous-truth rule as the literal scan: no enums found means the
+        # schema moved, not that every vocabulary is complete.
+        problems.append(
+            "!! found NO published provenance enums at all: the schema shape "
+            "moved, or the root is wrong. This half of the gate is measuring "
+            "nothing rather than passing."
+        )
+    elif not problems:
         print(f"  {seen} published provenance enum(s): complete or declared subsets")
     return problems
 
@@ -174,6 +182,26 @@ def main(argv: list[str] | None = None) -> int:
     subset_problems = enum_vocabularies(allowed)
     for line in subset_problems:
         print(f"  {line}")
+
+    # A GATE THAT MATCHED NOTHING MUST NOT REPORT GREEN.
+    #
+    # The upstream noticed this property in openapi_coverage -- which refuses to
+    # pass when it parses zero routes or zero descriptions -- and said they had
+    # not put it anywhere. Neither had I, in the gate I wrote today: pointed at
+    # a tree with no provenance in it, it printed "0 sites" and then "Every
+    # emitted provenance class is one we declare", which is TRUE and useless.
+    #
+    # Rename the field, change the JSON shape, move the crates, and this becomes
+    # a green line asserting a property it no longer tests. Vacuous truth is the
+    # same failure as one copy compared to itself, reached by a different road:
+    # in both cases the check cannot fail, and in both cases its passing looks
+    # exactly like the thing working.
+    if not seen:
+        print("\nMATCHED NOTHING. This gate looks for `\"provenance_class\": \"...\"`")
+        print("and found none anywhere under the scanned root. Either the field")
+        print("was renamed, the shape changed, or the root is wrong -- and any of")
+        print("those means this gate is measuring nothing rather than passing.")
+        return 1
 
     if bad or subset_problems:
         if not bad:
