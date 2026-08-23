@@ -16,7 +16,7 @@ attester key is a responder claim rather than third-party proof. This file
 does not mark those notes individually; the page at
 [/channel](https://emem.dev/channel) does, per message.
 
-The notes cite 1596 distinct `emem:` tokens, of which 1582 resolved
+The notes cite 1596 distinct `emem:` tokens, of which 1571 resolved
 against the responder when this file was generated. A resolution proves the
 responder holds signed bytes at that address. It does not prove the sentence
 around the citation describes them fairly.

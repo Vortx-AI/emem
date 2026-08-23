@@ -237,6 +237,31 @@ def call(name: str, args: dict, timeout: int = 110) -> dict:
             if e.code != 429 or attempt == 7:
                 raise
             time.sleep(min(2 ** attempt, 20))   # 1,2,4,8,16,20,20 seconds
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+            # A REFUSED CONNECTION IS TRANSIENT HERE, and not retrying it cost
+            # 23 notes.
+            #
+            # Only 429 was retried, so `Connection refused` propagated on the
+            # first try, was caught by the per-note handler, logged to stderr,
+            # and the note vanished from the build. The guard then refused the
+            # whole write, which is right, but the read should not have failed
+            # in the first place.
+            #
+            # The window is known and bounded: this responder's shutdown exceeds
+            # its stop timeout, so a restart refuses connections for about
+            # ninety seconds, and back-to-back deploys mean one build can run
+            # inside the previous restart. That is the exact scenario the
+            # regression guard was written for in August, arriving again by a
+            # different route.
+            #
+            # So the backoff has to outlast a restart rather than merely be
+            # polite: 5, 10, 20, 30, 30, 30, 30 is 155 seconds of patience
+            # against a ~90 second window. Slower than the 429 ladder on
+            # purpose, because a refused connection means nobody is listening
+            # and retrying sooner just burns the attempts.
+            if attempt == 7:
+                raise
+            time.sleep(min(5 * (2 ** attempt), 30))
     raise RuntimeError("unreachable")
 
 
@@ -679,14 +704,35 @@ def resolve_citations(notes: list[dict]) -> dict:
                              "entity token: /v1/entity/resolve requires text"}
     for i in range(0, len(facts), 64):
         chunk = facts[i:i + 64]
-        try:
-            req = urllib.request.Request(
-                RESPONDER + "/v1/memory_token/resolve_many",
-                data=json.dumps({"tokens": chunk}).encode(),
-                headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=90) as r:
-                got = json.load(r)
-        except Exception as exc:
+        # Paced and retried like every other call to this responder.
+        #
+        # This path was neither, so it took the full 429 on a busy responder and
+        # every token in the chunk was reported `unchecked`. That degrades
+        # honestly, which is why it never looked broken: the page says the
+        # citation was not checked rather than claiming it resolved. But
+        # "unchecked" for 64 tokens at a time is the citation check not running,
+        # and a build where it never runs looks identical to one where it always
+        # passes.
+        got = None
+        for attempt in range(6):
+            time.sleep(PACE_S)
+            try:
+                req = urllib.request.Request(
+                    RESPONDER + "/v1/memory_token/resolve_many",
+                    data=json.dumps({"tokens": chunk}).encode(),
+                    headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=90) as r:
+                    got = json.load(r)
+                break
+            except urllib.error.HTTPError as e:
+                if e.code != 429 or attempt == 5:
+                    exc = e
+                    break
+                time.sleep(min(2 ** attempt, 20))
+            except Exception as e:
+                exc = e
+                break
+        if got is None:
             for t in chunk:
                 out[t] = {"state": "unchecked",
                           "why": f"the responder did not answer ({exc})"}
