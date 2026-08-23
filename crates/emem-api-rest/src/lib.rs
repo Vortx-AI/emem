@@ -11750,7 +11750,7 @@ async fn post_recall(
         // response rather than per fact: it is a statement about the addressing
         // scheme, not about any reading, and repeating it per fact put
         // kilobytes of identical text into replies that carry hundreds.
-        attach_spatial_basis(&mut v);
+        attach_spatial_basis(&mut v, &req.cell);
         // Sibling `fact_cid` + composed `memory_token` per fact. The
         // wire form historically left these on receipt.fact_cids[] as
         // a parallel array; the per-fact form matches the OpenAPI
@@ -62612,16 +62612,15 @@ async fn album_first_place_html() -> String {
 /// down. A literal measured once for one latitude is the defect this pair of
 /// systems has found in four separate places this week: a number frozen into a
 /// file while the thing it describes moves. This one moves with the cell.
-fn attach_spatial_basis(body: &mut JsonValue) {
-    let cell = body
-        .get("cell64")
-        .or_else(|| body.get("cell"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let Some(cell) = cell else {
-        return;
-    };
-    let Ok(ll) = emem_codec::latlng_from_cell64(&cell) else {
+fn attach_spatial_basis(body: &mut JsonValue, cell: &str) {
+    // The cell is passed IN rather than read back out of the body. The first
+    // version of this read `body["cell64"]`, which the recall envelope does not
+    // carry: its keys are facts, receipt, bands_cid and the rest, and the cell
+    // lives in the REQUEST. Every call returned early, the unit test passed
+    // because it fed the function a hand-built object with the key in it, and
+    // production served no block at all. Reaching into the response for an
+    // input the caller already holds is what made that possible.
+    let Ok(ll) = emem_codec::latlng_from_cell64(cell) else {
         return;
     };
     // ~9.55 m on the latitude axis at the equator, narrowing with cos(lat) on
@@ -69328,8 +69327,17 @@ mod tests {
     #[test]
     fn the_cell_dimensions_are_computed_from_latitude_not_stored() {
         let basis = |cell: &str| -> (f64, f64) {
-            let mut body = json!({ "cell64": cell });
-            attach_spatial_basis(&mut body);
+            // The body is what the RECALL ENVELOPE actually looks like: no cell
+            // key anywhere in it. The first version of this test built
+            // `{"cell64": cell}` and passed while production served nothing,
+            // because the function read the cell back out of the body and the
+            // real body has never had one. Starting from a realistic envelope
+            // is what turns this from a restatement of the code into a test.
+            let mut body = json!({
+                "facts": [], "receipt": {}, "bands_cid": null,
+                "fact_order": [], "current_by_band": {},
+            });
+            attach_spatial_basis(&mut body, cell);
             let b = body.get("spatial_basis").expect("spatial_basis attached");
             (
                 b.get("cell_edge_lat_m").and_then(|v| v.as_f64()).unwrap(),
@@ -69363,8 +69371,8 @@ mod tests {
         );
 
         // The warning is the load-bearing part and must survive regardless.
-        let mut body = json!({ "cell64": "defi.zb64a.cAzU.zfa27" });
-        attach_spatial_basis(&mut body);
+        let mut body = json!({ "facts": [], "receipt": {} });
+        attach_spatial_basis(&mut body, "defi.zb64a.cAzU.zfa27");
         let b = &body["spatial_basis"];
         assert!(
             b["must_not_do"]
@@ -69372,6 +69380,24 @@ mod tests {
                 .unwrap_or_default()
                 .contains("gradient"),
             "the differencing warning is the reason this block exists"
+        );
+
+        // REGRESSION GUARD: a body with NO cell key must still get the block.
+        // If someone reintroduces the body lookup, this fails while every other
+        // assertion above still passes.
+        let mut bare = json!({});
+        attach_spatial_basis(&mut bare, "defi.zb64a.cAzU.zfa27");
+        assert!(
+            bare.get("spatial_basis").is_some(),
+            "the cell comes from the caller, never from the response body"
+        );
+
+        // And a cell that does not decode must be declined rather than guessed.
+        let mut bad = json!({});
+        attach_spatial_basis(&mut bad, "not-a-cell");
+        assert!(
+            bad.get("spatial_basis").is_none(),
+            "no cell, no claim about its dimensions"
         );
     }
 
