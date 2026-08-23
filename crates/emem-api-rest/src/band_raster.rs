@@ -96,7 +96,9 @@ fn is_embedding_band(band: &str) -> bool {
 /// `$EMEM_DATA/artifacts`, capped by `EMEM_ARTIFACTS_MAX_BYTES`
 /// (default 4 GiB).
 pub(crate) static ARTIFACTS: LazyLock<ArtifactStore> = LazyLock::new(|| {
-    let base = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
+    let base = emem_core::data_dir::data_dir()
+        .to_string_lossy()
+        .into_owned();
     let cap = std::env::var("EMEM_ARTIFACTS_MAX_BYTES")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())

@@ -58,7 +58,9 @@ async fn main() -> anyhow::Result<()> {
     // explicitly. With no TLS, the historical 0.0.0.0:5051 default
     // applies — that's the "plain HTTP behind a reverse proxy" path.
     let bind_explicit = std::env::var("EMEM_BIND").ok();
-    let data = std::env::var("EMEM_DATA").unwrap_or_else(|_| "./var/emem".into());
+    let data = emem_core::data_dir::data_dir()
+        .to_string_lossy()
+        .into_owned();
 
     // The topic router is started FIRST and awaited last.
     //

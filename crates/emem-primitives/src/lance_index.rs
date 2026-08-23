@@ -87,14 +87,11 @@ fn dataset_path(root: &Path, dim: usize) -> PathBuf {
     root.join(format!("vector_index_d{dim}.lance"))
 }
 
-/// Resolve the root directory from `$EMEM_DATA` (with the documented
-/// fallback to `/home/ubuntu/emem/var/emem`). Caller is responsible for
+/// Resolve the root directory from `$EMEM_DATA` (with the single default in
+/// [`emem_core::data_dir`]). Caller is responsible for
 /// creating the directory if it doesn't exist.
 pub fn default_root() -> PathBuf {
-    std::env::var("EMEM_DATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/home/ubuntu/emem/var/emem"))
-        .join("lance")
+    emem_core::data_dir::data_path("lance")
 }
 
 /// Is Lance globally disabled by the operator? `EMEM_DISABLE_LANCE=1`

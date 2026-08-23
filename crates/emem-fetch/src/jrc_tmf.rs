@@ -122,9 +122,8 @@ pub const JRC_TMF_MAX_YEAR: u16 = 2025;
 const JRC_TMF_NORTH_LIMIT: f64 = 30.0;
 const JRC_TMF_SOUTH_LIMIT: f64 = -30.0;
 
-/// Cache subdirectory under `<EMEM_DATA>` (or `/var/emem` when the env
-/// var is unset). Holds one full-tile GeoTIFF per `(dataset, lat_tag,
-/// lng_tag)` triple.
+/// Cache subdirectory under the node's data directory. Holds one full-tile
+/// GeoTIFF per `(dataset, lat_tag, lng_tag)` triple.
 const CACHE_SUBDIR: &str = "jrc_tmf_cache";
 
 /// How long a cached tile is considered fresh before we re-download.
@@ -221,12 +220,17 @@ pub enum JrcTmfError {
     },
 }
 
-/// Resolve the tile cache directory. Honors `EMEM_DATA`; falls back to
-/// `/var/emem` when unset (the systemd unit + Dockerfile both bind that
-/// path to a persistent volume). Pure helper — no I/O. The materializer
-/// is responsible for ensuring the directory exists on first miss.
+/// Resolve the tile cache directory through [`emem_core::data_dir`], the one
+/// place `EMEM_DATA` is read. This used to default to `/var/emem` here while
+/// the server binary defaulted to `./var/emem` and five other modules to an
+/// absolute path under one developer's home. The Dockerfile sets `EMEM_DATA`
+/// to `/var/emem` and binds it as a volume, and both systemd units set it too,
+/// so no deployment depended on any of those defaults agreeing. Pure helper --
+/// no I/O. The materializer ensures the directory exists on first miss.
 pub fn cache_dir() -> PathBuf {
-    let base = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/var/emem".into());
+    let base = emem_core::data_dir::data_dir()
+        .to_string_lossy()
+        .into_owned();
     Path::new(&base).join(CACHE_SUBDIR)
 }
 

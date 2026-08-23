@@ -151,8 +151,7 @@ pub struct KoppenClass {
 /// Resolve the cache directory for the extracted TIFF. Honors `EMEM_DATA`
 /// the same way the rest of the protocol does.
 fn cache_dir() -> PathBuf {
-    let base = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
-    Path::new(&base).join(CACHE_SUBDIR)
+    emem_core::data_dir::data_path(CACHE_SUBDIR)
 }
 
 /// Path for the cached, fully-extracted Köppen TIFF.

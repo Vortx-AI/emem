@@ -81,8 +81,7 @@ fn artifact_dir() -> PathBuf {
     if let Ok(p) = std::env::var("EMEM_JEPA_V2_DIR") {
         return PathBuf::from(p);
     }
-    let data = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
-    PathBuf::from(data).join("jepa_v2")
+    emem_core::data_dir::data_path("jepa_v2")
 }
 
 fn onnx_path() -> PathBuf {

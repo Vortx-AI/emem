@@ -22,7 +22,7 @@
 //! emem-purge-fnkey                                       # dry-run, fn_key=claude_knowledge@1
 //! emem-purge-fnkey --apply                               # actually delete
 //! emem-purge-fnkey --fn-key foo@1 --apply                # different key
-//! emem-purge-fnkey --data-dir /home/ubuntu/emem/var/emem # override path
+//! emem-purge-fnkey --data-dir ./var/emem                 # override path
 //! ```
 //!
 //! Server must be stopped first — sled holds an exclusive lock.
@@ -56,9 +56,7 @@ struct Args {
 }
 
 fn parse_args() -> Result<Args> {
-    let mut data_dir = std::env::var("EMEM_DATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/home/ubuntu/emem/var/emem"));
+    let mut data_dir = emem_core::data_dir::data_dir();
     let mut fn_keys: Vec<String> = vec!["claude_knowledge@1".into()];
     let mut fn_keys_set = false;
     let mut stale_grid = false;
@@ -139,7 +137,7 @@ PREDICATES (any one selects a row; combine for OR semantics):
 
 DEFAULTS:
   --fn-key   claude_knowledge@1
-  --data-dir $EMEM_DATA  (or /home/ubuntu/emem/var/emem)
+  --data-dir $EMEM_DATA  (or ./var/emem)
   --dry-run is the default; pass --apply to actually delete.
 
 Server must be stopped — sled requires an exclusive lock.

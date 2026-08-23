@@ -266,8 +266,7 @@ pub async fn fetch_nightlight_sample_default(
 
 /// Resolve the cache directory for inflated TIFFs.
 fn cache_dir() -> PathBuf {
-    let base = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
-    Path::new(&base).join(CACHE_SUBDIR)
+    emem_core::data_dir::data_path(CACHE_SUBDIR)
 }
 
 /// Path for the inflated avg_vis TIFF of a given year.

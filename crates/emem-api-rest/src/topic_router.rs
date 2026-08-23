@@ -328,7 +328,7 @@ impl TopicRouter {
 
         // Resolve model directory: explicit env wins, else
         // `<EMEM_DATA>/models/<repo-tail>/` (e.g.
-        // `/home/ubuntu/emem/var/emem/models/bge-base-en-v1.5/`).
+        // `./var/emem/models/bge-base-en-v1.5/`).
         let model_dir: std::path::PathBuf = if let Ok(d) = std::env::var("EMEM_TOPIC_MODEL_DIR") {
             std::path::PathBuf::from(d)
         } else if let Ok(d) = std::env::var("EMEM_DATA") {

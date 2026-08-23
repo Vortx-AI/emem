@@ -17671,9 +17671,8 @@ fn spawn_warm_priority_loop(s: AppState) {
         loop {
             // Sleep first: the warmer never competes with boot.
             tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
-            let base =
-                std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
-            let path = format!("{base}/warm_priority.json");
+            let path = emem_core::data_dir::data_path("warm_priority.json");
+            let path = path.to_string_lossy().into_owned();
             let bytes = match tokio::fs::read(&path).await {
                 Ok(b) => b,
                 Err(_) => continue, // no list declared; nothing to warm
@@ -65975,8 +65974,7 @@ fn nominatim_cache_ttl_secs() -> i64 {
 }
 
 fn geocoder_db_path() -> std::path::PathBuf {
-    let dir = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/home/ubuntu/emem/var/emem".into());
-    std::path::Path::new(&dir).join("geocoder.sled")
+    emem_core::data_dir::data_path("geocoder.sled")
 }
 
 /// Sled tree name for the persistent Overture division-polygon cache.
