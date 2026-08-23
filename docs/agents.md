@@ -1340,7 +1340,39 @@ attests the responder's claim, not the resolution decision. Branch on
 [`selected.is_high_confidence`](#-v1-locate) from `/v1/locate` before
 trusting a place-anchored answer.
 
-   ### Per-replica fact identity
+   ### Three kinds of fact, and which surfaces carry which
+
+`facts[]` carries three kinds, tagged by `kind`:
+
+| kind | what it is | how it dates itself |
+|---|---|---|
+| `primary` | a directly-attested observation | `tslot` (scalar) |
+| `derivative` | a deterministic function over parent facts | `tslot_window` (pair) |
+| `absence` | a signed confirmed absence, `value: null` | `tslot` (scalar) |
+
+Two of these carry a value. A `derivative` is a real observation and is the kind
+that earns `deterministic_index`, the strongest tamper evidence published here,
+because any party can recompute it from the cited parents. **Do not treat
+non-primary as no-coverage.** An `absence` is a statement that nothing is there
+and is safe to route away; a `derivative` is a value and is not.
+
+An uncovered cell returns an `absence` with its own `fact_cid`, not a missing
+fact. Requesting `jrc_tmf.annual_change` outside the tropical belt returns one
+fact, `kind: absence`, `value: null`, signed. That is an answer, and
+zero-filling it would be inventing a measurement.
+
+`current_by_band` is **primary-only by construction**. It answers "the current
+observed value at this band", so a derivative or absence never appears in it
+even when it is the newest thing at the cell. Read `facts[]` if you want the
+others.
+
+A consumer found this by acting on the difference: their code filtered
+`kind == "primary"` and routed everything else to no-coverage, which discarded
+every derivative while looking, in their logs, exactly like a signed absence.
+If you take a single scalar time from a derivative, take the window's START:
+it can never claim an observation is fresher than it is.
+
+### Per-replica fact identity
 
 Each Primary / Negative / Derivative fact body includes a `signed_at`
 ISO-8601 wall clock at materialisation time, and that field is hashed

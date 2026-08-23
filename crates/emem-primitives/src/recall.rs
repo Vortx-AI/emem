@@ -232,6 +232,25 @@ pub struct RecallResp {
     /// candidate for "current" would let an undated fact win a band that has
     /// real dated ones.
     ///
+    /// PRIMARY FACTS ONLY. The map is built with
+    /// `Fact::Primary(p) => …, _ => continue`, so a derivative or an absence at
+    /// a band never appears here even when it is the newest thing at the cell.
+    ///
+    /// That is defensible -- "the current VALUE at this band" is a question
+    /// about observations -- but it was true only in the code, and a consumer
+    /// reading `facts[]` gets all three kinds while a consumer reading this map
+    /// gets one. A downstream discovered it by acting on the difference: their
+    /// comment said our shape was "primary, absence, or missing", their filter
+    /// matched the comment, and they were routing every DERIVATIVE to
+    /// no-coverage -- discarding the kind that carries `deterministic_index`,
+    /// the strongest tamper evidence we publish, while it looked in their logs
+    /// exactly like a signed absence.
+    ///
+    /// So: `facts[]` carries `primary`, `derivative` and `absence`. This map
+    /// carries the first. Read `facts[]` if you want the others, and mind that
+    /// a derivative dates itself with `tslot_window` (a pair) rather than the
+    /// scalar `tslot` the other two carry.
+    ///
     /// Empty when no returned fact carries a tslot.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub current_by_band: std::collections::BTreeMap<String, String>,
