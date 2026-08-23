@@ -106,16 +106,64 @@ def token_spans(src: str) -> list[tuple[int, int, str]]:
     def off(rc: tuple[int, int]) -> int:
         return line_start[rc[0] - 1] + rc[1]
 
-    spans: list[tuple[int, int, str]] = []
+    # Python 3.12 SPLITS AN F-STRING INTO SEVERAL TOKENS, and this missed all
+    # of them. There is no STRING token for `f"..."`: it arrives as
+    # FSTRING_START, then FSTRING_MIDDLE for each run of literal text, with
+    # ordinary tokens for whatever is inside the braces, then FSTRING_END. So a
+    # needle in an f-string's literal text fell outside every span and came back
+    # `code`.
+    #
+    # The upstream found that in their version. Mine was worse: the body of a
+    # MULTI-LINE f-string also came back code -- text that never runs, reported
+    # as executable, which is the exact failure this tool exists to prevent,
+    # inside the tool. And it mattered here rather than in principle:
+    # build_channel.py builds every page from multi-line f-strings, so the file
+    # I most needed to check was the file this was blindest on.
+    #
+    # The distinction to preserve is the interesting one:
+    #     f"prefix {x} SPLICED suffix"   literal text  -> data
+    #     f"{SPLICED}"                   a name in the slot -> code
+    # which falls out for free, because the braces hold ordinary tokens and
+    # only FSTRING_MIDDLE is literal.
+    toks = []
     try:
-        for tok in tokenize.generate_tokens(io.StringIO(src).readline):
-            if tok.type == tokenize.COMMENT:
-                spans.append((off(tok.start), off(tok.end), "comment"))
-            elif tok.type == tokenize.STRING:
-                kind = "inert" if tok.end[0] > tok.start[0] else "data"
-                spans.append((off(tok.start), off(tok.end), kind))
+        toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
     except tokenize.TokenError:
         pass  # truncated file; what was tokenized still applies
+
+    FS_START = getattr(tokenize, "FSTRING_START", None)
+    FS_MID = getattr(tokenize, "FSTRING_MIDDLE", None)
+    FS_END = getattr(tokenize, "FSTRING_END", None)
+
+    # An f-string's own span, so its literal chunks can be told multi-line
+    # (inert) from single-line (data). Needs the END before the MIDDLEs can be
+    # classified, hence the two passes.
+    fstring_span: list[tuple[int, int, bool]] = []  # (start_off, end_off, multiline)
+    if FS_START is not None:
+        stack = []
+        for tok in toks:
+            if tok.type == FS_START:
+                stack.append(tok)
+            elif tok.type == FS_END and stack:
+                st = stack.pop()
+                fstring_span.append((off(st.start), off(tok.end), tok.end[0] > st.start[0]))
+
+    def enclosing_fstring_is_multiline(a: int, b: int) -> bool:
+        for fs_a, fs_b, multi in fstring_span:
+            if fs_a <= a and b <= fs_b:
+                return multi
+        return False
+
+    spans: list[tuple[int, int, str]] = []
+    for tok in toks:
+        if tok.type == tokenize.COMMENT:
+            spans.append((off(tok.start), off(tok.end), "comment"))
+        elif tok.type == tokenize.STRING:
+            kind = "inert" if tok.end[0] > tok.start[0] else "data"
+            spans.append((off(tok.start), off(tok.end), kind))
+        elif FS_MID is not None and tok.type == FS_MID:
+            a, b = off(tok.start), off(tok.end)
+            spans.append((a, b, "inert" if enclosing_fstring_is_multiline(a, b) else "data"))
     return spans
 
 
