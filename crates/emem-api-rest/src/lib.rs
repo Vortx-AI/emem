@@ -258,12 +258,6 @@ const ART_PANELS: &[(&str, &str)] = &[
         "device-to-agent.svg",
         include_str!("../../../web/art/device-to-agent.svg"),
     ),
-    ("p1.svg", include_str!("../../../web/art/p1.svg")),
-    ("p2.svg", include_str!("../../../web/art/p2.svg")),
-    ("p3.svg", include_str!("../../../web/art/p3.svg")),
-    ("p4.svg", include_str!("../../../web/art/p4.svg")),
-    ("p5.svg", include_str!("../../../web/art/p5.svg")),
-    ("p6.svg", include_str!("../../../web/art/p6.svg")),
     ("hero.svg", include_str!("../../../web/art/hero.svg")),
     (
         "connect-evolve.svg",
