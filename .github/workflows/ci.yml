@@ -366,6 +366,15 @@ jobs:
       # own control came back green because it was exercising the shadowed copy.
       - name: no shadowed definitions
         run: python3 scripts/shadowed_definitions.py
+      # And the whole suite in dependency order. shadowed_definitions runs FIRST
+      # there and the rest do not run if it fails, because a gate script with a
+      # shadowed definition reports on code that is not running and its PASS
+      # would mean nothing. In this file that check was LAST -- the trust check
+      # at the end of the trusted things, which is where the upstream found
+      # theirs too. The individual steps above stay for per-step CI granularity;
+      # this one enforces the order they are written in.
+      - name: gates, in dependency order
+        run: python3 scripts/gates.py
       # One navigation, generated from one definition. The site had SEVEN
       # different nav bars across 22 pages and between them they reached 13 of
       # 142 routes; /guard appeared in exactly one nav, its own. A hand edit to
