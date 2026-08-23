@@ -1198,6 +1198,9 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   background:var(--paper-3)}
 .strip-wall span{font-size:var(--t-3xs);line-height:1.25;text-align:center;color:var(--ink-2);
   text-transform:uppercase;letter-spacing:.03em}
+.strip-wall-soft{border-style:dashed}
+.strip-wall-soft span{color:var(--mute)}
+.strip-caveat{font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);margin:.15rem 0 .4rem;letter-spacing:.01em}
 .album-item{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
   padding:8px 10px;border:0;border-radius:3px;background:none;font:inherit;text-align:left;
   cursor:pointer;color:inherit;width:100%}
@@ -1369,7 +1372,28 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
         var ps = (d && d.panels) || [];
         if (ps.length < 2) return;
         var reading = d.reading || {};
-        var html = '<div class="strip-head">' + (reading.says || '') + '</div><div class="strip">';
+        /* WHAT THE WALLS BELOW CANNOT TELL YOU.
+           A wall is drawn only between two panels that BOTH name an id, so a
+           span where the field is missing draws none -- and no wall reads as
+           "nothing changed" when the honest answer is "we cannot tell". The
+           upstream publishes the count of panels missing each id for exactly
+           this reason: the changed-within-span booleans are a FLOOR, true when
+           a change is known and false both when there was none and when it is
+           unknowable. Said once at the head rather than at every gap, because
+           it is a property of the span and not of any one boundary. */
+        var blind = [];
+        if (d.panels_without_detector_fn_id > 0) {
+          blind.push(d.panels_without_detector_fn_id + ' without a detector id');
+        }
+        if (d.panels_without_palette_fn_id > 0) {
+          blind.push(d.panels_without_palette_fn_id + ' without a palette id');
+        }
+        var caveat = blind.length
+          ? '<div class="strip-caveat">' + blind.join(', ') +
+            ': a change across those cannot be shown, only one between two that name it</div>'
+          : '';
+        var html = '<div class="strip-head">' + (reading.says || '') + '</div>' +
+          caveat + '<div class="strip">';
         ps.forEach(function (p, i) {
           if (i > 0) {
             var mins = Math.round((p.epoch - ps[i - 1].epoch) / 60);
@@ -1393,9 +1417,45 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
               html += '<div class="strip-wall"><span>detector changed<br>' +
                 'counts either side<br>are not comparable</span></div>';
             }
+              /* A CHANGE OF PALETTE IS ALSO A WALL, for the same reason one
+                 rank down. The pigments are hashed into palette_fn_id, so
+                 adopting a different ink moved it without anyone bumping a
+                 version. Two panels either side are still the same measurement,
+                 unlike a detector change, but they are not the same PICTURE,
+                 and a reader comparing their greens would be reading part of
+                 the difference off the palette.
+
+                 Compared PER PANEL rather than from the story's
+                 palette_changed_within_span. That flag counts distinct non-null
+                 ids, so a span mixing panels that carry one with panels that
+                 predate the field reports false: "we cannot tell" wearing the
+                 clothes of "nothing changed". The flag is a floor, never a
+                 denial. Same rule as the detector above: a null is not a
+                 boundary. */
+              var pa = ps[i - 1].palette_fn_id, pb = p.palette_fn_id;
+              if (pa && pb && pa !== pb) {
+                html += '<div class="strip-wall strip-wall-soft"><span>palette changed<br>' +
+                  'same measurement<br>different pigments</span></div>';
+              }
           }
-          var c = p.counts || {};
-          var line = Object.keys(c).sort().map(function (k) { return c[k] + ' ' + k; }).join(', ');
+            /* THE SAME THREE STATES as count_line above, and the same trap.
+               `p.counts || {}` turned a null into an empty object and printed
+               an empty line, which reads as a panel with nothing on the street.
+               It was written forty lines under a comment warning against
+               exactly that coercion. Every `{}` the upstream ever served turned
+               out to be an unobserved frame rather than an empty one -- 57 of
+               57 contradicted their own painting -- so the empty line was never
+               once correct. */
+            var line;
+            if (p.counts === null || p.counts === undefined) {
+              line = 'not observed';
+            } else {
+              var c = p.counts;
+              var ks = Object.keys(c).sort();
+              line = ks.length
+                ? ks.map(function (k) { return c[k] + ' ' + k; }).join(', ')
+                : 'none of the sought classes';
+            }
           /* What was LOOKED FOR, beside what was found. A count is only a
              count of the classes that were sought, and `not recorded` is said
              in those words rather than shown as an absence, because the panel
@@ -1747,7 +1807,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      shapes is the second question, not the first. -->
 <figure class="plate">
     <img src="/v1/perception/cards/oxford-circus/thumb.png?w=640" width="640" height="516" loading="lazy" decoding="async" alt="Oxford Circus: no scene, and a line of text saying the camera was pointed somewhere else.">
-    <figcaption>And when there was nothing to count it says why, in its own words, instead of painting a street that nobody saw.</figcaption>
+    <figcaption>And when the camera was not showing the street, it says so in its own words rather than painting an empty one. An unobserved place and an empty place are different facts.</figcaption>
   </figure>
 <section class="chapter" id="machines">
   <figure class="art" style="padding:0;background:none;box-shadow:none">
