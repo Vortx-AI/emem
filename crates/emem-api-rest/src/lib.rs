@@ -11746,6 +11746,11 @@ async fn post_recall(
         // /v1/ask applies, so an LLM can quote signers without
         // touching the raw 32-byte arrays.
         enrich_recall_signer_b32(&mut v);
+        // What a cell64 IS, beside the values addressed by one. Once per
+        // response rather than per fact: it is a statement about the addressing
+        // scheme, not about any reading, and repeating it per fact put
+        // kilobytes of identical text into replies that carry hundreds.
+        attach_spatial_basis(&mut v);
         // Sibling `fact_cid` + composed `memory_token` per fact. The
         // wire form historically left these on receipt.fact_cids[] as
         // a parallel array; the per-fact form matches the OpenAPI
@@ -62587,6 +62592,67 @@ async fn album_first_place_html() -> String {
     built
 }
 
+/// State what a cell64 is, next to the values addressed by one.
+///
+/// A band value arrives at a cell64 and reads as a measurement OF that cell. It
+/// is a sample of a source pixel that overlaps it, and the pixel is usually
+/// larger. Our own registry holds `native_resolution_m: 10` for Sentinel-2 and
+/// the sources catalogue prints "Sentinel-2 L2A 10 m; 5-day revisit" -- both
+/// places WE read, neither reaching the caller.
+///
+/// THE CONSEQUENCE IS STATED WITHOUT A PER-BAND RESOLUTION, deliberately. There
+/// is no band-to-source-scheme mapping in this code, so naming a resolution here
+/// would mean inventing one, and an invented number that looks measured is worse
+/// than an omission. But the warning does not need the mapping: whatever scheme
+/// produced a value, a source pixel is metres across and so is a cell, so
+/// adjacent cells may be samples of the SAME pixel and differencing them is
+/// differencing a pixel with itself.
+///
+/// The dimensions are COMPUTED from the cell's own latitude rather than written
+/// down. A literal measured once for one latitude is the defect this pair of
+/// systems has found in four separate places this week: a number frozen into a
+/// file while the thing it describes moves. This one moves with the cell.
+fn attach_spatial_basis(body: &mut JsonValue) {
+    let cell = body
+        .get("cell64")
+        .or_else(|| body.get("cell"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let Some(cell) = cell else {
+        return;
+    };
+    let Ok(ll) = emem_codec::latlng_from_cell64(&cell) else {
+        return;
+    };
+    // ~9.55 m on the latitude axis at the equator, narrowing with cos(lat) on
+    // the longitude axis. Both derived from the grid rather than asserted.
+    let lat_m = 9.55_f64;
+    let lng_m = 9.55_f64 * ll.lat_deg.to_radians().cos().abs();
+    let Some(map) = body.as_object_mut() else {
+        return;
+    };
+    map.insert(
+        "spatial_basis".into(),
+        json!({
+            "schema": "emem.spatial_basis.v1",
+            "cell_edge_lat_m": (lat_m * 100.0).round() / 100.0,
+            "cell_edge_lng_m": (lng_m * 100.0).round() / 100.0,
+            "computed_from": "the cell's own latitude, not a stored constant",
+            "what_a_value_is": "a sample of the source pixel overlapping this cell, not an \
+                                average over the cell. The cell is an ADDRESS; the pixel is the \
+                                measurement.",
+            "must_not_do": "difference two adjacent cells and read the result as a gradient. \
+                            Source pixels are metres across and so are cells, so neighbouring \
+                            cells can be samples of the same pixel, and the difference would be \
+                            a pixel with itself.",
+            "per_band_resolution": "not stated: this responder has no band-to-source mapping, \
+                                    and an invented resolution that looked measured would be \
+                                    worse than its absence. See `sources` on each fact for the \
+                                    scheme that produced it.",
+        }),
+    );
+}
+
 /// Where the ground-camera service listens.
 ///
 /// One function because the lookup was written out five times with the same
@@ -69240,6 +69306,73 @@ mod tests {
         assert_ne!(found, saw_nothing);
         assert_ne!(saw_nothing, no_observation);
         assert_ne!(found, no_observation);
+    }
+
+    /// The cell's ground dimensions must be COMPUTED, not remembered.
+    ///
+    /// The defect this guards is the one both sides of this collaboration found
+    /// four separate times in a week: a number measured once for one case,
+    /// frozen into a file, and never revisited while the thing it describes
+    /// moved. A confidence floor justified for one surface and copied to three.
+    /// An image size defaulted to 640x480 for cameras that are 352x288. A
+    /// placeholder census stated as literals from one morning's measurement.
+    ///
+    /// So this asserts the longitude edge CHANGES WITH LATITUDE, which a stored
+    /// constant cannot do. Two cells at different latitudes must disagree, and
+    /// the one nearer the pole must be narrower.
+    ///
+    /// The test is written this way rather than against expected values on
+    /// purpose: asserting 5.94 at London would itself be a frozen number, and
+    /// would pass against a build that had replaced the computation with that
+    /// literal.
+    #[test]
+    fn the_cell_dimensions_are_computed_from_latitude_not_stored() {
+        let basis = |cell: &str| -> (f64, f64) {
+            let mut body = json!({ "cell64": cell });
+            attach_spatial_basis(&mut body);
+            let b = body.get("spatial_basis").expect("spatial_basis attached");
+            (
+                b.get("cell_edge_lat_m").and_then(|v| v.as_f64()).unwrap(),
+                b.get("cell_edge_lng_m").and_then(|v| v.as_f64()).unwrap(),
+            )
+        };
+
+        // London and Bengaluru: different latitudes, so different longitude edges.
+        let (lon_lat, lon_lng) = basis("defi.zb64a.cAzU.zfa27");
+        let (blr_lat, blr_lng) = basis("defi.zb493.xuqA.zcb5f");
+
+        // CONTROL: the latitude axis does NOT vary with latitude, so a build
+        // that made both axes constant would fail the next assertion while this
+        // one still passed, and a build that varied both would fail this one.
+        assert!(
+            (lon_lat - blr_lat).abs() < 0.01,
+            "the latitude edge is constant across the grid: {lon_lat} vs {blr_lat}"
+        );
+
+        // The longitude edge narrows toward the pole. London is further north
+        // than Bengaluru, so its cells are narrower.
+        assert!(
+            lon_lng < blr_lng,
+            "a cell nearer the pole must be narrower in longitude: \
+             London {lon_lng} m should be under Bengaluru {blr_lng} m"
+        );
+        // And meaningfully so, or the value is not really being computed.
+        assert!(
+            blr_lng - lon_lng > 1.0,
+            "the difference must be real, not rounding: {lon_lng} vs {blr_lng}"
+        );
+
+        // The warning is the load-bearing part and must survive regardless.
+        let mut body = json!({ "cell64": "defi.zb64a.cAzU.zfa27" });
+        attach_spatial_basis(&mut body);
+        let b = &body["spatial_basis"];
+        assert!(
+            b["must_not_do"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("gradient"),
+            "the differencing warning is the reason this block exists"
+        );
     }
 
     /// A real retained-clip key must be admitted, because the verify chain runs

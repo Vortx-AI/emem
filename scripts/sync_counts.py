@@ -32,6 +32,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -56,8 +57,8 @@ CANON = {
     "mcp_core": 16,
     "mcp_extended": 92,
     "algorithms": 168,
-    "rest_paths_v1": 160,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 169,  # all paths in OpenAPI
+    "rest_paths_v1": 161,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 170,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
@@ -122,14 +123,32 @@ def compute_offline() -> dict:
 
 
 def fetch_live(responder: str) -> dict | None:
-    """Pull the runtime-authoritative counts from a reachable responder."""
-    try:
-        with urllib.request.urlopen(f"{responder}/v1/agent_card", timeout=15) as r:
-            card = json.load(r)
-        with urllib.request.urlopen(f"{responder}/openapi.json", timeout=15) as r:
-            paths = json.load(r).get("paths", {})
-    except Exception as e:  # offline / unreachable — fall back to CANON
-        print(f"  (live cross-check skipped: {responder} unreachable: {e})")
+    """Pull the runtime-authoritative counts from a reachable responder.
+
+    RETRIES, because the one moment this is most likely to fail is a deploy:
+    stopping the server takes longer than its systemd timeout, so every restart
+    refuses connections for about ninety seconds. That is also exactly when
+    someone is updating counts. A single 15 s attempt inside that window returns
+    None, and None used to read as "no drift" -- which is how CANON came to
+    claim 160 /v1 paths while the responder had been serving 161 since 05:41
+    that morning. Returning None still happens; it now MEANS unreachable, and
+    the caller treats unreachable as undetermined rather than as agreement.
+    """
+    last = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(min(2 ** attempt * 5, 40))  # 10 s, 20 s: spans a restart
+        try:
+            with urllib.request.urlopen(f"{responder}/v1/agent_card", timeout=15) as r:
+                card = json.load(r)
+            with urllib.request.urlopen(f"{responder}/openapi.json", timeout=15) as r:
+                paths = json.load(r).get("paths", {})
+            break
+        except Exception as e:
+            last = e
+            print(f"  (live cross-check attempt {attempt + 1}/3 failed: {e})")
+    else:
+        print(f"  (live responder {responder} unreachable after 3 attempts: {last})")
         return None
     bt = card.get("band_taxonomy", {})
 
@@ -795,6 +814,20 @@ def verify_canon() -> list[str]:
         for k, v in live.items():
             if v is not None and k in CANON and CANON[k] != v:
                 drift.append(f"CANON[{k}]={CANON[k]} but live /v1/agent_card says {v}")
+    elif os.environ.get("EMEM_COUNTS_OFFLINE") == "1":
+        # Deliberate waiver: an air-gapped node has no responder to ask, and
+        # saying so out loud is different from not noticing.
+        print("  (EMEM_COUNTS_OFFLINE=1: repo registries only, responder NOT checked)")
+    else:
+        # Half the counts here -- every REST path total -- exist ONLY on the
+        # responder; compute_offline cannot derive them. With the responder
+        # unreachable those numbers were not verified, and a gate that reports
+        # green on an unverified number is worse than one that reports red.
+        drift.append(
+            f"live responder {responder} unreachable: the REST path counts were "
+            f"NOT verified. Retry, or set EMEM_COUNTS_OFFLINE=1 to state that "
+            f"you are checking the repo alone."
+        )
     drift.extend(verify_security_limits(responder))
     drift.extend(verify_band_classes())
     # The surfaces a directory reads. Checked by reading their numbers out and
@@ -1250,8 +1283,13 @@ def main() -> int:
             print(f"  ! {d}")
         print("  -> update CANON in this file, then re-run --write.\n")
     else:
-        print("CANON verified against repo registries"
-              + (" and live responder.\n" if os.environ.get("EMEM_RESPONDER", "https://emem.dev") else ".\n"))
+        # Say which surfaces were actually consulted. The old line read the
+        # ENV VAR, not the response, so it printed "and live responder" even on
+        # a run where the responder never answered.
+        where = ("repo registries alone (responder waived)"
+                 if os.environ.get("EMEM_COUNTS_OFFLINE") == "1"
+                 else "repo registries and the live responder")
+        print(f"CANON verified against {where}.\n")
 
     if mode == "--check":
         problems = drift[:]
