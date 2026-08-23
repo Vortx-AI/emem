@@ -357,6 +357,15 @@ jobs:
       # not the same as an eighth class.
       - name: no undeclared provenance classes
         run: python3 scripts/provenance_classes.py
+      # The third way a green line proves nothing: the right code present and
+      # not the code running. Python binds the LAST def, so a replacement
+      # spliced above an untouched original runs the original -- and json!
+      # keeps the LAST duplicate key, so a second entry for an existing path
+      # silently replaces its description. Both read as correct in the file.
+      # The upstream hit the first twice in one day, once on a zero-guard whose
+      # own control came back green because it was exercising the shadowed copy.
+      - name: no shadowed definitions
+        run: python3 scripts/shadowed_definitions.py
       # One navigation, generated from one definition. The site had SEVEN
       # different nav bars across 22 pages and between them they reached 13 of
       # 142 routes; /guard appeared in exactly one nav, its own. A hand edit to
