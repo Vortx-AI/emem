@@ -650,7 +650,7 @@ input::placeholder{color:var(--mute,#7a7363)}
      192     7  air_quality        climate      ultra   public
      199   505  _reserved_512      reserved     static  public
      704    10  sentinel2_raw      optical      fast    public</code></pre></div>
-      <p>The gap between 43 slots and 124 wired names is parametric expansion: every Sentinel-2 reflectance band, every spectral index, every Tessera vintage, and every Open-Meteo variant rides a fixed underlying slot.</p>
+      <p>The gap between 43 slots and 129 wired names is parametric expansion: every Sentinel-2 reflectance band, every spectral index, every Tessera vintage, and every Open-Meteo variant rides a fixed underlying slot.</p>
       <p>The ontology is compiled into the binary (<code>include_str!</code> over <code>bands-v0.json</code>) and read through one <code>LazyLock</code> by every consumer. There is no env var, no file load, and no runtime override: a deployment that wants a different ontology recompiles. The module's own header claims a hot-swap capability that does not exist in the code, and §16 records that.</p>
       <h3>10.2 Beyond satellites: devices, and subjects that are not places</h3>
       <p>Any observer with a signing key and an address can join the same attest, recall, cite, verify path. <code>POST /v1/attest</code> is the multi-writer endpoint that ships today. What also ships now is the machinery that admits a <em>device</em> (a robot, telescope, microscope, drone, or operator satellite) whose one-time physical reading no third party can recompute:</p>

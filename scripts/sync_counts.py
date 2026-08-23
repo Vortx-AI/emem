@@ -367,6 +367,64 @@ NEAR_MISS_RECORDS = (
 )
 
 
+# Headings that declare a whole section to be a record of superseded claims.
+_HISTORICAL_HEADINGS = (
+    "were false", "became false", "withdraw", "no longer true",
+    "what v1 said", "superseded", "corrections",
+)
+
+
+def is_historical_record(lead: str) -> bool:
+    """Is this number a record of what a count WAS, rather than a claim about now?
+
+    One function, because the rule existed TWICE inline -- in the near-miss
+    sweep and in the byte-claims scan -- while a third consumer had neither
+    copy. Two copies of a rule and one place that needed it and did not have it
+    is the shape this repository keeps finding.
+    """
+    low = lead.lower()
+    return "then-" in low or "was " in low or "were " in low
+
+
+def only_under_historical_headings(body: str, number: str) -> bool:
+    """Does EVERY occurrence of `number` sit inside a retracted section?
+
+    Deliberately conservative, and offset-free so it works alongside the
+    flattened text the prose verifier matches against. Exempting is the risk --
+    a wrongly exempted number is a stale claim nothing checks -- so this
+    requires all occurrences to be under a heading that declares itself a
+    record. One live use of the same number anywhere else and the exemption is
+    off.
+
+    That conservatism earned itself immediately. Written for the whitepaper's
+    "18.2 Claims in v1's supporting material this document withdraws", which
+    quotes "46 declared sources and 124 wired measurements" in order to retract
+    it, it refused to exempt -- because 124 ALSO appeared in a live sentence,
+    "the gap between 43 slots and 124 wired names", against a responder
+    answering 129. A stale claim that had sat unguarded because no pattern
+    watched that phrasing.
+    """
+    import re as _re
+
+    heads = [(m.start(), len(m.group(1)), m.group(2))
+             for m in _re.finditer(r"(?m)^(#{1,6})\s+(.+)$", body)]
+    spans = []
+    for i, (start, level, title) in enumerate(heads):
+        if not any(mk in title.lower() for mk in _HISTORICAL_HEADINGS):
+            continue
+        end = len(body)
+        for nstart, nlevel, _t in heads[i + 1:]:
+            if nlevel <= level:
+                end = nstart
+                break
+        spans.append((start, end))
+    if not spans:
+        return False
+    hits = [m.start() for m in
+            _re.finditer(r"(?<![\d.])" + _re.escape(number) + r"(?![\d.])", body)]
+    return bool(hits) and all(any(a <= h < b for a, b in spans) for h in hits)
+
+
 def near_miss_claims(canon):
     """Counts close enough to a canonical value to be a stale statement of it."""
     import re as _re
@@ -407,8 +465,9 @@ def near_miss_claims(canon):
                 if not near:
                     continue
                 lead = text[max(0, m.start() - 40):m.start()]
-                # "70 of the then-102 tools" is a record, not a claim.
-                if "then-" in lead or "was " in lead or "were " in lead:
+                # "70 of the then-102 tools" is a record, not a claim. One rule,
+                # shared with the two other places that needed it.
+                if is_historical_record(lead):
                     continue
                 # A withdrawal table quotes the old claim in its left column
                 # and corrects it in the right: `| §17: 81 MCP tools | **108**`.
@@ -425,6 +484,29 @@ def near_miss_claims(canon):
 # pattern names one CANON key and one way the docs phrase it.
 PROSE_CLAIMS = (
     ("mcp_tools",    r"(\d{2,4})\s+MCP tools\b"),
+    # The twelve phrasings the coverage ratchet measured as unread, added as
+    # patterns rather than carried as a baseline. Written to catch the CLAIM and
+    # not the sentence, because the comment below is right that the sixth
+    # spelling always exists and a pattern per spelling loses that race.
+    #
+    # NOT a general `(\d+) tools`: that was the first attempt and it fired on
+    # three legitimate sentences at once -- "the core loop (16 tools)" is the
+    # core tier, "MCP tool registry (92 tools)" the extended tier, and "an
+    # independent sweep of 70 tools" a record of a past audit. A pattern keyed
+    # to the wrong tier demands 16 == 108 and fails a correct document, which is
+    # how a gate earns being switched off. The claim actually being guarded is
+    # "what you reach is the whole surface", and it is always written with same.
+    ("mcp_tools",    r"same\s+(\d{2,4})\s+tools\b"),
+    ("mcp_core",     r"(\d{1,3})\s+tools\s+of\s+the\s+(?:core\s+)?loop"),
+    ("materializer_wired", r"(\d{2,4})\s+wired\s+measurements"),
+    ("materializer_wired", r"(\d{2,4})\s+wired\s+names"),
+    ("source_schemes",     r"(\d{2,4})\s+declared\s+source\s+schemes"),
+    ("source_schemes",     r"Source schemes\s*\|\s*(\d{2,4})\s+declared"),
+    ("cube_slots",   r"(\d{2,4})\s+bands\s+in\s+the\s+manifest"),
+    ("topics",       r"(\d{1,3})\s+band-topics\b"),
+    ("topics",       r"(\d{1,3})\s+topic\s+routes\b"),
+    # A backtick between the number and the path defeated the existing spelling.
+    ("rest_paths_openapi_total", r"(\d{2,4})\s+documented,\s*\d{2,4}\s+under\s*`?/v1"),
     # The REST surface, in every phrasing the repo actually used. None of these
     # existed until 2026-08-10 and all four were wrong at once: web/llms.txt
     # told agents "133 documented /v1 paths" and docs/agents.md "114 paths
@@ -599,7 +681,7 @@ _COUNTED_NOUN = re.compile(
 # The number goes DOWN as phrasings are added to PROSE_CLAIMS. It may only go up
 # deliberately, by editing this line, which is the point: an unguarded count is
 # then a decision somebody made rather than one nobody noticed.
-UNGUARDED_COUNT_CLAIMS_BASELINE = 18
+UNGUARDED_COUNT_CLAIMS_BASELINE = 0
 
 
 def unguarded_count_claims() -> list[tuple[str, str, int, str]]:
@@ -610,7 +692,20 @@ def unguarded_count_claims() -> list[tuple[str, str, int, str]]:
     something else, and those are excluded rather than counted -- a gate that
     cries wolf on `%20` in a badge URL gets switched off.
     """
-    pats = list(SCRIPT_PROSE_CLAIMS) + list(_TOOL_CLAIMS)
+    # THE TWO TABLES ARE ORDERED OPPOSITELY, and concatenating them was a bug.
+    #
+    # PROSE_CLAIMS (and so SCRIPT_PROSE_CLAIMS) is (key, pattern).
+    # _TOOL_CLAIMS is (pattern, key). This unpacked the concatenation uniformly
+    # as (pattern, key), so for 29 of 41 entries it compiled the KEY as a regex
+    # -- `mcp_tools` matches nothing -- and built the coverage set from the 12
+    # that happened to be the right way round. It reported 18 unguarded claims
+    # of which 6 were guarded all along.
+    #
+    # The control did not catch it: adding a 19th claim raises the count from 18
+    # to 19 whether or not coverage is computed at all. A negative control alone
+    # cannot tell a working measurement from a broken one. The positive one is
+    # verify_coverage_measurement_works below.
+    pats = [(pat, key) for key, pat in SCRIPT_PROSE_CLAIMS] + list(_TOOL_CLAIMS)
     surfaces = sorted(set(list(TOOL_COUNT_SURFACES) + [
         "README.md", "docs/agents.md", "web/llms.txt", "llms-install.md",
     ]))
@@ -648,6 +743,41 @@ def unguarded_count_claims() -> list[tuple[str, str, int, str]]:
                 ctx = " ".join(text[max(0, m.start() - 50):m.end() + 34].split())
                 out.append((rel, key, val, ctx))
     return out
+
+
+def verify_coverage_measurement_works() -> list[str]:
+    """A POSITIVE control: a claim we know is guarded must read as covered.
+
+    The ratchet only ever counted UNguarded claims, which is a negative control:
+    adding one more raises the number whether or not coverage is computed at
+    all. It passed green while the coverage set was being built from the wrong
+    half of each pattern table -- PROSE_CLAIMS is (key, pattern), _TOOL_CLAIMS
+    is (pattern, key), and unpacking both the same way compiled 29 keys as
+    regexes. The count it produced was 18; the true number was 12.
+
+    So this asserts the other direction, on the oldest and least ambiguous
+    pattern in the file. If the measurement stops seeing `108 MCP tools`, the
+    unguarded count is not merely wrong, it is not measuring coverage.
+    """
+    import re as _re
+
+    sample = "the responder serves 108 MCP tools and 168 algorithms today"
+    pats = [(pat, key) for key, pat in SCRIPT_PROSE_CLAIMS] + list(_TOOL_CLAIMS)
+    covered = set()
+    for pattern, _key in pats:
+        for m in _re.finditer(pattern, sample):
+            covered.update(range(m.start(), m.end()))
+    problems = []
+    for needle in ("108", "168"):
+        at = sample.index(needle)
+        if at not in covered:
+            problems.append(
+                f"the coverage measurement cannot see {needle!r} in {sample!r}, "
+                f"which the pattern tables in this file exist to guard. The "
+                f"unguarded count is not measuring coverage -- check the "
+                f"(key, pattern) order of the tables it concatenates."
+            )
+    return problems
 
 
 def verify_prose_coverage() -> list[str]:
@@ -766,7 +896,11 @@ def verify_prose_counts() -> list[str]:
                 # A sentence that explicitly frames the number as past tense is
                 # a record, not a claim: "70 of the then-102 tools".
                 lead = flat[max(0, m.start() - 24):m.start()].lower()
-                if "then-" in lead or "was " in lead or "were " in lead:
+                if is_historical_record(lead):
+                    continue
+                # A number quoted only inside a section that declares itself a
+                # list of withdrawn claims is a record, not a claim about now.
+                if only_under_historical_headings(body, m.group(1)):
                     continue
                 # The whitepaper carries a "what v1 said -> what is true now"
                 # table. The left cell QUOTES the superseded spec and is
@@ -935,6 +1069,7 @@ def verify_canon() -> list[str]:
     # comparing to CANON, not by listing phrases that have already gone stale.
     drift.extend(verify_tool_counts())
     drift.extend(verify_prose_counts())
+    drift.extend(verify_coverage_measurement_works())
     drift.extend(verify_prose_coverage())
     drift.extend(verify_script_prose_counts())
     drift.extend(verify_prose_version())
@@ -1082,7 +1217,24 @@ def write_prose_counts(check_only: bool) -> list[str]:
                 if line.lstrip().startswith("| §") and "**" in line:
                     return m.group(0)
                 lead = m.string[max(0, m.start() - 40):m.start()]
-                if "then-" in lead or "was " in lead or "were " in lead:
+                if is_historical_record(lead):
+                    return m.group(0)
+                # A NUMBER QUOTED ONLY UNDER A WITHDRAWAL HEADING IS A RECORD,
+                # and rewriting it destroys the record.
+                #
+                # This writer had the lead test and not the section test, so it
+                # "corrected" the whitepaper's 18.2 -- headed "Claims in v1's
+                # supporting material this document withdraws" -- turning the
+                # quoted `"46 declared sources and 124 wired measurements"` into
+                # 129, on a line whose own preamble reads "entries below record
+                # what was claimed, not what is still claimed". It ran on a
+                # commit hook, so it would have done that silently and forever.
+                #
+                # The checker learned this rule one commit ago and the writer
+                # did not, which is the writer and the checker disagreeing about
+                # one document -- the same defect this file exists to catch, in
+                # the file that catches it.
+                if only_under_historical_headings(m.string, said):
                     return m.group(0)
                 # Replace only the captured number, keeping the phrasing.
                 s, e = m.span(1)

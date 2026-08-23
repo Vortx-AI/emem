@@ -24,7 +24,7 @@ This site renders the canonical docs straight from the repo at `docs/`. Every pa
 - **[Agents](./agents.md):** agent integrator's rosetta, every memory operation mapped to its emem primitive
 - **[Whitepaper](./whitepaper-v2.md):** math, trust layer, receipt rules
 - **[Protocol](./protocol.md):** wire format, `cell64`, `cid64`, `tslot`, receipts
-- **[Registries](./registries.md):** bands (43 cube slots, 124 wired names), algorithms (162), functions, sources (46), topics (27), schema, lcv-1, alphabet
+- **[Registries](./registries.md):** bands (43 cube slots, 129 wired names), algorithms (162), functions, sources (46), topics (27), schema, lcv-1, alphabet
 - **[Errors](./errors.md):** typed error codes including `memory_attestation_invalid`, `memory_namespace_violation`, `invalid_temporal_bound`, `invalid_signed_at_format`
 - **[Developers / Operators](./developers/architecture.md):** build, run, deploy
 

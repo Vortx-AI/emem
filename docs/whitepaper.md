@@ -1187,7 +1187,7 @@ new bands without breaking existing offsets.
      704    10  sentinel2_raw      optical      fast    public
 ```
 
-The gap between 43 slots and 124 wired names is parametric expansion:
+The gap between 43 slots and 129 wired names is parametric expansion:
 every Sentinel-2 reflectance band, every spectral index, every Tessera
 vintage, and every Open-Meteo variant rides a fixed underlying slot.
 
