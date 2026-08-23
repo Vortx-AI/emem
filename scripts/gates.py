@@ -35,6 +35,9 @@ the same file two ways -- those are properties worth knowing but they do not
 order the suite. If a second real dependency turns up, it goes here with its
 reason rather than into the sequence silently.
 """
+import re
+import shlex
+import pathlib
 import subprocess
 import sys
 from pathlib import Path
@@ -42,26 +45,63 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 # The one gate whose result governs whether the others' results mean anything.
-TRUST = (
-    ["python3", "scripts/shadowed_definitions.py"],
-    "shadowed definitions",
-    "decides whether every other gate's verdict is about the code that runs",
-)
+TRUST_SCRIPT = "scripts/shadowed_definitions.py"
+TRUST_WHY = "decides whether every other gate's verdict is about the code that runs"
 
-# Everything else. Order among these is not load-bearing; it is roughly
-# cheapest-first so a fast failure arrives fast.
-GATES = [
-    (["python3", "scripts/doc_lint.py"], "doc lint",
-     "prose rules over the documents"),
-    (["python3", "scripts/design_tokens.py"], "design tokens",
-     "one token file, one scale, dark mode on every page"),
-    (["python3", "scripts/provenance_classes.py"], "provenance classes",
-     "every class emitted or published is one we declare"),
-    (["python3", "scripts/openapi_coverage.py"], "openapi coverage",
-     "every routed path described or excluded with a reason"),
-    (["python3", "scripts/sync_counts.py", "--check"], "counts",
-     "every stated count matches the responder, and nothing goes unread"),
-]
+CI_WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
+
+# One line per gate, and it is NOT written here.
+#
+# The first version of this file listed the gates by hand and covered six of
+# the thirteen CI runs. It printed "6 gates passed" while CI was red on
+# spacing_scale.py, which was not in the list -- a runner whose green was an
+# assurance it had no basis for, and a coverage claim made by omission in the
+# tool built to stop coverage claims being made by omission.
+#
+# So the list is READ FROM THE WORKFLOW. There is no second copy to drift, and
+# a gate added to CI is picked up here without anyone remembering. That is the
+# same rule as reading KNOWN_PROVENANCE out of substrates.rs rather than
+# restating it: a checker carrying its own copy of the thing it checks is the
+# defect wearing a lab coat.
+def ci_gate_steps() -> list[tuple[list[str], str]]:
+    """Every `run: python3 scripts/*.py ...` step in the CI workflow, in order."""
+    if not CI_WORKFLOW.exists():
+        raise FileNotFoundError(f"{CI_WORKFLOW} is missing, so the gate list "
+                                f"cannot be read and this runner has nothing to run")
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    out: list[tuple[list[str], str]] = []
+    seen: set[str] = set()
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        # `run: python3 scripts/x.py` AND the same command inside a `run: |`
+        # block. The first version matched only the former and missed
+        # sync_counts.py, which lives in a multi-line block -- the same
+        # coverage-by-omission this file exists to stop, one level in.
+        if line.startswith("run:"):
+            line = line[4:].strip()
+        if line.startswith("#") or not line.startswith("python3 scripts/"):
+            continue
+        # An `echo` suggesting a command is not a command. Skipping these is
+        # what keeps the line `echo "::error::... Run: python3
+        # scripts/sync_counts.py --write"` from being executed.
+        if "echo" in raw_line:
+            continue
+        # AND NEVER RUN A WRITER. A checker that mutates the tree it is
+        # checking cannot be run to find out whether the tree is clean.
+        if "--write" in line:
+            continue
+        raw = re.sub(r"\$\{[A-Z_]+:-([^}]*)\}", r"\1", line)
+        raw = re.sub(r"\$\{?[A-Z_]+\}?", "", raw)
+        try:
+            cmd = shlex.split(raw)
+        except ValueError:
+            continue
+        script = next((c for c in cmd if c.startswith("scripts/")), "")
+        if not script or script.endswith("gates.py") or script in seen:
+            continue
+        seen.add(script)
+        out.append((cmd, pathlib.Path(script).stem.replace("_", " ")))
+    return out
 
 
 def run(cmd: list[str], label: str) -> tuple[bool, str]:
@@ -77,16 +117,34 @@ def run(cmd: list[str], label: str) -> tuple[bool, str]:
 
 
 def main() -> int:
+    try:
+        steps = ci_gate_steps()
+    except FileNotFoundError as e:
+        print(f"  {e}")
+        return 1
+    if not steps:
+        # Matching nothing is not passing: the workflow moved or its shape did.
+        print(f"  MATCHED NOTHING: no gate steps found in {CI_WORKFLOW}.")
+        return 1
+
+    trust = [(c, l) for c, l in steps if TRUST_SCRIPT in c]
+    rest = [(c, l) for c, l in steps if TRUST_SCRIPT not in c]
+    if not trust:
+        print(f"  {TRUST_SCRIPT} is not in the workflow, so nothing establishes")
+        print("  whether the other gates' verdicts are about the code that runs.")
+        return 1
+
     if "--list" in sys.argv:
-        print(f"  0. {TRUST[1]:22} {TRUST[2]}")
-        print("     ^ if this fails, nothing below is run: its verdicts would be")
+        print(f"  0. {trust[0][1]:24} {TRUST_WHY}")
+        print("     ^ if this fails, nothing below runs: their verdicts would be")
         print("       about code that is not the code running")
-        for i, (_c, label, why) in enumerate(GATES, 1):
-            print(f"  {i}. {label:22} {why}")
+        for i, (cmd, label) in enumerate(rest, 1):
+            print(f"  {i}. {label:24} {' '.join(cmd[1:])}")
+        print(f"\n  read from {CI_WORKFLOW.relative_to(REPO)}, never restated here")
         return 0
 
-    ok, line = run(TRUST[0], TRUST[1])
-    print(f"  {'PASS' if ok else 'FAIL'}  {TRUST[1]:22} {line}")
+    ok, line = run(trust[0][0], trust[0][1])
+    print(f"  {'PASS' if ok else 'FAIL'}  {trust[0][1]:24} {line}")
     if not ok:
         print()
         print("  The trust check failed, so the remaining gates were NOT run.")
@@ -96,17 +154,18 @@ def main() -> int:
         return 1
 
     failed = []
-    for cmd, label, _why in GATES:
+    for cmd, label in rest:
         ok, line = run(cmd, label)
-        print(f"  {'PASS' if ok else 'FAIL'}  {label:22} {line}")
+        print(f"  {'PASS' if ok else 'FAIL'}  {label:24} {line}")
         if not ok:
             failed.append(label)
 
     print()
     if failed:
-        print(f"  {len(failed)} gate(s) failed: {', '.join(failed)}")
+        print(f"  {len(failed)} of {len(rest) + 1} gate(s) failed: {', '.join(failed)}")
         return 1
-    print(f"  {len(GATES) + 1} gates passed, and the first one says so about the rest.")
+    print(f"  {len(rest) + 1} gates passed -- every one CI runs -- and the first")
+    print("  one says so about the rest.")
     return 0
 
 

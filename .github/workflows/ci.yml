@@ -410,7 +410,7 @@ jobs:
       # so this holds the line at today's count and comes down as pages are
       # redesigned. It must never go up.
       - name: spacing comes from the scale
-        run: python3 scripts/spacing_scale.py --budget 1382
+        run: python3 scripts/spacing_scale.py --budget 1379
       # live_numbers proves a figure is fetched. It cannot prove the fetch
       # finds anything: rename a field and put() is handed undefined, declines
       # to write, and the tile keeps its placeholder, so the page reads as
