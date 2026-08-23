@@ -1292,6 +1292,47 @@ other field of the original request enters the signature.** Specifically:
 - **Requested `bands[]`, `tslot`, `intent` are not signed.** The
   responder returned facts at the cells it claims; whether those facts
   answered the *question* is the agent's job to assess.
+- **The VALUES are not signed by the receipt.** The preimage lists
+  `fact_cids`. It never touches the numbers printed beside them, so a
+  responder returning `value: 0.99` next to a `fact_cid` whose real
+  preimage says `0.059` produces a receipt that verifies. This is not a
+  hole in the signature; it is what the signature is for. The cid is the
+  commitment to the value, and checking it is a separate step, the one
+  below.
+
+### Checking a value against its content id
+
+The receipt says *this responder attested to these ids*. The content id
+says *this is the content*. They are different claims and both are
+checkable without trusting anyone.
+
+`Accept: application/cbor` returns the exact bytes the cid hashes. The
+JSON form cannot be used for this: a document cannot carry the CBOR type
+widths (`confidence` is an `f32` written as CBOR float32, and JSON widens
+it to a double), so a reconstruction from the JSON will not match.
+
+```python
+import base64, requests, blake3
+
+EMEM = "https://emem.dev"
+rec = requests.post(f"{EMEM}/v1/recall",
+                    json={"cell": "defi.zb64a.cAzU.zfa27",
+                          "band": "indices.ndvi"}, timeout=45).json()
+
+for f in rec["facts"]:
+    cid = f["fact_cid"]
+    body = requests.get(f"{EMEM}/v1/facts/{cid}",
+                        headers={"Accept": "application/cbor"},
+                        timeout=45).content
+    got = base64.b32encode(blake3.blake3(body).digest()).decode().rstrip("=").lower()
+    assert got == cid, f"{cid} does not address the bytes served under it"
+    print(f"{f['band']}: {f['value']} is the value {cid[:12]}... commits to")
+```
+
+The assertion is the whole point: a route whose bytes hash to their own
+address can be caught lying by anyone who bothers to check. Verify the
+check discriminates before you trust it: hash one fact's bytes against
+another fact's cid and confirm it fails.
 
 If your downstream relies on "the user asked X and the responder
 agreed", echo the original query alongside the receipt. The trust chain
