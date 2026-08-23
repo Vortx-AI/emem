@@ -3448,7 +3448,21 @@ async fn landing(headers: HeaderMap) -> Response {
             .body(axum::body::Body::from(body))
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     }
-    html_or_md(&headers, rendered_index_html(), LLMS_TXT)
+    // Not html_or_md, because the page is now built per response rather than
+    // being a `&'static str`. Leaking one string per request to satisfy that
+    // signature would trade a memory leak for a type, so the branch is written
+    // out instead. Markdown callers are unaffected: agents get llms.txt and the
+    // album is a visual surface.
+    if prefer_markdown(&headers) {
+        return text_response("text/markdown; charset=utf-8", LLMS_TXT);
+    }
+    let page =
+        rendered_index_html().replace("<!--##ALBUM_FIRST##-->", &album_first_place_html().await);
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(axum::body::Body::from(page))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 async fn agents_page(headers: HeaderMap) -> Response {
@@ -28423,8 +28437,7 @@ fn robotics_observation(total: i64) -> (&'static str, &'static str) {
 ///
 /// Four refusals are built in, and each is here because measurement said so.
 async fn a2a_robotics_at(cell: &str, question: &str) -> Result<JsonValue, (i64, String)> {
-    let base = std::env::var("EMEM_PERCEPTION_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    let base = perception_base_url();
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(180))
         .build()
@@ -28917,8 +28930,7 @@ async fn perception_proxy(
             .into_response();
     }
 
-    let base = std::env::var("EMEM_PERCEPTION_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    let base = perception_base_url();
     let url = match query {
         Some(q) if !q.is_empty() => format!("{base}/{clean}?{q}"),
         _ => format!("{base}/{clean}"),
@@ -62428,6 +62440,159 @@ fn rfc3339_to_unix_secs(t: &str) -> Option<i64> {
     Some(secs)
 }
 
+/// The homepage's first painting, rendered by the responder rather than by the
+/// reader's browser.
+///
+/// The album fetches its places from the painter at runtime, which is right: a
+/// list of places written into the page went stale within a day and showed a
+/// quarter of what existed. But building ALL of it in JavaScript meant the
+/// served HTML held one template and a refusal, so `thumb.png` appeared twice in
+/// a page that claims to show twelve paintings. Anything that reads HTML without
+/// running it saw none of them, and that includes the agents this page exists to
+/// argue for.
+///
+/// So one place is filled in here, with its counts and the calls that produced
+/// it, and the script adds the other eleven when it can. A page about
+/// machine-readable evidence should not need a script to reveal that it has any.
+///
+/// Cached, because this runs on every homepage load and the painter's index is a
+/// fan-out of object reads on its side. Stale by up to the TTL and never wrong:
+/// a place that stops being painted disappears on the next refresh, and the
+/// worst case is one card older than the eleven beside it.
+async fn album_first_place_html() -> String {
+    type Cached = (std::time::Instant, String);
+    static CACHE: std::sync::OnceLock<Mutex<Option<Cached>>> = std::sync::OnceLock::new();
+    const TTL_S: u64 = 300;
+
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Ok(c) = cache.lock() {
+        if let Some((at, html)) = c.as_ref() {
+            if at.elapsed().as_secs() < TTL_S {
+                return html.clone();
+            }
+        }
+    }
+
+    let base = perception_base_url();
+    let built = async {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(6))
+            .build()
+            .ok()?;
+        let idx: JsonValue = client
+            .get(format!("{base}/cards"))
+            .send()
+            .await
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        let places = idx.get("places")?.as_array()?;
+        // The busiest place rather than the newest: an album's first card should
+        // be one with something in it, and `panels` is how many observations we
+        // hold rather than how recently we looked.
+        let p = places
+            .iter()
+            .max_by_key(|p| p.get("panels").and_then(|v| v.as_u64()).unwrap_or(0))?;
+        let slug = p.get("slug")?.as_str()?;
+        if !slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            // The slug is interpolated into markup and a URL. It comes from
+            // another service, so it is checked here rather than trusted.
+            return None;
+        }
+        let pretty = slug
+            .split('-')
+            .map(|w| {
+                let mut ch = w.chars();
+                match ch.next() {
+                    Some(f) => f.to_uppercase().collect::<String>() + ch.as_str(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Counts, or the honest absence. Three states, as everywhere else: a
+        // null is no observation and must not become "nothing seen".
+        let what = match p.get("counts") {
+            None | Some(JsonValue::Null) => "no observation: not showing a street".to_string(),
+            Some(c) => {
+                let mut parts: Vec<String> = c
+                    .as_object()
+                    .map(|m| {
+                        let mut v: Vec<String> = m
+                            .iter()
+                            .filter_map(|(k, n)| n.as_u64().map(|n| format!("{n} {k}")))
+                            .collect();
+                        v.sort();
+                        v
+                    })
+                    .unwrap_or_default();
+                if parts.is_empty() {
+                    "nothing seen in this frame".to_string()
+                } else {
+                    parts.remove(0) + &parts.iter().map(|s| format!(", {s}")).collect::<String>()
+                }
+            }
+        };
+        let age = match (
+            p.get("observed_age_seconds").and_then(|v| v.as_i64()),
+            p.get("observed_age_basis").and_then(|v| v.as_str()),
+        ) {
+            (Some(a), basis) => {
+                let t = if a < 90 {
+                    "seconds ago".to_string()
+                } else if a < 5400 {
+                    format!("{} min ago", a / 60)
+                } else {
+                    format!("{} h ago", a / 3600)
+                };
+                // The basis travels with the age: one clock says when the world
+                // was seen, the other when the drawing finished.
+                match basis {
+                    Some("clip_retained_at") => format!("seen {t}"),
+                    _ => format!("painted {t}"),
+                }
+            }
+            _ => String::new(),
+        };
+
+        Some(format!(
+            "<figure class=\"album-card\" tabindex=\"0\" role=\"button\" data-slug=\"{slug}\">\
+             <img loading=\"eager\" decoding=\"async\" width=\"240\" height=\"194\" \
+             alt=\"Preview of the {pretty} panel, painted from a count made in one frame of a \
+             signed camera clip.\" src=\"/v1/perception/cards/{slug}/thumb.png\">\
+             <figcaption><b>{pretty}</b>{what}<u>{age}</u></figcaption></figure>"
+        ))
+    }
+    .await
+    .unwrap_or_default();
+
+    if let Ok(mut c) = cache.lock() {
+        *c = Some((std::time::Instant::now(), built.clone()));
+    }
+    built
+}
+
+/// Where the ground-camera service listens.
+///
+/// One function because the lookup was written out five times with the same
+/// default, which is the shape the upstream just spent a day removing from its
+/// own code: a value copied into a second place where nothing keeps it in step
+/// with the first. All five agreed, which is exactly how the sixth edit changes
+/// four of them and the remaining one keeps answering from somewhere else.
+///
+/// Their version of this was worse and the difference is instructive rather than
+/// comforting: theirs were five confidence floors that DISAGREED, so a tracker
+/// saw 51% of what a counter saw on identical pixels. Mine agree today. The
+/// defect is the same and only the symptom is pending.
+fn perception_base_url() -> String {
+    std::env::var("EMEM_PERCEPTION_URL").unwrap_or_else(|_| "http://127.0.0.1:5017".to_string())
+}
+
 /// Cached postcard bytes, keyed by the cell they depict.
 ///
 /// Painting one costs ~15s upstream because it runs detection on a live clip.
@@ -62519,8 +62684,7 @@ async fn get_postcard(axum::extract::Query(q): axum::extract::Query<PostcardQuer
         }
     }
 
-    let base = std::env::var("EMEM_PERCEPTION_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    let base = perception_base_url();
     // Bounded well under the front door's own budget, because a cold paint is
     // genuinely slower than any reasonable request. Measured: a place whose clip
     // is not warm takes ~64 s upstream, the edge cuts the connection at 40 s,
@@ -62704,8 +62868,7 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
     if cell.is_empty() {
         return None;
     }
-    let base = std::env::var("EMEM_PERCEPTION_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5017".to_string());
+    let base = perception_base_url();
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     let wants_scene = question_wants_live_scene(question);
 

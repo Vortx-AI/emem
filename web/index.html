@@ -1128,6 +1128,17 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 
   <div class="album" id="album">
     <div class="album-grid" id="album-grid">
+      <!-- SERVER-RENDERED FIRST PLACE.
+           Everything else in this grid is built by JavaScript after a fetch, so
+           the served HTML used to contain one template and a refusal: twelve
+           paintings, and `thumb.png` appearing twice in the markup. Anything
+           reading HTML rather than running it -- which includes the agents this
+           page argues for -- saw no paintings at all.
+           This block is filled by the responder before the page leaves it, so
+           there is always one real painting, with its counts and its endpoints,
+           for a reader with no JavaScript and for a crawler that never runs any.
+           The script replaces it with the full set when it can. -->
+      <!--##ALBUM_FIRST##-->
       <p class="album-wait">Reading the painter&rsquo;s index&hellip;</p>
     </div>
     <figure class="album-plate" id="album-plate" hidden>
