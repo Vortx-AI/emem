@@ -19993,6 +19993,48 @@ async fn get_fact(
         )
         .into_response();
     };
+    // THE BYTES THE CID COMMITS TO, on request.
+    //
+    // Everything else here is JSON, and JSON cannot carry what the content id
+    // is a hash of: `confidence` is an f32 written as CBOR float32 and a
+    // document widens it to a double, and the nested newtypes serialize in ways
+    // the document does not describe. So a caller reading /v1/facts could see a
+    // value and its cid and had no way to check that one addresses the other.
+    //
+    // The receipt does not close that gap. It signs a LIST OF CIDS -- proof the
+    // responder attested to those ids for that request, and silent about the
+    // numbers printed beside them. A responder serving a wrong value next to a
+    // right cid passed every check we published.
+    //
+    // With these bytes the check is three lines and needs no trust:
+    //   base32_nopad_lower(blake3(body)) == the cid in the URL you asked for.
+    // A route whose bytes hash to their own address can be caught lying by
+    // anyone who bothers.
+    let wants_cbor = headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| a.contains("application/cbor"));
+    if wants_cbor {
+        return match emem_cache::fact_canonical_cbor(&fact) {
+            Ok(bytes) => Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_TYPE, "application/cbor")
+                .header(ETAG, &etag_value)
+                .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
+                .header("x-emem-cid-preimage", "blake3-32; base32-nopad-lowercase")
+                .body(axum::body::Body::from(bytes))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+            Err(e) => ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("could not encode the fact's canonical bytes: {e}"),
+                    details: None,
+                },
+            )
+            .into_response(),
+        };
+    }
     let body = serde_json::to_string(&fact).unwrap_or_else(|_| "{}".into());
     Response::builder()
         .status(StatusCode::OK)
@@ -27489,7 +27531,7 @@ fn openapi_spec() -> JsonValue {
             // and a few importers (Vertex Agent Builder, Postman) flagged
             // the duplicate. Keep the ETag/304-aware shape, expose both
             // operationIds via tags so the legacy clients still resolve.
-            "/v1/facts/{cid}":       {"get":{"summary":"fact dereference by CID (immutable, ETag-tagged)","operationId":"emem_fetch","tags":["fetch","get_fact"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_etag,"304":json_unchanged,"404":json_not_found}}},
+            "/v1/facts/{cid}":       {"get":{"summary":"fact dereference by CID (immutable, ETag-tagged). Send `Accept: application/cbor` to get THE BYTES THE CID COMMITS TO, so you can check the binding yourself: base32-nopad-lowercase(blake3(body)) must equal the cid in the path. The JSON form cannot be used for this -- it cannot carry the CBOR type widths (confidence is an f32 written as float32, which a document widens to a double) and the receipt does not close the gap either, because a receipt signs a LIST OF CIDS and says nothing about the values printed beside them.","operationId":"emem_fetch","tags":["fetch","get_fact"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}},{"name":"Accept","in":"header","required":false,"schema":{"type":"string","enum":["application/json","application/cbor"]},"description":"application/cbor returns the exact preimage of the cid"}],"responses":{"200":json_etag,"304":json_unchanged,"404":json_not_found}}},
             "/v1/fetch":             {"post":{"summary":"REST mirror of MCP `emem_fetch`. Resolve a fact by `{cid}` OR materialize `{cell, band[, tslot]}` (cell may be place name).","operationId":"emem_fetch_post","tags":["fetch"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FetchReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): rebuild the canonical preimage under the rule the receipt's own `preimage_version` names and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server. Pass the receipt EXACTLY as it was returned: preimage_version 2 binds every field it covers, including `merkle_proof` and `preimage_version` itself, so a reshaped receipt fails the same way a forged one does. Those two are the only omissions that reach a signature failure rather than a 400. When this responder can prove which of the two it is, `reason` is `receipt_reshaped_after_signing` rather than `signature_invalid` and `failure_detail` names the field. Neither ever returns `valid: true`.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},

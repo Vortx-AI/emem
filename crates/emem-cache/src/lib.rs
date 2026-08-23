@@ -85,3 +85,4 @@ pub enum CacheError {
 
 pub mod sled_hot;
 pub use sled_hot::SledHotCache;
+pub use sled_hot::{fact_canonical_cbor, fact_cid_of};

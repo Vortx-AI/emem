@@ -332,6 +332,24 @@ pub fn fact_cid_of(fact: &Fact) -> Result<FactCid, CacheError> {
     Ok(FactCid::new(s))
 }
 
+/// The exact bytes a [`FactCid`] commits to: `ciborium(fact)`.
+///
+/// Public because a caller who cannot obtain these bytes cannot check that the
+/// value a responder shows is the value its content id addresses. The receipt
+/// signature proves the responder attested to a LIST OF CIDS; it says nothing
+/// about the numbers printed beside them. Without a way to recompute
+/// `blake3(these bytes)` and compare it to the cid, "content-addressed" is a
+/// property of our storage rather than a claim a reader can check.
+///
+/// Reconstructing them from the JSON form is not possible in practice: the
+/// document cannot carry CBOR type widths (`confidence` is an f32 written as
+/// CBOR float32, which JSON widens), nor the serialization of the nested
+/// newtypes. Serving them is the difference between a verifiable claim and one
+/// that has to be taken on trust.
+pub fn fact_canonical_cbor(fact: &Fact) -> Result<Vec<u8>, CacheError> {
+    fact_to_cbor(fact)
+}
+
 fn fact_to_cbor(fact: &Fact) -> Result<Vec<u8>, CacheError> {
     let mut buf = Vec::new();
     ciborium::ser::into_writer(fact, &mut buf).map_err(|e| CacheError::Cbor(e.to_string()))?;
@@ -493,7 +511,7 @@ mod tests {
     use emem_core::AttesterKey;
     use emem_fact::{Derivation, PrimaryFact, SchemaCid, Source};
 
-    fn sample_fact(cell: &str, band: &str, tslot: u64) -> Fact {
+    pub(super) fn sample_fact(cell: &str, band: &str, tslot: u64) -> Fact {
         Fact::Primary(PrimaryFact {
             cell: cell.into(),
             band: band.into(),
@@ -592,5 +610,59 @@ mod tests {
             .unwrap();
         assert_eq!(exact.len(), 1);
         assert_eq!(exact[0].0.tslot, 7);
+    }
+}
+
+#[cfg(test)]
+mod cid_preimage_tests {
+    use super::*;
+
+    /// The bytes we serve MUST hash to the cid that addresses them.
+    ///
+    /// This is the claim `/v1/facts/{cid}` with `Accept: application/cbor` makes
+    /// by existing: a reader recomputes `blake3` over the body, base32-encodes
+    /// it, and compares to the id they asked for. If those two ever come apart,
+    /// every caller who checked would see it -- so this asserts the property
+    /// here, where it is cheap, rather than waiting for someone outside to find
+    /// it.
+    ///
+    /// Written as round-tripping the two public functions against each other
+    /// because they are the two halves a caller uses: the id we publish and the
+    /// preimage we publish. A test that recomputed the hash by calling the same
+    /// helper twice would prove nothing.
+    #[test]
+    fn the_canonical_bytes_hash_to_the_cid_that_addresses_them() {
+        use data_encoding::BASE32_NOPAD;
+
+        let fact = super::tests::sample_fact("defi.zb64a.cAzU.zfa27", "indices.ndvi", 20367);
+        let cid = fact_cid_of(&fact).expect("cid");
+        let bytes = fact_canonical_cbor(&fact).expect("bytes");
+
+        let mut h = Hasher::new();
+        h.update(&bytes);
+        let recomputed = BASE32_NOPAD.encode(h.finalize().as_bytes()).to_lowercase();
+
+        assert_eq!(
+            recomputed,
+            cid.as_str(),
+            "the served preimage does not hash to the id it is served under"
+        );
+        assert_eq!(cid.as_str().len(), 52, "256 bits, base32-nopad");
+
+        // A CHANGED VALUE MUST CHANGE THE ADDRESS. Without this the assertion
+        // above passes for a function that returns a constant.
+        let mut other = fact.clone();
+        if let Fact::Primary(p) = &mut other {
+            p.value = ciborium::Value::Float(0.123_456_f64);
+        }
+        let other_cid = fact_cid_of(&other).expect("cid");
+        assert_ne!(
+            other_cid.as_str(),
+            cid.as_str(),
+            "a different value must have a different address, or the address \
+             is not addressing the content"
+        );
+        let other_bytes = fact_canonical_cbor(&other).expect("bytes");
+        assert_ne!(other_bytes, bytes, "and different content, different bytes");
     }
 }
