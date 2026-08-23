@@ -1152,88 +1152,271 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      bytes that hash commits to are held rather than linked. If the painter is
      unreachable the alt text says so and the page carries on, which is the
      correct failure: a missing panel is honest, a stale one is not. -->
-<!-- LIVE GALLERY. Three painted streets and one moving one, none of which
-     exist until you scroll to them.
+<!-- THE ALBUM.
+     Places painted from their own street cameras, listed from the painter
+     rather than from a list written here.
 
-     The cost is the reason this is built the way it is. Each panel is roughly
-     200 KB of SVG and the film is 335 KB, so loading all four with the page
-     would put nearly a megabyte of London in front of a reader who came to
-     find out what emem is. Every one of them is fetched by an observer when it
-     is about to become visible and never before, so a visitor who stops
-     reading above this section pays nothing for it.
+     It used to name three slugs in this file. The painter had twelve by the
+     next morning, so the page was both hardcoded and wrong: it showed a
+     quarter of what existed and would have kept showing three forever. The
+     index is fetched now, so a place that starts being painted appears here
+     without anyone editing this page, and a place that stops disappears.
 
-     Three panels and one film is the ceiling, deliberately. These are painted
-     from live clips by a service with one GPU, and a page that asked for a
-     dozen would be a page that made every other caller queue behind it. -->
-<section class="chapter solo" id="live">
+     COST. One panel is roughly 200 KB of SVG. Twelve of them is two and a half
+     megabytes, which is not an album, it is a download. So the index is text,
+     which is free, and exactly one panel is ever in flight: the one you asked
+     for. Nothing loads until this section is scrolled to, and nothing else
+     loads because you scrolled past it. -->
+<section class="chapter solo" id="album">
   <div class="words">
-    <div class="kicker">Live</div>
-    <h2>Four streets, painted from what was on them</h2>
-    <p class="cap">These are not illustrations and they are not stock. A camera on each of
-      these streets keeps a short clip; a detector counts what is in one frame of it; a painter
-      puts one motif on the panel for each object counted. The clip's sha256 is inked into the
-      seal, so the picture and the number it came from cannot drift apart. Where the street
-      could not be seen, the panel carries pattern and no figures, because an empty street and
-      an unobserved one are different claims.</p>
+    <div class="kicker">The album</div>
+    <h2>Streets, painted from what was on them</h2>
+    <p class="cap">Each of these is one frame of one camera's clip, counted, and painted with one
+      motif per object counted. The clip's sha256 is inked into the card, so the picture and the
+      number cannot drift apart, and you can check the hash yourself without asking us. Pick a
+      place; the panel is fetched when you do.</p>
   </div>
 
-  <div class="livegrid" id="livegrid">
-    <figure class="livecard" data-src="/v1/perception/cards/trafalgar-square/latest.svg"
-            data-w="1240" data-h="1000"
-            data-alt="A Mithila panel of Trafalgar Square, painted from a count made minutes ago: one motif for each object a detector found in a single frame of a signed clip.">
-      <div class="liveslot"><span class="livenote">Trafalgar Square, loads when you reach it</span></div>
-      <figcaption>Trafalgar Square<span class="prov"><a href="/v1/perception/cards/trafalgar-square/latest.svg">open the panel</a> &middot; count, cell and clip hash are inside the file</span></figcaption>
-    </figure>
-    <figure class="livecard" data-src="/v1/perception/cards/piccadilly-circus/latest.svg"
-            data-w="1240" data-h="1000"
-            data-alt="A Mithila panel of Piccadilly Circus, painted from a count made minutes ago: one motif for each object a detector found in a single frame of a signed clip.">
-      <div class="liveslot"><span class="livenote">Piccadilly Circus, loads when you reach it</span></div>
-      <figcaption>Piccadilly Circus<span class="prov"><a href="/v1/perception/cards/piccadilly-circus/latest.svg">open the panel</a> &middot; count, cell and clip hash are inside the file</span></figcaption>
-    </figure>
-    <figure class="livecard" data-src="/v1/perception/cards/tower-bridge/latest.svg"
-            data-w="1240" data-h="1000"
-            data-alt="A Mithila panel of Tower Bridge, painted from a count made minutes ago: one motif for each object a detector found in a single frame of a signed clip.">
-      <div class="liveslot"><span class="livenote">Tower Bridge, loads when you reach it</span></div>
-      <figcaption>Tower Bridge<span class="prov"><a href="/v1/perception/cards/tower-bridge/latest.svg">open the panel</a> &middot; count, cell and clip hash are inside the file</span></figcaption>
-    </figure>
-  </div>
-
-  <!-- The film. `preload="none"` matters as much as the observer: without it a
-       browser will start pulling the file the moment the element exists, which
-       is the whole cost this section is arranged to avoid. -->
-  <figure class="plate livefilm" data-src="/v1/perception/cards/trafalgar-square/timelapse.mp4">
-    <div class="liveslot filmslot"><span class="livenote">A day of Trafalgar Square, loads when you reach it</span></div>
-    <figcaption>Every panel painted of this street today, in order. The street moved; so does the
-      picture of it.
-      <span class="prov">measurement &middot; each frame is a panel painted from its own signed clip</span></figcaption>
-  </figure>
-
-  <!-- Anywhere, not just the four we paint on a timer. This calls the same
-       route an agent calls, which is the point: the reader and the machine get
-       the identical artefact from the identical address. -->
-  <form class="pcgen" id="pcgen">
-    <label for="pcplace">Paint somewhere else</label>
-    <div class="pcrow">
-      <input id="pcplace" name="place" type="text" value="Oxford Circus"
-             placeholder="a place with a street camera" autocomplete="off" spellcheck="false">
-      <button type="submit" id="pcgo">Paint it</button>
+  <div class="album" id="album">
+    <div class="album-grid" id="album-grid">
+      <p class="album-wait">Reading the painter&rsquo;s index&hellip;</p>
     </div>
-    <p class="pcstatus" id="pcstatus">Calls <code>GET /postcard?place=&hellip;</code>, the same address an agent
-      uses. Painting runs a detector on a live frame and takes a few seconds. Places with no camera
-      say so rather than inventing a street.</p>
-    <div class="pcout" id="pcout" hidden></div>
-  </form>
+    <figure class="album-plate" id="album-plate" hidden>
+      <div class="liveslot"><span class="livenote">pick a place</span></div>
+      <figcaption id="album-cap"></figcaption>
+    </figure>
+  </div>
+
+  <!-- The refusal, kept on the page on purpose.
+       Every other item here is a place that worked. A gallery where everything
+       succeeded is what someone who wanted to be trusted would build, so this
+       is the other answer the same route gives: cameras exist, none close
+       enough to stand for the place asked about, and the reason says so with
+       the distance in it. -->
+  <div class="album-refusal" id="album-refusal" hidden>
+    <div class="kicker">And where it refuses</div>
+    <p class="cap" id="album-refusal-text"></p>
+    <pre class="album-json" id="album-refusal-json"></pre>
+  </div>
 </section>
+<style>
+/* The album: a cheap index beside one real panel. Golden section, because the
+   index wants to be readable and the picture wants the room. */
+.album{display:block}
+/* Twelve postcards at 9 KB each is 111 KB, against 2.5 MB for twelve panels.
+   That is the difference between a page of postcards and a download, and it is
+   why the album could only show one place at a time until the painter served a
+   preview. */
+.album-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+.album-card{margin:0;border:0;padding:0;background:none;font:inherit;color:inherit;
+  text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+.album-card img{display:block;width:100%;height:auto;border-radius:3px;background:#ece5d4}
+.album-card figcaption{font-size:.8rem;line-height:1.35}
+.album-card b{display:block;font-weight:600}
+.album-card u{text-decoration:none;color:#8a7a5e;font-size:.74rem}
+.album-card:hover img{outline:2px solid #8a7a5e;outline-offset:1px}
+.album-plate{margin:22px 0 0}
+.album-item{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:8px 10px;border:0;border-radius:3px;background:none;font:inherit;text-align:left;
+  cursor:pointer;color:inherit;width:100%}
+.album-item:hover{background:#f0e9da}
+.album-item[aria-current="true"]{background:#e6dcc6;font-weight:600}
+.album-item b{font-weight:inherit}
+.album-item u{text-decoration:none;font-size:.76rem;color:#8a7a5e;white-space:nowrap}
+.album-plate{margin:0}
+.album-plate img{display:block;width:100%;height:auto;border-radius:3px}
+.album-wait{font-size:.82rem;color:#8a7a5e;margin:0;padding:8px 10px}
+.album-refusal{margin:26px 0 0;padding:18px;border:1px solid #ddd2bd;border-radius:4px;background:#fbf8f1}
+.album-json{margin:10px 0 0;padding:12px;background:#f4efe4;border-radius:3px;overflow-x:auto;
+  font-size:.76rem;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.album-ep{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.album-ep a{font-size:.74rem;padding:3px 8px;border:1px solid #ddd2bd;border-radius:3px;
+  text-decoration:none;color:#6b5f49;background:#fbf8f1}
+.album-ep a:hover{background:#f0e9da}
+@media (max-width:700px){ .album-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))} }
+@media (prefers-color-scheme:dark){
+  .album-item:hover{background:#2a241b}
+  .album-item[aria-current="true"]{background:#332c21}
+  .album-refusal{background:#211d16;border-color:#3b3227}
+  .album-json{background:#181510}
+  .album-ep a{background:#211d16;border-color:#3b3227;color:#c9bda4}
+}
+</style>
+<script>
+/* The album reads its own index from the painter, so this file names no places.
+   One panel in flight at a time, nothing before you scroll here. */
+(function () {
+  var root = document.getElementById('album');
+  if (!root) return;
+  var plate = document.getElementById('album-plate');
+  var cap = document.getElementById('album-cap');
+  var loaded = false;
+
+  function pretty(slug) {
+    return slug.replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+  function ago(iso) {
+    var t = Date.parse(iso);
+    if (!t) return '';
+    var s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 90) return 'just now';
+    if (s < 5400) return Math.round(s / 60) + ' min ago';
+    if (s < 172800) return Math.round(s / 3600) + ' h ago';
+    return Math.round(s / 86400) + ' d ago';
+  }
+
+  function endpoints(slug) {
+    /* What a human just looked at, as the calls that produced it. Same object,
+       two readers. */
+    var base = '/v1/perception';
+    return [
+      [base + '/cards/' + slug + '/latest.svg', 'this panel'],
+      [base + '/cards/' + slug + '/story.svg', 'the strip'],
+      [base + '/cards', 'the index']
+    ];
+  }
+
+  function show(place, btn) {
+    Array.prototype.forEach.call(document.querySelectorAll('.album-card'), function (b) {
+      b.setAttribute('aria-current', b === btn ? 'true' : 'false');
+    });
+    plate.hidden = false;
+    plate.innerHTML = '<div class="liveslot is-loading"><span class="livenote">' +
+      '<span class="livespin" aria-hidden="true"></span>painting ' + pretty(place.slug) +
+      '</span></div><figcaption id="album-cap"></figcaption>';
+    var slot = plate.querySelector('.liveslot');
+    var fc = plate.querySelector('figcaption');
+    var img = document.createElement('img');
+    img.alt = 'A Mithila panel of ' + pretty(place.slug) +
+      ', painted from a count made in one frame of a signed camera clip.';
+    img.decoding = 'async';
+    img.addEventListener('load', function () {
+      if (slot.parentNode) slot.parentNode.replaceChild(img, slot);
+      var eps = endpoints(place.slug).map(function (e) {
+        return '<a href="' + e[0] + '">' + e[1] + '</a>';
+      }).join('');
+      fc.innerHTML = '<b>' + pretty(place.slug) + '</b>. ' + place.panels +
+        ' panels held, newest painted ' + ago(place.newest) +
+        '. <span class="prov">the count, the cell and the clip hash are inside the file</span>' +
+        '<span class="album-ep">' + eps + '</span>';
+    });
+    img.addEventListener('error', function () {
+      slot.innerHTML = '<span class="livefail">that panel could not be reached just now</span>';
+      slot.classList.remove('is-loading');
+    });
+    img.src = '/v1/perception/cards/' + place.slug + '/latest.svg';
+  }
+
+  function count_line(p) {
+    /* What is on the street, from the index, before any picture loads. */
+    var c = p.counts || {};
+    var parts = Object.keys(c).sort().map(function (k) { return c[k] + ' ' + k; });
+    if (!parts.length) return 'nothing seen in this frame';
+    return parts.join(', ');
+  }
+
+  function age_line(p) {
+    /* The BASIS travels with the age, because the two clocks answer different
+       questions. `clip_retained_at` is when the world was seen. `panel_written_at`
+       is when we finished drawing it, which on a slow paint is later by however
+       long the paint took. A reader is entitled to know which one they got, so
+       this does not smooth them into one word. */
+    var s = p.observed_age_seconds;
+    if (typeof s !== 'number') return '';
+    var t = s < 90 ? 'seconds ago'
+          : s < 5400 ? Math.round(s / 60) + ' min ago'
+          : Math.round(s / 3600) + ' h ago';
+    return p.observed_age_basis === 'clip_retained_at'
+      ? 'seen ' + t
+      : 'painted ' + t;
+  }
+
+  function build(places) {
+    var grid = document.getElementById('album-grid');
+    grid.innerHTML = '';
+    places.forEach(function (p) {
+      var fig = document.createElement('figure');
+      fig.className = 'album-card';
+      fig.tabIndex = 0;
+      fig.setAttribute('role', 'button');
+      var img = document.createElement('img');
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.width = 240;
+      img.height = 194;
+      img.alt = 'Preview of the ' + pretty(p.slug) + ' panel.';
+      img.src = '/v1/perception/cards/' + p.slug + '/thumb.png';
+      var cap = document.createElement('figcaption');
+      cap.innerHTML = '<b>' + pretty(p.slug) + '</b>' + count_line(p) +
+        '<u>' + age_line(p) + '</u>';
+      fig.appendChild(img);
+      fig.appendChild(cap);
+      var open = function () { show(p, fig); };
+      fig.addEventListener('click', open);
+      fig.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+      grid.appendChild(fig);
+    });
+  }
+
+  function refusal() {
+    /* A real 404 from the live route, fetched rather than written here, so it
+       cannot drift from what the route actually says. */
+    var box = document.getElementById('album-refusal');
+    var txt = document.getElementById('album-refusal-text');
+    var pre = document.getElementById('album-refusal-json');
+    fetch('/v1/perception/postcard?lat=51.3419&lng=-0.31786&place=Leatherhead')
+      .then(function (r) { return r.status === 200 ? null : r.json(); })
+      .then(function (j) {
+        if (!j) return;
+        txt.textContent = 'Asked for a place whose nearest camera is too far to stand for it, ' +
+          'the same route answers this instead of painting something plausible. ' +
+          'A card carries the title you asked for, so painting it from a distant camera ' +
+          'would put the right name on the wrong street.';
+        pre.textContent = JSON.stringify(j, null, 2).slice(0, 900);
+        box.hidden = false;
+      })
+      .catch(function () {});
+  }
+
+  function load() {
+    if (loaded) return;
+    loaded = true;
+    fetch('/v1/perception/cards')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var places = (d && d.places) || [];
+        if (!places.length) {
+          document.getElementById('album-grid').innerHTML =
+            '<p class="album-wait">The painter is reachable and holds no ' +
+            'places right now. Nothing is shown rather than something stale.</p>';
+          return;
+        }
+        places.sort(function (a, b) { return (b.panels || 0) - (a.panels || 0); });
+        build(places);
+        refusal();
+      })
+      .catch(function () {
+        document.getElementById('album-grid').innerHTML =
+          '<p class="album-wait">The painter could not be reached, so this ' +
+          'album is empty rather than illustrated.</p>';
+      });
+  }
+
+  if (!('IntersectionObserver' in window)) { load(); return; }
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (e.isIntersecting) { io.unobserve(e.target); load(); } });
+  }, { rootMargin: '200px 0px' });
+  io.observe(root);
+})();
+</script>
 <style>
 /* Live gallery. Sized so a panel that has not loaded holds exactly the space
    the loaded one will take: the aspect-ratio box means arriving media never
    shoves the paragraph you are reading down the page. */
-.livegrid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));margin:0 0 26px}
-.livecard{margin:0}
-.livecard img{display:block;width:100%;height:auto;border-radius:3px}
 .liveslot{aspect-ratio:1240/1000;display:flex;align-items:center;justify-content:center;
   background:#f4efe4;border:1px solid #ddd2bd;border-radius:3px}
-.filmslot{aspect-ratio:1240/1000;max-height:520px}
 .livenote{font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;padding:0 14px;text-align:center}
 /* Three states, and they must look different from each other: not started,
    fetching, failed. A single grey box for all three is how a 200 KB download in
@@ -1250,8 +1433,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   .liveslot.is-loading{animation:none;background:#ece4d3}
   .livespin{animation:none;border-top-color:#cbbb99}
 }
-.livecard figcaption,.livefilm figcaption{font-size:.86rem;margin-top:8px}
-.livefilm video{display:block;width:100%;height:auto;border-radius:3px}
 .livefail{font-size:.8rem;color:#8a7a5e;padding:0 14px;text-align:center}
 
 /* Generator. Deliberately plain: it is a form that calls one GET, and dressing
@@ -1286,70 +1467,11 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
    busy or down, and a silently empty box would read as "this place is empty",
    which is the one thing these panels must never say by accident. */
 (function () {
-  var slots = document.querySelectorAll('.livecard[data-src], .livefilm[data-src]');
-  if (!slots.length) return;
-
-  function fail(fig, msg) {
-    var slot = fig.querySelector('.liveslot');
-    if (!slot) return;
-    slot.classList.remove('is-loading');
-    slot.removeAttribute('aria-busy');
-    slot.innerHTML = '<span class="livefail">' + msg + '</span>';
-  }
-
-  function load(fig) {
-    var src = fig.getAttribute('data-src');
-    var slot = fig.querySelector('.liveslot');
-    if (!src || !slot) return;
-    /* The moment the request goes out, say so. Until now the placeholder read
-       "loads when you reach it" for the whole download, which is a promise
-       about the future being shown during the present. */
-    slot.classList.add('is-loading');
-    var note = slot.querySelector('.livenote');
-    if (note) {
-      note.innerHTML = '<span class="livespin" aria-hidden="true"></span>' + (
-        fig.classList.contains('livefilm') ? 'loading the film' : 'loading the panel');
-    }
-    slot.setAttribute('aria-busy', 'true');
-    var isFilm = fig.classList.contains('livefilm');
-    var el;
-    if (isFilm) {
-      el = document.createElement('video');
-      el.controls = true; el.muted = true; el.loop = true;
-      el.playsInline = true; el.preload = 'metadata';
-      el.setAttribute('aria-label', 'Time lapse of panels painted of Trafalgar Square today');
-    } else {
-      el = document.createElement('img');
-      el.width = fig.getAttribute('data-w') || 1240;
-      el.height = fig.getAttribute('data-h') || 1000;
-      el.alt = fig.getAttribute('data-alt') || '';
-      el.decoding = 'async';
-    }
-    el.addEventListener('error', function () {
-      fail(fig, 'the painter could not be reached, so nothing is shown here');
-    });
-    el.addEventListener(isFilm ? 'loadeddata' : 'load', function () {
-      if (slot.parentNode) slot.parentNode.replaceChild(el, slot);
-    });
-    el.src = src;
-  }
-
-  if (!('IntersectionObserver' in window)) {
-    /* No observer means no way to defer honestly, so load the first panel only
-       and leave the rest to their placeholders rather than pulling a megabyte
-       on an old browser. */
-    load(slots[0]);
-    return;
-  }
-  var io = new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      if (!e.isIntersecting) return;
-      io.unobserve(e.target);
-      load(e.target);
-    });
-  }, { rootMargin: '200px 0px' });
-  slots.forEach(function (s) { io.observe(s); });
-
+  /* The generator only. The panel observer that used to live here targeted
+     .livecard and .livefilm, which the album replaced: it now reads its index
+     from the painter and fetches one panel at a time, so a second observer
+     watching elements that no longer exist would be dead code pretending to be
+     a feature. */
   /* The generator. One GET to the same address an agent calls, and the result
      is put on the page as an image rather than parsed, because the artefact IS
      the answer: the counts, the cell and the clip hash are inside the file. */

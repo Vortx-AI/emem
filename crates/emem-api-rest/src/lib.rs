@@ -28988,6 +28988,7 @@ async fn perception_proxy(
     match req.send().await {
         Ok(resp) => {
             let status = resp.status().as_u16();
+            let upstream_headers = resp.headers().clone();
             let ct = resp
                 .headers()
                 .get("content-type")
@@ -28995,11 +28996,77 @@ async fn perception_proxy(
                 .unwrap_or("application/json")
                 .to_string();
             match resp.bytes().await {
-                Ok(b) => Response::builder()
-                    .status(status)
-                    .header("content-type", ct)
-                    .body(axum::body::Body::from(b))
-                    .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+                Ok(b) => {
+                    // Forward the labels, not just the bytes.
+                    //
+                    // This returned content-type and nothing else, so every
+                    // header the upstream attaches to say WHAT a payload is was
+                    // dropped at this hop. A generated video reached a public
+                    // caller carrying `X-Provenance-Class: model_output`,
+                    // `X-Signed: false`, `X-Frames-Observed: 1`,
+                    // `X-Frames-Imagined: 16` and a warning that every frame
+                    // after the first was never seen -- and this responder
+                    // delivered it with none of them. An imagined video
+                    // travelling with no label, through the surface whose whole
+                    // argument is that a claim arrives with its provenance
+                    // attached.
+                    //
+                    // A SAFELIST rather than a blanket copy, for the same reason
+                    // the path list is a list: forwarding everything hands on
+                    // whatever else that host sets now or later. These describe
+                    // the payload or the caller's own quota, and none of them
+                    // identifies the upstream.
+                    // A DENYLIST for x- headers, not a safelist, and the
+                    // inversion is the point.
+                    //
+                    // The safelist that stood here for one message already
+                    // missed two: the upstream added `X-Preview-Note`
+                    // ("no clip hash travels with it") and `X-Preview-Of`
+                    // for thumbnails, and this hop silently dropped the one
+                    // disclaimer on the only artefact it serves that a reader
+                    // CANNOT verify. Enumerating labels means every new label
+                    // is dropped until someone notices, and nothing announces
+                    // it: the payload still arrives, just without its caveat.
+                    //
+                    // So a first-party upstream's x- headers pass by default
+                    // and the list names what must NOT cross: anything that
+                    // describes the machine rather than the payload. That is
+                    // the same rule as the album reading its places from the
+                    // painter instead of a list written here. A denylist can
+                    // be wrong too, but it is wrong in the direction of
+                    // forwarding a harmless header rather than eating a
+                    // provenance claim.
+                    const DENY: &[&str] = &[
+                        "x-powered-by",
+                        "x-aspnet-version",
+                        "x-runtime",
+                        "x-served-by",
+                        "x-backend-server",
+                    ];
+                    const ALSO_FORWARD: &[&str] = &["cache-control", "etag", "last-modified"];
+                    let mut rb = Response::builder()
+                        .status(status)
+                        .header("content-type", ct);
+                    for (name, value) in upstream_headers.iter() {
+                        let n = name.as_str();
+                        let keep = (n.starts_with("x-") && !DENY.contains(&n))
+                            || ALSO_FORWARD.contains(&n);
+                        if !keep {
+                            continue;
+                        }
+                        // `x-content-type-options` is set by this responder's
+                        // own middleware; forwarding the upstream's copy would
+                        // emit it twice.
+                        if n == "x-content-type-options" {
+                            continue;
+                        }
+                        if let Ok(sv) = value.to_str() {
+                            rb = rb.header(n, sv);
+                        }
+                    }
+                    rb.body(axum::body::Body::from(b))
+                        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+                }
                 Err(_) => StatusCode::BAD_GATEWAY.into_response(),
             }
         }
