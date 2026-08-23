@@ -30,6 +30,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SUBSTRATES = REPO / "crates" / "emem-core" / "src" / "substrates.rs"
+CRATE_ROOT = REPO / "crates"
 
 
 def declared() -> set[str]:
@@ -43,7 +44,21 @@ def declared() -> set[str]:
     return set(re.findall(r'"([a-z_]+)"', m.group(1)))
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    # An optional root, so this gate can be run against a FIXTURE containing the
+    # case and nothing else.
+    #
+    # The upstream showed today why that matters: they controlled a keyword gate
+    # by reintroducing the bad string into their real tree, it passed, and it
+    # passed for a reason unrelated to the property -- the surrounding sentence
+    # happened to contain a word the checker was looking for. A control run
+    # against a real codebase can succeed by accident. A control run against two
+    # files, one of each kind and nothing else in them, cannot.
+    argv = sys.argv[1:] if argv is None else argv
+    global CRATE_ROOT
+    if argv:
+        CRATE_ROOT = Path(argv[0])
+
     allowed = declared()
     # `none` is not a class. It is the statement that the thing being described
     # is outside the provenance system, and it is admitted so that saying so
@@ -54,14 +69,18 @@ def main() -> int:
     pat = re.compile(r'"provenance_class"\s*:\s*"([^"]+)"')
     bad: list[tuple[str, int, str]] = []
     seen: dict[str, int] = {}
-    for f in sorted(REPO.glob("crates/**/*.rs")):
+    for f in sorted(CRATE_ROOT.glob("**/*.rs")):
         text = f.read_text(encoding="utf-8", errors="ignore")
         for m in pat.finditer(text):
             val = m.group(1)
             seen[val] = seen.get(val, 0) + 1
             if val not in admitted:
                 line = text[: m.start()].count("\n") + 1
-                bad.append((str(f.relative_to(REPO)), line, val))
+                try:
+                    rel = str(f.relative_to(REPO))
+                except ValueError:
+                    rel = str(f)
+                bad.append((rel, line, val))
 
     print(f"provenance classes: {len(allowed)} declared, "
           f"{len(seen)} distinct emitted, {sum(seen.values())} sites")

@@ -12655,6 +12655,68 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
 /// gains a `band_metadata` block and, when the band is categorical,
 /// a `value_decoded` label. Handles objects with a top-level `facts`
 /// array as well as bare arrays of facts. Non-fact JSON is left alone.
+/// Say `signed_model_checkpoint` only when a checkpoint is actually bound.
+///
+/// The claim is meaningful because `checkpoint_hash_or_refuse` folds the
+/// checkpoint's blake2b into `sources[].id` (as `<model-id>@<hex>`), which is
+/// inside the canonical CBOR the fact_cid hashes. A reader can therefore see
+/// WHICH weights produced the value and know the responder signed that
+/// statement. When no such hash is present, none of that is true, and the
+/// honest evidence is the one already declared for exactly this situation.
+///
+/// Detection is deliberately conservative: it looks for a long hex run after an
+/// `@` in a source id, or a non-empty `served_via.model`. A false negative
+/// downgrades a fact that deserved the stronger claim, which costs a reader
+/// nothing; a false positive would restore the lie.
+fn downgrade_unbacked_checkpoint_claim(
+    meta: &mut JsonValue,
+    fact: &serde_json::Map<String, JsonValue>,
+) {
+    let Some(prov) = meta.get_mut("provenance").and_then(|p| p.as_object_mut()) else {
+        return;
+    };
+    if prov.get("tamper_evidence").and_then(|v| v.as_str()) != Some("signed_model_checkpoint") {
+        return;
+    }
+    if fact_binds_a_checkpoint(fact) {
+        return;
+    }
+    prov.insert("tamper_evidence".into(), json!("attester_only"));
+    prov.insert(
+        "tamper_evidence_note".into(),
+        json!(
+            "this band's class declares signed_model_checkpoint, but THIS fact carries no \
+             checkpoint hash: it came from an upstream product rather than an encoder this \
+             responder ran. You are trusting the signer and the cited source, which is what \
+             attester_only means. Facts from our own encoders do carry the checkpoint hash \
+             inside sources[].id, and keep the stronger claim."
+        ),
+    );
+}
+
+/// Whether a fact names the weights that produced it, in a signed field.
+fn fact_binds_a_checkpoint(fact: &serde_json::Map<String, JsonValue>) -> bool {
+    if fact
+        .get("served_via")
+        .and_then(|v| v.get("model"))
+        .and_then(|v| v.as_str())
+        .is_some_and(|m| !m.trim().is_empty())
+    {
+        return true;
+    }
+    fact.get("sources")
+        .and_then(|v| v.as_array())
+        .is_some_and(|arr| {
+            arr.iter().any(|src| {
+                src.get("id").and_then(|v| v.as_str()).is_some_and(|id| {
+                    id.rsplit_once('@').is_some_and(|(_, tail)| {
+                        tail.len() >= 16 && tail.chars().all(|c| c.is_ascii_hexdigit())
+                    })
+                })
+            })
+        })
+}
+
 fn enrich_facts_with_metadata(value: &mut JsonValue) {
     enrich_facts_inner(value, true);
 }
@@ -12727,7 +12789,28 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
             }
         }
         if with_band_metadata {
-            let meta = band_metadata_for_response(&band);
+            let mut meta = band_metadata_for_response(&band);
+            // TAMPER EVIDENCE IS A PROPERTY OF THIS FACT, NOT OF ITS CLASS.
+            //
+            // `ProvenanceClass::ModelOutput` declares `signed_model_checkpoint`,
+            // and for the paths that run our own encoders that is exactly true:
+            // `checkpoint_hash_or_refuse` will not sign a model_output fact
+            // without a checkpoint hash, and folds it into `sources[].id` so it
+            // sits inside the signed CBOR. Three call sites do that. The class
+            // covers twenty-three bands.
+            //
+            // So `cams.pm25` -- a reanalysis product fetched from an upstream
+            // API, `served_via: null`, sources naming a URL -- was telling every
+            // reader its tamper evidence was a signed model checkpoint when
+            // there is no checkpoint anywhere near it. The upstream's sentence:
+            // carrying a hash is not evidence. Claiming a hash you do not carry
+            // is worse.
+            //
+            // Downgraded to `attester_only`, which is already declared and
+            // already means the true thing: you trust the signer and the cited
+            // source. No new vocabulary, because a new name here would imply a
+            // guarantee that does not exist.
+            downgrade_unbacked_checkpoint_claim(&mut meta, obj);
             if !meta.is_null() {
                 obj.insert("band_metadata".into(), meta);
             }
@@ -69365,6 +69448,85 @@ mod tests {
         assert!(
             bad.get("spatial_basis").is_none(),
             "no cell, no claim about its dimensions"
+        );
+    }
+
+    /// A model_output fact with no checkpoint must not claim one.
+    ///
+    /// The fixture is built to contain THE CASE AND NOTHING ELSE, because the
+    /// upstream demonstrated today that a control run against a real tree can
+    /// pass for reasons unrelated to the property: their bad string sat in a
+    /// sentence that happened to contain an action word, so the check passed
+    /// for the wrong reason and reported the defect green.
+    ///
+    /// So: two facts, identical but for the one thing under test.
+    #[test]
+    fn a_model_fact_claims_a_signed_checkpoint_only_when_it_carries_one() {
+        let meta = || {
+            json!({"provenance": {
+                "class": "model_output",
+                "tamper_evidence": "signed_model_checkpoint",
+                "trust_rank": 2,
+            }})
+        };
+
+        // NO checkpoint: an upstream product, a URL for a source, no encoder.
+        let unbacked = json!({
+            "band": "cams.pm25",
+            "served_via": null,
+            "sources": [{"scheme": "open_meteo_cams",
+                         "id": "https://air-quality-api.open-meteo.com/v1/air-quality?lat=51"}],
+        });
+        let mut m = meta();
+        downgrade_unbacked_checkpoint_claim(&mut m, unbacked.as_object().unwrap());
+        assert_eq!(
+            m["provenance"]["tamper_evidence"], "attester_only",
+            "a fact with no checkpoint must not claim a signed one"
+        );
+        assert!(
+            m["provenance"]["tamper_evidence_note"].is_string(),
+            "and must say why it was downgraded"
+        );
+
+        // WITH a checkpoint folded into the source id, as
+        // checkpoint_hash_or_refuse writes it.
+        let backed = json!({
+            "band": "clay_v1",
+            "served_via": null,
+            "sources": [{"scheme": "clay",
+                         "id": "made-with-clay/Clay@9f2c1ab3de4f5061a7b8c9d0e1f20314"}],
+        });
+        let mut m2 = meta();
+        downgrade_unbacked_checkpoint_claim(&mut m2, backed.as_object().unwrap());
+        assert_eq!(
+            m2["provenance"]["tamper_evidence"], "signed_model_checkpoint",
+            "a fact naming its weights keeps the stronger claim"
+        );
+        assert!(m2["provenance"]["tamper_evidence_note"].is_null());
+
+        // And served_via naming a model is the other way to carry it.
+        let via = json!({
+            "band": "prithvi",
+            "served_via": {"tier": "gpu", "model": "prithvi_eo_v2_300m_tl", "device": "cuda:0"},
+            "sources": [{"scheme": "s2", "id": "S2A_TILE"}],
+        });
+        let mut m3 = meta();
+        downgrade_unbacked_checkpoint_claim(&mut m3, via.as_object().unwrap());
+        assert_eq!(
+            m3["provenance"]["tamper_evidence"],
+            "signed_model_checkpoint"
+        );
+
+        // A DETERMINISTIC band must be untouched: this only ever downgrades the
+        // one claim it is about, never rewrites provenance generally.
+        let mut det = json!({"provenance": {
+            "class": "deterministic_index",
+            "tamper_evidence": "recomputable_from_source",
+        }});
+        downgrade_unbacked_checkpoint_claim(&mut det, unbacked.as_object().unwrap());
+        assert_eq!(
+            det["provenance"]["tamper_evidence"], "recomputable_from_source",
+            "nothing but the checkpoint claim may move"
         );
     }
 
