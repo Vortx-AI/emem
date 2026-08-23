@@ -12879,6 +12879,16 @@ fn boring_view(
                 "memory_token":          fact_cid.map(|c| format!("emem:fact:{cell64}:{c}")),
                 "responder_pubkey_b32":  responder_pubkey_b32,
                 "signed_at":             p.signed_at,
+                // How old this reading is, computed here so a consumer does not
+                // have to parse a timestamp and choose the right field. The
+                // upstream asked for exactly this and it was delivered on
+                // /v1/ask and nowhere else, so the surface most likely to be
+                // read by a machine still handed out a bare `signed_at`.
+                //
+                // `current_by_band` means "the newest we hold", never "fresh",
+                // and this is the field that lets a caller tell the difference
+                // without knowing that.
+                "age_s":                 fact_age_s(&p.signed_at),
                 "served_at":             served_at,
                 "tslot":                 p.tslot,
                 "derivation_fn_key":     p.derivation.fn_key.as_str(),
