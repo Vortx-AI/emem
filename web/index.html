@@ -1159,64 +1159,52 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .album-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
 .album-card{margin:0;border:0;padding:0;background:none;font:inherit;color:inherit;
   text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:6px}
-.album-card img{display:block;width:100%;height:auto;border-radius:3px;background:#ece5d4}
-.album-card figcaption{font-size:.8rem;line-height:1.35}
+.album-card img{display:block;width:100%;height:auto;border-radius:3px;background:var(--paper-3)}
+.album-card figcaption{font-size:var(--t-2xs);line-height:1.35}
 .album-card b{display:block;font-weight:600}
-.album-card u{text-decoration:none;color:#8a7a5e;font-size:.74rem}
-.album-card:hover img{outline:2px solid #8a7a5e;outline-offset:1px}
+.album-card u{text-decoration:none;color:var(--mute);font-size:var(--t-2xs)}
+.album-card:hover img{outline:2px solid var(--mute);outline-offset:1px}
 .album-plate{margin:22px 0 0}
 /* The strip. Observations are boxes; the intervals between them are boxes too,
    widened by how long nobody was looking. The discontinuity is the layout
    rather than a caveat under it. */
-.strip-head{font-size:.8rem;color:#6b5f49;margin:14px 0 6px}
+.strip-head{font-size:var(--t-2xs);color:var(--ink-2);margin:14px 0 6px}
 .strip{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding-bottom:6px}
 .strip-obs{margin:0;flex:0 0 120px}
-.strip-obs img{display:block;width:120px;height:auto;border-radius:2px;background:#ece5d4}
-.strip-obs figcaption{font-size:.7rem;line-height:1.3;margin-top:4px;color:#6b5f49}
+.strip-obs img{display:block;width:120px;height:auto;border-radius:2px;background:var(--paper-3)}
+.strip-obs figcaption{font-size:var(--t-3xs);line-height:1.3;margin-top:4px;color:var(--ink-2)}
 .strip-obs b{display:block;font-weight:600;color:inherit}
 .strip-gap{flex:0 0 auto;align-self:stretch;display:flex;align-items:center;justify-content:center;
-  margin:0 2px;border-left:1px dashed #ccc0a8;border-right:1px dashed #ccc0a8}
-.strip-gap span{font-size:.62rem;line-height:1.25;text-align:center;color:#a4957a;
+  margin:0 2px;border-left:1px dashed var(--rule);border-right:1px dashed var(--rule)}
+.strip-gap span{font-size:var(--t-3xs);line-height:1.25;text-align:center;color:var(--mute);
   text-transform:uppercase;letter-spacing:.03em}
-.strip-note{font-size:.76rem;color:#8a7a5e;margin:8px 0 0}
-.strip-obs figcaption u{display:block;text-decoration:none;color:#a4957a;font-size:.64rem;margin-top:2px}
+.strip-note{font-size:var(--t-2xs);color:var(--mute);margin:8px 0 0}
+.strip-obs figcaption u{display:block;text-decoration:none;color:var(--mute);font-size:var(--t-3xs);margin-top:2px}
 /* Heavier than a gap on purpose: a gap is time nobody watched, a wall is the
    instrument changing. */
 .strip-wall{flex:0 0 auto;align-self:stretch;display:flex;align-items:center;justify-content:center;
-  margin:0 4px;padding:0 6px;border-left:3px solid #8a7a5e;border-right:3px solid #8a7a5e;
-  background:#f0e9da}
-.strip-wall span{font-size:.62rem;line-height:1.25;text-align:center;color:#6b5f49;
+  margin:0 4px;padding:0 6px;border-left:3px solid var(--mute);border-right:3px solid var(--mute);
+  background:var(--paper-3)}
+.strip-wall span{font-size:var(--t-3xs);line-height:1.25;text-align:center;color:var(--ink-2);
   text-transform:uppercase;letter-spacing:.03em}
-@media (prefers-color-scheme:dark){ .strip-wall{background:#2a241b;border-color:#6b5f49} }
-@media (prefers-color-scheme:dark){
-  .strip-obs img{background:#241f18}
-  .strip-gap{border-color:#3b3227}
-}
 .album-item{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
   padding:8px 10px;border:0;border-radius:3px;background:none;font:inherit;text-align:left;
   cursor:pointer;color:inherit;width:100%}
-.album-item:hover{background:#f0e9da}
-.album-item[aria-current="true"]{background:#e6dcc6;font-weight:600}
+.album-item:hover{background:var(--paper-3)}
+.album-item[aria-current="true"]{background:var(--paper-3);font-weight:600}
 .album-item b{font-weight:inherit}
-.album-item u{text-decoration:none;font-size:.76rem;color:#8a7a5e;white-space:nowrap}
+.album-item u{text-decoration:none;font-size:var(--t-2xs);color:var(--mute);white-space:nowrap}
 .album-plate{margin:0}
 .album-plate img{display:block;width:100%;height:auto;border-radius:3px}
-.album-wait{font-size:.82rem;color:#8a7a5e;margin:0;padding:8px 10px}
-.album-refusal{margin:26px 0 0;padding:18px;border:1px solid #ddd2bd;border-radius:4px;background:#fbf8f1}
-.album-json{margin:10px 0 0;padding:12px;background:#f4efe4;border-radius:3px;overflow-x:auto;
-  font-size:.76rem;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.album-wait{font-size:var(--t-xs);color:var(--mute);margin:0;padding:8px 10px}
+.album-refusal{margin:26px 0 0;padding:18px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}
+.album-json{margin:10px 0 0;padding:12px;background:var(--paper-2);border-radius:3px;overflow-x:auto;
+  font-size:var(--t-2xs);line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .album-ep{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.album-ep a{font-size:.74rem;padding:3px 8px;border:1px solid #ddd2bd;border-radius:3px;
-  text-decoration:none;color:#6b5f49;background:#fbf8f1}
-.album-ep a:hover{background:#f0e9da}
+.album-ep a{font-size:var(--t-2xs);padding:3px 8px;border:1px solid var(--rule);border-radius:3px;
+  text-decoration:none;color:var(--ink-2);background:var(--paper-2)}
+.album-ep a:hover{background:var(--paper-3)}
 @media (max-width:700px){ .album-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))} }
-@media (prefers-color-scheme:dark){
-  .album-item:hover{background:#2a241b}
-  .album-item[aria-current="true"]{background:#332c21}
-  .album-refusal{background:#211d16;border-color:#3b3227}
-  .album-json{background:#181510}
-  .album-ep a{background:#211d16;border-color:#3b3227;color:#c9bda4}
-}
 </style>
 <script>
 /* The album reads its own index from the painter, so this file names no places.
@@ -1462,7 +1450,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
    shoves the paragraph you are reading down the page. */
 .liveslot{aspect-ratio:1240/1000;display:flex;align-items:center;justify-content:center;
   background:#f4efe4;border:1px solid #ddd2bd;border-radius:3px}
-.livenote{font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;padding:0 14px;text-align:center}
+.livenote{font-size:var(--t-2xs);letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;padding:0 14px;text-align:center}
 /* Three states, and they must look different from each other: not started,
    fetching, failed. A single grey box for all three is how a 200 KB download in
    flight becomes indistinguishable from a street with nothing on it. */
@@ -1478,17 +1466,17 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   .liveslot.is-loading{animation:none;background:#ece4d3}
   .livespin{animation:none;border-top-color:#cbbb99}
 }
-.livefail{font-size:.8rem;color:#8a7a5e;padding:0 14px;text-align:center}
+.livefail{font-size:var(--t-2xs);color:#8a7a5e;padding:0 14px;text-align:center}
 
 /* Generator. Deliberately plain: it is a form that calls one GET, and dressing
    it up would suggest something more is happening than one address. */
 .pcgen{margin:26px 0 0;padding:18px;border:1px solid #ddd2bd;border-radius:4px;background:#fbf8f1}
-.pcgen label{display:block;font-size:.78rem;letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;margin-bottom:8px}
+.pcgen label{display:block;font-size:var(--t-2xs);letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;margin-bottom:8px}
 .pcrow{display:flex;gap:10px;flex-wrap:wrap}
 .pcrow input{flex:1 1 240px;padding:9px 11px;border:1px solid #ccc0a8;border-radius:3px;font:inherit;background:#fff}
 .pcrow button{padding:9px 18px;border:1px solid #8a7a5e;border-radius:3px;background:#8a7a5e;color:#fff;font:inherit;cursor:pointer}
 .pcrow button[disabled]{opacity:.55;cursor:progress}
-.pcstatus{font-size:.82rem;color:#6b5f49;margin:10px 0 0}
+.pcstatus{font-size:var(--t-xs);color:#6b5f49;margin:10px 0 0}
 .pcout{margin-top:14px}
 .pcout img{display:block;width:100%;height:auto;border-radius:3px}
 @media (prefers-color-scheme:dark){

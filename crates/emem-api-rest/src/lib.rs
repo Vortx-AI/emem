@@ -28542,7 +28542,19 @@ async fn a2a_robotics_at(cell: &str, question: &str) -> Result<JsonValue, (i64, 
         "clip": obs.get("parts"),
         "commentary": prose,
         "provenance": {
-            "counts": "direct_sensor: a detector over the retained clip's pixels",
+            // deterministic_index, NOT direct_sensor, and the distinction is
+            // the one this vocabulary exists to make. The camera's clip is
+            // direct_sensor: something observed it. The COUNT is a
+            // deterministic function of those bytes under a named detector,
+            // recomputable by anyone who fetches the clip and runs the same
+            // fn_id. Calling it direct_sensor claims an observation where there
+            // is a reproducible derivation, which is a stronger claim than the
+            // upstream itself makes: its own verifier spec says the receipt
+            // binds the BYTES and the counts are merely reproducible from them.
+            "counts": "deterministic_index: a named detector recomputed over the retained \
+                       clip's pixels. The CLIP is direct_sensor; the count derived from it is \
+                       not, and the detector's fn_id is what makes it reproducible. Counts \
+                       under two different fn_ids are not comparable.",
             "commentary": "model_output, unsigned. About 2 answers in 6 restate the counts \
                            cleanly, so read it as commentary and act on the numbers.",
             "actions": "none proposed. This responder carries an action a caller composes; it \
@@ -28794,7 +28806,7 @@ async fn perception_proxy(
     // its own capability and verification surface there and will add to it; an
     // allowlist that has to be edited for each new sibling is the failure this
     // block was just widened to fix, one release later.
-    const ALLOWED_TREES: &[&str] = &["cards/", "clips/", "verify/", "v1/"];
+    const ALLOWED_TREES: &[&str] = &["cards/", "clips/", "verify/", "v1/", "render/", "platform/"];
     let clean = path.trim_start_matches('/').to_string();
 
     // The segments under a permitted prefix are still checked rather than
@@ -62716,7 +62728,20 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
         "schema":           "emem.live_perception.v1",
         "cameras_near":     camera_count,
         "cameras_with_retained_clips": with_clips,
-        "provenance_class": "direct_sensor",
+        // TWO CLASSES, because this block carries two different kinds of thing
+        // and one label for both overstates the weaker one. The clip is
+        // direct_sensor: a camera observed it and its sha256 is committed in a
+        // signed receipt. The COUNTS are not an observation, they are a
+        // deterministic function of those bytes under a named detector, which
+        // anyone can recompute and nobody has to trust. The upstream's own
+        // verifier spec draws exactly this line and this field used to erase it.
+        "provenance_class": {
+            "clip":   "direct_sensor",
+            "counts": "deterministic_index",
+        },
+        "provenance_note": "the clip was observed; the counts are recomputable from it under \
+                            the detector named in `detector_fn_id`. Counts under two different \
+                            fn_ids are not comparable.",
         "answers_now":      wants_scene,
         "why": "Ground cameras see what a satellite cannot: people, vehicles and \
                 activity at this minute, rather than surface reflectance on a \
@@ -62927,7 +62952,13 @@ fn attach_imagery(body: &mut JsonValue, cell: &str) {
             "media_type":       "image/svg+xml",
             "url":              format!("{origin}/v1/perception/postcard?cell={cell}"),
             "instrument":       "ground camera, retained clip",
-            "provenance_class": "direct_sensor",
+            // A painting of a measurement is not the measurement. The upstream
+            // classes its own preview as `rendering_of_measurement` and it is
+            // right: what a reader can verify is the clip and the counts the
+            // card cites, not the picture drawn from them.
+            "provenance_class": "rendering_of_measurement",
+            "verifiable":       "the clip_sha256, the cell64 and the counts printed inside the \
+                                 file; not the drawing itself",
             "answers":          "what is in view right now, painted and countable",
             "cannot_answer":    "anything outside this camera's field of view",
         }));
