@@ -59,11 +59,49 @@ REPO = Path(__file__).resolve().parent.parent
 # build no longer spends emem's public rate limit.
 RESPONDER = os.environ.get("EMEM_CHANNEL_RESPONDER", "http://127.0.0.1:5051")
 
-# Seconds to wait before each call, so this build never empties the responder's
-# rate-limit bucket. Slightly above the 1/10 s refill interval: fast enough that
-# a few thousand notes still rebuild in minutes, slow enough that the bucket
-# refills as we spend it.
-PACE_S = float(os.environ.get("EMEM_CHANNEL_PACE_S", "0.12"))
+# Seconds to wait before each call, DERIVED FROM THE BUDGET THE RESPONDER
+# PUBLISHES rather than guessed at.
+#
+# It was 0.12 s, "slightly above the 1/10 s refill interval". That reasoning was
+# right about the refill rate and wrong about the share: 0.12 s is 8.3 requests
+# per second against a published 10, so this build alone was taking 83% of the
+# entire budget and leaving a tenth of it for the deploy's own health checks,
+# any real traffic, and any other tool touching the responder. It did not fail
+# loudly -- 429s degrade to `unchecked` citations, honestly -- so the symptom was
+# a resolve count that moved between builds for no visible reason: 1582, 1570,
+# 1568, with the difference sitting in tokens nobody got to ask about.
+#
+# The responder states its own limit in /v1/agent_card under runtime as
+# `rate_limit_rps`. Reading it means this never has to be re-tuned when the
+# limit moves, and it means the share is a stated decision rather than a
+# constant somebody picked: SHARE below is the fraction of the responder we are
+# willing to be, and the rest is left for everyone else.
+CHANNEL_RPS_SHARE = float(os.environ.get("EMEM_CHANNEL_RPS_SHARE", "0.30"))
+PACE_FALLBACK_S = 0.35
+
+
+def _paced_interval() -> tuple[float, str]:
+    """Seconds between calls, and the sentence explaining where it came from."""
+    override = os.environ.get("EMEM_CHANNEL_PACE_S")
+    if override:
+        return float(override), f"EMEM_CHANNEL_PACE_S={override} (explicit override)"
+    try:
+        import urllib.request as _u
+        with _u.urlopen(f"{RESPONDER}/v1/agent_card", timeout=20) as r:
+            rps = float((json.load(r).get("runtime") or {}).get("rate_limit_rps") or 0)
+    except Exception as e:
+        return PACE_FALLBACK_S, (f"{PACE_FALLBACK_S}s: the responder did not publish "
+                                 f"a rate limit ({e}), so this falls back rather than "
+                                 f"assuming a budget")
+    if rps <= 0:
+        return PACE_FALLBACK_S, (f"{PACE_FALLBACK_S}s: rate_limit_rps was absent or "
+                                 f"zero, so the budget is unknown")
+    pace = 1.0 / (rps * CHANNEL_RPS_SHARE)
+    return pace, (f"{pace:.2f}s: {CHANNEL_RPS_SHARE:.0%} of the responder's published "
+                  f"{rps:g} req/s, leaving the rest for everything else")
+
+
+PACE_S, PACE_WHY = _paced_interval()
 
 sys.path.insert(0, str(REPO / "scripts"))
 import gen_nav  # noqa: E402  the site nav, so this page cannot drift from it
@@ -2469,6 +2507,10 @@ generated from the ledger by <code>scripts/build_channel.py</code> at {html.esca
 
 def main() -> int:
     dry = "--dry-run" in sys.argv
+    # Say what share of the responder this build is going to take, and where the
+    # number came from. The old constant was silent and eight-tenths of the
+    # budget; a build that quietly starves everything else is worth one line.
+    print(f"pacing: {PACE_WHY}")
     print("fetching the channel from the ledger...")
     notes = fetch_notes()
     if not notes:
