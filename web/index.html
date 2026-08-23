@@ -1399,14 +1399,44 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
     var box = document.getElementById('album-refusal');
     var txt = document.getElementById('album-refusal-text');
     var pre = document.getElementById('album-refusal-json');
-    fetch('/v1/perception/postcard?lat=51.3419&lng=-0.31786&place=Leatherhead')
-      .then(function (r) { return r.status === 200 ? null : r.json(); })
+    /* Orlando, not a place chosen for being far from a camera.
+       
+       This tile used to ask about Leatherhead, whose nearest camera was too far
+       to stand for it. That refusal was a fact about the world at a moment, and
+       the world moved: a camera now exists there with a retained clip, so the
+       route correctly stopped refusing and this tile sat on the homepage
+       captioned as a failure while displaying a success.
+       
+       Orlando refuses STRUCTURALLY. Cameras are there and counted from; only
+       one fleet of the six retains clips, so there is nothing to paint from.
+       That holds while the retention boundary holds, and it teaches the
+       boundary rather than mere absence.
+       
+       And the tile now checks rather than assumes. If this ever returns 200 the
+       page says the example stopped refusing, because a caption that survives
+       its own subject changing is how the last one went wrong. */
+    fetch('/v1/perception/postcard?lat=28.5383&lng=-81.3792&place=Orlando')
+      .then(function (r) {
+        if (r.status === 200) {
+          return { stale: true };
+        }
+        return r.json();
+      })
       .then(function (j) {
         if (!j) return;
-        txt.textContent = 'Asked for a place whose nearest camera is too far to stand for it, ' +
-          'the same route answers this instead of painting something plausible. ' +
-          'A card carries the title you asked for, so painting it from a distant camera ' +
-          'would put the right name on the wrong street.';
+        if (j.stale) {
+          txt.textContent = 'This example was chosen because the route refused it. It no ' +
+            'longer does: a camera with a retained clip now covers that point, so the ' +
+            'refusal is gone and this tile is showing you that rather than a stale caption.';
+          pre.textContent = '';
+          box.hidden = false;
+          return;
+        }
+        txt.textContent = 'Asked about a place with cameras but no retained clip, the same ' +
+          'route refuses rather than painting something plausible. Of 8,649 cameras, 882 ' +
+          'retain clips; the rest can be counted from and not painted, and a card carries ' +
+          'the title you asked for, so painting one from bytes we do not hold would put the ' +
+          'right name on a street we cannot show you.';
         pre.textContent = JSON.stringify(j, null, 2).slice(0, 900);
         box.hidden = false;
       })
