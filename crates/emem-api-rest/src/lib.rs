@@ -68814,6 +68814,100 @@ mod tests {
         }
     }
 
+    /// The album must not COMPOSE anything it could PRINT.
+    ///
+    /// The homepage's album section shows places, counts, freshness, a detector
+    /// identity and a refusal, and every one of those exists in the upstream's
+    /// own data. Anything the reader sees that also exists there is fetched, so
+    /// there is no second copy to drift.
+    ///
+    /// This is the rule the whole exchange with that upstream produced: wherever
+    /// a machine-readable block and a human-readable one describe the same
+    /// thing, they are two statements and only one of them gets checked. It cost
+    /// three hardcoded place-slugs that showed a quarter of what existed and
+    /// looked like a curated selection, a header safelist that ate the one
+    /// disclaimer on the one artefact nobody can verify, and on their side a
+    /// caption claiming to count bicycles that were never sought.
+    ///
+    /// So this asserts the ABSENCE of the things that would mean a second copy
+    /// had appeared: a place name, a count, or a detector id written into the
+    /// page. None of them are errors on their own. All of them mean the page has
+    /// started saying something instead of showing what it was told.
+    #[test]
+    fn the_album_prints_from_the_upstream_and_composes_nothing_it_could_print() {
+        let page = include_str!("../../../web/index.html");
+        let start = page
+            .find(r#"id="album""#)
+            .expect("the album section is on the homepage");
+        // To the end of the album's own script, which is where its last
+        // composed string could live.
+        let strip_at = page[start..]
+            .find("function strip(")
+            .expect("the album carries its strip builder");
+        let end = page[start + strip_at..]
+            .find("</script>")
+            .map(|e| start + strip_at + e)
+            .expect("the strip builder is inside a script block");
+        let album = &page[start..end].to_lowercase();
+
+        // A place written here is a place that cannot disappear when the
+        // upstream stops painting it, and a place it starts painting cannot
+        // appear. This is the exact bug: three slugs, twelve places.
+        for slug in [
+            "trafalgar",
+            "piccadilly",
+            "canary-wharf",
+            "tower-bridge",
+            "aldgate",
+            "oxford-circus",
+            "marble-arch",
+            "old-street",
+            "vauxhall",
+            "hammersmith",
+            "hyde-park",
+            "elephant-and-castle",
+        ] {
+            assert!(
+                !album.contains(slug),
+                "the album names `{slug}`; places come from the upstream index, \
+                 so a name here is a second copy that cannot go stale visibly"
+            );
+        }
+
+        // A detector id here would freeze the instrument the page describes.
+        assert!(
+            !album.contains("sam3_open_vocab@"),
+            "the album names a detector id; it is read per panel so a change \
+             draws a wall, and a literal would outlive the change"
+        );
+
+        // The refusal, the reading and the detector note are the upstream's
+        // sentences. If the page ever states them itself they stop tracking.
+        for composed in [
+            "no camera close enough",
+            "there are no trajectories",
+            "counts are only comparable",
+        ] {
+            assert!(
+                !album.contains(composed),
+                "the album states `{composed}` itself; that sentence belongs to \
+                 the upstream and is printed from its response"
+            );
+        }
+
+        // The control. Without it this passes just as well against a build
+        // where the album is gone entirely, which is the failure mode every
+        // absence-assertion has.
+        assert!(
+            album.contains("/v1/perception/cards"),
+            "control: the album must still be fetching its index"
+        );
+        assert!(
+            album.contains("detector_fn_id"),
+            "control: the album must still be reading the detector per panel"
+        );
+    }
+
     /// A reading old enough to be the wrong answer must say so IN THE PROSE,
     /// not only in the freshness block beside it.
     ///

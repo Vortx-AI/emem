@@ -1216,6 +1216,33 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .album-card u{text-decoration:none;color:#8a7a5e;font-size:.74rem}
 .album-card:hover img{outline:2px solid #8a7a5e;outline-offset:1px}
 .album-plate{margin:22px 0 0}
+/* The strip. Observations are boxes; the intervals between them are boxes too,
+   widened by how long nobody was looking. The discontinuity is the layout
+   rather than a caveat under it. */
+.strip-head{font-size:.8rem;color:#6b5f49;margin:14px 0 6px}
+.strip{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding-bottom:6px}
+.strip-obs{margin:0;flex:0 0 120px}
+.strip-obs img{display:block;width:120px;height:auto;border-radius:2px;background:#ece5d4}
+.strip-obs figcaption{font-size:.7rem;line-height:1.3;margin-top:4px;color:#6b5f49}
+.strip-obs b{display:block;font-weight:600;color:inherit}
+.strip-gap{flex:0 0 auto;align-self:stretch;display:flex;align-items:center;justify-content:center;
+  margin:0 2px;border-left:1px dashed #ccc0a8;border-right:1px dashed #ccc0a8}
+.strip-gap span{font-size:.62rem;line-height:1.25;text-align:center;color:#a4957a;
+  text-transform:uppercase;letter-spacing:.03em}
+.strip-note{font-size:.76rem;color:#8a7a5e;margin:8px 0 0}
+.strip-obs figcaption u{display:block;text-decoration:none;color:#a4957a;font-size:.64rem;margin-top:2px}
+/* Heavier than a gap on purpose: a gap is time nobody watched, a wall is the
+   instrument changing. */
+.strip-wall{flex:0 0 auto;align-self:stretch;display:flex;align-items:center;justify-content:center;
+  margin:0 4px;padding:0 6px;border-left:3px solid #8a7a5e;border-right:3px solid #8a7a5e;
+  background:#f0e9da}
+.strip-wall span{font-size:.62rem;line-height:1.25;text-align:center;color:#6b5f49;
+  text-transform:uppercase;letter-spacing:.03em}
+@media (prefers-color-scheme:dark){ .strip-wall{background:#2a241b;border-color:#6b5f49} }
+@media (prefers-color-scheme:dark){
+  .strip-obs img{background:#241f18}
+  .strip-gap{border-color:#3b3227}
+}
 .album-item{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
   padding:8px 10px;border:0;border-radius:3px;background:none;font:inherit;text-align:left;
   cursor:pointer;color:inherit;width:100%}
@@ -1298,7 +1325,9 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
       fc.innerHTML = '<b>' + pretty(place.slug) + '</b>. ' + place.panels +
         ' panels held, newest painted ' + ago(place.newest) +
         '. <span class="prov">the count, the cell and the clip hash are inside the file</span>' +
-        '<span class="album-ep">' + eps + '</span>';
+        '<span class="album-ep">' + eps + '</span><div class="strip-host"></div>';
+      var host = fc.querySelector('.strip-host');
+      if (host) strip(place, host);
     });
     img.addEventListener('error', function () {
       slot.innerHTML = '<span class="livefail">that panel could not be reached just now</span>';
@@ -1358,6 +1387,73 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
       });
       grid.appendChild(fig);
     });
+  }
+
+  function strip(place, host) {
+    /* Six observations of one place, and the GAPS BETWEEN THEM DRAWN.
+       
+       The counts across a night swing 15, 13, 18, 24, 8, 6. Laid on a time axis
+       that reads as a curve, and it is not one: the median gap is about twenty
+       minutes, no vehicle survives from one panel to the next, and there are no
+       trajectories here. Six independent counts, not a series.
+       
+       A sentence saying so would be skipped, and a column of numbers invites a
+       trend line more than a row of pictures does. So the unobserved interval is
+       an element on the page, sized by how long it was. You cannot draw a line
+       through a gap you can see. */
+    fetch('/v1/perception/cards/' + place.slug + '/story?panels=6')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var ps = (d && d.panels) || [];
+        if (ps.length < 2) return;
+        var reading = d.reading || {};
+        var html = '<div class="strip-head">' + (reading.says || '') + '</div><div class="strip">';
+        ps.forEach(function (p, i) {
+          if (i > 0) {
+            var mins = Math.round((p.epoch - ps[i - 1].epoch) / 60);
+            html += '<div class="strip-gap" style="flex-basis:' +
+              Math.min(90, Math.max(18, mins * 1.6)) + 'px"><span>' + mins +
+              ' min<br>unobserved</span></div>';
+            /* A CHANGE OF DETECTOR IS A WALL, not a footnote.
+               
+               SAM3 is prompted, so the label set is part of the arithmetic: a
+               class added to the prompts changes every count after it. Two
+               panels either side of that change are not the same measurement,
+               and a reader comparing them would be reading part of the
+               difference off our own configuration.
+               
+               Only drawn between two panels that BOTH name a detector. A null
+               means not recorded, which is a third thing: it is neither "no
+               detector" nor "nothing was sought", and it must not be allowed to
+               manufacture a boundary that never happened. */
+            var a = ps[i - 1].detector_fn_id, b = p.detector_fn_id;
+            if (a && b && a !== b) {
+              html += '<div class="strip-wall"><span>detector changed<br>' +
+                'counts either side<br>are not comparable</span></div>';
+            }
+          }
+          var c = p.counts || {};
+          var line = Object.keys(c).sort().map(function (k) { return c[k] + ' ' + k; }).join(', ');
+          /* What was LOOKED FOR, beside what was found. A count is only a
+             count of the classes that were sought, and `not recorded` is said
+             in those words rather than shown as an absence, because the panel
+             predates the field rather than lacking a detector. */
+          var sought = p.detector_prompts
+            ? p.detector_prompts.length + ' classes sought'
+            : 'detector not recorded';
+          html += '<figure class="strip-obs">' +
+            '<img loading="lazy" decoding="async" width="120" height="97" alt="Preview of the ' +
+            pretty(place.slug) + ' panel painted at ' + String(p.at).slice(11, 16) + '." src="' +
+            '/v1/perception/cards/' + place.slug + '/thumb.png?panel=' + p.epoch + '&w=240">' +
+            '<figcaption><b>' + String(p.at).slice(11, 16) + '</b>' +
+            (line || 'nothing seen') + '<u>' + sought + '</u></figcaption></figure>';
+        });
+        html += '</div><p class="strip-note">' + (reading.must_not_say
+          ? 'What this cannot tell you: ' + reading.must_not_say : '') +
+          (d.detector_note ? ' ' + d.detector_note : '') + '</p>';
+        host.innerHTML = html;
+      })
+      .catch(function () { host.innerHTML = ''; });
   }
 
   function refusal() {
