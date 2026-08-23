@@ -347,6 +347,16 @@ jobs:
       # removed a dark :root it should not have. Hermetic.
       - name: the design system holds
         run: python3 scripts/design_tokens.py
+      # Every provenance_class we emit must be one we declare. The upstream
+      # found an undeclared class on ELEVEN of their surfaces, with the correct
+      # diagnosis already written in their own tree and reaching one call site.
+      # Ours was `rendering_of_measurement`, a hybrid name implying a hybrid
+      # guarantee that does not exist. Fixing it once is the fix that already
+      # failed for both of us, so it is checked instead. `none` is admitted as
+      # an explicit statement that a thing sits outside the system, which is
+      # not the same as an eighth class.
+      - name: no undeclared provenance classes
+        run: python3 scripts/provenance_classes.py
       # One navigation, generated from one definition. The site had SEVEN
       # different nav bars across 22 pages and between them they reached 13 of
       # 142 routes; /guard appeared in exactly one nav, its own. A hand edit to

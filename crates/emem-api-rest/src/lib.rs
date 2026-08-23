@@ -63236,11 +63236,26 @@ fn attach_imagery(body: &mut JsonValue, cell: &str) {
             "media_type":       "image/svg+xml",
             "url":              format!("{origin}/v1/perception/postcard?cell={cell}"),
             "instrument":       "ground camera, retained clip",
-            // A painting of a measurement is not the measurement. The upstream
-            // classes its own preview as `rendering_of_measurement` and it is
-            // right: what a reader can verify is the clip and the counts the
-            // card cites, not the picture drawn from them.
-            "provenance_class": "rendering_of_measurement",
+            // A painting of a measurement is not the measurement, and it is
+            // not a provenance class either.
+            //
+            // This said `rendering_of_measurement`, following the upstream,
+            // and we were both wrong in the same way: a HYBRID NAME IMPLIES A
+            // HYBRID GUARANTEE, and there is none. Nothing about the drawing
+            // recomputes and no hash travels with it. Forcing it into one of
+            // the seven declared classes would invent a guarantee; minting an
+            // eighth would promise one that does not exist.
+            //
+            // So it declares itself outside the system, and `verifiable` below
+            // names what is inside it. Saying "none" is a statement, not a
+            // class -- the same distinction as `per_band_resolution: not
+            // stated` on /v1/recall. The upstream reached the same answer
+            // independently and emits `none` too, so the vocabulary matches
+            // across both systems rather than each inventing a word.
+            "provenance_class": "none",
+            "provenance_note":  "outside the provenance system: a drawing is not a value, \
+                                 nothing recomputes it and no hash travels with it. What \
+                                 carries provenance is named in `verifiable`.",
             "verifiable":       "the clip_sha256, the cell64 and the counts printed inside the \
                                  file; not the drawing itself",
             "answers":          "what is in view right now, painted and countable",
