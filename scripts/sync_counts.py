@@ -577,6 +577,107 @@ def verify_prose_version() -> list[str]:
     return hits
 
 
+# The counted nouns a CANON value can legitimately sit in front of. Used by
+# verify_prose_coverage below to find claims no PROSE_CLAIMS phrasing matches.
+_COUNTED_NOUN = re.compile(
+    r"^\W{0,3}(tools?|paths?|endpoints?|algorithms?|slots?|bands?|measurements?"
+    r"|sources?|schemes?|topics?|encoders?|resources?|templates?|crates?"
+    r"|documented|wired|declared)\b",
+    re.I,
+)
+
+# How many CANON-valued numbers currently sit in prose with a counted noun after
+# them and NO PROSE_CLAIMS pattern over them. A RATCHET, not a target: the
+# eighteen below are grandfathered, and a nineteenth fails.
+#
+# Why a ratchet rather than eighteen more patterns. PROSE_CLAIMS matches known
+# phrasings, so every phrasing added closes exactly one hole and leaves the next
+# one open -- the gate has been rewritten this way three times and found stale
+# counts each time. What it could never do was say how much it was NOT looking
+# at. This measures that, and refuses to let it grow.
+#
+# The number goes DOWN as phrasings are added to PROSE_CLAIMS. It may only go up
+# deliberately, by editing this line, which is the point: an unguarded count is
+# then a decision somebody made rather than one nobody noticed.
+UNGUARDED_COUNT_CLAIMS_BASELINE = 18
+
+
+def unguarded_count_claims() -> list[tuple[str, str, int, str]]:
+    """Every CANON-valued number in prose that no PROSE_CLAIMS pattern covers.
+
+    A number is a CLAIM only when a counted noun follows it. Inside a URL, a
+    percent-escape, a hex colour, a filename or an N/N ratio it is describing
+    something else, and those are excluded rather than counted -- a gate that
+    cries wolf on `%20` in a badge URL gets switched off.
+    """
+    pats = list(SCRIPT_PROSE_CLAIMS) + list(_TOOL_CLAIMS)
+    surfaces = sorted(set(list(TOOL_COUNT_SURFACES) + [
+        "README.md", "docs/agents.md", "web/llms.txt", "llms-install.md",
+    ]))
+    interesting = {k: v for k, v in CANON.items() if isinstance(v, int) and v >= 10}
+
+    def junky(text: str, a: int, b: int) -> bool:
+        if "http" in text[max(0, a - 30):b + 30] and ")" in text[b:b + 80]:
+            return True
+        if re.search(r"%[0-9A-Fa-f]{2}", text[max(0, a - 4):b + 4]):
+            return True
+        if re.match(r"^\s*/\s*\d", text[b:b + 6]) or re.search(r"\d\s*/\s*$", text[max(0, a - 6):a]):
+            return True
+        if re.search(r"[-\w]$", text[max(0, a - 1):a]):
+            return True
+        if re.match(r"^[-\w]*\.(svg|png|json|md|html)", text[b:b + 14]):
+            return True
+        return False
+
+    out: list[tuple[str, str, int, str]] = []
+    for rel in surfaces:
+        f = REPO / rel
+        if not f.exists():
+            continue
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        covered: set[int] = set()
+        for pattern, _key in pats:
+            for m in re.finditer(pattern, text):
+                covered.update(range(m.start(), m.end()))
+        for key, val in interesting.items():
+            for m in re.finditer(r"(?<![\d.])" + str(val) + r"(?![\d.])", text):
+                if m.start() in covered or junky(text, m.start(), m.end()):
+                    continue
+                if not _COUNTED_NOUN.match(text[m.end():m.end() + 34]):
+                    continue
+                ctx = " ".join(text[max(0, m.start() - 50):m.end() + 34].split())
+                out.append((rel, key, val, ctx))
+    return out
+
+
+def verify_prose_coverage() -> list[str]:
+    """State how much prose the phrase list does NOT cover, and ratchet it down.
+
+    Every other check here compares a number to CANON. This one compares the
+    CHECKER to the documents, which is the question none of the others can ask:
+    a count written in a phrasing nobody listed is not wrong, it is unexamined,
+    and unexamined has always looked exactly like correct.
+    """
+    found = unguarded_count_claims()
+    n = len(found)
+    if n > UNGUARDED_COUNT_CLAIMS_BASELINE:
+        lines = [
+            f"unguarded count claims rose to {n} from a baseline of "
+            f"{UNGUARDED_COUNT_CLAIMS_BASELINE}: a count is stated in a phrasing "
+            f"no PROSE_CLAIMS pattern reads, so nothing compares it to the "
+            f"responder. Add a pattern, or reword to a phrasing already matched."
+        ]
+        for rel, key, val, ctx in found[-(n - UNGUARDED_COUNT_CLAIMS_BASELINE):]:
+            lines.append(f"    {rel} [{key}={val}]: ...{ctx}...")
+        return lines
+    if n < UNGUARDED_COUNT_CLAIMS_BASELINE:
+        return [
+            f"unguarded count claims fell to {n}: lower the baseline in "
+            f"UNGUARDED_COUNT_CLAIMS_BASELINE to {n} so it cannot come back."
+        ]
+    return []
+
+
 def verify_prose_counts() -> list[str]:
     """A count stated as prose has to match the responder it describes.
 
@@ -834,6 +935,7 @@ def verify_canon() -> list[str]:
     # comparing to CANON, not by listing phrases that have already gone stale.
     drift.extend(verify_tool_counts())
     drift.extend(verify_prose_counts())
+    drift.extend(verify_prose_coverage())
     drift.extend(verify_script_prose_counts())
     drift.extend(verify_prose_version())
     drift.extend(verify_package_versions())

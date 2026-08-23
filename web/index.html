@@ -1417,26 +1417,26 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
               html += '<div class="strip-wall"><span>detector changed<br>' +
                 'counts either side<br>are not comparable</span></div>';
             }
-              /* A CHANGE OF PALETTE IS ALSO A WALL, for the same reason one
-                 rank down. The pigments are hashed into palette_fn_id, so
-                 adopting a different ink moved it without anyone bumping a
-                 version. Two panels either side are still the same measurement,
-                 unlike a detector change, but they are not the same PICTURE,
-                 and a reader comparing their greens would be reading part of
-                 the difference off the palette.
+            /* A CHANGE OF PALETTE IS ALSO A WALL, for the same reason one
+               rank down. The pigments are hashed into palette_fn_id, so
+               adopting a different ink moved it without anyone bumping a
+               version. Two panels either side are still the same measurement,
+               unlike a detector change, but they are not the same PICTURE,
+               and a reader comparing their greens would be reading part of
+               the difference off the palette.
 
-                 Compared PER PANEL rather than from the story's
-                 palette_changed_within_span. That flag counts distinct non-null
-                 ids, so a span mixing panels that carry one with panels that
-                 predate the field reports false: "we cannot tell" wearing the
-                 clothes of "nothing changed". The flag is a floor, never a
-                 denial. Same rule as the detector above: a null is not a
-                 boundary. */
-              var pa = ps[i - 1].palette_fn_id, pb = p.palette_fn_id;
-              if (pa && pb && pa !== pb) {
-                html += '<div class="strip-wall strip-wall-soft"><span>palette changed<br>' +
-                  'same measurement<br>different pigments</span></div>';
-              }
+               Compared PER PANEL rather than from the story's
+               palette_changed_within_span. That flag counts distinct non-null
+               ids, so a span mixing panels that carry one with panels that
+               predate the field reports false: "we cannot tell" wearing the
+               clothes of "nothing changed". The flag is a floor, never a
+               denial. Same rule as the detector above: a null is not a
+               boundary. */
+            var pa = ps[i - 1].palette_fn_id, pb = p.palette_fn_id;
+            if (pa && pb && pa !== pb) {
+              html += '<div class="strip-wall strip-wall-soft"><span>palette changed<br>' +
+                'same measurement<br>different pigments</span></div>';
+            }
           }
             /* THE SAME THREE STATES as count_line above, and the same trap.
                `p.counts || {}` turned a null into an empty object and printed
