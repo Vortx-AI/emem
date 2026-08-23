@@ -35140,15 +35140,22 @@ fn mcp_err(e: ApiError) -> (i64, String) {
 /// instead: it already computed the exact digest it will verify against,
 /// and none of it is secret (it derives from the verb, the path and the
 /// body the caller just sent). Only the private key is secret.
-fn attester_recipe(verb: &str, path: &str, body_hash: &[u8; 32]) -> JsonValue {
-    let digest = emem_primitives::attester_preimage(verb, path, body_hash);
+fn attester_recipe(verb: &str, path: &str, body_hash: &[u8; 32], base: &str) -> JsonValue {
+    let digest = emem_primitives::attester_preimage_v2(verb, path, body_hash, base);
     json!({
         "sign_this": {
             "digest_hex": data_encoding::HEXLOWER.encode(&digest),
             "what_it_is": "The 32-byte blake3 digest this responder will verify your signature against, for this exact verb, path and body. Sign these raw bytes with ed25519. Do NOT sign the hex text of them, and do NOT hash them again.",
         },
         "how_it_was_built": {
-            "preimage": format!("blake3(\"emem.memory_write|\" || \"{verb}\" || \"|\" || \"{path}\" || \"|\" || body_hash)"),
+            "preimage": format!("blake3(\"emem.memory_write.v2|\" || \"{verb}\" || \"|\" || \"{path}\" || \"|\" || body_hash || \"|\" || \"{base}\")"),
+            "base": base,
+            "base_is": "The file_cid currently at this path, or the literal `absent` when nothing is there. It binds the signature to the version you intend to replace, so a signature read off the public log cannot be replayed once the path has moved on. Every caller signature is persisted in the ledger for offline re-verification, which is exactly why replay needs no interception.",
+            "base_changes": "If another writer lands first, this value changes and your signature stops verifying. That is a lost update being refused rather than silently overwriting, and the remedy is to re-read and re-sign.",
+            "v1_status": match verb {
+                "delete" | "rename" => "REFUSED for this verb. A replayed delete removes whatever occupies the path today, including a file recreated since; a replayed rename re-executes a move. The v1 preimage (no base) is no longer accepted here.",
+                _ => "Still accepted for this verb during migration, and guarded by an in-memory replay set that a restart empties. Sign v2 and that caveat does not apply to you.",
+            },
             "body_hash_hex": data_encoding::HEXLOWER.encode(body_hash),
             "body_hash_is": match verb {
                 "create" => "blake3 of the `file_text` string's UTF-8 bytes, exactly as you transmit them",
@@ -35327,10 +35334,37 @@ fn enforce_write_rate_limit(attester: Option<&MemoryAttester>) -> Result<(), Api
 /// the move's source into the signature over its destination).
 ///
 /// [`rename_body_hash`]: emem_primitives::rename_body_hash
+/// The `file_cid` currently at `path`, or `BASE_ABSENT` when nothing is there.
+///
+/// This is the value a v2 signature binds, and it is read from the same tree
+/// the write is about to touch, so a signature that names a stale base is
+/// refused without the responder having to remember anything. That is the whole
+/// reason v2 uses a base instead of a nonce: the in-memory replay set below can
+/// only close replay within one process lifetime, and this server restarts
+/// several times a day.
+///
+/// A read failure yields `BASE_ABSENT` rather than an error. The consequence is
+/// a refused signature, not an accepted one, so the failure mode is a caller
+/// being told to re-sign rather than a replay getting through.
+fn current_base_cid(s: &AppState, path: &str) -> String {
+    let absent = || emem_primitives::BASE_ABSENT.to_string();
+    let Ok(db) = memory_db(s) else {
+        return absent();
+    };
+    let Ok(paths) = db.open_tree(emem_storage::TREE_MEMORY_FILES) else {
+        return absent();
+    };
+    match paths.get(path.as_bytes()) {
+        Ok(Some(v)) => String::from_utf8(v.to_vec()).unwrap_or_else(|_| absent()),
+        _ => absent(),
+    }
+}
+
 fn validate_attester_binding(
     verb: &str,
     path: &str,
     body_hash: &[u8; 32],
+    base: &str,
     attester: Option<&MemoryAttester>,
 ) -> Result<(), ApiError> {
     match attester {
@@ -35360,7 +35394,7 @@ fn validate_attester_binding(
                             "code": "memory_attestation_required",
                             "path": path,
                             "verb": verb,
-                            "how_to_sign": attester_recipe(verb, path, body_hash),
+                            "how_to_sign": attester_recipe(verb, path, body_hash, base),
                         })),
                     },
                 ));
@@ -35368,8 +35402,22 @@ fn validate_attester_binding(
             Ok(())
         }
         Some(att) => {
-            match emem_primitives::verify_attester(verb, path, body_hash, att) {
-                AttestationVerdict::Ok => replay_guard(verb, path, att),
+            let (verdict, version) =
+                emem_primitives::verify_attester_versioned(verb, path, body_hash, base, att);
+            match verdict {
+                // The in-memory replay set stays as a backstop for v1 writes,
+                // which are still accepted for the additive verbs. A v2
+                // signature does not need it: it names the version it replaces,
+                // so replaying it after the path moves on fails arithmetic
+                // rather than a lookup, and survives a restart because nothing
+                // has to be remembered.
+                AttestationVerdict::Ok => {
+                    if version == emem_primitives::PreimageVersion::V2 {
+                        Ok(())
+                    } else {
+                        replay_guard(verb, path, att)
+                    }
+                }
                 AttestationVerdict::BadPubkey => Err(ApiError(
                     StatusCode::UNAUTHORIZED,
                     ErrorBody {
@@ -35378,7 +35426,7 @@ fn validate_attester_binding(
                         details: Some(json!({
                             "code": "memory_attestation_invalid",
                             "reason": "bad_pubkey",
-                            "how_to_sign": attester_recipe(verb, path, body_hash),
+                            "how_to_sign": attester_recipe(verb, path, body_hash, base),
                         })),
                     },
                 )),
@@ -35398,7 +35446,7 @@ fn validate_attester_binding(
                         details: Some(json!({
                             "code": "memory_attestation_invalid",
                             "reason": "bad_signature",
-                            "how_to_sign": attester_recipe(verb, path, body_hash),
+                            "how_to_sign": attester_recipe(verb, path, body_hash, base),
                         })),
                     },
                 )),
@@ -36751,7 +36799,13 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
         .unwrap_or_default();
     let body = req.file_text.as_bytes();
     let bh = emem_primitives::body_hash(body);
-    validate_attester_binding("create", &path, &bh, req.attester.as_ref())?;
+    validate_attester_binding(
+        "create",
+        &path,
+        &bh,
+        &current_base_cid(s, &path),
+        req.attester.as_ref(),
+    )?;
     enforce_open_namespace_owner(s, "create", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
 
@@ -36901,7 +36955,13 @@ async fn memory_str_replace_inner(
     let updated = text.replacen(&req.old_str, &req.new_str, 1);
     let body = updated.as_bytes();
     let bh = emem_primitives::body_hash(body);
-    validate_attester_binding("str_replace", &path, &bh, req.attester.as_ref())?;
+    validate_attester_binding(
+        "str_replace",
+        &path,
+        &bh,
+        &current_base_cid(s, &path),
+        req.attester.as_ref(),
+    )?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     // Default str_replace to the kind already in the file if not
@@ -37019,7 +37079,13 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
     }
     let body = out.as_bytes();
     let bh = emem_primitives::body_hash(body);
-    validate_attester_binding("insert", &path, &bh, req.attester.as_ref())?;
+    validate_attester_binding(
+        "insert",
+        &path,
+        &bh,
+        &current_base_cid(s, &path),
+        req.attester.as_ref(),
+    )?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
     let kind = req
@@ -37109,7 +37175,13 @@ async fn memory_supersede_inner(
     // reason, so a stored retraction cannot be re-aimed or re-worded
     // while still verifying under the author's key.
     let bh = emem_primitives::body_hash(format!("{target}|{reason}").as_bytes());
-    validate_attester_binding("supersede", &path, &bh, req.attester.as_ref())?;
+    validate_attester_binding(
+        "supersede",
+        &path,
+        &bh,
+        &current_base_cid(s, &path),
+        req.attester.as_ref(),
+    )?;
     enforce_open_namespace_owner(s, "supersede", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     reject_if_vault(s, &path, "supersede")?;
@@ -37265,7 +37337,13 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     let path = validate_memory_path(&req.path, is_dir)?;
     // W2 attester binding (delete has no body, use blake3(b"")).
     let empty_bh = emem_primitives::body_hash(b"");
-    validate_attester_binding("delete", &path, &empty_bh, req.attester.as_ref())?;
+    validate_attester_binding(
+        "delete",
+        &path,
+        &empty_bh,
+        &current_base_cid(s, &path),
+        req.attester.as_ref(),
+    )?;
     enforce_open_namespace_owner(s, "delete", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     let attester_pk = req.attester.as_ref().map(|a| a.pubkey_b32.clone());
@@ -37453,7 +37531,13 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
     // which always fails: the source is a namespace question, not a
     // signature question.
     let rename_bh = emem_primitives::rename_body_hash(&old_path);
-    validate_attester_binding("rename", &new_path, &rename_bh, req.attester.as_ref())?;
+    validate_attester_binding(
+        "rename",
+        &new_path,
+        &rename_bh,
+        &current_base_cid(s, &new_path),
+        req.attester.as_ref(),
+    )?;
     enforce_open_namespace_owner(s, "rename", &new_path, req.attester.as_ref())?;
     // A rename mutates the source as much as the destination.
     enforce_open_namespace_owner(s, "rename", &old_path, req.attester.as_ref())?;
@@ -73278,10 +73362,23 @@ mod tests {
         // unattested create on the open namespace is accepted, while the
         // by_attester sub-tree stays gated regardless of policy.
         let bh = emem_primitives::body_hash(b"x");
-        assert!(validate_attester_binding("create", "/memories/notes.md", &bh, None).is_ok());
+        assert!(validate_attester_binding(
+            "create",
+            "/memories/notes.md",
+            &bh,
+            emem_primitives::BASE_ABSENT,
+            None
+        )
+        .is_ok());
         assert!(
-            validate_attester_binding("create", "/memories/by_attester/abc/x.md", &bh, None)
-                .is_err(),
+            validate_attester_binding(
+                "create",
+                "/memories/by_attester/abc/x.md",
+                &bh,
+                emem_primitives::BASE_ABSENT,
+                None
+            )
+            .is_err(),
             "by_attester namespace must be gated even under the Open default"
         );
     }
@@ -73841,6 +73938,34 @@ mod tests {
         (sk, pubkey_b32)
     }
 
+    /// Sign a v2 (base-bound) attester block.
+    ///
+    /// `base` is the `file_cid` currently at `path`, or `BASE_ABSENT`. The
+    /// destructive verbs refuse v1, so a test that deletes or renames has to
+    /// know which version it is authorising against, exactly as a real client
+    /// does.
+    pub(crate) fn sign_attester_v2(
+        sk: &ed25519_dalek::SigningKey,
+        verb: &str,
+        path: &str,
+        body: &[u8],
+        base: &str,
+    ) -> emem_primitives::MemoryAttester {
+        use ed25519_dalek::Signer;
+        let bh = emem_primitives::body_hash(body);
+        let sig = sk.sign(&emem_primitives::attester_preimage_v2(
+            verb, path, &bh, base,
+        ));
+        emem_primitives::MemoryAttester {
+            pubkey_b32: data_encoding::BASE32_NOPAD
+                .encode(sk.verifying_key().as_bytes())
+                .to_lowercase(),
+            sig_b32: data_encoding::BASE32_NOPAD
+                .encode(&sig.to_bytes())
+                .to_lowercase(),
+        }
+    }
+
     pub(crate) fn sign_attester(
         sk: &ed25519_dalek::SigningKey,
         verb: &str,
@@ -74069,8 +74194,17 @@ mod tests {
         .expect("attested create");
 
         // One signature, over the destination, carrying the source as
-        // its body.
-        let att = sign_attester(&sk, "rename", &new_path, old_path.as_bytes());
+        // its body, bound to the destination's current version. A rename
+        // requires the destination to be free, so that version is `absent`,
+        // and binding it is what stops this signature being replayed after
+        // something else has taken the name.
+        let att = sign_attester_v2(
+            &sk,
+            "rename",
+            &new_path,
+            old_path.as_bytes(),
+            emem_primitives::BASE_ABSENT,
+        );
         memory_rename_inner(
             &s,
             MemoryRenameReq {
@@ -74303,7 +74437,13 @@ mod tests {
         .expect("attested create");
 
         // Signature authorises moving `a.md`, replayed against `secrets.md`.
-        let att = sign_attester(&sk, "rename", &new_path, signed_source.as_bytes());
+        let att = sign_attester_v2(
+            &sk,
+            "rename",
+            &new_path,
+            signed_source.as_bytes(),
+            emem_primitives::BASE_ABSENT,
+        );
         let err = memory_rename_inner(
             &s,
             MemoryRenameReq {
@@ -74330,7 +74470,18 @@ mod tests {
         let old_path = format!("/memories/by_attester/{short_b}/private.md");
         let new_path = format!("/memories/by_attester/{short_a}/stolen.md");
 
-        let att = sign_attester(&sk_a, "rename", &new_path, old_path.as_bytes());
+        // v2, so the signature is genuinely well-formed and the namespace rule
+        // is what refuses this. A v1 signature would now be rejected on its
+        // shape, and the test would assert nothing about ownership: the point
+        // of this case is that a CORRECT signature over the destination still
+        // may not move another key's file.
+        let att = sign_attester_v2(
+            &sk_a,
+            "rename",
+            &new_path,
+            old_path.as_bytes(),
+            emem_primitives::BASE_ABSENT,
+        );
         let err = memory_rename_inner(
             &s,
             MemoryRenameReq {
@@ -78923,7 +79074,7 @@ mod reasoning_menu_tests {
 
 #[cfg(test)]
 mod open_namespace_isolation_tests {
-    use super::tests::{sign_attester, test_app_state, test_attester_signer};
+    use super::tests::{sign_attester, sign_attester_v2, test_app_state, test_attester_signer};
     use super::*;
 
     /// Cross-caller mutation in the open namespace. A flat path carries no
@@ -79009,11 +79160,23 @@ mod open_namespace_isolation_tests {
         )
         .await
         .expect("owner may create");
+        // Sign the delete as v2, against the version actually on disk.
+        //
+        // Signing v1 here would still be refused, but for the WRONG reason:
+        // destructive verbs no longer accept v1 at all, so the test would pass
+        // with namespace enforcement removed entirely. A well-formed signature
+        // from the wrong key is the only thing that exercises ownership.
+        let base = current_base_cid(&s, path);
+        assert_ne!(
+            base,
+            emem_primitives::BASE_ABSENT,
+            "control: the file must exist, or this proves nothing"
+        );
         let err = memory_delete_inner(
             &s,
             MemoryDeleteReq {
                 path: path.into(),
-                attester: Some(sign_attester(&sk_b, "delete", path, b"")),
+                attester: Some(sign_attester_v2(&sk_b, "delete", path, b"", &base)),
             },
         )
         .await

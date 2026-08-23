@@ -21,6 +21,20 @@
 //!
 //! `verb` is part of the preimage, so a signature authorising a `create`
 //! cannot be replayed as a `delete` of the same path.
+//!
+//! It could, however, be replayed as ITSELF. Caller signatures are persisted in
+//! the ledger so authorship can be re-verified offline, which means every past
+//! signature is public and a replay needs no interception at all. v2 closes
+//! that by binding the version of the path the write intends to replace:
+//!
+//! ```text
+//! sig = ed25519(blake3("emem.memory_write.v2|" || verb || "|" || path
+//!                      || "|" || body_hash || "|" || base))
+//! ```
+//!
+//! `base` is the `file_cid` currently at `path`, or `BASE_ABSENT` when nothing
+//! is there. Replaying a signature after the path has moved on names a base
+//! that no longer matches, and is refused.
 
 #![forbid(unsafe_code)]
 
@@ -92,6 +106,73 @@ pub fn attester_preimage(verb: &str, path: &str, body_hash: &[u8; 32]) -> [u8; 3
     h.update(b"|");
     h.update(body_hash);
     *h.finalize().as_bytes()
+}
+
+/// The `base` component used when the target path currently holds no file.
+///
+/// A literal rather than an empty string, so "there was nothing here" is a
+/// value a verifier can see in the preimage rather than an absence it has to
+/// infer from a missing separator.
+pub const BASE_ABSENT: &str = "absent";
+
+/// The v2 attester preimage: v1 plus the version of the path this write
+/// intends to replace.
+///
+/// WHY THIS EXISTS. Every caller signature is PERSISTED in the ledger, by
+/// design, so a third party can re-verify authorship offline rather than
+/// trusting the responder's word. That makes v1 replayable by anyone, with no
+/// privileged position and nothing to intercept: read a past signature off the
+/// public log and send it again. `verb` in the preimage stops a `create` being
+/// replayed as a `delete`, and `rename` was hardened to bind its source path,
+/// but nothing stopped a signature being replayed as ITSELF. A replayed
+/// `delete` removes whatever now sits at that path, including a file recreated
+/// since; a replayed `create` reverts a path to older content whose signature
+/// is still perfectly good.
+///
+/// WHY A BASE VERSION AND NOT A NONCE OR A TIMESTAMP. A nonce needs the server
+/// to remember what it has seen, which is state that a restart loses and that
+/// grows without bound. A timestamp needs a freshness window, and a window
+/// means an old signature in the log stops verifying as fresh later, which
+/// attacks the one property this protocol sells: a signature stays checkable
+/// forever, offline, against bytes anyone can fetch. Binding the base version
+/// keeps that. The signature is still verifiable in ten years, because the base
+/// it names is in the same append-only log as the write itself.
+///
+/// It also makes every mutation a compare-and-swap, so two agents editing one
+/// path can no longer silently lose each other's work. That is a second bug
+/// fixed by the same field, not a side effect to apologise for.
+///
+/// The cost is a read before a mutation, and it is deliberately not charged to
+/// the common case: creating a path that does not exist yet signs
+/// `base = BASE_ABSENT`, which a caller knows without asking.
+pub fn attester_preimage_v2(verb: &str, path: &str, body_hash: &[u8; 32], base: &str) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(b"emem.memory_write.v2|");
+    h.update(verb.as_bytes());
+    h.update(b"|");
+    h.update(path.as_bytes());
+    h.update(b"|");
+    h.update(body_hash);
+    h.update(b"|");
+    h.update(base.as_bytes());
+    *h.finalize().as_bytes()
+}
+
+/// Verbs where a replayed signature destroys or overwrites existing content,
+/// and which therefore require v2.
+///
+/// Enforcement is graduated on measurement rather than on principle: across
+/// thirty days of this responder's log there were 50 `create` calls and ZERO
+/// `delete` or `rename`. Requiring v2 for the destructive pair costs no live
+/// caller anything today, and closes the sharp edge now instead of at the end
+/// of a deprecation window. The additive verbs keep accepting v1 while clients
+/// migrate, because breaking a working signer to fix a weaker case would be
+/// trading a real outage for a smaller risk.
+pub const V2_REQUIRED_VERBS: &[&str] = &["delete", "rename"];
+
+/// Whether this verb refuses a v1 signature.
+pub fn requires_v2(verb: &str) -> bool {
+    V2_REQUIRED_VERBS.contains(&verb)
 }
 
 /// Compute the body-hash component of the attester preimage: blake3
@@ -194,6 +275,78 @@ pub fn verify_attester(
     AttestationVerdict::Ok
 }
 
+/// Verify an attester binding, accepting a v2 (base-bound) signature and, for
+/// verbs where replay is not destructive, a v1 one.
+///
+/// v2 is tried first so a client that has migrated is never asked to fall back.
+/// [`requires_v2`] names the verbs that refuse v1 outright: replaying one of
+/// those destroys or overwrites whatever occupies the path today, which is the
+/// harm, and the responder's log shows no live caller using either.
+///
+/// A v1 signature that verifies is REPORTED as such rather than silently
+/// accepted, so the caller can be told it is signing a deprecated shape while
+/// its write still succeeds.
+pub fn verify_attester_versioned(
+    verb: &str,
+    path: &str,
+    body_hash: &[u8; 32],
+    base: &str,
+    attester: &MemoryAttester,
+) -> (AttestationVerdict, PreimageVersion) {
+    let pk_bytes =
+        match data_encoding::BASE32_NOPAD.decode(attester.pubkey_b32.to_uppercase().as_bytes()) {
+            Ok(b) if b.len() == 32 => {
+                let mut a = [0u8; 32];
+                a.copy_from_slice(&b);
+                a
+            }
+            _ => return (AttestationVerdict::BadPubkey, PreimageVersion::V2),
+        };
+    let sig_bytes =
+        match data_encoding::BASE32_NOPAD.decode(attester.sig_b32.to_uppercase().as_bytes()) {
+            Ok(b) if b.len() == 64 => {
+                let mut a = [0u8; 64];
+                a.copy_from_slice(&b);
+                a
+            }
+            _ => return (AttestationVerdict::BadSignature, PreimageVersion::V2),
+        };
+    let pk = match ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes) {
+        Ok(p) => p,
+        Err(_) => return (AttestationVerdict::BadPubkey, PreimageVersion::V2),
+    };
+    let sig = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+
+    let v2 = attester_preimage_v2(verb, path, body_hash, base);
+    let version = if pk.verify_strict(&v2, &sig).is_ok() {
+        PreimageVersion::V2
+    } else if requires_v2(verb) {
+        return (AttestationVerdict::BadSignature, PreimageVersion::V2);
+    } else if pk
+        .verify_strict(&attester_preimage(verb, path, body_hash), &sig)
+        .is_ok()
+    {
+        PreimageVersion::V1
+    } else {
+        return (AttestationVerdict::BadSignature, PreimageVersion::V2);
+    };
+
+    if !namespace_ownership_ok(path, &attester.pubkey_b32) {
+        return (AttestationVerdict::NamespaceMismatch, version);
+    }
+    (AttestationVerdict::Ok, version)
+}
+
+/// Which preimage a signature verified against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreimageVersion {
+    /// `blake3("emem.memory_write|" || verb || "|" || path || "|" || body_hash)`.
+    /// Replayable across a restart; accepted only for additive verbs.
+    V1,
+    /// v1 plus the base version being replaced. Not replayable.
+    V2,
+}
+
 /// Whether `path` is gated by the namespace rule alone, independent of
 /// the responder's write policy.
 ///
@@ -206,6 +359,104 @@ pub fn namespace_requires_attester(path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// A signature that was valid once must not be valid again after the path
+    /// has moved on.
+    ///
+    /// Every caller signature is PERSISTED in the ledger so a third party can
+    /// re-verify authorship offline. That is a deliberate property and it is
+    /// also why replay needs no interception: the signatures are public. The
+    /// in-memory replay set on the responder closes this within one process
+    /// lifetime and says so in its own comment; this closes it across a restart,
+    /// because the base is read from the store rather than remembered.
+    ///
+    /// The CONTROL is the first assertion. Without it this test passes equally
+    /// well against a build that rejects every signature, which would be a
+    /// worse bug wearing this test as a pass.
+    #[test]
+    fn a_delete_signature_cannot_be_replayed_once_the_path_moves_on() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pubkey_b32 = data_encoding::BASE32_NOPAD
+            .encode(sk.verifying_key().as_bytes())
+            .to_lowercase();
+        let path = format!("/memories/by_attester/{}/note.md", &pubkey_b32[..8]);
+        let bh = body_hash(b"");
+
+        // The version of the file the delete was authorised against.
+        let base_then = "cidaaaaaaaaaaaaaaaaaaaaaaa";
+        let sig = sk.sign(&attester_preimage_v2("delete", &path, &bh, base_then));
+        let att = MemoryAttester {
+            pubkey_b32: pubkey_b32.clone(),
+            sig_b32: data_encoding::BASE32_NOPAD
+                .encode(&sig.to_bytes())
+                .to_lowercase(),
+        };
+
+        // CONTROL: against the base it was signed for, it verifies.
+        let (verdict, version) = verify_attester_versioned("delete", &path, &bh, base_then, &att);
+        assert_eq!(verdict, AttestationVerdict::Ok, "control: must verify once");
+        assert_eq!(version, PreimageVersion::V2);
+
+        // THE ATTACK: the file was deleted, someone recreated it, and the same
+        // signature is read off the public log and sent again. It now names a
+        // base that is not there.
+        let base_now = "cidbbbbbbbbbbbbbbbbbbbbbbb";
+        let (replayed, _) = verify_attester_versioned("delete", &path, &bh, base_now, &att);
+        assert_eq!(
+            replayed,
+            AttestationVerdict::BadSignature,
+            "a delete signature replayed against a different version must be refused"
+        );
+
+        // And against a path that now holds nothing at all.
+        let (on_absent, _) = verify_attester_versioned("delete", &path, &bh, BASE_ABSENT, &att);
+        assert_eq!(on_absent, AttestationVerdict::BadSignature);
+    }
+
+    /// v1 is refused for the destructive verbs and still accepted for the
+    /// additive ones, which is the migration this ships with.
+    #[test]
+    fn v1_is_refused_where_replay_destroys_and_accepted_where_it_does_not() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[9u8; 32]);
+        let pubkey_b32 = data_encoding::BASE32_NOPAD
+            .encode(sk.verifying_key().as_bytes())
+            .to_lowercase();
+        let path = format!("/memories/by_attester/{}/note.md", &pubkey_b32[..8]);
+        let bh = body_hash(b"hello");
+
+        let v1 = |verb: &str| {
+            let sig = sk.sign(&attester_preimage(verb, &path, &bh));
+            MemoryAttester {
+                pubkey_b32: pubkey_b32.clone(),
+                sig_b32: data_encoding::BASE32_NOPAD
+                    .encode(&sig.to_bytes())
+                    .to_lowercase(),
+            }
+        };
+
+        // Additive: a v1 signature still works, so no live signer breaks today.
+        let (verdict, version) =
+            verify_attester_versioned("create", &path, &bh, BASE_ABSENT, &v1("create"));
+        assert_eq!(
+            verdict,
+            AttestationVerdict::Ok,
+            "v1 create must still verify"
+        );
+        assert_eq!(version, PreimageVersion::V1, "and be reported as v1");
+
+        // Destructive: a v1 signature is refused outright.
+        for verb in V2_REQUIRED_VERBS {
+            let (verdict, _) = verify_attester_versioned(verb, &path, &bh, BASE_ABSENT, &v1(verb));
+            assert_eq!(
+                verdict,
+                AttestationVerdict::BadSignature,
+                "v1 `{verb}` must be refused: replaying it destroys what is there now"
+            );
+        }
+    }
+
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
     use rand::rngs::OsRng;
