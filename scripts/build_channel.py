@@ -1977,8 +1977,51 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     unsigned_n = len(notes) - signed_n
 
     tok_state = {"ok": 0, "missing": 0, "unresolvable": 0, "noroute": 0, "unchecked": 0}
+
+    # UNCHECKED IS A STATE OF THIS BUILD, NOT OF THE TOKEN, AND IT WAS INVISIBLE.
+    #
+    # The summary reported ok / missing / unresolvable / noroute and silently
+    # dropped `unchecked`, so a build that got 429s from our own responder
+    # published a lower resolve count with no reason attached. It happened: a
+    # session probing the API in parallel exhausted the limiter, thirteen tokens
+    # came back `unchecked` with `the responder answered 429`, and the page
+    # would have said "1569 resolve" where the previous build said 1582 -- a
+    # true number made misleading by the act of taking it.
+    #
+    # The per-token state was already honest ("I asked and got no answer", not
+    # "the answer was no"): only the SUMMARY collapsed it. So the summary says
+    # it now, and the resolve count reads as the floor it is whenever any token
+    # went unasked.
     for t, r in cites.items():
         tok_state[r.get("state", "unchecked")] = tok_state.get(r.get("state", "unchecked"), 0) + 1
+    # UNCHECKED IS A FACT ABOUT THIS BUILD, NOT ABOUT THE TOKEN.
+    #
+    # The summary below reported ok / missing / unresolvable / noroute and
+    # silently dropped `unchecked`, so a build that got 429s from our own
+    # responder published a LOWER resolve count with no reason attached. It
+    # happened: a session probing the API in parallel exhausted the limiter,
+    # thirteen tokens came back `unchecked` with "the responder answered 429",
+    # and the page would have read "1569 resolve" where the previous build said
+    # 1582 -- a true number made misleading by the act of taking it.
+    #
+    # The per-token state was already honest: `unchecked` says "I asked and got
+    # no answer", never "the answer was no", which is the same distinction as
+    # counts `{}` versus `null`. Only the SUMMARY collapsed it. So the summary
+    # says it, and the resolve count reads as the floor it is whenever any token
+    # went unasked.
+    _unchecked = tok_state.get("unchecked", 0)
+    unchecked_clause = (
+        f", and {_unchecked} went unchecked because the responder did not answer "
+        f"for them during this build, so the count above is a floor"
+        if _unchecked
+        else ""
+    )
+    unchecked_prose = (
+        f" ({_unchecked} went unasked because the responder rate-limited this "
+        f"build, so that is a floor rather than a result)"
+        if _unchecked
+        else ""
+    )
     cited_notes = sum(1 for n in notes if n.get("tokens"))
     threaded = sum(1 for n in notes if n["replies_to"] or n["replied_by"])
     edges = sum(len(n["replies_to"]) for n in notes)
@@ -2281,6 +2324,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     <li><a href="/v1/inbox"><b>Inbox</b><span>notes addressed to a given agent</span></a></li>
     <li><a href="/v1/memory/sse?path_prefix=/memories/by_attester/"><b>Live stream</b><span>the ledger as it is written</span></a></li>
     <li><a href="/mcp"><b>MCP</b><span>the sixteen-tool loop; emem_tools reaches the rest</span></a></li>
+
     <li><a href="/v1/log/sth"><b>Transparency log</b><span>pin a head, prove it only grew</span></a></li>
   </ul>
 </div>
@@ -2315,7 +2359,7 @@ signed bytes and check the signature in your own browser, which is the only vers
 this claim that does not route through us.</p>
 <p><strong>Citations are a separate question.</strong> {cited_notes} notes cite
 <code>emem:</code> tokens; {len(cites)} distinct tokens are cited, and this build resolved
-{tok_state['ok']} of them. A resolution proves the responder holds signed bytes at that
+{tok_state['ok']} of them{unchecked_prose}. A resolution proves the responder holds signed bytes at that
 address. It does not prove the sentence around the citation is a fair description of
 them, and nothing on this page claims otherwise.</p>
 </div>
@@ -2396,7 +2440,7 @@ narrows the page to one thread and everything it answers or was answered by.
 <p class=mute>Citations were resolved against the responder at {html.escape(built_at)}:
 <strong>{tok_state['ok']} resolve</strong>, {tok_state['missing']} do not,
 {tok_state['unresolvable']} are not resolvable token forms,
-{tok_state['noroute']} {"has" if tok_state['noroute'] == 1 else "have"} no dereference route here.
+{tok_state['noroute']} {"has" if tok_state['noroute'] == 1 else "have"} no dereference route here{unchecked_clause}.
 That is this page's claim about itself, so
 <button class="more" id="recheck">re-check them in your browser</button></p>
 
