@@ -44,6 +44,60 @@ def declared() -> set[str]:
     return set(re.findall(r'"([a-z_]+)"', m.group(1)))
 
 
+# Provenance enums that are deliberately NOT the whole vocabulary, keyed by
+# their sorted contents, with the reason each is a subset. A subset not in this
+# table fails: writing the reason down is the price of publishing a partial
+# vocabulary, because a partial vocabulary teaches a filter to drop things.
+DELIBERATE_SUBSETS: dict[tuple[str, ...], str] = {
+    ("human_curated", "model_output"): (
+        "attest input: direct_sensor and deterministic_index are REFUSED as a "
+        "declaration -- this responder did not compute your value and will not "
+        "take your word that it is recomputable. It can still EARN "
+        "deterministic_index by re-running a pure op over the cited parents."
+    ),
+    ("estimator", "human_curated", "model_output"): (
+        "attest input, wider form: the three an external attester may declare "
+        "about its own value. Same refusal as above for the recomputable pair."
+    ),
+}
+
+
+def enum_vocabularies(allowed: set[str]) -> list[str]:
+    """Every published provenance enum must be the whole vocabulary or a declared subset."""
+    import json as _json
+
+    problems: list[str] = []
+    seen = 0
+    for f in sorted(CRATE_ROOT.glob("**/*.rs")):
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r'"enum"\s*:\s*\[([^\]]*)\]', text):
+            vals = set(re.findall(r'"([a-z_]+)"', m.group(1)))
+            # Only lists that are unmistakably this vocabulary.
+            if not vals & {"direct_sensor", "model_output", "human_curated"}:
+                continue
+            if vals - allowed:
+                continue  # a different vocabulary that happens to share a word
+            seen += 1
+            if vals == allowed:
+                continue
+            key = tuple(sorted(vals))
+            if key in DELIBERATE_SUBSETS:
+                continue
+            line = text[: m.start()].count("\n") + 1
+            try:
+                rel = str(f.relative_to(REPO))
+            except ValueError:
+                rel = str(f)
+            problems.append(
+                f"!! {rel}:{line}: publishes {len(vals)} of {len(allowed)} classes, "
+                f"missing {sorted(allowed - vals)}. Complete it, or add it to "
+                f"DELIBERATE_SUBSETS with the reason it is partial."
+            )
+    if not problems and seen:
+        print(f"  {seen} published provenance enum(s): complete or declared subsets")
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     # An optional root, so this gate can be run against a FIXTURE containing the
     # case and nothing else.
@@ -89,7 +143,29 @@ def main(argv: list[str] | None = None) -> int:
         note = "  (out-of-system statement, not a class)" if val == "none" else ""
         print(f"  {val:26} {n:3}{note}{mark}")
 
-    if bad:
+    # THE VOCABULARY WE TEACH, not just the values we emit.
+    #
+    # The upstream noticed that a filter written against a SHORTER class list
+    # silently drops facts carrying the classes it does not name. Ours had that
+    # exactly: the MCP recall filter's enum listed six of the seven, omitting
+    # `estimator`, so an agent enumerating the enum to mean "everything" would
+    # build a filter that excludes a class the day a band uses it. Latent today
+    # (no estimator band exists) and invisible when it stops being latent,
+    # because the responder accepts the value -- the enum is a description, not
+    # an enforcement, so nothing errors.
+    #
+    # Subsets are sometimes correct: the attest input deliberately refuses
+    # `direct_sensor` and `deterministic_index` because this responder will not
+    # take an attester's word that a value is recomputable. A subset must
+    # therefore be DECLARED, with its reason, rather than merely tolerated.
+    subset_problems = enum_vocabularies(allowed)
+    for line in subset_problems:
+        print(f"  {line}")
+
+    if bad or subset_problems:
+        if not bad:
+            print("\nAn undeclared provenance SUBSET is published as a vocabulary.")
+            return 1
         print("\nUNDECLARED PROVENANCE CLASS EMITTED:")
         for rel, line, val in bad:
             print(f"  {rel}:{line}: {val!r}")

@@ -31918,10 +31918,43 @@ fn value_verbatim_of(fact: &JsonValue) -> Option<String> {
 /// cube-band mapping `band_metadata_for_response` uses. `Null` when the band
 /// is unknown to the registry.
 fn provenance_for_band(band_key: &str) -> JsonValue {
-    band_metadata_for_response(band_key)
+    let mut prov = band_metadata_for_response(band_key)
         .get("provenance")
         .cloned()
-        .unwrap_or(JsonValue::Null)
+        .unwrap_or(JsonValue::Null);
+    // THIS SURFACE HAS NO FACT, SO IT CANNOT MAKE A PER-FACT CLAIM.
+    //
+    // `/v1/memory_token` is a pure composer: it never reads storage, which is
+    // deliberate and is why it can mint a citation for a fact this responder
+    // has never seen. That also means it cannot know whether the fact behind
+    // the token carries a model checkpoint, and `signed_model_checkpoint` is a
+    // property of the fact rather than of the band -- three of our twenty-three
+    // model_output bands earn it.
+    //
+    // Left alone, this surface asserted the strong form while /v1/recall said
+    // `attester_only` about the same fact. I introduced that contradiction with
+    // the per-fact downgrade four hours after writing a gate about one value
+    // described in two places, which is the whole difficulty in one sentence.
+    //
+    // So it says what it actually knows. `varies_by_observation` is the
+    // upstream's word for the same situation and taking it keeps one vocabulary
+    // across both systems.
+    if let Some(map) = prov.as_object_mut() {
+        if map.get("tamper_evidence").and_then(|v| v.as_str()) == Some("signed_model_checkpoint") {
+            map.insert("tamper_evidence".into(), json!("varies_by_observation"));
+            map.insert(
+                "tamper_evidence_note".into(),
+                json!(
+                    "this mint never reads storage, so it cannot tell whether the fact behind \
+                     this token carries a checkpoint hash. Facts from encoders this responder \
+                     ran do and are `signed_model_checkpoint`; facts fetched from an upstream \
+                     product do not and are `attester_only`. Resolve the token, or recall the \
+                     fact, to see which this one is."
+                ),
+            );
+        }
+    }
+    prov
 }
 
 /// `POST /v1/memory_token/resolve`, a single round-trip dereference of an
@@ -55265,12 +55298,27 @@ fn attach_recall_provenance(v: &mut JsonValue) {
             continue;
         };
         let pc = reg.provenance_class_for(&band);
+        // Snapshot before the mutable borrow: the downgrade needs to READ the
+        // fact's sources and served_via while we WRITE its provenance block.
+        let fact_snapshot = f.as_object().cloned().unwrap_or_default();
         if let Some(m) = f.as_object_mut() {
             let mut prov = serde_json::Map::new();
             prov.insert("class".into(), json!(pc.as_str()));
             prov.insert("deterministic".into(), json!(pc.is_deterministic()));
             prov.insert("tamper_evidence".into(), json!(pc.tamper_evidence()));
             prov.insert("trust_rank".into(), json!(pc.trust_rank()));
+            // Same per-fact correction as band_metadata_for_response applies
+            // here, because this surface HAS the fact and can therefore tell
+            // whether it names the weights that produced it. Two surfaces
+            // describing one fact must not disagree about it, which is what
+            // fixing only the first one would have arranged.
+            {
+                let mut wrapper = json!({ "provenance": JsonValue::Object(prov.clone()) });
+                downgrade_unbacked_checkpoint_claim(&mut wrapper, &fact_snapshot);
+                if let Some(fixed) = wrapper.get("provenance").and_then(|p| p.as_object()) {
+                    prov = fixed.clone();
+                }
+            }
             // The caveat rides with the number rather than in a doc, so an
             // agent weighing a model output sees why it should weigh it.
             if let Some(c) = pc.caution() {
