@@ -152,14 +152,7 @@ pub async fn search_one_at(
     let resp = client
         .post(search_url)
         .header("content-type", "application/json")
-        .header(
-            "user-agent",
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
-        )
+        .header("user-agent", emem_core::outbound::user_agent())
         .json(&body)
         .send()
         .await
@@ -257,14 +250,7 @@ pub async fn search_many_at(
     let resp = client
         .post(search_url)
         .header("content-type", "application/json")
-        .header(
-            "user-agent",
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
-        )
+        .header("user-agent", emem_core::outbound::user_agent())
         .json(&body)
         .send()
         .await
@@ -359,14 +345,7 @@ pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, 
     for attempt in 1..=MAX_ATTEMPTS {
         let resp = match client
             .get(&url)
-            .header(
-                "user-agent",
-                concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (avijeet@vortx.ai)"
-                ),
-            )
+            .header("user-agent", emem_core::outbound::user_agent())
             .send()
             .await
         {

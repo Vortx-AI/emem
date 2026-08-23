@@ -16,7 +16,11 @@
 //!     and obtains a Let's Encrypt cert via TLS-ALPN-01. Only port 443 is
 //!     needed; no Cloudflare, no Caddy, no nginx.
 //!   - `EMEM_TLS_BIND` (default `0.0.0.0:443`) — TLS bind address.
-//!   - `EMEM_TLS_CONTACT` (default `mailto:avijeet@vortx.ai`) — ACME contact.
+//!   - `EMEM_TLS_CONTACT` (NO DEFAULT, required when TLS is on) — ACME
+//!     contact. Must be the operator's own address: it is the account of
+//!     record for every certificate this node registers.
+//!   - `EMEM_CONTACT` (optional) — contact placed in the outbound
+//!     User-Agent sent to data providers; defaults to the project URL.
 //!   - `EMEM_TLS_STAGING=1` — use Let's Encrypt staging directory (rate-limit
 //!     friendly while testing the deploy path).
 
@@ -308,8 +312,27 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or_else(|_| "0.0.0.0:443".into())
             .parse()
             .map_err(|e| anyhow::anyhow!("EMEM_TLS_BIND parse failed: {e}"))?;
-        let contact =
-            std::env::var("EMEM_TLS_CONTACT").unwrap_or_else(|_| "mailto:avijeet@vortx.ai".into());
+        // ACME registration contact. NO DEFAULT, deliberately.
+        //
+        // This used to fall back to a hardcoded personal address, in a public
+        // repository. Anyone enabling TLS without setting the variable would
+        // have registered Let's Encrypt certificates for THEIR domains against
+        // A STRANGER'S EMAIL -- who would then receive the expiry notices and
+        // the revocation mail for hosts they have never heard of, and would be
+        // the account of record for certificates they do not control.
+        //
+        // Refusing to start is the correct failure. A missing contact is a
+        // question only the operator can answer, and substituting someone
+        // else's answer is worse than any outage: the outage is visible at
+        // once and this would not be visible for ninety days.
+        let contact = std::env::var("EMEM_TLS_CONTACT").map_err(|_| {
+            anyhow::anyhow!(
+                "EMEM_TLS_CONTACT is not set. ACME registers certificates against \
+                 a contact address, so this must be YOUR address -- set it to \
+                 e.g. `mailto:you@example.org`. Set EMEM_TLS_DOMAINS=\"\" to \
+                 serve plain HTTP instead."
+            )
+        })?;
         let staging = std::env::var("EMEM_TLS_STAGING").ok().as_deref() == Some("1");
         let cache_dir = std::path::Path::new(&data).join("acme.cache");
         std::fs::create_dir_all(&cache_dir).ok();

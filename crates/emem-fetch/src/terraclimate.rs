@@ -547,11 +547,7 @@ pub async fn fetch_terraclimate_monthly_dn(
 async fn ncss_get(url: &str, timeout: Duration) -> Result<Bytes, FetchError> {
     let client = reqwest::Client::builder()
         .timeout(timeout)
-        .user_agent(concat!(
-            "emem.dev/",
-            env!("CARGO_PKG_VERSION"),
-            " (avijeet@vortx.ai)"
-        ))
+        .user_agent(emem_core::outbound::user_agent())
         .build()
         .map_err(|e| FetchError::Transport(format!("terraclimate client build: {e}")))?;
     let resp = client

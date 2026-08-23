@@ -404,11 +404,7 @@ pub async fn fetch_population_density_for_year(
         .get(&url)
         .header(
             reqwest::header::USER_AGENT,
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
+            emem_core::outbound::user_agent(),
         )
         .timeout(Duration::from_secs(30))
         .send()

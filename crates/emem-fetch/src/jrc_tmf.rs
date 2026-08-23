@@ -426,14 +426,7 @@ async fn download_tile(client: &Client, url: &str) -> Result<bytes::Bytes, JrcTm
     let resp = client
         .get(url)
         .timeout(DOWNLOAD_TIMEOUT)
-        .header(
-            "user-agent",
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
-        )
+        .header("user-agent", emem_core::outbound::user_agent())
         .send()
         .await
         .map_err(|e| JrcTmfError::Transport(e.to_string()))?;

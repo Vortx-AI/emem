@@ -32,6 +32,7 @@ pub mod error;
 pub mod functions;
 pub mod key;
 pub mod manifest;
+pub mod outbound;
 pub mod polygon;
 pub mod privacy;
 pub mod schema;

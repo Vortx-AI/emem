@@ -622,14 +622,7 @@ async fn http_content_length(client: &Client, url: &str) -> Result<u64, KoppenEr
     let resp = client
         .get(url)
         .header("range", "bytes=0-0")
-        .header(
-            "user-agent",
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
-        )
+        .header("user-agent", emem_core::outbound::user_agent())
         .send()
         .await
         .map_err(|e| KoppenError::Transport(e.to_string()))?;
@@ -667,14 +660,7 @@ async fn http_range(
     let resp = client
         .get(url)
         .header("range", format!("bytes={}-{}", start, end_inclusive))
-        .header(
-            "user-agent",
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
-        )
+        .header("user-agent", emem_core::outbound::user_agent())
         .send()
         .await
         .map_err(|e| KoppenError::Transport(e.to_string()))?;

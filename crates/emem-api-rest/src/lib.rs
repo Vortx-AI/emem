@@ -42921,14 +42921,7 @@ async fn materialize_weather_current(
         timeout,
         reqwest_client()
             .get(&url)
-            .header(
-                "user-agent",
-                concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (avijeet@vortx.ai)"
-                ),
-            )
+            .header("user-agent", emem_core::outbound::user_agent())
             .send(),
     )
     .await
@@ -43114,14 +43107,7 @@ async fn materialize_power_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header(
-                "user-agent",
-                concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (avijeet@vortx.ai)"
-                ),
-            )
+            .header("user-agent", emem_core::outbound::user_agent())
             .send(),
     )
     .await
@@ -43270,14 +43256,7 @@ async fn materialize_cams_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header(
-                "user-agent",
-                concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (avijeet@vortx.ai)"
-                ),
-            )
+            .header("user-agent", emem_core::outbound::user_agent())
             .send(),
     )
     .await
@@ -43395,14 +43374,7 @@ async fn materialize_era5_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header(
-                "user-agent",
-                concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (avijeet@vortx.ai)"
-                ),
-            )
+            .header("user-agent", emem_core::outbound::user_agent())
             .send(),
     )
     .await
@@ -43518,14 +43490,7 @@ async fn materialize_marine_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header(
-                "user-agent",
-                concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (avijeet@vortx.ai)"
-                ),
-            )
+            .header("user-agent", emem_core::outbound::user_agent())
             .send(),
     )
     .await
@@ -46998,14 +46963,7 @@ async fn materialize_soilgrids_band(
         timeout,
         reqwest_client()
             .get(&url)
-            .header(
-                "user-agent",
-                concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (avijeet@vortx.ai)"
-                ),
-            )
+            .header("user-agent", emem_core::outbound::user_agent())
             .send(),
     )
     .await

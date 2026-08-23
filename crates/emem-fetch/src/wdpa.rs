@@ -344,11 +344,7 @@ pub async fn fetch_wdpa_status(
         .post(OVERPASS_URL)
         .header(
             reqwest::header::USER_AGENT,
-            concat!(
-                "emem.dev/",
-                env!("CARGO_PKG_VERSION"),
-                " (avijeet@vortx.ai)"
-            ),
+            emem_core::outbound::user_agent(),
         )
         .header(
             reqwest::header::CONTENT_TYPE,

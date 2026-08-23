@@ -30,6 +30,14 @@ Environment=EMEM_DEMOS_DIR=/home/ubuntu/emem/var/demos
 # `journalctl --user -u emem-server -n 5`, run scripts/redeploy.sh.
 Environment=EMEM_TLS_DOMAINS=emem.dev,www.emem.dev
 Environment=EMEM_TLS_BIND=0.0.0.0:443
+# These two are THIS OPERATOR'S, and the code no longer supplies either.
+# EMEM_TLS_CONTACT has no default: it is the ACME account of record for every
+# certificate this node registers, so a compiled-in fallback would have made
+# somebody else the registrant. The server refuses to start without it rather
+# than substituting an address. EMEM_CONTACT goes in the outbound User-Agent
+# sent to data providers; unset, the binary identifies as +https://emem.dev,
+# which is true of anyone running it. Anyone copying this file must change both.
+Environment=EMEM_CONTACT=avijeet@vortx.ai
 Environment=EMEM_TLS_CONTACT=mailto:avijeet@vortx.ai
 # Environment=EMEM_TLS_STAGING=1
 Environment=RUST_LOG=info,rustls_acme=info

@@ -191,11 +191,7 @@ async fn reader(
             // pmtiles 0.23 brings its own reqwest 0.13; we use *that*
             // re-export to ensure type-compatibility with the backend.
             let client = pmtiles::reqwest::Client::builder()
-                .user_agent(concat!(
-                    "emem.dev/",
-                    env!("CARGO_PKG_VERSION"),
-                    " (+https://emem.dev; avijeet@vortx.ai)"
-                ))
+                .user_agent(emem_core::outbound::user_agent())
                 .timeout(Duration::from_secs(45))
                 .pool_max_idle_per_host(8)
                 .build()
