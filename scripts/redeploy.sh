@@ -96,7 +96,25 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
           | grep -o '"value":[0-9.]*' | head -1)
     if [ -n "$ans" ]; then
       echo "==> live and ANSWERING at https://emem.dev (after ${i}x2s): $ans"
-      exit 0
+      # ANSWERING IS NOT THE SAME AS DEPLOYED.
+      #
+      # Every check above this line is satisfied by the OLD binary: the port
+      # is bound, TLS terminates, /v1/recall returns a number. A build that
+      # failed, a restart that did not take, or a unit that came back on the
+      # previous executable all reach this line and print success.
+      #
+      # build.rs has stamped the binary's own git commit since it was written
+      # and nothing ever compared it to anything. This does, and it is the
+      # only check here that can tell "the deploy worked" from "something is
+      # serving".
+      echo "==> verifying the responder is serving THIS commit"
+      if python3 "$REPO/scripts/deploy_drift.py" --require-head; then
+        exit 0
+      fi
+      echo "!!  the deploy reported success and the responder is on another"
+      echo "!!  commit. Nothing was rolled back: the previous binary is still"
+      echo "!!  serving, which is why every check above it passed."
+      exit 1
     fi
     echo "  listening but /v1/recall returned no value yet... ($i/10)"
     continue
