@@ -62850,21 +62850,52 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
             if dr.status().is_success() {
                 if let Ok(det) = dr.json::<JsonValue>().await {
                     if let Some(m) = block.as_object_mut() {
-                        // An EMPTY counts map is not a count of zero. It is
-                        // the detector having returned nothing usable, and
-                        // storing it puts `"counts": {}` in the envelope, which
-                        // reads to a consumer as "this street is empty". Absence
-                        // has to stay absent: the block then carries cameras and
-                        // clip ages and no counts, which is the true statement.
-                        if det
-                            .get("counts")
+                        // THREE STATES, and collapsing any two of them is the
+                        // bug this whole surface keeps re-learning.
+                        //
+                        //   counts with values  the detector looked and found these
+                        //   counts {}           the detector looked and found nothing
+                        //   counts null         THERE IS NO OBSERVATION. The frame
+                        //                       held no scene at all.
+                        //
+                        // The third is new and arrives as HTTP 200, because the
+                        // request was valid and the service worked; what does not
+                        // exist is the observation. The upstream found it when a
+                        // camera operator was panning and the fleet served a
+                        // rendered "camera in use" card instead of a street: every
+                        // photometric quality check passed, because a grey card
+                        // with white text is a well-exposed image of something that
+                        // is not a scene. 6.35% of the clip-retaining fleet at one
+                        // instant.
+                        //
+                        // So a consumer branching on STATUS reads it as a
+                        // successful measurement of an empty street, which is the
+                        // exact failure being removed. Branch on the value.
+                        let counts_val = det.get("counts");
+                        let no_observation = matches!(counts_val, None | Some(JsonValue::Null));
+                        let looked_saw_nothing = counts_val
                             .and_then(|c| c.as_object())
                             .map(|c| c.is_empty())
-                            .unwrap_or(false)
-                        {
+                            .unwrap_or(false);
+                        if no_observation {
                             m.insert(
                                 "counts_unavailable".into(),
-                                json!("the detector returned no counts for this clip"),
+                                json!(
+                                    "no observation: the frame held no scene, so nothing was \
+                                       counted and nothing may be inferred about the street"
+                                ),
+                            );
+                            if let Some(u) = det.get("unobservable") {
+                                m.insert("unobservable".into(), u.clone());
+                            }
+                        } else if looked_saw_nothing {
+                            m.insert(
+                                "counts_unavailable".into(),
+                                json!(
+                                    "the detector looked at this clip and found none of the \
+                                       classes it seeks. This is an observation of nothing, \
+                                       not an absence of observation"
+                                ),
                             );
                         }
                         for k in [
@@ -62882,8 +62913,12 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
                             "postcard_url",
                         ] {
                             if let Some(v) = det.get(k) {
+                                // Neither an empty map nor a null is copied: one
+                                // renders as an empty street, the other as a
+                                // missing field a consumer may fill in with zero.
                                 if k == "counts"
-                                    && v.as_object().map(|c| c.is_empty()).unwrap_or(false)
+                                    && (v.is_null()
+                                        || v.as_object().map(|c| c.is_empty()).unwrap_or(false))
                                 {
                                     continue;
                                 }
@@ -63114,6 +63149,23 @@ fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
                     seen,
                     parts.join(", "),
                     vouch
+                )
+            }
+            // No counts, and WHY there are none decides the sentence. A camera
+            // that was showing an operator's placeholder card is not a quiet
+            // street, and saying "nothing is happening" about one is inventing
+            // an observation nobody made.
+            _ if block.get("unobservable").is_some() => {
+                let reason = block
+                    .get("unobservable")
+                    .and_then(|u| u.get("reason"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("the frame held no scene");
+                format!(
+                    "{camera_count} ground camera(s) cover this cell, but the one that answered \
+                     was not showing a street ({reason}), so there is no observation of this \
+                     place right now. That is not an empty street: nothing was seen because \
+                     nothing was looked at."
                 )
             }
             _ => format!(
@@ -68944,6 +68996,77 @@ mod tests {
             album.contains("detector_fn_id"),
             "control: the album must still be reading the detector per panel"
         );
+    }
+
+    /// A frame that held no scene must never render as an empty street.
+    ///
+    /// The upstream serves HTTP 200 with `counts: null` and an `unobservable`
+    /// block when a camera was showing an operator's placeholder card rather
+    /// than a street. The request was valid and the service worked; what does
+    /// not exist is the observation. A consumer branching on STATUS reads that
+    /// as a successful measurement of a quiet street.
+    ///
+    /// Three states, and the test asserts all three produce different prose,
+    /// because collapsing any two of them is the bug:
+    ///   counts with values   the detector found these
+    ///   counts {}            it looked and found none
+    ///   counts null          nothing was looked at
+    ///
+    /// Written before the upstream deployed the shape, so it encodes the
+    /// contract rather than an observation of it. That is deliberate: the
+    /// alternative is finding out from a card that says a busy junction was
+    /// empty.
+    #[test]
+    fn a_frame_with_no_scene_never_renders_as_an_empty_street() {
+        let base = |counts: JsonValue, extra: Option<(&str, JsonValue)>| {
+            let mut b = json!({
+                "cameras_near": 12u64,
+                "cameras_with_retained_clips": 5u64,
+                "answers_now": true,
+                "newest_clip_age_s": 120i64,
+                "counts": counts,
+            });
+            if let (Some(m), Some((k, v))) = (b.as_object_mut(), extra) {
+                m.insert(k.to_string(), v);
+            }
+            let mut body = json!({});
+            apply_live_perception(&mut body, b);
+            body.get("answer")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+
+        let found = base(json!({ "car": 3, "person": 8 }), None);
+        let saw_nothing = base(json!({}), None);
+        let no_observation = base(
+            JsonValue::Null,
+            Some((
+                "unobservable",
+                json!({ "reason": "operator_placeholder_card" }),
+            )),
+        );
+
+        // CONTROL: the ordinary case still reports what was counted.
+        assert!(
+            found.contains("3 car") && found.contains("8 person"),
+            "control: a real count must still be reported: {found}"
+        );
+
+        // The one that matters. It must not claim anything about the street.
+        assert!(
+            no_observation.contains("not showing a street"),
+            "a placeholder frame must say there was no observation: {no_observation}"
+        );
+        assert!(
+            no_observation.contains("operator_placeholder_card"),
+            "and must carry the upstream's own reason: {no_observation}"
+        );
+
+        // And the three must not be interchangeable.
+        assert_ne!(found, saw_nothing);
+        assert_ne!(saw_nothing, no_observation);
+        assert_ne!(found, no_observation);
     }
 
     /// A real retained-clip key must be admitted, because the verify chain runs

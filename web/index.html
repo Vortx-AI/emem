@@ -1274,8 +1274,22 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   }
 
   function count_line(p) {
-    /* What is on the street, from the index, before any picture loads. */
-    var c = p.counts || {};
+    /* What is on the street, from the index, before any picture loads.
+
+       THREE STATES and the third is new. `counts` with values means the
+       detector found them. `{}` means it looked and found none. NULL means
+       there was no observation at all: the camera was serving an operator's
+       placeholder card rather than a street, which every photometric check
+       passes because a grey card with white text is a well-exposed image of
+       something that is not a scene.
+
+       The null test comes FIRST, before the `|| {}` below, because that
+       coercion turns "no observation" into "looked and saw nothing" and the
+       caption would then claim we looked. */
+    if (p.counts === null || p.counts === undefined) {
+      return 'no observation: not showing a street';
+    }
+    var c = p.counts;
     var parts = Object.keys(c).sort().map(function (k) { return c[k] + ' ' + k; });
     if (!parts.length) return 'nothing seen in this frame';
     return parts.join(', ');
