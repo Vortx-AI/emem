@@ -225,6 +225,13 @@ header.top .navlinks a:hover{color:var(--accent)}
 .recipes details{background:var(--bg-2);border:1px solid var(--line);padding:.55em .8em;
   border-radius:3px;font-family:var(--mono);font-size:var(--t-2xs)}
 .recipes summary{cursor:pointer;color:var(--fg-2);outline:none;list-style:none}
+/* outline:none hides the default marker treatment and also removed the focus
+   ring. The four nav summaries on this page change outline, width and colour
+   on focus; only these three did not, so this is one rule short of a
+   convention rather than a missing one. They are the 'check it yourself, in
+   your language' disclosures, which is the last place to lose a keyboard
+   user. */
+.recipes summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .recipes summary::-webkit-details-marker{display:none}
 .recipes summary::before{content:"▸ ";color:var(--fg-mute)}
 .recipes[open] summary::before,

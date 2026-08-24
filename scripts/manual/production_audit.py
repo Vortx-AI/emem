@@ -19,6 +19,19 @@ a browser:
               against 4.5:1, or 3:1 for large text.
   document    title, meta description, one h1, lang, viewport. The things an
               enterprise reader's tooling reads before a human does.
+
+              The title and description LENGTHS are soft guides, not defects,
+              and two findings here are standing decisions rather than work not
+              yet done. The whitepaper titles run 73 and 74 characters against a
+              70 guide; every way of trimming them drops a load-bearing word
+              ("layer", "verifiable"), and search engines truncate around 60
+              anyway, so a trim buys a shorter claim and not an untruncated one.
+              Seventeen meta descriptions run over 175: none can be cut at a
+              sentence boundary, so trimming is rewriting, and rewriting means
+              authoring new claims about the protocol in the one place nobody
+              proofreads. Both are left long and accurate on purpose. They stay
+              in the output rather than being exempted, because a check that
+              hides a decision is how the decision gets forgotten.
   images      an <img> with no alt attribute at all. An empty alt is a
               DECISION (decorative) and is not flagged; a missing one is a
               question nobody answered.
