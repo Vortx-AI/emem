@@ -1086,6 +1086,26 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 
 /* ---- was inline block 9 of 13 ---- */
 .proofT{width:100%;border-collapse:collapse;font-size:var(--t-sm);margin:.9rem 0 .6rem}
+/* THE TABLE ALREADY SCROLLS. It is the scroll container itself, via
+   `@media(max-width:680px){.proofT{display:block;overflow-x:auto}}` further
+   down, and at 375px its content is 453px against a 308px box: scrolling to the
+   end brings the last column, the verify link, fully into view at 275..341.
+   Measured, after a report that it was lost -- that report walked ANCESTORS for
+   an `overflow-x:auto` and found none, which is true and misses that the
+   element itself carries it. I then wrapped the table in a scrolling div, which
+   nested a 308px clip around a 390px scroller and genuinely broke what had been
+   working. Reverted.
+
+   What was actually missing is smaller and real: nothing SAYS it scrolls, and a
+   keyboard could not reach it. A scroll container that only a mouse can move is
+   the same content loss for a different reader. `tabindex` and the label fix
+   that; the note below appears only where the scrolling exists. */
+.proofT-hint{display:none}
+@media (max-width:680px){
+  .proofT-hint{display:block;font-family:var(--mono);font-size:var(--t-3xs);
+    color:var(--mute);margin:0 0 .382rem}
+}
+.proofT:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .proofT th,.proofT td{border:1px solid var(--rule-strong);padding:.5rem .7rem;text-align:left;vertical-align:top}
   .proofT th{background:var(--paper-3);font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
   .proofT td b{font-family:var(--mono);color:var(--accent)}
@@ -2100,7 +2120,8 @@ html,body{overflow-x:clip}
   <div class="words">
     <div class="kicker">Measured, kept honest</div>
     <h2>What it does that a model cannot</h2>
-    <table class="proofT">
+    <p class="proofT-hint">Scrolls sideways: two more columns to the right.</p>
+<table class="proofT" tabindex="0" role="region" aria-label="Capability comparison. Scrolls sideways on a narrow screen.">
       <thead><tr><th>capability</th><th>emem</th><th>model + RAG</th><th>full context (8k)</th><th></th></tr></thead>
       <tbody>
         <tr><td>value-predicate queries: count, rank, filter, aggregate by value over a region bigger than context</td><td class="n"><b>4/4</b></td><td class="n">0/4</td><td class="n">0/4</td><td><a href="/verify?q=/memories/by_attester/6ww7pxav/value-predicate-benchmark-emem-4of4-rag-0of4-the-moat-2026-07-23.md">the signed note &rarr;</a></td></tr>
