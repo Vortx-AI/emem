@@ -6282,7 +6282,24 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // a splat viewer already sends a rendered screenshot today. Output
         // carries them too, because this responder can hand back a frame it
         // was given a receipt for.
-        "defaultInputModes":  ["text/plain", "application/json", "image/jpeg", "image/png", "video/mp4"],
+        // video/mp4 WAS HERE and it was on the wrong side of the card.
+        //
+        // The reasoning above is sound and its conclusion still holds -- for the
+        // OUTPUT direction. The clip FilePart both sides agreed on is something
+        // this responder PRODUCES: verified against the running perception
+        // service, one part, `kind=file`, `mimeType=video/mp4`, a `uri` and no
+        // inlined bytes, with the sha256 and the receipt in metadata. A channel
+        // is not a CDN; the URI is a name and the hash is the evidence. A
+        // conforming client that rejected that part when it ARRIVED would be as
+        // wrong as one that refused to send it, and outputModes is what prevents
+        // that.
+        //
+        // As an INPUT it admitted an upload nothing accepts. The only skill that
+        // takes a file refuses video and points at /v1/perception/at, so a
+        // conforming client read the card, sent a video part, and was turned
+        // away by the one surface that takes files. Confirmed with the peer that
+        // nothing of theirs ever sends one.
+        "defaultInputModes":  ["text/plain", "application/json", "image/jpeg", "image/png"],
         "defaultOutputModes": ["application/json", "image/jpeg", "image/png", "video/mp4"],
         "skills": skills,
         // No securitySchemes, and no securityRequirements, because this
@@ -29012,6 +29029,11 @@ fn perception_skills() -> Vec<JsonValue> {
                             camera clip whose sha256 is committed in a signed receipt. Answers \
                             what orbit cannot: a satellite revisits in days.",
             "tags": ["read", "rest", "direct_sensor"],
+            // Where the clip FilePart actually lives: this skill RETURNS one,
+            // by reference. inputModes stays text-only because it takes a cell
+            // or lat+lng and never a file.
+            "inputModes":  ["text/plain", "application/json"],
+            "outputModes": ["application/json", "video/mp4"],
             "examples": [format!("GET {origin}/v1/perception/at?cell=<cell64> for coverage, \
                                   POST the same path with {{\"cell\":\"<cell64>\"}} for counts")],
         }),
