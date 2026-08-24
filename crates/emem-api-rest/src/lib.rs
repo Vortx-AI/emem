@@ -22077,19 +22077,44 @@ async fn resolve_model_route(want: &str) -> Result<ModelRoute, (i64, String)> {
     //
     // Cheap to be sure: a healthy service costs one probe and exits the loop,
     // so the retries are only ever paid on the path that was about to fail.
+    // REFUSED AND TIMED OUT ARE DIFFERENT FAULTS and this used to collapse them
+    // into `unwrap_or(false)`. A refused connection means nothing is listening:
+    // the model really is down. A TIMEOUT on a service that answers /health in
+    // 1.5 ms when idle means it is alive and occupied, and the honest answer to
+    // the caller is "busy", not "unavailable".
+    //
+    // That distinction was not academic. The vision host ran with threaded=False,
+    // so while a 13-22 s generation was in flight it could not answer /health at
+    // all, and every probe timed out. The second agent to ask for the model was
+    // told it did not exist -- and the busier the model was, the more callers
+    // were turned away. The host now answers /health in single-digit
+    // milliseconds mid-generation (measured: 25 of 25 probes during a 12.2 s
+    // call, slowest 5.4 ms), so this path should be rare. It is written down
+    // anyway, because the next single-threaded upstream will not announce itself.
     let client = reqwest::Client::new();
     let mut up = false;
+    let mut timed_out = false;
     for attempt in 0..3 {
         if attempt > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
-        up = client
+        match client
             .get(&route.health)
             .timeout(std::time::Duration::from_secs(5))
             .send()
             .await
-            .map(|r| r.status().is_success())
-            .unwrap_or(false);
+        {
+            Ok(r) => {
+                up = r.status().is_success();
+                timed_out = false;
+            }
+            Err(e) => {
+                up = false;
+                // is_connect() is "nothing is listening"; is_timeout() is
+                // "listening and not answering in time".
+                timed_out = e.is_timeout() || (!e.is_connect() && timed_out);
+            }
+        }
         if up {
             break;
         }
@@ -22097,12 +22122,25 @@ async fn resolve_model_route(want: &str) -> Result<ModelRoute, (i64, String)> {
     if !up {
         return Err((
             -32050,
-            format!(
-                "model {} is one this responder routes to, but its service at {} did not \
-                 answer three probes over half a second, so the call would fail rather than \
-                 be answered by something else.",
-                route.base_model, route.health
-            ),
+            if timed_out {
+                format!(
+                    "model {} is one this responder routes to and its service at {} is \
+                     listening, but it did not answer three health probes within 5 s each. \
+                     That is the signature of a service busy with another request rather \
+                     than a service that is down, so this is worth retrying shortly. The \
+                     call is refused rather than queued because a request that outlives \
+                     its caller's patience is worse than a clear refusal.",
+                    route.base_model, route.health
+                )
+            } else {
+                format!(
+                    "model {} is one this responder routes to, but nothing is listening at \
+                     {}: three connection attempts were refused. The model is down rather \
+                     than busy, and the call would fail rather than be answered by \
+                     something else.",
+                    route.base_model, route.health
+                )
+            },
         ));
     }
     Ok(route.clone())
@@ -28792,20 +28830,67 @@ async fn a2a_answer_with_vision(
         .timeout(std::time::Duration::from_secs(120))
         .build()
         .map_err(|e| (-32050i64, format!("vision client: {e}")))?;
-    let body: JsonValue = client
+    let resp = client
         .post(&route.url)
         .json(&payload)
         .send()
         .await
-        .map_err(|e| (-32050i64, format!("the vision model did not answer: {e}")))?
-        .json()
-        .await
-        .map_err(|e| {
-            (
-                -32050i64,
-                format!("the vision model returned non-JSON: {e}"),
-            )
-        })?;
+        .map_err(|e| (-32050i64, format!("the vision model did not answer: {e}")))?;
+    let status = resp.status();
+    let body: JsonValue = resp.json().await.map_err(|e| {
+        (
+            -32050i64,
+            format!("the vision model returned non-JSON: {e}"),
+        )
+    })?;
+
+    // RELAY THE UPSTREAM'S OWN WORDS. This used to read only `choices`, so a
+    // non-2xx carrying a perfectly good diagnosis fell through to the empty-text
+    // branch below and the caller was told "the vision model returned an empty
+    // answer" -- which blames the model for the caller's input and gives them
+    // nothing to fix.
+    //
+    // Measured: a corrupt PNG posted to the vision service answers
+    // `500 {"error":"SyntaxError: broken PNG file (chunk b'END\xae')"}`. That
+    // sentence tells an agent exactly what it did wrong. It travelled the whole
+    // way here and was discarded at the last step. An agent whose first upload
+    // is malformed learning nothing is a worse failure than the malformed
+    // upload, because it cannot repair itself and stops trying.
+    if !status.is_success() {
+        let upstream = body
+            .get("error")
+            .and_then(|e| {
+                e.as_str().map(str::to_string).or_else(|| {
+                    e.get("message")
+                        .and_then(|m| m.as_str())
+                        .map(str::to_string)
+                })
+            })
+            .or_else(|| {
+                body.get("detail")
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string)
+            });
+        return Err((
+            -32050,
+            match upstream {
+                Some(msg) => format!(
+                    "the vision service refused this image ({}): {}",
+                    status.as_u16(),
+                    msg
+                ),
+                // Distinguish "it said nothing we could find" from "it said
+                // nothing": the first is our parsing, the second is theirs.
+                None => format!(
+                    "the vision service answered {} and its body carried no `error` \
+                     or `detail` field, so there is no reason to pass on. Raw body \
+                     begins: {}",
+                    status.as_u16(),
+                    body.to_string().chars().take(160).collect::<String>()
+                ),
+            },
+        ));
+    }
 
     if body.get("truncated").and_then(|v| v.as_bool()) == Some(true) {
         return Err((
