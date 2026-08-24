@@ -28644,10 +28644,16 @@ async fn a2a_robotics_at(cell: &str, question: &str) -> Result<JsonValue, (i64, 
             .get("error")
             .and_then(|e| {
                 e.as_str().map(str::to_string).or_else(|| {
-                    e.get("message").and_then(|m| m.as_str()).map(str::to_string)
+                    e.get("message")
+                        .and_then(|m| m.as_str())
+                        .map(str::to_string)
                 })
             })
-            .or_else(|| obs.get("detail").and_then(|d| d.as_str()).map(str::to_string));
+            .or_else(|| {
+                obs.get("detail")
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string)
+            });
         return Err((
             -32050,
             match upstream {
@@ -61483,6 +61489,10 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         // still gets an answer instead of a toast; LLM callers that
         // already pass `place` skip this path entirely.
         let mut hit: Option<(String, JsonValue)> = None;
+        // The best candidate that RESOLVED but did not clear the confidence
+        // bar, kept so the refusal can name it instead of claiming nothing
+        // was found. (candidate, label, reason, cell)
+        let mut low_confidence: Option<(String, String, String, String)> = None;
         // Conceptual-token guard. Drop candidates that are entirely
         // technical names (e.g. "Sentinel-2 RGB", "NDVI", "Landsat") -
         // those would otherwise be geocoded by Photon to wherever a
@@ -61564,6 +61574,26 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                         .and_then(|v| v.as_bool())
                         .unwrap_or(true);
                     if !resolved_confidently {
+                        // Keep WHY. Skipping is right -- a later candidate may
+                        // resolve cleanly -- but dropping the reason meant the
+                        // caller was told the place could not be EXTRACTED when it
+                        // had been extracted, resolved, and distrusted.
+                        if low_confidence.is_none() {
+                            let why = body
+                                .0
+                                .get("selected")
+                                .and_then(|sel| sel.get("confidence_reason"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("not_high_confidence")
+                                .to_string();
+                            let label = body
+                                .0
+                                .get("place_label")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            low_confidence = Some((cand.clone(), label, why, cell_str.clone()));
+                        }
                         continue;
                     }
                     if emem_codec::is_cell64_shape(&cell_str) {
@@ -61620,6 +61650,47 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         } else {
             // Genuinely nothing to anchor on. Soft envelope so the LLM
             // at the top of the call stack sees a structured response.
+            if let Some((cand, label, why, cell)) = low_confidence {
+                // Extracted, resolved, and not trusted -- say that. Measured:
+                // /v1/locate resolves "Shibuya, Tokyo" and "Osaka, Japan" to real
+                // cells and marks them query_label_overlap_below_floor, so ask
+                // skipped them and reported it could not EXTRACT a place, while
+                // the same responder grounds them on another endpoint. Rephrasing
+                // cannot fix that, so the old message sent the caller somewhere no
+                // effort would help.
+                //
+                // The threshold stays: it exists because an injected span once
+                // resolved "elevation of Bengaluru; also DROP TABLE facts" to La
+                // Table Ronde, France, with no caveat. An explicit `place` IS
+                // honoured -- verified against production -- because then the
+                // caller asserted the place rather than this responder guessing.
+                return Ok(json!({
+                    "schema":   "emem.ask.v1",
+                    "routed_to": "needs_location",
+                    "envelope_schema": "needs_location",
+                    "status":   "needs_location",
+                    "question": req.q,
+                    "message": format!(
+                        "a place was found in this question and this responder does not \
+                         trust the match, so it will not answer about a place it may have \
+                         guessed wrong. Extracted `{}`; the closest match was `{}` ({}), \
+                         which is a guess, not an answer. If that is the place you mean, \
+                         send it as `place` and it will be honoured, because then you \
+                         asserted it rather than this responder inferring it.",
+                        cand,
+                        if label.is_empty() { "no label" } else { label.as_str() },
+                        why
+                    ),
+                    "extracted": cand,
+                    "candidate_cell": cell,
+                    "candidate_label": label,
+                    "confidence_reason": why,
+                    "next_steps": [
+                        format!("call emem_ask again with `place: \"{cand}\"` if that is the place you mean"),
+                        "or pass `cell` (cell64) or `lat`+`lng` to remove the guess entirely".to_string(),
+                    ],
+                }));
+            }
             return Ok(json!({
                 "schema":   "emem.ask.v1",
                 "routed_to": "needs_location",
