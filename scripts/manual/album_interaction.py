@@ -33,6 +33,16 @@ def run():
                 r.fulfill(status=200, content_type="text/html", body=PAGE)
             elif "/v1/perception/cards" in u and "thumb" not in u and ".svg" not in u and "story" not in u:
                 r.fulfill(status=200, content_type="application/json", body=CARDS)
+            elif u.endswith(".css"):
+                # THE PAGE'S OWN STYLESHEETS. Without these the render is the
+                # unstyled fallback -- readable, and nothing like what a visitor
+                # sees. I nearly judged the page's layout from one.
+                name = u.rsplit("/", 1)[-1]
+                try:
+                    body = open(f"/home/ubuntu/emem/web/{name}", "rb").read()
+                    r.fulfill(status=200, content_type="text/css", body=body)
+                except OSError:
+                    r.fulfill(status=404, body=b"")
             elif "thumb.png" in u or ".png" in u or ".svg" in u:
                 r.fulfill(status=200, content_type="image/png", body=THUMB)
             else:
@@ -67,6 +77,15 @@ def run():
         print(f"  Left at index 0: index {sel()}  (must not wrap)")
 
         pg.locator("#album-split").screenshot(path=f"{HERE}/album.png")
+        # The top of the page, since the album now opens it: the question is no
+        # longer "does the split work" but "does landing here make sense".
+        pg.evaluate("window.scrollTo(0,0)")
+        pg.wait_for_timeout(500)
+        pg.screenshot(path=f"{HERE}/top.png")
+        # And the seam: does the page's second screen follow from its first.
+        pg.evaluate("window.scrollTo(0, window.innerHeight - 80)")
+        pg.wait_for_timeout(600)
+        pg.screenshot(path=f"{HERE}/fold.png")
         print(f"  page errors    : {errs or 'none'}")
         b.close()
         return 0 if (n == 12 and not errs) else 1
