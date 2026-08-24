@@ -65632,11 +65632,20 @@ fn locate_confidence_checked(
             // world from an English question: Osaka labelled 大阪市, Munich
             // labelled München, Seoul labelled 서울특별시. Each resolved
             // correctly and was refused for not looking like its own name.
+            // SAY WHICH BRANCH RAN. Before this, all three outcomes reported
+            // the same `query_label_overlap_below_floor`, so "the fix is not
+            // deployed" and "the fix ran and did not help" were
+            // indistinguishable from outside. That is why "it is fixed" was
+            // wrong three times on this bug instead of being caught the first
+            // time: the thing that decided the outcome was only in the log.
+            if alt_names.trim().is_empty() {
+                return (false, "query_label_overlap_below_floor_no_alternates");
+            }
             match query.and_then(|q| query_label_overlap(q, alt_names)) {
                 Some(o2) if o2 >= QUERY_LABEL_OVERLAP_FLOOR => {
                     (high, "query_matched_alternate_name")
                 }
-                _ => (false, "query_label_overlap_below_floor"),
+                _ => (false, "query_label_overlap_below_floor_alternates_checked"),
             }
         }
         _ => (high, reason),
@@ -66335,7 +66344,15 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///    Tokyo, Munich, Seoul, Cairo and Rome while /v1/locate answered them. Those
 ///    stored verdicts must re-resolve or the fix replays as a refusal for the
 ///    full 30 d TTL -- the same trap generation 4 was bumped for.
-const LOCATE_RESOLVER_VERSION: u32 = 8;
+/// 9: generation 8 shipped the exonym rescue against Nominatim's `namedetails`
+///    and the places that needed it are served by PHOTON, whose default
+///    response carries only the local name. Rows resolved under 8 therefore
+///    carry a verdict computed before the rescue could reach them --
+///    "Nuremberg, Germany" and "Osaka, Japan" replayed as not-confident from
+///    cache while "Florence, Italy" resolved live and was rescued. Two reason
+///    strings in one sample is what surfaced it. Those generation-8 verdicts
+///    must re-resolve or they replay for the rest of the 30 d TTL.
+const LOCATE_RESOLVER_VERSION: u32 = 9;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -67105,10 +67122,19 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
     // nothing with the query -- which is the path that was about to refuse.
     // The happy path pays nothing.
     if let Some(first) = out.first() {
-        let no_overlap = query_label_overlap(q_trim, &first.label)
-            .map(|o| o < QUERY_LABEL_OVERLAP_FLOOR)
-            .unwrap_or(false);
-        if no_overlap && first.alt_names.trim().is_empty() {
+        // Fire when NOTHING we already hold clears the floor -- not when the
+        // alt_names are empty. They are never empty on this path: the Photon
+        // branch fills them from the feature's own `name*` keys, which are the
+        // LOCAL names, so `Firenze` was sitting in alt_names and the emptiness
+        // guard skipped the English lookup every single time. The guard I wrote
+        // blocked the fix I wrote, and the reason string is what made that
+        // visible from outside in one call.
+        let below = |t: &str| {
+            query_label_overlap(q_trim, t)
+                .map(|o| o < QUERY_LABEL_OVERLAP_FLOOR)
+                .unwrap_or(false)
+        };
+        if below(&first.label) && below(&first.alt_names) {
             let en_url = format!(
                 "{}/api/?q={}&limit=1&lang=en",
                 base.trim_end_matches('/'),
@@ -67122,7 +67148,14 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
                             .unwrap_or("")
                             .to_string();
                         if !en.is_empty() {
-                            out[0].alt_names = en;
+                            // Append. The local name is still a name this
+                            // place is known by, and a query in the local
+                            // script must keep matching it.
+                            if out[0].alt_names.trim().is_empty() {
+                                out[0].alt_names = en;
+                            } else {
+                                out[0].alt_names = format!("{} {}", out[0].alt_names, en);
+                            }
                         }
                     }
                 }
@@ -71321,7 +71354,14 @@ mod tests {
             "La Table Ronde Table Ronde est",
         );
         assert!(!still_low, "alternate names must not launder a bad span");
-        assert_eq!(why_low, "query_label_overlap_below_floor");
+        // The reason now says WHICH branch decided it, so a caller can tell
+        // "the alternates were consulted and did not match" from "there were
+        // none to consult" -- and, from outside, tell a deployed fix from an
+        // undeployed one.
+        assert_eq!(
+            why_low,
+            "query_label_overlap_below_floor_alternates_checked"
+        );
     }
 
     /// The floor only demotes, only on the fuzzy tiers, and never rescues.
@@ -71339,7 +71379,7 @@ mod tests {
             "",
         );
         assert!(!high, "a confident mismatch must be demoted");
-        assert_eq!(why, "query_label_overlap_below_floor");
+        assert_eq!(why, "query_label_overlap_below_floor_no_alternates");
 
         // Structural tiers match on an identifier, not fuzzy text. Applying
         // the floor there would refuse a correct transliterated answer.
