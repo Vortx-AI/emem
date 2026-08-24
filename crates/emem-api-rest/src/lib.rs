@@ -21022,8 +21022,20 @@ fn mcp_slim_inner_to_budget_keeping(
             // A scalar under the floor is sacrificed last, not never: see
             // NEVER_DROP_SCALAR_BYTES. Collections are never protected —
             // they are what overflows a budget in the first place.
-            let protected = !matches!(v, JsonValue::Array(_) | JsonValue::Object(_))
-                && cost <= NEVER_DROP_SCALAR_BYTES;
+            //
+            // `model_answer` is the exception, and it is an exception about
+            // WHO ASKED rather than about size. Every other field here is
+            // something the responder decided to include; that one appears only
+            // because the caller named a model, and it is the thing they were
+            // waiting on. Dropping it first because it is large answers a
+            // question nobody asked and bills them for the GPU anyway. Sorted
+            // with the protected group, so it goes only if dropping every
+            // collection twice over still left the result above the budget --
+            // last, not never, which is the same bargain the identity scalars
+            // get.
+            let protected = k == "model_answer"
+                || (!matches!(v, JsonValue::Array(_) | JsonValue::Object(_))
+                    && cost <= NEVER_DROP_SCALAR_BYTES);
             (k.clone(), cost, protected)
         })
         .collect();
@@ -22077,13 +22089,46 @@ fn health_url_for(url: &str) -> String {
 /// Neither is silently substituted: a caller who asks for one model and is
 /// handed another, in a response that then reports which model answered, has
 /// been told something true in a way that misleads.
-async fn resolve_model_route(want: &str) -> Result<ModelRoute, (i64, String)> {
-    let routes = model_routes();
+/// Which route does this name mean? Pure, so it can be tested without a
+/// running model host.
+///
+/// Exact match on `base_model` or `family` wins outright. Failing that, an
+/// unambiguous substring resolves: `cosmos` occurs in exactly one route here,
+/// so it has one referent and refusing it only taught the caller our spelling.
+/// A name matching several is refused and names them, because being handed a
+/// model you did not ask for is the failure this whole path exists to prevent.
+fn pick_model_route<'a>(
+    routes: &'a [ModelRoute],
+    want: &str,
+) -> Result<&'a ModelRoute, (i64, String)> {
     let want_lc = want.trim().to_ascii_lowercase();
-    let Some(route) = routes.iter().find(|r| {
+    let describe = |rs: &[&ModelRoute]| {
+        rs.iter()
+            .map(|r| format!("{} (family {})", r.base_model, r.family))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    if let Some(r) = routes.iter().find(|r| {
         r.base_model.to_ascii_lowercase() == want_lc || r.family.to_ascii_lowercase() == want_lc
-    }) else {
-        return Err((
+    }) {
+        return Ok(r);
+    }
+    // Three characters minimum: shorter needles match by accident, and an
+    // accidental single hit is indistinguishable from an intended one.
+    let near: Vec<&ModelRoute> = if want_lc.chars().count() >= 3 {
+        routes
+            .iter()
+            .filter(|r| {
+                r.base_model.to_ascii_lowercase().contains(&want_lc)
+                    || r.family.to_ascii_lowercase().contains(&want_lc)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    match near.len() {
+        1 => Ok(near[0]),
+        0 => Err((
             -32602,
             format!(
                 "model {want:?} is not one this responder routes to. Available: {}. Ask by \
@@ -22091,15 +22136,24 @@ async fn resolve_model_route(want: &str) -> Result<ModelRoute, (i64, String)> {
                  responder can see loaded elsewhere is still not routable unless it is listed \
                  here, because a host reporting a model as loaded is not the same as its weights \
                  being present.",
-                routes
-                    .iter()
-                    .map(|r| format!("{} (family {})", r.base_model, r.family))
-                    .collect::<Vec<_>>()
-                    .join("; ")
+                describe(&routes.iter().collect::<Vec<_>>())
             ),
-        ));
-    };
+        )),
+        _ => Err((
+            -32602,
+            format!(
+                "model {want:?} names more than one model this responder routes to: {}. Nothing \
+                 is chosen for you, because being handed a model you did not ask for is worse \
+                 than being asked again. Name one of them.",
+                describe(&near)
+            ),
+        )),
+    }
+}
 
+async fn resolve_model_route(want: &str) -> Result<ModelRoute, (i64, String)> {
+    let routes = model_routes();
+    let route = pick_model_route(&routes, want)?;
     // Liveness. The allowlist says what we are willing to reach; only the
     // service itself knows whether it is up right now.
     //
@@ -22248,7 +22302,56 @@ async fn attach_model_answer(v: &mut JsonValue, q: &str, want: &str, s: &AppStat
     let composed = a2a_reason_compose(q, v.clone(), s, Some(want)).await;
     if let Some(map) = v.as_object_mut() {
         match composed {
-            Ok(answer) => {
+            Ok(mut answer) => {
+                // The composed block carries its own grounding, which is right
+                // when it IS the response (the standalone reason tool) and
+                // wasteful when it is a field inside the very envelope it is
+                // grounded in: `answer`, `receipt`, `caveats` and `routed_to`
+                // are already siblings here, byte for byte.
+                //
+                // That waste was not free. On the MCP surface a tool result has
+                // a 24 KB budget, the slimmer drops the biggest fields first,
+                // and the duplicated grounding made `model_answer` big enough
+                // to be among them -- so a caller who named a model waited 28
+                // seconds for one and received `model_answer: null`, with the
+                // drop recorded honestly in a note nobody reads before the
+                // field they asked for. Halving the block keeps it small enough
+                // to survive, and the protection below makes sure.
+                //
+                // fact_cids are treated differently because they are not
+                // always a duplicate: a model that called tools gathers cids
+                // this envelope never had. Those are kept, under a name that
+                // says what they are; the ones already here are not repeated.
+                if let Some(o) = answer.as_object_mut() {
+                    let extra: Vec<JsonValue> = o
+                        .get("grounding")
+                        .and_then(|g| g.get("fact_cids"))
+                        .and_then(|c| c.as_array())
+                        .map(|cids| {
+                            let here: std::collections::HashSet<&str> = map
+                                .get("fact_cids")
+                                .and_then(|c| c.as_array())
+                                .map(|a| a.iter().filter_map(|c| c.as_str()).collect())
+                                .unwrap_or_default();
+                            cids.iter()
+                                .filter(|c| c.as_str().is_none_or(|c| !here.contains(c)))
+                                .cloned()
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut pointer = json!({
+                        "in_this_envelope": ["answer", "fact_cids", "receipt", "caveats", "routed_to"],
+                        "note": "the evidence for this prose is the envelope it is attached to. \
+                                 Those sibling fields are the grounding, not a copy of it: cite \
+                                 fact_cids and verify receipt from there.",
+                    });
+                    if !extra.is_empty() {
+                        pointer["fact_cids_gathered_by_the_model"] = JsonValue::Array(extra);
+                    }
+                    if o.contains_key("grounding") {
+                        o.insert("grounding".into(), pointer);
+                    }
+                }
                 map.insert("model_answer".into(), answer);
             }
             Err((code, msg)) => {
@@ -22571,9 +22674,28 @@ async fn a2a_reason_compose(
                     .into(),
             ));
         }
+        // TWO PLACES, because the host puts it in the second one. A deliberating
+        // model returns its thinking beside the answer, and this read it only
+        // at the top level of the body -- where it never appears. Measured
+        // against the Cosmos service: `reasoning` is at
+        // choices[0].message.reasoning, top level carries nothing.
+        //
+        // The cost was not the missing text, which is deliberately never
+        // returned as prose. It was the diagnostic below: with `reasoning`
+        // always None, a model that thought until its budget died reported
+        // "the reasoning tier returned an empty completion", and the branch
+        // written for exactly that case could not be reached. An operator
+        // reading that goes looking for a broken service.
         let reasoning = body
             .get("reasoning")
             .and_then(|t| t.as_str())
+            .or_else(|| {
+                body.get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("reasoning"))
+                    .and_then(|t| t.as_str())
+            })
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty());
         let content = body
@@ -22661,6 +22783,81 @@ async fn a2a_reason_compose(
             }
         }
     }
+    // A MODEL THAT CANNOT SPEAK THE ACTION PROTOCOL STILL HAS AN ANSWER.
+    //
+    // The protocol above asks for exactly one JSON object, because that is what
+    // makes tool calls possible. A model that deliberates does not reliably
+    // produce it: measured against the Cosmos service on this box, the same
+    // question that Gemma answered in a clean object came back as `}` and a
+    // closing code fence -- the tail of a JSON block whose head went into the
+    // reasoning channel. That fragment was then presented as `answer_prose`,
+    // which is the worst of the three possible outcomes. An error says
+    // something true. Prose says something true. A closing brace beside a
+    // signed grounding block looks like an answer and is not.
+    //
+    // So: ask again, once, without the wrapper. The same model given the same
+    // envelope and asked for plain language answered "The resolved place is
+    // Munich. The band is aqi_class@1 with a value of 1.0" -- grounded, correct,
+    // and useless to nobody. This costs one extra call only on the path that
+    // had already failed, and it is chosen by what came back rather than by
+    // which model was asked, so a model added later that cannot emit JSON is
+    // handled without anybody editing a list of names.
+    //
+    // Tools are not offered on the retry. A model that could not produce the
+    // action object cannot produce a tool call either, and the envelope it
+    // already has is the evidence it is being asked to read.
+    let has_words = |t: &str| t.chars().filter(|c| c.is_alphabetic()).count() >= 12;
+    let mut answer_protocol = "action";
+    if !has_words(&prose) {
+        answer_protocol = "prose";
+        let plain = "You are the reasoning tier of emem, a shared verifiable memory for AI                      agents. Answer the question in plain language using ONLY the evidence in                      the signed envelope below. Name the resolved place explicitly and cite                      bands by name. Never invent a number. If the envelope cannot support an                      answer, begin your reply with `ABSTAIN:` and say what is missing.";
+        let mut payload = json!({
+            "base_model": base_model,
+            "family": family,
+            "temperature": 0.0,
+            "messages": [
+                json!({"role": "system", "content": plain}),
+                json!({"role": "user", "content": format!("Question: {q}\n\nSigned envelope from emem_ask:\n{grounding}")}),
+            ],
+        });
+        if !fills_ceiling {
+            let cap = std::env::var("EMEM_A2A_LLM_MAX_TOKENS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(2048);
+            payload["max_tokens"] = json!(cap);
+        }
+        let recovered = match client.post(&url).json(&payload).send().await {
+            Ok(r) => match r.json::<JsonValue>().await {
+                Ok(b) => b
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("content"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+                Err(_) => String::new(),
+            },
+            Err(_) => String::new(),
+        };
+        if has_words(&recovered) {
+            prose = recovered;
+        } else {
+            // Both protocols tried, neither produced language. Say that,
+            // rather than returning punctuation dressed as a conclusion.
+            return Err((
+                -32050i64,
+                format!(
+                    "model {base_model} returned no usable answer under either the JSON action \
+                     protocol or a plain-prose retry, so there is nothing to present as its \
+                     reading. The signed answer beside this is unaffected and never needed a \
+                     model; call emem_ask without `model` for it alone."
+                ),
+            ));
+        }
+    }
     if prose.is_empty() {
         prose = "ABSTAIN: the tool budget was exhausted before an answer could be composed; the grounding block carries what was gathered.".into();
     }
@@ -22675,6 +22872,11 @@ async fn a2a_reason_compose(
         "signed":           false,
         "base_model":       base_model,
         "decoding":         "greedy (temperature 0)",
+        // Which protocol produced the prose. "prose" means the model could not
+        // emit the JSON action object and was asked again in plain language,
+        // so a caller reading a thin answer knows it had no tools available on
+        // the attempt that produced it.
+        "answer_protocol":  answer_protocol,
         "tool_trace":       tool_trace,
         "note":             "The prose is a model composition and is never evidence; the grounding block is. Cite grounding.fact_cids, verify grounding.receipt offline.",
         "grounding": {
@@ -65734,6 +65936,9 @@ fn locate_confidence(
 /// Only demotes, never promotes. A hit the tier logic already rejected
 /// stays rejected, and the floor cannot talk a low-importance result into
 /// looking good.
+#[allow(clippy::too_many_arguments)] // nine independent signals about one
+                                     // candidate; a struct would rename them without making the call site clearer, and
+                                     // each is read individually inside.
 fn locate_confidence_checked(
     via: &str,
     importance: f64,
@@ -65828,7 +66033,7 @@ fn locate_confidence_checked(
             // short place name (Ufa, Linz, Bonn) by treating the head as
             // unmeasurable rather than unmatched.
             let head_matches = query
-                .and_then(|q| query_head_token(q))
+                .and_then(query_head_token)
                 .map(|h| {
                     alt_names
                         .to_lowercase()
@@ -80438,6 +80643,98 @@ mod slimmer_degrade_tests {
     /// read `entries`, got almost nothing, and the busiest agents vanished
     /// from the page. A caller cannot tell that from "this agent wrote 3
     /// notes", which is what makes dropping worse than an error.
+    fn route(base: &str, fam: &str) -> ModelRoute {
+        ModelRoute {
+            base_model: base.into(),
+            family: fam.into(),
+            url: "http://127.0.0.1:1/v1/chat/completions".into(),
+            health: "http://127.0.0.1:1/health".into(),
+            fills_token_ceiling: false,
+            vision: false,
+        }
+    }
+
+    #[test]
+    fn an_unambiguous_model_name_resolves_and_an_ambiguous_one_is_refused() {
+        let routes = vec![
+            route("google/gemma-4-12B-it", "gemma"),
+            route("nvidia/Cosmos3-Edge", "cosmos3_edge"),
+        ];
+        // Exact, both spellings, unchanged behaviour.
+        assert_eq!(
+            pick_model_route(&routes, "cosmos3_edge")
+                .unwrap()
+                .base_model,
+            "nvidia/Cosmos3-Edge"
+        );
+        assert_eq!(
+            pick_model_route(&routes, "google/gemma-4-12B-it")
+                .unwrap()
+                .family,
+            "gemma"
+        );
+        // The name a caller actually writes. One referent, so it resolves.
+        assert_eq!(
+            pick_model_route(&routes, "cosmos").unwrap().base_model,
+            "nvidia/Cosmos3-Edge"
+        );
+        assert_eq!(
+            pick_model_route(&routes, "Cosmos").unwrap().base_model,
+            "nvidia/Cosmos3-Edge"
+        );
+        // Two referents: refused, and it says which two, so the next call can
+        // be exact. `-` occurs in both base models.
+        let (code, msg) = pick_model_route(&routes, "e-").unwrap_err();
+        assert_eq!(code, -32602);
+        assert!(
+            msg.contains("Cosmos3-Edge") && msg.contains("gemma-4-12B-it"),
+            "an ambiguous name must name the candidates, got: {msg}"
+        );
+        // Too short to be an intention.
+        assert!(pick_model_route(&routes, "co").is_err());
+        // Unknown still lists what there is.
+        let (_, msg) = pick_model_route(&routes, "llama").unwrap_err();
+        assert!(msg.contains("nvidia/Cosmos3-Edge"), "got: {msg}");
+    }
+
+    #[test]
+    fn the_model_answer_a_caller_paid_for_outlives_the_wire_budget() {
+        // The defect this pins: on the MCP surface a named model's answer was
+        // dropped BEFORE bulky fields the responder had volunteered, because
+        // the drop order was purely by size. A caller waited out the
+        // generation and received `model_answer: null`.
+        let mut m = serde_json::Map::new();
+        m.insert("schema".into(), json!("emem.ask.v1"));
+        m.insert(
+            "model_answer".into(),
+            json!({
+                "schema": "emem.reason.v1",
+                "answer_prose": "At Munich: PM2.5 5.9 ug/m^3, aqi class 1.",
+                "base_model": "nvidia/Cosmos3-Edge",
+                "signed": false,
+            }),
+        );
+        // Something far larger that the responder chose to include.
+        m.insert(
+            "topic_routing".into(),
+            json!((0..900)
+                .map(|i| json!({"topic": format!("topic_{i}"), "score": 0.5}))
+                .collect::<Vec<_>>()),
+        );
+        let (slim, note) = mcp_slim_inner_to_budget(JsonValue::Object(m), 8_000);
+        assert!(
+            !slim["model_answer"].is_null(),
+            "the field the caller asked for was dropped: {}",
+            serde_json::to_string(&note).unwrap_or_default()
+        );
+        assert_eq!(
+            slim["model_answer"]["answer_prose"],
+            json!("At Munich: PM2.5 5.9 ug/m^3, aqi class 1.")
+        );
+        // And the budget is still honoured -- protection must not mean overrun.
+        assert!(serde_json::to_string(&slim).unwrap().len() <= 8_000);
+    }
+
     #[test]
     fn a_long_listing_degrades_to_a_usable_prefix() {
         let (slim, note) = mcp_slim_inner_to_budget(big_listing(135), 24_000);

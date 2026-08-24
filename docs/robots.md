@@ -71,6 +71,53 @@ was that nothing was seen. Four states, and an agent has to tell them apart:
 
 An agent waiting for `{"car": 0}` waits forever.
 
+### Is 45 people a lot?
+
+A count on its own cannot answer that, and most machines asking this question
+need the answer rather than the count. The response carries `temporal_context`
+beside `counts`, which compares what was just seen against what this same
+camera has seen before:
+
+```json
+{
+  "temporal_context": {
+    "algorithm": "percentile_band@1",
+    "counted": {"people": 45, "vehicles": 26},
+    "people": {
+      "count": 45, "percentile": 0.573, "verdict": "about usual",
+      "usual_range": {"p25": 23.0, "median": 41.0, "p75": 52.0},
+      "n": 41, "basis": "all_hours"
+    },
+    "provenance_class": "deterministic_index"
+  }
+}
+```
+
+Read `basis` before you read the verdict. `hour_of_day` compares this hour with
+the same hour on other days, which is the comparison you want; `all_hours` means
+the camera had too few readings at this hour to do that, and the field says so
+itself, in those words. Traffic is strongly diurnal, so a genuinely quiet
+3 a.m. reading looks low against an all-hours baseline for a reason that has
+nothing to do with the street being empty.
+
+`n` is how many past readings the comparison rests on. Forty-one is enough to
+place a value and not enough to be confident about a tail.
+
+Two limits are stated in the response rather than left for you to discover.
+`not_a_claim_about` says this is one camera against its own past and not this
+street against its neighbours, because two cameras 250 m apart differ by about
+as much as two 5 km apart. And the band is a percentile of stored history, not
+a mean and a standard deviation: on a count, which cannot go below zero, a
+two-sigma low threshold is often a negative number and so can never be crossed,
+which would leave "unusually quiet" unreachable while every response still read
+normal. The percentile has no such blind end. `emem_explain_algorithm` on
+`anomaly_zscore@1` carries that trap in full, if you are choosing between them.
+
+The arithmetic is `deterministic_index`, not a model output, and `recompute`
+carries the query that reproduces it from the signed observations. The
+observations are signed; this arithmetic over them is not, and adds nothing you
+could not redo yourself.
+
 ## A laser leveller
 
 A leveller grades a field to a target slope. Before it starts, the slope that
