@@ -605,7 +605,7 @@ body{counter-reset:chapter}
   --accent:oklch(0.74 0.13 145);
   background:var(--paper);color:var(--ink);
   padding-top:var(--s-5);padding-bottom:var(--s-5);margin:var(--s-5) 0;
-  box-shadow:0 0 0 100vw var(--paper);clip-path:inset(0 -100vw)
+  box-shadow:0 0 0 100vw var(--paper);clip-path:inset(0 -100vw);
     /* A scoped palette inherits every token it does not redefine, and these two
        were not: --mute-2 stayed at the LIGHT 0.516 and --vermilion at 0.50, both
        chosen against paper, both landing on this panel's near-black. 4.12:1 and
@@ -619,7 +619,7 @@ body{counter-reset:chapter}
     --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
     --ink-2:oklch(0.32 0.005 85);--mute:oklch(0.48 0.006 85);
     --rule:oklch(0.86 0.006 85);--rule-strong:oklch(0.72 0.010 85);
-    --accent:oklch(0.45 0.09 145)
+    --accent:oklch(0.45 0.09 145);
     /* Mirror of the light-mode case: here .inverted is the LIGHT panel and
        inherits tokens.css's DARK --mute-2, which measured 2.89:1 on it. */
     --mute-2:oklch(0.504 0.005 85);}

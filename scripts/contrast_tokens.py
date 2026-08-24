@@ -127,8 +127,56 @@ def ratio(fg: str, bg: str):
 # light value and ran at 3.31:1 on the dark panel. A scoped palette is exactly
 # where this goes wrong, because the author overrides the tokens they were
 # thinking about and inherits the ones they were not.
+def raw_palette_bodies(path: Path):
+    """Block bodies with comments stripped but declarations NOT parsed, so a
+    malformed one is still visible as the text it is."""
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if path.suffix == ".html":
+        text = "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", text, re.S)) or text
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
+    return [(" ".join(m.group(1).split())[:60], m.group(2)) for m in BLOCK.finditer(text)]
+
+
 BLOCK = re.compile(r"([^{}]+)\{([^}]*--(?:paper|bg|cream|night|panel)[^}]*)\}", re.S)
 DECL = re.compile(r"(--[\w-]+)\s*:\s*([^;]+);")
+
+
+def malformed_declarations(body: str) -> list[str]:
+    """Declarations a browser will THROW AWAY, which this file would otherwise read.
+
+    A regex reads `--mute-2:oklch(...)` happily whether or not the declaration
+    before it was terminated. CSS does not: a missing semicolon glues two
+    declarations into one, the parser cannot make sense of it, and BOTH are
+    discarded. So the token is in the file, this checker sees it, and the page
+    never gets it.
+
+    That is not hypothetical. Adding `--mute-2` to `.inverted` in index.html, I
+    put it after `clip-path:inset(0 -100vw)` -- which had no trailing semicolon,
+    because it was the last declaration in the block. The browser dropped the
+    clip-path AND the token; the footer heading stayed at 3.31:1; and this gate
+    reported the palette clean. A checker that reads what CSS rejects is a
+    checker that certifies what the reader never sees.
+
+    Detection: inside one declaration, after parenthesised groups are removed,
+    there is exactly one colon. Two means a missing terminator joined two.
+    """
+    bad = []
+    for frag in body.split(";"):
+        if not frag.strip():
+            continue
+        # A fragment carrying a brace is a block boundary the crude BLOCK regex
+        # swept in (`@media (...) { :root {`), not a declaration. Judging those
+        # as malformed reported four confident findings that were all the
+        # parser -- the same shape of mistake this function exists to catch.
+        if "{" in frag or "}" in frag:
+            continue
+        # url(data:...), oklch(...), var(--x, y) -- parens hide legal colons
+        flat = re.sub(r"\([^()]*\)", "()", frag)
+        for _ in range(3):
+            flat = re.sub(r"\([^()]*\)", "()", flat)
+        if flat.count(":") > 1:
+            bad.append(" ".join(frag.split())[:110])
+    return bad
 
 
 def palettes(path: Path):
@@ -174,11 +222,17 @@ def shared_inks() -> dict:
 def check(path: Path, report: bool, shared: dict | None = None):
     fails, unknown, checked = [], set(), 0
     blocks = palettes(path)
+    raw_blocks = raw_palette_bodies(path)
     # the page's own root inks, plus the ones every page inherits from tokens.css
     inherited = dict(shared or {})
     for sel, toks in blocks:
         if sel.strip().startswith(":root"):
             inherited.update({k: v for k, v in toks.items() if INK.match(k)})
+    for sel, raw_body in raw_blocks:
+        for frag in malformed_declarations(raw_body):
+            fails.append(f"{path.name} [{sel[:30]}]: this is not one declaration, so CSS "
+                         f"discards it and the page never sees either half -- a missing "
+                         f"semicolon: {frag}")
     for sel, tokens in blocks:
         inks = {k: v for k, v in tokens.items() if INK.match(k)}
         surfaces = {k: v for k, v in tokens.items() if SURFACE.match(k)}
