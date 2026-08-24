@@ -61573,6 +61573,27 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
                 None => place_candidates.push(cand),
             }
         }
+        // TRY THEM IN THE ORDER THE QUESTION ASKS THEM. The subject of a
+        // question comes before its qualifiers: "Seoul, Republic of Korea" is
+        // about Seoul, and Korea says where Seoul is.
+        //
+        // `of` is a prepositional anchor, which is right for "walkability of
+        // South Mumbai" and wrong inside "Republic of Korea", where it yielded
+        // the candidate "Korea" and the anchor pass emits before the
+        // capitalised-run pass. So "Korea" was tried first, resolved, and won.
+        // Measured on production before this changed:
+        //
+        //   "How green is Seoul, Republic of Korea?"
+        //       -> At Koréa, 96 CI          a village in Cote d'Ivoire
+        //   "How green is Munich, Federal Republic of Germany?"
+        //       -> At Germany (DE)          a country centroid, answered as a city
+        //
+        // Both carried real data and a signed receipt for the wrong place, which
+        // is the failure this whole surface exists to prevent. Ordering by first
+        // appearance costs nothing and makes the subject win: it does not change
+        // which candidates exist, only which is asked about first.
+        let ql = req.q.to_lowercase();
+        place_candidates.sort_by_key(|c| ql.find(&c.to_lowercase()).unwrap_or(usize::MAX));
         if place_candidates.is_empty() && !concept_skipped.is_empty() {
             return Ok(conceptual_question_response(&req.q, &concept_skipped));
         }
@@ -65506,6 +65527,21 @@ fn label_text_class_mismatch(query_class: QueryFeatureClass, label: &str) -> boo
 /// inflection and the geocoders' own abbreviations still count
 /// (`bengaluru` vs `bengaluru`, `mount` vs `mt`), and short tokens are
 /// dropped because two- and three-letter fragments match almost anything.
+/// The first substantive token of a query: the place being asked about.
+///
+/// "Seoul, Republic of Korea" is a question about Seoul, and everything after
+/// the first token says where Seoul is. An exonym rescue is a claim about the
+/// PLACE, so the place has to be what matched; without this a diplomatic
+/// mission whose name carries "Republic" cleared the floor on the country words
+/// alone.
+fn query_head_token(query: &str) -> Option<String> {
+    query
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .find(|t| t.chars().count() >= 3)
+        .map(|t| t.to_string())
+}
+
 fn query_label_overlap(query: &str, label: &str) -> Option<f64> {
     /// Words that carry no place-identifying signal, so counting them
     /// would drag the ratio toward whatever the label happens to contain.
@@ -65663,8 +65699,44 @@ fn locate_confidence_checked(
             if alt_names.trim().is_empty() {
                 return (false, "query_label_overlap_below_floor_no_alternates");
             }
+            // THE RESCUE MUST MATCH THE PLACE, NOT THE COUNTRY WORDS.
+            //
+            // Overlap alone was not enough and it laundered wrong places into
+            // high confidence, which is the exact failure the floor exists to
+            // prevent. Measured against production after the first version
+            // shipped:
+            //
+            //   "Seoul, Republic of Korea"  -> 주한남아프리카공화국대사관
+            //                                  (the South African embassy)
+            //   "Munich, Federal Republic of Germany"
+            //                               -> Honorarkonsulin der
+            //                                  Demokratischen Bundesrepublik...
+            //
+            // Both scored over the floor because a diplomatic mission's name
+            // carries "Republic" / "Bundesrepublik", which matched the query's
+            // COUNTRY words while the place itself was wrong. Before the rescue
+            // both were correctly refused, so my fix turned a good refusal into
+            // a confident wrong answer.
+            //
+            // The head token of a query is the place being asked about; the
+            // rest is where it is. An exonym rescue is only about the place, so
+            // it now requires the head token to be matched by the alternate
+            // names, and country words alone can no longer carry it.
+            // A DIRECT token check, not the ratio function: that one drops
+            // tokens under four characters, so reusing it here would fail every
+            // short place name (Ufa, Linz, Bonn) by treating the head as
+            // unmeasurable rather than unmatched.
+            let head_matches = query
+                .and_then(|q| query_head_token(q))
+                .map(|h| {
+                    alt_names
+                        .to_lowercase()
+                        .split(|c: char| !c.is_alphanumeric())
+                        .any(|t| !t.is_empty() && (t.starts_with(&h) || h.starts_with(t)))
+                })
+                .unwrap_or(false);
             match query.and_then(|q| query_label_overlap(q, alt_names)) {
-                Some(o2) if o2 >= QUERY_LABEL_OVERLAP_FLOOR => {
+                Some(o2) if o2 >= QUERY_LABEL_OVERLAP_FLOOR && head_matches => {
                     (high, "query_matched_alternate_name")
                 }
                 _ => (false, "query_label_overlap_below_floor_alternates_checked"),
@@ -71334,6 +71406,55 @@ mod tests {
         // the caller must fall through rather than treat it as a failure.
         assert!(query_label_overlap("the and", "anywhere").is_none());
         assert!(query_label_overlap("", "anywhere").is_none());
+    }
+
+    /// A country word is not a place, and the rescue must not be carried by one.
+    ///
+    /// The first version of the alternate-name rescue shipped and laundered
+    /// three wrong places into high confidence, measured against production:
+    ///
+    ///   "Seoul, Republic of Korea"  ->  the Chinese embassy in Seoul
+    ///   "Seoul, the Republic of Korea"  ->  the South African embassy
+    ///   "Munich, Federal Republic of Germany"  ->  an honorary consulate
+    ///
+    /// A diplomatic mission's name carries "Republic" or "Bundesrepublik", which
+    /// matched the query's COUNTRY words and cleared the floor while the place
+    /// itself was wrong. All three were correctly refused BEFORE the rescue, so
+    /// it turned a good refusal into a confident wrong answer.
+    ///
+    /// The alternate names here are the real ones, not invented. The previous
+    /// test handed a wrong place alternates I made up, so they contained the
+    /// words I expected rather than the words a real feature carries, and it
+    /// passed while the bug shipped.
+    #[test]
+    fn a_country_word_cannot_carry_the_alternate_name_rescue() {
+        let (high, why) = locate_confidence_checked(
+            "photon",
+            0.6,
+            false,
+            false,
+            1,
+            Some("Seoul, Republic of Korea"),
+            "주한중화인민공화국대사관 (diplomatic), 서울특별시, 대한민국",
+            // what a diplomatic feature actually carries
+            "주한중화인민공화국대사관 Embassy of the People's Republic of China",
+        );
+        assert!(!high, "an embassy is not the city named in the query");
+        assert_eq!(why, "query_label_overlap_below_floor_alternates_checked");
+
+        // And the rescue still works when the PLACE is what matched.
+        let (ok, why_ok) = locate_confidence_checked(
+            "photon",
+            0.6,
+            false,
+            false,
+            1,
+            Some("Nuremberg, Germany"),
+            "Nürnberg (city), Bayern, Deutschland",
+            "Nürnberg Nuremberg Nurnberg",
+        );
+        assert!(ok, "an exonym of the place asked about is still a match");
+        assert_eq!(why_ok, "query_matched_alternate_name");
     }
 
     /// An exonym is not a mismatch.
