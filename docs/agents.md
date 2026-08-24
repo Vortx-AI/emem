@@ -863,6 +863,61 @@ the answer still ships with its receipt.
 
 ---
 
+## Asking a model to read the signed answer
+
+`/v1/ask` never calls a language model. Every number in `answer` traces to a
+`fact_cid`, which is what makes the envelope citable. Pass `model` and you get a
+second field, `model_answer`, holding one model's prose reading of that same
+envelope, beside the deterministic answer rather than instead of it.
+
+```bash
+curl -s -X POST https://emem.dev/v1/ask \
+  -H 'content-type: application/json' \
+  -d '{"q":"What is the air quality in Munich?","model":"cosmos"}'
+```
+
+The same parameter works on the MCP tools `emem_ask` and `emem_reason`, and
+through the A2A door:
+
+```bash
+curl -s -X POST https://emem.dev/a2a/tasks \
+  -H 'content-type: application/json' \
+  -d '{"skill":"emem_reason","args":{"q":"What is the air quality in Munich?","model":"cosmos"}}'
+```
+
+Name a model by `base_model`, by `family`, or by any fragment that picks out
+exactly one of them: `cosmos`, `cosmos3_edge` and `nvidia/Cosmos3-Edge` all
+reach the same weights. A fragment matching two is refused and names both, and
+a name matching none is refused with the list of what is routable. Nothing is
+ever substituted, so the `base_model` in the reply is always the one that ran.
+
+| Field in `model_answer` | What it tells you |
+|---|---|
+| `answer_prose` | the model's reading. Never evidence |
+| `base_model` | which weights answered |
+| `provenance_class` | always `model_output`; `signed` is always false |
+| `answer_protocol` | `action` when the model used the tool protocol, `prose` when it could not and was asked again in plain language |
+| `tool_trace` | the read-only tools it called, if any |
+| `grounding` | a pointer to the sibling fields of this envelope, which are the evidence |
+
+Three things worth knowing before you build on it.
+
+The prose is not signed and never becomes signed. Cite `fact_cids` and verify
+`receipt`; those live at the top level of the envelope, which is why
+`model_answer.grounding` points at them rather than repeating them.
+
+A model that is loaded but busy is reported as busy, and one that is down is
+reported as down. Neither is silently swapped for the other model, because an
+answer from weights you did not name, in a response that says which weights
+answered, is a true statement that misleads.
+
+And the reasoning tier can refuse. If the evidence does not support an answer
+the prose begins `ABSTAIN:` and says what is missing, and if the model produces
+no language under either protocol you get a typed error in `model_answer` while
+`answer` beside it is unaffected. It never needed a model.
+
+---
+
 ## Signed Absence
 
 When a band has no data at a cell, the responder does not return `404`

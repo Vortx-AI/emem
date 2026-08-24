@@ -28160,7 +28160,7 @@ fn openapi_spec() -> JsonValue {
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"$ref":"#/components/schemas/Claim"}}},
                 "Claim":           {"type":"object","required":["band","op","value"],"properties":{"band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)"},"op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison or membership operator"},"value":{"description":"Right-hand value, band-typed (number for scalar bands, array for vector bands, set for in/ni). Required even for exists/absent where it is ignored."},"tslot":{"type":"integer","description":"Specific tslot; one of `tslot` or `window` MUST be set"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] u64 Unix-epoch range"},"agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"Aggregation over `window`"}}},
-                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge) or family (cosmos3_edge, gemma). An unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
+                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
                 "HuntReq":         {"type":"object","required":["event"],"properties":{
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
@@ -61880,6 +61880,38 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         // which candidates exist, only which is asked about first.
         let ql = req.q.to_lowercase();
         place_candidates.sort_by_key(|c| ql.find(&c.to_lowercase()).unwrap_or(usize::MAX));
+
+        // AND OFFER THE HEAD OF A COMMA'D SPAN, after the span itself.
+        //
+        // Ordering by first appearance makes the subject win, but only among
+        // the candidates that exist, and "Seoul" was not one of them. The
+        // question "the air quality in Seoul, Republic of Korea" yields the
+        // whole span from the `in` anchor and "Korea" from the `of` anchor,
+        // nothing else. The span geocodes to the Chinese embassy in Seoul --
+        // the right coordinates under a `diplomatic` class the confidence gate
+        // refuses, correctly, because that gate is what stops a consulate being
+        // laundered into its host country. With the span refused, the only
+        // thing left to try was "Korea", which resolves to a village of that
+        // name in Cote d'Ivoire and matches it exactly, so it was accepted:
+        // 6.83 N, 6.65 W, answered with a signed receipt, 9,000 km from the
+        // city in the question.
+        //
+        // So the head goes in too, immediately AFTER its own span. The more
+        // specific form is still tried first and still wins whenever it
+        // resolves; this only changes what happens next, and "Seoul" is a
+        // better next guess about a question naming Seoul than "Korea" is.
+        let mut with_heads: Vec<String> = Vec::new();
+        for cand in place_candidates {
+            let head = cand.split(',').next().unwrap_or("").trim().to_string();
+            let add_head = head.len() >= 3
+                && head != cand
+                && !with_heads.iter().any(|c| c.eq_ignore_ascii_case(&head));
+            with_heads.push(cand);
+            if add_head {
+                with_heads.push(head);
+            }
+        }
+        let place_candidates = with_heads;
         if place_candidates.is_empty() && !concept_skipped.is_empty() {
             return Ok(conceptual_question_response(&req.q, &concept_skipped));
         }

@@ -82,6 +82,12 @@ PLACES = [
     ("Kolkata", "Calcutta", 22.573, 88.364, 50),
     ("Chennai", "Madras", 13.083, 80.271, 50),
     ("Guangzhou", "Canton, China", 23.129, 113.264, 60),
+    # The formal country name, which is where a refusal turns into a wrong
+    # answer rather than a refusal: the longer span geocodes to an embassy, the
+    # confidence gate refuses that class correctly, and the next candidate is a
+    # bare country word that matches a village somewhere else exactly.
+    ("Seoul, Republic of Korea", "Seoul, South Korea", 37.567, 126.978, 40),
+    ("Munich, Federal Republic of Germany", "Munich, Germany", 48.137, 11.576, 40),
     # A country rather than a city: a much larger target, and the one whose
     # rescue previously laundered embassies and consulates into place hits.
     ("Côte d'Ivoire", "Ivory Coast", 7.54, -5.55, 700),
