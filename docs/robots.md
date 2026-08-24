@@ -37,19 +37,39 @@ and is that a measurement or a guess?
 ```bash
 curl -s -X POST https://emem.dev/v1/perception/at \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb64a.cEjo.zfa47","question":"what is on this street?","stages":["detect"]}'
+  -d '{"cell":"defi.zb64a.cEjo.zfa47","question":"what is on this street?","stages":["detect"],"detect_from_clip":true}'
 ```
 
-That cell is London. The response names the camera it used, how far away it
+That cell is London. `detect_from_clip` is the part that matters, and it is not
+the default. Without it the count comes from the camera's current frame:
+`source: live_frame`, `tamper_evidence: none`, and those bytes are gone the
+moment they are read, so nobody can recompute the number afterwards. With it,
+`source: retained_clip` and `tamper_evidence: recomputable_from_source`, and the
+response carries the S3 key, the frame index and the hash at
+`camera.clip.clip_sha256`. A machine that may have to defend a decision later
+wants the second one.
+
+The response names the camera it used, how far away it
 was, and why that camera was chosen, because a count from a camera 300 m away
 is a different claim from a count at the junction you asked about. It also
 carries `camera_requested` and `camera_substituted`: if you name a camera and
 it is not there, you are told you were given another one rather than quietly
 handed someone else's street.
 
-Read `counts` with the caveat attached. A zero means the detector looked and
-found nothing; it does not mean the street is empty, and the response says so
-in its own words rather than leaving you to assume.
+### `counts` never contains a zero
+
+This is the part most likely to be coded against wrongly. There is no zero to
+watch for, because publishing one would assert an empty street when the truth
+was that nothing was seen. Four states, and an agent has to tell them apart:
+
+| what you get | what it means |
+|---|---|
+| `counts: {"car": 11, ...}` | looked, and found these |
+| `counts: {}` | looked, and found none. This is the empty-street case |
+| `counts: null` with an `unobservable` block | never observed: the frame was not a view of the street. The block says why, and whether retrying helps |
+| `counts: null` with `counts_at_camera` | counted, but at a camera too far away to attribute to the point you asked about |
+
+An agent waiting for `{"car": 0}` waits forever.
 
 ## A laser leveller
 

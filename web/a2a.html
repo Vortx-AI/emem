@@ -497,8 +497,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <div class="code"><div class="code-head"><span class="lang">bash</span><span class="tab">POST, and the cell came from /v1/locate</span></div>
       <pre><code>curl -s -X POST https://emem.dev/v1/perception/at \
   -H &#39;content-type: application/json&#39; \
-  -d &#39;{"cell":"defi.zb64a.cEjo.zfa47","question":"what is on this street?","stages":["detect"]}&#39;</code></pre></div>
-      <p>A zero in the counts means the detector looked and found nothing. It does not mean the street is empty, and the response says which of those it is rather than leaving a machine to assume. That distinction is the whole reason to ask a memory instead of a model.</p>
+  -d &#39;{"cell":"defi.zb64a.cEjo.zfa47","question":"what is on this street?","stages":["detect"],"detect_from_clip":true}&#39;</code></pre></div>
+      <p><strong><code>detect_from_clip</code> is not the default, and it is the difference between a number and a checkable number.</strong> Without it the count comes from the camera&rsquo;s current frame: <span class="band">tamper_evidence: none</span>, and those bytes are gone as soon as they are read. With it the count comes from the retained clip, and the response carries the frame index and the clip&rsquo;s sha256, so anyone can re-run the detector and get the same figures.</p>
+      <p><strong>There is no zero in <code>counts</code>.</strong> Publishing one would assert an empty street when the truth was that nothing was seen. An empty object means the detector looked and found none; <code>null</code> with an <span class="band">unobservable</span> block means the street was never in view, and the block says why and whether retrying helps. An agent waiting for a zero waits forever. That is the whole reason to ask a memory instead of a model.</p>
 
       <h3>What this channel does not do</h3>
       <p>It holds no control loop and drives nothing. A warm recall is milliseconds and a cold one that has to reach an upstream is seconds, so nothing here belongs inside a safety loop, and a machine that cannot proceed without an answer needs its own fallback. The corpus holds thousands of places rather than billions: ask about a cell it has never seen and it fetches what it can and names what it could not.</p>
