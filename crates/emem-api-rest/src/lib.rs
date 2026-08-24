@@ -22235,6 +22235,39 @@ fn fold_for_place_match(s: &str) -> String {
 /// permit (a cold load must never fan out), with a timeout of at least
 /// 120 s. The prose is `model_output` and `signed: false` by construction;
 /// the grounding block beside it carries the fact_cids and receipt.
+/// Attach a named model's prose to a finished ask envelope, or attach the
+/// reason it could not.
+///
+/// Shared by POST /v1/ask and the MCP `emem_ask` tool so that naming a model
+/// does the same thing on both. It was briefly true on only one: the REST
+/// handler composed and the MCP arm called ask_inner directly, so `model`
+/// deserialised into the request and was silently dropped for 96% of this
+/// responder's traffic. A field that parses and does nothing is worse than one
+/// that is refused.
+async fn attach_model_answer(v: &mut JsonValue, q: &str, want: &str, s: &AppState) {
+    let composed = a2a_reason_compose(q, v.clone(), s, Some(want)).await;
+    if let Some(map) = v.as_object_mut() {
+        match composed {
+            Ok(answer) => {
+                map.insert("model_answer".into(), answer);
+            }
+            Err((code, msg)) => {
+                map.insert(
+                    "model_answer".into(),
+                    json!({
+                        "schema": "emem.error.v1",
+                        "code": code,
+                        "requested_model": want,
+                        "message": msg,
+                        "note": "`answer` above is unaffected: it is synthesised from the \
+                                 signed facts and never needed a model.",
+                    }),
+                );
+            }
+        }
+    }
+}
+
 async fn a2a_reason_compose(
     q: &str,
     ask_env: JsonValue,
@@ -26293,7 +26326,13 @@ async fn mcp_tool_call(
             // the top of the call stack can answer without a second
             // round-trip.
             let req: AskReq = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            ask_inner(s.clone(), req).await.map_err(mcp_err)
+            let want_model = req.model.clone();
+            let q_for_model = req.q.clone();
+            let mut v = ask_inner(s.clone(), req).await.map_err(mcp_err)?;
+            if let Some(want) = want_model {
+                attach_model_answer(&mut v, &q_for_model, &want, s).await;
+            }
+            Ok(v)
         }
         "emem_hunt" => {
             // Structured hunter-mode: caller picks the event keyword
@@ -27919,7 +27958,7 @@ fn openapi_spec() -> JsonValue {
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"$ref":"#/components/schemas/Claim"}}},
                 "Claim":           {"type":"object","required":["band","op","value"],"properties":{"band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)"},"op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison or membership operator"},"value":{"description":"Right-hand value, band-typed (number for scalar bands, array for vector bands, set for in/ni). Required even for exists/absent where it is ignored."},"tslot":{"type":"integer","description":"Specific tslot; one of `tslot` or `window` MUST be set"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] u64 Unix-epoch range"},"agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"Aggregation over `window`"}}},
-                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
+                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge) or family (cosmos3_edge, gemma). An unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
                 "HuntReq":         {"type":"object","required":["event"],"properties":{
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
@@ -53797,6 +53836,22 @@ struct AskReq {
     /// cell64 string (alternative to `place`).
     #[serde(default)]
     cell: Option<String>,
+    /// Optional. Compose an extra prose answer with a named model, IN ADDITION
+    /// to the deterministic one.
+    ///
+    /// `answer` is synthesised from the structured fields and never calls a
+    /// model, so every number in it traces to a fact_cid in the receipt. That
+    /// property is why this is opt-in and additive rather than a switch: asking
+    /// for a model must not quietly turn a checkable answer into an unchecked
+    /// one. When set, `model_answer` appears BESIDE `answer`, carries
+    /// `provenance.class = model_output`, and names the model that wrote it.
+    ///
+    /// Ask by base_model (`nvidia/Cosmos3-Edge`) or by family (`cosmos3_edge`,
+    /// `gemma`). A name this responder does not route to is refused and the
+    /// refusal lists what it does; a routable model whose service is not
+    /// answering is refused as busy or down, never silently substituted.
+    #[serde(default)]
+    model: Option<String>,
     /// WGS-84 latitude (paired with `lng`).
     #[serde(default)]
     lat: Option<f64>,
@@ -54671,9 +54726,33 @@ async fn post_ask(
     // `ask_inner` consumes `s`; keep a cheap Arc clone + a start instant so the
     // timeout branch below can still sign its `incomplete` envelope.
     let s_sign = s.clone();
+    // Opt-in model composition. Captured before `req` is consumed.
+    let want_model = req.model.clone();
+    let q_for_model = req.q.clone();
+    let s_model = s.clone();
     let ask_started = std::time::Instant::now();
     match tokio::time::timeout(std::time::Duration::from_secs(budget), ask_inner(s, req)).await {
-        Ok(Ok(v)) => Ok(Json(v)),
+        Ok(Ok(v)) => {
+            // A NAMED MODEL WRITES BESIDE THE DETERMINISTIC ANSWER, NEVER OVER IT.
+            //
+            // `answer` is a projection of the structured fields and calls no
+            // model, which is why every number in it traces to a fact_cid. A
+            // caller asking for Cosmos wants its reading of the same evidence,
+            // not a replacement for the checkable sentence, so `model_answer`
+            // is additive and carries its own provenance. Blending them would
+            // make one field that is partly signed and partly generated, which
+            // is the shape nobody can verify afterwards.
+            //
+            // Outside the ask budget on purpose: a deliberating model takes 13
+            // to 22 seconds and the fan-out ceiling above is 30, so composing
+            // inside it would make asking for a model a way to lose the answer.
+            let Some(want) = want_model else {
+                return Ok(Json(v));
+            };
+            let mut v = v;
+            attach_model_answer(&mut v, &q_for_model, &want, &s_model).await;
+            Ok(Json(v))
+        }
         Ok(Err(e)) => Err(e),
         Err(_) => {
             // Do NOT return 504. A hard error makes agents retry: the
@@ -61142,6 +61221,11 @@ async fn post_explain(
             lng: req.lng,
             include_image: false,
             verbose: None,
+            // This is an internal re-entry to build an envelope, not a caller's
+            // request, so it never asks for model prose. The model, if one was
+            // named, composes once at the outer edge over the finished
+            // envelope.
+            model: None,
             include: Some(vec![
                 "band_observations".to_string(),
                 "algorithm_outcomes".to_string(),
@@ -65174,6 +65258,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         req.place.as_deref(),
         sel_label,
         sel_alt_names,
+        &sel_class,
     );
     // Record it onto the cached row while the evidence still exists. This is
     // the only point where the candidate list has been walked, so it is the
@@ -65658,6 +65743,7 @@ fn locate_confidence_checked(
     query: Option<&str>,
     label: &str,
     alt_names: &str,
+    osm_class: &str,
 ) -> (bool, &'static str) {
     let (high, reason) = locate_confidence(
         via,
@@ -65698,6 +65784,21 @@ fn locate_confidence_checked(
             // time: the thing that decided the outcome was only in the log.
             if alt_names.trim().is_empty() {
                 return (false, "query_label_overlap_below_floor_no_alternates");
+            }
+            // AN EXONYM IS A PROPERTY OF A PLACE, NOT OF A BUILDING IN ONE.
+            //
+            // Munich is called Muenchen and Osaka is called 大阪市. Embassies,
+            // consulates and offices do not have exonyms, they have addresses.
+            // Without this the rescue kept blessing the wrong kind of thing:
+            // "Seoul, Republic of Korea" selects the Chinese embassy IN Seoul,
+            // whose own names legitimately carry both "Seoul" and "Republic",
+            // so it passed an overlap check and a head-token check for the same
+            // reason -- every word the query offered really is in that
+            // feature's names. What is wrong about it is not its name, it is
+            // its kind. Empty class is allowed through because a source that
+            // reports none has not said this is NOT a place.
+            if !matches!(osm_class, "place" | "boundary" | "") {
+                return (false, "query_label_overlap_below_floor_not_a_place");
             }
             // THE RESCUE MUST MATCH THE PLACE, NOT THE COUNTRY WORDS.
             //
@@ -66446,7 +66547,13 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///    cache while "Florence, Italy" resolved live and was rescued. Two reason
 ///    strings in one sample is what surfaced it. Those generation-8 verdicts
 ///    must re-resolve or they replay for the rest of the 30 d TTL.
-const LOCATE_RESOLVER_VERSION: u32 = 9;
+/// 10: the alternate-name rescue is restricted to place and boundary features.
+///     Generation 9 let it bless anything whose names happened to carry the
+///     query's words, and an embassy in Seoul carries both "Seoul" and
+///     "Republic", so "Seoul, Republic of Korea" resolved to the Chinese
+///     embassy at high confidence. An exonym belongs to a place, not to a
+///     building in one. Those stored verdicts must re-resolve.
+const LOCATE_RESOLVER_VERSION: u32 = 10;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -71438,9 +71545,14 @@ mod tests {
             "주한중화인민공화국대사관 (diplomatic), 서울특별시, 대한민국",
             // what a diplomatic feature actually carries
             "주한중화인민공화국대사관 Embassy of the People's Republic of China",
+            // what an embassy actually is in OSM: an office, not a place
+            "office",
         );
         assert!(!high, "an embassy is not the city named in the query");
-        assert_eq!(why, "query_label_overlap_below_floor_alternates_checked");
+        // The reason names the actual disqualifier: not that the names failed
+        // to match (every word the query offered IS in the embassy's names)
+        // but that an office is not the kind of thing an exonym belongs to.
+        assert_eq!(why, "query_label_overlap_below_floor_not_a_place");
 
         // And the rescue still works when the PLACE is what matched.
         let (ok, why_ok) = locate_confidence_checked(
@@ -71452,6 +71564,7 @@ mod tests {
             Some("Nuremberg, Germany"),
             "Nürnberg (city), Bayern, Deutschland",
             "Nürnberg Nuremberg Nurnberg",
+            "place",
         );
         assert!(ok, "an exonym of the place asked about is still a match");
         assert_eq!(why_ok, "query_matched_alternate_name");
@@ -71477,6 +71590,7 @@ mod tests {
             Some("Osaka, Japan"),
             "大阪市, 大阪府, 日本",
             "大阪市 Osaka 大阪 オオサカ",
+            "place",
         );
         assert!(
             high,
@@ -71495,6 +71609,7 @@ mod tests {
             Some("DROP TABLE facts"),
             "La Table Ronde - est (quarter), Bourg-lès-Valence, France",
             "La Table Ronde Table Ronde est",
+            "place",
         );
         assert!(!still_low, "alternate names must not launder a bad span");
         // The reason now says WHICH branch decided it, so a caller can tell
@@ -71520,6 +71635,7 @@ mod tests {
             Some("DROP TABLE facts"),
             "La Table Ronde - est (quarter), Bourg-lès-Valence, France",
             "",
+            "place",
         );
         assert!(!high, "a confident mismatch must be demoted");
         assert_eq!(why, "query_label_overlap_below_floor_no_alternates");
@@ -71535,6 +71651,7 @@ mod tests {
             Some("Москва"),
             "Moscow, Russia",
             "",
+            "embedded",
         );
         assert!(high_gaz, "gazetteer hits are not judged on token overlap");
 
@@ -71549,6 +71666,7 @@ mod tests {
             Some("Bengaluru"),
             "Bengaluru, India",
             "",
+            "place",
         );
         assert!(
             !still_low,
