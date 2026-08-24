@@ -339,6 +339,24 @@ def main():
         drifted.append(f"{path} is in UNRENDERED_AUDIENCE but has no AUDIENCE row "
                        f"to explain; drop it or add the row back.")
 
+    # A PAGE CAN CARRY THE NAV AND NOT ITS STYLESHEET, and then the markup is
+    # there, this check is satisfied, and the header renders as a bare list.
+    # web/gallery.html shipped that way: the generated nav was present and
+    # correct, `nav.css` was never linked, and `summary` fell back to
+    # display:list-item -- an unstyled site header on a page we point people at.
+    # Presence of the markup was never evidence that it was styled.
+    for f in sorted(glob.glob("web/*.html")):
+        name = os.path.basename(f)
+        if name in SKIP:
+            continue
+        text = open(f, encoding="utf-8", errors="ignore").read()
+        if START not in text:
+            continue
+        if "nav.css" not in text:
+            drifted.append(f"{name} carries the generated nav and does not link "
+                           f"/nav.css, so its header renders unstyled. The markup "
+                           f"being present is not evidence that it is styled.")
+
     total = sum(len(i) for _, i in NAV) + 2
     print(f"nav: {len(NAV)} groups, {total} destinations, "
           f"{len(skipped)} pages skipped ({', '.join(sorted(skipped))})")

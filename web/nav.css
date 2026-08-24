@@ -58,6 +58,7 @@
   align-items: center;
   gap: .35rem;
   height: 100%;
+  min-height: 24px;
   padding: var(--s-3) var(--s-3);
   color: var(--ink-2);
   opacity: .62;
@@ -96,6 +97,7 @@
 }
 .navmenu a {
   display: block;
+  min-height: 24px;
   padding: var(--s-2) var(--s-3);
   text-decoration: none;
   color: var(--ink);

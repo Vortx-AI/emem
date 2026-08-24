@@ -111,12 +111,14 @@ hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
   border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
 header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:var(--t-base);color:var(--fg)}
+header.top .brand a{display:inline-flex;align-items:center;min-height:24px}
 header.top .brand .slash{color:var(--fg-mute)}
 header.top .brand .verify{color:var(--accent)}
 header.top .tag{font-size:var(--t-3xs);color:var(--fg-3);font-family:var(--mono);letter-spacing:.04em}
 header.top .spacer{flex:1}
 header.top .navlinks{display:flex;gap:.6em;font-size:var(--t-3xs);font-family:var(--mono);color:var(--fg-3)}
-header.top .navlinks a{color:var(--fg-3);border-bottom:none}
+header.top .navlinks a{color:var(--fg-3);border-bottom:none;
+  display:inline-flex;align-items:center;min-height:24px}
 header.top .navlinks a:hover{color:var(--accent)}
 @media(max-width:760px){header.top .tag{display:none}}
 
@@ -137,7 +139,8 @@ header.top .navlinks a:hover{color:var(--accent)}
 .input-card .examples{margin-top:.55em;display:flex;flex-wrap:wrap;gap:.3em;align-items:center}
 .input-card .examples .lbl{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;
   color:var(--fg-mute);text-transform:uppercase;margin-right:.3em}
-.input-card .examples button{font-size:var(--t-3xs);padding:.22em .55em;border-radius:99px;background:var(--bg-2)}
+.input-card .examples button{font-size:var(--t-3xs);padding:.22em .55em;border-radius:99px;
+  background:var(--bg-2);min-height:24px}
 
 /* status banner */
 .status{display:flex;align-items:center;gap:.7em;padding:1em 1.2em;border-radius:4px;
@@ -264,7 +267,8 @@ header.top .navlinks a:hover{color:var(--accent)}
 .foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3);margin:0 0 .7rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.4rem}
-.foot-col a{color:var(--fg-2);text-decoration:none}
+.foot-col a{color:var(--fg-2);text-decoration:none;
+  display:inline-flex;align-items:center;min-height:24px}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
 .foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3)}
 .foot-bottom a{color:inherit}

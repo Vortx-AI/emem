@@ -28606,7 +28606,7 @@ async fn a2a_robotics_at(cell: &str, question: &str) -> Result<JsonValue, (i64, 
         .build()
         .map_err(|e| (-32050i64, format!("robotics client: {e}")))?;
 
-    let obs: JsonValue = client
+    let obs_resp = client
         .post(format!("{base}/at"))
         .json(&json!({
             "cell": cell,
@@ -28624,15 +28624,47 @@ async fn a2a_robotics_at(cell: &str, question: &str) -> Result<JsonValue, (i64, 
                 -32050i64,
                 format!("the perception service did not answer: {e}"),
             )
-        })?
-        .json()
-        .await
-        .map_err(|e| {
-            (
-                -32050i64,
-                format!("the perception service returned non-JSON: {e}"),
-            )
         })?;
+    let status = obs_resp.status();
+    let obs: JsonValue = obs_resp.json().await.map_err(|e| {
+        (
+            -32050i64,
+            format!("the perception service returned non-JSON: {e}"),
+        )
+    })?;
+
+    // A NON-2XX HERE USED TO BECOME A ZERO. The status was never consulted, so
+    // an error body parsed fine, carried no `counts`, and the sum below came
+    // out 0 -- which the code immediately downstream is at pains to say means
+    // UNOBSERVED and not EMPTY. A failed upstream would have been reported as a
+    // street with nothing on it, which is the one direction this path must
+    // never fail in.
+    if !status.is_success() {
+        let upstream = obs
+            .get("error")
+            .and_then(|e| {
+                e.as_str().map(str::to_string).or_else(|| {
+                    e.get("message").and_then(|m| m.as_str()).map(str::to_string)
+                })
+            })
+            .or_else(|| obs.get("detail").and_then(|d| d.as_str()).map(str::to_string));
+        return Err((
+            -32050,
+            match upstream {
+                Some(msg) => format!(
+                    "the perception service refused this observation ({}): {}",
+                    status.as_u16(),
+                    msg
+                ),
+                None => format!(
+                    "the perception service answered {} with no `error` or `detail` \
+                     field to pass on. Raw body begins: {}",
+                    status.as_u16(),
+                    obs.to_string().chars().take(160).collect::<String>()
+                ),
+            },
+        ));
+    }
 
     // 1. WRONG PLACE. Gate on the representativeness flag, never on the raw
     //    distance beside it: a number sitting next to a claim is not read by
