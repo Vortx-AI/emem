@@ -365,6 +365,14 @@ jobs:
       # are the files a stranger reads first.
       - name: every version surface states this version
         run: python3 scripts/version_surfaces.py
+
+      # Documentation is a promise about behaviour and nothing was checking it.
+      # route_truth asserts the routes ANSWER; that is weaker than the examples
+      # being runnable, and the gap is where a caller lives. A 2xx carrying an
+      # emem.error.v1 body counts as a failure here, because that is the shape
+      # that reads as success to everything except a human.
+      - name: every published example still works
+        run: python3 scripts/example_check.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       # Every provenance_class we emit must be one we declare. The upstream
       # found an undeclared class on ELEVEN of their surfaces, with the correct
       # diagnosis already written in their own tree and reaching one call site.

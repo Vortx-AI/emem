@@ -38,6 +38,7 @@
 # Surfaces
 
 - [Agents](./agents.md)
+- [Machines that ask where they are](./robots.md)
 - [Memory substrate](./memory.md)
 - [The memory model](./model.md)
 - [EUDR DDS + visual evidence](./eudr.md)

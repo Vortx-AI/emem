@@ -22,8 +22,17 @@ a browser:
   images      an <img> with no alt attribute at all. An empty alt is a
               DECISION (decorative) and is not flagged; a missing one is a
               question nobody answered.
-  targets     links and buttons smaller than 24px in either direction, which is
-              the floor below which a touch target stops being reliable.
+  targets     links and buttons smaller than 24px in either direction. Read
+              this as UNDERSIZED, not as "fails WCAG 2.5.8": the criterion has a
+              SPACING exception, and an undersized target passes if a 24px
+              circle centred on it meets no other target. Measured with the
+              exception implemented, 189 undersized elements on this site were
+              52 inline-exempt, 116 spacing-exempt and 21 real failures. So this
+              number over-reports by roughly 5x and must not be quoted as a
+              compliance count -- I nearly "fixed" two dozen already-compliant
+              targets on the strength of it, which would have moved layout for
+              nothing. The spacing pass lives in the other agent's harness; this
+              column is a candidate list for it, not a verdict.
 
 Why the self-test is not optional
 ---------------------------------

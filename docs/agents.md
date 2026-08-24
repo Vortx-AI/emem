@@ -964,11 +964,24 @@ Quote `evidence` CIDs in your reply.
 
    ### 2. Signed delta between two tslots
 
+`tslot_b: 1` is not a slot that exists. Take both slots from a recall rather
+than assuming they are consecutive: a band is observed when the satellite passed,
+not on every tick, so the slots are sparse and the gaps are the norm.
+
 ```bash
+# 1. see which slots this cell actually holds for the band
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["indices.ndvi"]}'
+
+# 2. diff two of the slots it returned
 curl -s -X POST https://emem.dev/v1/diff \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","tslot_a":0,"tslot_b":1}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","tslot_a":0,"tslot_b":20245}'
 ```
+
+The response is a `delta_fact` and a `receipt`: the difference is itself a
+signed fact, so a caller can cite the change rather than recomputing it.
 
 When both tslots exist, returns a signed
 `DerivativeFact{op:"delta", parents:[a_cid, b_cid]}`. When only one side

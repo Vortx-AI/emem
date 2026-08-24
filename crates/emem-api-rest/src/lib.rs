@@ -21777,20 +21777,40 @@ async fn a2a_place_gate(text: &str, s: &AppState) -> Result<String, String> {
     // still no guessing, still says why.
     let mut attempts: Vec<String> = vec![text.to_string()];
     attempts.extend(extract_place_candidates(text));
+    // REPORT THE MOST INFORMATIVE FAILURE, not the first one.
+    //
+    // This reported the whole-text attempt, on the reasoning that it names what
+    // the caller actually sent. But the whole-text attempt is the LEAST
+    // informative of the set: geocoding a sentence returns "no geocoder match",
+    // which is a report about a query this code composed, not about the
+    // caller's question. Measured on "How green is Shibuya, Tokyo?": the
+    // sentence returns zero results, while the extracted `Shibuya, Tokyo`
+    // resolves to a real cell and is refused for scoring below the confidence
+    // floor. The caller was told the first thing and needed the second, so the
+    // advice they took away was "rephrase" -- the one repair that cannot move a
+    // confidence score.
+    //
+    // An error carrying a LABEL means something resolved and was not trusted.
+    // That one wins, whatever order it arrived in.
     let mut last_err = String::new();
+    let mut resolved_but_untrusted: Option<String> = None;
     for (i, attempt) in attempts.iter().enumerate() {
         match a2a_place_gate_one(attempt, s).await {
             Ok(cell) => return Ok(cell),
             Err(e) => {
-                // Report the whole-text failure, which is the one that names
-                // what the caller actually sent.
+                // Err is "reason|label"; a non-empty label means a real place
+                // came back and only the confidence bar stopped it.
+                let has_label = e.split_once('|').is_some_and(|(_, l)| !l.trim().is_empty());
+                if has_label && resolved_but_untrusted.is_none() {
+                    resolved_but_untrusted = Some(e.clone());
+                }
                 if i == 0 || last_err.is_empty() {
                     last_err = e;
                 }
             }
         }
     }
-    Err(last_err)
+    Err(resolved_but_untrusted.unwrap_or(last_err))
 }
 
 /// One geocode attempt, gated on the resolver's own confidence flag.
@@ -64838,6 +64858,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         "class":       alt.class_,
                         "type":        alt.type_,
                         "importance":  alt.importance,
+                        "alt_names":   alt.alt_names,
                         "bbox_deg":    alt_bbox,
                         "source":      via,
                     }));
@@ -65096,6 +65117,11 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         .and_then(|a| a.get("label"))
         .and_then(|l| l.as_str())
         .unwrap_or("");
+    let sel_alt_names = alternatives
+        .first()
+        .and_then(|a| a.get("alt_names"))
+        .and_then(|l| l.as_str())
+        .unwrap_or("");
     let (is_high_conf, confidence_reason) = locate_confidence_checked(
         via,
         sel_imp,
@@ -65104,6 +65130,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         alternatives.len(),
         req.place.as_deref(),
         sel_label,
+        sel_alt_names,
     );
     // Record it onto the cached row while the evidence still exists. This is
     // the only point where the candidate list has been walked, so it is the
@@ -65572,6 +65599,7 @@ fn locate_confidence_checked(
     n_alternatives: usize,
     query: Option<&str>,
     label: &str,
+    alt_names: &str,
 ) -> (bool, &'static str) {
     let (high, reason) = locate_confidence(
         via,
@@ -65592,7 +65620,25 @@ fn locate_confidence_checked(
         return (high, reason);
     }
     match query.and_then(|q| query_label_overlap(q, label)) {
-        Some(o) if o < QUERY_LABEL_OVERLAP_FLOOR => (false, "query_label_overlap_below_floor"),
+        Some(o) if o < QUERY_LABEL_OVERLAP_FLOOR => {
+            // The DISPLAY label is not the only name this place has. Before
+            // calling a low overlap a bad match, try the names the gazetteer
+            // also knows it by: `name:en`, `alt_name`, `int_name`. This can
+            // only ever RESCUE a candidate the floor rejected -- it never
+            // promotes one the tier logic already refused, and it never
+            // demotes.
+            //
+            // Without it the floor was rejecting exonyms, which is most of the
+            // world from an English question: Osaka labelled 大阪市, Munich
+            // labelled München, Seoul labelled 서울특별시. Each resolved
+            // correctly and was refused for not looking like its own name.
+            match query.and_then(|q| query_label_overlap(q, alt_names)) {
+                Some(o2) if o2 >= QUERY_LABEL_OVERLAP_FLOOR => {
+                    (high, "query_matched_alternate_name")
+                }
+                _ => (false, "query_label_overlap_below_floor"),
+            }
+        }
         _ => (high, reason),
     }
 }
@@ -66279,7 +66325,17 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///    assert `nominatim_boundingbox`. Both change which polygon a cached place
 ///    answers with, so every generation-4 row must re-resolve rather than
 ///    replay a bbox chosen by a race that no longer runs.
-const LOCATE_RESOLVER_VERSION: u32 = 7;
+/// 8: the overlap floor consults the gazetteer's OTHER names (`name:en`,
+///    `alt_name`, `int_name`) before calling a low overlap a mismatch. The
+///    display label comes back in the local script by design, so an English
+///    question about a place with a local endonym had zero overlap with its own
+///    label: "Osaka, Japan" labels as 大阪市, 大阪府, 日本, "Munich, Germany" as
+///    München, "Seoul, South Korea" as 서울특별시. Every one resolved correctly
+///    and was stored NOT high confidence, which is what made /v1/ask refuse
+///    Tokyo, Munich, Seoul, Cairo and Rome while /v1/locate answered them. Those
+///    stored verdicts must re-resolve or the fix replays as a refusal for the
+///    full 30 d TTL -- the same trap generation 4 was bumped for.
+const LOCATE_RESOLVER_VERSION: u32 = 8;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -66736,7 +66792,16 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
     // 25–40 % on L-shaped admin regions and ≥50 % on archipelagos /
     // coastal features whose bbox extends far over open water.
     let url = format!(
-        "{base}/search?q={}&format=json&limit={limit}&addressdetails=0&extratags=0&polygon_geojson=1",
+        // namedetails=1: the names this feature is ALSO known by. The display
+        // label comes back in the local script by design (accept-language: *
+        // keeps Cyrillic in, Cyrillic out), which means an English query for a
+        // place with a local endonym has zero token overlap with its own label.
+        // Measured: "Osaka, Japan" labels as 大阪市, 大阪府, 日本 and carries
+        // name:en = Osaka; "Munich, Germany" labels as München. The confidence
+        // floor read that as a bad match and /v1/ask refused both, while
+        // /v1/locate resolved them fine -- so emem could not answer about
+        // Tokyo, Munich, Seoul, Cairo or Rome from an English question.
+        "{base}/search?q={}&format=json&limit={limit}&addressdetails=0&extratags=0&namedetails=1&polygon_geojson=1",
         urlencoding(q),
     );
     let body = nominatim_get(&url).await?;
@@ -66762,6 +66827,16 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
         let class_ = item["class"].as_str().unwrap_or("").to_string();
         let type_ = item["type"].as_str().unwrap_or("").to_string();
         let importance = item["importance"].as_f64().unwrap_or(0.0);
+        let alt_names = item
+            .get("namedetails")
+            .and_then(|n| n.as_object())
+            .map(|m| {
+                m.values()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default();
         // boundingbox: [south, north, west, east] as strings.
         let bbox = item["boundingbox"].as_array().and_then(|a| {
             if a.len() != 4 {
@@ -66793,6 +66868,7 @@ async fn nominatim_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nomina
             class_,
             type_,
             importance,
+            alt_names,
             polygon_geojson,
         });
     }
@@ -66996,6 +67072,21 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             class_: osm_key.to_string(),
             type_: osm_value.to_string(),
             importance,
+            // Photon's properties carry `name` and sometimes a localised
+            // `name:<lang>`; take whatever string-valued name keys are there
+            // rather than assuming the set, and leave it empty when there are
+            // none. Empty means "this source offered no other names", which the
+            // fit check reads as "nothing extra to try" -- not as "no match".
+            alt_names: props
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .filter(|(k, _)| k.starts_with("name"))
+                        .filter_map(|(_, v)| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default(),
             polygon_geojson: None,
         });
     }
@@ -67039,6 +67130,10 @@ struct NominatimHit {
     /// Nominatim's relevance score in [0, 1]. Useful as a disambiguation
     /// signal when multiple candidates share a name.
     importance: f64,
+    /// Every other name this feature is known by (`name:en`, `alt_name`,
+    /// `int_name`, ...), joined. Used ONLY to judge query/label fit, never to
+    /// display: the label a caller sees stays the one the gazetteer chose.
+    alt_names: String,
     /// Raw GeoJSON `geometry` block when the upstream returned the true
     /// boundary (Nominatim with `polygon_geojson=1`, Photon with its
     /// `geometry` field). `Polygon` or `MultiPolygon` are the expected
@@ -71146,6 +71241,49 @@ mod tests {
         assert!(query_label_overlap("", "anywhere").is_none());
     }
 
+    /// An exonym is not a mismatch.
+    ///
+    /// The display label comes back in the local script by design, so an
+    /// English question about a place with a local endonym has zero token
+    /// overlap with its own label. Measured against the live gazetteer:
+    /// "Osaka, Japan" labels as 大阪市, 大阪府, 日本 and carries name:en = Osaka;
+    /// "Munich, Germany" labels as München. Both resolved correctly and both
+    /// were refused for not looking like their own names, which is how
+    /// /v1/ask came to refuse Tokyo, Munich, Seoul, Cairo and Rome.
+    #[test]
+    fn alternate_names_rescue_an_exonym_without_rescuing_a_mismatch() {
+        let (high, why) = locate_confidence_checked(
+            "nominatim",
+            0.6,
+            false,
+            false,
+            1,
+            Some("Osaka, Japan"),
+            "大阪市, 大阪府, 日本",
+            "大阪市 Osaka 大阪 オオサカ",
+        );
+        assert!(
+            high,
+            "a place whose name:en matches the query is not a mismatch"
+        );
+        assert_eq!(why, "query_matched_alternate_name");
+
+        // And the rescue must not rescue the case the floor exists for: the
+        // alternate names of the WRONG place do not contain the query either.
+        let (still_low, why_low) = locate_confidence_checked(
+            "nominatim",
+            0.6,
+            false,
+            false,
+            1,
+            Some("DROP TABLE facts"),
+            "La Table Ronde - est (quarter), Bourg-lès-Valence, France",
+            "La Table Ronde Table Ronde est",
+        );
+        assert!(!still_low, "alternate names must not launder a bad span");
+        assert_eq!(why_low, "query_label_overlap_below_floor");
+    }
+
     /// The floor only demotes, only on the fuzzy tiers, and never rescues.
     #[test]
     fn confidence_floor_only_demotes_and_only_on_fuzzy_tiers() {
@@ -71158,6 +71296,7 @@ mod tests {
             1,
             Some("DROP TABLE facts"),
             "La Table Ronde - est (quarter), Bourg-lès-Valence, France",
+            "",
         );
         assert!(!high, "a confident mismatch must be demoted");
         assert_eq!(why, "query_label_overlap_below_floor");
@@ -71172,6 +71311,7 @@ mod tests {
             1,
             Some("Москва"),
             "Moscow, Russia",
+            "",
         );
         assert!(high_gaz, "gazetteer hits are not judged on token overlap");
 
@@ -71185,6 +71325,7 @@ mod tests {
             1,
             Some("Bengaluru"),
             "Bengaluru, India",
+            "",
         );
         assert!(
             !still_low,
