@@ -42,6 +42,7 @@ import argparse
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -49,31 +50,69 @@ DEFAULT_ORIGIN = "https://emem.dev"
 PAGE = "web/guard.html"
 
 
+# One failed probe is not evidence about a route.
+#
+# Both helpers below turn a transport failure into status 0, and every caller
+# reads 0 as "this path did not answer" -- a finding about the SERVICE, printed
+# as a finding about the ROUTE. They are different claims. A connection refused
+# for 20 ms while the responder is saturated says nothing about whether
+# /.well-known/emem-guard.json is served, and this gate said it did: it failed
+# on that exact path, twice, while three curls seconds later returned 200 and
+# 28 ms.
+#
+# The cost of getting this wrong is not one red run. It is a gate that fails for
+# reasons unrelated to what it checks, which is how a suite stops being read.
+#
+# So a zero is retried before it is believed. An HTTP status, including 404 and
+# 500, is an answer and is never retried: those are the gate's actual subject.
+RETRIES = 3
+RETRY_PAUSE_S = 0.7
+
+
+def _believe_a_zero_only_after_retrying(attempt):
+    """Call `attempt` until it returns a real status, up to RETRIES times."""
+    out = attempt()
+    for i in range(1, RETRIES):
+        code = out[0] if isinstance(out, tuple) else out
+        if code != 0:
+            return out
+        time.sleep(RETRY_PAUSE_S * i)
+        out = attempt()
+    return out
+
+
 def fetch(url, method="GET", body=None, timeout=45):
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={"content-type": "application/json"},
-        method=method,
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, r.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")
-    except Exception as e:
-        return 0, str(e)
+    def attempt():
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"content-type": "application/json"},
+            method=method,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8", "replace")
+        except Exception as e:
+            return 0, str(e)
+
+    return _believe_a_zero_only_after_retrying(attempt)
 
 
 def fetch_status(url, timeout=12):
     """Status line only, body left unread. For endpoints that never end."""
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            return r.status
-    except urllib.error.HTTPError as e:
-        return e.code
-    except Exception:
-        return 0
+
+    def attempt():
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+        except Exception:
+            return 0
+
+    return _believe_a_zero_only_after_retrying(attempt)
 
 
 def main():

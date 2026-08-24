@@ -66758,7 +66758,7 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///     "Republic", so "Seoul, Republic of Korea" resolved to the Chinese
 ///     embassy at high confidence. An exonym belongs to a place, not to a
 ///     building in one. Those stored verdicts must re-resolve.
-const LOCATE_RESOLVER_VERSION: u32 = 10;
+const LOCATE_RESOLVER_VERSION: u32 = 11;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -67549,10 +67549,37 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             if let Ok(r) = reqwest_client().get(&en_url).send().await {
                 if let Ok(txt) = r.text().await {
                     if let Ok(v) = serde_json::from_str::<JsonValue>(&txt) {
-                        let en = v["features"][0]["properties"]["name"]
-                            .as_str()
-                            .unwrap_or("")
-                            .to_string();
+                        // The NAME was not enough, and the arithmetic says why.
+                        // The fit test is the share of the query's substantive
+                        // tokens that appear among the names, and the floor is
+                        // one half. "Seoul, South Korea" is three such tokens;
+                        // pulling back only `Seoul` matches one of them, 0.33,
+                        // refused. "Seoul, Korea" is two, matches one, 0.5,
+                        // accepted. So this responder answered the vaguer
+                        // question and refused the more precise one, and the
+                        // caller who had told us MORE about where they meant was
+                        // the one turned away. Measured on four pairs: Seoul,
+                        // Busan and Daegu with `South` refused, the same three
+                        // without it answered, Osaka and Nagoya answered
+                        // throughout because Japan is one word.
+                        //
+                        // The country is not noise in a place query. When the
+                        // hit's own country agrees with the words in the
+                        // question, those words are corroboration, and counting
+                        // them as misses punishes precision. Photon returns it
+                        // in the same English response, so it costs nothing.
+                        let props = &v["features"][0]["properties"];
+                        let en = props["name"].as_str().unwrap_or("").to_string();
+                        let en = [
+                            en.as_str(),
+                            props["country"].as_str().unwrap_or(""),
+                            props["state"].as_str().unwrap_or(""),
+                        ]
+                        .iter()
+                        .filter(|t| !t.trim().is_empty())
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(" ");
                         if !en.is_empty() {
                             // Append. The local name is still a name this
                             // place is known by, and a query in the local
@@ -71685,6 +71712,48 @@ mod tests {
     /// "DROP TABLE facts" matched "La Table Ronde" on the single word
     /// `table` and scored 0.6, because that quarter really is a notable
     /// place. The overlap ratio is the missing signal.
+    #[test]
+    fn naming_the_country_must_not_make_a_correct_place_look_worse() {
+        // The fit test is a share of the query's substantive tokens, so every
+        // extra word in the question is another token that has to be matched.
+        // A place whose label is in another script contributes none of them,
+        // which is why the English name is fetched. Fetching only the NAME
+        // left this state, measured live against three Korean cities:
+        let name_only = query_label_overlap("Seoul, South Korea", "서울특별시 Seoul").unwrap();
+        assert!(
+            name_only < QUERY_LABEL_OVERLAP_FLOOR,
+            "one match in three is {name_only}, and this is the refusal that \
+             turned away the caller who said WHERE they meant"
+        );
+        // while the vaguer question, one match in two, cleared it:
+        let vaguer = query_label_overlap("Seoul, Korea", "서울특별시 Seoul").unwrap();
+        assert!(vaguer >= QUERY_LABEL_OVERLAP_FLOOR, "got {vaguer}");
+
+        // Carrying the country back in English fixes the ordering, because the
+        // country words are then corroboration rather than misses.
+        let with_country =
+            query_label_overlap("Seoul, South Korea", "서울특별시 Seoul South Korea").unwrap();
+        assert!(
+            with_country >= QUERY_LABEL_OVERLAP_FLOOR,
+            "naming the country correctly must not be punished, got {with_country}"
+        );
+        // And the more formal name still clears it: `of` is under the token
+        // floor, so `republic` is the only unmatched word.
+        let formal =
+            query_label_overlap("Seoul, Republic of Korea", "서울특별시 Seoul South Korea")
+                .unwrap();
+        assert!(formal >= QUERY_LABEL_OVERLAP_FLOOR, "got {formal}");
+
+        // The floor still has to bite: a country that does NOT agree stays
+        // below it, which is the check that stopped Seoul being answered from
+        // a village called Koréa in Côte d'Ivoire.
+        let wrong = query_label_overlap("Seoul, South Korea", "Koréa, 96 CI Ivory Coast").unwrap();
+        assert!(
+            wrong < QUERY_LABEL_OVERLAP_FLOOR,
+            "a place in the wrong country must not clear the floor, got {wrong}"
+        );
+    }
+
     #[test]
     fn query_label_overlap_catches_confident_mismatch() {
         let drop_table = query_label_overlap(

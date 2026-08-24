@@ -47,6 +47,7 @@ import argparse
 import json
 import math
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -153,6 +154,11 @@ def resolve_via_ask(origin, query):
         return "unreachable", None, d.get("_transport", "")
     pr = d.get("place_resolved") or {}
     if pr.get("cell64"):
+        # lat/lng are RIGHT HERE. The first version threw them away and then
+        # spent a second request asking /v1/cells/{cell}/info for the same
+        # numbers, which is a third of this check's traffic bought for nothing.
+        if pr.get("lat") is not None and pr.get("lng") is not None:
+            return "answered", (pr["lat"], pr["lng"]), pr.get("label", "")
         return "answered", pr["cell64"], pr.get("label", "")
     status = d.get("status", "")
     cell = d.get("candidate_cell") or d.get("cell64") or d.get("cell")
@@ -193,7 +199,7 @@ def check_one(origin, query, lat, lon, radius, verbose):
     elif cell is None:
         bad.append(f"ask     {query!r}: no place extracted ({label})")
     else:
-        centre = cell_centre(origin, cell)
+        centre = cell if isinstance(cell, tuple) else cell_centre(origin, cell)
         if centre is None:
             bad.append(f"ask     {query!r}: cell {cell} has no centre")
         else:
@@ -227,6 +233,8 @@ def main():
     ap.add_argument("--origin", default="https://emem.dev")
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--only", help="substring filter over the queries")
+    ap.add_argument("--pace-s", type=float, default=1.5,
+                    help="seconds between spellings; this check is not a load test")
     args = ap.parse_args()
 
     broken = self_test(args.origin)
@@ -240,6 +248,8 @@ def main():
     failures, checked = [], 0
     for primary, partner, lat, lon, radius in rows:
         for query in (primary, partner):
+            if checked:
+                time.sleep(args.pace_s)
             checked += 1
             failures += check_one(args.origin, query, lat, lon, radius, args.verbose)
 
