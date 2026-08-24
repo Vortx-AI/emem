@@ -610,6 +610,22 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
     roster = [k for k in AGENTS if k in present]
     signed_n = sum(1 for n in notes if n["caller_signed"])
     resolved_n = sum(1 for r in cites.values() if r["state"] == "ok")
+    # The same floor the HTML summary states, in the file GitHub reads.
+    #
+    # The page says "N resolve ... (M went unasked because the responder
+    # rate-limited this build)". This file said "of which N resolved" and
+    # stopped, so a build taken while our own responder was restarting
+    # published 568 against a previous 1582 with nothing to explain it. One
+    # measurement, two surfaces, and only one of them carrying its own context
+    # -- which is the defect this pair of systems has spent two days finding,
+    # here in the file that records them finding it.
+    unchecked_n = sum(1 for r in cites.values() if r["state"] == "unchecked")
+    md_floor = (
+        f" A further {unchecked_n} went unasked: the responder did not answer for"
+        f" them while this file was generated, so {resolved_n} is a floor rather"
+        f" than a result."
+        if unchecked_n else ""
+    )
     out = [
         "# The agent collaboration log",
         "",
@@ -630,7 +646,7 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
         "[/channel](https://emem.dev/channel) does, per message.",
         "",
         f"The notes cite {len(cites)} distinct `emem:` tokens, of which {resolved_n} resolved",
-        "against the responder when this file was generated. A resolution proves the",
+        f"against the responder when this file was generated.{md_floor} A resolution proves the",
         "responder holds signed bytes at that address. It does not prove the sentence",
         "around the citation describes them fairly.",
         "",
@@ -2510,7 +2526,10 @@ def main() -> int:
     # Say what share of the responder this build is going to take, and where the
     # number came from. The old constant was silent and eight-tenths of the
     # budget; a build that quietly starves everything else is worth one line.
-    print(f"pacing: {PACE_WHY}")
+    # flush: this step runs for minutes and its stdout is redirected to a log,
+    # so block buffering would hold the one line explaining what the build is
+    # about to do until after it had done it.
+    print(f"pacing: {PACE_WHY}", flush=True)
     print("fetching the channel from the ledger...")
     notes = fetch_notes()
     if not notes:
