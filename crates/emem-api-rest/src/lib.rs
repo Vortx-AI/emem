@@ -22298,8 +22298,57 @@ fn fold_for_place_match(s: &str) -> String {
 /// deserialised into the request and was silently dropped for 96% of this
 /// responder's traffic. A field that parses and does nothing is worse than one
 /// that is refused.
-async fn attach_model_answer(v: &mut JsonValue, q: &str, want: &str, s: &AppState) {
-    let composed = a2a_reason_compose(q, v.clone(), s, Some(want)).await;
+/// Least time worth starting a model call in. Below this the call cannot
+/// finish, and starting it spends a GPU permit to produce a timeout.
+const MODEL_ANSWER_MIN_BUDGET_S: u64 = 5;
+
+async fn attach_model_answer(v: &mut JsonValue, q: &str, want: &str, s: &AppState, budget_s: u64) {
+    // THE SIGNED ANSWER MUST SURVIVE THE OPTIONAL ONE.
+    //
+    // The envelope is finished by the time this runs. The model is an
+    // addition, and an addition that can destroy what it was added to is not
+    // an addition. That is what happened: the fan-out budget lets ask_inner
+    // take up to thirty seconds, this composed afterwards and outside it, and
+    // the transport ceiling is forty. A cold question measured at twenty three
+    // seconds plus a twenty five second Gemma answer is a bare 504 with an
+    // empty body, and the caller loses the signed answer that was already
+    // sitting in memory, complete, along with the GPU time.
+    //
+    // So the model is given what is actually left and no more. Over that, the
+    // envelope ships with a note where the prose would have been; under the
+    // floor, the call is never made, because spending a permit to produce a
+    // timeout serves nobody. Either way the caller gets `answer`, which never
+    // needed a model.
+    if budget_s < MODEL_ANSWER_MIN_BUDGET_S {
+        if let Some(map) = v.as_object_mut() {
+            map.insert(
+                "model_answer".into(),
+                json!({
+                    "schema": "emem.error.v1",
+                    "code": -32050,
+                    "requested_model": want,
+                    "message": format!(
+                        "the signed answer took most of this request's budget, leaving {budget_s}s,                          which is not enough to compose a model reading. It was not attempted                          rather than started and cut off. `answer` above is unaffected and never                          needed a model; ask again when the place is warm, or narrow the question."
+                    ),
+                }),
+            );
+        }
+        return;
+    }
+    let composed = match tokio::time::timeout(
+        std::time::Duration::from_secs(budget_s),
+        a2a_reason_compose(q, v.clone(), s, Some(want)),
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(_) => Err((
+            -32050i64,
+            format!(
+                "the model did not answer within the {budget_s}s left in this request's budget.                  `answer` above is unaffected: it is synthesised from the signed facts and never                  needed a model."
+            ),
+        )),
+    };
     if let Some(map) = v.as_object_mut() {
         match composed {
             Ok(mut answer) => {
@@ -26530,9 +26579,16 @@ async fn mcp_tool_call(
             let req: AskReq = serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             let want_model = req.model.clone();
             let q_for_model = req.q.clone();
+            // The same ceiling applies here: /mcp sits under the blanket
+            // transport timeout like every other route, so a model started
+            // with nothing left costs the caller the whole envelope.
+            let started = std::time::Instant::now();
             let mut v = ask_inner(s.clone(), req).await.map_err(mcp_err)?;
             if let Some(want) = want_model {
-                attach_model_answer(&mut v, &q_for_model, &want, s).await;
+                let left = timeout_seconds()
+                    .saturating_sub(started.elapsed().as_secs())
+                    .saturating_sub(3);
+                attach_model_answer(&mut v, &q_for_model, &want, s, left).await;
             }
             Ok(v)
         }
@@ -54952,7 +55008,13 @@ async fn post_ask(
                 return Ok(Json(v));
             };
             let mut v = v;
-            attach_model_answer(&mut v, &q_for_model, &want, &s_model).await;
+            // What is genuinely left before the transport layer returns 504,
+            // less a margin for serialising an envelope that can run to tens
+            // of kilobytes.
+            let left = timeout_seconds()
+                .saturating_sub(ask_started.elapsed().as_secs())
+                .saturating_sub(3);
+            attach_model_answer(&mut v, &q_for_model, &want, &s_model, left).await;
             Ok(Json(v))
         }
         Ok(Err(e)) => Err(e),
@@ -64551,6 +64613,33 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             let admin1_hit = emem_fetch::admin1::lookup(p).filter(|a| {
                 a.source_city_count > 0 && country_hit.is_none() && wide_bbox_hit.is_none()
             });
+            // A COUNTY DOES NOT OUTRANK A CITY OF A MILLION PEOPLE.
+            //
+            // The admin2 and admin3 tiers sit above the populated-place tier,
+            // so ANY district or county of a given name beat any city of that
+            // name, anywhere, at any size. Measured on production:
+            //
+            //     "Milan"    -> Milán, Huila, Colombia      via admin2
+            //     "Sevilla"  -> Sevilla, Valle, Colombia    via admin2
+            //     "Cologne"  -> Cologne, Bergamo, Italy     via admin3
+            //
+            // 9,492 km, 7,954 km and 635 km from the city each name is used
+            // for, answered as high confidence because an admin-tier hit is
+            // unconditionally trusted, and signed. The tier order is right for
+            // what it was written for: somebody typing a district name means
+            // the district. It was never meant to decide between a Colombian
+            // municipality of a few thousand and Milan.
+            //
+            // So the sub-national tiers yield when a populated place of the
+            // same name is genuinely major. Not "larger", which would hand
+            // every county query to whichever town edged it: major, a quarter
+            // of a million people, the scale at which a name in a question
+            // means the city. Country and admin1 are untouched, because
+            // "Georgia" and "West Bengal" are the queries that tier exists for.
+            const ADMIN_YIELDS_TO_CITY_POPULATION: u64 = 250_000;
+            let major_city_of_this_name = emem_fetch::geonames::lookup(p)
+                .map(|r| r.population >= ADMIN_YIELDS_TO_CITY_POPULATION)
+                .unwrap_or(false);
             // Admin2 / admin3 tiers, sub-national administrative units
             // (districts, counties, upazilas). Each only fires when its
             // own bbox is well-defined (source_city_count > 0) AND no
@@ -64560,6 +64649,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     && country_hit.is_none()
                     && admin1_hit.is_none()
                     && wide_bbox_hit.is_none()
+                    && !major_city_of_this_name
             });
             let admin3_hit = emem_fetch::admin3::lookup(p).filter(|a| {
                 a.source_city_count > 0
@@ -64567,6 +64657,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     && admin1_hit.is_none()
                     && admin2_hit.is_none()
                     && wide_bbox_hit.is_none()
+                    && !major_city_of_this_name
             });
             // Layer 1: embedded gazetteer (no network).
             // Multi-result lookup first, if the same name maps to several
@@ -66790,7 +66881,7 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///     "Republic", so "Seoul, Republic of Korea" resolved to the Chinese
 ///     embassy at high confidence. An exonym belongs to a place, not to a
 ///     building in one. Those stored verdicts must re-resolve.
-const LOCATE_RESOLVER_VERSION: u32 = 11;
+const LOCATE_RESOLVER_VERSION: u32 = 12;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via

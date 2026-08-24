@@ -330,13 +330,46 @@ pub fn lookup(query: &str) -> Option<&'static GeonameRecord> {
         return None;
     }
     let hits = idx.by_name.get(&key)?;
-    let best = hits.iter().min_by_key(|(rec_idx, kind)| {
+    let best = hits.iter().max_by_key(|(rec_idx, kind)| {
         (
-            *kind as u8,
-            std::cmp::Reverse(idx.records[*rec_idx].population),
+            effective_population(idx.records[*rec_idx].population, *kind),
+            // Same weight: prefer the stronger key kind. Reversed because
+            // lower KeyKind is stronger and this is a max_by_key.
+            std::cmp::Reverse(*kind as u8),
         )
     })?;
     Some(&idx.records[best.0])
+}
+
+/// How much an alternate-name match must outweigh a primary-name one.
+///
+/// The rule here used to be absolute: rank by (KeyKind, -population), so a
+/// primary-name match beat an alternate-name match at any size. Measured
+/// against the bundled corpus, that is what it cost:
+///
+///     "Cologne"   ->  Cologne, Italy      7,032    over  Köln       1,024,621
+///     "Calcutta"  ->  Calcutta, S. Africa 35,864   over  Kolkata    4,631,392
+///     "Madras"    ->  Madras, Oregon      6,662    over  Chennai    4,681,087
+///
+/// Each of those answered with real coordinates on the wrong continent, and a
+/// caller asking about Calcutta got a village in Mpumalanga. The rule was not
+/// wrong about evidence -- a primary name IS the stronger signal -- it was
+/// wrong to treat that signal as infinite. An exonym is precisely a name a
+/// large place is widely known by, so demoting it below any hamlet that
+/// happens to hold it as its own name inverts the thing being measured.
+///
+/// So an alternate-name hit competes on population, at a quarter weight: it
+/// has to be several times larger to win, and at equal weight the primary
+/// still takes it. Four clears all three cases above by wide margins and
+/// changes none of Milan, Munich, Florence, Naples, Turin, Victoria,
+/// Hollywood or Springfield, whose top hits are primary names already.
+const ALTERNATE_NAME_WEIGHT_DIVISOR: u64 = 4;
+
+fn effective_population(population: u64, kind: KeyKind) -> u64 {
+    match kind {
+        KeyKind::Primary | KeyKind::Ascii => population,
+        KeyKind::Alternate => population / ALTERNATE_NAME_WEIGHT_DIVISOR,
+    }
 }
 
 /// Look up only the *primary-name* match (no alternate-name fallback).
@@ -375,10 +408,14 @@ pub fn lookup_candidates(query: &str, limit: usize) -> Vec<&'static GeonameRecor
         .iter()
         .map(|(i, kind)| (*kind, &idx.records[*i]))
         .collect();
+    // Same ordering as `lookup`, deliberately. This list is what the locate
+    // layer reads to decide whether the top two hits are close enough to be
+    // ambiguous, and a ranker that disagreed with the chooser would measure
+    // the ambiguity of a shortlist whose winner was not the one returned.
     tagged.sort_by(|a, b| {
-        (a.0 as u8)
-            .cmp(&(b.0 as u8))
-            .then_with(|| b.1.population.cmp(&a.1.population))
+        effective_population(b.1.population, b.0)
+            .cmp(&effective_population(a.1.population, a.0))
+            .then_with(|| (a.0 as u8).cmp(&(b.0 as u8)))
     });
     tagged.truncate(limit);
     tagged.into_iter().map(|(_, r)| r).collect()
@@ -552,5 +589,50 @@ mod tests {
         // (Don't assert the specific record; the alternate-name
         // hit set is data-dependent and could shift across refreshes.)
         let _ = lookup("Bangladesh");
+    }
+}
+
+#[cfg(test)]
+mod exonym_ranking {
+    use super::lookup;
+
+    /// A widely-used exonym must not lose to a hamlet that happens to carry it
+    /// as its own name. Each of these answered on the wrong continent, with
+    /// real coordinates and a signed receipt, because the ranker treated
+    /// "primary name" as infinitely stronger than population.
+    #[test]
+    fn an_exonym_beats_a_hamlet_of_the_same_name() {
+        for (query, want_country, beat) in [
+            ("Cologne", "DE", "Cologne, Italy"),
+            ("Calcutta", "IN", "Calcutta, South Africa"),
+            ("Madras", "IN", "Madras, Oregon"),
+        ] {
+            let r = lookup(query).unwrap_or_else(|| panic!("{query} is in the corpus"));
+            assert_eq!(
+                r.country,
+                want_country,
+                "{query} resolved to {}, which is {beat}, not the place the name is used for",
+                r.label()
+            );
+        }
+    }
+
+    /// And the discount must not swing the other way: where the primary name
+    /// IS the larger place, nothing changes.
+    #[test]
+    fn a_primary_name_still_wins_where_it_is_the_larger_place() {
+        for (query, want_country) in [
+            ("Milan", "IT"),
+            ("Munich", "DE"),
+            ("Florence", "IT"),
+            ("Naples", "IT"),
+            ("Turin", "IT"),
+            ("Sevilla", "ES"),
+            ("Hollywood", "US"),
+            ("Springfield", "US"),
+        ] {
+            let r = lookup(query).unwrap_or_else(|| panic!("{query} is in the corpus"));
+            assert_eq!(r.country, want_country, "{query} -> {}", r.label());
+        }
     }
 }
